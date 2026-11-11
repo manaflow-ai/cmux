@@ -82,6 +82,9 @@ parser.add_argument("--session", choices=["light", "stress", "large"], default="
                          "(perf-stress-session.py), the typed terminal in its measured workspace, the churn over its "
                          "59 other workspaces; large: the LARGE session, the churn its 5 title streams and agent statuses")
 parser.add_argument("--status-hz", type=float, default=5.0, help="--session large: agent status changes a second")
+parser.add_argument("--settle-load", type=float,
+                    help="after the session is built, wait until the host's 1-minute load is under this (the build is a burst)")
+parser.add_argument("--settle-max", type=float, default=90.0, help="--settle-load: wait this many seconds at most")
 parser.add_argument("--task-diagnostics", action="store_true",
                     help="record over-budget scheduled tasks with stacks (perturbs the numbers; the report says so)")
 opts = parser.parse_args()
@@ -256,6 +259,14 @@ class LargeChurn(threading.Thread):
         self.stop_flag.set()
         self.join(timeout=30)
         self.builder.stop_title_streams()
+
+
+def join_groups(ids, groups, add):
+    """Setup: 3 of each 4 workspaces go in a sidebar group, round robin (`add(group, workspace)`). With no groups
+    (LARGE) there is nothing to join."""
+    for index, ws in enumerate(ids if groups else []):
+        if index % 4 != 3:
+            add(groups[index % len(groups)], ws)
 
 
 def missed_while_typing(frames, rows):
@@ -489,7 +500,7 @@ def phase(name, pid, ids, groups, churn_hz, trace=False, builder=None):
         # The per-frame arrays were for missed_while_typing; the report keeps the stats.
         frames = {k: v for k, v in frames.items() if k not in ("intervals_ms", "main_ms")}
     entry = {
-        "phase": name, "churn_hz": churn_hz, "wall_s": round(wall, 1),
+        "phase": name, "churn_hz": churn_hz, "wall_s": round(wall, 1), "load_1m_at_end": round(os.getloadavg()[0], 2),
         "keys": len(trips), "stalled_keys": stalls, "key_rpc_ms": pct(trips), "probe_rows": len(rows), "complete": len(complete),
         "key_to_frame_ms": pct([float(r["contents_ms"]) for r in complete]),
         "key_to_dispatch_ms": pct([float(r["dispatch_start_ms"]) for r in complete if r.get("dispatch_start_ms")]),
@@ -600,9 +611,7 @@ def main():
                     made.append(ref)
             by_name = {w.get("name") or w.get("title"): w.get("id") for w in workspaces()}
             ids = [by_name[n] for n in (f"churn {i:04d}" for i in range(opts.workspaces)) if by_name.get(n)]
-        for index, ws in enumerate(ids):
-            if index % 4 != 3:
-                cli("workspace", "group", groups[index % len(groups)], "add", "--workspace", ws)
+        join_groups(ids, groups, lambda group, ws: cli("workspace", "group", group, "add", "--workspace", ws))
         note(f"{opts.session}: {len(ids)} churned workspaces in {len(groups)} groups in {time.monotonic() - t0:.1f} s")
         if builder:
             # The typed terminal: the selected terminal of the measured workspace's last pane (the busy output runs
@@ -622,6 +631,11 @@ def main():
         if opts.input == "real":
             bring_front(app.pid)
         time.sleep(4)
+        settle_t0 = time.monotonic()
+        while opts.settle_load is not None and os.getloadavg()[0] >= opts.settle_load and time.monotonic() - settle_t0 < opts.settle_max:
+            time.sleep(2)  # the session's build is a burst of load; the numbers start after it
+        results["settle"] = {"seconds": round(time.monotonic() - settle_t0, 1), "load_1m": round(os.getloadavg()[0], 2)}
+        note(f"settle: {json.dumps(results['settle'])}")
         results["setup"] = {"workspaces": len(ids), "groups": len(groups), "typing": typed_id}
         rows_before_warmup = len(probe_rows())
         type_keys(10)  # warm-up

@@ -188,8 +188,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-32f5ff1e833ada43c3825b5cc2d30bc609cccd6c/CCmuxAppFFI.xcframework.zip",
-    checksum: "44914f6fa214d991a784a5066335f17398694118f66b8359d1d32cdb6ae5fbb5"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-d1a8e84408391b457362041f6b5ea6e112c7e735/CCmuxAppFFI.xcframework.zip",
+    checksum: "a4444e209e8f5bbe407d1938e146fbc44b0755eb374d1b419d93318c6f9f067c"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -1267,7 +1267,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // (Inline) and Stop/Restart VS Code Inline Server. The App opens its URL in a browser tab.
         .target(
             name: "CmuxNextVSCodeServer",
-            dependencies: ["CmuxNextWakeups"],
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextWakeups",
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -2531,6 +2534,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAppHealth",
                 "CmuxNextApps",
                 "CmuxNextBrowserHistory",
+                "CmuxNextBrowserHost",
                 "CmuxNextBrowserImport",
                 "CmuxNextBrowserTabs",
                 "CmuxNextChecklist",
@@ -2567,6 +2571,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHostedChief",
                 "CmuxNextImportCards",
                 "CmuxNextImportSuggestions",
+                "CmuxNextKeepAwake",
                 "CmuxNextLayout",
                 "CmuxNextMacScreen",
                 "CmuxNextMobile",

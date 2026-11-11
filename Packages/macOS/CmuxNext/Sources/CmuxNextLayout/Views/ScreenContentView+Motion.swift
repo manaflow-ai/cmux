@@ -96,7 +96,9 @@ extension ScreenContentView {
 
     /// Steps every pane and divider spring by `dt`, no presentation (`step`'s first part). The panes and dividers are
     /// one motion: none settles on its own (an edge with a shorter travel would snap frames before the others and
-    /// change the gap beside it); they all land in the frame the last one comes within a quarter point of rest.
+    /// change the gap beside it); they all land in the frame the last one comes within a quarter point of rest. A closing
+    /// pane's side is an edge of the motion too: the landing moves it no more than that quarter point from where this
+    /// frame's step put it (`landingMovesAClosingPane`), or it would take what is left of the pane's ground away at once.
     /// True while any of them still moves.
     func advancePaneAndDividerSprings(_ dt: Double, policy: MotionPolicy) -> Bool { // perf-hot: 4ms motion-frame
         var moving = false
@@ -116,7 +118,8 @@ extension ScreenContentView {
             if frame.advanceUnsettled(dt, parameters: frameSpring) { moving = true }
             dividerFrames[key] = frame
         }
-        if paneFrames.values.allSatisfy(\.geometryNearRest) && dividerFrames.values.allSatisfy(\.geometryNearRest) {
+        if paneFrames.values.allSatisfy(\.geometryNearRest) && dividerFrames.values.allSatisfy(\.geometryNearRest),
+           !landingMovesAClosingPane(snap: AnimatedFrame.landingDistance) {
             for key in panes { if var frame = paneFrames[key] { frame.snapGeometry(); paneFrames[key] = frame } }
             for key in dividers { if var frame = dividerFrames[key] { frame.snapGeometry(); dividerFrames[key] = frame } }
         } else {

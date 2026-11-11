@@ -282,6 +282,14 @@ struct TerminalPage: View {
                 Text("On a slow connection, what you type shows at once, underlined until the remote confirms it.")
             }
             Section {
+                Toggle(isOn: $settings.terminalJumpToBottom) {
+                    SettingsLabel("Jump to Bottom Button", symbol: "arrow.down.to.line")
+                }
+                .accessibilityIdentifier("settings.terminalJumpToBottom")
+            } footer: {
+                Text("Shows a Jump to bottom button above the composer when you scroll up. Full-screen apps such as vim never show it.")
+            }
+            Section {
                 Toggle(isOn: $settings.wrapCode) { SettingsLabel("Wrap code and diff lines", symbol: "text.word.spacing") }
                 Toggle(isOn: $settings.keyClicks) { SettingsLabel("Key clicks", symbol: "keyboard") }
             } header: {

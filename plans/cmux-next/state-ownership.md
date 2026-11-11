@@ -87,6 +87,14 @@ names the caller's own terminal.
    ran), and `--idempotency-key K` retries safely. The app passes the
    key through as the daemon mutation id. A timeout says whether the request never ran
    (`not_run`) or may still apply (`in_progress`).
+   A refusal that changed nothing also says who refused, in `data.state`. `rejected`: the
+   app decided (a pane that cannot split, a person-only action, an unknown action, a
+   window that is not ready). The same request gets the same answer, so a client reports
+   it at once; the text says when a new request can pass. `not_run`: the app did not
+   get to the request (`busy`, a timeout before the work started, the `after: "sync"`
+   barrier on a daemon that is not connected), and a client sends it again until its
+   deadline. A client asks an `unavailable` again only with `state: "not_run"`: with no
+   state (an older app) it is the app's own decision.
 5. No sleeps: waits use `session.events`, `events.stream`, `terminal.wait`, or a
    barrier. acpmux's fixed sleeps (cancel, peer add, host restart, detach) go.
 

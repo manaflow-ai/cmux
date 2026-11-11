@@ -68,6 +68,8 @@ NOT_MERGE_GATES = {
     ("cmux-next-media.yml", "hand-off"): "media comment, not a gate",
     ("cmux-next-media.yml", "publish"): "media comment, not a gate",
     ("cmux-next-perf-budgets.yml", "report"): "a perf report, not a merge gate",
+    ("cmux-next.yml", "compile-status-handoff"): "a status poster: cmux-next/compile carries the fallback's verdict; "
+                                                 "no fallback run posts error with the no-verdict marker (exit 3)",
     ("cmux-next.yml", "generated-verdict"): "its own no-verdict line (base_red_excuse GENERATED_NO_VERDICT)",
     ("cmux-next.yml", "release-compile-fast-admission"): "push-only promotion step, after the merge",
     ("cmux-vm.yml", "image-roll-settle"): "an image roll's settle, not a merge gate",
@@ -121,7 +123,8 @@ def step(workflow: str, job: str, name: str) -> dict:
 
 def run_bash(body: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     with tempfile.TemporaryDirectory() as tmp:
-        full = {**os.environ, "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary"), **env}
+        # A CI run's own push event never reaches a step under test: superseded_push would read the live branch head.
+        full = {**os.environ, "GITHUB_STEP_SUMMARY": str(Path(tmp) / "summary"), "GITHUB_EVENT_NAME": "", **env}
         return subprocess.run(["bash", "-e", "-c", body], env=full, capture_output=True, text=True, stdin=subprocess.DEVNULL)
 
 
@@ -375,6 +378,78 @@ class Summaries(unittest.TestCase):
                 done = check({k: v for k, v in {**good, **change}.items() if v is not None})
                 self.assertEqual(done.returncode, code, done.stdout + done.stderr)
                 self.assertEqual("::error::no verdict: web-validation:" in done.stdout, code == 3)
+
+
+# The summary steps that read a push's Mac job from a per-branch concurrency group, whose waiting job a newer push
+# replaces (needs_verdict.SUPERSEDED_RULE), each with the env that makes it judge nothing on a cancelled result and the
+# exit code of its no verdict.
+SUPERSEDED_STEPS = {
+    ("cmux-next.yml", "crash-ends-app", "Read the crash gate result"): ({"OUTCOME": "", "COMPILE": "cancelled"}, 3),
+    ("cmux-next.yml", "fast-tier", "Report the build fleet's fast tier verdict"): ({"VERDICT": "", "RESULT": "cancelled"}, 3),
+    ("cmux-next.yml", "generated-verdict", "Read the generated files verdict of the shared build"): (
+        {"HOST": "swift-test", "HOST_RESULT": "cancelled", "VERDICT": ""}, 1),
+}
+OLD, NEW = "a" * 40, "b" * 40
+# The rule's definition or a call of it, not other tools that share the word (cmux_tui_superseded_push.py).
+SUPERSEDED_CALL = re.compile(r"(?<![\w./-])superseded_push(?:\(\)| )")
+
+
+def fake_git(tmp: str, head: str | None) -> str:
+    """A PATH whose `git ls-remote` answers HEAD for the ref (or fails, for None), and logs its arguments."""
+    bin_dir = Path(tmp) / "bin"
+    bin_dir.mkdir()
+    answer = f'printf "%s\\t%s\\n" {head} "${{@: -1}}"' if head else "exit 128"
+    (bin_dir / "git").write_text(f'#!/bin/bash\necho "$@" >> {tmp}/git.log\n{answer}\n')
+    (bin_dir / "git").chmod(0o755)
+    return f"{bin_dir}:{os.environ['PATH']}"
+
+
+class Superseded(unittest.TestCase):
+    def test_every_copy_is_verbatim_and_listed(self):
+        first = nv.SUPERSEDED_RULE.splitlines()[0]
+        carrying = set()
+        for path in sorted(WORKFLOWS.glob("*.yml")):
+            for job_id, job in (yaml.safe_load(path.read_text(encoding="utf-8")).get("jobs") or {}).items():
+                for st in job.get("steps") or []:
+                    body = st.get("run") or ""
+                    if SUPERSEDED_CALL.search(body):
+                        carrying.add((path.name, job_id, st.get("name")))
+                        with self.subTest(job=job_id):
+                            self.assertIn(first, body, "call superseded_push only beside its verbatim copy")
+                            self.assertIn(nv.SUPERSEDED_RULE, body, "the copy drifted from needs_verdict.SUPERSEDED_RULE")
+        self.assertEqual(carrying, set(SUPERSEDED_STEPS))
+
+    def test_a_cancel_by_a_newer_push_is_no_red_and_anything_else_stays_no_verdict(self):
+        push = {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": OLD, "GITHUB_REF": "refs/heads/feat-cmux-next",
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux", "GITHUB_SERVER_URL": "https://github.com"}
+        for (workflow, job, name), (env, no_verdict) in SUPERSEDED_STEPS.items():
+            body = step(workflow, job, name)["run"]
+            for event, head, code in (("push", NEW, 0), ("push", OLD, no_verdict), ("push", None, no_verdict),
+                                      ("pull_request", NEW, no_verdict), ("workflow_dispatch", NEW, no_verdict)):
+                with self.subTest(job=job, event=event, head=head), tempfile.TemporaryDirectory() as tmp:
+                    done = run_bash(body, {**env, **push, "GITHUB_EVENT_NAME": event, "PATH": fake_git(tmp, head)})
+                    self.assertEqual(done.returncode, code, done.stdout + done.stderr)
+                    self.assertEqual("superseded::" in done.stdout, code == 0, done.stdout)
+                    if code == 0:
+                        self.assertIn(NEW, done.stdout)
+                        self.assertIn("ls-remote https://github.com/manaflow-ai/cmux.git refs/heads/feat-cmux-next",
+                                      (Path(tmp) / "git.log").read_text())
+
+    def test_only_a_cancelled_result_asks(self):
+        """A failure, or a result that is not a cancel, never reads the branch head: a red stays a red."""
+        push = {"GITHUB_EVENT_NAME": "push", "GITHUB_SHA": OLD, "GITHUB_REF": "refs/heads/feat-cmux-next",
+                "GITHUB_REPOSITORY": "manaflow-ai/cmux"}
+        rows = {"crash-ends-app": [({"OUTCOME": "", "COMPILE": "abandoned"}, 3), ({"OUTCOME": "failure", "COMPILE": "cancelled"}, 1)],
+                "fast-tier": [({"VERDICT": "", "RESULT": "abandoned"}, 3), ({"VERDICT": "fail", "RESULT": "cancelled"}, 1)],
+                "generated-verdict": [({"HOST": "swift-test", "HOST_RESULT": "failure", "VERDICT": ""}, 1),
+                                      ({"HOST": "swift-test", "HOST_RESULT": "cancelled", "VERDICT": "stale"}, 1)]}
+        for (workflow, job, name) in SUPERSEDED_STEPS:
+            body = step(workflow, job, name)["run"]
+            for env, code in rows[job]:
+                with self.subTest(job=job, env=env), tempfile.TemporaryDirectory() as tmp:
+                    done = run_bash(body, {**env, **push, "PATH": fake_git(tmp, NEW)})
+                    self.assertEqual(done.returncode, code, done.stdout + done.stderr)
+                    self.assertFalse((Path(tmp) / "git.log").exists(), "read the branch head for a result that is not a cancel")
 
 
 if __name__ == "__main__":

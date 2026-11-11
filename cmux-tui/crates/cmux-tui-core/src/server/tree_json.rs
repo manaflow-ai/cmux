@@ -95,15 +95,14 @@ pub(super) fn pane_json(
     let group_of = |surface: &SurfaceId| {
         tab_groups.iter().find(|run| run.members.contains(surface)).map(|run| run.group.id.as_str())
     };
-    json!({
-        "id": id,
-        "resource_id": state.resource_indexes.pane_ids.get(&id),
-        "short_id": short_ids.get(id),
-        "name": pane.name,
-        "active_tab": pane.active_tab,
-        "focused_at": pane.focused_at,
-        "tab_groups": tab_groups.iter().map(|run| pane_tab_group_json(run, None)).collect::<Vec<_>>(),
-        "tabs": pane.tabs.iter().map(|sid| {
+    // Each child list of the tree is moved into its parent's map. Never give one to `json!` as an
+    // expression: `json!` serializes an expression into a new value, a deep copy, so a tab was
+    // copied by its pane, its screen, its workspace and the answer, all under the state lock
+    // (LAUNCH 800: 247 ms for the first `list-workspaces` answer at 826 workspaces).
+    let tabs = pane
+        .tabs
+        .iter()
+        .map(|sid| {
             let surface = state.surfaces.get(sid);
             let terminal_identity = surface.and_then(|surface| surface.terminal_host_identity());
             let terminal_resource_id = surface
@@ -123,7 +122,9 @@ pub(super) fn pane_json(
             let content_resource_id = surface
                 .and_then(|surface| surface.resource_identity())
                 .map(|identity| identity.content_id.as_str())
-                .or_else(|| state.resource_indexes.content_ids.get(sid).map(|content| content.as_str()));
+                .or_else(|| {
+                    state.resource_indexes.content_ids.get(sid).map(|content| content.as_str())
+                });
             let directory = notifications.directories.get(sid);
             let frontend_browser = surface
                 .and_then(|surface| surface.resource_identity())
@@ -135,9 +136,10 @@ pub(super) fn pane_json(
                 });
             let conversation = content_resource_id
                 .and_then(|id| notifications.presentation.conversation_tabs.get(id));
-            let pinned = state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
-                notifications.presentation.pinned_tabs.contains(tab.as_str())
-            });
+            let pinned =
+                state.resource_indexes.tab_ids.get(sid).is_some_and(|tab| {
+                    notifications.presentation.pinned_tabs.contains(tab.as_str())
+                });
             // The page a pinned browser tab was pinned on (Back to Pinned Page).
             let pinned_url = state
                 .resource_indexes
@@ -161,19 +163,17 @@ pub(super) fn pane_json(
             // R41: a terminal tab with no runtime surface is dead only when
             // its terminal really ended; a host still being adopted, or one
             // this build cannot adopt, keeps running its shell.
-            let content_terminal = state.resource_indexes.content_ids.get(sid).and_then(|content| {
-                match content {
+            let content_terminal =
+                state.resource_indexes.content_ids.get(sid).and_then(|content| match content {
                     ContentPublicId::Terminal(id) => Some(id.as_str()),
                     ContentPublicId::Browser(_) => None,
-                }
-            });
+                });
             let pending_terminal = surface
                 .is_none()
                 .then(|| content_terminal.and_then(|id| notifications.pending_terminals.get(id)))
                 .flatten();
-            let is_terminal_tab = surface.map_or(content_terminal.is_some(), |surface| {
-                surface.kind() == SurfaceKind::Pty
-            });
+            let is_terminal_tab = surface
+                .map_or(content_terminal.is_some(), |surface| surface.kind() == SurfaceKind::Pty);
             let dead = surface.map(|s| s.is_dead()).unwrap_or(pending_terminal.is_none());
             let terminal_state = match (pending_terminal, is_terminal_tab) {
                 (Some(pending), _) => Some(pending.state()),
@@ -181,14 +181,18 @@ pub(super) fn pane_json(
                 (None, true) if dead => Some("exited"),
                 (None, true) => Some(
                     match surface.and_then(|surface| surface.terminal_host_connection_state()) {
-                        Some(crate::surface::TerminalHostConnectionState::Reconnecting) => "reconnecting",
+                        Some(crate::surface::TerminalHostConnectionState::Reconnecting) => {
+                            "reconnecting"
+                        }
                         Some(crate::surface::TerminalHostConnectionState::Failed) => "failed",
                         _ => "running",
                     },
                 ),
             };
             let host_record_version = match pending_terminal {
-                Some(crate::mux::PendingTerminal::Unadoptable { record_version }) => *record_version,
+                Some(crate::mux::PendingTerminal::Unadoptable { record_version }) => {
+                    *record_version
+                }
                 _ => None,
             };
             // Why a dead terminal ended: its runtime's end, else the durable
@@ -199,7 +203,9 @@ pub(super) fn pane_json(
                 surface
                     .and_then(|surface| surface.terminal_end())
                     .map(|end| end.wire_json())
-                    .or_else(|| content_terminal.and_then(|id| notifications.terminal_ends.get(id).cloned()))
+                    .or_else(|| {
+                        content_terminal.and_then(|id| notifications.terminal_ends.get(id).cloned())
+                    })
                     .map(|end| notifications.with_loss_cause(content_terminal, end))
             };
             let mut tab = json!({
@@ -265,12 +271,24 @@ pub(super) fn pane_json(
             {
                 tab.insert("app", app.wire());
             }
-            let remote = content_resource_id.and_then(|id| notifications.presentation.remote_terminals.get(id));
+            let remote = content_resource_id
+                .and_then(|id| notifications.presentation.remote_terminals.get(id));
             super::remote_terminal_tabs_wire::apply(&mut tab, remote);
             shown_title_fields(&mut tab);
             tab
-        }).collect::<Vec<_>>(),
-    })
+        })
+        .collect::<Vec<_>>();
+    let mut value = json!({
+        "id": id,
+        "resource_id": state.resource_indexes.pane_ids.get(&id),
+        "short_id": short_ids.get(id),
+        "name": pane.name,
+        "active_tab": pane.active_tab,
+        "focused_at": pane.focused_at,
+        "tab_groups": tab_groups.iter().map(|run| pane_tab_group_json(run, None)).collect::<Vec<_>>(),
+    });
+    value.insert("tabs", Value::Array(tabs));
+    value
 }
 
 /// What a tab shows of its `title` (D2): `title_text` and `title_activity`.
@@ -286,14 +304,22 @@ fn shown_title_fields(tab: &mut Value) {
 
 pub(crate) fn workspaces_json(state: &State, notifications: &TreeDecorations) -> Value {
     let short_ids = ShortIds::of(state);
-    json!({
+    let workspaces = state
+        .workspaces
+        .iter()
+        .enumerate()
+        .map(|(index, workspace)| {
+            workspace_json(state, workspace, index, &short_ids, notifications)
+        })
+        .collect::<Vec<_>>();
+    let mut value = json!({
         "workspace_revision": state.workspace_revision,
         "pane_revision": state.pane_revision,
         "groups": workspace_groups_json(&notifications.presentation),
-        "workspaces": state.workspaces.iter().enumerate().map(|(index, workspace)| {
-            workspace_json(state, workspace, index, &short_ids, notifications)
-        }).collect::<Vec<_>>(),
-    })
+    });
+    // Moved, not copied (see `pane_json`).
+    value.insert("workspaces", Value::Array(workspaces));
+    value
 }
 
 pub(super) fn tree_short_ids(state: &State) -> HashMap<u64, String> {
@@ -328,7 +354,22 @@ fn workspace_json(
             .find(|run| run.members.contains(&screen))
             .map(|run| run.group.id.as_str())
     };
-    json!({
+    let screens = workspace
+        .screens
+        .iter()
+        .enumerate()
+        .map(|(screen_index, screen)| {
+            screen_json(
+                state,
+                screen,
+                screen_index == workspace.active_screen,
+                group_of(screen.id),
+                short_ids,
+                notifications,
+            )
+        })
+        .collect::<Vec<_>>();
+    let mut value = json!({
         "id": workspace.id,
         "resource_id": workspace.public_id,
         "key": workspace.key,
@@ -347,18 +388,11 @@ fn workspace_json(
         "app": home::raw_workspace_app(&notifications.presentation, &workspace.key),
         "unread_count": workspace_unread_count(state, workspace, notifications),
         "active": index == state.active_workspace,
-        "screens": workspace.screens.iter().enumerate().map(|(screen_index, screen)| {
-            screen_json(
-                state,
-                screen,
-                screen_index == workspace.active_screen,
-                group_of(screen.id),
-                short_ids,
-                notifications,
-            )
-        }).collect::<Vec<_>>(),
         "screen_groups": screen_groups.iter().map(screen_group_run_json).collect::<Vec<_>>(),
-    })
+    });
+    // Moved, not copied (see `pane_json`).
+    value.insert("screens", Value::Array(screens));
+    value
 }
 
 /// The workspace, index and screen of screen `id` as the tree lists it.
@@ -501,8 +535,24 @@ pub(crate) fn tree_entity_json(
     let entity = entity_json(state, notifications, kind, id);
     // Unit tests check every entity against the whole tree's value at that place (not counted as built).
     #[cfg(test)]
-    check_entity_against_whole_tree(state, notifications, kind, id, &entity);
+    if !SKIP_ENTITY_CHECK.with(std::cell::Cell::get) {
+        check_entity_against_whole_tree(state, notifications, kind, id, &entity);
+    }
     entity
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Benches only: entities built on this thread skip the whole-tree check, which the
+    /// daemon never runs (it builds the whole tree per entity, so a bench that kept it
+    /// would time a test's cost, not the daemon's).
+    static SKIP_ENTITY_CHECK: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Benches only: entities built on this thread from now on skip the whole-tree check.
+#[cfg(test)]
+pub(crate) fn skip_entity_check_on_this_thread_for_bench() {
+    SKIP_ENTITY_CHECK.with(|skip| skip.set(true));
 }
 
 /// How many times the check reads an entity whose live fields keep moving before it gives up on
@@ -673,9 +723,9 @@ pub(super) fn tree_delta_json(delta: &TreeDelta, mux: &Mux) -> Value {
     }
     if let Some(revision) = delta.workspace_revision {
         value.insert("workspace_revision", json!(revision));
-        if let Ok(Some(event)) = mux.workspace_registry_event(revision) {
-            value.insert("origin", json!(event.origin));
-            value.insert("mutation_id", json!(event.mutation_id));
+        if let Some(mutation) = &delta.mutation {
+            value.insert("origin", json!(mutation.origin));
+            value.insert("mutation_id", json!(mutation.mutation_id));
         }
         let (registry_id, generation) = mux.registry_identity();
         value.insert("registry_id", json!(registry_id));

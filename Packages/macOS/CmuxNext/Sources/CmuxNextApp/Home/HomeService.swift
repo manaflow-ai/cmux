@@ -28,6 +28,10 @@ final class HomeService {
     /// The Chief conversation whose settings open once its Home view shows it: Toggle Chief
     /// Settings with no Home in front brings Home forward there (`HomeChiefActions`).
     @ObservationIgnored var pendingChiefSettings: ConversationID?
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// DEBUG: the Chiefs of `debug.home.sidebar_fixture`'s rows, which wear their own characters too.
+    var debugChiefs: Set<String> = []
+    #endif
     /// While a Chief turn waits for the compactor (ChiefSettleWatch).
     var settleNotice: String?
     @ObservationIgnored var settleWatch: ChiefSettleWatch?
@@ -92,6 +96,10 @@ final class HomeService {
     private(set) var cloudChiefs = HomeCloudChiefs()
     /// Chief renames being saved, shown at once on every surface (``chiefName(of:)``).
     var chiefRenames = HomeChiefNames()
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Every live Home view, for `debug.home.api` `chief_names` (each one's header name).
+    @ObservationIgnored let debugHostViews = NSHashTable<HomeHostView>.weakObjects()
+    #endif
     /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief, also
     /// whenever it is the default Chief: ``prefersLocalChief``). After a teleport to cmux Cloud, the
     /// Chief it moved into when the tab's two cloud Chiefs include it (HomeService+ChiefRoster).
@@ -123,6 +131,10 @@ final class HomeService {
     @ObservationIgnored var feedRowsObservation: Task<Void, Never>?
     /// The latest brain start or death's tab check (HomeService+ChiefRoster); a newer one wins.
     @ObservationIgnored var chiefHostChange: Task<Void, Never>?
+    /// Mermaid fences in Home chat draw as diagrams with the bundled Ondine
+    /// (`markdown-viewer/ondine.min.js`); one renderer (one JavaScriptCore context) for every pane.
+    /// nil when the bundle lacks the script: fences stay text.
+    @ObservationIgnored private(set) lazy var diagrams: OndineMermaidRenderer? = OndineMermaidRenderer.bundled()
     @ObservationIgnored let homeSource = DaemonHomeSource(me: HomeCoreMapping.participant(HomeService.localUser), startedAgents: { AgentLaneStore.chief.chiefSubagentPeers })
     /// Cloud conversations through the daemon's proxy (home-cloud-proxy.md),
     /// merged with the local ones into the one store.
@@ -188,14 +200,12 @@ final class HomeService {
     /// A conversation the Home page selects once the inbox lists it (a new
     /// Chief's main conversation, a DM opened from the CLI).
     var pendingSelection: ConversationID?
-    /// Bumped when a Home list source deletes conversations or lists them all again: every Messages page's source reads the deleted set again.
-    var hiddenRevision = 0
-    /// Each chat's own bubble colours (`home.chatColors`), kept on this Mac, and the app's one Chat Colors… panel (its React page).
+    /// Each chat's own bubble colours (`home.chatColors`), kept on this Mac, and the app's one Chat Colors… panel (AppKit).
     @ObservationIgnored let chatColors = HomeChatColorStore(defaults: .standard)
-    @ObservationIgnored private(set) lazy var chatColorsPanel = HomeChatColorsService(store: chatColors, design: .shared)
+    @ObservationIgnored private(set) lazy var chatColorsPanel = HomeChatColorsPanel(store: chatColors, design: .shared)
     @ObservationIgnored var cloudLinker: HomeCloudLink?
     /// Each conversation tab's view, by tab id; released with the tab.
-    @ObservationIgnored var tabViews: [String: HomeConversationPage] = [:]
+    @ObservationIgnored var tabViews: [String: HomeHostView] = [:]
     @ObservationIgnored let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
     /// The local user's participant id in local conversations.
     let actor = ConversationParticipant.localUserID

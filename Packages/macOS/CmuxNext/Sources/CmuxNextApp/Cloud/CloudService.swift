@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextApps
 import CmuxNextCloud
 import CmuxNextCloudCredentials
 import CmuxNextCloudUI
@@ -48,6 +49,7 @@ final class CloudService {
     /// This Mac's Cloud install principal (cx-wb5.64): install tokens for the
     /// credential relay; registered at sign-in, revoked at sign-out.
     @ObservationIgnored let installIdentity: MacInstallIdentity
+    @ObservationIgnored let capability: CloudPreApproval // the person's pre-approval (cmux-platform#1126)
     /// The installs guest links' owner tokens come from, one per API the daemon's share room names (``shareOwnerToken(api:)``):
     /// ``installIdentity`` for its own, the others registered at their first share and revoked with it.
     @ObservationIgnored let shareInstalls: ShareInstalls
@@ -216,9 +218,11 @@ final class CloudService {
         hands = HandsService(
             apiBaseURL: configuration.ownerAPIBaseURL(), accessToken: { [auth] in try await auth.tokens().access }, identity: installIdentity,
             presence: HandPresenceKeyStore(directory: paths.root.appendingPathComponent("install", isDirectory: true)), cli: .cli(resources: Bundle.main.resourceURL, work: work))
-        let relay = CloudCredentialRelay.live(identity: identity, baseURL: configuration.ownerAPIBaseURL(),
+        let capability = CloudPreApproval(platform: configuration.relayAPIBaseURL(), headers: identity.requestHeaders)
+        self.capability = capability
+        let relay = CloudCredentialRelay.live(identity: identity, baseURL: configuration.ownerAPIBaseURL(), capability: capability,
             signedIn: { [auth] in await MainActor.run { auth.isSignedIn } }, allowedOps: { await CloudCredentialRelay.bundledServedOps() },
-            carrierSocket: { @MainActor [weak machines] id in await CloudLinkSession.carrierAnswer(machines?.session(id)?.appLink, machine: id) })
+            carrierSocket: { @MainActor [weak machines] id in let s = machines?.session(id); return await CloudLinkSession.carrierAnswer(s?.appLink, machine: id, paused: s?.machine.shownStatus.isPaused == true) })
         credentialProvider = CloudCredentialProvider(relay: relay)
         // The app server link: this Mac's `cmux link`.
         link = CloudLinkLifecycle(launcher: CloudLinkLauncher.forApp(build: build), installID: { [identity] in await identity.installID() },
@@ -318,7 +322,9 @@ final class CloudService {
                     if switched { self.dropAllMachines() }
                     await self.shareInstalls.began(switched: switched, except: self.installIdentity)
                     // The install first: the app server path's first list sends its token through the credential relay.
+                    self.capability.drop() // another account's or team's pre-approval never rides on this one's calls
                     await self.installSignedIn()
+                    if self.mayCallCloud { await self.capability.prefetch(self.installIdentity) }
                     self.hands.start()
                     await self.ensureLink()
                     await self.refresh()
@@ -326,6 +332,7 @@ final class CloudService {
                     // Signing out invalidates the wire's bearer: stop it first so no event races a new account.
                     self.machineWire.stop()
                     self.dropAllMachines()
+                    self.capability.drop()
                     await self.link.endLink(final: true)
                     await self.installIdentity.unbind()
                     for share in await self.shareInstalls.ended(except: self.installIdentity) { await share.unbind() }
@@ -760,7 +767,7 @@ final class CloudService {
     func pauseMachine(_ machineID: String) async throws {
         try await changes.run(.pausing, machineID: machineID, of: { machines.session(machineID) },
                               onRollback: { [weak self] id in self?.machines.session(machineID)?.mutationFailed(id) }) {
-            try await CloudMachinePower.run("cloud.machine.pause", machine: machineID, ops: appOps)
+            try await CloudMachinePower.run("cloud.machine.pause", machine: machineID, ops: appOps); machines.session(machineID)?.suspend(pausing: true)
         }
         changes.began(machineID: machineID) { [weak self] in _ = await self?.refresh() }; if !changes.isPushed(machineID) { await refresh() }; logger.info("paused machine \(machineID, privacy: .public)")
     }

@@ -56,17 +56,19 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
     public var showsOnSidebar = true
     /// A notification for a pane the user is not looking at moves its
     /// workspace to the top of the unpinned rows (classic's
-    /// `app.reorderOnNotification`): first in its project, else first among the
-    /// loose rows. A notification is what turns a row blue (done, unread) or
-    /// yellow (needs you); a working agent posts none, so working rows stay put.
-    /// On by default (Leo 2026-11-10: "the ones that are blue that are done, I
-    /// think we can probably turn that on. Likewise with the yellow"); it was off
-    /// from 2026-10-20 ("too noisy"). Row state alone never moves a row.
+    /// `app.reorderOnNotification`), once per notification, as iMessage does:
+    /// first in its project, else first among the loose rows. A notification is
+    /// what turns a row blue (done) or yellow (needs you); a working agent posts
+    /// none, so working rows stay put (Leo 2026-11-10: "the working sessions,
+    /// that's probably too noisy ... But like the ones that are blue that are
+    /// done ... Likewise with the yellow"). On by default (the user, 2026-11-09);
+    /// rebuilds never re-sort by attention, so a drag still sticks until the
+    /// next notification (Leo 2026-10-20).
     public var movesToTop = true
     /// An agent's finished turn (`agent.turn.completed`) for a pane the user is not
     /// looking at moves its workspace to the top, as `movesToTop` does for every
     /// notification (`notifications.attention.moveToTopOnAgentFinish`, cmux#31513).
-    /// Off by default: with `movesToTop` on it adds nothing.
+    /// Off by default; it matters only with `movesToTop` off.
     public var movesToTopOnAgentFinish = false
 
     public init() {}

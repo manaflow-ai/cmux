@@ -14,9 +14,10 @@ import WebKit
 /// (`tab.access`), the WebKit driver's tab provider, and the agent mark.
 ///
 /// Only the local daemon's workspaces, and no incognito tab: agents on this
-/// machine drive tabs this machine's store owns. The getters read the store
-/// and the live pages, which are observable, plus `pageInstalls` (a page was
-/// created); visibility is pushed with `refreshTabs()`.
+/// machine drive tabs this machine's store owns. The tab list comes from one
+/// observation per workspace (`listed`); the getters read it, each listed
+/// tab and the live pages, which are observable, plus `pageInstalls` (a page
+/// was created); visibility is pushed with `refreshTabs(_:)` for the tabs that changed.
 final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, AutomationTabProvider, ProviderAgentMarking, ProviderTabOpening {
     private weak var services: AppServices?
     /// Extension access depends on manifests read from disk: computed again
@@ -24,57 +25,66 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     private var accessMemo: [String: (extensions: [BrowserExtensionInfo], url: URL?, names: [String])] = [:]
     /// Hidden agent-driven WebKit tabs render here (``keepRendering(_:)``).
     let renderWindows = AgentRenderWindows()
+    /// The announced tabs of each local workspace, one observation per workspace: a tab that comes or goes re-reads
+    /// its own workspace only. The provider's one tracking read every pane's tab list, so each New Tab key cancelled
+    /// and re-armed it over the whole session in the key's turn (CMD-T BUDGET 2026-11-10).
+    private var listed: ObservedItemsFeed<WorkspaceModel, WorkspaceTabs>?
+    /// The tabs `providerTabs` listed last, by id (`access(forTab:)` of the same pass; `providerTab(_:)`).
+    private var announced: [String: (model: TabModel, workspace: String)] = [:]
 
     init(services: AppServices) {
         self.services = services
     }
 
-    private struct LocalTab {
-        let model: TabModel
-        let workspace: WorkspaceModel
+    /// Starts following the local workspaces (once, before the provider reads `providerTabs`).
+    func start() {
+        guard listed == nil, let services else { return }
+        let store = services.daemon.store, windows = services.windows
+        let listed = ObservedItemsFeed<WorkspaceModel, WorkspaceTabs>(
+            list: { [weak store] in store?.workspaces }, id: { "\(ObjectIdentifier($0))" },
+            // This workspace's own facts only (its window kind, its panes' tabs): no id lookup in the session.
+            item: { [weak windows] in $0.tabs(of: .browser, hidden: windows?.isIncognito(workspace: $0) ?? true) })
+        self.listed = listed
+        listed.start()
     }
 
-    private var localBrowserTabs: [LocalTab] {
-        guard let services else { return [] }
-        let cache: TabContentCache = services.cache
-        var out: [LocalTab] = []
-        for workspace in services.daemon.store.workspaces {
-            for screen in workspace.screens {
-                for pane in screen.panes {
-                    for tab in pane.tabs where tab.kind == .browser && cache.browserTabs.isIncognitoTab(tab.id) == false {
-                        out.append(LocalTab(model: tab, workspace: workspace))
-                    }
-                }
-            }
-        }
-        return out
+    /// The provider announces `tab` (the list follows the store by one main-actor turn).
+    private func lists(_ tab: TabModel) -> Bool { localBrowserTabs.contains { $0.model === tab } }
+
+    /// The listed tabs with their workspace ids, one turn behind the store: the host's view (`providerTabs`, the waits).
+    private var localBrowserTabs: [(model: TabModel, workspace: String)] {
+        (listed?.observedItems ?? []).flatMap { entry in entry.tabs.map { (model: $0, workspace: entry.workspace) } }
     }
 
-    /// A tab the app announces: a browser tab of a local workspace, not incognito.
-    func isDrivable(_ targetID: String) -> Bool {
-        localBrowserTabs.contains { $0.model.id == targetID }
+    /// Tab `targetID` as the list will hold it, from the store's index for that one tab now (exact in the turn of
+    /// a create or a close; no session walk): a browser tab of a local workspace, not incognito.
+    private func announceable(_ targetID: String) -> (model: TabModel, workspace: String)? {
+        guard let services, let found = services.daemon.store.tab(id: targetID, of: .browser), !services.windows.isIncognito(workspace: found.workspace) else { return nil }
+        return (found.tab, found.workspace.id)
     }
-
+    func isDrivable(_ targetID: String) -> Bool { announceable(targetID) != nil }
     /// The workspace that holds an announced tab (agent input routing).
-    func workspaceID(ofTab targetID: String) -> String? {
-        localBrowserTabs.first { $0.model.id == targetID }?.workspace.id
-    }
+    func workspaceID(ofTab targetID: String) -> String? { announceable(targetID)?.workspace }
 
     // MARK: ProviderTabSource
 
     var providerTabs: [ProviderTab] {
         guard let services else { return [] }
-        let cache: TabContentCache = services.cache
-        _ = cache.pageInstalls.revision
-        return localBrowserTabs.map { entry in
-            let tab = entry.model
-            let page = cache.existingBrowser(tab.id)?.tab
-            return ProviderTab(
-                targetID: tab.id, engine: Self.engine(of: tab, page: page), workspace: entry.workspace.id,
-                profile: (page?.profileID ?? cache.browserProfile?(tab.id) ?? .default).rawValue.uuidString,
-                url: page?.state.url?.absoluteString ?? tab.url ?? "about:blank",
-                title: page?.state.title ?? tab.titleText, visible: cache.isRendering(tab.id), inputScale: (page as? CEFTab)?.emulationInputScale ?? 1, touch: (page as? CEFTab)?.emulationTouch ?? false)
-        }
+        _ = services.cache.pageInstalls.revision
+        let tabs = localBrowserTabs
+        announced = Dictionary(tabs.map { ($0.model.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return tabs.map { Self.providerTab($0, services) }
+    }
+    /// One listed tab, from that tab's own facts now (a show or a hide names its tab: no walk of the list).
+    func providerTab(_ targetID: String) -> ProviderTab? { services.flatMap { services in announced[targetID].map { Self.providerTab($0, services) } } }
+    private static func providerTab(_ entry: (model: TabModel, workspace: String), _ services: AppServices) -> ProviderTab {
+        let tab = entry.model, cache: TabContentCache = services.cache, page = cache.existingBrowser(tab.id)?.tab
+        return ProviderTab(
+            targetID: tab.id, engine: engine(of: tab, page: page), workspace: entry.workspace,
+            // A listed tab is not incognito; no lookup of its workspace by id (that reads the session's tab list).
+            profile: (page?.profileID ?? services.browserProfiles.engineProfile(for: tab, incognito: false)).rawValue.uuidString,
+            url: page?.state.url?.absoluteString ?? tab.url ?? "about:blank",
+            title: page?.state.title ?? tab.titleText, visible: cache.isRendering(tab.id), inputScale: (page as? CEFTab)?.emulationInputScale ?? 1, touch: (page as? CEFTab)?.emulationTouch ?? false)
     }
 
     /// The engine that renders the tab now: a Chromium record shown in
@@ -94,12 +104,13 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         let cache: TabContentCache = services.cache
         let override = cache.agentMayUseExtensionTab(targetID)
         let page = cache.existingBrowser(targetID)?.tab
-        let profile = page?.profileID ?? cache.browserProfile?(targetID) ?? .default
+        let model = announced[targetID]?.model // as `providerTabs`, same pass: no id lookup in the session; the list's turn on purpose (sent with the announce)
+        let profile = page?.profileID ?? model.map { services.browserProfiles.engineProfile(for: $0, incognito: false) } ?? .default
         guard let store = (page as? any BrowserExtensionActionHosting)?.extensionStore ?? cache.cef.extensionStore(for: profile) else {
             accessMemo[targetID] = nil
             return ProviderTabAccess(extensionHostAccess: false, userOverride: override, extensions: [])
         }
-        let url = page?.state.url ?? cache.tabModel(targetID)?.url.flatMap(URL.init(string:))
+        let url = page?.state.url ?? model?.url.flatMap(URL.init(string:))
         let extensions = store.extensions
         let names: [String]
         if let memo = accessMemo[targetID], memo.extensions == extensions, memo.url == url {
@@ -124,14 +135,14 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         }
     }
 
-    // MARK: AutomationTabProvider (WebKit driver)
+    // MARK: AutomationTabProvider (WebKit driver). From the list, on purpose: the host calls a tab only after its announce.
 
     func automationTabs(all: Bool) -> [AutomationTab] {
         guard let services else { return [] }
         let cache: TabContentCache = services.cache
         return localBrowserTabs.compactMap { entry in
             guard let page = cache.existingBrowser(entry.model.id)?.tab as? WebKitTab else { return nil }
-            return AutomationTab(tab: page, windowID: entry.workspace.id, isActive: cache.isRendering(entry.model.id))
+            return AutomationTab(tab: page, windowID: entry.workspace, isActive: cache.isRendering(entry.model.id))
         }
     }
 
@@ -178,9 +189,9 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         guard browserTabs.isAvailable(in: pane) else { throw AutomationTabError.unavailable }
         let surface = try await browserTabs.open(BrowserEngineChoice(engine: engine), in: pane,
                                                  url: url ?? "about:blank", activate: false)
-        // The create reply can come before the store shows the tab.
-        let appeared = try? await ControlDeadline.shared.run(method: "tabs.open", deadline: .now + .seconds(10)) { @MainActor in
-            for await found in ObservationStream({ services.locateTab(surface: surface) != nil }) where found { return true }
+        // The create reply can come before the store shows the tab, and the announced list follows the store.
+        let appeared = try? await ControlDeadline.shared.run(method: "tabs.open", deadline: .now + .seconds(10)) { @MainActor [weak self] in
+            for await found in ObservationStream({ [weak self] in services.locateTab(surface: surface).map { self?.lists($0) ?? false } ?? false }) where found { return true }
             return false
         }
         guard appeared == true, let tab = services.locateTab(surface: surface) else {
@@ -256,7 +267,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// without `close-reason-v1` keeps the tab (never an unmarked close). The host decides which
     /// tabs a session created and that no person holds (gap: the store does not check it).
     func endSessionTab(_ id: String) async -> Bool {
-        guard let services, let tab = localBrowserTabs.first(where: { $0.model.id == id })?.model else { return false }
+        guard let services, let tab = announceable(id)?.model else { return false }
         let daemon = services.daemon
         guard daemon.supports(DaemonCapability.closeReason.rawValue) else { return false }
         let surface = tab.surface
@@ -269,7 +280,7 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         cache.release(id)
         // The store's update can come after the close reply.
         _ = try? await ControlDeadline.shared.run(method: "tabs.close", deadline: .now + .seconds(5)) { @MainActor [weak self] in
-            for await gone in ObservationStream({ self?.isDrivable(id) != true }) where gone { return true }
+            for await gone in ObservationStream({ self?.localBrowserTabs.contains { $0.model.id == id } != true }) where gone { return true } // the host's view: after its `tab.gone`
             return false
         }
         return true

@@ -41,6 +41,8 @@ mod stalled_turn;
 mod stop_if_idle_unadopted;
 #[path = "durable_agents/transfer_authority.rs"]
 mod transfer_authority;
+#[path = "durable_agents/unread_store.rs"]
+mod unread_store;
 #[path = "durable_agents/update_tool_call.rs"]
 mod update_tool_call;
 // This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes

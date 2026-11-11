@@ -2,11 +2,11 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { apply, rollback, status } from "./apply.ts"
-import { httpPlatform, httpVmApi, mapTenantResolver } from "./clients.ts"
+import { apply, attemptFor, rollback, status, verify } from "./apply.ts"
+import { httpPlatform } from "./clients.ts"
 import { migrationIdFor, personalTeamIdFor, sharedTeamIdFor, userIdFor } from "./ids.ts"
 import { Ledger } from "./ledger.ts"
-import { buildPlan, classifyVm, copiesOf, renderPlanMarkdown, type Plan } from "./plan.ts"
+import { buildPlan, classifyVm, copiesOf, renderPlanMarkdown, vmSize, type Plan } from "./plan.ts"
 import {
   assertSelectOnly,
   checkClassicHost,
@@ -34,7 +34,6 @@ const ALICE_TEAM = "aaaaaaaa-0000-4000-8000-00000000a11c"
 const VM_LIVE = "c0000001-0000-4000-8000-000000000001"
 const VM_DEAD = "c0000002-0000-4000-8000-000000000002"
 const VM_ACME = "c0000003-0000-4000-8000-000000000003"
-const ALICE_TENANT = "tenant_alice_personal"
 
 let tmp: string
 beforeAll(() => {
@@ -74,13 +73,12 @@ describe("plan", () => {
         classic_vm_id: VM_LIVE,
         upstream_vm_id: "fs-alice-dev",
         next_team_id: personalTeamIdFor(aliceNext),
-        tenant: { kind: "personal", stack_user_id: ALICE, user_id: aliceNext },
         creator_user_id: aliceNext,
         name: "alice-dev",
-        size: null,
+        size: { cpu: 4, memory_mb: 8192, disk_mb: 32768 },
       },
     ])
-    expect(vms[0]?.next?.["vm_api_tenant"]).toBe("personal tenant (resolved at apply)")
+    expect(vms[0]?.next?.["size"]).toBe('{"cpu":4,"memory_mb":8192,"disk_mb":32768}')
     // Alice's personal Stack team is named as such: its VMs land in her NEXT personal team.
     expect(byKind(plan, "team").find((e) => e.classic_id === ALICE_TEAM)?.summary).toContain("personal Stack team")
 
@@ -104,15 +102,15 @@ describe("plan", () => {
     expect(plan.counts).toEqual({ carried: 6, copy: 1, link: 1, "not-migrated": 8, "needs-decision": 0 })
   })
 
-  test("a team: its VM lands in the shared team under the Stack team tenant, created by its creator", async () => {
+  test("a team: its VM lands in the shared team, created by its creator", async () => {
     const plan = await planFor({ kind: "team", id: ACME })
     expect(plan.subject.next_team_id).toBe(sharedTeamIdFor(PROJECT, ACME))
     expect(copiesOf(plan)).toEqual([
       expect.objectContaining({
         classic_vm_id: VM_ACME,
         next_team_id: sharedTeamIdFor(PROJECT, ACME),
-        tenant: { kind: "team", tenant_id: ACME },
         creator_user_id: userIdFor(PROJECT, BOB),
+        size: {},
       }),
     ])
     expect(byKind(plan, "cloud_vm")[0]?.personal_reason).toBe(`shared: owner team ${ACME} has 2 members`)
@@ -126,6 +124,15 @@ describe("plan", () => {
     const e = plan.entries.find((x) => x.classic_id === "c0000004-0000-4000-8000-000000000004")
     expect(e?.action).toBe("not-migrated")
     expect(e?.reason).toContain(`--team ${ACME}`)
+  })
+
+  test("size: classic's resource reservation, each axis kept only inside the platform's bounds", () => {
+    const vm = (meta: Record<string, unknown>) =>
+      ({ provider_metadata: { cmuxResourceReservation: meta } }) as unknown as ClassicVm
+    expect(vmSize(vm({ vcpus: 5, memoryMb: 20480, diskMb: 32768 }))).toEqual({ cpu: 5, memory_mb: 20480, disk_mb: 32768 })
+    expect(vmSize(vm({ vcpus: 0, memoryMb: 1.5, diskMb: 9_999_999 }))).toEqual({})
+    expect(vmSize(vm({ vcpus: "4", memoryMb: 4096 }))).toEqual({ memory_mb: 4096 })
+    expect(vmSize({ provider_metadata: null } as unknown as ClassicVm)).toEqual({})
   })
 
   test("output is deterministic: same rows, same bytes, entries in a stable order", async () => {
@@ -324,19 +331,24 @@ describe("classic stays read only", () => {
 })
 
 // --------------------------------------------------------------------------------------------------------------
-// apply / rollback against a fake VM API and platform.
+// apply / rollback / verify against a fake of cmux-platform's internal migration route (ClassicMigrationRoute.ts).
 
 interface Seen {
   method: string
   path: string
+  query: string
   body: Record<string, unknown> | null
 }
 
-const fakeNext = () => {
+const PLATFORM_PATH = "/internal/v1/migrations/classic/machines"
+
+/** The route as cmux-platform#1148 specifies it: 201 created / 200 existing, GET list, DELETE deleted|absent. */
+const fakePlatform = () => {
   const seen: Seen[] = []
-  const snaps = new Map<string, string>() // migration/classic vm -> snap id
-  const live = new Set<string>() // snap ids
-  const machines = new Set<string>() // migration/classic vm
+  // `${team}|${migration}|${vm}` -> machine id, while live
+  const machines = new Map<string, string>()
+  const imports = new Set<string>()
+  let seq = 0
   let hold: ((s: Seen) => boolean) | null = null
   let onHold: () => void = () => {}
   const server = Bun.serve({
@@ -344,45 +356,58 @@ const fakeNext = () => {
     fetch: async (req) => {
       const url = new URL(req.url)
       const text = await req.text()
-      const s: Seen = { method: req.method, path: url.pathname, body: text ? (JSON.parse(text) as Record<string, unknown>) : null }
+      const s: Seen = {
+        method: req.method,
+        path: url.pathname,
+        query: url.search,
+        body: text ? (JSON.parse(text) as Record<string, unknown>) : null,
+      }
       seen.push(s)
-      const auth = req.headers.get("authorization")
+      if (url.pathname !== PLATFORM_PATH) return new Response("not found", { status: 404 })
+      if (req.headers.get("authorization") !== "Bearer internal") return Response.json({ code: "auth.unauthorized" }, { status: 401 })
       if (hold?.(s)) {
         onHold()
         return new Promise<Response>(() => {})
       }
-      const key = `${s.body?.["migration_id"]}/${s.body?.["classic_vm_id"]}`
-      if (url.pathname === "/v1/imports/classic-vm-snapshots" && req.method === "POST") {
-        if (auth !== "Bearer vm-key") return new Response("no", { status: 401 })
-        let id = snaps.get(key)
-        if (!id) snaps.set(key, (id = `snap_${String(snaps.size + 1).padStart(26, "0")}`))
-        live.add(id)
-        return Response.json({ id })
+      if (req.method === "GET") {
+        const team = url.searchParams.get("team")
+        const mig = url.searchParams.get("migration_id")
+        const items = [...machines]
+          .filter(([k]) => k.startsWith(`${team}|${mig}|`))
+          .map(([k, id]) => ({
+            classic_vm_id: k.split("|")[2],
+            status: "created",
+            machine: { id, status: "running" },
+            snapshot: { id: `snap_row_${id}` },
+          }))
+        return Response.json({ team, migration_id: mig, items })
       }
-      if (url.pathname.startsWith("/v1/imports/classic-vm-snapshots/") && req.method === "DELETE") {
-        const id = decodeURIComponent(url.pathname.split("/").at(-1)!)
-        if (!live.delete(id)) return new Response("gone", { status: 404 })
-        return new Response(null, { status: 204 })
+      const b = s.body ?? {}
+      const key = `${b["team"]}|${b["migration_id"]}|${b["classic_vm_id"]}`
+      if (req.method === "POST") {
+        const had = machines.get(key)
+        if (had) return Response.json({ status: "existing", machine: { id: had }, snapshot: { id: `snap_row_${had}` } })
+        const id = `mach_${++seq}`
+        machines.set(key, id)
+        imports.add(key)
+        return Response.json(
+          { status: "created", machine: { id }, snapshot: { id: `snap_row_${id}`, vm_api_snapshot_id: `snap_${seq}` } },
+          { status: 201 },
+        )
       }
-      if (url.pathname === "/internal/v1/migrations/classic/machines") {
-        if (auth !== "Bearer internal") return new Response("no", { status: 401 })
-        if (req.method === "POST") {
-          machines.add(key)
-          return Response.json({ machine: { id: `mach_${key.length}` }, snapshot: { id: "csnap_1" } })
-        }
-        if (req.method === "DELETE") {
-          if (!machines.delete(key)) return new Response("gone", { status: 404 })
-          return new Response(null, { status: 204 })
-        }
+      if (req.method === "DELETE") {
+        const had = machines.delete(key)
+        const imp = imports.delete(key)
+        return Response.json({ status: had || imp ? "deleted" : "absent", machine: null, snapshot: null, vm_api_imports_deleted: [] })
       }
-      return new Response("not found", { status: 404 })
+      return new Response("no", { status: 405 })
     },
   })
   return {
     origin: `http://127.0.0.1:${server.port}`,
     seen,
-    live,
     machines,
+    imports,
     holdWhen: (f: ((s: Seen) => boolean) | null) => {
       hold = f
       return new Promise<void>((resolve) => {
@@ -404,32 +429,23 @@ const run = async (args: string[], env: Record<string, string> = {}) => {
   return { code, stdout, stderr }
 }
 
-const count = (seen: Seen[], method: string, path: string) =>
-  seen.filter((s) => s.method === method && s.path.startsWith(path)).length
+const count = (seen: Seen[], method: string) => seen.filter((s) => s.method === method && s.path === PLATFORM_PATH).length
 
-describe("apply, kill, re-run, rollback", () => {
-  const VM_PATH = "/v1/imports/classic-vm-snapshots"
-  const PLATFORM_PATH = "/internal/v1/migrations/classic/machines"
-
-  test("a run killed mid-step re-sends only the in-flight request, then rollback undoes it once", async () => {
-    const next = fakeNext()
+describe("apply, kill, re-run, verify, rollback, fresh", () => {
+  test("a run killed mid-request re-sends only that request; verify, rollback twice, --fresh, rollback", async () => {
+    const next = fakePlatform()
     try {
       const dir = join(tmp, "kill")
-      const planOut = await run(["plan", "--user", ALICE, "--source", "fixture", FIXTURE_PATH, "--out", dir])
-      expect(planOut.code).toBe(0)
-      const tenants = join(dir, "tenants.json")
-      writeFileSync(tenants, JSON.stringify({ [ALICE]: ALICE_TENANT }))
+      expect((await run(["plan", "--user", ALICE, "--source", "fixture", FIXTURE_PATH, "--out", dir])).code).toBe(0)
       const ledgerPath = join(dir, "ledger.jsonl")
-      const env = {
-        CMUX_VM_API_ORIGIN: next.origin,
-        CMUX_VM_IMPORT_KEY: "vm-key",
-        CMUX_PLATFORM_ORIGIN: next.origin,
-        INTERNAL_TOKEN: "internal",
-      }
-      const applyArgs = ["apply", "--plan", join(dir, "plan.json"), "--ledger", ledgerPath, "--personal-tenants", tenants]
+      const env = { CMUX_PLATFORM_ORIGIN: next.origin, INTERNAL_TOKEN: "internal" }
+      const applyArgs = ["apply", "--plan", join(dir, "plan.json"), "--ledger", ledgerPath]
+      const plan = JSON.parse(readFileSync(join(dir, "plan.json"), "utf8")) as Plan
+      const aliceNext = userIdFor(PROJECT, ALICE)
+      const team = personalTeamIdFor(aliceNext)
 
-      // Run 1: the platform import never answers; kill the process while it waits.
-      const held = next.holdWhen((s) => s.method === "POST" && s.path === PLATFORM_PATH)
+      // Run 1: the import is accepted but never answers; kill the process while it waits.
+      const held = next.holdWhen((s) => s.method === "POST")
       const child = Bun.spawn(["bun", MAIN, ...applyArgs], {
         env: { PATH: process.env["PATH"] ?? "", ...env },
         stdin: "ignore",
@@ -439,88 +455,118 @@ describe("apply, kill, re-run, rollback", () => {
       await held
       child.kill("SIGKILL")
       await child.exited
-      expect(count(next.seen, "POST", VM_PATH)).toBe(1)
-      expect(count(next.seen, "POST", PLATFORM_PATH)).toBe(1)
-      expect(status(new Ledger(ledgerPath)).map((r) => [r.vm_api_import, r.platform_import])).toEqual([
-        ["done", "in_flight"],
-      ])
+      expect(count(next.seen, "POST")).toBe(1)
+      expect(status(new Ledger(ledgerPath)).map((r) => r.platform_import)).toEqual(["in_flight"])
 
-      // Run 2: the done step is skipped; the in-flight one is re-sent with the same body.
+      // Run 2: the in-flight request is re-sent with the same body.
       next.holdWhen(null)
       const second = await run(applyArgs, env)
       expect(second.code).toBe(0)
       expect(second.stdout).toContain(`done ${VM_LIVE}`)
-      expect(count(next.seen, "POST", VM_PATH)).toBe(1)
-      const platformPosts = next.seen.filter((s) => s.method === "POST" && s.path === PLATFORM_PATH)
-      expect(platformPosts.length).toBe(2)
-      expect(platformPosts[1]?.body).toEqual(platformPosts[0]?.body ?? null)
-      const plan = JSON.parse(readFileSync(join(dir, "plan.json"), "utf8")) as Plan
-      expect(next.seen.find((s) => s.method === "POST" && s.path === VM_PATH)?.body).toEqual({
-        tenant_id: ALICE_TENANT,
-        created_by: userIdFor(PROJECT, ALICE),
+      const posts = next.seen.filter((s) => s.method === "POST")
+      expect(posts.length).toBe(2)
+      expect(posts[1]?.body).toEqual(posts[0]?.body ?? null)
+      expect(posts[0]?.body).toEqual({
+        team,
+        creator_user: aliceNext,
+        migration_id: plan.migration_id,
         classic_vm_id: VM_LIVE,
         upstream_vm_id: "fs-alice-dev",
-        migration_id: plan.migration_id,
-      })
-      expect(platformPosts[0]?.body).toEqual({
-        team: personalTeamIdFor(userIdFor(PROJECT, ALICE)),
-        creator_user: userIdFor(PROJECT, ALICE),
-        migration_id: plan.migration_id,
-        classic_vm_id: VM_LIVE,
-        vm_api_snapshot_id: "snap_00000000000000000000000001",
         name: "alice-dev",
-        size: null,
+        size: { cpu: 4, memory_mb: 8192, disk_mb: 32768 },
       })
 
-      // Run 3: everything is done; nothing is sent.
+      // Run 3: everything is done; nothing is sent and the ledger does not grow.
       const before = next.seen.length
-      expect((await run(applyArgs, env)).code).toBe(0)
+      const ledgerBytes = readFileSync(ledgerPath, "utf8").length
+      const third = await run(applyArgs, env)
+      expect(third.code).toBe(0)
+      expect(third.stdout).toContain("0 request(s) sent")
       expect(next.seen.length).toBe(before)
-      const st = await run(["status", "--ledger", ledgerPath, "--plan", join(dir, "plan.json")])
-      expect(st.stdout).toContain(`done                 ${VM_LIVE}`)
+      expect(readFileSync(ledgerPath, "utf8").length).toBe(ledgerBytes)
+      expect((await run(["status", "--ledger", ledgerPath, "--plan", join(dir, "plan.json")])).stdout).toContain(
+        `done                 ${VM_LIVE}  ${plan.migration_id} platform_import=done mach_1`,
+      )
 
-      // Rollback: machine first, then the VM API snapshot; a second rollback sends nothing.
+      // verify: the machine the ledger recorded is live in NEXT.
+      const v1 = await run(["verify", "--ledger", ledgerPath, "--json"], env)
+      expect(v1.code).toBe(0)
+      expect(JSON.parse(v1.stdout)).toEqual({
+        ok: true,
+        team,
+        rows: [{ attempt: plan.migration_id, classic_vm_id: VM_LIVE, expect: "present", found: "mach_1", ok: true, note: "machine live" }],
+      })
+      expect(next.seen.at(-1)?.query).toBe(`?team=${team}&migration_id=${encodeURIComponent(plan.migration_id)}`)
+
+      // Rollback: one DELETE; a second rollback sends nothing; verify shows none.
       const rb = await run(["rollback", "--ledger", ledgerPath], env)
       expect(rb.code).toBe(0)
-      const undo = next.seen.slice(before).map((s) => `${s.method} ${s.path}`)
-      expect(undo).toEqual([`DELETE ${PLATFORM_PATH}`, `DELETE ${VM_PATH}/snap_00000000000000000000000001`])
-      expect(next.seen.at(-2)?.body).toEqual({
-        team: personalTeamIdFor(userIdFor(PROJECT, ALICE)),
-        migration_id: plan.migration_id,
-        classic_vm_id: VM_LIVE,
-      })
-      expect(next.machines.size).toBe(0)
-      expect(next.live.size).toBe(0)
+      expect(rb.stdout).toContain(`rolled back ${VM_LIVE} (deleted)`)
+      expect(next.seen.filter((s) => s.method === "DELETE").map((s) => s.body)).toEqual([
+        { team, migration_id: plan.migration_id, classic_vm_id: VM_LIVE },
+      ])
+      expect(next.machines.size + next.imports.size).toBe(0)
       const afterFirst = next.seen.length
       const rb2 = await run(["rollback", "--ledger", ledgerPath], env)
-      expect(rb2.code).toBe(0)
       expect(rb2.stdout).toContain("nothing to roll back")
       expect(next.seen.length).toBe(afterFirst)
       expect(status(new Ledger(ledgerPath))[0]?.overall).toBe("rolled_back")
+      const v2 = await run(["verify", "--ledger", ledgerPath], env)
+      expect(v2.code).toBe(0)
+      expect(v2.stdout).toContain("expect absent: none")
 
-      // Apply after rollback leaves the rolled-back VM alone.
+      // Apply after rollback leaves the rolled-back VM alone; --fresh copies it again as attempt .r2.
       const again = await run(applyArgs, env)
-      expect(again.stdout).toContain("rolled back in this ledger")
-      expect(next.seen.length).toBe(afterFirst)
+      expect(again.stdout).toContain("pass --fresh")
+      expect(count(next.seen, "POST")).toBe(2)
+      const fresh = await run([...applyArgs, "--fresh"], env)
+      expect(fresh.code).toBe(0)
+      expect(fresh.stdout).toContain(`attempt ${plan.migration_id}.r2: 1 request(s) sent`)
+      expect(next.seen.filter((s) => s.method === "POST").at(-1)?.body?.["migration_id"]).toBe(`${plan.migration_id}.r2`)
+      // --fresh again is refused while .r2 is live; plain apply is a no-op on it.
+      expect((await run([...applyArgs, "--fresh"], env)).stderr).toContain("run rollback first")
+      expect((await run(applyArgs, env)).stdout).toContain("0 request(s) sent")
+      // verify checks both attempts: .r2 present, the first absent.
+      const v3 = JSON.parse((await run(["verify", "--ledger", ledgerPath, "--json"], env)).stdout)
+      expect(v3.ok).toBe(true)
+      expect(v3.rows.map((r: { attempt: string; expect: string }) => `${r.attempt} ${r.expect}`)).toEqual([
+        `${plan.migration_id} absent`,
+        `${plan.migration_id}.r2 present`,
+      ])
+      expect((await run(["rollback", "--ledger", ledgerPath], env)).code).toBe(0)
+      expect(next.machines.size).toBe(0)
     } finally {
       next.stop()
     }
-  }, 30_000)
+  }, 60_000)
+
+  test("verify fails on a machine the ledger does not know and on a missing one", async () => {
+    const next = fakePlatform()
+    try {
+      const plan = await planFor({ kind: "team", id: ACME })
+      const ledger = new Ledger(join(tmp, "verify.jsonl"))
+      const deps = { platform: httpPlatform(next.origin, "internal") }
+      expect((await apply(plan, ledger, deps)).done).toEqual([VM_ACME])
+      const team = sharedTeamIdFor(PROJECT, ACME)
+      next.machines.set(`${team}|${plan.migration_id}|c-stray`, "mach_stray")
+      const r = await verify(ledger, deps)
+      expect(r.ok).toBe(false)
+      expect(r.rows.find((x) => x.classic_vm_id === "c-stray")?.note).toContain("does not know")
+      next.machines.clear()
+      const r2 = await verify(ledger, deps)
+      expect(r2.rows).toEqual([expect.objectContaining({ classic_vm_id: VM_ACME, ok: false, note: "no live machine in NEXT" })])
+    } finally {
+      next.stop()
+    }
+  })
 
   test("--dry-run sends nothing and writes no ledger", async () => {
-    const next = fakeNext()
+    const next = fakePlatform()
     try {
       const plan = await planFor({ kind: "team", id: ACME })
       const ledgerPath = join(tmp, "dry.jsonl")
-      const vmApi = httpVmApi(next.origin, "vm-key")
-      const platform = httpPlatform(next.origin, "internal")
-      const report = await apply(
-        plan,
-        new Ledger(ledgerPath),
-        { vmApi, platform, resolvePersonalTenant: mapTenantResolver({}) },
-        { dryRun: true },
-      )
-      expect(report.would.map((w) => w.action)).toEqual(["send", "send"])
+      const report = await apply(plan, new Ledger(ledgerPath), { platform: httpPlatform(next.origin, "internal") }, { dryRun: true })
+      expect(report.would.map((w) => w.action)).toEqual(["send"])
       expect(next.seen).toEqual([])
       expect(existsSync(ledgerPath)).toBe(false)
     } finally {
@@ -529,65 +575,30 @@ describe("apply, kill, re-run, rollback", () => {
   })
 
   test("--only limits apply to one classic VM; an unknown one is refused", async () => {
-    const next = fakeNext()
+    const next = fakePlatform()
     try {
       const plan = await planFor({ kind: "team", id: ACME })
-      const deps = {
-        vmApi: httpVmApi(next.origin, "vm-key"),
-        platform: httpPlatform(next.origin, "internal"),
-        resolvePersonalTenant: mapTenantResolver({}),
-      }
+      const deps = { platform: httpPlatform(next.origin, "internal") }
       const ledger = new Ledger(join(tmp, "only.jsonl"))
       await expect(apply(plan, ledger, deps, { only: VM_LIVE })).rejects.toThrow(/no copy/)
       const report = await apply(plan, ledger, deps, { only: VM_ACME })
       expect(report.done).toEqual([VM_ACME])
-      expect(next.seen.find((s) => s.path === VM_PATH)?.body?.["tenant_id"]).toBe(ACME)
+      expect(next.seen[0]?.body?.["upstream_vm_id"]).toBe("fs-acme-ci")
+      expect(next.seen[0]?.body).not.toHaveProperty("vm_api_tenant")
     } finally {
       next.stop()
     }
   })
 
-  test("an unresolved personal tenant fails before any request", async () => {
-    const next = fakeNext()
+  test("an id the platform would refuse is never sent", async () => {
+    const next = fakePlatform()
     try {
-      const plan = await planFor({ kind: "user", id: ALICE })
-      const report = await apply(plan, new Ledger(join(tmp, "notenant.jsonl")), {
-        vmApi: httpVmApi(next.origin, "vm-key"),
-        platform: httpPlatform(next.origin, "internal"),
-        resolvePersonalTenant: mapTenantResolver({}),
-      })
-      expect(report.failed[0]?.error).toContain("no personal VM API tenant")
+      const f = fixture()
+      f.tables.cloud_vms![2]!.id = "x".repeat(64)
+      const plan = await planFor({ kind: "team", id: ACME }, f)
+      const report = await apply(plan, new Ledger(join(tmp, "badid.jsonl")), { platform: httpPlatform(next.origin, "internal") })
+      expect(report.failed[0]?.error).toContain("not 1-63")
       expect(next.seen).toEqual([])
-    } finally {
-      next.stop()
-    }
-  })
-
-  test("rollback of an import that never answered learns its id with the same request, then deletes it", async () => {
-    const next = fakeNext()
-    try {
-      const plan = await planFor({ kind: "team", id: ACME })
-      const ledger = new Ledger(join(tmp, "inflight.jsonl"))
-      const req = {
-        tenant_id: ACME,
-        created_by: userIdFor(PROJECT, BOB),
-        classic_vm_id: VM_ACME,
-        upstream_vm_id: "fs-acme-ci",
-        migration_id: plan.migration_id,
-      }
-      // The import reached the VM API, but the run died before recording its answer.
-      await httpVmApi(next.origin, "vm-key").importSnapshot(req)
-      ledger.append({ migration_id: plan.migration_id, classic_vm_id: VM_ACME, step: "vm_api_import", event: "started", request: req })
-      const report = await rollback(ledger, {
-        vmApi: httpVmApi(next.origin, "vm-key"),
-        platform: httpPlatform(next.origin, "internal"),
-      })
-      expect(report.failed).toEqual([])
-      expect(next.seen.slice(1).map((s) => `${s.method} ${s.path}`)).toEqual([
-        `POST ${VM_PATH}`,
-        `DELETE ${VM_PATH}/snap_00000000000000000000000001`,
-      ])
-      expect(next.live.size).toBe(0)
     } finally {
       next.stop()
     }
@@ -596,14 +607,114 @@ describe("apply, kill, re-run, rollback", () => {
   test("a ledger of another migration is refused; a torn last line is dropped", async () => {
     const plan = await planFor({ kind: "team", id: ACME })
     const path = join(tmp, "other.jsonl")
-    writeFileSync(path, `${JSON.stringify({ at: "x", migration_id: "mig_other", classic_vm_id: "v", step: "vm_api_import", event: "started" })}\n{"at":`)
+    writeFileSync(path, `${JSON.stringify({ at: "x", migration_id: "mig_other", classic_vm_id: "v", step: "platform_import", event: "started" })}\n{"at":`)
     expect(new Ledger(path).read().length).toBe(1)
-    await expect(
-      apply(plan, new Ledger(path), {
-        vmApi: httpVmApi("http://127.0.0.1:9", "k"),
-        platform: httpPlatform("http://127.0.0.1:9", "k"),
-        resolvePersonalTenant: mapTenantResolver({}),
-      }),
-    ).rejects.toThrow(/belongs to migration mig_other/)
+    await expect(apply(plan, new Ledger(path), { platform: httpPlatform("http://127.0.0.1:9", "k") })).rejects.toThrow(
+      /belongs to migration mig_other/,
+    )
+  })
+})
+
+// F1: ledgers the earlier two-step CLI wrote (a `vm_api_import` step before `platform_import`, the platform result
+// as `{machine: {id}}`) must stay readable and recoverable: status shows them, rollback deletes the VM API snapshot
+// that CLI made through the VM API client (or lists it for manual cleanup), verify reads them, an unknown step is
+// ignored. fixtures/base-cli-ledger.jsonl is that CLI's format.
+describe("a ledger written by the earlier CLI (vm_api_import)", () => {
+  const BASE_LEDGER = join(DIR, "fixtures/base-cli-ledger.jsonl")
+  const copy = (name: string) => {
+    const p = join(tmp, name)
+    writeFileSync(p, readFileSync(BASE_LEDGER, "utf8"))
+    return p
+  }
+  const LEGACY_KEY = "team_legacy|mig_legacy|vm-1"
+
+  test("status shows both steps, the snapshot and the machine, and ignores an unknown step, without a crash", async () => {
+    const rows = status(new Ledger(copy("legacy-status.jsonl")))
+    expect(rows).toEqual([
+      {
+        classic_vm_id: "vm-1",
+        attempt: "mig_legacy",
+        platform_import: "done",
+        vm_api_import: "done",
+        snapshot: "snap_1",
+        machine: "mach_1",
+        ignored_steps: ["mystery_step"],
+        overall: "done",
+      },
+      { classic_vm_id: "vm-2", attempt: "mig_legacy", platform_import: "in_flight", vm_api_import: "done", snapshot: "snap_2", overall: "in_flight" },
+      { classic_vm_id: "vm-3", attempt: "mig_legacy", platform_import: "pending", vm_api_import: "in_flight", overall: "in_flight" },
+      { classic_vm_id: "vm-4", attempt: "mig_legacy", platform_import: "pending", vm_api_import: "failed", overall: "failed" },
+    ])
+    const cli = await run(["status", "--ledger", copy("legacy-status-cli.jsonl")])
+    expect(cli.code).toBe(0)
+    expect(cli.stdout).toContain("vm_api_import=done snap_1 platform_import=done mach_1 (ignored unknown steps: mystery_step)")
+  })
+
+  test("verify, then rollback deletes the machines and the VM API snapshots; the unanswered import is manual cleanup", async () => {
+    const next = fakePlatform()
+    const deleted: string[] = []
+    try {
+      next.machines.set(LEGACY_KEY, "mach_1")
+      const ledger = new Ledger(copy("legacy-rollback.jsonl"))
+      const deps = {
+        platform: httpPlatform(next.origin, "internal"),
+        legacyVmApi: { deleteSnapshot: async (id: string) => void deleted.push(id) },
+      }
+      const v = await verify(ledger, deps)
+      expect(v.ok).toBe(true)
+      expect(v.rows).toEqual([expect.objectContaining({ classic_vm_id: "vm-1", expect: "present", found: "mach_1" })])
+
+      const r = await rollback(ledger, deps)
+      expect(r.failed).toEqual([])
+      expect(deleted).toEqual(["snap_2", "snap_1"])
+      expect(next.machines.size).toBe(0)
+      expect(r.manual_cleanup).toEqual([expect.objectContaining({ classic_vm_id: "vm-3", migration_id: "mig_legacy", vm_api_snapshot_id: null })])
+      expect(Object.fromEntries(status(ledger).map((x) => [x.classic_vm_id, x.overall]))).toEqual({
+        "vm-1": "rolled_back",
+        "vm-2": "rolled_back",
+        "vm-3": "rollback_incomplete",
+        "vm-4": "rolled_back",
+      })
+      expect((await verify(ledger, deps)).ok).toBe(true)
+      // A second rollback sends nothing and still names what needs a person.
+      const again = await rollback(ledger, deps)
+      expect(again.sent).toBe(0)
+      expect(again.manual_cleanup.map((m) => m.classic_vm_id)).toEqual(["vm-3"])
+      expect(deleted).toEqual(["snap_2", "snap_1"])
+    } finally {
+      next.stop()
+    }
+  })
+
+  test("without a VM API client the snapshots are reported for manual cleanup with their ids; the CLI exits 1", async () => {
+    const next = fakePlatform()
+    try {
+      next.machines.set(LEGACY_KEY, "mach_1")
+      const r = await rollback(new Ledger(copy("legacy-nokey.jsonl")), { platform: httpPlatform(next.origin, "internal") })
+      expect(r.failed).toEqual([])
+      expect(r.manual_cleanup.map((m) => [m.classic_vm_id, m.vm_api_snapshot_id])).toEqual([
+        ["vm-3", null],
+        ["vm-2", "snap_2"],
+        ["vm-1", "snap_1"],
+      ])
+      next.machines.set(LEGACY_KEY, "mach_1")
+      const cli = await run(["rollback", "--ledger", copy("legacy-nokey-cli.jsonl")], {
+        CMUX_PLATFORM_ORIGIN: next.origin,
+        INTERNAL_TOKEN: "internal",
+      })
+      expect(cli.code).toBe(1)
+      expect(cli.stdout).toContain("MANUAL CLEANUP vm-1 (mig_legacy) VM API snapshot snap_1")
+      expect(cli.stderr).not.toContain("Cannot set properties")
+      const v = await run(["verify", "--ledger", copy("legacy-verify-cli.jsonl")], { CMUX_PLATFORM_ORIGIN: next.origin, INTERNAL_TOKEN: "internal" })
+      expect(v.stderr).not.toContain("Cannot set properties")
+      expect(v.stdout).toContain("vm-1")
+    } finally {
+      next.stop()
+    }
+  })
+
+  test("--fresh is refused while an earlier-CLI VM is not rolled back", async () => {
+    const plan = { migration_id: "mig_legacy", entries: [], counts: {} } as unknown as Plan
+    expect(() => attemptFor(plan, new Ledger(copy("legacy-fresh.jsonl")), true)).toThrow(/not rolled back/)
   })
 })

@@ -2,15 +2,15 @@
 // Leo decided the sidebar's caps on 2026-11-10 (projectCapsModel.ts has the rules). The native
 // Swift sidebar implements them; this gallery picks the look of the three new pieces:
 //   - the "Show N more" / "Show less" row at the end of a capped project,
-//   - the project header that sticks while you scroll an expanded project (clicking it when stuck
-//     collapses the project and scrolls back to its top),
+//   - the project header that sticks while you scroll an expanded project (only a stuck header
+//     collapses on click; it collapses the project and scrolls back to its top),
 //   - the "Needs you" section at the very top.
 // One scroll area, never a nested scroll box. Expanding and collapsing are state transitions: the
 // rows a page reveals sit in a grid track that opens from 0fr to 1fr, so the rows below slide
 // down together; nothing pops in and nothing jumps.
 //
 // Picks (each gallery entry's notes say "Pick."; no viewer pick until a tracker bead exists):
-//   show-more "text": the quiet secondary-ink "Show 31 more" in the member text column with a
+//   show-more "text": the quiet secondary-ink "Show 20 more" in the member text column with a
 //     12 px chevron after it. It is the ChatGPT row Leo named, it names the count (a chip alone
 //     reads as an unread badge on the trail column, where the blue dot and the spinner live) and
 //     it keeps the trail column free; "Show less" uses the same row with the chevron turned up.
@@ -191,6 +191,8 @@ function Project({
   const [open, setOpen] = useState(Math.min(initialOpen, layout.pages));
   const section = useRef<HTMLElement>(null);
   const label = moreLabel(layout, open);
+  // Only a stuck header collapses its project; at rest the header is a plain title.
+  const collapsible = stuck && open > 0;
   const collapse = useCallback(() => {
     const element = section.current;
     const scroll = scroller();
@@ -210,11 +212,11 @@ function Project({
       <button
         type="button"
         className="pcd-header"
-        onClick={open > 0 ? collapse : undefined}
-        aria-label={open > 0 ? `${project.name}, collapse` : project.name}
+        onClick={collapsible ? collapse : undefined}
+        aria-label={collapsible ? `${project.name}, collapse` : project.name}
       >
         <span className="pcd-header-text">{project.name}</span>
-        {open > 0 && (
+        {collapsible && (
           <span className="pcd-header-trail">
             <Chevron up />
           </span>
@@ -243,8 +245,9 @@ function Project({
 }
 
 function NeedsYou({ style, collapsed }: { style: NeedsYouStyle; collapsed: boolean }) {
-  const { shown, more } = needsYou(capProjects);
+  const { shown, rest, more } = needsYou(capProjects);
   const [folded, setFolded] = useState(collapsed);
+  const [all, setAll] = useState(false);
   const total = shown.length + more;
   if (total === 0) return null;
   return (
@@ -263,10 +266,26 @@ function NeedsYou({ style, collapsed }: { style: NeedsYouStyle; collapsed: boole
           <ChatRow key={chat.id} chat={chat} />
         ))}
         {more > 0 && (
-          <button type="button" className="pcd-row pcd-more" data-style="text">
-            <span className="pcd-lead" />
-            <span className="pcd-more-text">{`${more} more`}</span>
-          </button>
+          <>
+            <Reveal open={all}>
+              {rest.map((chat) => (
+                <ChatRow key={chat.id} chat={chat} />
+              ))}
+            </Reveal>
+            <button
+              type="button"
+              className="pcd-row pcd-more"
+              data-style="text"
+              onClick={() => setAll(!all)}
+              aria-expanded={all}
+            >
+              <span className="pcd-lead" />
+              <span className="pcd-more-text">
+                {all ? "Show less" : `${more} more`}
+                <Chevron up={all} />
+              </span>
+            </button>
+          </>
         )}
       </Reveal>
     </section>

@@ -11,7 +11,7 @@ name: iOS reliability matrix
 #   host suites and the matrix cells in
 #   cmux-mobile-host/tests/reliability_matrix.rs (real Link, real host
 #   services, fake daemon, a toxic pipe for latency, loss and outages).
-# - ios (GitHub-hosted macOS, iOS simulator): the phone's cells in
+# - ios (an owned simulator mini, iOS simulator): the phone's cells in
 #   CmuxMobileLiveTests/ConnectivityMatrixTests.swift and the existing tests
 #   the catalog names (link recovery, cached lists).
 # - report: one table in the run summary (scripts/ci/ios_reliability_matrix.py);
@@ -38,7 +38,13 @@ on:
       - "cmux-next-ios/rust/**"
       - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/**"
       - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileTransport/**"
+      - "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLinkFFI/**"
+      - "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/**"
       - "cmux-next-ios/reliability-matrix/**"
+      - "cmux-tui/crates/cmux-wg/**"
+      - "cmux-tui/crates/cmux-transport/**"
+      - "cmux-tui/vendor/smoltcp/**"
+      - "scripts/ci/ios_reliability_matrix.py"
       - ".github/workflows/ios-reliability-matrix.yml"
   schedule:
     # Nightly, full matrix (08:17Z).
@@ -56,9 +62,119 @@ env:
   CARGO_TERM_COLOR: never
 
 jobs:
+  # Pick an idle owned Mac with an iOS simulator with the kit's lane of
+  # scripts/ci/ios_runner_pool.py (one simulator job on one Mac), then fall
+  # back to Blacksmith on retries. The markers let the pool charge this run's
+  # simulator while it holds one.
+  runner:
+    environment: ${{ !contains(fromJSON('["pull_request","merge_group"]'), github.event_name) && 'ci-routing-agent' || '' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      runs_on: ${{ steps.pool.outputs.runs_on }}
+      retry_runs_on: ${{ steps.pool.outputs.retry_runs_on }}
+      label: ${{ steps.pool.outputs.label }}
+      persistent: ${{ steps.pool.outputs.persistent }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            scripts/ci/ios_runner_pool.py
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
+            scripts/ci/simple_pool_picker.py
+            scripts/ci/deadline_http.py
+            scripts/ci/warm_distance.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)) && vars.CI_PR_POOL_OWNED == '1' && vars.CI_IOS_OWNED == '1' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          # Queue, job and capacity-snapshot reads use this App's quota.
+          permission-actions: read
+          permission-organization-self-hosted-runners: read
+      - name: Mint the repository routing token
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-actions: read
+      - name: Pick the macOS pool
+        id: pool
+        env:
+          CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          FORK_PULL_REQUEST: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+          RUNNER_VARIABLE: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}
+          IOS_OWNED: ${{ vars.CI_IOS_OWNED }}
+          POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          OWNED_SLOTS: ${{ vars.CI_OWNED_POOL_SLOTS }}
+          PR_XCODE_APP: ${{ (github.event_name == 'workflow_dispatch' || github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/ios_runner_pool.py \
+            --lane kit --fork "$FORK_PULL_REQUEST" --requested auto \
+            --variable "$RUNNER_VARIABLE" --ios-owned "$IOS_OWNED" --owned "$POOL_OWNED" \
+            --owned-slots "$OWNED_SLOTS" --pr-xcode-app "$PR_XCODE_APP" --order "$POOL_ORDER" \
+            --max-queued "$POOL_MAX_QUEUED" --queue-rounds 0 \
+            --device-family iphone | tee -a "$GITHUB_OUTPUT"
+      - name: Create the owned-pool marker
+        id: marker
+        if: steps.pool.outputs.persistent == 'true' && github.run_attempt == 1
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          marker="$RUNNER_TEMP/macos-pool-persistent.json"
+          echo '{}' > "$marker"
+          echo "path=$marker" >> "$GITHUB_OUTPUT"
+      - name: Upload the persistent pool marker
+        if: steps.marker.outputs.path != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-${{ steps.pool.outputs.label }}
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+      - name: Upload the simulator capacity marker
+        if: steps.marker.outputs.path != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: macos-pool-persistent-${{ github.run_id }}-${{ github.run_attempt }}-1-glaeda-ios-sim
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+      - name: Upload the owned-pool watch marker
+        if: steps.marker.outputs.path != ''
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: owned-pool-watch
+          path: ${{ steps.marker.outputs.path }}
+          retention-days: 1
+
   protocol:
     name: protocol cells (Linux)
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -93,13 +209,16 @@ jobs:
         with:
           name: matrix-rust-log
           path: ${{ runner.temp }}/matrix/rust.log
-          retention-days: 14
+          retention-days: 3
 
   ios:
+    needs: [runner]
     name: phone cells (iOS simulator)
-    # GitHub-hosted macOS with the iOS simulator.
-    runs-on: macos-26
+    # An owned simulator mini from the runner job, Blacksmith macOS 26 on a re-run or a fork.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}
     timeout-minutes: 60
+    env:
+      CMUX_CI_XCODE_APP: ${{ github.run_attempt == 1 && startsWith(needs.runner.outputs.label, 'glaeda-') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && vars.CMUX_CI_XCODE_APP_PR || '' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -160,13 +279,13 @@ jobs:
         with:
           name: matrix-ios-log
           path: ${{ runner.temp }}/matrix/ios.log
-          retention-days: 14
+          retention-days: 3
 
   report:
     name: matrix report
     needs: [protocol, ios]
     if: always()
-    runs-on: ubuntu-24.04
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && fromJSON(vars.RUNNER_POOLS).linux_16 || fromJSON(vars.RUNNER_POOLS).linux_8 }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -193,4 +312,4 @@ jobs:
         with:
           name: matrix-results
           path: matrix.json
-          retention-days: 30
+          retention-days: 3

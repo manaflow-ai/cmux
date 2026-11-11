@@ -82,6 +82,14 @@ export const BENCHES: readonly Bench[] = [
     args: ["--turns", "600"],
     timeoutMs: 150_000,
   },
+  // 50 tool calls landing in a running turn on the wall clock, as an agent sends them: frame gaps, long tasks, a
+  // record's arrival to its paint, task ms per call and layout shift.
+  {
+    name: "tool-call-burst",
+    file: "tool-call-burst.bench.ts",
+    args: ["--rounds", "3"],
+    timeoutMs: 120_000,
+  },
   // 500 chats on the History page and 500 live chats (one per workspace) on the New Tab page: scroll frame work,
   // React per frame, mount and a row's press to its paint.
   {
@@ -99,6 +107,16 @@ export const BENCHES: readonly Bench[] = [
     timeoutMs: 300_000,
     ownPart: true,
   },
+  // The pane's state layer kept per operation that should keep nothing (sessions made and closed, chats reopened,
+  // reconnects mid-stream, a shell's output streaming), small and god side by side: bytes, objects and entries per
+  // operation after warm-up (bench/stateGrowth.ts). perf-cron.py's web-ui-growth part runs it (`--only state-growth`).
+  {
+    name: "state-growth",
+    file: "state-growth.bench.ts",
+    args: ["120", "--scale", "both"],
+    timeoutMs: 240_000,
+    ownPart: true,
+  },
   // The same clock tick and 30-row list update drawn by an app (scene ops) and by the first-party component:
   // main-thread ms and React commits per update. Run with `--only extension-parity`.
   {
@@ -110,13 +128,14 @@ export const BENCHES: readonly Bench[] = [
   },
   // The same benches on the god session (bench/godFixture.ts: tens of thousands of rows, MB tool outputs, nested
   // subagents, images, months of history). Their rows carry `god` after the prefix (chat_open.god.compact.latest),
-  // so each pairs with its ordinary row; perf-cron.py runs them as a part of their own.
+  // so each pairs with its ordinary row; perf-cron.py runs them as a part of their own (web-ui-god), beside the
+  // ordinary three: the six timeouts sum to 1,710 s, under that part's 1,800 s cap (about 13 minutes measured).
   {
     name: "chat-open-god",
     file: "chat-open.bench.ts",
     args: ["3", "300"],
     env: { FIXTURE: "god" },
-    timeoutMs: 600_000,
+    timeoutMs: 300_000,
     ownPart: true,
   },
   {
@@ -124,7 +143,7 @@ export const BENCHES: readonly Bench[] = [
     file: "chat-switch.bench.ts",
     args: ["3", "300"],
     env: { FIXTURE: "god" },
-    timeoutMs: 900_000,
+    timeoutMs: 420_000,
     ownPart: true,
   },
   {
@@ -132,7 +151,7 @@ export const BENCHES: readonly Bench[] = [
     file: "transcript-replay.bench.ts",
     args: [],
     env: { FIXTURE: "god" },
-    timeoutMs: 900_000,
+    timeoutMs: 420_000,
     ownPart: true,
   },
 ];
