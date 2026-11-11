@@ -49,8 +49,8 @@ struct CloudChangeAskTests {
 
     @Test func aScriptsForkSaysItWaitsForThePersonThenAnswersTheNewMachine() async throws {
         let f = CloudCLITargetTests.fixture(), dialog = Dialog(), forks = Counter()
-        guard case .success(let waiting) = await Self.fork(f, dialog, forks: forks).value else {
-            return Issue.record("the first answer failed")
+        guard case .success(let waiting) = try await Self.fork(f, dialog, forks: forks).value else {
+            Issue.record("the first answer failed"); return
         }
         #expect(waiting["pending"] == .bool(true))
         #expect(waiting["waiting_for"] == .string("person"))
@@ -59,7 +59,7 @@ struct CloudChangeAskTests {
         // The same ask again joins the run: no second dialog, and the end once the person allows.
         let joined = try Self.fork(f, dialog, forks: forks)
         dialog.answer(true)
-        guard case .success(let forked) = await joined.value else { return Issue.record("the allowed fork failed") }
+        guard case .success(let forked) = await joined.value else { Issue.record("the allowed fork failed"); return }
         #expect(forked["machine_id"] == .string("vm-forked"))
         #expect(forked["source_machine_id"] == .string(f.session.machineID))
         #expect(forked["pending"] == nil)
@@ -69,10 +69,10 @@ struct CloudChangeAskTests {
 
     @Test func dontAllowEndsTheRunRefused() async throws {
         let f = CloudCLITargetTests.fixture(), dialog = Dialog(), forks = Counter()
-        guard case .success = await Self.fork(f, dialog, forks: forks).value else { return Issue.record("the first answer failed") }
+        guard case .success = try await Self.fork(f, dialog, forks: forks).value else { Issue.record("the first answer failed"); return }
         let joined = try Self.fork(f, dialog, forks: forks)
         dialog.answer(false)
-        guard case .failure(let failure) = await joined.value else { return Issue.record("a declined change answered success") }
+        guard case .failure(let failure) = await joined.value else { Issue.record("a declined change answered success"); return }
         #expect(failure.message == CloudChangeRequest.declined)
         #expect(forks.value == 0)
     }
@@ -80,8 +80,8 @@ struct CloudChangeAskTests {
     /// The person's own run asks nothing and answers the change itself.
     @Test func thePersonsOwnRunAsksNothing() async throws {
         let f = CloudCLITargetTests.fixture(), dialog = Dialog(), forks = Counter()
-        guard case .success(let forked) = await Self.fork(f, dialog, origin: .user, forks: forks).value else {
-            return Issue.record("the person's fork failed")
+        guard case .success(let forked) = try await Self.fork(f, dialog, origin: .user, forks: forks).value else {
+            Issue.record("the person's fork failed"); return
         }
         #expect(forked["machine_id"] == .string("vm-forked"))
         #expect(dialog.shown == 0)
