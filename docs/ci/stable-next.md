@@ -7,13 +7,20 @@ re-signs the same bits as a separate app and publishes them to its own feed. The
 
 | | cmux NEXT (nightly) | cmux NEXT Stable |
 | --- | --- | --- |
-| App | `cmux NEXT.app` | `cmux NEXT Stable.app` |
-| Bundle id | `com.cmuxterm.app.nightly.cmux-next` | `com.cmuxterm.app.nightly.cmux-next-stable` |
+| App | `cmux NIGHTLY.app` | `cmux NEXT Stable.app` |
+| Bundle id | `com.cmuxterm.app.nightly` | `com.cmuxterm.app.nightly.cmux-next-stable` |
 | Icon | Nightly icon | regular cmux icon |
-| Sign-in scheme | `cmux-next` | `cmux-next-stable` |
-| Feed | `files-next.cmux.com/nightly-next/next/appcast-arm64.xml` | `files-next.cmux.com/nightly-next/stable/appcast-arm64.xml` |
+| Sign-in scheme | `cmux-nightly` | `cmux-next-stable` |
+| Feed | `files-next.cmux.com/nightly-next/appcast-arm64.xml` | `files-next.cmux.com/nightly-next/stable/appcast-arm64.xml` |
 | Item channel | `cmux-next` | `cmux-next-stable` |
 | Cadence | every promotion | once a night, from 21:00 Pacific |
+
+Since 2026-11-05 (hq#7156) the nightly-next track ships each build once, as cmux NIGHTLY, on
+`nightly-next/appcast-arm64.xml`, with its notes in `nightly-next/notes/`. The canary verdicts and
+`pulled.json` stay in the retired cmux NEXT feed's folder, `nightly-next/next/`. The stable re-sign
+drops the NIGHTLY provisioning profile and signs with `cmux.next-dev.entitlements`, so the stable
+app claims no App ID or keychain group of its own. The plan warns when the newest nightly is 48 h
+old or more: until this moved, stable read the retired feed and re-tested its last build every night.
 
 The bundle id keeps the `com.cmuxterm.app.nightly` prefix on purpose: `BuildIdentity` treats any
 other `com.cmuxterm.app.<x>` id as a DEV build. Under that prefix the stable app behaves as a

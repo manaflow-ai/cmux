@@ -619,6 +619,8 @@ impl Mux {
                     None,
                     false,
                     None,
+                    // As before this parameter: this commit's changes may seed the fold.
+                    true,
                 )?;
                 (commit.resource.revision, commit.workspace_revision)
             }

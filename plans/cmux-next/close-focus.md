@@ -69,7 +69,10 @@ the strip's scroll function (column-scroll.md).
   (`tree_edit::remove_surface`) and the cmux-tui client call. The daemon and cmux-tui keep no
   openers or groups, so they run the positional steps only; the app's selection is the one
   the person sees. See "Chrome's tab close rule" below.
-- Workspace: the next workspace below, else the one above (`WindowRegistry.repairedSelection`).
+- Workspace: the one close-selection rule ("One close-selection rule" below): the workspace the
+  person came from when he made the closed one, else the next row below, and the row above only
+  when it was the last (`WindowRegistryStore.repairSelection` with the window manager's
+  `WindowCloseSelection`). A row's group or section is not read.
 - A rejected close (the tab or pane comes back) does not move focus back.
 
 Scroll (strip and sidebar):
@@ -142,7 +145,7 @@ successor), the strip's model sync to `ColumnScrollState`, and the sidebar's
 | same, `CMUX_MODELCHECK_PANES=7` | 7 panes | 341,004 states | 4,024,915 | 63 s |
 | `FocusAfterClose.pane` mostRecent | as above | 48,180 states | 810,480 | |
 | `FocusAfterClose.tab` | 5 tabs, every hidden subset, depth 5 | 10,449 close sequences | | <1 s |
-| `FocusAfterClose.workspace` | 5 workspaces, depth 5 | 600 close sequences | | <1 s |
+| `CloseSelection.workspace` with no relation held (the run was of its predecessor `FocusAfterClose.workspace`, now removed; not run again) | 5 workspaces, depth 5 | 600 close sequences | | <1 s |
 | `ListViewport` | 5 rows, 3 viewports, depth 3 | 1,025,508 states | 3,365,334 | 150 s |
 | `ColumnScrollState` (strip) | 4 columns, 3 widths, 2 viewports, depth 6 | 12,100 states | 73,766 | 5 s |
 | TLA+ strip / strip-recent / list | see formal/README.md | 23,057 / 23,229 / 93,149 distinct | | 20 s |
@@ -173,7 +176,7 @@ pill and animation smoothness (screenshots are settled frames).
    geometrically nearest pane.
 3. Tabs keep their own rule (Chrome's, 2026-11-09) and do not follow
    `layout.closeFocus`.
-   Workspaces keep next-below, else above.
+   Workspaces follow the one close-selection rule (below), not `layout.closeFocus`.
 4. The sidebar reveals the active row only when it changed or was visible; it does not
    pull a manually scrolled list back on unrelated closes.
 5. The restore point stays: closing a column that was just opened right of the focused
@@ -291,3 +294,43 @@ caller chooses the lifetime (`kind`, `foreground`), so this needs no change of t
 The table test is `cmux-tui/crates/cmux-focus-core/tests/close_selection.rs`: each row runs as
 tabs and as workspaces. The module lands with no caller; the workspaces move to it first, the
 tabs after.
+
+### Workspaces: the app's side
+
+- State: one `WindowCloseSelection` for every window, owned by the window manager's
+  `WindowRegistryStore` (a workspace has one owner window, so one handle is enough). It holds
+  the handle through `CloseSelection` (CmuxNextDesignTokens).
+- `made`: `WorkspaceSpawner.start` reports a create into a window (`WindowCloseSelection.expect`)
+  before the window can show it, and only for a person's own New Workspace
+  (`WorkspaceSpawn.quickOpener`): the spawn opens the New Tab page, and the run is the person's
+  own (action origin `user`, view change allowed). A duplicate, a template, a session transfer, an
+  import and a tab moved to a new workspace report none. The relation is made when that window
+  shows the new workspace; its opener is the workspace shown before. With
+  `workspaces.newPlacement` `afterCurrent` (the default) it is a task opener, not reported as
+  foreground (Chrome 156's observed rows for a new tab in the middle: a visit to the opener and
+  back still returns to the opener); with `top` or `bottom` it is the quick opener.
+- `selected`: every change of `WindowState.workspaceID` (`WindowCloseSelection.watch`). A selection a
+  repair makes is not a gesture; a selection in a script's, the CLI's or MCP's run is not one.
+- `left`: when the close is committed (`WindowCloseSelection.settle`, after the pick of each repair):
+  for each workspace of the state that no window lists any more (the daemon's delta took it), that
+  moved to another window, or whose create failed. The press of a close keeps the relation, so a
+  cancelled or refused close shows the row again with its opener.
+- A selection that a daemon delta causes is never a gesture: the reconcile caller says so itself
+  (`repairSelection(gesture:)`), because no action run surrounds a delta.
+- An opener that no sidebar order lists (a pinned layout tile) and a closed workspace that no order
+  lists yet: `WindowCloseSelection.pick` prepares the orders (the tile first in the order that lists
+  the closed row; the window's members as the last order), only while a relation is held. Rust
+  still decides. The root place is `successor_in_orders`; a change there needs a new FFI release
+  and pin (follow-up, with the tab PR), then the preparation goes.
+- A person's close of several rows in one gesture through `InstantClose.begin` (a multi-selection,
+  Close Others, Close Below, Close Above with more than one row) picks by position with no opener
+  rank (`pick(batch:)`). A bulk close that goes to the daemon direct (one row, a script's run, rows
+  of several windows, the group closes) is repaired at the delta, with the opener rank.
+- The pick: `WindowManager.repairSelections` calls `WindowRegistryStore.repairSelection` (CmuxNextLayout)
+  for every close entry point: the pick, the selection, then the settle. No group map is passed
+  (decision 2026-11-10, Chrome 156 as observed: the next row, whatever its group). The app's
+  sidebar sends a close as an intent and never picks; a sidebar model alone (the mock, a test)
+  picks by position with `SidebarCloseSuccessor`.
+- Cost: with no relation held, a selection change, a close and a selection repair are emptiness
+  checks; with some held they ask about those relations' workspaces only. No hook walks a
+  window's members (`WorkspaceCloseSelectionTests.aSwitchAndACloseNeverWalkTheMembers`).

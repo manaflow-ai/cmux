@@ -15,20 +15,22 @@ export type PrefixFlat<R, T> = {
 };
 
 /// How many leading rows of `rows` are the same objects at the same places in `previous`. The pane
-/// asks this of the same two snapshots once per pass (composer, tray, plan, Find, ...), so the last
-/// few answers are kept: each pair is walked once.
+/// asks this of the same two snapshots once per pass (composer, tray, plan, Find, ...), so answers
+/// are kept: each pair is walked once. They are kept by the arrays themselves (weakly), so a chat
+/// that closed leaves none of its rows here.
 /// (Snapshots are never written after they are made; the lengths are checked all the same.)
-const kept: { previous: readonly unknown[]; rows: readonly unknown[]; lengths: number; count: number }[] = [];
+const kept = new WeakMap<readonly unknown[], WeakMap<readonly unknown[], { lengths: number; count: number }>>();
 export function keptPrefix(previous: readonly unknown[], rows: readonly unknown[]): number {
   if (previous === rows) return rows.length;
   const lengths = previous.length * 2 ** 26 + rows.length;
-  for (const each of kept)
-    if (each.previous === previous && each.rows === rows && each.lengths === lengths) return each.count;
+  let after = kept.get(rows);
+  const known = after?.get(previous);
+  if (known?.lengths === lengths) return known.count;
   const limit = Math.min(rows.length, previous.length);
   let count = 0;
   while (count < limit && rows[count] === previous[count]) count += 1;
-  kept.unshift({ previous, rows, lengths, count });
-  if (kept.length > 8) kept.pop();
+  if (!after) kept.set(rows, (after = new WeakMap()));
+  after.set(previous, { lengths, count });
   return count;
 }
 
@@ -63,31 +65,38 @@ export function prefixFlatMap<R, T>(
 /// The last few passes of one `each`, for a function several views call with their own rows (the
 /// pane's and Session Info's): each call starts from the pass that kept the most of its rows.
 export class PrefixFlatCache<R, T> {
-  private readonly passes: PrefixFlat<R, T>[] = [];
+  /// The rows of the last few passes, newest first, held weakly: a pass lives only as long as the
+  /// rows it read (`passes`), so a chat that closed leaves no rows or items here.
+  private refs: WeakRef<readonly R[]>[] = [];
+  private readonly passes = new WeakMap<readonly R[], PrefixFlat<R, T>>();
   constructor(
     private readonly each: (row: R, index: number, rows: readonly R[]) => readonly T[],
     private readonly size = 4,
   ) {}
 
   read(rows: readonly R[]): PrefixFlat<R, T> {
-    let best: PrefixFlat<R, T> | undefined;
+    const known = this.passes.get(rows);
+    if (known) return known;
+    let best: { ref: WeakRef<readonly R[]>; pass: PrefixFlat<R, T> } | undefined;
     let bestKept = 0;
-    for (const pass of this.passes) {
-      if (pass.rows === rows) return pass;
+    const live: WeakRef<readonly R[]>[] = [];
+    for (const ref of this.refs) {
+      const read = ref.deref();
+      const pass = read && this.passes.get(read);
+      if (!pass) continue;
+      live.push(ref);
       const count = keptPrefix(pass.rows, rows);
       if (count > bestKept) {
-        best = pass;
+        best = { ref, pass };
         bestKept = count;
       }
     }
-    const next = prefixFlatMap(rows, this.each, best);
-    if (next !== best) {
-      // A pass at least as long as the one it started from takes its place (the same view's next
-      // snapshot); a shorter one is another view's, and both stay.
-      if (best && rows.length >= best.rows.length) this.passes.splice(this.passes.indexOf(best), 1);
-      this.passes.unshift(next);
-      if (this.passes.length > this.size) this.passes.pop();
-    }
+    const next = prefixFlatMap(rows, this.each, best?.pass);
+    this.passes.set(rows, next);
+    // A pass at least as long as the one it started from takes its place (the same view's next
+    // snapshot); a shorter one is another view's, and both stay.
+    const replaced = best && rows.length >= best.pass.rows.length ? best.ref : undefined;
+    this.refs = [new WeakRef(rows), ...live.filter((ref) => ref !== replaced)].slice(0, this.size);
     return next;
   }
 }
