@@ -317,6 +317,62 @@ def test_journal_sentinels_are_focused_only_and_full_uses_isolated_core_runner()
     assert "crates/cmux-tui-core" in cargo_test
 
 
+def _run_full_step(workspace_fails: bool) -> tuple[int, str]:
+    """Run the test job's full-mode `cargo test` step against a fake cargo and python3.
+
+    The fake cargo fails the workspace call when WORKSPACE_FAILS. Returns the exit code
+    and every cargo and python3 call, in order.
+    """
+    steps = {step.get("name"): step for step in _test_job()["steps"]}
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        log = root / "calls.log"
+        fail = 'case "$*" in *"--workspace --exclude cmux-tui-core"*) exit 101 ;; esac\n'
+        cargo = root / "cargo"
+        cargo.write_text(
+            "#!/usr/bin/env bash\n"
+            f'echo "cargo $*" >> "{log}"\n'
+            + (fail if workspace_fails else ""),
+            encoding="utf-8",
+        )
+        python = root / "python3"
+        python.write_text(f'#!/usr/bin/env bash\necho "python3 $*" >> "{log}"\n', encoding="utf-8")
+        for fake in (cargo, python):
+            fake.chmod(0o755)
+        script = root / "step.sh"
+        script.write_text(steps["cargo test"]["run"], encoding="utf-8")
+        work = root / "cmux-tui"
+        work.mkdir()
+        # GitHub runs `shell: bash` as `bash --noprofile --norc -eo pipefail`.
+        result = subprocess.run(
+            ["bash", "--noprofile", "--norc", "-eo", "pipefail", str(script)],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=work,
+            env={"PATH": f"{root}:/usr/bin:/bin", "MODE": "full", "TEST_FILTER": "", "RUNNER_TEMP": str(root)},
+        )
+        calls = log.read_text(encoding="utf-8") if log.exists() else ""
+    return result.returncode, calls
+
+
+def test_a_red_workspace_still_runs_the_core_tests_and_fails_the_step() -> None:
+    """Full mode runs the workspace with --no-fail-fast, then the cmux-tui-core tests.
+
+    Under `bash -e` a red workspace (a base red in any crate) ended the step before the
+    cmux-tui-core unit and doc tests, so a PR shipped without them ever running. The core
+    tests must still run, and the step must still fail with the workspace status.
+    """
+    code, calls = _run_full_step(workspace_fails=True)
+    assert code == 101, (code, calls)
+    assert "python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py" in calls, calls
+    assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
+
+    code, calls = _run_full_step(workspace_fails=False)
+    assert code == 0, (code, calls)
+    assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
+
+
 def test_tui_status_names_remain_stable() -> None:
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     assert workflow["jobs"]["test"]["name"] == "test (${{ matrix.os }})"
