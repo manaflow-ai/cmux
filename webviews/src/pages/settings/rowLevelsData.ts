@@ -40,7 +40,6 @@ export const ROW_LEVELS: {
     "focus.inactiveTabStyle": "more",
     "ui.animationSpeed": "more",
     "ui.animations.newWorkspace": "more",
-    "ui.animations.bounce": "more",
     "appearance.metrics.sidebarWidth": "hidden",
     "appearance.metrics.columnGap": "hidden",
     "appearance.metrics.dividerThickness": "hidden",
@@ -578,7 +577,7 @@ export const ROW_LEVELS: {
         title: "Messages Server",
       },
     ],
-    devices: [
+    mobile: [
       {
         into: "settings.group.phone",
         from: ["settings.group.mobile"],

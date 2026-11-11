@@ -148,7 +148,7 @@ export function SectionView({
     .filter((group) => group.rows.length > 0);
   // Each row's level and the merged cards (rowLevels.ts). Only Personalization has a jump bar (its own
   // card); a category page is short enough without one (Lucas 2026-11-11).
-  const cards = arrangeGroups(category.id, groups);
+  const cards = arrangeGroups(category.id, groups, focus);
   return (
     <div className="section" data-section={category.id}>
       <h1 className="section-title">{text(category.title)}</h1>

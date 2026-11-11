@@ -45,8 +45,8 @@ struct MobileTerminalSizingSettingTests {
         #expect(choices.map(\.value) == ["smallest", "mac", "latest", "priority"])
         let order = try #require(SettingsSchema.descriptor(for: MobileSettings.terminalSizingOrderPath))
         #expect(order.defaultValue == .array([]))
-        let devices = try #require(SettingsPageLayout().categories().first { $0.spec.id == "devices" })
-        #expect(devices.groups.flatMap(\.rows).filter { $0.hasPrefix("mobile.") } == ["mobile.allowIPhoneConnections", "mobile.terminalSizing"])
+        let mobile = try #require(SettingsPageLayout().categories().first { $0.spec.id == "mobile" })
+        #expect(mobile.groups.flatMap(\.rows).filter { $0.hasPrefix("mobile.") } == ["mobile.allowIPhoneConnections", "mobile.terminalSizing"])
         // Only the person (here or on the phone, through the daemon) changes it.
         #expect(SettingsSchema.agentRefusedKeys["mobile.terminalSizing"] == .userOnly)
         #expect(SettingsSchema.agentRefusedKeys["mobile.terminalSizingOrder"] == .userOnly)

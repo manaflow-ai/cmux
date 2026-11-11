@@ -9,7 +9,8 @@ import { t, text } from "./strings";
 
 /** The Settings pages whose rows the stack records (Appearance and Theme), and Personalization, which
  * draws their cards and shows the same Undo bar (it holds no rows of its own). */
-export const APPEARANCE_CATEGORIES: readonly string[] = ["personalization", "appearance", "theme"];
+// Theme is no category: Personalization holds it (an unknown id would read as General).
+export const APPEARANCE_CATEGORIES: readonly string[] = ["personalization", "appearance"];
 
 /** Appearance keys the page no longer shows that the app still loads (#22379): a value someone
  * set still applies, so Reset to Defaults resets it too, the only way Settings can put it back. */

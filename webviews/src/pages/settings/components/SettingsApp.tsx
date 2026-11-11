@@ -72,7 +72,8 @@ export function SettingsApp() {
       const row = rowsByKey.get(key);
       // A key Personalization draws opens its part there: no other page draws it.
       const part = personalizationPartOf(key);
-      if (part) go("personalization", `personalization.${part}`);
+      // Personalization opens the part that draws the key, and the key's row takes focus there.
+      if (part) go("personalization", key);
       else if (row) go(homes.get(key)?.category ?? row.section, key);
     },
     [go],

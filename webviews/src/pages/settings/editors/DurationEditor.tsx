@@ -37,24 +37,53 @@ const PRESETS = [
   365 * 86400,
 ];
 
-/** A slider only shows travel over a short range: past this many steps a time row is a menu. */
-const MAX_SLIDER_STEPS = 60;
+/** The fewest preset durations that make a menu worth more than the slider. */
+const MIN_PRESETS = 4;
 
 const custom = "__custom__";
+
+/** A row's unit as the name a duration label formats a zero in. */
+const UNIT_NAMES: Partial<Record<string, Intl.NumberFormatOptions["unit"]>> = {
+  seconds: "second",
+  minutes: "minute",
+  hours: "hour",
+  days: "day",
+};
+
+/** The presets a row's range and step allow, in the row's unit. */
+function presetsOf(row: SchemaRow): number[] {
+  const range = row.range!;
+  const factor = UNIT_SECONDS[range.unit]!;
+  const onStep = (value: number) => {
+    const steps = (value - range.min) / range.step;
+    return Math.abs(steps - Math.round(steps)) < 1e-9;
+  };
+  return PRESETS.map((seconds) => seconds / factor).filter(
+    (value) => value >= range.min && value <= range.max && onStep(value),
+  );
+}
 
 /**
  * A time row whose range is too wide for a slider (Hibernate After: 5 minutes to a week, so an hour
  * sits at the track's very start; Lucas 2026-11-11). Such a row is a menu of durations instead, as
- * macOS's own settings are ("Turn display off after").
+ * macOS's own settings are ("Turn display off after"), when its range spans an hour or more and the
+ * menu has several durations to offer. A row whose default is 0 keeps its slider: its 0 means
+ * something of its own ("no limit", "at once") that a duration menu cannot name.
  */
 export function isDuration(row: SchemaRow): boolean {
   const range = row.range;
-  if (!range || UNIT_SECONDS[range.unit] === undefined || range.step <= 0) return false;
-  return (range.max - range.min) / range.step > MAX_SLIDER_STEPS;
+  const factor = range ? UNIT_SECONDS[range.unit] : undefined;
+  if (!range || factor === undefined || range.step <= 0) return false;
+  if (range.min === 0 && row.default === 0) return false;
+  return (range.max - range.min) * factor >= 3600 && presetsOf(row).length >= MIN_PRESETS;
 }
 
-/** "1 hour", "15 minutes", "2 weeks": the largest unit that holds the duration whole, in the page's language. */
-export function durationLabel(seconds: number): string {
+/** "1 hour", "15 minutes", "2 weeks": the largest unit that holds the duration whole, in the page's
+ * language; a zero reads in `zeroUnit` (the row's own unit), never as seconds of a days row. */
+export function durationLabel(seconds: number, zeroUnit: Intl.NumberFormatOptions["unit"] = "second"): string {
+  const format = (unit: Intl.NumberFormatOptions["unit"], value: number) =>
+    new Intl.NumberFormat(locale(), { style: "unit", unit, unitDisplay: "long" }).format(value);
+  if (seconds === 0) return format(zeroUnit, 0);
   const units: Array<[Intl.NumberFormatOptions["unit"], number]> = [
     ["week", 7 * 86400],
     ["day", 86400],
@@ -62,22 +91,13 @@ export function durationLabel(seconds: number): string {
     ["minute", 60],
   ];
   const [unit, size] = (seconds > 0 && units.find(([, size]) => seconds % size === 0)) || ["second", 1];
-  return new Intl.NumberFormat(locale(), { style: "unit", unit, unitDisplay: "long" }).format(seconds / size);
+  return format(unit, seconds / size);
 }
 
 /** The menu's values in the row's unit: the presets on its step, plus the stored value and default. */
 function durations(row: SchemaRow, current: number): number[] {
-  const range = row.range!;
-  const factor = UNIT_SECONDS[range.unit]!;
-  const onStep = (value: number) => {
-    const steps = (value - range.min) / range.step;
-    return Math.abs(steps - Math.round(steps)) < 1e-9;
-  };
-  const values = PRESETS.map((seconds) => seconds / factor).filter(
-    (value) => value >= range.min && value <= range.max && onStep(value),
-  );
   const fixed = [current, typeof row.default === "number" ? row.default : null].filter((v) => v !== null);
-  return [...new Set([...values, ...fixed])].sort((a, b) => a - b);
+  return [...new Set([...presetsOf(row), ...fixed])].sort((a, b) => a - b);
 }
 
 export function DurationEditor({ row, value, disabled, labelId }: EditorProps) {
@@ -121,7 +141,7 @@ export function DurationEditor({ row, value, disabled, labelId }: EditorProps) {
       >
         {durations(row, current).map((duration) => (
           <option key={duration} value={String(duration)}>
-            {durationLabel(duration * factor)}
+            {durationLabel(duration * factor, UNIT_NAMES[range.unit])}
           </option>
         ))}
         <option value={custom}>{t("settingsPage.custom")}</option>

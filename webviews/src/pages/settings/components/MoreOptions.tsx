@@ -3,6 +3,7 @@ import { useId, useState } from "react";
 import type { SchemaRow } from "../schema";
 import { SettingRow } from "./SettingRow";
 import { Icon } from "../icons";
+import { t } from "../strings";
 
 /**
  * The card's last row toggles the rows behind it, which open below it in the same card (standup
@@ -11,9 +12,18 @@ import { Icon } from "../icons";
  */
 export function MoreOptions({ rows, focus }: { rows: SchemaRow[]; focus?: string | null }) {
   const id = useId();
-  // A link to a row behind the toggle opens it.
-  const [open, setOpen] = useState(() => rows.some((row) => row.key === focus));
+  // A link to a row behind the toggle opens it, on the first draw and on any later link.
+  const linked = rows.some((row) => row.key === focus);
+  const [open, setOpen] = useState(linked);
   const [mounted, setMounted] = useState(open);
+  const [seenFocus, setSeenFocus] = useState(focus);
+  if (seenFocus !== focus) {
+    setSeenFocus(focus);
+    if (linked && !open) {
+      setOpen(true);
+      setMounted(true);
+    }
+  }
   return (
     <>
       <button
@@ -27,7 +37,7 @@ export function MoreOptions({ rows, focus }: { rows: SchemaRow[]; focus?: string
           setOpen(!open);
         }}
       >
-        <span className="more-options-label">More Options</span>
+        <span className="more-options-label">{t("settingsPage.moreOptions")}</span>
         <span className="more-options-count">{rows.length}</span>
         <Icon name="chevron" className="more-options-chevron" />
       </button>

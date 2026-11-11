@@ -20,11 +20,16 @@ afterEach(() => {
 
 test("wide time ranges are menus; short ranges and other units keep their slider", () => {
   expect(isDuration(rowsByKey.get(HIBERNATE)!)).toBe(true);
-  expect(isDuration(rowsByKey.get("notifications.timeoutSeconds")!)).toBe(true);
   // 0 to 60 seconds in whole seconds: a slider shows it well.
   expect(isDuration(rowsByKey.get("notifications.suppressWhileTypingSeconds")!)).toBe(false);
   expect(isDuration(rowsByKey.get("notifications.sounds.volume")!)).toBe(false);
   expect(isDuration(rowsByKey.get("sidebar.hoverCards.delay")!)).toBe(false);
+  // A 0 default means something of its own ("no limit", "at once"): the row keeps its slider.
+  expect(isDuration(rowsByKey.get("history.closed.maxAgeDays")!)).toBe(false);
+  expect(isDuration(rowsByKey.get("agents.autoRetry.intervalSeconds")!)).toBe(false);
+  // A short span or a step few durations fit keeps the slider too.
+  expect(isDuration(rowsByKey.get("notifications.sounds.cooldownSeconds")!)).toBe(false);
+  expect(isDuration(rowsByKey.get("appearance.colorTransition.springResponse")!)).toBe(false);
 });
 
 test("a duration reads in the largest whole unit", () => {
@@ -32,6 +37,8 @@ test("a duration reads in the largest whole unit", () => {
   expect(durationLabel(15 * 60)).toBe("15 minutes");
   expect(durationLabel(14 * 86400)).toBe("2 weeks");
   expect(durationLabel(90)).toBe("90 seconds");
+  // A zero reads in the row's own unit.
+  expect(durationLabel(0, "day")).toBe("0 days");
 });
 
 test("Hibernate After is a menu on its value; a pick writes minutes, and Custom… opens the field", async () => {

@@ -10,8 +10,17 @@ import { ROW_LEVELS } from "./rowLevelsData";
  * it is a merged card that draws no title. */
 export type ArrangedGroup = CategoryGroup & { more?: SchemaRow[]; untitled?: boolean };
 
-export function arrangeGroups(categoryId: string, groups: readonly CategoryGroup[]): ArrangedGroup[] {
-  const level = (row: SchemaRow) => ROW_LEVELS.levels[row.key];
+export function arrangeGroups(
+  categoryId: string,
+  groups: readonly CategoryGroup[],
+  focus: string | null = null,
+): ArrangedGroup[] {
+  // A link to a hidden row (a search result, Return in search) shows it behind its card's More
+  // Options, which the link opens, so the link never lands on a page without its row.
+  const level = (row: SchemaRow) => {
+    const own = ROW_LEVELS.levels[row.key];
+    return own === "hidden" && row.key === focus ? "more" : own;
+  };
   const sorted: ArrangedGroup[] = groups.map((group) => ({
     ...group,
     rows: group.rows.filter((row) => !level(row)),

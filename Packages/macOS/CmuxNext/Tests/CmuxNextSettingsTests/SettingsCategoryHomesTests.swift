@@ -47,9 +47,9 @@ struct SettingsCategoryHomesTests {
         #expect(Self.home(of: "terminal.term") == "terminal")
     }
 
-    @Test func bothPhoneSwitchesLiveInDevices() {
-        #expect(Self.home(of: "mobile.allowIPhoneConnections") == "devices")
-        #expect(Self.home(of: "phone.allowConnections") == "devices")
+    @Test func bothPhoneSwitchesLiveInMobile() {
+        #expect(Self.home(of: "mobile.allowIPhoneConnections") == "mobile")
+        #expect(Self.home(of: "phone.allowConnections") == "mobile")
     }
 
     @Test func chatLooksLiveInChatAndAgentBehaviorInAgents() {

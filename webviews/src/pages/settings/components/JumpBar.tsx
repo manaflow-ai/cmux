@@ -4,10 +4,10 @@ import { Button } from "../../../ui/Button";
 export type JumpItem = { id: string; label: string };
 
 /**
- * The bar of a page's parts, pinned to the top of the content on glass: one button per card, the
- * current one filled. Every category page with three or more titled cards shows it
- * (SectionView), and Personalization shows its parts in the same bar. When the cards do not fit,
- * the bar scrolls sideways, fades the edge that hides more, and keeps the current one in view.
+ * The bar of a page's parts, pinned to the top of the content on glass: one button per part, the
+ * current one filled. Only Personalization shows it (category pages are short enough without one,
+ * standup 2026-11-11). When the parts do not fit, the bar scrolls sideways, fades the edge that
+ * hides more, and keeps the current one in view.
  */
 /** Scrolls the bar sideways (never the page) until the current button shows in full. */
 function showInBar(button: HTMLButtonElement | null) {
