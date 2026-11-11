@@ -96,6 +96,17 @@ struct ScreenInputTests {
         guard case .failed = session.imagePaste else { Issue.record("still \(session.imagePaste) after the stream went"); return }
     }
 
+    /// No size limit: a 21 MiB image (past the 20 MiB a paste once took) is sent, not refused.
+    @MainActor @Test func aLargeImageIsSentNotRefused() throws {
+        let stream = try #require(VNCPairing(link: VNCPairing.generate(name: "Mac", kind: "stream").link))
+        let session = ScreenSession(title: "Mac", pairing: stream)
+        defer { session.close() }
+        session.connect()
+        session.receiveCapabilities(["paste-image"])
+        session.pasteImage(Data(count: 21 << 20), type: "public.png")
+        #expect(session.imagePaste == .sending)
+    }
+
     private func object(_ input: ScreenInput) throws -> [String: Any] {
         try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(input)) as? [String: Any])
     }

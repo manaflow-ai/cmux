@@ -86,17 +86,27 @@ struct ScreenImagePasteTests {
         #expect(Self.host(messages, backend: RecordingBackend()) == [.refused])
     }
 
-    @Test func tooLargeOrUnknownTypesAreNeverSent() {
-        #expect(ScreenInput.pasteImage(Data(count: ScreenInput.pasteImageMaximumBytes + 1), type: "public.png").isEmpty)
+    @Test func unknownTypesOrEmptyImagesAreNeverSent() {
         #expect(ScreenInput.pasteImage(Self.image, type: "public.data").isEmpty)
         #expect(ScreenInput.pasteImage(Data(), type: "public.png").isEmpty)
     }
 
-    @Test func aChunkClaimingAnUnknownTypeOrTooManyChunksIsRefused() {
+    /// No size limit: a 21 MiB image (past the 20 MiB the host once took) goes in chunks and is pasted whole.
+    @Test func anImageOfAnySizeIsSentInChunksAndPastedWhole() throws {
+        let image = Data((0 ..< (21 << 20)).map { UInt8(truncatingIfNeeded: $0 &* 7) })
+        let messages = try Self.wire(ScreenInput.pasteImage(image, type: "public.png", id: "big"))
+        #expect(messages.count == (image.count + ScreenInput.pasteImageChunkBytes - 1) / ScreenInput.pasteImageChunkBytes)
+        let backend = PastingBackend()
+        #expect(Self.host(messages, backend: backend) == [.pasted])
+        #expect(backend.pasted.first?.0 == image)
+    }
+
+    /// An unknown type is refused; a large chunk count is only the image's size, so it is taken (no answer yet).
+    @Test func aChunkClaimingAnUnknownTypeIsRefusedAndManyChunksAreTaken() {
         let backend = PastingBackend()
         let chunk = Data("x".utf8).base64EncodedString()
         #expect(Self.host([ScreenInput(t: "paste-image", s: chunk, i: 0, n: 1, id: "a", f: "public.data")], backend: backend) == [.refused])
-        #expect(Self.host([ScreenInput(t: "paste-image", s: chunk, i: 0, n: 1_000_000, id: "a", f: "public.png")], backend: backend) == [.refused])
+        #expect(Self.host([ScreenInput(t: "paste-image", s: chunk, i: 0, n: 1_000_000, id: "a", f: "public.png")], backend: backend) == [])
         #expect(backend.pasted.isEmpty)
     }
 
