@@ -32,8 +32,11 @@
 # only other path: docs/ci/app-ffi-release.md is the runbook.
 #
 # The push paths are the FFI inputs that scripts/cmux-next/check-app-ffi-pin.sh
-# derives from the Cargo path dependencies of cmux-app-ffi (--list-inputs);
-# scripts/cmux-next/tests/app-ffi-release-paths.test.sh keeps them in step.
+# derives from the Cargo path dependencies of cmux-app-ffi (--list-inputs),
+# less each crate's tests/, benches/ and examples/ (--list-excluded: Cargo never
+# builds them into the library), except one a library file names (re-added
+# after the exclusions); scripts/cmux-next/tests/app-ffi-release-paths.test.sh
+# keeps them in step.
 name: app FFI release
 
 on:
@@ -72,6 +75,14 @@ on:
       - "cmux-tui/rust-toolchain.toml"
       - "scripts/cmux-next/build-app-ffi.sh"
       - ".github/workflows/app-ffi-release.yml"
+      - "!cmux-tui/crates/*/tests/**"
+      - "!cmux-tui/crates/*/benches/**"
+      - "!cmux-tui/crates/*/examples/**"
+      - "!cmux-tui/bindings/rust/tests/**"
+      - "!cmux-tui/bindings/rust/benches/**"
+      - "!cmux-tui/bindings/rust/examples/**"
+      # cmux-rd-ffi's line reader test includes cmux-rd-proto/tests/vectors/app_lines.json.
+      - "cmux-tui/crates/cmux-rd-proto/tests/**"
   workflow_dispatch:
 
 # No run-level group: with one (cancel-in-progress: false) a newer FFI push
