@@ -104,3 +104,33 @@ fn watch_ignores_other_entries_of_a_watched_folder() {
     assert!(hints.recv_timeout(NO_HINT_FOR).is_err(), "a change to an entry nobody watches hinted");
     drop(socket);
 }
+
+/// A database's write-ahead log stays open in its writer while it runs: each
+/// commit is a write with no close. `start_with_writes` hints for it; writes
+/// in place to other entries of the folder (a busy log beside it) do not.
+#[test]
+fn watch_with_writes_hints_for_a_write_its_writer_keeps_open() {
+    use std::io::Write as _;
+    let scratch = Scratch::new("writes");
+    let log = scratch.0.join("state.sqlite-wal");
+    let busy = scratch.0.join("logs.sqlite-wal");
+    fs::write(&log, "").unwrap();
+    fs::write(&busy, "").unwrap();
+    let (hint, hints) = mpsc::channel();
+    let _watcher = Watcher::start_with_writes(vec![log.clone()], move || {
+        let _ = hint.send(());
+    })
+    .expect("the watch starts");
+    hints.recv_timeout(Duration::from_secs(5)).expect("the watch hints once when armed");
+    let mut other = fs::OpenOptions::new().append(true).open(&busy).unwrap();
+    for round in 0..10 {
+        writeln!(other, "{round}").unwrap();
+    }
+    other.sync_all().unwrap();
+    assert!(hints.recv_timeout(NO_HINT_FOR).is_err(), "a write to an entry nobody watches hinted");
+    let mut writer = fs::OpenOptions::new().append(true).open(&log).unwrap();
+    writeln!(writer, "commit").unwrap();
+    writer.sync_all().unwrap();
+    expect_hint(&hints, "a write to a watched file its writer keeps open");
+    drop(writer);
+}
