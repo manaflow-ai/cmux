@@ -286,6 +286,11 @@ impl Mux {
 
 #[cfg(test)]
 impl Mux {
+    /// How many desktop notifications wait in the agent dedupe hold now.
+    pub(crate) fn held_agent_desktop_notifications_for_test(&self) -> usize {
+        self.agent_desktop_holds.lock().held.len()
+    }
+
     /// Moves the clock of the agent desktop notification dedupe forward by
     /// `by`, then posts the held desktop notifications that are due, before
     /// it returns.

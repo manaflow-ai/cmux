@@ -307,3 +307,16 @@ pub fn detach_size_participant(
 pub fn detach_control_client(mux: &Arc<Mux>, client: u64) -> bool {
     disconnect_client(mux, client, true)
 }
+
+#[cfg(test)]
+impl Mux {
+    /// Test seam: a plain control client (a CLI call, a status query or a
+    /// hook emit) connects and closes, and never attaches a view. Returns
+    /// whether the close found the client.
+    pub(crate) fn connect_and_close_a_plain_client_for_test(self: &Arc<Self>) -> bool {
+        let outbound = Arc::new(super::BoundedOutbound::default());
+        let writer = MessageWriter::new(super::QueuedSink { outbound, control: None });
+        let client = self.control_clients.register(super::ClientTransport::Unix, writer);
+        disconnect_client(self, client, false)
+    }
+}

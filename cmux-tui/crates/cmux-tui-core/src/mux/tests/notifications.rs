@@ -1032,6 +1032,10 @@ enum W6dStep {
     Print,
     /// The notification clock moves forward (no real waiting).
     Advance(Duration),
+    /// When a desktop notification is held, a plain control client (a CLI
+    /// call, a status query or a hook emit) connects and closes without a
+    /// view attach.
+    PlainClientComesAndGoes,
 }
 
 /// The Claude hook events and output of one permission request, one
@@ -1107,6 +1111,14 @@ fn w6d_notification_titles(
                 surface.write_bytes(b"\n").unwrap();
             }
             W6dStep::Advance(by) => mux.advance_agent_notification_clock_for_test(by),
+            W6dStep::PlainClientComesAndGoes => {
+                let held = Instant::now() + Duration::from_secs(20);
+                while mux.held_agent_desktop_notifications_for_test() == 0 {
+                    assert!(Instant::now() < held, "no desktop notification was held");
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                assert!(mux.connect_and_close_a_plain_client_for_test());
+            }
         }
     }
     let titles = || {
@@ -1145,6 +1157,28 @@ fn w6d_a_claude_terminal_with_hooks_posts_one_notification_per_agent_event() {
             W6D_CLAUDE_OUTPUT,
             Some("claude"),
             w6d_claude_steps(),
+            "claude-code needs sign-in",
+        ),
+        ["Claude finished", "Claude needs approval", "claude-code needs sign-in"],
+    );
+}
+
+/// W6-D review of 79d07045: a plain control client (a CLI call, a status
+/// query or a hook emit) that connects and closes while Claude's own
+/// desktop notification is held is no client detach. The hold stays, and
+/// the hook notification that follows drops it as its copy: one
+/// notification per agent event, as without the plain client.
+#[test]
+fn w6d_c_a_plain_client_that_comes_and_goes_keeps_the_hold() {
+    let mut steps = w6d_claude_steps();
+    let first_print = steps.iter().position(|step| matches!(step, W6dStep::Print)).unwrap();
+    steps.insert(first_print + 1, W6dStep::PlainClientComesAndGoes);
+    assert_eq!(
+        w6d_notification_titles(
+            "w6d-notify-plain-client",
+            W6D_CLAUDE_OUTPUT,
+            Some("claude"),
+            steps,
             "claude-code needs sign-in",
         ),
         ["Claude finished", "Claude needs approval", "claude-code needs sign-in"],
@@ -1269,10 +1303,11 @@ fn w6d_c_background_job_desktop_notification_in_a_claude_terminal_posts() {
     );
 }
 
-/// W6-D lead decision: a desktop notification after the dedupe window of a
-/// Claude hook notification is no copy of it, and posts.
+/// W6-D lead decision: a desktop notification after the 2 s dedupe window
+/// (`AGENT_DESKTOP_DEDUPE_WINDOW`) of a Claude hook notification is no copy
+/// of it, and posts.
 #[test]
-fn w6d_c_desktop_notification_outside_the_window_posts() {
+fn w6d_c_desktop_notification_outside_the_dedupe_window_posts() {
     assert_eq!(
         w6d_notification_titles(
             "w6d-notify-window-late",
