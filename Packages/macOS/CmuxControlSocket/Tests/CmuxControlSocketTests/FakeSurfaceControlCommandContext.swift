@@ -14,6 +14,7 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     var jumpToLastPromptResolution: ControlSurfaceFocusResolution?
     var closeResolution: ControlSurfaceCloseResolution = .tabManagerUnavailable
     var onSurfaceClose: (() -> Void)?
+    var ownedProcessClose: Bool?
     var resumeResolution: ControlSurfaceResumeResolution = .surfaceNotFound
     var resumeSetInputs: ControlSurfaceResumeSetInputs?
     var resumeGetClaim: (
@@ -64,6 +65,10 @@ final class FakeSurfaceControlCommandContext: ControlCommandContext {
     ) -> ControlSurfaceCloseResolution {
         onSurfaceClose?()
         return closeResolution
+    }
+    func controlOwnedProcess(params: [String: JSONValue], close: Bool) -> ControlCallResult {
+        ownedProcessClose = close
+        return .ok(.object([:]))
     }
     func controlPaneRoutingResolvesTabManager(routing: ControlRoutingSelectors) -> Bool { true }
 
