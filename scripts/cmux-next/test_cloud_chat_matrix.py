@@ -38,6 +38,8 @@ class FixtureTests(unittest.TestCase):
         for kind in matrix.WORKSPACES:
             if kind == "big-plain":
                 continue  # 128 MiB of random blobs; its shape is the plain folder's
+            if kind in matrix.REFUSED_CELLS:
+                continue  # refused before any copy: no manifest is compared, and 21 GiB of zeros is no fixture to hash
             folder, note = matrix.build_fixture(kind, self.root, self.args, "cmxcanarytest")
             if folder is None:
                 self.assertTrue(note.startswith("skipped"), kind)
@@ -45,6 +47,15 @@ class FixtureTests(unittest.TestCase):
             expected = matrix.local_manifest(folder, "cmxcanarytest")
             if not expected["left_out"] or set(expected["left_out"]) == {"symlink"}:
                 self.assertEqual(remote_manifest(folder)["sha256"], expected["sha256"], kind)
+
+    def test_a_parent_of_repositories_is_no_repository_and_holds_each(self):
+        for kind in ("parent-repos", "huge-parent-repos"):
+            folder, _ = matrix.build_fixture(kind, self.root, self.args, "")
+            self.assertFalse((folder / ".git").exists(), kind)
+            for name in matrix.PARENT_REPOS:
+                self.assertTrue((folder / name / ".git").is_dir(), (kind, name))
+        self.assertEqual((self.root / "huge-parent-repos/disk.img").stat().st_size, matrix.HUGE_PLAIN_BYTES)
+        self.assertEqual(set(matrix.REFUSED_CELLS), {"huge-plain", "huge-parent-repos"})
 
     def test_secrets_are_left_out_and_the_canary_is_found_where_it_is(self):
         folder, _ = matrix.build_fixture("secrets", self.root, self.args, "cmxcanarytest")

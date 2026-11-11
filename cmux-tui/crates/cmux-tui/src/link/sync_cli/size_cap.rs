@@ -124,7 +124,7 @@ pub(crate) const OVERRIDE_HINT: &str =
     "; to copy it anyway, run the same command with --allow-large";
 
 /// `folder` with this Mac's home as `~`.
-fn shown(folder: &Path) -> String {
+pub(crate) fn shown(folder: &Path) -> String {
     let home = std::env::var_os("HOME").map(PathBuf::from);
     match home.as_deref().and_then(|home| folder.strip_prefix(home).ok()) {
         Some(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
@@ -261,6 +261,107 @@ pub(crate) fn check_plain(folder: &Path) -> Result<(), TooLarge> {
         Err(error) => error.downcast::<TooLarge>().map_or(Ok(()), Err),
         Ok(_) => Ok(()),
     }
+}
+
+// The way on from a refused copy of a folder that is not a repository: the repositories inside it
+// (`~/Projects`, a parent of many), each a folder a chat can start in instead.
+
+/// The most repositories a refusal names.
+pub(crate) const MAX_REPOS: usize = 24;
+/// The most entries read in one folder while looking for repositories: a folder of thousands of
+/// entries is never read whole.
+const MAX_ENTRIES: usize = 2_000;
+
+/// One git working copy inside the refused folder.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Repo {
+    /// Its path below the folder (`cmux`, `work/api`).
+    pub name: String,
+    /// Its absolute path on this Mac.
+    pub path: PathBuf,
+}
+
+/// The git working copies directly in `folder`, and one level further down (`work/api`), by name,
+/// at most `limit`, and whether there were more. Only `.git` is looked for: no folder below a
+/// repository or two levels down is read, hidden folders are skipped and symlinks never followed,
+/// and at most [`MAX_ENTRIES`] entries of any one folder are read.
+pub(crate) fn child_repos(folder: &Path, limit: usize) -> (Vec<Repo>, bool) {
+    let mut found = Vec::new();
+    let mut more = false;
+    let children = folders_in(folder);
+    let mut plain = Vec::new();
+    for child in children {
+        if is_repo(&child) {
+            push(&mut found, &mut more, folder, child, limit);
+        } else {
+            plain.push(child);
+        }
+    }
+    for child in plain {
+        if more {
+            break;
+        }
+        for grandchild in folders_in(&child) {
+            if is_repo(&grandchild) {
+                push(&mut found, &mut more, folder, grandchild, limit);
+            }
+        }
+    }
+    found.sort_by(|a, b| a.name.cmp(&b.name));
+    (found, more)
+}
+
+fn push(found: &mut Vec<Repo>, more: &mut bool, folder: &Path, path: PathBuf, limit: usize) {
+    if found.len() >= limit {
+        *more = true;
+        return;
+    }
+    let name = path.strip_prefix(folder).map_or_else(|_| path.display().to_string(), |rest| rest.display().to_string());
+    found.push(Repo { name, path });
+}
+
+/// The visible folders right in `folder` (no symlinks), by name, at most [`MAX_ENTRIES`] read.
+fn folders_in(folder: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(folder) else { return Vec::new() };
+    let mut folders: Vec<PathBuf> = entries
+        .take(MAX_ENTRIES)
+        .filter_map(Result::ok)
+        .filter(|entry| !entry.file_name().to_string_lossy().starts_with('.'))
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+        .map(|entry| entry.path())
+        .collect();
+    folders.sort();
+    folders
+}
+
+/// Whether `folder` is a working copy's top: it holds `.git` (a folder, or a worktree's file).
+fn is_repo(folder: &Path) -> bool {
+    std::fs::symlink_metadata(folder.join(".git")).is_ok()
+}
+
+/// What a person at a terminal reads after a refusal of `folder`: the repositories inside it to start
+/// in instead (`; the repositories inside it: cmux, web (start in one: --from-folder ~/Projects/cmux)`),
+/// else nothing.
+pub(crate) fn repos_hint(folder: &Path) -> String {
+    let folder = std::fs::canonicalize(folder).unwrap_or_else(|_| folder.to_path_buf());
+    let (repos, more) = child_repos(&folder, MAX_REPOS);
+    let Some(first) = repos.first() else { return String::new() };
+    let names: Vec<&str> = repos.iter().map(|repo| repo.name.as_str()).collect();
+    let more = if more { ", and more" } else { "" };
+    format!(
+        "; the repositories inside it: {}{more} (start in one: --from-folder {})",
+        names.join(", "),
+        shown(&first.path)
+    )
+}
+
+/// Runs `run` with a copy's limits at `bytes` and `files` on this thread (other modules' tests).
+#[cfg(test)]
+pub(crate) fn with_test_limits<T>(bytes: u64, files: u64, run: impl FnOnce() -> T) -> T {
+    TEST_LIMITS.with(|limits| limits.set(Some((bytes, files))));
+    let out = run();
+    TEST_LIMITS.with(|limits| limits.set(None));
+    out
 }
 
 #[cfg(test)]

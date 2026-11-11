@@ -87,13 +87,88 @@ public nonisolated struct CloudMoveCLI: Sendable {
         public var createSent: Bool = false
         public var environmentId: String?
         public var setup: CloudStartSetup?
+        /// `machine` was made for this send by this plan (the platform's workspace machine it created now): a start
+        /// that can't go on deletes it, as one the App made for it. A machine it found or a reservation it bound is never deleted.
+        public var madeForSend: Bool = false
 
         public init(machine: String? = nil, newName: String? = nil, createKey: String, tabKey: String,
                     environmentId: String? = nil, setup: CloudStartSetup? = nil, targetPane: String? = nil,
-                    createTeam: String? = nil, createSent: Bool = false) {
+                    createTeam: String? = nil, createSent: Bool = false, madeForSend: Bool = false) {
             (self.machine, self.newName, self.createKey, self.tabKey, self.targetPane) = (machine, newName, createKey, tabKey, targetPane)
             (self.createTeam, self.createSent, self.environmentId, self.setup) = (createTeam, createSent, environmentId, setup)
+            self.madeForSend = madeForSend
         }
+
+        enum CodingKeys: String, CodingKey { case machine, newName, createKey, tabKey, targetPane, createTeam, createSent, environmentId, setup, madeForSend }
+
+        public init(from decoder: any Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            machine = try container.decodeIfPresent(String.self, forKey: .machine)
+            newName = try container.decodeIfPresent(String.self, forKey: .newName)
+            createKey = try container.decode(String.self, forKey: .createKey)
+            tabKey = try container.decode(String.self, forKey: .tabKey)
+            targetPane = try container.decodeIfPresent(String.self, forKey: .targetPane)
+            createTeam = try container.decodeIfPresent(String.self, forKey: .createTeam)
+            createSent = try container.decodeIfPresent(Bool.self, forKey: .createSent) ?? false
+            environmentId = try container.decodeIfPresent(String.self, forKey: .environmentId)
+            setup = try container.decodeIfPresent(CloudStartSetup.self, forKey: .setup)
+            madeForSend = try container.decodeIfPresent(Bool.self, forKey: .madeForSend) ?? false
+        }
+    }
+
+    /// `cmux link start-chat preflight`'s refusal: the folder a start may not copy (past the copy's limits, and not in
+    /// git), asked before any machine or lease is made for it, with the git working copies right inside it to start in instead.
+    public nonisolated struct StartChatPreflightRefusal: Sendable, Equatable, Error {
+        public nonisolated struct Repo: Sendable, Equatable {
+            public var name: String, path: String
+            public init(name: String, path: String) { (self.name, self.path) = (name, path) }
+        }
+        /// The CLI's own sentence (logged; the page words the card from the fields below).
+        public var message: String
+        /// The folder as the person reads it (`~/Projects`), and at least what it holds.
+        public var folder: String
+        public var bytes: Double?, files: Double?
+        public var repos: [Repo]
+        /// More repositories were found than ``repos`` names.
+        public var more: Bool
+
+        public init(message: String, folder: String, bytes: Double? = nil, files: Double? = nil, repos: [Repo] = [], more: Bool = false) {
+            (self.message, self.folder, self.bytes, self.files, self.repos, self.more) = (message, folder, bytes, files, repos, more)
+        }
+
+        /// The refusal an answer object names: only `copy.too_large`; nil for a pass or any other answer.
+        public init?(answer: [String: Any]) {
+            guard answer["ok"] as? Bool == false, answer["error_code"] as? String == Self.code else { return nil }
+            let repos = (answer["repos"] as? [[String: Any]] ?? []).compactMap { repo -> Repo? in
+                guard let name = repo["name"] as? String, let path = repo["path"] as? String, path.hasPrefix("/") else { return nil }
+                return Repo(name: name, path: path)
+            }
+            self.init(message: answer["error"] as? String ?? Self.code, folder: answer["folder"] as? String ?? "",
+                      bytes: (answer["bytes"] as? NSNumber)?.doubleValue, files: (answer["files"] as? NSNumber)?.doubleValue,
+                      repos: repos, more: answer["repos_more"] as? Bool ?? false)
+        }
+
+        /// The copy's refusal code (cmux-tui `size_cap::CODE`).
+        public static let code = "copy.too_large"
+        /// The start card's code for it (webviews cloudStartProgress.ts).
+        public static let replyCode = "cloud_folder_too_big"
+
+        /// The start card's details: the folder, its size and the repositories to offer (CloudStartView).
+        public var details: [String: Any] {
+            var details: [String: Any] = ["folder": folder, "repos": repos.map { ["name": $0.name, "path": $0.path] }, "more": more]
+            if let bytes { details["bytes"] = bytes }
+            if let files { details["files"] = files }
+            return details
+        }
+    }
+
+    /// `cmux link start-chat preflight --local FOLDER`, before any machine or lease is made for a start: the refusal of a
+    /// folder past the copy's limits, else nil (a pass, and also a check that could not run: the copy counts it again).
+    public func startChatPreflight(local: String) async -> StartChatPreflightRefusal? {
+        struct Call: Encodable { var verb = "start-chat-preflight"; var local: String }
+        guard let read = try? await run(Call(local: local), reading: "reservation"), let object = read.object,
+              let answer = try? JSONSerialization.jsonObject(with: object) as? [String: Any] else { return nil }
+        return StartChatPreflightRefusal(answer: answer)
     }
 
     /// `cmux link seed push`: seeds `local` at `remote` from its GitHub remote plus one bundle, else copies it.
