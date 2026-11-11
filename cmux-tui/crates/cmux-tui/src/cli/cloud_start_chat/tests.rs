@@ -1052,6 +1052,32 @@ fn shell_quote_leaves_plain_words_and_quotes_the_rest() {
     assert_eq!(shell_quote("$(x)"), "'$(x)'");
 }
 
+/// A turn read through exec that failed before it said anything (the agent's usage limit) answers
+/// its own error, never the turn before's reply that `acp last` still prints (Leo's Cloud chat
+/// walkthrough, 2026-11-11: `chat send` answered "the turn ended failed" with reply "PONG-2350").
+#[test]
+fn a_failed_turn_read_through_exec_answers_its_error_not_the_last_reply() {
+    let mut fake = Fake::new(vec![
+        signed_in(),
+        started(),
+        exec_out("@@history\n{\"turns\":[]}\n@@send\nd\n@@exit 0\n"),
+        exec_out(
+            "@@wait 0\n@@history\n{\"turns\":[{\"seq\":3,\"status\":\"failed\",\"endedAt\":9,\
+             \"error\":\"You've hit your weekly limit\"}]}\n\
+             @@last\n{\"sessionId\":\"sess-1\",\"replies\":[\"PONG-2350\"]}\n@@lastexit 0\n",
+        ),
+    ]);
+    let Outcome::Failed { error, exit } = run(&mut fake, &request(&["--prompt", "x", "--wait"]))
+    else {
+        panic!("{:?}", fake.ran)
+    };
+    assert_eq!(exit, 1);
+    assert_eq!(error["code"], "chat.turn_failed");
+    assert_eq!(error["message"], "You've hit your weekly limit");
+    assert_eq!(error["details"]["turn"]["status"], "failed");
+    assert!(error["details"].get("reply").is_none(), "{error}");
+}
+
 #[test]
 fn a_reply_that_cannot_be_read_is_an_error_not_an_empty_reply() {
     let mut fake = Fake::new(vec![

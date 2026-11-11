@@ -1614,6 +1614,20 @@ fn wait_turn(
         let turn = last_turn(polled.get("history")).filter(|turn| turn.seq > baseline);
         if let Some(turn) = turn.as_ref().filter(|turn| turn.ended) {
             answer.set("turn", turn.value.clone());
+            if turn.failed() {
+                // `acp last` reads the session's newest reply, not this turn's: a turn that failed
+                // before it said anything (the agent's usage limit) would answer the turn before's
+                // reply as its own. It answers its own error instead, as the pushed route does.
+                let message = at(&turn.value, "error")
+                    .as_str()
+                    .filter(|error| !error.is_empty())
+                    .map_or_else(|| format!("the turn ended {}", turn.status), str::to_owned);
+                return Outcome::Failed {
+                    error: json!({"code": "chat.turn_failed", "message": message,
+                                  "details": answer, "retryable": false}),
+                    exit: 1,
+                };
+            }
             let read = polled.get("lastexit").map(|code| code.trim()) == Some("0");
             let Some(text) = reply(polled.get("last")).filter(|_| read) else {
                 return failed(
@@ -1625,14 +1639,6 @@ fn wait_turn(
                 );
             };
             answer.set("reply", json!(text));
-            if turn.failed() {
-                return Outcome::Failed {
-                    error: json!({"code": "chat.turn_failed",
-                                  "message": format!("the turn ended {}", turn.status),
-                                  "details": answer, "retryable": false}),
-                    exit: 1,
-                };
-            }
             return Outcome::Done(answer);
         }
         // `acp wait` exits 0 (ended), 2 (a permission) or 3 (its own timeout); anything else
