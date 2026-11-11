@@ -811,11 +811,21 @@ public struct AgentChatBottomStack: View {
                 if reportedHeight != frame.height {
                     // Interpolated on the composer's spring (`.cmuxMobileSmooth`):
                     // the reporter below hands the transcript every frame.
-                    if reportedHeight == 0 || store.placeBottomStackInstantly {
+                    let spring = Animation.cmuxMobileSmooth.unlessReduceMotion
+                    if reportedHeight == 0 || store.placeBottomStackInstantly || spring == nil {
                         store.placeBottomStackInstantly = false
                         reportedHeight = frame.height
+                        // Not animated (the first height, an instant placement, or Reduce
+                        // Motion), so `DrawnHeightReporter` gets no frame for it and its onAppear
+                        // ran at 0: hand the height over here. Without it a tab's jump-to-bottom
+                        // circle stayed on the dock guide's 96 pt default, 40 pt above a 56 pt
+                        // composer, until some later animated change (CMUX-10).
+                        if frame.height > 0 {
+                            surface.drawnStackHeight = frame.height
+                            surface.stackHeightFrame?(frame.height)
+                        }
                     } else {
-                        withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { reportedHeight = frame.height }
+                        withAnimation(spring) { reportedHeight = frame.height }
                     }
                 }
             }

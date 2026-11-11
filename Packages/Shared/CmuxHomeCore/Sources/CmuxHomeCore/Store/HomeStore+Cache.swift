@@ -24,33 +24,6 @@ extension HomeStore {
         viewCache.setDraftAttachments(attachments.map(HomeCachedDraftAttachment.init), for: id)
     }
 
-    /// The conversations with attachments a web composer staged after uploading them.
-    public var uploadedDraftAttachmentConversations: [ConversationID] { Array(viewCache.uploadedDraftAttachments.keys) }
-
-    /// A web composer's uploaded attachments in `id`'s compose field: each part's JSON text by its hash.
-    public func uploadedDraftAttachments(for id: ConversationID) -> [String: String] { viewCache.uploadedDraftAttachments[id] ?? [:] }
-
-    /// Keeps one uploaded attachment (its JSON text: the blob is the owner's already, so no file
-    /// here) by its hash; nil removes only that one. Two pages never overwrite each other's.
-    public func setUploadedDraftAttachment(_ json: String?, hash: String, for id: ConversationID) {
-        viewCache.setUploadedDraftAttachment(json, hash: hash, for: id)
-    }
-
-    /// The conversations with sends a web composer made that the owner has not shown yet.
-    public var pendingWebSendConversations: [ConversationID] { Array(viewCache.pendingWebSends.keys) }
-
-    /// A web composer's unsent sends in `id`: each send's JSON text by its key.
-    public func pendingWebSends(for id: ConversationID) -> [String: String] { viewCache.pendingWebSends[id] ?? [:] }
-
-    /// Keeps one unsent send (its JSON text, so a relaunch shows it again) by its key; nil removes
-    /// only that one. Two pages never overwrite each other's.
-    public func setPendingWebSend(_ json: String?, key: String, for id: ConversationID) {
-        viewCache.setPendingWebSend(json, key: key, for: id)
-    }
-
-    /// The conversations whose compose field kept attachments (prepared here, their files in the blob cache).
-    public var draftAttachmentConversations: [ConversationID] { Array(viewCache.draftAttachments.keys) }
-
     public func scrollAnchor(for id: ConversationID) -> HomeScrollAnchor? { viewCache.scrollAnchors[id] }
 
     /// Where the reader is; nil when at the bottom.
@@ -112,7 +85,7 @@ extension HomeStore {
         var state = HomeCacheState()
         state.me = mirror.me ?? me
         state.conversations = mirror.conversations
-        state.windows = mirror.windows.compactMapValues { $0.messages.isEmpty ? nil : $0.messages }
+        state.windows = mirror.cachedWindows
         state.sends = log.entries.compactMap(HomeCachedSend.init)
         return state
     }

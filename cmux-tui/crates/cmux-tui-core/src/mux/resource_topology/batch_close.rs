@@ -201,7 +201,8 @@ impl Mux {
         if let BatchCloseTarget::Workspace(workspace) = &request.target {
             let index = state.workspace_index(*workspace).context("close target disappeared")?;
             Self::require_empty_workspace_for_close(&state, index, request.if_empty)?;
-            closed_workspace = Some((state.workspaces[index].public_id.clone(), index));
+            let closed = state.workspaces.get(index).context("close target disappeared")?;
+            closed_workspace = Some((closed.public_id.clone(), index));
         }
 
         let mut tab_groups = None;

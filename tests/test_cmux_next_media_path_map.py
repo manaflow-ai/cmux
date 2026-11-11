@@ -83,7 +83,7 @@ class TourFilePathTests(unittest.TestCase):
             ["chief-settings"])
         # The empty Chief conversation's front page is the chief-settings tour's first shot.
         self.assertEqual(
-            path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/HomeMessagesFirstRun.swift"),
+            path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextHome/NativeTranscript/HomeFirstRunHero.swift"),
             ["chief-settings"])
         self.assertEqual(
             path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/SidebarUpdateCardView.swift"),
@@ -99,8 +99,9 @@ class TourFilePathTests(unittest.TestCase):
             path_map.tours_for_path("Packages/macOS/CmuxNext/Sources/CmuxNextApp/VerticalTabs/WorkspaceVerticalTabs.swift"), ["vertical-tabs"])
 
     def test_the_home_list_routes_to_the_home_tour(self) -> None:
-        for path in ("Packages/macOS/CmuxNext/Sources/CmuxNextHome/Sidebar/HomeSidebarWidth.swift",
-                     "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift"):
+        for path in ("Packages/macOS/CmuxNext/Sources/CmuxNextHome/Sidebar/HomeSidebarView.swift",
+                     "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift",
+                     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Home/DebugHomeSidebarFixture.swift"):
             with self.subTest(path=path):
                 self.assertEqual(path_map.tours_for_path(path), ["home"])
         # The transcript side of Home is not the list's tour.

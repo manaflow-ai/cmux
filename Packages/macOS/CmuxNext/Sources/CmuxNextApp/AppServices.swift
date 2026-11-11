@@ -129,8 +129,6 @@ final class AppServices {
         appActive: { [weak self] in self?.appActiveSource() ?? false }
     )  // first read in init (no IUO)
     var showcase = ShowcaseState()
-    /// The wide Inbox page (the Feed page on `#/inbox`).
-    private(set) lazy var feedPage = FeedPageService(services: self)
     /// SSH machines (Connect to Machine…); `serverReach`: paired servers' Chief sessions in the sidebar.
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID, mainWork: mainWork)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
@@ -185,7 +183,7 @@ final class AppServices {
     let actionBudget: ActionBudgetMonitor
     /// Every action; timed by the always-on `action.*` signposts and `actionBudget`, in Debug and Release.
     let registry: ActionRegistry
-    /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking`, and its log sink (``BlockingLogSink``).
+    /// The main-thread blocking detector's handle (threading-model.md): the Debug: palette rows, `debug.blocking`, and its log sink (``BlockingLogSink``).
     let blocking = BlockingDetector.forProcess()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater: UpdaterService
@@ -273,17 +271,8 @@ final class AppServices {
     lazy var vault: SessionVault = SessionVault(source: AgentHistorySource(services: self))
     /// `cmux://vault`: Open Vault as Pane.
     private(set) lazy var vaultPages: VaultPageService = VaultPageService(vault: vault, registry: registry)
-    /// Where each window's right sidebar remembers its state (tests set a suite of their own).
-    var rightSidebarDefaults: UserDefaults = .standard
-    /// Each window's file explorer (the right sidebar's Files section) and its actions' effects.
+    /// Each window's file explorer (the Files section) and its actions' effects.
     private(set) lazy var fileExplorers = FileExplorerService(services: self)
-    /// The right sidebar's sections by mode (the file explorer adds Files and Find).
-    private(set) lazy var rightSidebarSections: RightSidebarSections = {
-        let sections = RightSidebarSections()
-        sections.registerAppSections()
-        sections.prewarmIcons()
-        return sections
-    }()
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
     /// The live preview card of computer use in agent chats (`computerUse.livePreview`); its live
@@ -450,7 +439,7 @@ final class AppServices {
     }
     /// Debug Settings: tunable overrides and their window (DEV and NIGHTLY).
     private(set) lazy var debugSettings = DebugSettingsService(services: self)
-    /// Debug menu > Toggle Action Latency HUD (DEV and NIGHTLY): the newest runs of `actionBudget`.
+    /// Palette "Debug: Toggle Action Latency HUD" (DEV and NIGHTLY, Internal Developer Mode): the newest runs of `actionBudget`.
     private(set) lazy var actionLatencyHUD = ActionLatencyHUD(monitor: actionBudget)
     /// Quit: origin, the keep-or-end sheet and the end of the local sessions.
     private(set) lazy var quit = QuitCoordinator(services: self)
@@ -546,7 +535,7 @@ final class AppServices {
     let overlayProcess = PageOverlayProcess() // the overlay pages' one web content process, handed to each page's owner
     private(set) lazy var healthFeeds = AppHealthFeeds(daemon: daemon, stateDirectory: environment.daemonStateDirectory, work: work, overlayProcess: overlayProcess) // app health (CmuxNextAppHealth)
     let dialogs: OverlayDialogDrawing // the shared center's dialogs draw on the overlay page
-    let toasts: CmuxToastWebHost // the shared center's toasts draw on the overlay page
+    let toasts = CmuxToastOverlayHost(drawing: .shared) // the shared center's toasts draw as native views on the window's overlay
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,
@@ -586,7 +575,7 @@ final class AppServices {
          work: BackgroundWork = BackgroundWork(), mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil), peerApprover: AgentPanePeerApprover? = nil,
          agentPaneStateFiles: AgentPaneStateFiles = AgentPaneStateFiles()) {
-        (dialogs, toasts) = (OverlayDialogDrawing(drawing: .shared, overlayProcess: overlayProcess), CmuxToastWebHost(drawing: .shared, overlayProcess: overlayProcess))
+        dialogs = OverlayDialogDrawing(drawing: .shared, overlayProcess: overlayProcess)
         self.work = work
         bundledCLI = BundledExecutable.cli(resources: Bundle.main.resourceURL, work: work)
         (iphone, browserStores) = (IPhoneHostService(loginKeychain: loginKeychain), .application(loginKeychain: loginKeychain))
@@ -618,7 +607,6 @@ final class AppServices {
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         _ = cloud  // built here, as before
         _ = feed  // built here, as before
-        _ = rightSidebarSections  // built at launch: its icons are made off the main thread before the first show
         _ = ssh  // built here, as before
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))

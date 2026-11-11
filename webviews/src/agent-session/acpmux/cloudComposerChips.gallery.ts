@@ -18,6 +18,8 @@ const PERSONAL_ID = "team_0123456789abcdef0123";
 
 type Frame = Window & { cmuxAcpmuxDebug?: { runMode(mode?: string): { runMode?: string | null } } };
 type Team = { name: string; personal: boolean };
+/// One team of the account's list as the reply's `teams` has it (the team menu's rows).
+type TeamRow = { id: string; name: string; personal: boolean };
 
 /// A new chat in a trusted folder of the mock daemon, where the host offers Cloud.
 const ready = { transport: "mock", newSession: true, sandboxState: true, cwd: "~/code/cmux" };
@@ -28,12 +30,12 @@ let listAnswered = false;
 
 /// The app's `cloudMachine.list` reply: signed in, no machines, `team` the active team. `teams` is the
 /// account's team list as the team menu has it (a removed team is not on it).
-const cloudList = (team: Team, teams: { id: string; name: string }[]) => () => {
+const cloudList = (team: Team, teams: TeamRow[]) => () => {
   listAnswered = true;
   return { signedIn: true, loaded: true, machines: [], team, teams };
 };
 
-const native = (team: Team, teams: { id: string; name: string }[]) => ({
+const native = (team: Team, teams: TeamRow[]) => ({
   "sandbox.state": {},
   "transport.gesture": { ticket: "gallery" },
   "cloudMachine.list": cloudList(team, teams),
@@ -116,7 +118,9 @@ const pickBypass: Play = async (ctx) => {
   const trigger = ctx.document.querySelector("button.acpmux-access-trigger");
   if (!trigger) {
     const shown = textOf(ctx.document.querySelector(".acpmux-mode-text") ?? ctx.document.body);
-    throw new Error(`the Mode chip is not a menu with Cloud picked (it reads “${shown}”): Bypass permissions cannot be picked`);
+    throw new Error(
+      `the Mode chip is not a menu with Cloud picked (it reads “${shown}”): Bypass permissions cannot be picked`,
+    );
   }
   await ctx.click({ selector: "button.acpmux-access-trigger" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-access-menu"), { capMs: 5_000 });
@@ -128,7 +132,7 @@ const pickBypass: Play = async (ctx) => {
   await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-access-menu"), { capMs: 5_000 });
 };
 
-const variant = (note: string, team: Team, teams: { id: string; name: string }[], play: Play): AgentPaneVariant => ({
+const variant = (note: string, team: Team, teams: TeamRow[], play: Play): AgentPaneVariant => ({
   note,
   ready,
   native: native(team, teams),
@@ -154,7 +158,7 @@ export default agentPaneEntry({
     "personal-default": variant(
       "Cloud picked in the person's own team, the default mode: the Cloud chip, its team and the Mode chip show whole, and the Mode chip names a mode.",
       { name: "Personal", personal: true },
-      [{ id: PERSONAL_ID, name: "Personal" }],
+      [{ id: PERSONAL_ID, name: "Personal", personal: true }],
       async (ctx) => {
         await pickCloud(ctx);
         await assertChips(ctx);
@@ -164,8 +168,8 @@ export default agentPaneEntry({
       `Cloud picked in a shared team with a long name (“${LONG_TEAM}”), Bypass permissions picked from the Mode menu: every chip shows whole.`,
       { name: LONG_TEAM, personal: false },
       [
-        { id: PERSONAL_ID, name: "Personal" },
-        { id: "team_stack_leo", name: LONG_TEAM },
+        { id: PERSONAL_ID, name: "Personal", personal: true },
+        { id: "team_stack_leo", name: LONG_TEAM, personal: false },
       ],
       async (ctx) => {
         await pickCloud(ctx);
@@ -178,9 +182,9 @@ export default agentPaneEntry({
       },
     ),
     "removed-team": variant(
-      `The app's reply names an active team (“${LONG_TEAM}”) the account's team list no longer has, as a removal leaves it: the team tag never names it.`,
+      `The app's reply names an active team (“${LONG_TEAM}”) the account's team list no longer has, as a removal leaves it: the team tag never names it and falls back to Personal.`,
       { name: LONG_TEAM, personal: false },
-      [{ id: PERSONAL_ID, name: "Personal" }],
+      [{ id: PERSONAL_ID, name: "Personal", personal: true }],
       async (ctx) => {
         await pickCloud(ctx);
         const named = [...ctx.document.querySelectorAll(".acpmux-team-tag")].filter((tag) =>
@@ -191,6 +195,10 @@ export default agentPaneEntry({
               `the team tag names the removed team “${LONG_TEAM}” (${named.length} tag${named.length > 1 ? "s" : ""}); it is not in the account's team list`,
             ]
           : [];
+        // It falls back to the person's own team, as the start does (the app re-reads the account's teams).
+        const strip = ctx.document.querySelector(`${STRIP} .acpmux-team-tag`);
+        if (!named.length && (!strip || textOf(strip) !== "Personal"))
+          removed.push(`the team tag reads “${strip ? textOf(strip) : "nothing"}” instead of falling back to Personal`);
         await assertChips(ctx, removed);
       },
     ),

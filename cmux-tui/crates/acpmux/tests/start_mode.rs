@@ -508,6 +508,7 @@ fn folder_profile(dir: &Path) -> (PathBuf, acpmux::config::folder_profiles::Fold
             record: dir.join("records").join("trust.json"),
             agent_home: None,
             cmux_worktrees: None,
+            peer_scratch: None,
         },
     };
     (repo, gate)

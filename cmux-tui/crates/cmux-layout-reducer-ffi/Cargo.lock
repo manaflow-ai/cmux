@@ -64,18 +64,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "cmux-cloud-machine"
+name = "cmux-cloud-handlers"
 version = "0.1.0"
 dependencies = [
+ "cmux-cloud-start-core",
  "serde",
  "serde_json",
 ]
 
 [[package]]
-name = "cmux-cloud-handlers"
+name = "cmux-cloud-machine"
 version = "0.1.0"
 dependencies = [
- "cmux-cloud-start-core",
  "serde",
  "serde_json",
 ]

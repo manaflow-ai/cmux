@@ -154,9 +154,11 @@ public final class ChiefSources {
             // This authenticated account still owns the Mac Chief even when
             // the build has no Cloud Chief service configured.
             self.userID = userID
+            useHistory(of: userID)
             return
         }
         self.userID = userID
+        useHistory(of: userID)
         http = ChiefCloudHTTP(base: config.baseURL, accessToken: accessToken)
         #if canImport(UIKit)
         if foregroundObserver == nil {
@@ -185,6 +187,9 @@ public final class ChiefSources {
     func wake() {
         // The service's owner list may have changed while the app was away: offer Turn On again.
         if turnOnRefusal?.kind == .unavailable { turnOnRefusal = nil }
+        // A reconnect: each Chief reads what came while the phone was away.
+        mac.syncHistory()
+        cloud.syncHistory()
         if case .ready = cloudState, let backend = cloud.backend as? ChiefCloudBackend {
             backend.reconnectNow()
             // The chief may have been archived or its brain turned off elsewhere.
@@ -221,6 +226,41 @@ public final class ChiefSources {
         mac.macName = nil
         if !(cloud.backend is ChiefOfflineBackend) {
             cloud.use(ChiefOfflineBackend(reason: Self.signedOutReason))
+        }
+        useHistory(of: nil)
+    }
+
+    // MARK: History
+
+    /// Syncs every Chief history of the signed-in account into the phone (CMUX-24).
+    public let historySync = ChiefHistorySync()
+
+    /// The account whose Chief history the phone keeps, reads and syncs (nil: signed out, when
+    /// no sync runs). Rows of another account never show: each account has its own store.
+    private func useHistory(of account: String?) {
+        if account == nil || mac.transcriptCache?.account != account { historySync.cancelAll() }
+        // Both sessions rebind: they share one cache, so the first activation must not hide the
+        // switch from the second.
+        mac.useTranscriptAccount(account)
+        cloud.useTranscriptAccount(account)
+        mac.historySync = account == nil ? nil : historySync
+        cloud.historySync = account == nil ? nil : historySync
+        mac.syncHistory()
+        cloud.syncHistory()
+    }
+
+    /// Every Cloud Chief on the account, not only the open one: each one's history comes over
+    /// a backend that only reads it (it never opens the socket) and closes when done.
+    private func syncCloudChiefs(userID: String, http: ChiefCloudHTTP) {
+        guard let cache = cloud.transcriptCache, cloud.historySync != nil else { return }
+        let open = (cloud.backend as? ChiefCloudBackend)?.conversationID
+        for chief in cloudChiefs {
+            guard let conversation = chief.mainConversation, conversation != open else { continue }
+            let reader = ChiefCloudBackend(http: http, conversationID: conversation, identity: chief.identity(userID: userID),
+                                           preferences: cloud.preferences)
+            historySync.sync("cloud:\(conversation)", cache: cache, pageSize: 200, fetch: { before, limit in
+                try await reader.history(beforeSeq: before, limit: limit)
+            }, finished: { reader.close() })
         }
     }
 
@@ -268,6 +308,7 @@ public final class ChiefSources {
         }
         if let chiefs = found.chiefs { cloudChiefs = chiefs }
         if let available = found.brainsAvailable { brainsAvailable = available }
+        defer { syncCloudChiefs(userID: userID, http: http) }
         switch found {
         case let .ready(chief, _, _):
             adopt(chief, userID: userID, http: http)
@@ -364,9 +405,7 @@ public final class ChiefSources {
                 return
             } catch let ChiefCloudError.refused(_, code, _) where code == "revision.conflict" {
                 guard attempt == 0 else { break }
-                let list = try ChiefCloudHTTP.json(["op": "chief.list", "params": [String: Any]()])
-                let chiefs = CloudChief.parseList(try ChiefCloudHTTP.value(try await http.send("POST", "/v1/read", body: list)))
-                guard let fresh = chiefs.first(where: { $0.id == chief.id }) else {
+                guard let fresh = try await listed(http).first(where: { $0.id == chief.id }) else {
                     throw ChiefCloudError.badReply(String(localized: "This Chief is no longer on your account."))
                 }
                 record = fresh
@@ -503,22 +542,40 @@ public final class ChiefSources {
 
     /// `chief.create {display_name}`: the new chief (with its main conversation).
     /// The account's first chief uses the catalog's key `chief-default`, so
-    /// the phone and another device never both make one; if that key replays
-    /// a chief since archived, a fresh key makes a new one.
+    /// the phone and another device never both make one. The owner answers a
+    /// key it has seen with that first create's stored result, so once that
+    /// chief was archived or deleted the key hands it back: its id, its main
+    /// conversation and all of its history (CMUX-40: New Chief after Delete
+    /// Chief reopened the deleted one). A chief the account no longer lists is
+    /// never the new one: a fresh key makes a new one. So does the key's refusal
+    /// for another name (`idempotency.conflict`: the ledger keys the params too).
+    /// `first` is this phone's view (``cloudChiefs`` is empty until a list loads),
+    /// so the account may well have chiefs, the replayed one deleted since.
     nonisolated static func create(_ http: ChiefCloudHTTP, displayName: String, first: Bool) async throws -> CloudChief {
         let key = first ? "chief-default" : "chief-create-\(UUID().uuidString)"
         let body = try ChiefCloudHTTP.json([
             "op": "chief.create", "params": ["display_name": displayName], "idempotency_key": key, "origin": "user",
         ])
         let reply = try await http.send("POST", "/v1/ops", body: body)
-        let value = try ChiefCloudHTTP.value(reply)
-        if first, let raw = value as? [String: Any], raw["archived_at"] is String {
+        let value: Any?
+        do {
+            value = try ChiefCloudHTTP.value(reply)
+        } catch let ChiefCloudError.refused(_, code, _) where first && code == "idempotency.conflict" {
             return try await create(http, displayName: displayName, first: false)
         }
         guard let chief = CloudChief.parse(value) else {
             throw ChiefCloudError.badReply(String(localized: "The service made no chief."))
         }
+        if first, !(try await listed(http)).contains(where: { $0.id == chief.id }) {
+            return try await create(http, displayName: displayName, first: false)
+        }
         return chief
+    }
+
+    /// The account's active chiefs now (`chief.list`).
+    nonisolated static func listed(_ http: ChiefCloudHTTP) async throws -> [CloudChief] {
+        let body = try ChiefCloudHTTP.json(["op": "chief.list", "params": [String: Any]()])
+        return CloudChief.parseList(try ChiefCloudHTTP.value(try await http.send("POST", "/v1/read", body: body)))
     }
 
     /// `PUT /v1/chiefs/<chief>/brain {enabled, model, effort}`.

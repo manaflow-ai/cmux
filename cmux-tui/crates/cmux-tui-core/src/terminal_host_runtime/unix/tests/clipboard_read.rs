@@ -4,7 +4,8 @@
 
 use super::*;
 use crate::terminal_host_runtime::shared::clipboard_read::{
-    ClipboardClock, ClipboardReadState, decode_clipboard_read_request, encode_clipboard_read_reply,
+    CLIPBOARD_READ_TIMEOUT, ClipboardClock, ClipboardReadState, decode_clipboard_read_request,
+    encode_clipboard_read_reply,
 };
 use ghostty_vt::{ClipboardLocation, ClipboardReadRequest};
 use std::sync::MutexGuard;
@@ -126,7 +127,7 @@ impl Harness {
         let term = Terminal::new(80, 24, 0, callbacks).unwrap();
         let (parser_commands, receiver) = sync_channel(HOST_PARSER_QUEUE_CAPACITY);
         let host = test_host_shared_with(term, parser_commands, clipboard);
-        host.clipboard.start_timer(&host).unwrap();
+        host.clipboard.bind_timer(&host);
         let (pty_sender, pty) = mpsc_channel();
         *host.writer.lock().unwrap() = Box::new(ChannelWriter(pty_sender));
         let initial_colors = host.term.lock().unwrap().color_overrides();
@@ -146,7 +147,7 @@ impl Harness {
         self.host
             .parser_commands
             .send(ParserCommand::Output {
-                bytes: bytes.to_vec(),
+                frame: Arc::new(Frame::new(MessageKind::Output, bytes.to_vec())),
                 source_cursor: self.cursor,
                 accounted_bytes: 0,
             })
@@ -375,11 +376,37 @@ fn an_open_read_is_refused_after_sixty_seconds_on_the_injected_clock() {
     assert_ne!(next.token, request.token);
 }
 
+/// A terminal that never reads the clipboard has no timeout thread: the
+/// first read that opens starts it, and later reads reuse it.
+#[test]
+fn the_timeout_worker_starts_with_the_first_open_read() {
+    let mut h = Harness::new();
+    let mut owner = h.owner();
+    assert!(!h.host.clipboard.timer_running_for_test(), "a timer runs before any read");
+    assert_eq!(h.clock.wait_count(), 0, "a timer waited before any read");
+
+    h.output(OSC52_READ);
+    let request = next_clipboard_request(&mut owner);
+    assert!(h.host.clipboard.timer_running_for_test());
+    // The new worker saw the open read's deadline on its first wait.
+    h.clock.await_wait(0, |wait| wait == Some(CLIPBOARD_READ_TIMEOUT));
+    reply(&mut owner, request.token, Some(b"hi"));
+    assert_eq!(h.pty_reply(), GRANTED_HI);
+
+    // The same worker bounds the next read.
+    h.output(OSC52_READ);
+    let request = next_clipboard_request(&mut owner);
+    h.clock.advance(CLIPBOARD_READ_TIMEOUT + Duration::from_secs(1));
+    h.host.clipboard.notify_timer();
+    assert_eq!(h.pty_reply(), REFUSED);
+    assert_eq!(next_clipboard_cancel(&mut owner), request.token);
+}
+
 /// A clock that, each time the broker reads it, records whether the owner
 /// could already see the read request.
 struct OwnerProbeClock {
     now: Instant,
-    owner_inbox: Mutex<Receiver<Frame>>,
+    owner_inbox: Mutex<Receiver<Arc<Frame>>>,
     request_visible_at_read: Mutex<Vec<bool>>,
 }
 

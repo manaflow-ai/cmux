@@ -179,6 +179,7 @@ import {
   pullRequestRowKey,
 } from "./summary/transcriptPullRequests";
 import { markOneRowChange } from "./rowChanges";
+import { noteKeptPrefix } from "./conversation/prefixFlatMap";
 import { RowUpdates } from "./rowUpdates";
 import { parseHarnessIconSpec, rememberHarnessIcons } from "../shared/harnessIcons";
 import { handoffPromptId, namesHandoffTurn } from "./cloudHandoffTurn";
@@ -1876,6 +1877,12 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// changed (MANY_SLOTS for any other change): the next snapshot says so (rowChanges.ts
   /// `markOneRowChange`), so the pane reads that row alone, not every row.
   private changedSlot: number | typeof MANY_SLOTS | undefined;
+  /// The first slot of `ordered` any change since `snapshot` was made could have touched (MANY_SLOTS
+  /// when the order was rebuilt or moved): the next snapshot says its rows before it are the last
+  /// one's (prefixFlatMap.ts `noteKeptPrefix`), so every per-snapshot pass that reads only the rows
+  /// after the kept prefix (markRows, sessionEdits, startedNames, prefixFlatMap) starts there with no
+  /// walk over the chat. A tool call's start is a new slot at the end, its end a write in place.
+  private firstChanged: number | typeof MANY_SLOTS | undefined;
   /// The last snapshot handed out, which the next one's change is from.
   private published: AcpmuxRow[] | undefined;
   private pullRequestActivityVersion = Symbol();
@@ -1923,6 +1930,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       if (this.ordered && at !== undefined) this.ordered[at] = tagged;
       this.snapshot = undefined;
       this.changedSlot = MANY_SLOTS;
+      this.changedFrom(this.ordered && at !== undefined ? at : MANY_SLOTS);
       this.transcriptSummaryVersion = {};
     }
     return { ended: ended?.turn, hasRows };
@@ -1981,6 +1989,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (changed) {
       this.snapshot = undefined;
       this.changedSlot = MANY_SLOTS;
+      this.firstChanged = MANY_SLOTS;
     }
   }
 
@@ -2029,6 +2038,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     if (known && index !== undefined && (ordered[index]!.at === row.at || this.ownsSlot(index))) {
       ordered[index] = row;
       this.changedSlot = this.changedSlot === undefined || this.changedSlot === index ? index : MANY_SLOTS;
+      this.changedFrom(index);
       return;
     }
     this.changedSlot = MANY_SLOTS;
@@ -2037,6 +2047,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const lastOrder = last ? (this.order.get(last.id) ?? 0) : -Infinity;
     if (!known && (order > lastOrder || (order === lastOrder && row.at >= last!.at))) {
       this.orderedIndex.set(id, ordered.length);
+      this.changedFrom(ordered.length);
       ordered.push(row);
       return;
     }
@@ -2044,6 +2055,13 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
     this.transcriptSummaryVersion = {};
+  }
+
+  /// Notes a change at slot `index` of the kept order (MANY_SLOTS: anywhere).
+  private changedFrom(index: number | typeof MANY_SLOTS): void {
+    const first = this.firstChanged;
+    this.firstChanged =
+      index === MANY_SLOTS || first === MANY_SLOTS ? MANY_SLOTS : first === undefined ? index : Math.min(first, index);
   }
 
   /// Whether the row at `index` of the kept order sorts by its event alone, so a change of its
@@ -2098,6 +2116,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     super.set(row.id, row);
     this.snapshot = undefined;
     this.changedSlot = MANY_SLOTS;
+    this.firstChanged = MANY_SLOTS;
   }
 
   /// The place `id` sorts at: its event's sequence number, or just after the events seen before it.
@@ -2178,6 +2197,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   sorted(): AcpmuxRow[] {
     if (!this.ordered) {
       this.changedSlot = MANY_SLOTS;
+      this.firstChanged = MANY_SLOTS;
       this.ordered = [...this.values()].sort(
         (a, b) => (this.order.get(a.id) ?? 0) - (this.order.get(b.id) ?? 0) || a.at - b.at,
       );
@@ -2188,8 +2208,11 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       this.snapshot = this.ordered.slice();
       if (typeof this.changedSlot === "number" && from && from.length === this.snapshot.length)
         markOneRowChange(this.snapshot, from, this.changedSlot);
+      if (from && this.firstChanged !== MANY_SLOTS)
+        noteKeptPrefix(this.snapshot, from, Math.min(this.firstChanged ?? Infinity, from.length, this.snapshot.length));
       this.published = this.snapshot;
       this.changedSlot = undefined;
+      this.firstChanged = undefined;
       this.artifactUpdates.publish(this.snapshot);
       markPullRequestActivityVersion(this.snapshot, this.pullRequestActivityVersion);
       markPullRequestCommandVersion(this.snapshot, this.pullRequestCommandVersion);
@@ -3315,11 +3338,14 @@ export class AcpmuxDirectClient {
         ];
       // Live notices can arrive while status is pending, before this first page is installed.
       // Keep their newer rows (and purges) when replacing the previous list.
-      else if (first && !linkedLater) this.sessions = this.sessionPages.settle(first.sessions);
-      else {
+      else if (first && !linkedLater) {
+        this.sessions = this.sessionPages.settle(first.sessions);
+        if (!laterPages) this.sessionPages.done(first.run);
+      } else {
         // A linked chat older than the first page, or a lagged watch restarted the list: read the
         // whole list before calling the chat missing.
-        this.sessions = this.sessionPages.settle(await this.sessionPages.whole());
+        this.sessions = await this.sessionPages.settledWhole();
+        this.sessionPages.done(first?.run);
         laterPages = undefined;
       }
       this.listedSessions = !attachedRow && (first !== undefined || this.sessions.length > 0);
@@ -4653,6 +4679,7 @@ export class AcpmuxDirectClient {
     if (first.next && !(await this.sessionPages.rest(first, () => list, add))) return false;
     // Changes that came while the pages did are newer than the pages.
     this.sessions = this.sessionPages.settle(list);
+    this.sessionPages.done(first.run);
     this.listedSessions = true;
     this.recheckSenders(this.sessions);
     this.learnChatThread();
@@ -4904,7 +4931,13 @@ export class AcpmuxDirectClient {
   /// The pages after the first, read once the chat is open. acpmux owns `unread` (cx-n8ou): the
   /// pane only tells it whether it shows its chat (`attach` `visible`, `_acpmux/view`).
   private async readLaterSessions(first: SessionPage<Session>): Promise<void> {
-    await this.sessionPages.rest(first, () => this.sessions, this.addSessions).catch(() => this.rereadSessionsLater());
+    const whole = await this.sessionPages
+      .rest(first, () => this.sessions, this.addSessions)
+      .catch(() => {
+        this.rereadSessionsLater();
+        return false;
+      });
+    if (whole) this.sessionPages.done(first.run);
   }
 
   /// A list that could not be read to its end (a page and the whole-list fallback both failed)
@@ -6375,6 +6408,7 @@ export class AcpmuxDirectClient {
       this.asks.forget(session.sessionId);
       // Nothing of a chat acpmux dropped is drawn again from this page.
       forgetTail(session.sessionId);
+      this.forgetReadAhead(session.sessionId);
       this.sessionPages.purgedSession(session.sessionId);
       this.sessions = this.sessions.filter((item) => item.sessionId !== session.sessionId);
       if (session.sessionId === this.selectedSessionId && this.handoff.state.busy !== "discarding")
@@ -6605,22 +6639,27 @@ export class AcpmuxDirectClient {
   private checkFinishedTurn(sessionId: string, endSeq: number, attempt = 0): void {
     const generation = this.selectionGeneration;
     // Back from the end to the turn before's `turn_result`: the turn's own `turn_end` and
-    // `turn_error` come just before its result, so only a result ends the turn before. A turn
-    // older than the records held is read from the oldest one held: the part shown is repaired.
-    let start: number | undefined;
-    let before = false;
+    // `turn_error` come just before its result, so only a result ends the turn before. The read
+    // starts right after that result, not at the turn's first prompt held: a prompt that never
+    // reached the pane (lost, or overtaken by its `turn_started` and dropped as stale) was the
+    // turn's first record, so a read from the first one held never brought it back and the turn
+    // drew without its prompt (test/transcript-delivery-property.test.ts). A turn older than the
+    // records held is read from the oldest one held: the part shown is repaired.
+    let afterSeq: number | undefined;
     for (let index = this.events.length - 1; index >= 0; index--) {
       const event = this.events[index]!;
       if (event.seq >= endSeq) continue;
       if (event.dir === "mux" && event.kind === "turn_result") {
-        before = true;
+        afterSeq = event.seq;
         break;
       }
-      if (event.kind === "turn_started" || event.kind === "user_message") start = event.seq;
     }
-    if (!before) start = Math.min(start ?? endSeq, this.events[0]?.seq ?? endSeq);
-    if (start === undefined || start >= endSeq) return;
-    const afterSeq = start - 1;
+    if (afterSeq === undefined) {
+      const oldest = this.events[0]?.seq;
+      if (oldest === undefined || oldest >= endSeq) return;
+      afterSeq = oldest - 1;
+    }
+    if (afterSeq + 1 >= endSeq) return;
     void this.readTurnRecords(sessionId, generation, afterSeq, endSeq).then(
       (stored) => {
         if (this.closed || generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
@@ -11621,6 +11660,18 @@ export class AcpmuxDirectClient {
   private readAheadQueue: string[] = [];
   private readAheadTimer?: ReturnType<typeof setTimeout>;
 
+  /// A chat acpmux purged: nothing of its read ahead is kept. Kept, each closed chat the read ahead
+  /// had read stayed in `readAheadAt` and `readAheadSeq` for the pane's life
+  /// (test/state-growth.test.ts, session-churn). A read still out drops its page (`readAhead`
+  /// keeps a tail only for a listed row).
+  private forgetReadAhead(sessionId: string): void {
+    this.readAheadAt.delete(sessionId);
+    this.readAheadSeq.delete(sessionId);
+    this.shareOnRead.delete(sessionId);
+    if (this.readAheadQueue.includes(sessionId))
+      this.readAheadQueue = this.readAheadQueue.filter((queued) => queued !== sessionId);
+  }
+
   /// Reads the list's most recent chats ahead once the pane is idle for `delayMs`.
   private scheduleReadAhead(delayMs: number): void {
     if (this.closed || this.readAheadTimer !== undefined) return;
@@ -13260,6 +13311,9 @@ export class AcpmuxDirectClient {
     this.cancelTrustStart?.();
 
     for (const gone of this.resendWaits.keys()) gone();
+    // A prompt's slow and failed deadlines (sendNow) would fire on a closed client: emit to a pane
+    // that is gone and look for a stall on a socket that is closed.
+    for (const { timers } of this.deliveries.values()) timers.forEach(clearTimeout);
     this.cancelOlderPaging();
     const hold = this.snapshotHold;
     if (hold) clearTimeout(hold.timer);

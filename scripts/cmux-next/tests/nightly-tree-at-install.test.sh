@@ -19,6 +19,7 @@ fake_clock_install "$TMP/clock"
 fail=0
 check() { if eval "$1"; then echo "ok   $2"; else echo "FAIL $2"; fail=1; fi; }
 # git_q, and no background git maintenance in the scratch repositories.
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
 source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"
 
 # A repository with three commits: base, then `own` changes the tree, then `app` keeps it.
