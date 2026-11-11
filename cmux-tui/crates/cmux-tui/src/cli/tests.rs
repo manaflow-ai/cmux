@@ -188,13 +188,13 @@ mod remote_cli_docs {
     /// `cloud_alias`). `None` for every other line, the VM API's own verbs under `vm` included.
     fn vm_as_cloud(line: &[String]) -> Option<Vec<String>> {
         let command = line.get(1..)?;
-        let cloud = match crate::cli::vm_short::parse(command) {
+        let cloud = match vm_short::parse(command) {
             Some(short) => {
                 let mut cloud = strings(&["cloud", short.cloud_verb]);
                 cloud.extend(short.tail);
                 cloud
             }
-            None => crate::cli::vm::cloud_alias(command)?,
+            None => vm::cloud_alias(command)?,
         };
         Some(std::iter::once("cmux".to_owned()).chain(cloud).collect())
     }
