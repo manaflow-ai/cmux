@@ -97,8 +97,8 @@ import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import {
   cloudModePickFor as cloudModeFor,
+  cloudStartModePick,
   holdCloudModePick,
-  takeCloudModePick,
   useCloudModePick,
 } from "./cloudModePick";
 import { configurationSessionMatches, pickEffort } from "./configurationActions";
@@ -11533,7 +11533,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   {
                     ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
                     ...heldPick(composerSnapshot),
-                    ...takeCloudModePick(composerSnapshot.summary?.harness),
+                    ...cloudStartModePick(composerSnapshot.summary?.harness),
                   },
                 );
                 if (typeof started === "string") {
@@ -12407,7 +12407,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                               ...cloudStartFolder(cwd),
                               ...(model ? { model } : {}),
                               // The Mode chip's pick for this harness goes with New Tab's send too.
-                              ...takeCloudModePick(harness),
+                              ...cloudStartModePick(harness),
                             },
                             true,
                           ),

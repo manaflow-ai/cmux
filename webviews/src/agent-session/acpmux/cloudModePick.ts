@@ -2,7 +2,7 @@
 // composer with Cloud picked). The chip shows it (`AcpmuxSnapshot.cloudStartMode`) and that send
 // carries it to the machine (`CloudStart.mode`), which starts the chat in it when the machine is the
 // person's own (cmux-tui agent_session_start.rs). Leo, 2026-11-10: "but shouldnt the user be allowed
-// to just go through with stuff?". One page holds one pick; the send takes it.
+// to just go through with stuff?". One page holds one pick; every Cloud send from it carries it.
 import { useSyncExternalStore } from "react";
 
 type Pick = { harness: string | undefined; mode: string };
@@ -25,13 +25,11 @@ export function cloudModePickFor(pick: Pick | undefined, harness: string | undef
   return pick && pick.harness === harness ? pick.mode : undefined;
 }
 
-/** The Cloud send's `mode` for `harness`, taken: the next new chat starts from no pick. */
-export function takeCloudModePick(harness: string | undefined): { mode?: string } {
+/** The Cloud send's `mode` for `harness`. The pick stays held: a send that is refused, held for a
+ * check or a sign-in, or retried goes again in the same mode. A start that opens its chat closes
+ * this page, and a pick on another harness or a move back to this Mac never applies it. */
+export function cloudStartModePick(harness: string | undefined): { mode?: string } {
   const mode = cloudModePickFor(held, harness);
-  if (held) {
-    held = undefined;
-    emit();
-  }
   return mode ? { mode } : {};
 }
 

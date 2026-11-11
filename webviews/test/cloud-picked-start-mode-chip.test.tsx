@@ -74,7 +74,9 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // The Cloud mode pick lives in the page's memory until the page goes.
+  (await import("../src/agent-session/acpmux/cloudModePick")).clearCloudModePick();
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
@@ -173,12 +175,13 @@ test("with Cloud picked, a Codex full access pick is what the chip names", async
 });
 
 test("a pick for another harness is not this start's: the chip keeps the asking mode", async () => {
-  const { holdCloudModePick, takeCloudModePick } = await import("../src/agent-session/acpmux/cloudModePick");
+  const { holdCloudModePick, cloudStartModePick } = await import("../src/agent-session/acpmux/cloudModePick");
   holdCloudModePick("codex", "agent-full-access");
-  expect(takeCloudModePick("claude")).toEqual({});
+  expect(cloudStartModePick("claude")).toEqual({});
   holdCloudModePick("claude", "bypassPermissions");
-  expect(takeCloudModePick("claude")).toEqual({ mode: "bypassPermissions" });
-  expect(takeCloudModePick("claude")).toEqual({});
+  expect(cloudStartModePick("claude")).toEqual({ mode: "bypassPermissions" });
+  // A refused or held send goes again in the same mode: the pick stays held.
+  expect(cloudStartModePick("claude")).toEqual({ mode: "bypassPermissions" });
 });
 
 test("with Cloud picked, the menu offers only the modes a Cloud start can run in", async () => {
