@@ -54,7 +54,8 @@ const elementOf = (node: Node | null): Element | null =>
 
 export type SelectionReplyTarget = {
   text: string;
-  /** Where the pointer let go (the end, or the start of a backward drag): the chip centres over it. */
+  /** Where the pointer let go (the end, or the start of a backward drag), at its nearest selected
+   *  character: the chip centres over it. */
   left: number;
   top: number;
   bottom: number;
@@ -104,7 +105,11 @@ export function selectionReplyTarget(doc: Document): SelectionReplyTarget | unde
     (selection.anchorNode === selection.focusNode
       ? selection.focusOffset < selection.anchorOffset
       : Boolean(selection.anchorNode.compareDocumentPosition(selection.focusNode) & 2));
-  const rect = (backward ? rects[0] : rects[rects.length - 1]) ?? range.getBoundingClientRect?.();
+  // A drag let go deep in the blank space past a block (or before one, backward) leaves that
+  // caret-thin box where the pointer is not: the chip goes on the first or last selected character.
+  // Leo, 2026-11-11: "if you go close, you still get it. But if you go deep into it, there's
+  // something that messes up there."
+  const rect = (backward ? (wide[0] ?? rects[0]) : last) ?? range.getBoundingClientRect?.();
   if (!rect) return { text, left: 0, top: 0, bottom: 0 };
   const end = last ? { right: last.right, top: last.top, bottom: last.bottom } : undefined;
   return {
