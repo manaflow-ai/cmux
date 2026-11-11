@@ -351,12 +351,12 @@ jobs:
         working-directory: cmux-tui
         run: |
           cargo fmt -p cmux-sdk -p cmux-sidebar -- --check
-          cargo test \
+          ../scripts/ci/cargo-test-deadline.sh \
             -p cmux-sdk \
             -p cmux-sidebar \
             --all-targets \
             --locked
-          cargo test \
+          ../scripts/ci/cargo-test-deadline.sh \
             -p cmux-sdk \
             -p cmux-sidebar \
             --doc \
@@ -368,7 +368,7 @@ jobs:
             --locked \
             -- -D warnings
           # Embedders such as Chromium build without sha2 (socket-path-hash).
-          cargo test -p cmux-sdk --all-targets --locked --no-default-features
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-sdk --all-targets --locked --no-default-features
           cargo clippy -p cmux-sdk --all-targets --locked --no-default-features -- -D warnings
           RUSTDOCFLAGS="-D warnings" \
             cargo doc \
@@ -523,7 +523,7 @@ jobs:
       - name: Test Rust resource consumers
         if: matrix.language == 'rust'
         run: |
-          cargo test \
+          scripts/ci/cargo-test-deadline.sh \
             --manifest-path cmux-tui/bindings/examples/rust-agent-dashboard/Cargo.toml \
             --locked
           cargo clippy \
@@ -531,7 +531,7 @@ jobs:
             --locked \
             --all-targets \
             -- -D warnings
-          cargo test \
+          scripts/ci/cargo-test-deadline.sh \
             --manifest-path cmux-tui/bindings/examples/rust-sidebar-monitor/Cargo.toml \
             --locked \
             --all-targets
@@ -791,8 +791,8 @@ jobs:
         env:
           CMUX_SDK_LIVE_TUI_BIN: ${{ github.workspace }}/cmux-tui/target/debug/cmux-tui
         run: |
-          cargo test -p cmux-sdk --locked --test byte_attachment_live --test typed_state_ops_live --test home_conversation_live --test state_resources_live --test capabilities_per_connection_live -- --nocapture
-          cargo test -p cmux-daemon-client --locked --test mirror_live --test mirror_agent_tabs_live --test spaces_live --test session_deltas_live -- --nocapture
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-sdk --locked --test byte_attachment_live --test typed_state_ops_live --test home_conversation_live --test state_resources_live --test capabilities_per_connection_live -- --nocapture
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-daemon-client --locked --test mirror_live --test mirror_agent_tabs_live --test spaces_live --test session_deltas_live -- --nocapture
 
   # The code-mode MCP (cmux-tui/bindings/typescript/code-mode/mcp.mjs) and the bwrap sandbox of
   # scripts/cmux-next/cmux-code-mode-runner: a cancelled cmux_exec returns and leaves no process

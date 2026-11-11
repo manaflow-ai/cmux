@@ -468,7 +468,7 @@ jobs:
         run: |
           cargo fmt --check || { echo "::warning title=cmux-rd-ffi rustfmt::not rustfmt-clean"; [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1; }
           cargo clippy --all-targets --locked -- -D warnings
-          cargo test --locked
+          ../../../scripts/ci/cargo-test-deadline.sh --locked
 
       # cmux-layout-reducer-ffi is its own workspace too (no committed
       # Cargo.lock): its C ABI tests cover the sidebar reducer and the Tasks
@@ -479,7 +479,7 @@ jobs:
         run: |
           cargo fmt --check || { echo "::warning title=cmux-layout-reducer-ffi rustfmt::not rustfmt-clean"; [[ "$CMUX_NEXT_STYLE_GUARDS" == warn ]] || exit 1; }
           cargo clippy --all-targets -- -D warnings
-          cargo test
+          ../../../scripts/ci/cargo-test-deadline.sh
           cd ../cmux-app-ffi
           cargo metadata --format-version 1 > /dev/null
           git diff --exit-code -- Cargo.lock
@@ -730,6 +730,10 @@ jobs:
   macos:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
+      # Per-test deadlines of scripts/ci/cargo-test-deadline.sh past its 180 s default, from the long-test
+      # overrides of cmux-tui/.config/nextest.toml (terminate-after 4 = 240 s, 8 = 480 s).
+      CMUX_TEST_DEADLINE_SLOW: >-
+        cmux_next_owner_runs_300_terminals_with_a_256_open_file_soft_limit=240 fork_count_bash_forks_nothing_at_startup_or_per_command_on_bash_5_3=240 fork_count_fish_forks_nothing=240 prompt_redraw_bash_two_line_prompt_narrows_without_leftovers=240 prompt_redraw_fish_two_line_prompt_narrows_without_leftovers=240 fuzz_g3_seed_26401_restart_lock=480 fuzz_g_crash_durable_seed_a=480 fuzz_g_crash_durable_seed_b=480 fuzz_g_crash_durable_seed_c=480 fuzz_g_crash_durable_seed_d=480
     name: macOS lint and tests
     needs: validate-inputs
     outputs:
@@ -933,7 +937,7 @@ jobs:
       - name: Terminal corpus host snapshots (macOS arm64)
         if: ${{ !cancelled() && steps.clippy.outcome != 'skipped' && inputs.mode == 'full' }}
         working-directory: cmux-tui
-        run: cargo test -p ghostty-vt --test terminal_corpus
+        run: ../scripts/ci/cargo-test-deadline.sh -p ghostty-vt --test terminal_corpus
 
   # The Chief's crate (Native/OptChat/optchat-chief, its own Cargo workspace): its
   # test suite, then the behavior test that needs a real headless cmux-tui daemon
@@ -1028,17 +1032,17 @@ jobs:
       # (its own workspace; the runner's tests drive the real binary on Linux).
       - name: chief-turn test suite
         working-directory: Native/OptChat/chief-turn
-        run: cargo test --locked
+        run: ../../../scripts/ci/cargo-test-deadline.sh --locked
 
       - name: optchat-chief test suite
         working-directory: Native/OptChat/optchat-chief
-        run: cargo test --locked
+        run: ../../../scripts/ci/cargo-test-deadline.sh --locked
 
       - name: Home view behavior test against a real daemon
         working-directory: Native/OptChat/optchat-chief
         run: |
           export CMUX_TUI_BIN="$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"
-          cargo test --locked --test home_view_daemon -- --ignored
+          ../../../scripts/ci/cargo-test-deadline.sh --locked --test home_view_daemon -- --ignored
 
       # The DM link of a non-default Chief (person-only selection, conflict
       # replay; worker 5 f218b8add8b0). tests/shared_acpmux.rs needs no daemon:
@@ -1047,11 +1051,15 @@ jobs:
         working-directory: Native/OptChat/optchat-chief
         run: |
           export CMUX_TUI_BIN="$GITHUB_WORKSPACE/cmux-tui/target/debug/cmux-tui"
-          cargo test --locked --test dm_daemon -- --ignored
+          ../../../scripts/ci/cargo-test-deadline.sh --locked --test dm_daemon -- --ignored
 
   test:
     env:
       GHOSTTY_ZIG_SOURCE: ghostty-next
+      # Per-test deadlines of scripts/ci/cargo-test-deadline.sh past its 180 s default, from the long-test
+      # overrides of cmux-tui/.config/nextest.toml (terminate-after 4 = 240 s, 8 = 480 s).
+      CMUX_TEST_DEADLINE_SLOW: >-
+        cmux_next_owner_runs_300_terminals_with_a_256_open_file_soft_limit=240 fork_count_bash_forks_nothing_at_startup_or_per_command_on_bash_5_3=240 fork_count_fish_forks_nothing=240 prompt_redraw_bash_two_line_prompt_narrows_without_leftovers=240 prompt_redraw_fish_two_line_prompt_narrows_without_leftovers=240 fuzz_g3_seed_26401_restart_lock=480 fuzz_g_crash_durable_seed_a=480 fuzz_g_crash_durable_seed_b=480 fuzz_g_crash_durable_seed_c=480 fuzz_g_crash_durable_seed_d=480
     name: test (${{ matrix.os }})
     needs: validate-inputs
     runs-on: ${{ matrix.runner }}
@@ -1163,7 +1171,7 @@ jobs:
         # The reference plugin is an independent Cargo workspace, so the
         # daemon workspace test does not compile it. Keep this explicit check
         # in both hosted OS lanes.
-        run: cargo test --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml --locked
+        run: ../scripts/ci/cargo-test-deadline.sh --manifest-path bindings/examples/rust-agent-screen-detection/Cargo.toml --locked
 
 
       - name: focused Linux journal process-fence test
@@ -1217,14 +1225,14 @@ jobs:
             # Process-heavy CLI tests can exceed the runner's child-process
             # limit on the smaller macOS and Windows matrix runners, and
             # timing-bound tests flake at 32 threads on Linux.
-            cargo test --workspace --exclude cmux-tui-core --locked --no-fail-fast -- --test-threads=2
+            ../scripts/ci/cargo-test-deadline.sh --workspace --exclude cmux-tui-core --locked --no-fail-fast -- --test-threads=2
             mkdir -p target
             cargo test -p cmux-tui-core --locked --no-run --message-format=json \
               > target/cmux-tui-core-test-binaries.jsonl
             python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py \
               target/cmux-tui-core-test-binaries.jsonl \
               crates/cmux-tui-core
-            cargo test -p cmux-tui-core --doc --locked
+            ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --doc --locked
             exit 0
           fi
           # optchat_chief selects the optchat-chief job (its own Cargo workspace), no cmux-tui test.
@@ -1244,7 +1252,7 @@ jobs:
             remote_cli::tests::iroh_route_candidates_keep_query_hints_isolated \
             remote_runtime::tests::route_auth_capability_is_derived_from_the_local_provider_registry
           do
-            cargo test --locked -p cmux-tui --lib --features iroh-transport \
+            ../scripts/ci/cargo-test-deadline.sh --locked -p cmux-tui --lib --features iroh-transport \
               "$test_name" -- --exact --color never | tee "$RUNNER_TEMP/iroh-feature-test.log"
             grep -Fq 'test result: ok. 1 passed;' "$RUNNER_TEMP/iroh-feature-test.log"
           done
@@ -1255,13 +1263,13 @@ jobs:
         # Single-threaded: crossterm's colored tests mutate process env vars
         # (COLORTERM/NO_COLOR) and race each other under parallel test
         # threads, flaking test_parse_ansi_fg/bg intermittently.
-        run: cargo test --manifest-path vendor/crossterm/Cargo.toml --lib -- --test-threads=1
+        run: ../scripts/ci/cargo-test-deadline.sh --manifest-path vendor/crossterm/Cargo.toml --lib -- --test-threads=1
 
       - name: smoltcp patch tests
         if: inputs.mode == 'full'
         working-directory: cmux-tui
         # vendor/smoltcp/CMUX_PATCH.md: the initial window is CUBIC's, so its tests run with it.
-        run: cargo test --manifest-path vendor/smoltcp/Cargo.toml --lib --features socket-tcp-cubic
+        run: ../scripts/ci/cargo-test-deadline.sh --manifest-path vendor/smoltcp/Cargo.toml --lib --features socket-tcp-cubic
 
       - name: TUI smoke test (scripted pty)
         if: inputs.mode == 'full'
@@ -1352,19 +1360,19 @@ jobs:
           # The SDK's local_socket transport (shared with the daemon) and the
           # clients over it (plans/cmux-next/windows-daemon.md): same-user,
           # owner-only directory and sandbox refusals; mock-daemon tests.
-          cargo test --locked --target x86_64-pc-windows-gnu \
+          ../scripts/ci/cargo-test-deadline.sh --locked --target x86_64-pc-windows-gnu \
             -p cmux-sdk -p cmux-daemon-client
           # acpmux builds for Windows (the port lands in steps): every
           # target, tests included, so no Unix-only code comes back ungated.
           cargo check --locked --target x86_64-pc-windows-gnu -p acpmux --all-targets
           # acpmux on Windows through its CLI and socket: daemon run, status,
           # the start lock, the saved token, shutdown.
-          cargo test --locked --target x86_64-pc-windows-gnu -p acpmux \
+          ../scripts/ci/cargo-test-deadline.sh --locked --target x86_64-pc-windows-gnu -p acpmux \
             --test windows_daemon -- --test-threads=1
           # The handle-bound DACL/path identity discriminators are Windows-only
           # lib tests; compiling them does not prove SetSecurityInfo stayed on
           # the opened object.
-          cargo test --locked --target x86_64-pc-windows-gnu -p acpmux \
+          ../scripts/ci/cargo-test-deadline.sh --locked --target x86_64-pc-windows-gnu -p acpmux \
             --lib owner_only::tests:: -- --test-threads=1
           # A torn log append is cut back through a handle that may truncate (the
           # writer's may only append on Windows; review of #40884).
@@ -1374,7 +1382,7 @@ jobs:
           # plans/cmux-next/windows-terminal-hosts.md): a terminal survives a
           # fenced daemon restart, and a daemon in a kill-on-close job without
           # breakaway marks its terminal (behavior tests through the daemon).
-          cargo test --locked --target x86_64-pc-windows-gnu -p cmux-tui \
+          ../scripts/ci/cargo-test-deadline.sh --locked --target x86_64-pc-windows-gnu -p cmux-tui \
             --test windows_terminal_hosts -- --test-threads=1
 
       # A peer of another user is refused by cmux::local_socket's accept.
@@ -1548,6 +1556,8 @@ jobs:
         env:
           CMUX_MUX_BROWSER_TEST: "1"
           CMUX_MUX_BROWSER_TEST_CHROME: ${{ steps.chromium.outputs.path }}
+          # One browser launch and page load: more than the 180 s default.
+          CMUX_TEST_DEADLINE_SECONDS: "600"
         shell: bash
         run: |
           set -euo pipefail
@@ -1559,13 +1569,15 @@ jobs:
             echo "::error::chrome_smoke_requires_configured_browser selected no exact test" >&2
             exit 1
           }
-          cargo test -p cmux-tui-cdp --test chrome_smoke --locked -- \
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-cdp --test chrome_smoke --locked -- \
             --ignored --exact chrome_smoke_requires_configured_browser
 
       - name: Run browser host Chromium driver test
         working-directory: cmux-tui
         env:
           CMUX_BROWSER_HOST_TEST_CHROME: ${{ steps.chromium.outputs.path }}
+          # One browser launch and page load: more than the 180 s default.
+          CMUX_TEST_DEADLINE_SECONDS: "600"
         shell: bash
         run: |
           set -euo pipefail
@@ -1577,7 +1589,7 @@ jobs:
             echo "::error::$test_name selected no exact test" >&2
             exit 1
           }
-          cargo test -p cmux-browser-host --test chromium --locked -- \
+          ../scripts/ci/cargo-test-deadline.sh -p cmux-browser-host --test chromium --locked -- \
             --ignored --exact "$test_name" --nocapture
 
   bindings-e2e:

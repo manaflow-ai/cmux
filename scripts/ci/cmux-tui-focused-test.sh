@@ -16,10 +16,12 @@ set -euo pipefail
 filter="${1:?usage: cmux-tui-focused-test.sh FILTER [libtest args...]}"
 shift
 tmp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
+# Test runs have a per-test deadline (cargo-test-deadline.sh); listings have the silence watchdog below.
+deadline_test="$(cd "$(dirname "$0")" && pwd)/cargo-test-deadline.sh"
 if [[ "$filter" == "chatmux_relay" || "$filter" == "chatmux-relay" ]]; then
   # Cargo test names do not include their package name. Keep this explicit selector so
   # focused verification can exercise the relay crate instead of silently selecting zero tests.
-  cargo test -p chatmux-relay --locked -- "$@"
+  "$deadline_test" -p chatmux-relay --locked -- "$@"
   exit 0
 fi
 # Build first: a cold compile can be quiet for minutes, a listing never is. Each test binary
@@ -66,4 +68,4 @@ if [[ ! -s "$normal_names" ]]; then
   echo "::error::test_filter '$filter' selected no Rust tests" >&2
   exit 1
 fi
-cargo test --workspace --locked --no-fail-fast "$filter" -- "$@"
+"$deadline_test" --workspace --locked --no-fail-fast "$filter" -- "$@"

@@ -12,6 +12,7 @@
 # wrapper sums the "test result:" lines of every test binary and exits 1 when
 # no test passed or failed (ignored tests do not count: they did not run).
 # A failing cargo run keeps its own exit status. Output is not filtered.
+# Each test has a deadline (scripts/ci/cargo-test-deadline.sh).
 # Test: scripts/cmux-next/tests/cargo-test-selected.test.sh.
 set -euo pipefail
 
@@ -24,7 +25,8 @@ log=$(mktemp)
 trap 'rm -f "$log"' EXIT
 
 status=0
-cargo test "$@" | tee "$log" || status=$?
+# Through cargo-test-deadline.sh: a test that runs past its deadline is named and ended (exit 124).
+"$(dirname "${BASH_SOURCE[0]}")/cargo-test-deadline.sh" "$@" | tee "$log" || status=$?
 if [[ $status -ne 0 ]]; then
   exit "$status"
 fi
