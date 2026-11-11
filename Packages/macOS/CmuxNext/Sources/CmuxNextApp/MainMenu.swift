@@ -8,7 +8,7 @@ import CmuxNextDesign
 /// standard responder-chain items so text fields (rename, omnibox) work;
 /// the Help menu is in MainMenu+Placements.swift.
 enum MainMenu {
-    static func make(registry: ActionRegistry, blocking: BlockingDetector) -> NSMenu {
+    static func make(registry: ActionRegistry) -> NSMenu {
         let mainMenu = NSMenu()
         // About (`about`: the standard panel with the build's credits) comes first, as in every Mac app.
         var app: [NSMenuItem] = registry.makeMenuItem(for: "about").map { [$0, .separator()] } ?? []
@@ -54,21 +54,8 @@ enum MainMenu {
         ] + compactMainMenuItems(for: .window, registry: registry).filter { $0.title != zoomTitle })
         mainMenu.addItem(windowMenu)
         NSApp.windowsMenu = windowMenu.submenu
-        // Debug (DEV and NIGHTLY, `DevTools`): debug-only actions placed there.
-        var debug = DevTools.isEnabled ? registry.makeMainMenuItems(for: .debug) : []
-        if DevTools.isEnabled { debug += [.separator(), SidebarToggleIconMenu().makeItem(), StatusIconSetMenu().makeItem()] }
-        if !debug.isEmpty {
-            let debugItem = submenu(Strings.menuDebug, items: debug)
-            #if DEBUG
-            // Main-Thread Blocking (N): the call sites the blocking detector saw (threading-model.md).
-            if let debugMenu = debugItem.submenu {
-                BlockingCallsMenu(detector: blocking, resetItem: {
-                    registry.makeMenuItem(for: "debug.blockingCalls.reset")
-                }).attach(to: debugMenu)
-            }
-            #endif
-            mainMenu.addItem(debugItem)
-        }
+        // No Debug menu: debug-only actions are Command Palette rows, shown while Internal Developer Mode
+        // is on (`DebugActionGate`).
         // Help, last as on every Mac: macOS adds its search field to `NSApp.helpMenu`.
         let helpMenu = submenu(Strings.menuHelp, items: helpPlacements(registry))
         mainMenu.addItem(helpMenu)
@@ -91,8 +78,8 @@ enum MainMenu {
         ],
         .view: [
             "browserBack", "browserForward", "browserReload", "browserStop", "browserHardReload",
-            "browserZoomIn", "browserZoomOut", "browserZoomReset", "toggleSidebar", "toggleRightSidebar",
-            "focusRightSidebar", "appearance.customize",
+            "browserZoomIn", "browserZoomOut", "browserZoomReset", "toggleSidebar",
+            "appearance.customize",
         ],
         .server: ["server.addServer", "server.showPanel"],
         .window: [
@@ -106,7 +93,7 @@ enum MainMenu {
     static var removedMainMenuActionIDs: Set<ActionID> {
         let kept = Set(compactActionIDs.values.flatMap { $0 })
         return Set(ActionCatalog.all.compactMap { descriptor in
-            guard descriptor.mainMenu != nil, !kept.contains(descriptor.id), !descriptor.isDebugOnly else { return nil }
+            guard descriptor.mainMenu != nil, !kept.contains(descriptor.id) else { return nil }
             return descriptor.id
         })
     }

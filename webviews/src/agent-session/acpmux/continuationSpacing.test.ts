@@ -149,8 +149,10 @@ test("placed gaps follow an Interface Size change, kept rows included", () => {
     expect(relaid.scale).toBe(1.25);
     expect(relaid.gaps?.[1]).toBe(30);
   } finally {
-    g.document = saved.document;
-    g.getComputedStyle = saved.getComputedStyle;
+    if (saved.document === undefined) delete g.document;
+    else g.document = saved.document;
+    if (saved.getComputedStyle === undefined) delete g.getComputedStyle;
+    else g.getComputedStyle = saved.getComputedStyle;
   }
 });
 
@@ -190,8 +192,10 @@ test("estimated grid rows follow the Interface Size", () => {
       expect(atLarger).toBeCloseTo(atOne * 1.25, 5);
     }
   } finally {
-    g.document = saved.document;
-    g.getComputedStyle = saved.getComputedStyle;
+    if (saved.document === undefined) delete g.document;
+    else g.document = saved.document;
+    if (saved.getComputedStyle === undefined) delete g.getComputedStyle;
+    else g.getComputedStyle = saved.getComputedStyle;
   }
 });
 

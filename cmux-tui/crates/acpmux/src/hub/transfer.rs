@@ -176,9 +176,15 @@ impl Hub {
                 meta.id
             )));
         }
+        // A chat that comes back (`replace_durable`: `transfer_in.rs` replaces its moved-away
+        // copy here) is that copy: its name is the chat's own, not another's to step around.
+        // Another chat with the name still holds it.
+        let holds = |s: &Arc<Session>, n: &str| {
+            s.meta().name == n && !(replace_durable && s.id == meta.id && self.moved_away(s))
+        };
         if let Some(n) = &name {
             crate::session_name::validate(n).map_err(RpcError::invalid_params)?;
-            if self.sessions.lock().unwrap().values().any(|s| s.meta().name == *n) {
+            if self.sessions.lock().unwrap().values().any(|s| holds(s, n)) {
                 return Err(RpcError::invalid_params(format!("session name {n:?} is taken")));
             }
         }
@@ -203,7 +209,7 @@ impl Hub {
         if let Some(n) = name {
             meta.name = n;
             meta.name_given = true;
-        } else if self.sessions.lock().unwrap().values().any(|s| s.meta().name == meta.name) {
+        } else if self.sessions.lock().unwrap().values().any(|s| holds(s, &meta.name)) {
             meta.name = self.unique_name(&meta.name);
         }
         if !self.config.read().await.harnesses.contains_key(&meta.harness) {
@@ -1012,7 +1018,7 @@ mod tests {
         }));
         let writer = Arc::new(std::sync::Mutex::new(None::<std::thread::JoinHandle<()>>));
         let spawned = writer.clone();
-        let hook: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |agent| {
+        let hook = super::super::transfer_in::on_sweep_pause(move |agent| {
             if agent != "agent-0009" {
                 return;
             }
@@ -1024,11 +1030,12 @@ mod tests {
             }));
             let _ = finished.recv_timeout(std::time::Duration::from_millis(300));
         });
-        *super::super::transfer_in::SWEEP_PAUSE.lock().unwrap() = Some(hook);
         hub.recover_staged_replacements();
+        // The sweep on this thread read the failed import's marker, and only that one.
+        assert_eq!(hook.reached(), ["agent-0009"]);
+        drop(hook);
         let handle = writer.lock().unwrap().take();
         handle.expect("the sweep never read the marker").join().unwrap();
-        *super::super::transfer_in::SWEEP_PAUSE.lock().unwrap() = None;
         assert!(
             root.join(&id).join("session.json").exists(),
             "the sweep removed the retry's store"

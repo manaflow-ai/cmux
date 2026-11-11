@@ -173,6 +173,10 @@ install click.
   Put it back on purpose with `cmux apps place 'local/customize#cmux.section/1' --region bottom`.
 - `implements["cmux.session.info.section/1"]` is its one Session Info section; its
   render function gets `{ session_id, cwd, branch?, harness? }` as its argument.
+- Show or hide it in one step: Toggle Custom Sidebar (Cmd+Shift+P, Ctrl+Opt+Cmd+B, the
+  sidebar's right-click Options menu, or `cmux sidebar toggle-custom`). It flips the app's
+  hidden flag, which cmux keeps across relaunches; with no customize folder it writes the
+  starter template and the view appears.
 - Scopes: read scopes (`integration:github:read`) are granted at install. Others
   (`actions:run`, `net:<host>`) need the person to turn them on in Settings > Apps.
 - Script errors: `cmux raw command --request-json '{"cmd":"apps-logs","app":"local/customize"}'`.
@@ -202,7 +206,10 @@ The worked example, as copy-paste files, and the recipe for adding a view:
 To make a button run the person's own command, read the current workspace,
 follow changes or open a pane of their own, start from a folder in
 [templates/](templates/) (`starter`, `sidebar-section`, `command-button`,
-`pane`, `threads`: the agent chats as a thread list, from `agent_chat.list`). A button runs a `cmux-next.json` action with
+`pane`, `threads`: the agent chats as a thread list, from `agent_chat.list`;
+`clock-weather`, `my-prs` and `design-links`: a time and weather widget, your PRs
+in the order you keep, Figma and other links opened in a cmux tab). For "what could I
+make?", start from [references/ideas.md](references/ideas.md). A button runs a `cmux-next.json` action with
 `cmux.actions.run("cmuxConfig.<name>")` from a click, once the person turns on
 `actions:run`. What an extension can call, what is missing, and how to install
 a template: [references/extensions.md](references/extensions.md).

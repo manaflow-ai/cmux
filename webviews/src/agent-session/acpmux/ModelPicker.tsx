@@ -11,6 +11,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { AgentMark, agentBrand, hasAgentMark } from "../shared/AgentMark";
+import { chipFace as faceFor, harnessFace } from "./chipFace";
 import { agentDisplayName, picksOwnModel } from "./agents";
 import { agentKey } from "../shared/agentKey";
 import { isDefaultChoice } from "./defaultChoice";
@@ -52,7 +53,7 @@ import {
 } from "../../ui/PickerPrimitives";
 import { ScrollArea } from "../../ui/ScrollArea";
 import { quantizePickerRail } from "./pickerRailGeometry";
-import { type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
+import { CLAUDE_STDIO_KIND, type HarnessChoice, uniqueHarnesses, withoutVendor } from "./modelPickerModel";
 import { pickerHeightBounds } from "./modelPickerLayout";
 type ModelChoice = {
   id: string;
@@ -390,8 +391,6 @@ export function ModelPicker(props: ModelPickerProps) {
     onLogIn,
     usage,
     quick,
-    detail,
-    detailShort,
     fork,
     onSetUpPick,
   } = props;
@@ -943,6 +942,7 @@ export function ModelPicker(props: ModelPickerProps) {
         id: entry.id,
         name: entry.name,
         accountFamily: entry.family ?? entry.acpmuxHarness ?? entry.id,
+        ...(entry.kind === CLAUDE_STDIO_KIND ? { ultracode: true } : {}),
         ...(hasAgentMark(entry.mark ?? entry.id) ? { mark: entry.mark ?? entry.id } : {}),
         models: shown.map(tabRow),
         more: more.map(tabRow),
@@ -1180,11 +1180,26 @@ export function ModelPicker(props: ModelPickerProps) {
       harnesses.find((entry) => entry.ids.includes(switchingTo.harness))?.mark ??
       switchingTo.harness)
     : undefined;
-  // A held pick of another harness draws that harness's mark: the chip names what the next message runs.
-  const heldMark = held && !switchingTo ? (heldEntry?.mark ?? heldEntry?.id ?? held.harness) : undefined;
-  const chipHarness = switchingMark ?? heldMark ?? current?.mark ?? current?.id ?? harness;
+  // The chip's logo, name and effort are one ``ChipFace`` (chipFace.ts): a switch names its target
+  // harness alone; else the face the composer made from the model it names, else one made here from
+  // the model this chip names (a held pick's, else the running or predicted one). The logo is that
+  // model's provider, never the harness that runs it.
+  const face = switchingTo
+    ? harnessFace(switchingMark, switchingTo.name)
+    : (props.face ??
+      faceFor(
+        held ? held.model : (props.model ?? props.predictedModel),
+        label,
+        held ? (heldEntry?.mark ?? heldEntry?.id ?? held.harness) : (current?.mark ?? current?.id ?? harness),
+        {
+          ...(props.detail ? { detail: props.detail } : {}),
+          ...(props.detailShort ? { detailShort: props.detailShort } : {}),
+        },
+      ));
+  const chipHarness = face.mark;
+  const { detail, detailShort } = face;
   const forkText = held ? t("picker.forkNext", { harness: held.name }) : undefined;
-  const chipLabel = switchingTo?.name ?? label;
+  const chipLabel = face.name;
   // The controls row's forms of the chip (composerRowFit.ts); a switch draws its target's name whole.
   const rowChip = switchingTo ? undefined : chip;
   // The name the chip writes: without the vendor its mark draws ("Opus 5.5"), the title keeps it whole.

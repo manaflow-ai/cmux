@@ -126,10 +126,10 @@ public extension WindowOverlayHost {
         return NSRect(x: frame.minX + rect.minX, y: y, width: rect.width, height: rect.height)
     }
 
-    /// Where the overlay takes clicks (window coordinates), nil for its whole frame: a toast stack's
-    /// toasts (``OverlayHandle/hitRegions``), or a dialog's card (``OverlayOptions/mouseRect``).
+    /// Where the overlay takes clicks (window coordinates), nil for its whole frame: a dialog's
+    /// card (``OverlayOptions/mouseRect``).
     func clickRegions(of handle: OverlayHandle) -> [NSRect]? {
-        handle.hitRegions ?? mouseRect(of: handle).map { [$0] }
+        mouseRect(of: handle).map { [$0] }
     }
 
     /// What of the overlay shows (window coordinates): a `.pane` overlay

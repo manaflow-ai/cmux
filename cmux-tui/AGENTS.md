@@ -13,6 +13,10 @@ The script rejects dirty or unpushed work, verifies the exact commit in every ho
 
 `rust-toolchain.toml` is the single Rust toolchain source for hosted TUI tests, package builds, and live conformance. Change that file instead of adding a workflow-specific Rust version.
 
+## A fix names its port to the other branch
+
+A fix under cmux-tui/ that lands on main or on feat-cmux-next names, in its PR body, the PR that ports it to the other branch, or says 'No port: <why>'; the review subagent refuses a daemon fix without that line.
+
 ## Daemon edits: swap the running daemon
 
 To try a daemon edit (`crates/cmux-tui-core`, `crates/cmux-tui`, `crates/acpmux`) on a running session,

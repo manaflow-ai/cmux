@@ -491,8 +491,15 @@ public final class AgentPaneModel {
         case .dictation(.recordAudio), .tabState, .projectInstructions, .listProjects: break
         // Every page reads its tip records on mount (featureTipsModel.ts); counted as a touch, it
         // kept every subagent, side chat and sender open off the prewarmed page ("touched by
-        // featureTips"), each one making a cold page instead. Keeping or claiming a tip still touches.
+        // featureTips"), each one making a cold page instead.
         case .featureTips(.read): break
+        // A claim is the page's own question (may this install see the tip now), sent with no input of the
+        // person, and the X of a tip keeps one record. Both change the app's records
+        // (``AgentPaneFeatureTipRecords``) and nothing a page keeps past its next adoption (cloudChatHintModel.ts
+        // reads the records again then). Counted as touches, they kept every closed New Tab page of a default
+        // profile out of the spare pool, one cold page per Cmd-W. `used` still touches: the person used the
+        // tip's control in this page (picked Cloud there), and the page holds that pick.
+        case .featureTips(.claim), .featureTips(.keep(id: _, state: "closed")): break
         case .reply(let reply) where reply.isPassive: break
         case .cloudReservation: break
         case .cloudEnvironment(let request) where request.action != "update": break

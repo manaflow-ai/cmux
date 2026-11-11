@@ -1076,3 +1076,6 @@ mod subscriptions;
 
 #[path = "supervisor_run_lifecycle_tests.rs"]
 mod run_lifecycle;
+
+#[path = "supervisor_rollback_tests.rs"]
+mod rollback_tolerance;

@@ -128,6 +128,65 @@ impl Client {
         None
     }
 
+    /// Sends `value` with a fresh id and returns its reply, or None when no
+    /// reply came within `wait` (the connection may also have closed).
+    pub(in crate::server) fn request_within(
+        &mut self,
+        mut value: Value,
+        wait: Duration,
+    ) -> Option<Value> {
+        let id = self.next_id;
+        self.next_id += 1;
+        value["id"] = json!(id);
+        writeln!(self.writer, "{value}").unwrap();
+        self.writer.flush().unwrap();
+        let deadline = Instant::now() + wait;
+        loop {
+            let line = self.read_line(deadline)?;
+            if line.get("event").is_some() {
+                self.events.push_back(line);
+            } else if line["id"] == json!(id) {
+                return Some(line);
+            }
+        }
+    }
+
+    /// Sends `value` with a fresh id and returns true when the daemon then
+    /// closes the connection (end of stream) within `wait`, skipping any
+    /// line it sends first; false when it is still open at the deadline.
+    pub(in crate::server) fn send_and_expect_close(
+        &mut self,
+        mut value: Value,
+        wait: Duration,
+    ) -> bool {
+        value["id"] = json!(self.next_id);
+        self.next_id += 1;
+        writeln!(self.writer, "{value}").unwrap();
+        self.writer.flush().unwrap();
+        let deadline = Instant::now() + wait;
+        let mut line = String::new();
+        while Instant::now() < deadline {
+            match self.reader.read_line(&mut line) {
+                Ok(0) => return true,
+                Ok(_) => line.clear(),
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ) => {}
+                Err(_) => return true,
+            }
+        }
+        false
+    }
+
+    /// Waits for the daemon's thread serving this connection to return.
+    pub(in crate::server) fn join_server(&mut self) {
+        if let Some(handler) = self.handler.take() {
+            let _ = handler.join();
+        }
+    }
+
     pub(super) fn hello(&mut self, params: Value) -> Value {
         let mut request = json!({"cmd": "client-hello"});
         for (key, value) in params.as_object().unwrap() {

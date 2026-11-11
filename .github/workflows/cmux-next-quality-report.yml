@@ -8,7 +8,11 @@ name: cmux-next quality report
 #     cmuxterm-hq (leo-workspace tools/hang_watch.py), read with the route App's issues token;
 #   - the metrics JSON: crash-free session rate (Sentry release health), the perf cron's newest interaction
 #     p95 per row (the perf-cron-state artifact), and the god-vs-small and animation token coverage slots
-#     (filled once those checks write their JSON; the report says "no input given" until then).
+#     (filled once those checks write their JSON; the report says "no input given" until then);
+#   - CI health (Leo, 2026-11-10: "WE DO NOT STAND FOR BAD CI AND LOW QUALITY STUFF EVER"): over the last 50
+#     commits of feat-cmux-next and of main, the share of checks whose newest finished run is green, and the flake
+#     rate (a check that failed and then passed on the same commit), with the checks red now. One GraphQL read
+#     per 5 commits on the route App's checks-read token.
 # The JSON, without signature names, is this run's artifact `cmux-next-quality-metrics` (kept 3 days). The full
 # report goes to the one cmuxterm-hq issue "cmux NEXT nightly quality report", with one row per night: that issue
 # is where the numbers are kept over time. This public repository's step summary gets the numbers only. Nothing here
@@ -31,7 +35,7 @@ jobs:
   report:
     if: github.repository == 'manaflow-ai/cmux'
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -80,6 +84,22 @@ jobs:
           permission-actions: read
           permission-issues: read
 
+      # Checks and contents (the commit history) read on this repository only, for the CI health section; its own mint, so an App without the checks
+      # grant costs only the CI numbers (n/a, with the reason), never the perf rows or the crash fallback.
+      - name: Mint the checks read token
+        id: checks-read
+        if: steps.done.outputs.cache-hit != 'true' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-checks: read
+          permission-contents: read
+
       - name: Fetch the perf cron's state
         if: steps.done.outputs.cache-hit != 'true' && steps.hq-read.outputs.token != ''
         continue-on-error: true
@@ -92,12 +112,14 @@ jobs:
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           GH_TOKEN: ${{ steps.hq-read.outputs.token }}
+          CI_GH_TOKEN: ${{ steps.checks-read.outputs.token }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/quality"
           mkdir -p "$out"
           python3 -I scripts/cmux-next/quality-report.py report --hours 24 \
             --perf-state "$RUNNER_TEMP/perf-state/state.json" \
+            --ci-branches feat-cmux-next,main --ci-commits 50 --ci-repo "$GITHUB_REPOSITORY" \
             --json "$out/quality-metrics-full.json" --public-json "$out/quality-metrics.json" \
             --md "$out/quality-report.md" --public-md "$out/quality-summary.md"
           cat "$out/quality-summary.md" >> "$GITHUB_STEP_SUMMARY"

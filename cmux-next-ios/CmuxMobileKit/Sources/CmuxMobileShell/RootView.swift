@@ -1,9 +1,11 @@
 #if os(iOS)
+import CmuxMobileBilling
 import CmuxMobileAgentChat
 import CmuxMobileAuth
 import CmuxMobileArtifacts
 import CmuxMobileBrowserStream
 import CmuxMobileChief
+import CmuxConnectivityTelemetry
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
@@ -93,6 +95,9 @@ public struct RootView: View {
     @State private var machineInvite: MachineInvite?
     /// The signed-in shell's one model, kept across this view's updates (`ShellView.init`).
     @State private var shellModel = KeptModel<ShellModel>()
+    /// App Store plans (Settings → Plan), built once for the process so its
+    /// `Transaction.updates` listener outlives every screen; nil hides Plan.
+    @State private var billing: BillingModel?
     private let options: ShellLaunchOptions
 
     public init(auth: CmuxMobileAuthModel, store: AppStore, options: ShellLaunchOptions = ShellLaunchOptions()) {
@@ -168,6 +173,25 @@ public struct RootView: View {
         }
         .animation(theme.motion.gentle.animation.unlessReduceMotion, value: destination)
         .environment(\.mobileKeyboardFrameTracker, keyboard)
+        .environment(billing)
+        // Plans follow the account: a purchase StoreKit still holds is delivered
+        // for whoever signs in; sign-out forgets the old account's plan.
+        .onChange(of: auth.isResolved ? auth.isSignedIn : nil, initial: true) { _, signedIn in
+            guard let signedIn else { return }
+            guard signedIn else { billing?.resetForSignOut(); return }
+            if let billing {
+                // Another account signed in: deliver what StoreKit still holds for it now.
+                Task { await billing.retryUndeliveredTransactions() }
+            } else {
+                // Built once, on the first sign-in (start() also retries held transactions).
+                billing = auth.makeBillingModel(bundleIdentifier: Bundle.main.bundleIdentifier)
+                #if DEBUG
+                // Screenshot rig (BillingDemo): the real plans screen over an in-memory server.
+                if let demo = BillingDemo() { billing = demo.makeModel(bundleIdentifier: Bundle.main.bundleIdentifier ?? "dev.cmux.mobile") }
+                #endif
+                billing?.start()
+            }
+        }
         // Settings → Require Face ID (audit B11).
         .cmuxMobileAppLock(enabled: settings.requireFaceID)
         .task {
@@ -225,6 +249,12 @@ public struct RootView: View {
             guard let id, !id.isEmpty else { return }
             AccountPreferences.standard.activate(userID: id)
             accountUserID = id
+        }
+        // Connectivity telemetry follows the account: the cmux team's own accounts
+        // (@manaflow.ai, @cmux.com) record verbosely, everyone else sampled and text-free.
+        .onChange(of: auth.isResolved && auth.isSignedIn && !auth.isMock ? auth.user?.email : nil, initial: true) { _, email in
+            ConnectivityTelemetry.shared.startOnPhone()
+            ConnectivityTelemetry.shared.setAccount(email: email)
         }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
         // A Mac's pairing code from the Camera (`cmux-next://pair?…`); never logged, it holds a token.
@@ -498,6 +528,8 @@ final class KeptModel<Model: AnyObject> {
 /// The signed-in shell: the UIKit drawer container with the team sidebar under
 /// a four-tab `TabView`.
 struct ShellView: View {
+    /// App Store plans from the root (nil hides Settings → Plan).
+    @Environment(BillingModel.self) private var billing: BillingModel?
     @State private var shell: ShellModel
     @State private var inviteEmail = ""
     private let options: ShellLaunchOptions
@@ -540,9 +572,14 @@ struct ShellView: View {
         SidebarContainer(
             model: shell.sidebar,
             sidebar: TeamSidebar(store: shell.store, shell: shell, sidebar: shell.sidebar),
-            content: ShellTabs(shell: shell).environment(shell.store)
+            // The container hosts the tabs in their own hosting controller: pass the
+            // root's objects across it (Settings → Plan reads the billing model).
+            content: ShellTabs(shell: shell).environment(shell.store).environment(billing)
         )
         .ignoresSafeArea()
+        #if DEBUG
+        .modifier(BillingDemoSheet(billing: billing))
+        #endif
         .cmuxMobileToast($shell.toast)
         .modifier(LiveCallHost(shell: shell))
         .sheet(item: $shell.shareURL) { item in
@@ -596,7 +633,7 @@ struct ShellView: View {
         // A named Home conversation link may arrive before the Mac's Home
         // rows or Cloud Chief are loaded; continue the pending route as those
         // owners publish their identities, instead of opening another Chief.
-        .onChange(of: MacHomeFeed.shared.rows) { _, _ in
+        .onChange(of: MacHomeFeed.shared.rowsRevision) { _, _ in
             if let route = NotificationRouter.shared.pending, shell.open(route) { NotificationRouter.shared.opened() }
         }
         .onChange(of: ChiefSources.shared.cloud.conversationID) { _, _ in
@@ -844,6 +881,7 @@ struct ShellTabs: View {
                     callChief: { shell.callChief() },
                     screenSharing: shell.screenSharing,
                     cloudPages: shell.live == nil || ChiefCloudConfig.current() == nil ? nil : SettingsCloudPages(
+                        machines: { AnyView(CloudMachinesScreen(openChats: { shell.cloudChats = ShellModel.CloudChatsPresentation(attention: nil) })) },
                         automations: { AnyView(CloudAutomationsScreen()) },
                         connectGitHub: { AnyView(GitHubConnectRow()) }
                     ),

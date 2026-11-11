@@ -17,7 +17,7 @@ import Testing
     @Test func inviteShowsInTheCallsFrameAndItsFieldTakesTheFirstKey() throws {
         let window = Self.window()
         defer { Self.close(window) }
-        let sheet = HomeTeamInviteSheet(team: "cmux")
+        let sheet = HomeInviteSheet(pending: [])
         var finished: [ConversationID?] = []
         sheet.onFinish = { finished.append($0) }
 
@@ -40,9 +40,20 @@ import Testing
     func invitePresentsWithin50msOfTheMainThread() throws {
         let window = Self.window()
         defer { Self.close(window) }
-        let sheet = HomeTeamInviteSheet(team: "cmux")
+        let sheet = HomeInviteSheet(pending: [])
         let held = ContinuousClock().measure { HomeSheetPresenter().present(sheet, over: window) }
         #expect(held < .milliseconds(50), "presenting held the main thread for \(held)")
+        sheet.cancel(nil)
+    }
+
+    @Test func newChiefTakesTheKeyboardInItsNameField() throws {
+        let window = Self.window()
+        defer { Self.close(window) }
+        let sheet = HomeNewChiefSheet()
+        HomeSheetPresenter().present(sheet, over: window)
+        #expect(window.attachedSheet == nil)
+        let editor = sheet.view.window?.firstResponder as? NSText
+        #expect(editor != nil && editor?.delegate === sheet.name, "the name field does not have the keyboard")
         sheet.cancel(nil)
     }
 
