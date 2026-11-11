@@ -206,6 +206,7 @@ impl Surface {
                     crate::workspace_registry::new_uuid_v4()
                 )),
                 journal_capture_supported: true,
+                output_log: Default::default(),
                 #[cfg(unix)]
                 local_output: shared_output,
                 journal_capture_epoch: AtomicU64::new(0),

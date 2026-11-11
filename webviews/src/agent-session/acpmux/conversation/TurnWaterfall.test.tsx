@@ -197,7 +197,7 @@ test("two spans of one reused call id draw under their own keys", () => {
   const markup = renderToStaticMarkup(
     <TurnWaterfall row={{ at: 2_000, durationMs: 2_000 }} work={[call("same", 0, 500), call("same", 1_000, 1_500)]} />,
   );
-  expect(markup.match(/cv-waterfall__span/g)?.length).toBe(2);
+  expect(markup.match(/class="cv-waterfall__span is-read/g)?.length).toBe(2);
 });
 
 test("the header's empty corner says the turn's total and its calls, in the axis's time format", () => {
@@ -273,4 +273,50 @@ test("at a phone's width (390px, under the 420px container query) the header cor
   expect(markup).toMatch(
     /class="cv-waterfall__head"><span class="cv-waterfall__summary">.*1 call.*1m 30s.*<\/span><div class="cv-waterfall__axis"/,
   );
+});
+
+test("the turn's time outside every call is a last Model row, so the rows add up to the axis's total", () => {
+  // Leo's screenshot (2026-11-05: "im not sure what the total thing is meant to represent. the total
+  // time of a turn?"): one 2.7s read in a 14.1s turn left 11.4s of the axis blank.
+  const chart = waterfall({ at: 14_100, durationMs: 14_100 }, [call("a", 0, 2_700)]);
+  expect(chart.gaps).toEqual([{ from: 2_700, to: 14_100 }]);
+  expect(chart.gapTotal).toBe(11_400);
+  const markup = renderToStaticMarkup(
+    <TurnWaterfall row={{ at: 14_100, durationMs: 14_100 }} work={[call("a", 0, 2_700)]} />,
+  );
+  const model = markup.match(/<div class="cv-waterfall__span is-model"[^>]*>(.*?)<\/div><\/li>/)?.[1] ?? "";
+  expect(model).toContain("Model, no tool running");
+  expect(model).toContain(">11.4s<");
+  // It comes after the call's row and is not a link to any call.
+  expect(markup.indexOf("Read a.ts")).toBeLessThan(markup.indexOf("is-model"));
+  expect(model).not.toContain("data-tool-id");
+  // The axis starts at a bare 0: a moment, not a duration.
+  expect(markup).toMatch(/class="cv-waterfall__axis"[^>]*><span>0<\/span>/);
+  // Overlapping spans count once, and a gap is only what no span covers.
+  const overlap = waterfall({ at: 10_000, durationMs: 10_000 }, [
+    call("b", 1_000, 5_000),
+    call("c", 2_000, 4_000),
+    call("d", 6_000, 10_000),
+  ]);
+  expect(overlap.gaps).toEqual([
+    { from: 0, to: 1_000 },
+    { from: 5_000, to: 6_000 },
+  ]);
+  expect(overlap.gapTotal).toBe(2_000);
+  // Back-to-back calls leave nothing to explain: no row.
+  const tight = renderToStaticMarkup(
+    <TurnWaterfall row={{ at: 2_000, durationMs: 2_000 }} work={[call("e", 0, 1_000), call("f", 1_000, 2_000)]} />,
+  );
+  expect(tight).not.toContain("is-model");
+  // The gallery's arms: shaded behind each track, or not drawn at all.
+  const tint = renderToStaticMarkup(
+    <TurnWaterfall row={{ at: 14_100, durationMs: 14_100 }} work={[call("a", 0, 2_700)]} modelTime="tint" />,
+  );
+  expect(tint).not.toContain("is-model");
+  expect(tint).toContain("cv-waterfall__gap");
+  const none = renderToStaticMarkup(
+    <TurnWaterfall row={{ at: 14_100, durationMs: 14_100 }} work={[call("a", 0, 2_700)]} modelTime="none" />,
+  );
+  expect(none).not.toContain("is-model");
+  expect(none).not.toContain("cv-waterfall__gap");
 });

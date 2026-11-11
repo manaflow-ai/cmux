@@ -127,6 +127,7 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/conversation/Thinking.tsx#Thinking",
     "agent-session/acpmux/conversation/ShimmerText.tsx#ShimmerText",
+    "agent-session/acpmux/conversation/LiveShimmer.tsx#LiveShimmer",
     "agent-session/acpmux/conversation/ThoughtRow.tsx#ThoughtRow",
     "slots/thinkingIndicator/DefaultThinkingIndicator.tsx#DefaultThinkingIndicator",
   ],

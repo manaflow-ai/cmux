@@ -56,6 +56,12 @@ public final class SidebarModel {
         access(keyPath: \.sections)
         return structureRevision
     }
+    /// On until the home session's owner serves (the app sets it): a structural set keeps the order drawn so far.
+    @ObservationIgnored public var holdsLaunchOrder = false {
+        didSet { if oldValue != holdsLaunchOrder { holdsLaunchOrder ? startLaunchOrderHold() : endLaunchOrderHold() } }
+    }
+    /// What the hold keeps (`SidebarModel+LaunchOrder`).
+    @ObservationIgnored var launchOrder = LaunchOrderLists()
     /// Where each group sits in `sections` (section, node); prepared with the sections, before a header click.
     @ObservationIgnored private var groupPaths: [GroupID: (section: Int, node: Int)] = [:]
     /// Told each group `setGroupCollapsed` folded or opened (the list splices that group's rows).
@@ -471,7 +477,7 @@ public final class SidebarModel {
         arrangedSorts = docDrag?.document?.shown?.groupSorts ?? [:]
         arrangedArchived = docDrag?.document?.shown?.archived ?? []
         arrangedSectionIDs = docDrag?.document?.shown?.layout.sections.map(\.id) ?? []
-        let next = Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections).map { $0.resolvingGroupDepths() }
+        let next = holdingLaunchOrder(Self.folding(Self.hidingItems(hiddenItemRefs, in: shown), collapsedSections).map { $0.resolvingGroupDepths() })
         if writesRowsInPlace(next) { return }
         // A set that only adds one loose workspace row (Cmd-N's stand-in, a scripted create): the list splices that row
         // into the layout it shows (`rowInsertion`, SIDEBAR INSERT 2), no layout of every row.
