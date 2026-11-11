@@ -92,10 +92,17 @@ pub struct Request {
 pub fn parse(input: &[u8]) -> Result<(Request, Zeroizing<Vec<u8>>), String> {
     let mut parts = input.splitn(2, |&b| b == b'\n');
     let (head, tail) = (parts.next().unwrap_or_default(), parts.next().unwrap_or_default());
-    let mut request: Request = serde_json::from_slice(head)
+    let mut head: Map<String, Value> = serde_json::from_slice(head)
+        .map_err(|_| "the request is not a cloud api request".to_owned())?;
+    // The app's classic Cloud session, when it has one (`classic`), or the word that it could not
+    // read it (`classic_unread`): [`classic_runs::attach`] decides which call takes it.
+    let classic = head.remove("classic");
+    let unread = head.remove("classic_unread").as_ref().and_then(Value::as_bool).unwrap_or(false);
+    let mut request: Request = serde_json::from_value(Value::Object(head))
         .map_err(|_| "the request is not a cloud api request".to_owned())?;
     request.credential = request.credential.trim().to_owned();
     request.api = request.api.trim().to_owned();
+    classic_runs::attach(&mut request, classic.as_ref(), unread);
     Ok((request, Zeroizing::new(tail.to_vec())))
 }
 

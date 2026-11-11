@@ -189,96 +189,32 @@ struct CloudAPIClientRunTests {
         #expect(creates.map { ($0["args"] as? [String: Any])?["idempotencyKey"] as? String } == ["send-3", "send-3"])
     }
 
-    /// The account the person sent under goes with the create and its retry, so the daemon starts nothing
-    /// under another one; a client with no such account sends no create at all (Codex's reviews of #39022 at
-    /// 1bf18b3d and 551a7dca, F1: every caller of create, the composer's and the control API's alike).
-    /// Codex's review of #39022 at e59d43c8 (F1): a Run the app followed from before the daemon ran Runs (its saved
-    /// record has no backend) is classic Cloud's. Its wait and cancel carry the classic API, the Run's team and the Stack
-    /// session, so the daemon drains it there (cmux-cloud-api `classic_runs`); a create never carries them.
-    @Test func aRunFromBeforeTheUpgradeIsWaitedOnAndCancelledWithTheClassicSession() async throws {
-        let daemon = FakeDaemon { _, _, _ in Self.done }
-        let classic = CloudAPIClient(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
-                                     tokens: { ("stack-access", "stack-refresh") }, teamID: { "team_now" },
-                                     session: CloudAPIClient.noStoreTransport, appVersion: "cmux-next")
-        let api = api(daemon).drainingClassic(classic).pinningTeam("team_stack")
-        _ = try await api.waitRun("r-old", timeoutMs: 1_000)
-        _ = try await api.cancelRun("r-old")
-        #expect(daemon.requests.count == 2)
-        for request in daemon.requests {
-            #expect(request["credential"] as? String == "stack-access")
-            #expect(request["refresh"] as? String == "stack-refresh")
-            let args = request["args"] as? [String: Any]
-            #expect(args?["id"] as? String == "r-old")
-            #expect(args?["classicApi"] as? String == "https://classic.standin.invalid")
-            #expect(args?["classicTeam"] as? String == "team_stack")
-        }
-        _ = try await api.createSandboxRun(task: "hi", idempotencyKey: "k-new")
-        #expect(daemon.requests.last?["refresh"] == nil)
-        #expect((daemon.requests.last?["args"] as? [String: Any])?["classicApi"] == nil)
-    }
-
-    /// #39022 review at 946e940e, F1: an incognito send's Run runs on classic Cloud with no chat in the app, so its create
-    /// carries the classic session; without one the create carries none and the daemon refuses it.
-    @Test func anIncognitoCreateCarriesTheClassicSessionAnOrdinaryOneNever() async throws {
-        let daemon = FakeDaemon { _, _, _ in Self.created }
-        let classic = CloudAPIClient(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
-                                     tokens: { ("stack-access", "stack-refresh") }, teamID: { "team_now" },
-                                     session: CloudAPIClient.noStoreTransport, appVersion: "cmux-next")
-        let api = api(daemon).drainingClassic(classic).pinningTeam("team_stack")
-        _ = try await api.createSandboxRun(task: "private", idempotencyKey: "k-private", incognito: true)
-        let incognito = try #require(daemon.requests.last)
-        #expect(incognito["refresh"] as? String == "stack-refresh")
-        #expect((incognito["args"] as? [String: Any])?["classicApi"] as? String == "https://classic.standin.invalid")
-        #expect((incognito["args"] as? [String: Any])?["classicTeam"] as? String == "team_stack")
-        _ = try await api.createSandboxRun(task: "hi", idempotencyKey: "k-open")
-        #expect(daemon.requests.last?["refresh"] == nil)
-        _ = try await self.api(daemon).createSandboxRun(task: "private", idempotencyKey: "k-none", incognito: true)
-        #expect(daemon.requests.last?["refresh"] == nil, "no classic session: nothing to send, the daemon refuses")
-    }
-
-    /// #39022 audit at 855beb0d (2): a classic session that could not be read sent the wait without it, the daemon found no
-    /// such Run, and its `run_not_found` dropped a live classic Run. That is `transport` now (read again), and (1) an incognito
-    /// send's creates all go with the classic session read once, as the daemon's credentials are.
-    @Test func anUnreadClassicSessionNeverDropsARunAndAnIncognitoSendKeepsOneSession() async throws {
+    /// A client with the classic Cloud session (``CloudAPIClient/sending(as:classic:)``) sends it beside every call, the Stack
+    /// team the person sent under (never the Worker client's) and its tokens read once per send; which call takes it is Rust's
+    /// (cmux-cloud-api `classic_runs`, whose tests hold the rules). One it could not read goes as `classic_unread`.
+    @Test func theClassicSessionGoesBesideEachCallWithTheStackTeam() async throws {
         struct Down: Error {}
-        let notFound = #"{"ok":false,"error":{"kind":"http","status":404,"code":"run_not_found","message":"no such Run on this Mac"}}"#
-        let lost = FakeDaemon { _, _, _ in notFound }
-        let unread = CloudAPIClient(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
-                                    tokens: { throw Down() }, teamID: { nil }, session: CloudAPIClient.noStoreTransport, appVersion: "cmux-next")
-        await #expect(throws: CloudAPIError.transport("cloud.runs.wait: the Cloud session could not be read")) {
-            _ = try await api(lost).drainingClassic(unread).waitRun("r-old", timeoutMs: 1_000)
-        }
-        await #expect(throws: CloudAPIError.http(status: 404, code: "run_not_found", message: "no such Run on this Mac")) {
-            _ = try await api(lost).waitRun("r-x", timeoutMs: 1_000)
-        }
-
         let reads = Counter()
-        let rolling = CloudAPIClient(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
-                                     tokens: { ("stack-access", "stack-refresh-\(reads.next())") }, teamID: { "team_now" },
+        let classic = CloudAPIClient(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
+                                     tokens: { ("stack-access", "stack-refresh-\(reads.next())") }, teamID: { "team_stack_now" },
                                      session: CloudAPIClient.noStoreTransport, appVersion: "cmux-next")
         let daemon = sandbox(dropCreates: 1)
-        _ = try await api(daemon).drainingClassic(rolling).pinningTeam("team_stack")
-            .runSandbox(task: "private", timeoutMs: 60_000, idempotencyKey: "send-i", incognito: true)
-        let creates = daemon.requests.filter { $0["call"] as? String == "runs.create" }.map { $0["refresh"] as? String }
-        #expect(creates.count == 2)
-        #expect(Set(creates).count == 1 && creates.first != nil, "both creates carry one session: \(creates)")
-    }
-
-    /// #39022 review at 1c13439a, F1: the send pinned the Worker client's team (`team_cmux`) as classic's, which classic refuses.
-    /// Classic Cloud gets the Stack team the person sent under, whatever the Worker client's team is.
-    @Test func classicCloudGetsTheStackTeamNeverTheWorkersTeam() async throws {
-        let daemon = FakeDaemon { _, _, _ in Self.created }
-        let classic = CloudAPIClient(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
-                                     tokens: { ("stack-access", "stack-refresh") }, teamID: { "team_stack_now" },
-                                     session: CloudAPIClient.noStoreTransport, appVersion: "cmux-next")
         let api = api(daemon).sending(as: .init(user: "u1", team: "team_stack"), classic: classic)
-        _ = try await api.createSandboxRun(task: "private", idempotencyKey: "k-team", incognito: true)
-        _ = try await api.waitRun("r-old", timeoutMs: 1_000)
-        for request in daemon.requests {
-            #expect((request["args"] as? [String: Any])?["classicTeam"] as? String == "team_stack")
-            #expect(request["team"] as? String == "team_cmux", "the daemon's own calls keep the Worker team")
-        }
-        #expect(daemon.requests.count == 2)
+        _ = try await api.runSandbox(task: "private", timeoutMs: 60_000, idempotencyKey: "send-i", incognito: true)
+        let sessions = daemon.requests.map { $0["classic"] as? [String: Any] }
+        #expect(sessions.allSatisfy { $0?["team"] as? String == "team_stack" && $0?["api"] as? String == "https://classic.standin.invalid" })
+        #expect(daemon.requests.allSatisfy { $0["team"] as? String == "team_cmux" && $0["refresh"] == nil }, "the daemon's own call is unchanged")
+        let creates = daemon.requests.filter { $0["call"] as? String == "runs.create" }.map { ($0["classic"] as? [String: Any])?["refresh"] as? String }
+        #expect(creates.count == 2 && Set(creates).count == 1 && creates.first != nil, "a send's creates carry one session: \(creates)")
+
+        let unread = CloudAPIClient(baseURL: URL(string: "https://classic.standin.invalid") ?? URL(fileURLWithPath: "/"),
+                                    tokens: { throw Down() }, teamID: { nil }, session: CloudAPIClient.noStoreTransport, appVersion: "cmux-next")
+        let lost = FakeDaemon { _, _, _ in Self.done }
+        _ = try await api(lost).drainingClassic(unread).waitRun("r-old", timeoutMs: 1_000)
+        #expect(lost.requests.last?["classic_unread"] as? Bool == true)
+        #expect(lost.requests.last?["classic"] == nil)
+        _ = try await api(lost).waitRun("r-x", timeoutMs: 1_000)
+        #expect(lost.requests.last?["classic"] == nil && lost.requests.last?["classic_unread"] == nil, "no session to send")
     }
 
     nonisolated final class Counter: @unchecked Sendable {
