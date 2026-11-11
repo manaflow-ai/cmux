@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43075428708",
+  "recorded_at": "2026-11-11T18:27:25Z",
+  "reason": "cmux-tui 8add064c5162 changes the image's cmux-tui (pinned 08296ad13058)",
+  "dry_run": false,
+  "cmux_tui": "8add064c5162927022a833a4af6ecb34d7ed8217",
+  "fixes": [
+    {
+      "sha": "8add064c5162927022a833a4af6ecb34d7ed8217",
+      "mergedAt": "2026-11-11T09:58:14-08:00",
+      "subject": "cmux-remote tests: relay+do's default run checks delivery and order; its echo and batching bounds run on their own (#41423)"
+    },
+    {
+      "sha": "db6ada2c3fbe5c9014a12f557b6bec671c509a22",
+      "mergedAt": "2026-11-11T09:50:40-08:00",
+      "subject": "Cloud start: the agent check rule in Rust, before the lease (step A) (#41135)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T18:27:25Z",
+    "snapshot_id": "sh-b19f7e0c65a84b20a1aaba3a12a20327",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43075428708): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "64b9e030a9e52f04aea9494d7384e0dfa02ab893",
+    "image": "cloud-native-auto-8add064c-43075428708-1",
+    "revision": "ci-43075428708-1",
+    "at": "2026-11-11T18:27:25Z"
+  },
+  "rolled_back": false
+}
