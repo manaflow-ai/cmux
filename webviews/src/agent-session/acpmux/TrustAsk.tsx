@@ -44,6 +44,8 @@ export function TrustAsk({
   const { folder, repo } = subject;
   const recovery = ask.state === "decided" && ask.level === "untrusted" && answers && !!onContinueWithoutFolder;
   const asking = ask.state === "ask" || ask.state === "failed";
+  // Why the last save failed, as the host said it: a refusal that can never pass reads as one.
+  const failedReason = ask.state === "failed" ? ask.reason : undefined;
   // The repository is offered whole only when the pane can record it (`onTrustRepo`).
   const offersRepo = Boolean(repo && onTrustRepo && !owned);
   // After Not now, Trust repo only where that answer lives (`trust.rs`: the folder's own answer,
@@ -151,6 +153,11 @@ export function TrustAsk({
           <span className="acpmux-trust-ask-text">
             {ask.state === "failed" ? t("trust.failed") : t("trust.askPrivate", { agent })}
           </span>
+          {failedReason && (
+            <span className="acpmux-trust-ask-detail" role="alert">
+              {failedReason}
+            </span>
+          )}
           {answers && (
             <>
               <button type="button" className="acpmux-trust-ask-action acpmux-trust-ask-primary" onClick={onTrust}>
@@ -179,6 +186,11 @@ export function TrustAsk({
                   : t("trust.allowsRepoFrom", { agent, folder })
                 : t("trust.allowsFolder", { agent })}
             </span>
+            {failedReason && (
+              <span className="acpmux-trust-ask-detail" role="alert">
+                {failedReason}
+              </span>
+            )}
           </span>
           {answers && (
             <span className="acpmux-trust-ask-actions">
