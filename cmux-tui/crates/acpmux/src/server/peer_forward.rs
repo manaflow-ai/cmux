@@ -657,6 +657,7 @@ async fn forward_inner(
                 | method::SESSION_LOAD
                 | method::SESSION_RESUME
                 | method::SESSION_FORK
+                | method::ACP_SESSION_FORK
         ) {
             if m == method::MUX_ATTACH {
                 let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
@@ -961,7 +962,7 @@ async fn forward_inner(
         if m == method::MUX_PERMISSION_GROUPS && result.is_object() {
             mac_group_read(&mut result, conn.is_person() && hub.person.macs.has_own());
         }
-        if m == method::SESSION_FORK
+        if matches!(m, method::SESSION_FORK | method::ACP_SESSION_FORK)
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {
             super::view::subscribe_remote(hub, conn, new_id, None);

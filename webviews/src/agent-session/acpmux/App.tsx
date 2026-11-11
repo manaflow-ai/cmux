@@ -2099,7 +2099,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // prompt's preceding turn, leaving this branch running while the edited sibling starts its own turn.
   // Keep the same served/connected gate as ordinary forks, but do not use `forkable`, which excludes
   // a working chat (Leo, 2026-10-24).
-  const editsServed = snapshot.canFork && connected && !snapshot.summary?.peer;
+  const editsServed = snapshot.canFork && connected;
   const lastEditTurns = useRef<EditableTurns | undefined>(undefined);
   const rowsForEdits = editsServed ? snapshot.rows : NO_ROWS;
   const editFamily = snapshot.summary?.family;
