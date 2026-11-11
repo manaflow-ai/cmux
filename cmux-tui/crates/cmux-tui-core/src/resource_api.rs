@@ -1214,18 +1214,24 @@ pub(crate) fn public_workspace_topology(
     .map_err(operation_failed)
 }
 
-/// The session snapshot's `cursor` alone (`session.ping`): the topology
-/// generation and resource revision, from the topology frame.
+/// The session snapshot's `cursor` alone (`session.ping`): the registry
+/// generation and the committed resource revision. The revision is one meta
+/// row, read on the registry's point reader, so a ping waits for no heavy
+/// read and walks no workspace (the topology frame it read before walked
+/// every workspace for an active-screen list the cursor does not show; its
+/// generation is the registry's, as here).
 pub(crate) fn public_session_cursor(mux: &Mux) -> Result<Value, ResourceError> {
-    let frame = read_committed_registry(mux, |connection, ids| {
-        crate::workspace_registry::load_topology_frame(
-            connection,
-            ids.session_id.clone(),
-            ids.generation.clone(),
-        )
-    })
+    let (_, generation) = mux.registry_identity();
+    let revision = match mux.registry_connection.committed_resource_revision() {
+        Some(revision) => revision,
+        None => mux
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .resource_revision(),
+    }
     .map_err(operation_failed)?;
-    Ok(json!({"generation": frame.generation, "revision": frame.revision.to_string()}))
+    Ok(json!({"generation": generation, "revision": revision.to_string()}))
 }
 
 fn checked_index(index: usize) -> anyhow::Result<u32> {
