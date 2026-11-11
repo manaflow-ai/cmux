@@ -217,7 +217,7 @@ extension MacScreenPages {
     }
 }
 /// Software P-256 keys for ``MacScreenPages/captureDevices(_:)``'s hub, which never registers.
-private struct CaptureDeviceKeys: DeviceKeyMaterial {
+nonisolated private struct CaptureDeviceKeys: DeviceKeyMaterial {
     let signing = P256.Signing.PrivateKey()
     let agreement = P256.KeyAgreement.PrivateKey()
 
