@@ -95,10 +95,12 @@ import UniformTypeIdentifiers
         let dir = ProcessInfo.processInfo.environment["CMUX_CURSOR_RENDER_DIR"].map(URL.init(fileURLWithPath:))
         if let dir { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
         let size = CGSize(width: 560, height: 260)
+        // Both moves end at the same point, so the pointer and its name tag cover the same pixels.
+        let end = CGPoint(x: 300, y: 150)
         let short = try #require(AgentCursorOverlay.renderTrail(label: "Claude Code", size: size, scale: 2,
-                                                               from: CGPoint(x: 200, y: 120), to: CGPoint(x: 260, y: 140)))
+                                                               from: CGPoint(x: 240, y: 130), to: end))
         let long = try #require(AgentCursorOverlay.renderTrail(label: "Claude Code", size: size, scale: 2,
-                                                              from: CGPoint(x: 40, y: 40), to: CGPoint(x: 480, y: 200)))
+                                                              from: CGPoint(x: 20, y: 20), to: end))
         // A longer move leaves more trail behind it.
         #expect(Self.bluishPixels(long) > Self.bluishPixels(short) + 200)
         if let dir {
