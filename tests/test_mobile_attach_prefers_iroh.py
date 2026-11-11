@@ -46,11 +46,13 @@ class MobileAttachPrefersIrohTests(unittest.TestCase):
 
     def test_mint_waits_for_iroh_instead_of_accepting_ready_loopback(self) -> None:
         tag = f"iroh-route-test-{os.getpid()}"
-        socket_path = Path(f"/tmp/cmux-debug-{tag}.sock")
         requests: list[dict[str, object]]
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             fake_root = Path(temporary_directory)
+            # The tag's socket lives in this private folder, not at its fixed /tmp name (another user could
+            # plant that); the script below points cmux_attach_socket_path at it.
+            socket_path = fake_root / "cmux-debug.sock"
             scripts = fake_root / "scripts"
             scripts.mkdir()
             (scripts / "lib").mkdir()
@@ -98,6 +100,7 @@ printf '%s\\n' '{"ticket":{"version":1,"workspaceID":"","routes":[{"id":"debug_l
                 script = f"""
 source {subprocess.list2cmdline([str(ROOT / 'scripts' / 'lib' / 'mobile-attach.sh')])}
 sleep() {{ :; }}
+cmux_attach_socket_path() {{ printf '%s' {subprocess.list2cmdline([str(socket_path)])}; }}
 cmux_attach_mint_url {tag} 600 {subprocess.list2cmdline([str(fake_root)])} 3
 """
                 result = subprocess.run(

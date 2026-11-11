@@ -49,13 +49,6 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
     ],
     "confirm": []
   },
-  "bookmarks-bar": {
-    "read": [
-      "bookmarks.children"
-    ],
-    "gesture": [],
-    "confirm": []
-  },
   "feed": {
     "read": [
       "feed.github.find_work",

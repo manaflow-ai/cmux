@@ -695,6 +695,10 @@ path = "tests/test_socket_control_schema.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_spawn_owner_ratchet.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ssh_relay_report_tty_retry.py"
 lane = "legacy"
 
