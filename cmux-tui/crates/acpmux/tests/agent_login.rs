@@ -280,6 +280,20 @@ async fn agent_login_over_the_wire() {
         json!({})
     );
 
+    // cmux's gateway, the card's third way in: refused where the machine is no cmux Cloud image,
+    // and nothing recorded.
+    let e = c
+        .call(method::MUX_AGENT_LOGIN_START, json!({"agent": "claude@gateway"}))
+        .await
+        .unwrap_err();
+    assert_eq!(reason(&e), "no_gateway", "{e}");
+    assert!(!home.join(".config/cmux/agent-auth/claude").exists());
+    let e = c
+        .call(method::MUX_AGENT_LOGIN_START, json!({"agent": "gemini@gateway"}))
+        .await
+        .unwrap_err();
+    assert_eq!(reason(&e), "unsupported_agent", "{e}");
+
     // A cmux Cloud owner machine: the image's launcher is told to use the own sign-in.
     std::fs::create_dir_all(d.join("root/etc/cmux")).unwrap();
     std::fs::write(d.join("root/etc/cmux/agent-auth.sh"), "# image\n").unwrap();
@@ -322,6 +336,22 @@ async fn agent_login_over_the_wire() {
         serde_json::from_slice(&std::fs::read(d.join("claude-home/settings.json")).unwrap())
             .unwrap();
     assert_eq!(settings["env"]["ANTHROPIC_API_KEY"], "sk-ant-test-1");
+    // Write-only: the reply above never carries the key, the file is the agent user's alone, and
+    // it reaches the agent: Claude's own sign-in check finds it in the env Claude starts with.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode =
+            std::fs::metadata(d.join("claude-home/settings.json")).unwrap().permissions().mode();
+        assert_eq!(mode & 0o077, 0, "{mode:o}");
+    }
+    let env = std::collections::BTreeMap::from([(
+        "CLAUDE_CONFIG_DIR".to_owned(),
+        d.join("claude-home").display().to_string(),
+    )]);
+    let found = acpmux::claude_auth::find(&env);
+    assert!(found.signed_in(), "{found:?}");
+    assert!(found.sources.iter().any(|s| s.contains("ANTHROPIC_API_KEY")), "{:?}", found.sources);
     // The Claude profile also uses an alternate account home, so its API key
     // save must leave the canonical machine choice untouched.
     assert!(!home.join(".config/cmux/agent-auth/claude").exists());

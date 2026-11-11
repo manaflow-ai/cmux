@@ -16,8 +16,9 @@ A cell is one Cloud chat started from one folder on this Mac with `cmux cloud st
 - the reply, which must carry a word only the folder's own file holds (so the agent read the copy).
 
 Workspaces (WORKSPACES): an empty folder, a small repo, a big monorepo (a cmux clone), a repo whose
-remote is private, submodules, Git LFS, a dirty tree, a big non-Git folder, a folder of secrets, and
-odd names and symlinks. `--folder NAME=PATH` adds a person's own folder, read only: nothing is written
+remote is private, submodules, Git LFS, a dirty tree, a big non-Git folder, a folder past the copy's
+limits (`huge-plain`: a sparse 21 GiB file, no disk spent, which must be refused fast with `copy.too_large`
+and no machine made; link/sync_cli/size_cap.rs), a folder of secrets, and odd names and symlinks. `--folder NAME=PATH` adds a person's own folder, read only: nothing is written
 into it, so its cell has no word check. Agents (AGENTS) run on the small repo; the workspace cells use
 the first agent.
 
@@ -38,6 +39,7 @@ import os
 import re
 import secrets as random
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -47,8 +49,12 @@ from pathlib import Path
 
 AGENTS = ("claude", "codex")
 WORKSPACES = ("empty", "small-repo", "monorepo", "private-remote", "submodules", "lfs", "dirty",
-              "big-plain", "secrets", "odd-names")
+              "big-plain", "huge-plain", "secrets", "odd-names")
 WORD_FILE = "cmux-matrix-word.txt"
+# huge-plain: past the copy's 20 GiB limit (link/sync_cli/size_cap.rs), sparse so it costs no disk.
+HUGE_PLAIN_BYTES = 21 * 1024 ** 3
+# How long the copy may take to refuse huge-plain, from the call to its answer.
+HUGE_PLAIN_REFUSED_WITHIN_S = 30
 
 # What a copy leaves out (link/sync_cli/skips.rs): keep these in step with it.
 CREDENTIAL_FOLDERS = (".ssh", ".aws", ".gnupg", ".config/gcloud", ".config/gh", ".kube", ".docker", ".secrets",
@@ -77,6 +83,12 @@ def parse_args(argv=None):
     parser.add_argument("--cloud-backend", choices=("staging", "prod"), help="with --app")
     parser.add_argument("--expected-api-origin", help="with --app")
     parser.add_argument("--credentials-file", help="with --app: a 0600 Stack credentials file the app reads")
+    parser.add_argument("--grant-claude-login", action="store_true",
+                        help="with --app: the launched app's own scratch cmux.json says yes to Use My Claude Login "
+                             "on My Own Cloud Machines (a Release build's claude chat waits for that consent)")
+    parser.add_argument("--login", choices=("", "none", "machine", "pass"), default="",
+                        help="a Claude chat's `start-chat --login` (default: none given, so --grant-claude-login's consent "
+                             "decides; `none` is the machine's own team mode, the SR2/CodeRouter gateway)")
     parser.add_argument("--agents", default="claude", help=f"comma list of {','.join(AGENTS)}")
     parser.add_argument("--only", default="", help="comma list of workspace cells (default: all)")
     parser.add_argument("--folder", action="append", default=[], metavar="NAME=PATH",
@@ -93,6 +105,9 @@ def parse_args(argv=None):
     args = parser.parse_args(argv)
     if args.app and not (args.cloud_backend and args.expected_api_origin):
         parser.error("--app needs --cloud-backend and --expected-api-origin")
+    if args.grant_claude_login and not args.app:
+        # Never on --cli: that is a person's own app, and their consent is theirs to give.
+        parser.error("--grant-claude-login works only with --app, the app this run launches")
     # The Cloud backend holds a script's creates and kills for approval, at most 5 pending per
     # install (approval-gate.ts MAX_PENDING_PER_IDENTITY): 2 cells at once leave room for their kills.
     args.parallel = max(1, min(args.parallel, 2))
@@ -189,6 +204,11 @@ def build_fixture(kind: str, root: Path, args, canary: str) -> tuple[Path | None
             write(path / f"d{index % 200:03d}" / f"f{index:05d}.txt", f"{index}\n" * (1 + index % 512))
         for index in range(4):
             write(path / "large" / f"blob{index}.bin", os.urandom(32 * 1024 * 1024))
+    elif kind == "huge-plain":
+        path.mkdir(parents=True)
+        write(path / "src/app.py", "print('hi')\n")
+        with open(path / "disk.img", "wb") as sparse:
+            sparse.truncate(HUGE_PLAIN_BYTES)
     elif kind == "secrets":
         path.mkdir(parents=True)
         write(path / "app.py", "print('uses env')\n")
@@ -360,25 +380,107 @@ def git_state(folder: Path) -> dict | None:
             "changed": len(status.splitlines())}
 
 
+def launch_argv(app: str, socket: str, credentials_file: str | None, backend: str, config: str) -> list[str]:
+    """The `open` command that starts --app on its own socket and its own cmux.json, as cloud-chat-proof.py
+    does. The socket goes only as CMUX_NEXT_SOCKET_PATH: CMUX_SOCKET_PATH marks another cmux, and the app
+    then strips the CMUX_NEXT_* knobs, this socket included, so it never answered on it (CI run 42833136507).
+    CMUX_NEXT_CONFIG_FILE keeps every setting the run reads or writes out of the shared
+    ~/.config/cmux/cmux-next.json that the person's other apps read."""
+    argv = ["/usr/bin/open", "-W", "-g", "-n", "--env", f"CMUX_NEXT_SOCKET_PATH={socket}",
+            "--env", f"CMUX_NEXT_CONFIG_FILE={config}"]
+    if credentials_file:
+        argv += ["--env", f"CMUX_AUTH_CREDENTIALS_FILE={Path(credentials_file).resolve()}",
+                 "--env", "CMUX_DEV_AUTH_PROFILE=agent", "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"]
+    return argv + [str(Path(app).resolve()), "--args", "--cloud-backend", backend]
+
+
+CLAUDE_LOGIN_SETTING = ("cloud", "useMyClaudeLoginOnMyCloudMachines")
+
+
+def start_login(agent: str, login: str) -> list[str]:
+    """A Claude cell's start-chat `--login` words: none unless `--login` names one. `none` copies nothing, so Claude runs
+    on the machine's team mode (the SR2/CodeRouter gateway) and needs no consent. Codex never takes it: `none` would
+    leave it signed out (its login is the Mac's broker)."""
+    return ["--login", login] if login and agent == "claude" else []
+
+
+def list_unread(message: str) -> bool:
+    """The app's refusal when its machine list was not fresh enough to check the name (CloudStartSessionStrings
+    listUnread); the message itself says to run the same command again."""
+    return "Couldn't read your Cloud machines" in (message or "")
+
+
+def scratch_config(folder: Path, grant_claude_login: bool) -> Path:
+    """The launched app's own cmux.json (0600), deleted with the run's temporary folder. With
+    --grant-claude-login it holds the one-time consent a Release build's claude chat on the account's own
+    machine waits for (CloudLoginCopyConsentSetting: only the file can say yes). Run 42864046223 failed
+    all 20 cells on it. A file, not `settings set`: that write asks a person on screen, which CI has not."""
+    config: dict = {}
+    if grant_claude_login:
+        config = {CLAUDE_LOGIN_SETTING[0]: {CLAUDE_LOGIN_SETTING[1]: True}}
+    path = folder / "cmux-next.json"
+    path.touch(mode=0o600)
+    path.write_text(json.dumps(config, indent=2) + "\n")
+    return path
+
+
 class Matrix:
     def __init__(self, args):
         self.args = args
         self.cli = args.cli or str(Path(args.app) / "Contents/Resources/bin/cmux")
         self.env = dict(os.environ)
+        self.config_dir = None
         if args.app:
             socket = f"/tmp/cmux-debug-{args.tag}.sock"
-            self.env.update(CMUX_SOCKET_PATH=socket, CMUX_NEXT_SOCKET_PATH=socket)
+            self.config_dir = Path(tempfile.mkdtemp(prefix="cmux-matrix-config-"))
+            self.config = scratch_config(self.config_dir, args.grant_claude_login)
+            self.env.update(CMUX_SOCKET_PATH=socket, CMUX_NEXT_SOCKET_PATH=socket,
+                            CMUX_NEXT_CONFIG_FILE=str(self.config))
         self.launcher = None
         self.lock = threading.Lock()
         self.machines: set[str] = set()
+        self.stopping = threading.Event()
+        # The run's live CLI children, under their own lock: stop() runs in the SIGTERM handler, which can
+        # interrupt the main thread inside `self.lock` (launch, sweep, kill), and a Lock is not reentrant.
+        # Nothing holds children_lock across a call that can be interrupted by a signal handler that then
+        # needs it: the handler only reads a snapshot (`list()` is atomic under the GIL) and never waits.
+        self.children_lock = threading.Lock()
+        self.children: set[subprocess.Popen] = set()
 
     def cmux(self, *words: str, timeout: int = 120) -> tuple[int, str, str]:
+        # Once stop() ran, a cell's thread starts nothing more; the main thread's cleanup still runs.
+        cell_thread = threading.current_thread() is not threading.main_thread()
+        if self.stopping.is_set() and cell_thread:
+            return 130, "", "stopped: the run was cancelled"
+        child = subprocess.Popen([self.cli, *words], env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                 text=True)
+        with self.children_lock:
+            self.children.add(child)
+        # A stop() between the check above and this registration took a snapshot without this child: look
+        # again now that it is registered, so it is ended either by stop() or here, never neither.
+        if self.stopping.is_set() and cell_thread:
+            child.terminate()
         try:
-            done = subprocess.run([self.cli, *words], env=self.env, capture_output=True, text=True,
-                                  timeout=timeout)
-            return done.returncode, done.stdout, done.stderr
+            out, err = child.communicate(timeout=timeout)
+            return child.returncode, out, err
         except subprocess.TimeoutExpired:
+            child.kill()
+            child.communicate()
             return 124, "", f"timed out after {timeout}s"
+        finally:
+            with self.children_lock:
+                self.children.discard(child)
+
+    def stop(self) -> None:
+        """A cancelled run (SIGTERM): no cell starts another step, and the CLI calls cells are waiting on
+        (this run's own children) end now, so cleanup runs at once rather than after 900 s starts. Safe in a
+        signal handler: it takes no lock (the interrupted frame may hold one) and only reads a snapshot."""
+        self.stopping.set()
+        for child in list(self.children):
+            try:
+                child.terminate()
+            except OSError:
+                pass
 
     @staticmethod
     def parsed(text: str) -> dict:
@@ -403,12 +505,8 @@ class Matrix:
         """Launch --app signed in (as cloud-chat-proof.py), or check --cli's app is signed in."""
         args = self.args
         if args.app:
-            launch = ["/usr/bin/open", "-W", "-g", "-n", "--env", f"CMUX_SOCKET_PATH={self.env['CMUX_SOCKET_PATH']}",
-                      "--env", f"CMUX_NEXT_SOCKET_PATH={self.env['CMUX_NEXT_SOCKET_PATH']}"]
-            if args.credentials_file:
-                launch += ["--env", f"CMUX_AUTH_CREDENTIALS_FILE={Path(args.credentials_file).resolve()}",
-                           "--env", "CMUX_DEV_AUTH_PROFILE=agent", "--env", "CMUX_DEV_AUTH_REPLACE_SESSION=1"]
-            launch += [str(Path(args.app).resolve()), "--args", "--cloud-backend", args.cloud_backend]
+            launch = launch_argv(args.app, self.env["CMUX_NEXT_SOCKET_PATH"], args.credentials_file,
+                                 args.cloud_backend, str(self.config))
             self.launcher = subprocess.Popen(launch, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         # As cloud-chat-proof.py waits: the launched app answers `app identify`, then `auth.status` says it
         # is signed in on the selected backend (the first CI run read `cloud list-machines` too early and
@@ -445,6 +543,10 @@ class Matrix:
                 self.launcher.wait(timeout=60)
             except subprocess.TimeoutExpired:
                 pass
+            self.launcher = None
+        if self.config_dir is not None:
+            shutil.rmtree(self.config_dir, ignore_errors=True)
+            self.config_dir = None
 
     def kill(self, machine: str) -> bool:
         for _ in range(2):
@@ -505,9 +607,14 @@ class Matrix:
     def run_cell(self, name: str, agent: str, folder: Path | None, note: str, *, word: str, canary: str,
                  read_only: bool) -> dict:
         cell = {"workspace": name, "agent": agent, "result": "", "notes": []}
+        if self.stopping.is_set():
+            cell["result"] = "skipped: the run was cancelled"
+            return cell
         if folder is None:
             cell["result"] = note or "skipped"
             return cell
+        if name == "huge-plain":
+            return self.refused_cell(cell, folder, agent)
         started = time.monotonic()
         expected = local_manifest(folder, canary)
         cell["local"] = {key: expected[key] for key in ("files", "bytes", "left_out")}
@@ -526,11 +633,21 @@ class Matrix:
         deadline = chat_started + self.args.timeout
         while True:
             code, out, err = self.cmux("cloud", "start-chat", "--from-folder", str(folder), "--prompt", prompt,
-                                       "--agent", agent, "--name", title, "--wait", "--timeout",
-                                       str(self.args.timeout), "--json", timeout=self.args.timeout + 60)
-            if code != 75 or time.monotonic() > deadline:
+                                       "--agent", agent, *start_login(agent, self.args.login), "--name", title,
+                                       "--wait", "--timeout", str(self.args.timeout), "--json",
+                                       timeout=self.args.timeout + 60)
+            if time.monotonic() > deadline:
                 break
-            time.sleep(5)
+            if code == 75:
+                time.sleep(5)
+                continue
+            if code != 0 and list_unread(self.error(out, err).get("message") or err):
+                # The app refuses a start while its machine list is stale (CloudStartSession listFresh): two
+                # prod cells failed in 0.4 s and 2.1 s that way (run 42864046223). Read the list, then ask again.
+                self.cmux("cloud", "list-machines", "--json", timeout=60)
+                time.sleep(5)
+                continue
+            break
         cell["create_to_reply_s"] = round(time.monotonic() - chat_started, 1)
         answer = self.parsed(out) if code == 0 else {}
         failure = self.error(out, err)
@@ -609,6 +726,34 @@ class Matrix:
         return cell
 
 
+def _refused_cell(self, cell: dict, folder: Path, agent: str) -> dict:
+    """huge-plain: start-chat refuses the folder with copy.too_large, fast, before any machine is made."""
+    started = time.monotonic()
+    code, out, err = self.cmux("cloud", "start-chat", "--from-folder", str(folder), "--prompt", "x",
+                               "--agent", agent, "--json", timeout=HUGE_PLAIN_REFUSED_WITHIN_S + 60)
+    cell["create_to_reply_s"] = round(time.monotonic() - started, 1)
+    failure = self.error(out, err)
+    cell["start_exit"] = code
+    cell["start_error"] = clean(f"{failure.get('code', '')}: {failure.get('message', '')}", 800)
+    machine = (failure.get("details") or {}).get("machine_id")
+    if machine:
+        with self.lock:
+            self.machines.add(machine)
+        cell["machine_killed"] = self.kill(machine)
+    problems = []
+    if code != 2 or failure.get("code") != "copy.too_large":
+        problems.append(f"not refused as copy.too_large (exit {code}, {failure.get('code')})")
+    if cell["create_to_reply_s"] > HUGE_PLAIN_REFUSED_WITHIN_S:
+        problems.append(f"refused after {cell['create_to_reply_s']} s")
+    if machine:
+        problems.append("a machine was made")
+    cell["result"] = "pass" if not problems else "fail: " + ", ".join(problems)
+    return cell
+
+
+Matrix.refused_cell = _refused_cell
+
+
 def shlex_quote(text: str) -> str:
     return "'" + text.replace("'", "'\"'\"'") + "'"
 
@@ -660,6 +805,13 @@ def main(argv=None) -> int:
     root = Path(tempfile.mkdtemp(prefix="cmux-matrix-"))
     canary = f"cmxcanary{random.token_hex(10)}"
     matrix = Matrix(args)
+    # A cancelled CI job sends SIGTERM, which skips `finally`: stop the cells' work, then SystemExit, so
+    # `finally` sweeps the machines, quits the app and deletes its scratch cmux.json.
+    def cancelled(signum, frame):
+        matrix.stop()
+        sys.exit(128 + signum)
+    signal.signal(signal.SIGTERM, cancelled)
+    swept = False
     report = {"tag": args.tag, "agents": agents, "cells": [], "started": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
     try:
         problem = matrix.launch()
@@ -689,7 +841,8 @@ def main(argv=None) -> int:
             folder = Path(path).expanduser()
             jobs.append((f"own:{name}", agents[0], folder if folder.is_dir() else None,
                          "" if folder.is_dir() else "skipped: not a folder", "", "", True, 0.0))
-        with concurrent.futures.ThreadPoolExecutor(max_workers=args.parallel) as pool:
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=args.parallel)
+        try:
             futures = [pool.submit(matrix.run_cell, kind, agent, folder, note, word=word, canary=canary_value,
                                    read_only=read_only) for kind, agent, folder, note, word, canary_value, read_only, _
                        in jobs]
@@ -701,13 +854,19 @@ def main(argv=None) -> int:
                 cell["fixture_s"] = job[7]
                 report["cells"].append(cell)
                 print(f"[{cell['result']}] {cell['workspace']} ({cell['agent']})", flush=True)
+        finally:
+            # A `with` would wait for every queued cell: on SystemExit, drop the ones not yet started.
+            pool.shutdown(wait=True, cancel_futures=True)
         left = matrix.sweep()
+        swept = True
         report["machines_left"] = left
         failed = [cell for cell in report["cells"] if not cell["result"].startswith(("pass", "skipped"))]
         report["result"] = "pass" if not failed and not left else f"fail: {len(failed)} cells" + (
             f", {len(left)} machines left" if left else "")
         return finish(report, out, 0 if report["result"] == "pass" else 1)
     finally:
+        if not swept:
+            matrix.sweep()  # a cancelled or crashed run still deletes the machines it made
         matrix.quit()
         if not args.keep_fixtures:
             shutil.rmtree(root, ignore_errors=True)

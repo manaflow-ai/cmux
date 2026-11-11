@@ -73,7 +73,20 @@ export type LoginFailure =
   | "remote_refused"
   | "unknown_session"
   | "unsupported"
+  | "no_gateway"
   | "failed";
+
+/// Whether a sign-in failure's text says the machine's team has cmux's gateway (acpmux
+/// `claude_auth::GATEWAY_OFFER`, named only when the image's own check said so): the card then
+/// offers it as its third way in (``CloudSignIn/gateway``).
+export function offersGateway(message: string | undefined): boolean {
+  return message !== undefined && /\bUse cmux['’]s gateway\b/.test(message);
+}
+
+/// The agents cmux's gateway runs (the image's `agent-auth.sh` team mode).
+export function usesGateway(agent: LoginAgent): boolean {
+  return agent === "claude" || agent === "codex";
+}
 
 /// The hosts a sign-in page may be on. The page the machine's CLI names is opened on this Mac, so
 /// only its provider's own sign-in hosts, over https.
@@ -131,6 +144,7 @@ export function loginFailure(error: unknown): LoginFailure {
     case "busy":
     case "remote_refused":
     case "unknown_session":
+    case "no_gateway":
       return reason;
     // The login the card holds is gone (acpmux restarted, or it lapsed): start again.
     case "unknown_login":
@@ -200,6 +214,10 @@ export type CloudSignIn = {
   finish(loginId: string, code?: string): Promise<boolean>;
   /// Saves an API key for the agent on the machine. True when saved.
   apiKey(key: string): Promise<boolean>;
+  /// Runs the agent on cmux's gateway (the team's own account, as `cr use team` does) instead of a
+  /// sign-in of its own: acpmux's `start` with `<agent>@gateway`, which checks the team has the
+  /// gateway first. True when it switched. Throws a ``LoginFailure`` (`no_gateway` when it has none).
+  gateway(): Promise<boolean>;
   /// Stops a login the card started.
   cancel(loginId: string): void;
   /// Reserves the current click's gesture for one resend of the failed prompt. Call it inside the
@@ -317,6 +335,14 @@ function agentLogin(options: LoginOptions): CloudSignIn | undefined {
       step(async () => {
         const reply = (await client().agentLoginApiKey(agent, sessionId, key)) as { saved?: unknown } | undefined;
         return reply?.saved === true;
+      }),
+    gateway: () =>
+      step(async () => {
+        if (!usesGateway(agent)) throw new LoginStepError("unsupported");
+        const reply = (await client().agentLoginStart(`${agent}@gateway`, sessionId)) as
+          | { gateway?: unknown }
+          | undefined;
+        return reply?.gateway === true;
       }),
     cancel: (loginId) => {
       void currentClient()

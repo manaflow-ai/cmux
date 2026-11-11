@@ -80,6 +80,7 @@ function gallerySignIn(agent: LoginAgent, approve: boolean, fail?: LoginFailure)
     openOnMachine: async () => true,
     finish: () => new Promise<boolean>(() => {}),
     apiKey: async () => true,
+    gateway: async () => true,
     cancel: () => {},
     reserve: async () => undefined,
     resend: async () => {},

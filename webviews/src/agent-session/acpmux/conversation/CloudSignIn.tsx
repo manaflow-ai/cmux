@@ -11,7 +11,10 @@
 // code the card shows, copied on the start. Use an API key, a link
 // beside it, saves one on the machine instead. Grok signs in like Codex (a page and a code) and takes
 // no saved key, so it has no Use an API key; Gemini takes a key only, so Use an API key is its one
-// button. Once signed in, the failed prompt goes again on the person's click.
+// button. Use cmux's gateway, a third link shown only when the machine's team has the gateway (acpmux
+// names it in the failure), runs Claude or Codex on the team's own account instead (Leo 2026-11-10:
+// "the stuff does of course go through our gateway"). Once signed in, the failed prompt goes again
+// on the person's click.
 // The code and the key live only in this component's state while it is up: never in a row, a
 // log or anything kept.
 import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
@@ -22,6 +25,7 @@ import {
   LoginStepError,
   signsInByPage,
   takesApiKey,
+  usesGateway,
   type CloudSignIn as SignIn,
   type LoginFailure,
   type LoginStart,
@@ -36,10 +40,11 @@ type Stage =
   | { at: "code"; login: LoginStart; busy?: boolean }
   | { at: "device"; login: LoginStart }
   | { at: "key"; busy?: boolean }
+  | { at: "gateway" }
   | { at: "signedIn" }
   | { at: "sending" }
   | { at: "sent" }
-  | { at: "failed"; failure: LoginFailure; login?: LoginStart; key?: true };
+  | { at: "failed"; failure: LoginFailure; login?: LoginStart; key?: true; gateway?: true };
 
 /// What the card's lead says: the agent's own name, as the person knows it. Gemini has no sign-in
 /// page here (a key only).
@@ -59,6 +64,7 @@ const FAILURE_COPY: Record<LoginFailure, StringKey> = {
   remote_refused: "turn.signIn.error.remoteRefused",
   unknown_session: "turn.signIn.error.unknownSession",
   unsupported: "turn.signIn.error.failed",
+  no_gateway: "turn.signIn.error.noGateway",
   failed: "turn.signIn.error.failed",
 };
 
@@ -73,6 +79,7 @@ export function CloudSignIn({
   rowId,
   prompt,
   keyOnly = false,
+  gateway = false,
   actionsRef,
 }: {
   signIn: SignIn;
@@ -80,6 +87,9 @@ export function CloudSignIn({
   prompt: string | undefined;
   /// Only Use an API key: a team Cloud machine, where the agent's own sign-in is not offered.
   keyOnly?: boolean;
+  /// The machine's team has cmux's gateway (cloudAgentLogin.ts `offersGateway`): Use cmux's gateway
+  /// is offered beside the others.
+  gateway?: boolean;
   actionsRef?: RefObject<HTMLElement | null>;
 }) {
   const t = useT();
@@ -273,6 +283,21 @@ export function CloudSignIn({
     );
   };
 
+  const switchToGateway = () => {
+    const mine = ++generation.current;
+    setStage({ at: "gateway" });
+    void signIn.gateway().then(
+      (switched) => {
+        if (mine !== generation.current) return;
+        if (switched) signedIn();
+        else setStage({ at: "failed", failure: "failed", gateway: true });
+      },
+      (error) => {
+        if (mine === generation.current) setStage({ at: "failed", failure: failureOf(error), gateway: true });
+      },
+    );
+  };
+
   const cancel = () => {
     generation.current++;
     if (open.current) signIn.cancel(open.current);
@@ -286,6 +311,10 @@ export function CloudSignIn({
     // A key that was not saved asks for the key again, not for a sign-in.
     if (stage.at === "failed" && stage.key) {
       setStage({ at: "key" });
+      return;
+    }
+    if (stage.at === "failed" && stage.gateway) {
+      switchToGateway();
       return;
     }
     start();
@@ -321,17 +350,19 @@ export function CloudSignIn({
   const keyPage = KEY_PAGE[agent];
   const offersPage = !keyOnly && signsInByPage(agent) && pageLabel !== undefined;
   const offersKey = takesApiKey(agent);
+  const offersGateway = gateway && usesGateway(agent);
   switch (stage.at) {
     case "idle":
     case "starting":
-      if (!offersPage && !offersKey) return null;
+    case "gateway":
+      if (!offersPage && !offersKey && !offersGateway) return null;
       return (
         <>
           {offersPage && pageLabel && (
             <button
               type="button"
               className="cv-turn-auth-action cv-turn-error__primary"
-              disabled={stage.at === "starting"}
+              disabled={stage.at !== "idle"}
               onClick={start}
             >
               {t(pageLabel)}
@@ -349,10 +380,21 @@ export function CloudSignIn({
                     ? "cv-turn-auth-action"
                     : "cv-turn-auth-action cv-turn-error__primary"
               }
-              disabled={stage.at === "starting"}
+              disabled={stage.at !== "idle"}
               onClick={() => setStage({ at: "key" })}
             >
               {t("turn.signIn.apiKey")}
+            </button>
+          )}
+          {offersGateway && (
+            <button
+              type="button"
+              // A link beside the others, as Use an API key is: the sign-in stays the one button.
+              className={offersPage || offersKey ? "cv-turn-error__offer-link" : "cv-turn-auth-action"}
+              disabled={stage.at !== "idle"}
+              onClick={switchToGateway}
+            >
+              {t("turn.signIn.gateway")}
             </button>
           )}
         </>

@@ -759,6 +759,9 @@ impl ClientRegistry {
                     // No placement restatement on `session.events`
                     // (state/placement_shift.rs).
                     || capability == crate::state::placement_shift::CAPABILITY
+                    // `live` in the `session.events` cursors
+                    // (server/session_event_stream.rs).
+                    || capability == super::SESSION_LIVE_CURSOR_CAPABILITY
                     || capability == crate::state::sidebar_doc_store::CAPABILITY
                     || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
                     || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY
