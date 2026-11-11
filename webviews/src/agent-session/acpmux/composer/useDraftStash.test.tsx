@@ -187,14 +187,20 @@ test("a session's composer lists the tab's leftover drafts after its own, and a 
   ]);
   const dropped: string[] = [];
   const restored: string[] = [];
+  let droppedOne: () => void = () => {};
+  const drop = new Promise<void>((resolve) => (droppedOne = resolve));
   const transport: StashTransport = {
     list: async (chat) => ({ drafts: rows.get(chat) ?? [] }),
     push: async () => ({}),
     get: async (chat, id) => ({ draft: rows.get(chat)?.find((row) => row.id === id) }),
-    drop: async (chat, id) => (dropped.push(`${chat}/${id}`), { removed: true }),
+    drop: async (chat, id) => (dropped.push(`${chat}/${id}`), droppedOne(), { removed: true }),
     move: async () => ({ moved: 0, ids: [] }),
   };
   resetStashForTests(transport);
+  globalThis.requestAnimationFrame ??= (done: FrameRequestCallback) => {
+    setTimeout(() => done(0), 0);
+    return 0;
+  };
   let stash: ReturnType<typeof useDraftStash> | undefined;
   function Probe() {
     stash = useDraftStash(
@@ -215,7 +221,7 @@ test("a session's composer lists the tab's leftover drafts after its own, and a 
   await act(async () => {});
   expect(stash!.stashed.map((draft) => draft.text)).toEqual(["b's own", "left behind"]);
   await act(async () => stash!.unstash("left-1"));
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
+  await act(async () => drop);
   expect(restored).toEqual(["left behind"]);
   expect(dropped).toEqual(["new-tab:t/left-1"]);
 });
