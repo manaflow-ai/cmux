@@ -86,10 +86,10 @@ extension WindowManager {
                 if registry.value.window(window) == nil { NewWorkspacePlacements.forget(id, windows: self) }
                 continue
             }
-            // The daemon placed it beside the window's current workspace (`placedByDaemon`); with that one closed during
-            // the create the daemon could not, so the app resolves its place (the gap it left, `currentGaps`) as before.
+            // The daemon placed it beside the window's live current workspace (`placedByDaemon`). With none (top, bottom, a page;
+            // its top follows its Home row, not the app's) or that one closed mid-create, the app places it as before (`currentGaps`).
             let named = newPlacements.placedByDaemon.contains(id)
-                && pending.byDefault?.current.map { services.machines.workspace(id: $0) != nil } ?? true
+                && pending.byDefault?.current.map { services.machines.workspace(id: $0) != nil } == true
             // One store-backed rows pass per window, with this entry still held (its pending row stays at its slot), and another
             // for one whose current row was placed in this pass (rapid Cmd-N): that row's own row lists only from then.
             let sections = Self.placementSections(in: bridge, refresh: refreshed.insert(window).inserted || pending.byDefault?.current.map(placed.contains) == true)
