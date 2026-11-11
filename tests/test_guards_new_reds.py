@@ -118,6 +118,53 @@ class NewReds(unittest.TestCase):
         self.assertIn("::warning title=Webview test passed again alone on the head::test/a.test.ts > passed", done.stdout)
         self.assertIn("::error title=Webview test red on this change::test/a.test.ts > remains", done.stdout)
 
+    def run_again(self, head, base, *again, new_files=False):
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = []
+            for name, results in (("head", head), ("base", base)):
+                path = Path(tmp) / f"{name}.json"
+                path.write_text(json.dumps(results))
+                paths.append(str(path))
+            extra = []
+            for i, results in enumerate(again):
+                path = Path(tmp) / f"again-{i}.json"
+                if results is not None:
+                    path.write_text(json.dumps(results))
+                extra += ["--base-again", str(path)]
+            mode = ["--new-files"] if new_files else ["--label", "Webview test"]
+            return subprocess.run([sys.executable, str(SCRIPT), *mode, *extra, *paths], capture_output=True, text=True)
+
+    def test_a_red_that_fails_on_another_base_replay_is_flaky_not_the_changes(self):
+        # cmux#41254 (run 43006460063): the head failed the webkit stream-row overlap test twice (overlapFrames 2), the
+        # one base replay of attempt 2 passed it (overlapFrames 0), and the verdict called it the change's. Attempt 3's
+        # base replay failed it (overlapFrames 1). A test the base both passed and failed is flaky there.
+        red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
+        done = self.run_again({red: False}, {red: True}, {red: True}, {red: False})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("::error", done.stdout)
+        self.assertIn(f"::warning title=Webview test passed and failed on the base's replays::{red}", done.stdout)
+        self.assertIn(f"webview test red step (flaky): {red}", done.stdout)
+        self.assertIn("0 webview test steps red on this change, 0 red on the base too, 1 flaky on the base", done.stdout)
+        listed = self.run_again({red: False}, {red: True}, {red: False}, new_files=True)
+        self.assertEqual((listed.returncode, listed.stdout), (0, ""))
+
+    def test_a_red_every_base_replay_passes_stays_the_changes(self):
+        red = "test/composer-history.test.ts > older page"
+        file = "test/composer-history.test.ts"
+        # Passing again, unreadable, or failing only as a whole file (a timeout names no test): still the change's.
+        for again in ({red: True}, None, {file: False}, {"test/other.test.ts > x": False}):
+            done = self.run_again({red: False}, {red: True}, again)
+            self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+            self.assertIn(f"::error title=Webview test red on this change::{red}", done.stdout)
+            listed = self.run_again({red: False}, {red: True}, again, new_files=True)
+            self.assertEqual(listed.stdout.splitlines(), [file])
+
+    def test_a_whole_file_red_that_fails_on_another_base_replay_is_flaky(self):
+        file = "test/reasoning-own-control.test.ts"
+        done = self.run_again({file: False}, {file: True}, {file: False})
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn(f"webview test red step (flaky): {file}", done.stdout)
+
     def test_a_green_head_with_reds_only_on_the_base_is_green(self):
         done = self.run_it({"test/a.test.ts": True, "test/b.test.ts": True}, {"test/a.test.ts": False})
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)

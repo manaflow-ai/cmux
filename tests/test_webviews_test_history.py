@@ -120,12 +120,21 @@ class Known(unittest.TestCase):
         self.assertEqual(history.known([], "same", {TEST: False}), ({}, [FILE]))
 
     def test_a_file_red_without_names_reads_the_files_own_verdict(self):
-        self.assertEqual(history.known(runs(True), "same", {FILE: False}), ({FILE: True}, []))
+        self.assertEqual(history.known(runs(True, True), "same", {FILE: False}), ({FILE: True}, []))
         self.assertEqual(history.known(runs(None), "same", {FILE: False}), ({FILE: False}, []))
+
+    def test_one_green_push_is_one_sample_and_the_file_replays(self):
+        # cmux#41254 (run 43006460063): one green base sample of a test that flaps called its red the change's. A green
+        # takes two pushes at the key; a red is answered by one (it only excuses, and flaky() still names a flip).
+        self.assertEqual(history.known(runs(True), "same", {TEST: False}), ({}, [FILE]))
+        self.assertEqual(history.known(runs(True), "same", {FILE: False}), ({}, [FILE]))
+        self.assertEqual(history.known(runs(True, keys=["older"]) + runs(True), "same", {TEST: False}), ({}, [FILE]))
+        self.assertEqual(history.known(runs(False), "same", {TEST: False}), ({TEST: False}, []))
 
     def test_a_file_no_such_push_ran_replays_and_a_file_one_ran_answers_every_name(self):
         other = "test/other.test.ts"
         pushes = history.record([], "sha0", 1000, {FILE: True, other: True}, "same")
+        pushes = history.record(pushes, "sha1", 1001, {FILE: True, other: True}, "same")
         head = {TEST: False, f"{other} > x": False, f"{FILE} > new test": False}
         base, replay = history.known(pushes, "same", head)
         # FILE's "new test" is answered too (its file ran green); a red name the push never ran keeps the file
@@ -133,6 +142,7 @@ class Known(unittest.TestCase):
         self.assertEqual(replay, [])
         self.assertEqual(base, {TEST: True, f"{other} > x": True, f"{FILE} > new test": True})
         pushes = history.record([], "sha0", 1000, {FILE: True}, "same")
+        pushes = history.record(pushes, "sha1", 1001, {FILE: True}, "same")
         base, replay = history.known(pushes, "same", head)
         self.assertEqual((base, replay), ({TEST: True, f"{FILE} > new test": True}, [other]))
 
@@ -468,6 +478,7 @@ class Workflow(unittest.TestCase):
                 (ROOT / "scripts/ci/webviews_test_results.py").read_text(encoding="utf-8"), encoding="utf-8")
             (runner / "real_history.py").write_text(SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
             pushes = history.record([], "sha0", 1000, {FILE: True}, "same")
+            pushes = history.record(pushes, "sha1", 1001, {FILE: True}, "same")  # a green takes two samples
             # fetch writes this history; every other command is the real script's.
             (runner / "webviews_test_history.py").write_text(
                 "import json, pathlib, runpy, sys\n"
@@ -489,6 +500,90 @@ class Workflow(unittest.TestCase):
             self.assertEqual(output.read_text(encoding="utf-8"), "replay=1\n")
             self.assertEqual(Path(temp, "base-replay-files").read_text(encoding="utf-8"), f"{other}\n")
             self.assertEqual(json.loads(Path(temp, "base-known.json").read_text(encoding="utf-8")), {TEST: True})
+
+    def step_script(self, name):
+        base = self.job("react-apps-base-check")
+        step = base[base.index(f"      - name: {name}\n"):]
+        step = step[:step.index("\n      - name:", 10)] if "\n      - name:" in step[10:] else step
+        body = step[step.index("        run: |\n") + len("        run: |\n"):].splitlines()
+        return "\n".join(line[10:] for line in itertools.takewhile(
+            lambda line: line.startswith(" " * 10) or not line.strip(), body))
+
+    def replay(self, head, results, rerun=None):
+        """Run the compare step (and the head re-run step when it asks for one) with a stub test runner whose Nth call
+        writes RESULTS[N-1] ({} past the end). Returns (compare exit, compare output, rerun output, calls' files)."""
+        red = "test/agent-pane-stream-row-overlap.test.ts"
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp, "repo")
+            git_fixture_env.init_repo(repo)
+            Path(repo, "webviews/test").mkdir(parents=True)
+            Path(repo, f"webviews/{red}").write_text("test\n", encoding="utf-8")
+            env = git_fixture_env.fixture_env({
+                "PATH": f"{Path(sys.executable).parent}:/usr/bin:/bin", "RUNNER_TEMP": temp,
+                "HEAD_RESULTS": str(Path(temp, "head.json")), "BASE_RESULTS": str(Path(temp, "base-results.json")),
+                "HEAD_RERUN": str(Path(temp, "head-rerun.json")), "KNOWN_REPLAY": "1",
+                "GITHUB_OUTPUT": str(Path(temp, "output"))})
+            subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True, env=env)
+            subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x"],
+                           check=True, env=env)
+            Path(temp, "head.json").write_text(json.dumps(head), encoding="utf-8")
+            Path(temp, "base-replay-files").write_text(f"{red}\n", encoding="utf-8")
+            Path(temp, "base-known.json").write_text("{}\n", encoding="utf-8")
+            runner = Path(temp, "head-results/runner")
+            runner.mkdir(parents=True)
+            (runner / "guards_new_reds.py").write_text(
+                (ROOT / "scripts/ci/guards_new_reds.py").read_text(encoding="utf-8"), encoding="utf-8")
+            (runner / "webviews_test_history.py").write_text("", encoding="utf-8")  # no flakes on record
+            (runner / "test_reds.py").write_text("", encoding="utf-8")
+            for i, found in enumerate(results, 1):
+                (runner / f"result-{i}.json").write_text(json.dumps(found), encoding="utf-8")
+            (runner / "run-webviews-tests.sh").write_text(
+                'here="$(dirname "$0")"; n=$(( $(cat "$here/calls" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$here/calls"\n'
+                'printf "%s\\n" "$CMUX_WEB_TEST_FILES" > "$here/files-$n"\n'
+                'cp "$here/result-$n.json" "$CMUX_WEB_TEST_RESULTS" 2>/dev/null || echo "{}" > "$CMUX_WEB_TEST_RESULTS"\n',
+                encoding="utf-8")
+            compare = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", self.step_script("Run base reds and compare")],
+                                     cwd=repo / "webviews", capture_output=True, text=True, env=env)
+            again = ""
+            if "rerun=true" in Path(temp, "output").read_text(encoding="utf-8"):
+                again = subprocess.run(
+                    ["bash", "-e", "-o", "pipefail", "-c", self.step_script("Re-run the change's reds alone on the head")],
+                    cwd=repo / "webviews", capture_output=True, text=True, env=env).stdout
+            calls = int((runner / "calls").read_text()) if (runner / "calls").exists() else 0
+            files = [(runner / f"files-{n}").read_text(encoding="utf-8").split() for n in range(1, calls + 1)]
+            return compare.returncode, compare.stdout + compare.stderr, again, files
+
+    def test_a_red_the_base_passes_once_replays_there_again_before_it_is_the_changes(self):
+        # cmux#41254 (run 43006460063): attempt 2's one base replay passed the webkit overlap test the head failed
+        # twice, and the verdict called it the change's; attempt 3's base replay failed it. A second replay on the
+        # base settles it as flaky there.
+        red = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
+        file = red.split(" > ")[0]
+        status, out, _, files = self.replay({red: False}, [{red: True}, {red: False}])
+        self.assertEqual(status, 0, out)
+        self.assertIn(f"webview test red step (flaky): {red}", out)
+        self.assertEqual(files, [[file], [file]])  # stops once the base failed it
+        # A real break: the base passes every bounded replay (three in all) and the head fails it again alone.
+        status, out, again, files = self.replay({red: False}, [{red: True}, {red: True}, {red: True}, {red: False}])
+        self.assertEqual(status, 1, out)
+        self.assertIn(f"::error title=Webview test red on this change::{red}", out)
+        self.assertEqual(files, [[file], [file], [file], [file]])  # three base replays, then the head re-run
+        self.assertIn(f"::error title=Webview test red on this change::{red}", again)
+        # A red the first replay already fails on the base replays no more.
+        status, out, _, files = self.replay({red: False}, [{red: False}])
+        self.assertEqual((status, files), (0, [[file]]), out)
+
+    def test_the_head_rerun_keeps_a_base_replay_flake_flaky(self):
+        # The re-run's verdict line is the replay's final one (base_red_excuse reads it): a name another base replay
+        # failed stays flaky there while a different red is the change's.
+        flake = "test/agent-pane-stream-row-overlap.test.ts > webkit: followed, no lag"
+        broken = "test/agent-pane-stream-row-overlap.test.ts > chromium: followed"
+        status, out, again, _ = self.replay({flake: False, broken: False},
+                                            [{flake: True, broken: True}, {flake: False, broken: True},
+                                             {flake: True, broken: True}, {flake: False, broken: False}])
+        self.assertEqual(status, 1, out)
+        self.assertIn(f"webview test red step (flaky): {flake}", again)
+        self.assertIn(f"webview test red step (new): {broken}", again)
 
     def test_only_the_install_build_and_browsers_wait_on_the_replay(self):
         import yaml
