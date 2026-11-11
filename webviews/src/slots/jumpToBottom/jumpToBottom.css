@@ -17,7 +17,9 @@
 
 /* cascade: two 12px arrows in one cell, a few px apart, and a lit arrow on top of them. Still frame:
    both at full strength, the lit arrow hidden. */
-.slot-jump__cascade {
+/* Two classes, so the grid wins over conversation.css's `.acpmux-jump-latest__arrow` flex whichever sheet
+   loads first (the gallery loads this one first). */
+.acpmux-jump-latest__arrow.slot-jump__cascade {
   display: inline-grid;
   place-items: center;
 }
@@ -69,9 +71,10 @@
   }
 }
 
+/* From the rest place, so the loop starts where the still arrow is, with no jump. */
 @keyframes slot-jump-bob {
   from {
-    transform: translateY(-1px);
+    transform: translateY(0);
   }
   to {
     transform: translateY(2px);

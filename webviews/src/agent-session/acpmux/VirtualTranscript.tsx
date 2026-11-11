@@ -930,8 +930,9 @@ const JUMP_LATEST_SIZE = 32;
 
 /// Jump to latest: a glass circle centered above the composer, shown while the reader is scrolled up
 /// from the latest message (ChatGPT and Codex style). The glass is a fisheye lens that magnifies the
-/// transcript under it (Leo 2026-10-21: "I want more fisheye!"). While the agent works it stays a static arrow;
-/// the working state is already represented by the shared transcript spinner. It stays mounted while
+/// transcript under it (Leo 2026-10-21: "I want more fisheye!"). Its mark is the `chat.jumpToBottom` theme slot:
+/// the default variant stays a static arrow while the agent works (the shared transcript spinner shows the work),
+/// and a theme's variant may move while `working`. It stays mounted while
 /// hidden (inert) so it fades out as it fades in (conversation.css).
 export function JumpToLatest({
   shown,
