@@ -893,6 +893,33 @@ class RePinPublication(unittest.TestCase):
                     if options.get("closed"):
                         self.assertEqual(state["prs"].get("2"), "open")
 
+    # Merge of feat into #40150 (lead decision, ffi-pin-rev-5): the steps run in this order, each one before the pin on
+    # the base (#40097): the same-inputs skip, the pending-newer hold, the keep-the-branch's-release swap. Moving the pin
+    # on the base above the skip or the hold would pin a release with nothing to change, or one a newer run is about to
+    # replace; above the swap it would pin the newest release's checksum, not the branch's (checksum churn).
+    def test_the_skip_and_the_hold_run_before_the_pin_on_the_base(self):
+        newer = "7" * 40
+        for name, options in {
+                "skip": {"same_inputs": True},
+                "hold": {"runs": [{"id": 9, "status": "queued", "head_sha": newer}],
+                         "ancestry": [(self.NEWEST, newer)]}}.items():
+            with self.subTest(name):
+                # A pin on the base that would succeed: it must not be asked.
+                result, state = self.run_repin(base_result="pinned", **options)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIsNone(state["base_call"])
+                self.assertEqual(state["published"], [])
+                self.assertEqual(state["prs"]["1"], "open")
+                self.assertNotIn("no re-pin pull request", result.stdout)
+
+    def test_the_pin_on_the_base_gets_the_branchs_release_after_the_swap(self):
+        result, state = self.run_repin(base_result="pinned", same_inputs=[[self.PR_PIN, self.NEWEST]],
+                                       pr_files={"Packages/macOS/CmuxNext/Package.swift": self.PR_PIN})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("keeping that release", result.stdout)
+        # The branch's release and its checksum (the fake pin reader's), not the newest release's.
+        self.assertEqual(state["base_call"], ["base-token", "true", self.PR_PIN, "0" * 64])
+
     def test_an_open_re_pin_pr_is_closed_when_the_picked_release_has_the_base_inputs(self):
         result, state = self.run_repin(same_inputs=[[self.PINNED, self.NEWEST]], pr_files={
             "Packages/macOS/CmuxNext/Package.swift": self.PR_PIN}, ancestry=[(self.PR_PIN, self.NEWEST)])
