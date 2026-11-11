@@ -2347,6 +2347,12 @@ _SHELL_SHAPES: tuple[tuple[str, bool, str, str | None], ...] = (
     ("command -p -- shopt -s lastpipe\ntrue | cd scripts\npython3 x", True, "x", None),
     ("command -p cd scripts/ci\npython3 x", True, "x", _CI),
     ("command -v cd\ncd scripts/ci\npython3 x", True, "x", _CI),
+    # Review of #41334: short options combine (`-pp` runs cd), an option this check does not read is
+    # unknown, and a for header may break across lines before `in` (a nested loop's list `do done`).
+    ("command -pp cd scripts\npython3 x", True, "x", "scripts"),
+    ("command -x cd scripts\npython3 x", True, "x", None),
+    ("command -pv cd\ncd scripts/ci\npython3 x", True, "x", _CI),
+    ("for a in a b; do for b\nin do done; do true; done; python3 x; cd scripts; done", True, "x", None),
     ("for v in a b; do true; done\ncd scripts/ci\npython3 x", True, "x", _CI),
     ("command -v python3\ncd scripts/ci\npython3 x", True, "x", _CI),
     ("python3 - <<'EOF'\nprint(1)\nEOF", True, "-", ""),
@@ -2585,7 +2591,12 @@ def run_bash_oracle(cases, timeouts: list[str] | None = None) -> tuple[Counter, 
 # and without -e. Every command but python is a builtin, so bash takes one path per python status.
 # Seeds are fixed, so a disagreement reproduces from its seed.
 
-GENERATED_SHELL_SEEDS = int(os.environ.get("SPARSE_SHELL_SEEDS", "20000"))
+# CI runs a fixed seed count (no wall-clock bound), sized with headroom: 10000 seeds take about half
+# the ~15 s budget (review of #41334). Before a change to the checker or the grammar, run the deep
+# check by hand:
+#   SPARSE_SHELL_SEEDS=100000 python3 tests/test_ci_sparse_checkout_imports.py SparseCheckoutOracleTests
+# and pin any seed it finds (_GENERATED_SHELL_FINDS, or a _SHELL_SHAPES fixture).
+GENERATED_SHELL_SEEDS = int(os.environ.get("SPARSE_SHELL_SEEDS", "10000"))
 _GEN_FOLDERS = (*_SHELL_FOLDERS, "has space")
 _GEN_TARGETS = (
     "scripts/ci", "scripts", "ci", "lib", "missing", "..", "scripts/a",
@@ -2613,7 +2624,12 @@ _GEN_SHELLS = ("", "", "bash", "bash -e {0}", "bash {0}", "bash --noprofile --no
 # Review of #41199: reserved words as plain words (a for list, an argument, echo text), and each
 # wrapper in _WRAPPERS in front of shopt, set and cd.
 _GEN_RESERVED = ("do", "done", "then", "fi", "for", "in", "if", "while", "else", "{", "}", "!")
-_GEN_WRAPPED = (*(f"{w} " for w in _WRAPPERS), "command -p ", "command -- ", "builtin command ", "command -v ")
+_GEN_WRAPPED = (
+    *(f"{w} " for w in _WRAPPERS), "command -p ", "command -- ", "builtin command ", "command -v ",
+    # Combined and unknown options (review of #41334): -pp runs the command, -pv looks it up, and
+    # -x, builtin -p are options bash refuses.
+    "command -pp ", "command -p -p ", "command -pv ", "command -x ", "builtin -p ", "builtin -- ",
+)
 
 
 def _generated_shell(seed: int, wide: bool = True) -> tuple[str, bool, str]:
@@ -2655,7 +2671,7 @@ def _generated_shell(seed: int, wide: bool = True) -> tuple[str, bool, str]:
         if depth < 2 and r < 0.35:
             n = next(counters)
             head = f"for v{n}; do " if rng.random() < 0.15 else f"for v{n} in {' '.join('abc'[: rng.randint(0, 3)])}; do "
-            if wide and head.endswith("; do ") and " in " in head and rng.random() < 0.5:
+            if wide and head.endswith("; do ") and " in " in head and rng.random() < (0.8 if in_loop else 0.5):
                 # Often a reserved word that can lead a command, then `done` (`for v in do done`), the
                 # shape a reader that takes list words as delimiters gets wrong.
                 words = [rng.choice(("a", "b", *_GEN_RESERVED)) for _ in range(rng.randint(0, 2))]
@@ -2663,6 +2679,11 @@ def _generated_shell(seed: int, wide: bool = True) -> tuple[str, bool, str]:
                     words.insert(rng.randint(0, len(words)), rng.choice(("do", "then", "else", "{", "!")) + " done")
                 listed = " ".join(words) or "done"
                 head = f"for v{n} in {listed}; do "
+            if wide and " in " in head and rng.random() < (0.8 if in_loop else 0.15):
+                # A header broken across lines (review of #41334): newlines may come before `in` and `do`.
+                head = head.replace(" in ", "\nin ", 1)
+                if rng.random() < 0.5:
+                    head = head.replace("; do ", "\ndo ", 1)
             return head + and_or_list(inner, 3, True) + sep() + "done" + redirect
         if depth < 2 and r < 0.41:
             n = next(counters)
@@ -4131,7 +4152,7 @@ class SparseCheckoutOracleTests(unittest.TestCase):
         self.assertGreater(counts["agree"], 0, dict(counts))
 
     def test_generated_shell_programs_agree_with_bash(self) -> None:
-        # GENERATED_SHELL_SEEDS random programs of the grammar above (20000 by default), each through
+        # GENERATED_SHELL_SEEDS random programs of the grammar above (10000 by default), each through
         # bash: wherever this check gives a known directory for the python call, bash ran it there.
         import time
 
