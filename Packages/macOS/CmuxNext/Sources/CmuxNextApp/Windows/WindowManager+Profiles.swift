@@ -216,7 +216,6 @@ extension WindowManager: SpaceWindowSource {
 
     func spaceWindowNewIncognitoSpace() { services.registry.perform("space.newIncognito", invocation: ActionInvocation()) }
 }
-
 // Leo 2026-11-11: "we wanted the different windows to be accessible through spaces". A window for moved content (Move … to New
 // Window, agent fork, tear-off) takes a new space as New Window does (spaces-overhaul rule 3); Open Space in New Window shares (rule 4).
 extension WindowManager {
@@ -239,7 +238,8 @@ extension WindowManager {
                 _ = try await connection.createProfile(name: name, id: space, color: color.rawValue, browserProfileID: browser)
                 await store.mirrored(profile: space)
                 let reported = { ids.compactMap { WindowProfiles.qualified($0, machines: machines) } } // one made for the move may not be yet
-                for await done in ObservationStream({ reported().count == ids.count || store.connectionState != connected }) where done { break } // ends on a reconnect
+                let waiting = Task { for await done in ObservationStream({ reported().count == ids.count || store.connectionState != connected }) where done { break } }
+                let bound = Task { try? await Task.sleep(for: .seconds(10)); waiting.cancel() }; await waiting.value; bound.cancel() // ends on a reconnect or after 10 s
                 for workspace in reported() {
                     try await connection.pinWorkspace(session: workspace.session, key: WorkspaceKey(rawValue: workspace.key), to: space)
                 }
