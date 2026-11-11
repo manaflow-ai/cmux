@@ -77,6 +77,8 @@ mod cloud_repo;
 #[cfg(unix)]
 mod cloud_retention;
 #[cfg(unix)]
+mod cloud_route;
+#[cfg(unix)]
 mod cloud_secret;
 #[cfg(unix)]
 mod cloud_start_chat;

@@ -794,5 +794,9 @@ mod page_tabs_tests;
 mod conversation_tab_split_tests;
 
 #[cfg(test)]
+#[path = "conversation_tab_chat_only_tests.rs"]
+mod conversation_tab_chat_only_tests;
+
+#[cfg(test)]
 #[path = "closed_conversation_tabs_tests.rs"]
 mod closed_conversation_tabs_tests;

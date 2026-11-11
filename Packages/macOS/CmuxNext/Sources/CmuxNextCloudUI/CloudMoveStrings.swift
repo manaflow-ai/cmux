@@ -97,6 +97,14 @@ public struct CloudMoveStrings {
         String(format: String(localized: "cloud.move.unreachable", defaultValue: "Lost the connection to %@ during the move. Retry to finish it.",
                               table: "Cloud", bundle: .module), machine)
     }
+    /// A `cmux link` answer's value, or its error as the person reads it: a refusal a paid plan lifts is
+    /// ``CloudAPIError/planRequired(message:upgradeURL:plan:)``, any other one a ``CloudMoveFailure``.
+    public static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T {
+        guard answer.0.ok else {
+            throw answer.0.errorCode == "cloud.plan.required" ? CloudAPIError.planRequired(message: nil, upgradeURL: nil) as any Error : CloudMoveFailure(message: moveFailed(answer.0.error ?? answer.0.errorCode ?? ""))
+        }
+        return answer.1
+    }
     public static func moveFailed(_ detail: String) -> String {
         String(format: String(localized: "cloud.move.failed", defaultValue: "Couldn't move the chat. Try again; if it keeps failing, run `cmux cloud diagnostics`. Reason: %@", table: "Cloud", bundle: .module), detail)
     }
