@@ -1188,6 +1188,7 @@ def is_web_change(path: str) -> bool:
         # It also runs the test of the PR scoping of ui-rules and gallery coverage.
         "scripts/tests/test_pr_scoped_webviews_checks.py",
         "scripts/check-webviews-bun-version.sh",
+        "scripts/webviews_bun_version.py",
         "scripts/check-webviews-react-compiler.mjs",
         # The generated agent pane page, its build and regenerate scripts, and
         # the merge driver that keeps it mergeable: react-apps-check verifies

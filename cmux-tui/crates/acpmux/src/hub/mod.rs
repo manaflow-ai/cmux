@@ -70,9 +70,13 @@ mod host_notice_tests;
 #[cfg(test)]
 mod ledger_hub_tests;
 #[cfg(test)]
+mod owned_scope_bench_tests;
+#[cfg(test)]
 mod peer_notice_cost_tests;
 #[cfg(test)]
 mod prompt_accept_tests;
+#[cfg(test)]
+mod remote_table_bench;
 #[cfg(test)]
 mod review_queue_tests;
 #[cfg(test)]
@@ -157,6 +161,7 @@ pub mod ledger;
 mod model_hint;
 mod model_probe;
 mod models_view;
+pub(crate) mod native_messaging;
 mod paging;
 mod personal_stats;
 mod policy_gate;
@@ -290,6 +295,7 @@ pub(crate) mod peer_snapshot;
 pub use peer_lease::PeerLease;
 mod peers;
 mod remote_rows;
+mod remote_table;
 pub(crate) use peers::{
     PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask,
 };
@@ -745,6 +751,14 @@ pub struct Hub {
     /// The approvals audit trail (`audit_log.rs`).
     pub(crate) audit: audit_log::AuditLog,
     pub shutdown: Notify,
+    /// The owner of the hub's own tasks (`cmux_scope`). Every task that lives off the hub (the
+    /// idle reaper, each chat's inbound loop, pool starts, carried turns, retries, message
+    /// projections) is spawned here, never with a bare `tokio::spawn`: then the shutdown cancels
+    /// them all and joins them within a deadline (`Hub::close_owned_tasks`, after the agents),
+    /// naming any that did not end, instead of leaving them parked on a wake nobody sends with a
+    /// handle that keeps the hub alive. A connection's scope is a child of this one. New hub
+    /// code spawns through it; the spawn-owner ratchet counts the bare spawns left.
+    pub(crate) scope: cmux_scope::Scope,
     /// Latched daemon restart and drain shared by TCP and embedded-tailnet listeners.
     pub(crate) ws_shutdown: crate::server::WsShutdown,
     /// Set only by an explicit daemon restart/update handoff. Ordinary stops
@@ -755,7 +769,9 @@ pub struct Hub {
     pub(crate) fatal: crate::supervise::Fatal,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
-    pub(super) remote_sessions: StdMutex<remote_rows::RemoteRows>,
+    /// The peers' rows, published as a snapshot (`remote_table.rs`): a reader loads it with no
+    /// lock and never holds up a writer; writers (peer notices, purges) take turns.
+    pub(super) remote_sessions: remote_table::RemoteTable,
     /// The same person's machines and sessions the mesh hub lists (`mesh_book.rs`).
     pub(super) mesh_book: StdMutex<mesh_book::MeshBook>,
     /// Read answers larger than one hub message, held for their asker (`mesh_read_parts.rs`).
@@ -1198,6 +1214,7 @@ impl Hub {
             review_index: Default::default(),
             audit,
             shutdown: Notify::new(),
+            scope: cmux_scope::Scope::new("acpmux hub"),
             ws_shutdown: Default::default(),
             restart_requested: std::sync::atomic::AtomicBool::new(false),
             fatal: crate::supervise::Fatal::default(),
@@ -1715,6 +1732,7 @@ impl Hub {
             input_since: AtomicU64::new(0),
             work_below_since: StdMutex::new(0),
             asks_below: StdMutex::new((0, 0)),
+            held_messages: StdMutex::new(std::collections::VecDeque::new()),
             unread_after_work: AtomicBool::new(false),
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
@@ -1730,6 +1748,7 @@ impl Hub {
             detaching: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
+            closed: tokio::sync::watch::channel(false).0,
             steering: AtomicBool::new(steering),
             backgrounds_work: AtomicBool::new(backgrounds_work),
             person: AtomicBool::new(false),
@@ -2700,6 +2719,8 @@ impl Hub {
         };
         self.update_live_session_index(session);
         if was != status {
+            // Its inbound loop parks once the chat closes, and a reopen starts it again.
+            session.closed.send_replace(status == SessionStatus::Closed);
             // A closed snapshot partitions sessions by status. Invalidate on both sides of a
             // closed transition, including reopen before its `reopened` record is appended, so a
             // build that observed the old partition cannot publish it after the transition.

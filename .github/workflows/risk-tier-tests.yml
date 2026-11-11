@@ -37,5 +37,6 @@ jobs:
             scripts/ci/risk_tier.py
             tests/test_risk_tier.py
             tests/git_fixture_env.py
+            .github/workflows/risk-tier.yml
           sparse-checkout-cone-mode: false
       - run: python3 tests/test_risk_tier.py -v

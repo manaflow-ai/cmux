@@ -10,8 +10,8 @@
 //! disk (`peer_cache.rs`), and stops with its connection
 //! (`Conn::end_peer_leases` in `server/mod.rs`).
 //!
-//! A peer Arc is looked up briefly before taking `remote_sessions` or a writer gate; never hold
-//! `peers` across another shared lock. A peer leaves the `peers` registry before its rows
+//! A peer Arc is looked up briefly before taking the rows writer lock (`remote_sessions`) or a
+//! writer gate; never hold `peers` across another shared lock. A peer leaves the `peers` registry before its rows
 //! are dropped, and a notice changes rows only while its instance is still
 //! registered (`apply_peer_notice` checks while holding peers then rows), so a late
 //! notice of a replaced or removed peer never adds rows back.
