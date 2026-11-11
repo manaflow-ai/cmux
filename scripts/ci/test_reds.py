@@ -70,6 +70,8 @@ FAILED = (
     re.compile(r"^test (\S+) \.\.\. FAILED$"),  # cargo test
     re.compile(r"^(?:FAIL|ERROR): (\S+ \([^)]+\))"),  # unittest
     re.compile(r"^FAILED (\S+::\S+)"),  # pytest
+    # vitest's failure heading: ` FAIL  test/x.test.ts > <describe> > <test>` (backend/apps/api, workerd pool).
+    re.compile(r"^\s*FAIL\s+(\S+\.(?:test|spec)\.[cm]?[jt]sx?(?: > .+)+)$"),
 )
 # Where a display-named Swift Testing failure recorded its issue: `✘ Test "name" recorded an issue [with N
 # arguments ...] at <File>.swift:<line>:<col>: <expectation text>`. A `@Test("...")` name prints with no suite,
@@ -151,6 +153,16 @@ TEST_LINE = re.compile(r"^[◇✔✘↪] (?:Test|Suite) |^Test Case '-\[")
 # "--- the app's errors in the system log (an uncaught exception or assertion names itself here)" above every failed
 # launch's log, and a relaunch over its time budget read as "the test process crashed" (cmuxterm-hq#7285, run
 # 42053582212). Only that harness's known headings are exempt; any other line, `--- ` or not, still counts.
+# vitest's header above a test's own console output (`stderr | test/x.test.ts > <describe> > <test>`), up to the blank
+# line that closes it: what the code under test logged, never a runtime diagnostic. cmux backend run 43060098319
+# (2026-11-11): a test's JSON log line `"error":"claude exited on signal 9: "` (a fake runner it stops on purpose) read
+# as "the test process crashed", though vitest failed cleanly on one assertion.
+# workerd's log of an exception one request or promise of a Worker left uncaught (`uncaught exception; source =
+# Uncaught (in promise); stack = ...`, `uncaught exception; exception = workerd/io/...`): workerd reports it and keeps
+# serving, so it is that test's output, never the process ending. The same run printed 2447 of them (tests that drive
+# a Durable Object's failing provisioning on purpose) and passed 1389 tests in that process.
+WORKERD_UNCAUGHT = re.compile(r"^uncaught exception; (?:source|exception) = ")
+VITEST_CONSOLE = re.compile(r"^(?:stdout|stderr) \| \S+\.(?:test|spec)\.[cm]?[jt]sx?(?: > .*)?$")
 HEADING = re.compile(r"^--- (?:the app's errors in the system log \(an uncaught exception or assertion names itself "
                      r"here\)|app output \(last \d+ lines\))$")
 XCTEST_RESTART = re.compile(r"(?:Restarting after unexpected exit, crash, or test timeout in|"
@@ -1020,9 +1032,15 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
     signals: list[str] = []
     named: list[str] = []
     crashed = False
+    console = False  # inside a vitest console block (VITEST_CONSOLE)
     for passing, text in shown:
         if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
             continue
+        if VITEST_CONSOLE.match(text):
+            console = True
+            continue
+        if console and not text.strip():
+            console = False
         if BUN_PANIC.match(text):
             crashed = True
         if match := XCTEST_RESTART.search(text):
@@ -1036,7 +1054,8 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
             signals.append(str(signal_exit))
         killed = SHELL_SIGNAL.search(text) and not passing
         runtime = HELPER_KILLED.search(text) or killed or (
-            (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text) and not HEADING.match(text))
+            (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text) and not HEADING.match(text)
+            and not console and not WORKERD_UNCAUGHT.match(text))
         if runtime:
             crashed = True
             if number := signal_of(text):
