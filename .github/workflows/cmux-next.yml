@@ -270,6 +270,8 @@ on:
       - tests/test_cmux_next_tree_notify.py
       - tests/test_cmux_tui_tree_takeover.py
       - scripts/ci/cmux_tui_tree_takeover.py
+      - tests/test_cmux_next_same_tree_failed.py
+      - scripts/ci/cmux_next_same_tree_failed.py
       - tests/test_cmux_next_update_dev_daily.py
       - scripts/cmux-next/update-dev-daily.sh
       - tests/test_cmux_next_classic_to_next.py
@@ -592,6 +594,8 @@ on:
       - tests/test_cmux_next_tree_notify.py
       - tests/test_cmux_tui_tree_takeover.py
       - scripts/ci/cmux_tui_tree_takeover.py
+      - tests/test_cmux_next_same_tree_failed.py
+      - scripts/ci/cmux_next_same_tree_failed.py
       - tests/test_cmux_next_update_dev_daily.py
       - scripts/cmux-next/update-dev-daily.sh
       - tests/test_cmux_next_classic_to_next.py
@@ -1709,6 +1713,7 @@ jobs:
             bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
             python3 tests/test_cmux_next_tree_notify.py
             python3 tests/test_cmux_tui_tree_takeover.py
+            python3 tests/test_cmux_next_same_tree_failed.py
             python3 tests/test_idea_ledger.py
             # The INTERNAL iOS builder's trigger decisions and What to Test notes.
             python3 tests/test_ios_internal_builder.py
@@ -2670,7 +2675,9 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-177 (a re-run reads the tree's publish record)
       - name: Report the unavailable same-tree cmux-tui
+        id: unavailable
         if: ${{ (inputs.same_tree_sha != '' && inputs.same_tree_state || needs.path_route.outputs.tree_state) == 'failed' }}
         env:
           REASON: ${{ inputs.same_tree_reason || needs.path_route.outputs.tree_reason }}
@@ -2678,11 +2685,30 @@ jobs:
           COMMIT: ${{ inputs.same_tree_sha }}
           STATUS_SHA: ${{ inputs.same_tree_status_sha }}
           TIERS: ${{ inputs.same_tree_tiers }}
+          ORIGIN: ${{ inputs.same_tree_origin }}
+          ORIGIN_RUN: ${{ inputs.same_tree_origin_run }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_KIND: ${{ github.ref_type == 'tag' && 'tags' || 'heads' }}
+          DEV_DAILY_SHA: ${{ inputs.dev_daily == true && inputs.dev_daily_sha || '' }}
+          TIP_SUITE: ${{ inputs.tip_daemon_suite == true && 'daemon' || inputs.base_tier == true && 'base' || '' }}
           DEV_DAILY: ${{ inputs.dev_daily == true && 'true' || 'false' }}
           GH_TOKEN: ${{ github.token }}
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          if [[ -n "$COMMIT" ]]; then
+            # The tree's publish record, read now: a re-run of this run (same inputs) after a later
+            # publication dispatches the ready tree jobs instead of repeating the old verdict. Not
+            # published: it writes this run's marker (reported), uploaded below for the key's next publish.
+            marker="$RUNNER_TEMP/cmux-next-tree-wait/marker.json"
+            if python3 scripts/ci/cmux_next_same_tree_failed.py --repo "$GITHUB_REPOSITORY" --ref "$REF_NAME" \
+                --ref-kind "$REF_KIND" --reason "$REASON" --key "$KEY" --commit "$COMMIT" --status-sha "$STATUS_SHA" \
+                --tiers "$TIERS" --origin "$ORIGIN" --origin-run "$ORIGIN_RUN" --dev-daily-sha "$DEV_DAILY_SHA" \
+                ${TIP_SUITE:+--tip-suite "$TIP_SUITE"} --marker "$marker" --output "$GITHUB_OUTPUT"; then
+              echo "::notice title=same-tree cmux-tui published::the tree was published after this run was dispatched; its tree jobs were dispatched again (ready)"; exit 0
+            fi
+            [[ -f "$marker" ]] && echo "marker=$marker" >> "$GITHUB_OUTPUT"
+          fi
           if [[ -n "$COMMIT" ]] && python3 scripts/ci/cmux_tui_tree_takeover.py --repo "$GITHUB_REPOSITORY" --commit "$COMMIT" --key "$KEY" --reason "$REASON"; then
             echo "::notice title=same-tree cmux-tui taken over::$REASON"; exit 0
           fi
@@ -2706,6 +2732,17 @@ jobs:
             done
           fi
           exit 1
+      # The record of this run's red, keyed by its tree: the key's next publication re-dispatches every tier
+      # it reported (cmux_next_tree_notify.py), whatever became of the marker that started this run.
+      - name: Upload the reported tree wait marker
+        if: ${{ !cancelled() && steps.unavailable.outputs.marker != '' && steps.unavailable.outputs.key != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-tree-wait-${{ steps.unavailable.outputs.key }}
+          path: ${{ steps.unavailable.outputs.marker }}
+          retention-days: 7
+          overwrite: true
 
   # The build fleet's compile verdict for the Swift canary. Opt-in: with the
   # Why: docs/ci/cmux-next-workflow-notes.md#note-33
