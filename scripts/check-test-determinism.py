@@ -5049,6 +5049,11 @@ def load_allowlist_entries(path: pathlib.Path) -> list[AllowlistEntry]:
             rel_path, function, rule, reason = parts
             if rule not in ALL_RULES:
                 raise ValueError(f"{path}:{line_number}: unknown rule {rule!r}")
+            if function.startswith(UNRESOLVED_SCOPE_PREFIX):
+                raise ValueError(
+                    f"{path}:{line_number}: {function} is no function: a finding after a slash the lexer cannot "
+                    "read is never allowlisted; make that slash unambiguous and delete the entry"
+                )
             entry = AllowlistEntry(rel_path, function, rule, reason, line_number)
             if entry.key() in seen:
                 raise ValueError(f"{path}:{line_number}: duplicate of line {seen[entry.key()]}")
@@ -5065,7 +5070,7 @@ def write_allowlist(
     path: pathlib.Path, findings: list[Finding], reasons: Optional[dict[tuple[str, str, str], str]] = None
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    keys = sorted({f.key() for f in findings})
+    keys = sorted({f.key() for f in findings if not f.function.startswith(UNRESOLVED_SCOPE_PREFIX)})
     with path.open("w", encoding="utf-8") as handle:
         handle.write(ALLOWLIST_HEADER)
         for key in keys:
@@ -7767,16 +7772,20 @@ def main(argv: list[str]) -> int:
         print(f"Error reading allowlist: {exc}", file=sys.stderr)
         return 2
 
+    # A finding after a slash the lexer could not read names no function: it fails on its own, before any allowlist
+    # filtering, and is never written to the allowlist (load_allowlist_entries refuses an entry naming one).
+    unresolved = [finding for finding in findings if finding.function.startswith(UNRESOLVED_SCOPE_PREFIX)]
+    resolved = [finding for finding in findings if not finding.function.startswith(UNRESOLVED_SCOPE_PREFIX)]
+
     if args.write_allowlist:
-        write_allowlist(allowlist_path, findings, {entry.key(): entry.reason for entry in entries})
-        print(f"Wrote {allowlist_path} with {len({f.key() for f in findings})} entr(ies)")
+        write_allowlist(allowlist_path, resolved, {entry.key(): entry.reason for entry in entries})
+        print(f"Wrote {allowlist_path} with {len({f.key() for f in resolved})} entr(ies)")
+        if unresolved:
+            print(f"{len(unresolved)} unresolved finding(s) not written: make each slash unambiguous")
         return 0
 
     allow = {entry.key() for entry in entries}
-    active, suppressed = filter_allowlisted(findings, allow)
-    # A finding after a slash the lexer could not read names no function: it fails on its own, never allowlisted.
-    unresolved = [finding for finding in active if finding.function.startswith(UNRESOLVED_SCOPE_PREFIX)]
-    active = [finding for finding in active if not finding.function.startswith(UNRESOLVED_SCOPE_PREFIX)]
+    active, suppressed = filter_allowlisted(resolved, allow)
     # Only a full scan sees every finding an entry could match (--roots narrows it; isolated-import runs with
     # --strict only), so only a full scan judges an entry stale.
     stale: list[AllowlistEntry] = []
