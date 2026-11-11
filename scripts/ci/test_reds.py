@@ -52,6 +52,7 @@ import json
 import os
 import re
 import sys
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.error import URLError
@@ -59,7 +60,8 @@ from urllib.request import urlopen
 
 # Each line of `gh run view --log` or of the job-logs endpoint starts with its time.
 STAMP = re.compile(r"^(?:[^\t]*\t[^\t]*\t)?﻿?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
-ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+# A terminal escape: a CSI sequence (colour, cursor) or an OSC one (a hyperlink, a title), as base_red_excuse reads them.
+ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
 
 FAILED = (
     # Swift Testing: `name()`, or a display name (`@Test("A capped plan …")` prints `✘ Test "A capped plan …"`).
@@ -240,6 +242,16 @@ class Result:
         self.sites: dict = {}
         self.crashes: list = []
         self.truncated: list = []
+        # The runner lines that report more failures than its parsers name (unnamed_failures): with any, no failure of
+        # this log can be told from another, so its per-test results are not whole and a reason says so in truncated
+        # (read(); #41222's review F1: one reading every consumer goes through, never a check per consumer).
+        self.unnamed: list = []
+        # read_bun's failures, each once per result that failed it (a `(fail)` line, an unhandled error): a test that
+        # fails twice is not one that fails once (failed_tests).
+        self.counts: Counter = Counter()
+        # (step, attempt, kind, what) of each record read_bun kept: every bun failure and unnamed marker carries the step
+        # (its index among the steps read) and the attempt there that made it, so no reader can mix two of them up.
+        self.records: list = []
 
 
 class Verdict:
@@ -315,6 +327,12 @@ def same_error(head: str | None, base: str | None) -> bool:
     return bool(head) and bool(base) and volatile(head) == volatile(base)
 
 
+def plain(log: str) -> str:
+    """LOG without its terminal escapes (ANSI): what a log reader hands every parser (#41329's review F2: a summary
+    matched on the raw line missed `\x1b[31mFAILED\x1b[0m`)."""
+    return ANSI.sub("", log)
+
+
 def log_lines(log: str) -> list[str]:
     """Every line of a job log with its timestamp and colours removed, the runner's step echoes included."""
     # Swift Testing prefixes some event lines with a zero-width space (U+200B) when another writer's output
@@ -328,6 +346,67 @@ def lines_of(log: str) -> list[str]:
     lines = log_lines(log)
     skip = echoed(lines)
     return [text for n, text in enumerate(lines) if n not in skip]
+
+
+class Steps(str):
+    """A log already split into its steps' sections (a FailedView's text: base_red_excuse.failed_view placed each
+    section and judged it failed). Its text is the sections joined, so any reader of a str reads it; the readers of
+    steps (step_sections) read each section as one step and never judge pass or fail again on it (#41329's review
+    follow-up F3: the joined failed sections were split by their echoes again, a failed section with no `##[error]`
+    read as passing, and its unnamed bun count went)."""
+    sections: tuple
+
+    def __new__(cls, sections):
+        made = super().__new__(cls, "\n".join(sections))
+        made.sections = tuple(sections)
+        return made
+
+
+def step_sections(log: str) -> list[tuple[bool, list[str]]]:
+    """(whether a step that passed printed it, its lines_of) of each step of LOG, in order; the lines before the first
+    step's echo are a section of their own. A Steps text is read as it was split: each section a step, none passed."""
+    if isinstance(log, Steps):
+        return [(False, lines_of(section)) for section in log.sections]
+    lines = log_lines(log)
+    skip = echoed(lines)
+    passed = passed_steps(lines, skip)
+    found: list[tuple[bool, list[str]]] = [(False, [])]
+    for n, text in enumerate(lines):
+        if n in skip:
+            if ECHO_START.match(text):
+                found.append((n in passed, []))
+            continue
+        found[-1][1].append(text)
+    return found
+
+
+def unjudged(log: str) -> Steps:
+    """LOG split into its steps at each step's echo, none judged passed: a log whose lines no reader could place on
+    its steps (base_red_excuse's UNPLACED) has no step known to have passed, so every step's lines are read, each
+    as its own step (#41329's review follow-up F3)."""
+    raw = log.splitlines()
+    lines = log_lines(log)
+    starts = [n for n in sorted(echoed(lines)) if ECHO_START.match(lines[n])]
+    bounds = [0] + starts + [len(raw)]
+    return Steps(["\n".join(raw[a:b]) for a, b in zip(bounds, bounds[1:]) if b > a])
+
+
+def step_lines(log: str) -> list[tuple[bool, str]]:
+    """lines_of, each with whether a step that passed printed it (step_sections)."""
+    return [(passing, text) for passing, section in step_sections(log) for text in section]
+
+
+def red_steps(log: str) -> list[list[str]]:
+    """The lines of each step of LOG that did not pass (step_sections)."""
+    return [section for passing, section in step_sections(log) if not passing]
+
+
+def red_lines(log: str) -> list[str]:
+    """What the job's steps that did not pass printed: lines_of without every line of a step that passed. The source
+    every reader of a red's tests reads (parse_log, failed_in), so no reader sees a passing step's lines (#41244's
+    review F1 at 0a9fdca7: read_bun was handed them before the filter, and a filter inside each reader left the next
+    reader to skip it)."""
+    return [text for section in red_steps(log) for text in section]
 
 
 # A crash-class rule's failure line (cmux-next-crash-class.yml; crash_class_fast_gate.py lists the prefixes):
@@ -354,6 +433,33 @@ def is_crash_rule_failure(name: str) -> bool:
     return name.split(" ", 1)[0] in CRASH_RULES
 
 
+# A check script's failure line that names what failed, read as a named failure the way a crash-class rule's is
+# (2026-11-11, cmux#41205 at ba8ff399): scripts/cmux-next/check-spawn-owner.py prints one line per file over its
+# baseline, `check-spawn-owner: PATH has N spawn line(s) with no owner (a new file|baseline M).`, and no test name,
+# so a base red there had no identity to compare. The key is the whole line's content: the file, its count, its row.
+CHECK_RULES = ("check-spawn-owner",)
+CHECK_RULE_LINE = (r"(check-spawn-owner): (cmux-tui/crates/[\w.+-]+/\S+\.rs) has (\d+) spawn line\(s\) with no owner "
+                   r"\((a new file|baseline \d+)\)\.")
+CHECK_RULE = re.compile(rf"^(?:##\[error\])?{CHECK_RULE_LINE}$")
+# The same line quoted after a test's assertion (`AssertionError: 1 != 0 : check-spawn-owner: ...`).
+CHECK_RULE_QUOTED = re.compile(rf"(?:^|: ){CHECK_RULE_LINE}$")
+
+
+def check_rule_key(match: re.Match) -> str:
+    rule, path, count, row = match.groups()
+    return f"{rule} {path}: {count} spawn line(s) with no owner ({row})"
+
+
+def check_rule_failure(text: str) -> str | None:
+    """The failure key of a check rule's own line (CHECK_RULE), at the start of the line; None for any other line."""
+    return check_rule_key(match) if (match := CHECK_RULE.match(text)) else None
+
+
+def is_rule_failure(name: str) -> bool:
+    """Whether a failure name is a rule's line (a crash-class rule or a check rule), not a test's."""
+    return name.split(" ", 1)[0] in CRASH_RULES + CHECK_RULES
+
+
 def failed_names(lines: list[str]) -> set[str]:
     """The failing tests LINES name: each FAILED pattern's, an xcresult `FAILED:` line's and the names under
     xcodebuild's `Failing tests:` (XCRESULT_FAILED). LINES are a step's output (lines_of), never its echoed script."""
@@ -373,13 +479,158 @@ def failed_names(lines: list[str]) -> set[str]:
         for pattern in FAILED:
             if match := pattern.search(text):
                 found.add(match.group(1))
-        if rule := crash_rule_failure(text):
+        if rule := crash_rule_failure(text) or check_rule_failure(text):
             found.add(rule)
         if match := SUITE_FAILED.search(text):
             found.add(match.group(1).strip('"'))
         if match := XCRESULT_FAILED.match(text):
             found.add(f"{match.group(1)}.{match.group(2)}")
     return found
+
+
+# A runner's own word that tests failed, whatever names them: a whole-log comparison (base_red_excuse.py's unplaced
+# one) that reads such a line and no failing test from the same runner has nothing to tell one failure from another,
+# so it must not stand (cmux#41158's review F1: two different bun failures, no name read, the same `expect()`
+# headline, were one red). Bun's (its ` N fail` count, the wrapper's `FAIL file` line, a `(fail)` result) are told
+# apart from the others, whose names failed_names reads.
+BUN_FAILED_COUNT = re.compile(r"^\s*[1-9]\d* fail$")
+FAILURE_MARKERS = (
+    re.compile(r"^test result: FAILED\."),  # cargo test
+    re.compile(r"^FAILED \((?:failures|errors)=\d"),  # unittest
+    re.compile(r"^=+ .*\b\d+ failed\b.*=+$"),  # pytest
+    re.compile(r"Executed \d+ tests?, with [1-9]\d* failures?"),  # XCTest
+    re.compile(r"^✘ Test run with \d+ tests?\b.*\bfailed\b"),  # Swift Testing
+)
+# Each runner's reported failure total, where its summary counts what failed_names names one line per (#41166's
+# review F2: a log with one parsed name and one unparsed failure counted as fully identified, since an unnamed failure
+# was recorded only when no name at all was read). Per invocation: each summary is compared with the lines its own
+# runner's pattern named since that runner's previous summary, so a run that names more never covers one that names
+# fewer:
+# - cargo `test result: FAILED. X passed; N failed;` per test binary, against its `test NAME ... FAILED` lines;
+# - unittest `FAILED (failures=N, errors=M, unexpected successes=K)` (each a test or subtest, none of them named by
+#   anything but a `FAIL:` / `ERROR:` line; an unexpected success is named by none), against those lines;
+# - pytest's closing `N failed, M error(s)` (`rerun`s are attempts, never counted), against its `FAILED a::b` lines
+#   (an `ERROR a::b` is named by none);
+# - Swift Testing's `Test run with ... with N issues` (less `including K known issues`): its summary counts issues,
+#   never tests, and each issue prints one `✘ Test|Suite X recorded an issue` line, which are counted;
+# - bun's ` N fail` per invocation (the wrapper's retry is its own invocation), against the failures read_bun keeps
+#   from that invocation: each `(fail)` result and unhandled error, and each recap `(fail)` line that names one no
+#   result did. Never against the recap's lines: two recap lines of one title are one identity once read_bun reads
+#   them, so `2 fail` beside them names one failure (#41222's review F1). An attempt the wrapper's retry supersedes
+#   is dropped with its count, as read_bun drops its failures (#41222's review F2).
+# XCTest's `Executed N tests, with M failures` counts assertion failures, once per enclosing suite as well, so no total
+# of its can be set against names: an XCTest summary is unnamed only when nothing XCTest (`Test Case '-[...]' failed`,
+# an xcresult `FAILED:` line, xcodebuild's `Failing tests:` list) named a failure; likewise a summary line whose count
+# cannot be read.
+CARGO_FAILED_TOTAL = re.compile(r"^test result: FAILED\. \d+ passed; (\d+) failed\b")
+UNITTEST_FAILED_TOTAL = re.compile(r"^FAILED \(([^)]*)\)$")
+UNITTEST_COUNTED = re.compile(r"\b(failures|errors|unexpected successes)=(\d+)")
+PYTEST_TOTAL = re.compile(r"^=+ (.*?) =+$")
+PYTEST_COUNTED = re.compile(r"\b(\d+) (failed|errors?)\b")
+SWIFT_ISSUES = re.compile(r"^✘ Test run with \d+ tests?\b.*\bwith (\d+) issues?\b(?:.*?\bincluding (\d+) known issues?)?")
+SWIFT_ISSUE_LINE = re.compile(r"✘ (?:Test|Suite) .* recorded an issue\b")
+
+
+def unnamed_failures(lines: list[str], steps: list[list[str]] | None = None) -> list[str]:
+    """The runner lines of LINES (a step's output, lines_of) that report more failures than that runner's lines name
+    (see above), each summary against the names its runner printed since its previous summary: a failure no parser
+    names, which no comparison can tell from another."""
+    bun = Result()
+    read_bun(lines, bun, steps)
+    return runner_unnamed(lines) + bun.unnamed
+
+
+UNNAMED_WHY = "its log reports more failing tests than it names"
+
+
+def unnamed_why(unnamed: list[str]) -> str:
+    """The truncated reason read() gives a log with UNNAMED failures (unnamed_failures)."""
+    return f"{UNNAMED_WHY} ({unnamed[0][:200]}), so no failure can be told from another"
+
+
+def runner_unnamed(lines: list[str]) -> list[str]:
+    """unnamed_failures of every runner but bun, whose count read_bun sets against the identities it keeps."""
+    found: list[str] = []
+    since = Counter()  # per runner, the lines it named since its last summary
+    xc_family = 0  # XCTest, xcresult `FAILED:` and xcodebuild listing names, anywhere in LINES
+    xc_summaries: list[str] = []
+    listing = False
+    for text in lines:
+        if text.startswith(TAP_MARKER):
+            continue
+        if listing:
+            if XCODEBUILD_FAILED.match(text):
+                xc_family += 1
+                continue
+            listing = False
+        if text.strip() == XCODEBUILD_FAILING:
+            listing = True
+            continue
+        if FAILED[0].search(text) and SWIFT_ISSUE_LINE.search(text) or \
+                SUITE_FAILED.search(text) and SWIFT_ISSUE_LINE.search(text):
+            since["swift"] += 1
+        for runner, n in (("cargo", 2), ("unittest", 3), ("pytest", 4)):
+            if FAILED[n].search(text):
+                since[runner] += 1
+        if FAILED[1].search(text) or XCRESULT_FAILED.match(text):
+            xc_family += 1
+        reported, runner = None, ""
+        if FAILURE_MARKERS[0].search(text):
+            runner, match = "cargo", CARGO_FAILED_TOTAL.match(text)
+            reported = int(match.group(1)) if match else None
+        elif (match := UNITTEST_FAILED_TOTAL.match(text)) and (FAILURE_MARKERS[1].search(text)
+                                                              or UNITTEST_COUNTED.search(match.group(1))):
+            counts = UNITTEST_COUNTED.findall(match.group(1))
+            runner, reported = "unittest", sum(int(n) for _, n in counts) if counts else None
+        elif (match := PYTEST_TOTAL.match(text)) and PYTEST_COUNTED.search(match.group(1)):
+            runner, reported = "pytest", sum(int(n) for n, _ in PYTEST_COUNTED.findall(match.group(1)))
+        elif FAILURE_MARKERS[4].search(text):
+            match = SWIFT_ISSUES.match(text)
+            runner, reported = "swift", int(match.group(1)) - int(match.group(2) or 0) if match else None
+        elif FAILURE_MARKERS[3].search(text):
+            xc_summaries.append(text)
+        if runner:
+            # A count that cannot be read is unnamed unless its runner named something since its last summary.
+            if (reported is None and not since[runner]) or (reported is not None and reported > since[runner]):
+                found.append(text)
+            since[runner] = 0
+    if not xc_family:
+        found.extend(xc_summaries)
+    return found
+
+
+def failed_tests(lines: list[str], unnamed: list | None = None, steps: list[list[str]] | None = None) -> Counter:
+    """The failing tests LINES name, counted, by the one parser every reader shares: failed_names' (once per line that
+    names one; an xcresult `FAILED:` line and an entry under xcodebuild's `Failing tests:` are two lines, each
+    counted: cmux#41158's review F2) and read_bun's `FILE > TEST` (once per result that failed it). LINES are a
+    step's output (lines_of). With UNNAMED, each runner line that reports more failures than that runner's lines name
+    (unnamed_failures) is added to it."""
+    counted: Counter = Counter()
+    listing = False
+    for text in lines:
+        if text.startswith(TAP_MARKER):
+            continue
+        if listing:
+            if match := XCODEBUILD_FAILED.match(text):
+                counted[match.group(1)] += 1
+                continue
+            listing = False
+        if text.strip() == XCODEBUILD_FAILING:
+            listing = True
+            continue
+        counted.update(failed_names([text]))
+    bun = Result()
+    read_bun(lines, bun, steps)  # STEPS: LINES split by step, so no bun state crosses one
+    if unnamed is not None:
+        unnamed.extend(runner_unnamed(lines) + bun.unnamed)
+    counted.update(bun.counts)
+    return counted
+
+
+def failed_in(log: str, unnamed: list | None = None) -> Counter:
+    """failed_tests of LOG's steps that did not pass, each read as its own step (red_steps)."""
+    steps = red_steps(log)
+    return failed_tests([text for section in steps for text in section], unnamed, steps)
 
 
 def issue_sites(lines: list[str]) -> dict:
@@ -507,25 +758,105 @@ def bun_diagnostic(said: list, where: str = "") -> str:
     return f"{said} at {where}" if said and where else said
 
 
-def read_bun(lines: list[str], result: Result) -> None:
+def read_bun(lines: list[str], result: Result, steps: list[list[str]] | None = None) -> None:
     """`bun test`'s failures into `result`: each named `FILE > TEST` under its file's header (webviews_test_results.py's
     names), or `TEST` when the recap is all that names it, with its diagnostics (bun_diagnostic, or its timeout; every
     distinct one when the name fails more than once) as its message. An unhandled error between tests is a failure
-    named by its headline, with its whole block and location as its diagnostic. Each bun invocation is whole only once it prints its ` N fail` count: one that started
-    (`bun test v…`, a file header or a result) and reached the next invocation (`bun test v…`, the wrapper's retry) or
-    the log's end with no count was cut short, wherever it sits in the log."""
+    named by its headline, with its whole block and location as its diagnostic. Each bun invocation is whole only once
+    it prints its ` N fail` count: one that started (`bun test v…`, a file header or a result) and reached the next
+    invocation (`bun test v…`, the wrapper's retry) or the log's end with no count was cut short, wherever it sits in
+    the log. Each ` N fail` above the failures its invocation kept goes to `result.unnamed` (unnamed_failures), as
+    does the wrapper's `FAIL file` when no attempt of its step named a failure. A recap title is counted as often as
+    the recap lists it, less the results of its invocation that named it (#41222's review F1 at 6719ba22).
+
+    Every record is made in one step and one attempt and carries both (BunAttempt; Result.records): no state crosses a
+    step (STEPS: each step's lines, already split; LINES alone is one step) or an attempt. An attempt is one file's
+    run (run-webviews-tests.sh runs one file per process), from its `bun test v…` line, its file header or the
+    wrapper's retry; the retry supersedes every earlier attempt of its file in the step, every kind of record with it:
+    named failures, recap titles, unhandled errors, counts, diagnostics, passes, ` N fail` markers, and whether it
+    named anything (#41222's review F2; #41329's review F1 and the follow-up: recap titles were bare names a
+    `FILE > ` filter missed; a `(fail)` in one step set a global flag that hid another step's `FAIL file`). A
+    cut-short attempt's note stays on purpose: a run killed before its count is never a base red. LINES hold no
+    passing step's output: the caller filters at the source (red_lines)."""
+    attempts: list[BunAttempt] = []
+    for step, section in enumerate(steps if steps is not None else [lines]):
+        _read_bun_step(section, step, attempts, result)
+    kept = [attempt for attempt in attempts if not attempt.superseded]
+    diagnostics: dict = {}  # name: its distinct diagnostics, over the attempts that count
+    for attempt in kept:
+        result.failed |= attempt.failed
+        result.counts.update(attempt.counts)
+        result.passed |= attempt.passed
+        result.unnamed.extend(attempt.marked)
+        result.records += [(attempt.step, attempt.number, "failed", name) for name in sorted(attempt.counts.elements())]
+        result.records += [(attempt.step, attempt.number, "unnamed", line) for line in attempt.marked]
+        for name, found in attempt.diagnostics.items():
+            mine = diagnostics.setdefault(name, [])
+            mine.extend(message for message in found if message not in mine)
+    for attempt in kept:
+        # A `FAIL file` is unnamed unless the file's last attempt that counts named a failure: the one in its own
+        # step, else anywhere; never another file's or an earlier run's (#41329's follow-up F2: a global flag let one
+        # `(fail)` name every file). A file no header names (run-webviews-tests.sh prints `FAIL file` and the file's
+        # results under its own group, no `file:` line) is named when an attempt of its step named a failure.
+        for line in attempt.fail_files:
+            of = BUN_PACKAGE.sub("", BUN_RESULT.match(line).group(2))
+            # The runs of the file printed before this line: in its step (up to its attempt), else anywhere.
+            runs = ([other for other in kept if other.file == of and other.step == attempt.step
+                     and other.number <= attempt.number]
+                    or [other for other in kept if other.file == of and other.step < attempt.step])
+            named = runs[-1].named if runs else any(other.named for other in kept if other.step == attempt.step)
+            if not named:
+                result.unnamed.append(line)
+                result.records.append((attempt.step, attempt.number, "unnamed", line))
+    for name, found in diagnostics.items():
+        if found:
+            # Like web_failures: several diagnostics for one name are all compared, none dropped, in sorted order so
+            # head and base compare whatever order their runs printed them in.
+            result.messages[name] = "\n--- repeated failure ---\n".join(sorted(found))
+
+
+class BunAttempt:
+    """One attempt's records (read_bun): made in step STEP, its NUMBER-th attempt there, of FILE ("" before a header)."""
+
+    def __init__(self, step: int, number: int):
+        self.step, self.number, self.file, self.superseded, self.named = step, number, "", False, False
+        self.failed: set = set()
+        self.counts: Counter = Counter()
+        self.diagnostics: dict = {}
+        self.passed: set = set()
+        self.marked: list = []  # its ` N fail` lines that count more failures than it kept
+        self.fail_files: list = []  # the wrapper's `FAIL file` lines printed after it
+
+
+def _read_bun_step(lines: list[str], step: int, attempts: list, result: Result) -> None:
+    """read_bun's reading of one step's LINES, its attempts appended to ATTEMPTS."""
     file, said, where, last, recap, unhandled, open_run = "", [], "", None, False, False, False
+    results: Counter = Counter()  # this invocation's `(fail)` results by title (bun's `describe > test`)
+    recapped: Counter = Counter()  # this invocation's recap lines by title
+    kept = 0  # the failures this invocation recorded under an identity (fail, counted): what its ` N fail` must match
     block = False  # reading the assertion block under an `error:` line, up to its stack or annotation
     run_file = ""  # the file of the run that just ended, for run-webviews-tests.sh's retry
-    diagnostics: dict = {}  # name: its distinct diagnostics
     added = None  # the diagnostic the last result line added, which its timeout note replaces
     pending = False  # an unhandled error whose block is being read: recorded when it ends
+    mine: list[BunAttempt] = []
 
-    def fail(name: str, message: str) -> str | None:
-        result.failed.add(name)
+    def begin() -> BunAttempt:
+        mine.append(BunAttempt(step, len(mine)))
+        attempts.append(mine[-1])
+        return mine[-1]
+
+    begin()
+
+    def fail(name: str, message: str, counted: bool = True) -> str | None:
+        nonlocal kept
+        attempt = mine[-1]
+        attempt.failed.add(name)
         result.ran = True
-        if message and message not in diagnostics.setdefault(name, []):
-            diagnostics[name].append(message)
+        if counted:
+            attempt.counts[name] += 1
+            kept += 1
+        if message and message not in attempt.diagnostics.setdefault(name, []):
+            attempt.diagnostics[name].append(message)
             return message
         return None
 
@@ -538,6 +869,14 @@ def read_bun(lines: list[str], result: Result) -> None:
                  bun_diagnostic(said, where))
             pending, said, where, block = False, [], "", False
 
+    def recap_failures() -> None:
+        """Each recap title as often as the recap lists it beyond its invocation's results, as `TEST` (no file)."""
+        for title, listed in recapped.items():
+            for _ in range(listed - results[title]):
+                fail(title, "")
+        results.clear()
+        recapped.clear()
+
     def end_run(why: str) -> None:
         nonlocal open_run
         if open_run:
@@ -547,39 +886,63 @@ def read_bun(lines: list[str], result: Result) -> None:
     for text in lines:
         if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
             continue
+        if BUN_RUN.match(text) or text == WEB_RETRY:
+            recap_failures()
         if BUN_RUN.match(text) or BUN_FILE.match(text) or text == WEB_RETRY or BUN_TEST.match(text) or \
                 BUN_UNHANDLED.match(text) or BUN_COUNT.match(text):
             flush()
         if BUN_RUN.match(text):
             end_run("the next bun test run started")
+            begin()
             open_run = result.ran = True  # a started run is tests, whatever the job is named
+            kept = 0
         elif BUN_RECAP.match(text):
             recap, last = True, None
         elif match := BUN_FILE.match(text):
             file, said, where, last, recap, open_run = BUN_PACKAGE.sub("", match.group(1)), [], "", None, False, True
             run_file, block, result.ran = file, False, True
+            if mine[-1].file and mine[-1].file != file:
+                begin()  # a second file in one invocation: its own attempt
+            mine[-1].file = file
         elif text == WEB_RETRY and run_file:
             end_run("the wrapper ran its file again")
             # run-webviews-tests.sh ran a red file again, alone: only that run counts (webviews_test_results.py).
-            for name in [name for name in result.failed if name.startswith(run_file + " > ")]:
-                result.failed.discard(name)
-                diagnostics.pop(name, None)
-            result.passed = {name for name in result.passed if not name.startswith(run_file + " > ")}
+            # Every earlier attempt of the file in this step goes, every kind of its records with it.
+            for attempt in mine:
+                if attempt.file == run_file:
+                    attempt.superseded = True
+            begin()
+            kept = 0
+        elif text == WEB_RETRY:
+            begin()
+            kept = 0
         elif match := BUN_TEST.match(text):
             result.ran, open_run, last = True, True, None
             name = match.group(2)
+            mine[-1].named = mine[-1].named or match.group(1) == "fail"
             added = None
             if match.group(1) == "pass" and not recap:
-                result.passed.add(f"{file} > {name}" if file else name)
+                mine[-1].passed.add(f"{file} > {name}" if file else name)
             if match.group(1) == "fail" and not recap:
                 last = f"{file} > {name}" if file else name
                 added = fail(last, bun_diagnostic(said, where))
-            elif match.group(1) == "fail" and not any(key == name or key.endswith(" > " + name) for key in result.failed):
-                last = name  # failed before its file's header printed
-                fail(last, "")
+                results[name] += 1
+            elif match.group(1) == "fail":
+                recapped[name] += 1  # counted at the run's end (recap_failures), beyond what its results named
             said, where, block = [], "", False
         elif BUN_UNHANDLED.match(text):
-            unhandled = True
+            unhandled = mine[-1].named = True
+        elif BUN_COUNT.match(text):
+            # Its run's end, whatever block it follows: an assertion block never holds the count (unnamed_failures).
+            if unhandled:
+                fail(f"{file} > unhandled error" if file else "unhandled error", "")
+            recap_failures()
+            if int(text.split()[0]) > kept:
+                mine[-1].marked.append(text)
+            file, said, where, last, recap, unhandled, open_run = "", [], "", None, False, False, False
+            block, kept = False, 0
+        elif (match := BUN_RESULT.match(text)) and match.group(1) == "FAIL":
+            mine[-1].fail_files.append(text)
         elif match := BUN_ERROR.match(text):
             headline = match.group(1) or match.group(2)
             if unhandled:
@@ -601,21 +964,12 @@ def read_bun(lines: list[str], result: Result) -> None:
             # A timeout is the test's diagnostic, whatever its run printed before bun stopped it; a repeated failure
             # of the same name keeps its own.
             if added is not None:
-                diagnostics[last].remove(added)
+                mine[-1].diagnostics[last].remove(added)
             added = None
-            fail(last, f"timed out after {match.group(1)}ms")
-        elif BUN_COUNT.match(text):
-            if unhandled:
-                fail(f"{file} > unhandled error" if file else "unhandled error", "")
-            file, said, where, last, recap, unhandled, open_run = "", [], "", None, False, False, False
-            block = False
+            fail(last, f"timed out after {match.group(1)}ms", counted=False)  # the same result, its diagnostic
     flush()
+    recap_failures()
     end_run("the log ended")
-    for name, found in diagnostics.items():
-        if found:
-            # Like web_failures: several diagnostics for one name are all compared, none dropped, in sorted order so
-            # head and base compare whatever order their runs printed them in.
-            result.messages[name] = "\n--- repeated failure ---\n".join(sorted(found))
 
 
 # Each log is parsed once per process (2026-11-06, cmux#36356 at 2c9f6957). base_red_excuse.py's window compares the
@@ -643,7 +997,7 @@ def read(log: str | None, bun: bool = True) -> Result:
     bun's own output to the caller (web_failures parses it itself). Parsed once per text (KEEP_PARSED)."""
     if not log or log.isspace():  # never kept: an unread or empty log is no work to save
         return parse_log(log, bun)
-    return _kept("read", log, bun, lambda: parse_log(log, bun))
+    return _kept("read", log, (bun, log.sections if isinstance(log, Steps) else None), lambda: parse_log(log, bun))
 
 
 def parse_log(log: str | None, bun: bool = True) -> Result:
@@ -652,23 +1006,23 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
     if log is None or not log.strip():
         result.truncated.append("its log could not be read" if log is None else "its log is empty")
         return result
-    every = log_lines(log)
-    skip = echoed(every)
-    passed = passed_steps(every, skip)
-    kept = [n for n in range(len(every)) if n not in skip and not every[n].startswith(TAP_MARKER)]
-    lines = [every[n] for n in kept]
+    # The lines once, filtered at the source (step_lines): no echo, no TAP marker, and LINES holds nothing a step that
+    # passed printed. Every reader below reads LINES alone (#41244's review F1 at 0a9fdca7: read_bun was handed every
+    # line before the passing-step filter, so a passing step's `(fail)` and ` 2 fail` called the whole job cut short,
+    # and a filter inside each reader left the next reader to skip it). The one reader of a passing step's lines is
+    # the crash scan, by rule: a segfault there is still a crash (a signal someone sent, SHELL_SIGNAL, is the step's).
+    sections = [(passing, [text for text in section if not text.startswith(TAP_MARKER)])
+                for passing, section in step_sections(log)]
+    shown = [(passing, text) for passing, section in sections for text in section]
+    lines = [text for passing, text in shown if not passing]
     started = {m.group(1) for text in lines for m in [STARTED.search(text)] if m}
     stack: list[str] = []
     signals: list[str] = []
     named: list[str] = []
     crashed = False
-    for at, text in enumerate(lines):
+    for passing, text in shown:
         if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
             continue
-        if RAN.search(text) or UNITTEST_LINE.match(text) or BUN_STARTED.match(text) or BUN_RESULT.match(text):
-            result.ran = True
-        if (match := BUN_RESULT.match(text)) and match.group(1) == "TIMEOUT":
-            result.truncated.append(f"{match.group(2)} timed out (killed at the wrapper's hard limit)")
         if BUN_PANIC.match(text):
             crashed = True
         if match := XCTEST_RESTART.search(text):
@@ -680,7 +1034,7 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
         if 1 <= signal_exit <= 64:
             crashed = True
             signals.append(str(signal_exit))
-        killed = SHELL_SIGNAL.search(text) and kept[at] not in passed
+        killed = SHELL_SIGNAL.search(text) and not passing
         runtime = HELPER_KILLED.search(text) or killed or (
             (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text) and not HEADING.match(text))
         if runtime:
@@ -689,6 +1043,13 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
                 signals.append(number)
         if crashed and ("$s" in text or re.match(r"^\s*\d+\s+\S+\s+0x[0-9a-f]+ ", text)):
             stack.append(text)
+    for text in lines:
+        if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
+            continue
+        if RAN.search(text) or UNITTEST_LINE.match(text) or BUN_STARTED.match(text) or BUN_RESULT.match(text):
+            result.ran = True
+        if (match := BUN_RESULT.match(text)) and match.group(1) == "TIMEOUT":
+            result.truncated.append(f"{match.group(2)} timed out (killed at the wrapper's hard limit)")
         if TRUNCATED.search(text) or NO_RESULT.search(text):
             why = re.sub(r"^##\[error\]|^::error[^:]*::", "", text).strip()
             result.truncated.append(why[:200])
@@ -737,7 +1098,12 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
     if running > sum(1 for text in lines if text.startswith("test result: ")):
         result.truncated.append("a cargo test binary printed no `test result:` line")
     if bun:
-        read_bun(lines, result)
+        read_bun(lines, result, [section for passing, section in sections if not passing])
+    # A failure no parser names (unnamed_failures), read here, in the reading every consumer goes through (classify,
+    # classify_any, judge()'s read_head, next_batch's expand_job), never per consumer (#41222's review F1).
+    result.unnamed = runner_unnamed(real) + result.unnamed
+    if result.unnamed:
+        result.truncated.append(unnamed_why(result.unnamed))
     if crashed:
         who = named or crashed_tests(stack, started) or ["the test process"]
         signal = f"signal {signals[0]}" if signals else "no signal named"
@@ -864,7 +1230,7 @@ def _observations(log: str | None) -> list[dict]:
             if (match := pattern.search(line)) and ("recorded an issue" in line or line.startswith("FAILED ")):
                 signatures.setdefault(match.group(1), []).append(line)
     suites = {m.group(1).strip('"') for line in lines for m in [SUITE_FAILED.search(line)] if m}
-    failures = {name for name in found.failed if name not in suites and not is_crash_rule_failure(name)}
+    failures = {name for name in found.failed if name not in suites and not is_rule_failure(name)}
     return [{"test": name, "outcome": "fail" if name in failures else "pass",
              "signature": (found.messages.get(name) or "\n".join(sorted(set(signatures.get(name, [])))))
              if name in failures else ""} for name in sorted(passed | failures)]

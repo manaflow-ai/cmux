@@ -601,7 +601,7 @@ impl Hub {
         #[cfg(debug_assertions)]
         crate::hub::full_access_bound::POOL_STARTS.send_modify(|n| *n += 1);
         let hub = self.clone();
-        tokio::spawn(async move {
+        self.scope.spawn_named("pool-start", async move {
             match hub.spawn_pooled(&spec, &off).await {
                 Ok(p) => {
                     let id = p.session_id.clone();
@@ -935,7 +935,7 @@ impl Hub {
         // between ends the pooled agent for it (#26337).
         session.floor.unjudged_host.store(false, Ordering::SeqCst);
         if let Err(e) = agent_host::promote(&pool_dir(), &agent_host::hosts_dir(), &p.record) {
-            tokio::spawn(end_pooled(p));
+            self.scope.spawn_named("end-pooled", end_pooled(p));
             return Err(e);
         }
         self.forget_adopted_caller(&session.id, &p.record.incarnation);
@@ -975,11 +975,7 @@ impl Hub {
         let child = p.child.clone();
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
-        if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            tokio::spawn(async move { hub.inbound_loop(s, rx).await });
-        }
+        self.spawn_inbound_loop(session).await;
         let init = &p.init;
         let steering =
             init.pointer("/_meta/steering/supported").and_then(Value::as_bool).unwrap_or(false);

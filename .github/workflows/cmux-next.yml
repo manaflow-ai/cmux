@@ -101,6 +101,7 @@ on:
       - Resources/markdown-viewer/marked.min.js
       - scripts/build-webviews-app.sh
       - scripts/check-webviews-bun-version.sh
+      - scripts/webviews_bun_version.py
       - scripts/cmux-next/build-agent-pane-web.sh
       - scripts/cmux-next/build-pages-web.sh
       - scripts/cmux-next/build-agent-activity-web.sh
@@ -186,6 +187,8 @@ on:
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
+      - scripts/cmux-next/check-react-pages.py
+      - scripts/cmux-next/react-pages.tsv
       - scripts/cmux-next/check-no-swiftui.py
       - scripts/cmux-next/no-swiftui-allowlist.txt
       - scripts/cmux-next/check-default-cursor.py
@@ -267,6 +270,8 @@ on:
       - tests/test_cmux_next_tree_notify.py
       - tests/test_cmux_tui_tree_takeover.py
       - scripts/ci/cmux_tui_tree_takeover.py
+      - tests/test_cmux_next_same_tree_failed.py
+      - scripts/ci/cmux_next_same_tree_failed.py
       - tests/test_cmux_next_update_dev_daily.py
       - scripts/cmux-next/update-dev-daily.sh
       - tests/test_cmux_next_classic_to_next.py
@@ -365,6 +370,16 @@ on:
       - cmux.xcodeproj/**
       # An app resource the Xcode project copies (cmux_next_route.py NATIVE_SCRIPT_INPUTS).
       - THIRD_PARTY_LICENSES.md
+      # The rest of NATIVE_SCRIPT_INPUTS: files the app build or its packaging reads, which the pull request
+      # paths above already name.
+      - scripts/ghosttykit-checksums.txt
+      - scripts/cmux-next/cmux-tui-tree-inputs.txt
+      - scripts/cmux-next/cef-license/LICENSE.txt
+      - scripts/ci/macho_minos.py
+      - scripts/ci/cmux_tui_tree_key.py
+      - scripts/ci/lib/signing-runtime-guard.sh
+      - scripts/ci/swift_incremental_diagnostics.py
+      - scripts/ci/fleet-rust-cache.sh
       # Base pushes still run the full side workflow for every package input;
       # only pull requests use the focused package routing below.
       - Packages/macOS/**
@@ -420,6 +435,7 @@ on:
       - Resources/markdown-viewer/marked.min.js
       - scripts/build-webviews-app.sh
       - scripts/check-webviews-bun-version.sh
+      - scripts/webviews_bun_version.py
       - scripts/cmux-next/build-agent-pane-web.sh
       - scripts/cmux-next/build-pages-web.sh
       - scripts/cmux-next/build-agent-activity-web.sh
@@ -507,6 +523,8 @@ on:
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
+      - scripts/cmux-next/check-react-pages.py
+      - scripts/cmux-next/react-pages.tsv
       - scripts/cmux-next/check-no-swiftui.py
       - scripts/cmux-next/no-swiftui-allowlist.txt
       - scripts/cmux-next/check-default-cursor.py
@@ -576,6 +594,8 @@ on:
       - tests/test_cmux_next_tree_notify.py
       - tests/test_cmux_tui_tree_takeover.py
       - scripts/ci/cmux_tui_tree_takeover.py
+      - tests/test_cmux_next_same_tree_failed.py
+      - scripts/ci/cmux_next_same_tree_failed.py
       - tests/test_cmux_next_update_dev_daily.py
       - scripts/cmux-next/update-dev-daily.sh
       - tests/test_cmux_next_classic_to_next.py
@@ -1693,6 +1713,7 @@ jobs:
             bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
             python3 tests/test_cmux_next_tree_notify.py
             python3 tests/test_cmux_tui_tree_takeover.py
+            python3 tests/test_cmux_next_same_tree_failed.py
             python3 tests/test_idea_ledger.py
             # The INTERNAL iOS builder's trigger decisions and What to Test notes.
             python3 tests/test_ios_internal_builder.py
@@ -1744,6 +1765,7 @@ jobs:
             bash scripts/cmux-next/tests/check-overlay-glass.test.sh
             bash scripts/cmux-next/tests/check-no-process-scan.test.sh
             bash scripts/cmux-next/tests/check-single-omnibar.test.sh
+            bash scripts/cmux-next/tests/check-react-pages.test.sh
             bash scripts/cmux-next/tests/check-no-swiftui.test.sh
             bash scripts/cmux-next/tests/check-default-cursor.test.sh
             bash scripts/cmux-next/tests/check-state-roots.test.sh
@@ -1880,6 +1902,16 @@ jobs:
         id: single-omnibar
         continue-on-error: true
         run: python3 -I scripts/cmux-next/check-single-omnibar.py "$GITHUB_WORKSPACE"
+
+      - name: React pages are listed (native chrome and Home are Swift)
+        id: react-pages
+        continue-on-error: true
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          base=()
+          [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
+          python3 -I scripts/cmux-next/check-react-pages.py ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-138
       - name: No new SwiftUI (macOS UI is AppKit)
@@ -2266,7 +2298,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" != pull_request ]]; then
-            exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+            exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release --stale-grace 7200
           fi
           work="$(/usr/bin/mktemp -d "${RUNNER_TEMP:-/tmp}/app-ffi-pin.XXXXXX")"
           /bin/mkdir "$work/home" "$work/code"
@@ -2394,6 +2426,7 @@ jobs:
             ${{ steps.no-swift-cli.outcome }}|No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
             ${{ steps.no-swift-closed-history.outcome }}|No Swift closed history (the daemon owns it, plans/cmux-next/reopen-closed.md 9)
             ${{ steps.single-omnibar.outcome }}|One omnibar (popups, New Tab and tabs share AddressBarView)
+            ${{ steps.react-pages.outcome }}|React pages are listed (native chrome and Home are Swift)
             ${{ steps.no-swiftui.outcome }}|No new SwiftUI (macOS UI is AppKit)
             ${{ steps.no-process-scan.outcome }}|No process scanning (holders register themselves, plans/cmux-next/pty-holder.md 4)
             ${{ steps.default-cursor.outcome }}|Default cursor (no pointing hand in app UI)
@@ -2642,7 +2675,9 @@ jobs:
         with:
           persist-credentials: false
           sparse-checkout: scripts/ci
+      # Why: docs/ci/cmux-next-workflow-notes.md#note-177 (a re-run reads the tree's publish record)
       - name: Report the unavailable same-tree cmux-tui
+        id: unavailable
         if: ${{ (inputs.same_tree_sha != '' && inputs.same_tree_state || needs.path_route.outputs.tree_state) == 'failed' }}
         env:
           REASON: ${{ inputs.same_tree_reason || needs.path_route.outputs.tree_reason }}
@@ -2650,11 +2685,30 @@ jobs:
           COMMIT: ${{ inputs.same_tree_sha }}
           STATUS_SHA: ${{ inputs.same_tree_status_sha }}
           TIERS: ${{ inputs.same_tree_tiers }}
+          ORIGIN: ${{ inputs.same_tree_origin }}
+          ORIGIN_RUN: ${{ inputs.same_tree_origin_run }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_KIND: ${{ github.ref_type == 'tag' && 'tags' || 'heads' }}
+          DEV_DAILY_SHA: ${{ inputs.dev_daily == true && inputs.dev_daily_sha || '' }}
+          TIP_SUITE: ${{ inputs.tip_daemon_suite == true && 'daemon' || inputs.base_tier == true && 'base' || '' }}
           DEV_DAILY: ${{ inputs.dev_daily == true && 'true' || 'false' }}
           GH_TOKEN: ${{ github.token }}
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
+          if [[ -n "$COMMIT" ]]; then
+            # The tree's publish record, read now: a re-run of this run (same inputs) after a later
+            # publication dispatches the ready tree jobs instead of repeating the old verdict. Not
+            # published: it writes this run's marker (reported), uploaded below for the key's next publish.
+            marker="$RUNNER_TEMP/cmux-next-tree-wait/marker.json"
+            if python3 scripts/ci/cmux_next_same_tree_failed.py --repo "$GITHUB_REPOSITORY" --ref "$REF_NAME" \
+                --ref-kind "$REF_KIND" --reason "$REASON" --key "$KEY" --commit "$COMMIT" --status-sha "$STATUS_SHA" \
+                --tiers "$TIERS" --origin "$ORIGIN" --origin-run "$ORIGIN_RUN" --dev-daily-sha "$DEV_DAILY_SHA" \
+                ${TIP_SUITE:+--tip-suite "$TIP_SUITE"} --marker "$marker" --output "$GITHUB_OUTPUT"; then
+              echo "::notice title=same-tree cmux-tui published::the tree was published after this run was dispatched; its tree jobs were dispatched again (ready)"; exit 0
+            fi
+            [[ -f "$marker" ]] && echo "marker=$marker" >> "$GITHUB_OUTPUT"
+          fi
           if [[ -n "$COMMIT" ]] && python3 scripts/ci/cmux_tui_tree_takeover.py --repo "$GITHUB_REPOSITORY" --commit "$COMMIT" --key "$KEY" --reason "$REASON"; then
             echo "::notice title=same-tree cmux-tui taken over::$REASON"; exit 0
           fi
@@ -2678,6 +2732,17 @@ jobs:
             done
           fi
           exit 1
+      # The record of this run's red, keyed by its tree: the key's next publication re-dispatches every tier
+      # it reported (cmux_next_tree_notify.py), whatever became of the marker that started this run.
+      - name: Upload the reported tree wait marker
+        if: ${{ !cancelled() && steps.unavailable.outputs.marker != '' && steps.unavailable.outputs.key != '' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-tree-wait-${{ steps.unavailable.outputs.key }}
+          path: ${{ steps.unavailable.outputs.marker }}
+          retention-days: 7
+          overwrite: true
 
   # The build fleet's compile verdict for the Swift canary. Opt-in: with the
   # Why: docs/ci/cmux-next-workflow-notes.md#note-33
@@ -3294,6 +3359,15 @@ jobs:
           VERDICT: ${{ needs.fast-tier-fleet.outputs.verdict }}
           RESULT: ${{ needs.fast-tier-fleet.result }}
         run: |
+          superseded_push() {  # scripts/ci/needs_verdict.py SUPERSEDED_RULE, copied verbatim (tests/test_needs_verdict.py)
+            local what=$1 head
+            [[ "${GITHUB_EVENT_NAME:-}" == push && -n "${GITHUB_SHA:-}" && -n "${GITHUB_REF:-}" ]] || return 1
+            head="$(git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
+              "${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-}.git" "$GITHUB_REF" 2>/dev/null \
+              | awk 'NR==1{print $1}')" || head=""
+            [[ -n "$head" && "$head" != "$GITHUB_SHA" ]] || return 1
+            echo "::notice title=$what: superseded::not judged at $GITHUB_SHA: a newer push ($head) replaced its waiting job, and that push's run carries the verdict"
+          }
           if [[ $VERDICT == pass && $RESULT == success ]]; then
             echo "The build fleet ran the fast tier's Swift suites at this commit and every one passed (cmux-next fast tier (build fleet))."
             printf '### cmux-next fast tier\n\nNo macOS runner was free, so the build fleet ran the Swift suites (cmux-next fast tier (build fleet)): every one passed.\n' >> "$GITHUB_STEP_SUMMARY"
@@ -3303,6 +3377,7 @@ jobs:
             echo "::error title=cmux-next fast tier::fleet $RESULT, verdict ${VERDICT:-none}; its log is in cmux-next fast tier (build fleet)"
             exit 1
           fi
+          if [[ $RESULT == cancelled ]] && superseded_push "fast tier"; then exit 0; fi
           echo "::error::no verdict: fast tier: fleet $RESULT, verdict ${VERDICT:-none}; re-run"
           exit 3
 
@@ -5218,6 +5293,15 @@ jobs:
           HOST_RESULT: ${{ needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.result || needs.daemon-test.result }}
           VERDICT: ${{ needs.path_route.outputs.generated_host == 'swift-test' && needs.swift-test.outputs.generated_files || needs.daemon-test.outputs.generated_files }}
         run: |
+          superseded_push() {  # scripts/ci/needs_verdict.py SUPERSEDED_RULE, copied verbatim (tests/test_needs_verdict.py)
+            local what=$1 head
+            [[ "${GITHUB_EVENT_NAME:-}" == push && -n "${GITHUB_SHA:-}" && -n "${GITHUB_REF:-}" ]] || return 1
+            head="$(git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
+              "${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-}.git" "$GITHUB_REF" 2>/dev/null \
+              | awk 'NR==1{print $1}')" || head=""
+            [[ -n "$head" && "$head" != "$GITHUB_SHA" ]] || return 1
+            echo "::notice title=$what: superseded::not judged at $GITHUB_SHA: a newer push ($head) replaced its waiting job, and that push's run carries the verdict"
+          }
           case "$VERDICT" in
             fresh)
               echo "Generated cmux-next files are fresh ($HOST checked them on its package build)." | tee -a "$GITHUB_STEP_SUMMARY" ;;
@@ -5228,6 +5312,7 @@ jobs:
               echo "::error::The action catalog checks fail on $HOST with fresh exports too: a catalog failure, not stale files. Regenerating changes nothing; $HOST's step \"Check generated action catalog, surfaces and inventory\" names the failing test."
               exit 1 ;;
             *)
+              if [[ $HOST_RESULT == cancelled ]] && superseded_push "generated files"; then exit 0; fi
               echo "::error::$HOST ($HOST_RESULT) gave no generated files verdict: its package build failed or it stopped before the checks. Fix or re-run $HOST."
               exit 1 ;;
           esac
@@ -6312,6 +6397,15 @@ jobs:
           OUTCOME: ${{ needs.cmux-scheme-compile.outputs.crash_gate }}
           COMPILE: ${{ needs.cmux-scheme-compile.result }}
         run: |
+          superseded_push() {  # scripts/ci/needs_verdict.py SUPERSEDED_RULE, copied verbatim (tests/test_needs_verdict.py)
+            local what=$1 head
+            [[ "${GITHUB_EVENT_NAME:-}" == push && -n "${GITHUB_SHA:-}" && -n "${GITHUB_REF:-}" ]] || return 1
+            head="$(git -c http.lowSpeedLimit=1 -c http.lowSpeedTime=15 ls-remote \
+              "${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-}.git" "$GITHUB_REF" 2>/dev/null \
+              | awk 'NR==1{print $1}')" || head=""
+            [[ -n "$head" && "$head" != "$GITHUB_SHA" ]] || return 1
+            echo "::notice title=$what: superseded::not judged at $GITHUB_SHA: a newer push ($head) replaced its waiting job, and that push's run carries the verdict"
+          }
           case "$OUTCOME" in
             success) echo "crash gate: every deliberate crash ended the app in time" ;;
             failure) echo "::error::crash gate: red; the cause (a crash froze the app, or no app to test) is in the cmux-scheme-compile log, step Crash ends the app"; exit 1 ;;
@@ -6319,6 +6413,7 @@ jobs:
               if [[ "$COMPILE" == success ]]; then
                 echo "::error::crash gate: the scheme compile succeeded but the gate step did not run (outcome '${OUTCOME:-none}')"; exit 1
               fi
+              if [[ $COMPILE == cancelled ]] && superseded_push "crash gate"; then exit 0; fi
               [[ $COMPILE == failure ]] || { echo "::error::no verdict: crash gate: compile ${COMPILE:-none}"; exit 3; }
               echo "crash gate: not run, the scheme compile ended $COMPILE before it" ;;
           esac
@@ -6955,7 +7050,7 @@ jobs:
     name: cmux-next fleet Release compile
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
-    timeout-minutes: 55
+    timeout-minutes: 58
     permissions: {}
     outputs:
       handoff: ${{ steps.wait.outputs.handoff }}
@@ -6973,7 +7068,7 @@ jobs:
 
       - name: Wait for the fleet Release compile and publish cmux-next/compile
         id: wait
-        timeout-minutes: 50
+        timeout-minutes: 56
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
@@ -6990,19 +7085,50 @@ jobs:
           [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error title=Compile check::bad head sha '$SHA'"; exit 1; }
           [[ -z "${PR:-}" || "$PR" =~ ^[1-9][0-9]*$ ]] || PR=""
           # One deadline for the pending post and the wait (40 min); the terminal post comes after it
-          # (at most 110 s), so the step (50 min) and the App token (60 min) always outlast both.
+          # (at most POST_BUDGET 600 s plus one 40 s try), so the step (56 min) and the App token (60 min) outlast both.
           deadline=$((SECONDS + ${WAIT_SECONDS:-2400}))
-          post() {  # state, description, target url
-            local body
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-10 (a refused status post)
+          post() {  # state, description, target url[, seconds it may wait; POST_BUDGET (600) by default]
+            local body code said pause min tries=0 until=$((SECONDS + ${4:-${POST_BUDGET:-600}}))
+            local out="$RUNNER_TEMP/status-post.out" hdr="$RUNNER_TEMP/status-post.hdr"
             body="$(jq -nc --arg s "$1" --arg d "${2:0:140}" --arg u "$3" \
               '{state: $s, description: $d, target_url: $u, context: "cmux-next/compile"}')"
-            # timeout bounds the whole post, retries and any Retry-After included.
-            timeout 110 curl -sS --fail-with-body --connect-timeout 10 --max-time 30 --retry 2 --retry-delay 10 --retry-all-errors \
-              -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-              "$API/statuses/$SHA" -d "$body" > /dev/null
+            while :; do
+              tries=$((tries + 1))
+              : > "$out"; : > "$hdr"
+              code="$(timeout 40 curl -sS --connect-timeout 10 --max-time 30 -D "$hdr" -o "$out" -w '%{http_code}' \
+                -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+                "$API/statuses/$SHA" -d "$body")" || true
+              [[ "${code:=000}" =~ ^2[0-9][0-9]$ ]] && return 0
+              said="HTTP $code: $(head -c 200 "$out" | tr -s '\r\n\t' '   ' || true)"
+              # A GitHub rate limit (a 403 or 429 that says so) waits as asked, at least LIMIT_GAP and twice as long each
+              # time: a retry inside a secondary limit extends it. A 5xx or no answer: again in POST_GAP. Anything else
+              # (a bad token, a missing permission) is final at once.
+              pause=""
+              if [[ "$code" =~ ^(403|429)$ ]] && grep -qiE 'rate limit|^retry-after:|^x-ratelimit-remaining: *0' "$out" "$hdr"; then
+                said="$said (rate limited)"
+                pause="$(grep -iE '^retry-after: *[0-9]+' "$hdr" | head -n1 | tr -dc '0-9' || true)"
+                if grep -qiE '^x-ratelimit-remaining: *0\b' "$hdr"; then
+                  min="$(grep -iE '^x-ratelimit-reset: *[0-9]+' "$hdr" | head -n1 | tr -dc '0-9' || true)"
+                  [[ -z "$min" ]] || pause=$(( min - $(date +%s) + 1 ))
+                fi
+                min=$(( ${LIMIT_GAP:-60} << (tries - 1) ))
+                [[ -n "$pause" ]] && (( pause >= min )) || pause=$min
+              elif [[ "$code" =~ ^(000|5[0-9][0-9])$ ]]; then
+                pause="${POST_GAP:-10}"
+              fi
+              if [[ -z "$pause" ]] || (( tries >= 6 || SECONDS + pause > until )); then
+                echo "::warning title=Compile check::GitHub refused the $1 status for cmux-next/compile after $tries tries: $said"
+                return 1
+              fi
+              echo "::warning title=Compile check::GitHub refused the $1 status ($said); posting again in $pause s"
+              sleep "$pause"
+            done
           }
-          post pending "The Release compile (-Onone) of this head is running" "$RUN_URL" \
-            || { echo "::error title=Compile check::could not post the pending status"; exit 1; }
+          # A terminal post that GitHub still refuses leaves the job's own ::error line below (no verdict, NO_VERDICT).
+          # The pending status only shows the wait: a refused one is a warning, and the verdict below still posts or reds.
+          post pending "The Release compile (-Onone) of this head is running" "$RUN_URL" "${PENDING_BUDGET:-30}" \
+            || echo "::warning title=Compile check::no pending cmux-next/compile on $SHA; the verdict still posts"
           reply="$RUNNER_TEMP/compile-check.json"
           url="$RESULTS/$SHA?repo=${REPO/\//%2F}${PR:+&pr=$PR}"
           state="" down="" last="" reads=0
@@ -7053,7 +7179,7 @@ jobs:
               exit 0
             fi
             # Why: docs/ci/cmux-next-workflow-notes.md#note-84 ([no-verdict])
-            post error "[no-verdict] No compile verdict: results service down ($down); no fallback compile runs here, re-run this job" "$RUN_URL"
+            post error "[no-verdict] No compile verdict: results service down ($down); no fallback compile runs here, re-run this job" "$RUN_URL" || true
             echo "::error title=Compile check::cmux-next/compile is not a pass for $SHA (results service down, $down)"
             exit 1
           fi
@@ -7061,10 +7187,10 @@ jobs:
           [[ "$log_url" =~ ^https://github\.com/ ]] || log_url="$RUN_URL"
           case "$state" in
             pass) post success "The app compiled and linked in SwiftPM Release (-Onone)" "$log_url" && exit 0 ;;
-            fail) post failure "The app did not compile in SwiftPM Release (-Onone); see the log" "$log_url" ;;
-            unavailable) post failure "[no-verdict] The compile check gave no verdict (unavailable); re-run this job" "$RUN_URL" ;;
-            mismatch|unreadable) post failure "[no-verdict] The compile result does not match this head; re-run this job" "$RUN_URL" ;;
-            *) post failure "[no-verdict] No compile result for this head in 40 minutes${state:+ (last: $state)}" "$RUN_URL" ;;
+            fail) post failure "The app did not compile in SwiftPM Release (-Onone); see the log" "$log_url" || true ;;
+            unavailable) post failure "[no-verdict] The compile check gave no verdict (unavailable); re-run this job" "$RUN_URL" || true ;;
+            mismatch|unreadable) post failure "[no-verdict] The compile result does not match this head; re-run this job" "$RUN_URL" || true ;;
+            *) post failure "[no-verdict] No compile result for this head in 40 minutes${state:+ (last: $state)}" "$RUN_URL" || true ;;
           esac
           echo "::error title=Compile check::cmux-next/compile is not a pass for $SHA (${state:-no result})"
           exit 1
@@ -7077,7 +7203,7 @@ jobs:
     name: cmux-next fleet Release compile (handoff)
     environment: ${{ github.event_name != 'pull_request' && 'ci-routing-agent' || '' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-8vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_8) || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-2vcpu-ubuntu-2404' || fromJSON(vars.RUNNER_POOLS).linux_2) }} # ephemeral-required: holds a statuses write App token; ephemeral Blacksmith VM, checks nothing out
-    timeout-minutes: 6
+    timeout-minutes: 16
     permissions: {}
     steps:
       - name: Mint the cmux-bot status token
@@ -7092,7 +7218,7 @@ jobs:
           permission-statuses: write
 
       - name: Publish the fallback's verdict as cmux-next/compile
-        timeout-minutes: 3
+        timeout-minutes: 12
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
           SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
@@ -7110,11 +7236,45 @@ jobs:
             */fail/*|*/failure) state=failure d="The Release compile (fallback) failed at this head; see its log" ;;
             *) state=error d="[no-verdict] No compile verdict: results service was down ($DOWN) and no fallback compile ran; re-run all jobs" ;;
           esac
-          body="$(jq -nc --arg s "$state" --arg d "${d:0:140}" --arg u "$RUN_URL" \
-            '{state: $s, description: $d, target_url: $u, context: "cmux-next/compile"}')"
-          timeout 110 curl -sS --fail-with-body --connect-timeout 10 --max-time 30 --retry 2 --retry-delay 10 --retry-all-errors \
-            -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-            "$API/statuses/$SHA" -d "$body" > /dev/null \
+          # Why: docs/ci/cmux-next-workflow-notes.md#note-10 (a refused status post)
+          post() {  # state, description, target url[, seconds it may wait; POST_BUDGET (600) by default]
+            local body code said pause min tries=0 until=$((SECONDS + ${4:-${POST_BUDGET:-600}}))
+            local out="$RUNNER_TEMP/status-post.out" hdr="$RUNNER_TEMP/status-post.hdr"
+            body="$(jq -nc --arg s "$1" --arg d "${2:0:140}" --arg u "$3" \
+              '{state: $s, description: $d, target_url: $u, context: "cmux-next/compile"}')"
+            while :; do
+              tries=$((tries + 1))
+              : > "$out"; : > "$hdr"
+              code="$(timeout 40 curl -sS --connect-timeout 10 --max-time 30 -D "$hdr" -o "$out" -w '%{http_code}' \
+                -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+                "$API/statuses/$SHA" -d "$body")" || true
+              [[ "${code:=000}" =~ ^2[0-9][0-9]$ ]] && return 0
+              said="HTTP $code: $(head -c 200 "$out" | tr -s '\r\n\t' '   ' || true)"
+              # A GitHub rate limit (a 403 or 429 that says so) waits as asked, at least LIMIT_GAP and twice as long each
+              # time: a retry inside a secondary limit extends it. A 5xx or no answer: again in POST_GAP. Anything else
+              # (a bad token, a missing permission) is final at once.
+              pause=""
+              if [[ "$code" =~ ^(403|429)$ ]] && grep -qiE 'rate limit|^retry-after:|^x-ratelimit-remaining: *0' "$out" "$hdr"; then
+                said="$said (rate limited)"
+                pause="$(grep -iE '^retry-after: *[0-9]+' "$hdr" | head -n1 | tr -dc '0-9' || true)"
+                if grep -qiE '^x-ratelimit-remaining: *0\b' "$hdr"; then
+                  min="$(grep -iE '^x-ratelimit-reset: *[0-9]+' "$hdr" | head -n1 | tr -dc '0-9' || true)"
+                  [[ -z "$min" ]] || pause=$(( min - $(date +%s) + 1 ))
+                fi
+                min=$(( ${LIMIT_GAP:-60} << (tries - 1) ))
+                [[ -n "$pause" ]] && (( pause >= min )) || pause=$min
+              elif [[ "$code" =~ ^(000|5[0-9][0-9])$ ]]; then
+                pause="${POST_GAP:-10}"
+              fi
+              if [[ -z "$pause" ]] || (( tries >= 6 || SECONDS + pause > until )); then
+                echo "::warning title=Compile check::GitHub refused the $1 status for cmux-next/compile after $tries tries: $said"
+                return 1
+              fi
+              echo "::warning title=Compile check::GitHub refused the $1 status ($said); posting again in $pause s"
+              sleep "$pause"
+            done
+          }
+          post "$state" "$d" "$RUN_URL" \
             || { echo "::error title=Compile check::could not post the fallback's verdict"; exit 1; }
           echo "cmux-next/compile: $state ($d)"
           # The needs_verdict rule's words: a fallback's red is a red, nothing ran is no verdict (exit 3).
