@@ -11,13 +11,14 @@
 //!   (`credential_on_stdin`): the platform's workspace machine, as `ensure`
 //!   makes it, pinned like any other and answered with `ensured`; the App
 //!   makes it only when the platform made none)
-//!   the one its first try took while that machine exists; for a send from a
-//!   Mac workspace, the machine that workspace already has; else a new one
-//!   named for chats; and the send's keys ([`Keys`]). One workspace per
-//!   machine: the plan's ensure names no project, so the platform gives each
-//!   workspace its own machine, and new ones until the plan's machine cap
-//!   (leo-workspace `design/cloud.md`; Leo, 2026-11-06: "one workspace per
-//!   machine ... just arbitrarily many until you hit the cap"). A machine
+//!   the one its first try took while that machine exists; else a new one
+//!   named for chats, even for a send from a Mac workspace that already has
+//!   one; and the send's keys ([`Keys`]). One machine per Cloud start: the
+//!   plan's ensure names no project and, as its workspace, the send's own
+//!   create key, so the platform makes each start its own machine, new ones
+//!   until the plan's machine cap (leo-workspace `design/cloud.md`; Leo,
+//!   2026-11-06: "one workspace per machine ... just arbitrarily many until
+//!   you hit the cap"). A machine
 //!   that exists is pinned to the send before anything runs there, so a
 //!   retry of the send names it.
 //! - `pin --key K --account A --machine ID [--workspace W]`: pins the send
@@ -264,8 +265,9 @@ pub(super) fn valid_workspace(workspace: &str) -> bool {
 }
 
 /// What `plan` reads: the send, the account it began in, the Mac workspace it
-/// came from, who is signed in, and the Cloud machines the App's list for
-/// that account named.
+/// came from, and the Cloud machines the App's list for that account named.
+/// (The App also sends who is signed in, `user`; no plan reads it now that a
+/// new send never reuses a listed machine.)
 #[derive(serde::Deserialize)]
 struct PlanRequest {
     key: String,
@@ -273,13 +275,12 @@ struct PlanRequest {
     /// The Mac workspace of the tab that sent; None for a send from no workspace.
     #[serde(default)]
     workspace: Option<String>,
-    #[serde(default)]
-    user: Option<String>,
     /// Whether the App has loaded its machine list: before it has, a machine
     /// a pin names is kept (it may be one made for this send, not listed yet).
     #[serde(default)]
     loaded: bool,
-    /// The machines the account's list named: the only ones a send may take.
+    /// The machines the account's list named: a pinned retry keeps one while it
+    /// is listed; a new send takes none, and their titles keep its name unique.
     #[serde(default)]
     machines: Vec<Candidate>,
     /// Machines in the App's store that its list did not name yet (made
@@ -374,16 +375,8 @@ fn plan_with_calls(
         Err(error) => return refused("ledger_failed", format!("{error:#}")),
     }
     let planned = Ledger::update(ledger, |pins| {
-        let destination = pick::destination(
-            &send,
-            &request.account,
-            workspace,
-            pins,
-            &request.machines,
-            &request.stored,
-            request.user.as_deref(),
-            request.loaded,
-        );
+        let destination =
+            pick::destination(&send, pins, &request.machines, &request.stored, request.loaded);
         if let Destination::Machine(id) = &destination {
             pins.record(id, &send);
             // A retry of an older send keeps its machine, never the workspace's newer one,
@@ -422,8 +415,12 @@ fn plan_with_calls(
         }
         Ok(Destination::New) if ensures(&request, project_key.as_deref()) => {
             let ask = Ensure {
-                // A send from no Mac workspace is a workspace of its own.
-                workspace: workspace.map_or_else(|| keys.create.clone(), str::to_string),
+                // The send's own create key, never the Mac workspace's id: the platform binds
+                // one machine per workspace it is named, so a second chat from the same Mac
+                // workspace would get the first chat's machine back. Every new Cloud start is a
+                // workspace, and a machine, of its own; a retry of this send names the same key
+                // and so reaches the machine its first try made.
+                workspace: keys.create.clone(),
                 create_key: keys.create,
                 repo: repo.clone(),
                 // No project key: the platform binds one workspace per machine, never a project's shared one.

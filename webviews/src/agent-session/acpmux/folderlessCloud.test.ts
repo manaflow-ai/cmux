@@ -7,6 +7,7 @@ import {
   folderChipState,
   folderMenu,
   isCloudChatFolder,
+  startedCloudFolderName,
 } from "./folderlessCloud";
 
 test("the folderless rule: a Cloud start with no project folder copies nothing and starts fresh", () => {
@@ -44,6 +45,17 @@ test("a Cloud chat's chip names the folder it works in on its machine, as a loca
   expect(chatFolderFace("/home/cmux/chats/s-1", true)).toEqual({ state: "cloudFresh" });
   // On an SSH machine `~/chats/api` is a project like any other.
   expect(chatFolderFace("/home/cmux/chats/api", false)).toEqual({ state: "folder", name: "api" });
+});
+
+test("a started Cloud chat in its machine's fresh folder names that folder, never No folder", () => {
+  const on = { cloud: true, started: true };
+  expect(startedCloudFolderName("/home/cmux/chats/s-1", on)).toBe("s-1");
+  expect(startedCloudFolderName("/root/chats/peer-12/", on)).toBe("peer-12");
+  // Not sent yet: No folder is the valid start. Any other folder: the chip names it itself.
+  expect(startedCloudFolderName("/home/cmux/chats/s-1", { cloud: true, started: false })).toBeUndefined();
+  expect(startedCloudFolderName("/home/cmux/work/api", on)).toBeUndefined();
+  expect(startedCloudFolderName("/home/cmux/chats/api", { cloud: false, started: true })).toBeUndefined();
+  expect(startedCloudFolderName(undefined, on)).toBeUndefined();
 });
 
 const started = { cloudStartOut: false, readOnly: true, onThisMac: false, localChoices: true };
