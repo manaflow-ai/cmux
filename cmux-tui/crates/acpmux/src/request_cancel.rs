@@ -161,4 +161,53 @@ mod tests {
         assert_eq!(c.dropped, 1);
         assert!(c.is_empty());
     }
+
+    /// What this process's log lines say while `f` runs, at `acpmux::cancel=debug`.
+    fn logged(f: impl FnOnce()) -> String {
+        #[derive(Clone, Default)]
+        struct Lines(Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Lines {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let lines = Lines::default();
+        let writer = lines.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_env_filter(tracing_subscriber::EnvFilter::new("acpmux::cancel=debug"))
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        tracing::subscriber::with_default(subscriber, f);
+        String::from_utf8_lossy(&lines.0.lock().unwrap()).into_owned()
+    }
+
+    /// Review F2 of #41285: past the bound, the oldest cancelled id goes with a log line naming
+    /// it, and its late answer is logged as an unknown id, never dropped in silence.
+    #[test]
+    fn a_late_answer_past_the_cap_is_logged_never_silent() {
+        let log = logged(|| {
+            let mut c = Cancelled::default();
+            for n in 0..=REMEMBERED {
+                c.remember(n.to_string(), "session/set_mode".into());
+            }
+            assert!(!c.take_late("0", "peer"), "its id went past the bound");
+            assert!(c.take_late("1", "peer"), "a newer one is still known");
+        });
+        let lines: Vec<&str> = log.lines().collect();
+        assert!(
+            lines.iter().any(|l| l.contains("evicted") && l.contains("id=0 ")),
+            "the eviction names the id: {log}"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("unknown id, possibly evicted cancel") && l.contains("id=0 ")),
+            "its late answer is logged: {log}"
+        );
+    }
 }
