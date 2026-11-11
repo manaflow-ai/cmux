@@ -8,19 +8,17 @@
 //! as its alias table. So a catalog edit that loses one of these phrases fails here, not in a
 //! person's palette.
 
-use cmux_action_catalog::{actions, palette, strings};
+use cmux_action_catalog::{PaletteTier, actions, palette, strings};
 use cmux_palette_ranker::{RankRequest, rank_request};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 
-/// `RegistryPaletteProvider.rankBias(for:)`.
-fn rank_bias(id: &str) -> i64 {
-    if palette::DAILY.contains(&id) {
-        120
-    } else if palette::NICHE.contains(&id) {
-        -120
-    } else {
-        0
+/// `RegistryPaletteProvider.rankBias(for:)` of the action's tier (a family member is niche).
+fn rank_bias(tier: PaletteTier) -> i64 {
+    match tier {
+        PaletteTier::Daily => 120,
+        PaletteTier::Standard => 0,
+        PaletteTier::Niche => -120,
     }
 }
 
@@ -45,7 +43,7 @@ fn rows() -> (Vec<String>, Vec<Value>) {
         ids.push(format!("action:{}", action.id));
         entries.push(json!({
             "title": title, "keywords": keywords, "actionID": action.id,
-            "frecencyKey": format!("action:{}", action.id), "rankBias": rank_bias(action.id),
+            "frecencyKey": format!("action:{}", action.id), "rankBias": rank_bias(action.palette_tier()),
             "isEnabled": true, "isVisibleWhenQueryEmpty": true, "sectionIndex": 0,
             "hasShortcut": action.default_shortcut.is_some(),
         }));
@@ -134,9 +132,9 @@ fn split_right_still_splits_and_the_move_is_in_reach() {
     let top = ranked("split right");
     assert_eq!(top.first().map(String::as_str), Some("action:splitRight"), "{top:?}");
     assert!(
-        top.iter().take(5).any(|id| id == "action:moveSurfaceToPaneRight"),
+        top.iter().take(10).any(|id| id == "action:moveSurfaceToPaneRight"),
         "{:?}",
-        &top[..top.len().min(5)]
+        &top[..top.len().min(10)]
     );
 }
 
