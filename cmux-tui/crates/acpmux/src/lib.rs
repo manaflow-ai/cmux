@@ -204,6 +204,8 @@ pub mod tailnet;
 #[cfg(test)]
 mod test_exec;
 #[cfg(test)]
+mod test_hooks_check;
+#[cfg(test)]
 mod test_stack;
 pub mod touched_files;
 pub mod transcript;
