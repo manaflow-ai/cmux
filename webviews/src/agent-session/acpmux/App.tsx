@@ -20,7 +20,8 @@ import { ShareDialogHost } from "./share/ShareControl";
 import { ShareNudge } from "./share/ShareNudge";
 import { useShareNudge } from "./share/shareNudgeModel";
 import { paneTipHost } from "./featureTipsModel";
-import { composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
+import { type CaptureMode, composerPlusSearchExtensions, PLUS_SEARCH_ACTIONS } from "./composerPlusRegistry";
+import { takeCapture } from "./composer/screenCapture";
 import { chatOnThisMac, chatPlace } from "./chatMachine";
 import { CONNECT_ACTIONS, type ConnectKind, type OffloadKind, offloadReasonsOf, thisMacName } from "./environments";
 import { sayActionRefusal } from "./actionRefusal";
@@ -95,6 +96,13 @@ import {
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
+import {
+  cloudModePickFor as cloudModeFor,
+  cloudSendAgent,
+  cloudStartModePick,
+  holdCloudModePick,
+  useCloudModePick,
+} from "./cloudModePick";
 import { configurationSessionMatches, pickEffort } from "./configurationActions";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
@@ -162,6 +170,7 @@ import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { type AutomationCompose, pageAction } from "./automation";
 import { acpWire } from "./wire";
+import { chatPerfCapture } from "./chatPerfCapture";
 import { acpmuxPerf } from "./perf";
 import { reconciledProject, startFromContext } from "./newtab/startHint";
 import { useSameValue } from "./session-info/sameValue";
@@ -175,7 +184,6 @@ import { FolderContinuation, folderContinuationRequest } from "./folderContinuat
 import type { BrowseRequest } from "./AddProjectPanel";
 import { handBackQuotes, quoteIntoComposer, replayHeldForComposer, restoreComposerDraft } from "./composerRestore";
 import {
-  attachmentSource,
   linkAttachment,
   linkItems,
   type ComposerAttachment,
@@ -183,7 +191,6 @@ import {
   recordingAttachment,
   recordingLeftOutNotice,
   remoteRecordingAttachment,
-  withSource,
 } from "./attachments";
 import { keptChips, type KeptAttachments } from "./composer/keptAttachments";
 import { ComposerPickers } from "./ComposerPickers";
@@ -758,6 +765,7 @@ import { ChildAsk } from "./subagents/ChildAsk";
 import { childAsks } from "./subagents/childAsks";
 import { HatQuestions, type HatQuestionActions } from "./question/HatQuestions";
 import { hatQuestions, hatShows, sameHatQuestions, type HatQuestion } from "./question/hatModel";
+import { hatSeenKey, unseenHatQuestions } from "./question/hatSeen";
 import { declineReply, isPending, reply as questionReply, replyParams, selection } from "./question/model";
 
 import { defaultRegistry } from "./rows/registry";
@@ -851,6 +859,9 @@ declare global {
       /// A design mode highlight from a browser pane (CmuxNextAgentPane AgentPaneDesignSelection):
       /// its chips join the composer and go with the next message (designSelection.ts).
       designSelection?(selection: unknown): void;
+      /// `cmux app chat perf` (the app's `agent.chat.perf`, every build): frames, long tasks,
+      /// layout shift and each arriving record's time to paint for `seconds` (chatPerfCapture.ts).
+      perfCapture?(options: { seconds?: unknown }): Promise<Record<string, unknown>>;
     };
     cmuxAcpmuxRegistry?: {
       register(
@@ -1248,7 +1259,9 @@ const hatActions = (
   focusComposer: () => void,
   reaches: (owner: string) => boolean,
   asker: () => string | undefined,
+  dismiss: (question: HatQuestion) => void,
 ): HatQuestionActions => ({
+  dismiss,
   answer: (question, answer) => {
     // A tagged ask's answer goes as its card's does (`restartReaches`): only to the chat it was read
     // for, never the next during a switch's hold, and as its card sends it (`answerThrough`): a send
@@ -1407,6 +1420,12 @@ function DefaultComposerChips({
   // A pick before the connect is the page's (heldModePick.ts), so a first send that unmounts these
   // chips never loses it; the connect flushes it. The run reads the page's actions when it runs.
   const onMode = (modeId: string): Promise<unknown> => {
+    // Cloud picked: the pick waits for the Cloud send, which starts the chat in it on the machine;
+    // this Mac starts nothing for it.
+    if (snapshot.startsOnCloud) {
+      holdCloudModePick(snapshot.summary?.harness, modeId);
+      return Promise.resolve();
+    }
     if (!startsChat || window.cmuxAcpmuxActions?.["chat.mode"] !== undefined) return pickMode(modeId);
     return holdModePick(modeId, pickMode);
   };
@@ -1441,7 +1460,9 @@ function DefaultComposerChips({
       // A Cloud or other remote machine's chat starts with its first send: until then its mode pick
       // is held for that start (Leo 2026-11-01: "i couldn't even pick a mode for this kind aqua
       // sandpaper one"), and once its agent reports its modes, their menu replaces this one.
-      holdsStartMode={!startsChat && snapshot.origin === "remote" && !snapshot.summary?.sessionId}
+      holdsStartMode={
+        (!startsChat && snapshot.origin === "remote" && !snapshot.summary?.sessionId) || snapshot.startsOnCloud === true
+      }
       onModel={(modelId) => {
         start();
         void callNative("chat.model", { modelId });
@@ -2517,20 +2538,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;
-  // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
-  // screencapture's own pick and answers the PNG, at any size; a cancelled pick answers no data.
-  const captureScreen = useCallback(async (mode: "screen" | "window") => {
-    const shot = await callNative<{
-      name?: string;
-      mimeType?: string;
-      data?: string;
-      source?: unknown;
-    } | null>("composer.capture", { mode }).catch(() => null);
-    if (!shot?.data) return undefined;
-    const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
-    // cmux took it: its chip wears cmux's icon (composer/attachmentSources.ts).
-    const file = new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
-    return withSource(file, attachmentSource(shot.source));
+  // The + menu's Attach Screenshot…, Attach Window… and Record Screen… (composer/screenCapture.ts):
+  // a still goes back to the composer as an image; a recording goes in here as a video link chip.
+  // Either goes only to the chat the capture started in.
+  const captureChat = useRef(snapshot.sessionId);
+  useLayoutEffect(() => {
+    captureChat.current = snapshot.sessionId;
+  }, [snapshot.sessionId]);
+  const captureScreen = useCallback(async (mode: CaptureMode) => {
+    const taken = await takeCapture(mode, callNative, () => captureChat.current);
+    if (taken?.kind === "recording") composerHandle.current?.attach(taken.attachment);
+    return taken?.kind === "still" ? taken.file : undefined;
   }, []);
   const uploadFiles = useCallback(
     (files: File[], cancelled?: (index: number) => boolean, progress?: UploadProgressReport) =>
@@ -3750,9 +3768,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       snapshot.asks,
     ],
   );
-  const hatQuestionList = sameHatQuestions(hatQuestionsKept.current, hatQuestionsRead)
+  // The ones the person put away (the hat's × or Escape, question/hatSeen.ts) leave it; they share
+  // the pinned asks' dismissals, so a tagged ask put away in one place leaves both.
+  const hatQuestionsUnseen = useMemo(
+    () => unseenHatQuestions(hatQuestionsRead, askDismissals.keys),
+    [hatQuestionsRead, askDismissals],
+  );
+  const hatQuestionList = sameHatQuestions(hatQuestionsKept.current, hatQuestionsUnseen)
     ? hatQuestionsKept.current
-    : (hatQuestionsKept.current = hatQuestionsRead);
+    : (hatQuestionsKept.current = hatQuestionsUnseen);
   // Who asks in this chat: its agent by name, as the trust card names it. An answer to its ask
   // quotes the ask under this name (nextStepAsk.ts `answerPrompt`).
   const asker = snapshot.summary?.harness
@@ -3760,12 +3784,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     : undefined;
   const askerRef = useRef(asker);
   askerRef.current = asker;
+  // The hat's × reaches the shown chat's dismissals; the ref follows it after each commit (never in render).
+  const dismissPinnedAskRef = useRef(dismissPinnedAsk);
+  useLayoutEffect(() => {
+    dismissPinnedAskRef.current = dismissPinnedAsk;
+  }, [dismissPinnedAsk]);
   const hatQuestionActions = useMemo(
     () =>
       hatActions(
         () => composerHandle.current?.focus(),
         (owner) => restartReaches(owner, sessionIdRef.current, directClient.current?.selectedSession),
         () => askerRef.current,
+        (question) => dismissPinnedAskRef.current(hatSeenKey(question)),
       ),
     [],
   );
@@ -4582,6 +4612,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The host says its own progress and failures (toasts), and the chat shows the start under the
   /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
   const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
+  // The permission mode picked for that Cloud start (cloudModePick.ts).
+  const cloudModePick = useCloudModePick();
   cloudComposeEligible.current = cloudPicked && sandboxOfferable;
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
   const [startCloud] = useState(() =>
@@ -6785,6 +6817,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(quick && { canHandoff: false }),
       // Cloud picked: the first send starts the chat on a Cloud machine, which decides its mode.
       ...(cloudPicked && { startsOnCloud: true as const }),
+      // Its permission mode pick, for the harness the chat starts on (cloudModePick.ts).
+      ...(cloudPicked &&
+        cloudModeFor(cloudModePick, snapshot.summary?.harness) !== undefined && {
+          cloudStartMode: cloudModeFor(cloudModePick, snapshot.summary?.harness),
+        }),
     };
     // Prompts still waiting for a new chat to take them follow acpmux's queue, then the prompts the
     // folder's trust holds (trustHeld.ts).
@@ -6808,6 +6845,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     quick,
     keptStopping,
     cloudPicked,
+    cloudModePick,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
@@ -7101,6 +7139,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
     window.cmuxAcpmuxBridge = {
       toggleInspector,
+      perfCapture: (options) => chatPerfCapture.capture(options),
       lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
       conversationMarkdown: async () => {
         const client = directClient.current;
@@ -11540,6 +11579,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   {
                     ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
                     ...heldPick(composerSnapshot),
+                    ...cloudStartModePick(composerSnapshot.summary?.harness),
                   },
                 );
                 if (typeof started === "string") {
@@ -11970,6 +12010,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             plusExtensions={plusSearchExtensions}
             onPlusCommand={runPlusSearch}
             capture={captureScreen}
+            // A recording goes by its path on this Mac: only a chat here can read it (as Sources' + below).
+            canRecord={
+              localCwd !== undefined &&
+              !quick &&
+              !readOnlySubagent &&
+              chatOnThisMac(snapshot.summary, snapshot.peerKinds, chatPlace(snapshot))
+            }
             upload={uploadFiles}
             // A chat on this Mac (as Sources' + below); the host refuses any other.
             localPaths={localCwd !== undefined && !quick && !readOnlySubagent ? localPaths : undefined}
@@ -12409,9 +12456,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                             text,
                             attachments,
                             {
-                              harness,
                               ...cloudStartFolder(cwd),
-                              ...(model ? { model } : {}),
+                              // The agent the Mode chip names and its pick: a harness with no
+                              // Cloud start mode is left out, so the machine starts Claude.
+                              ...cloudSendAgent(
+                                snapshot.catalog.find((entry) => entry.id === harness)?.family,
+                                harness,
+                                model,
+                              ),
                             },
                             true,
                           ),

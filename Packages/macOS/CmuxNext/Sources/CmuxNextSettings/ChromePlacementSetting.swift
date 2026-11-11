@@ -49,6 +49,7 @@ extension SettingsApplier {
         if design.tabBarPosition != snapshot.tabBarPosition { design.tabBarPosition = snapshot.tabBarPosition }
         if design.tabBarOrder != snapshot.tabBarOrder { design.tabBarOrder = snapshot.tabBarOrder }
         if design.browserToolbarPosition != snapshot.browserToolbarPosition { design.browserToolbarPosition = snapshot.browserToolbarPosition }
+        if design.browserShowsLoadingBar != snapshot.browserShowLoadingBar { design.browserShowsLoadingBar = snapshot.browserShowLoadingBar }
         if design.paneBackgrounds != snapshot.paneBackgrounds { design.paneBackgrounds = snapshot.paneBackgrounds }
         applyChromeStyle(snapshot, to: design)
         applySidebarSurface(snapshot, to: design)

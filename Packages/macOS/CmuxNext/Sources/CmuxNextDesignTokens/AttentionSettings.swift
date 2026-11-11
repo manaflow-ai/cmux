@@ -56,10 +56,14 @@ public nonisolated struct AttentionSettings: Hashable, Sendable {
     public var showsOnSidebar = true
     /// A notification for a pane the user is not looking at moves its
     /// workspace to the top of the unpinned rows (classic's
-    /// `app.reorderOnNotification`), once per notification, as iMessage does.
-    /// On by default (the user, 2026-11-09); rebuilds never re-sort by
-    /// attention, so a drag still sticks until the next notification
-    /// (Leo 2026-10-20).
+    /// `app.reorderOnNotification`), once per notification, as iMessage does:
+    /// first in its project, else first among the loose rows. A notification is
+    /// what turns a row blue (done) or yellow (needs you); a working agent posts
+    /// none, so working rows stay put (Leo 2026-11-10: "the working sessions,
+    /// that's probably too noisy ... But like the ones that are blue that are
+    /// done ... Likewise with the yellow"). On by default (the user, 2026-11-09);
+    /// rebuilds never re-sort by attention, so a drag still sticks until the
+    /// next notification (Leo 2026-10-20).
     public var movesToTop = true
     /// An agent's finished turn (`agent.turn.completed`) for a pane the user is not
     /// looking at moves its workspace to the top, as `movesToTop` does for every
