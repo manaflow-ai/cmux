@@ -123,4 +123,28 @@ struct SpaceSwitchRowViewsTests {
         block.updateLayer()
         #expect(!block.needsLayout, "the draw of a block with no line asks for a second layout, in the commit of the frame")
     }
+
+    /// A plain status line (no pill) is as wide as its block (`WorkspaceStatusView.layout`). The draw no longer asks
+    /// for a layout each time, so a new width of the block (a sidebar resize sets the block's frame, with no
+    /// configure) must place the line again on its own.
+    @Test func aPlainStatusLineFollowsItsBlocksWidthWithNoConfigure() throws {
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 120), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let block = WorkspaceStatusView()
+        block.frame = NSRect(x: 0, y: 0, width: 200, height: 40)
+        window.contentView?.addSubview(block)
+        block.configure(SidebarWorkspaceStatus(entries: [.init(key: "build", text: "Building")]), reservesBar: false)
+        window.contentView?.layoutSubtreeIfNeeded()
+        block.updateLayer()
+        window.contentView?.layoutSubtreeIfNeeded()
+        let line = try #require(block.subviews.compactMap { $0 as? NSTextField }.first, "the block has no line")
+        try #require(line.frame.width == 200, "the line is \(line.frame.width) pt wide in a block of 200 pt")
+        try #require(!block.needsLayout, "the block did not lay out")
+        block.frame = NSRect(x: 0, y: 0, width: 120, height: 40)
+        window.contentView?.layoutSubtreeIfNeeded()
+        print("SPACE-SWITCH-ROW-VIEWS status_line_width=\(line.frame.width) block_width=\(block.bounds.width)")
+        #expect(line.frame.width == 120, "the line stays \(line.frame.width) pt wide in a block of 120 pt")
+    }
 }
