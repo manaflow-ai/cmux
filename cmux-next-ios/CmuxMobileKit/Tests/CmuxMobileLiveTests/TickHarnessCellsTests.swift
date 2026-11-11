@@ -327,10 +327,16 @@ private enum FeedTick {
     case diskBack
 }
 
-// Not on the main actor: these cells run seconds of work, and the kit's other
-// suites share the process and its main actor (LinkControllerTests waits on
-// wall-clock bounds there). Only the Feed cell needs it, and it yields.
-@Suite struct TickHarnessCellsTests {
+// The cells run seconds of work and allocate hundreds of MB, and the kit's
+// other suites share the process: LinkControllerTests waits on wall-clock
+// bounds on the main actor, and FeedSpillTests measures the process's
+// memory. So the suite runs only in a test run of its own
+// (CMUX_TICK_HARNESS=1; scripts/ci/cmux-next-ios-sim.sh sets it when its
+// only= filter names this suite), and off the main actor except for the
+// Feed cell, which yields.
+@Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_TICK_HARNESS"] == "1",
+                             "runs alone: CMUX_TICK_HARNESS=1"))
+struct TickHarnessCellsTests {
     /// 10,000 link losses from 100 ms to 8 h, with lost, late and duplicated
     /// dial results, background/resume and presence noise. Asserts: every
     /// reconnect within its bound after the network is back (2 s with a path
