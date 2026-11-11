@@ -612,7 +612,8 @@ private final class SessionCursor {
         let total = hypot(b.x - a.x, b.y - a.y)
         guard total >= 8 else { return }
         let trailLength = min(max(total * 0.25, 24), 320)
-        for strand in [(width: CGFloat(5), alpha: CGFloat(0.42), share: CGFloat(0.4)), (3.4, 0.24, 0.72), (2, 0.12, 1)] {
+        let strands: [(width: CGFloat, alpha: CGFloat, share: CGFloat)] = [(5, 0.42, 0.4), (3.4, 0.24, 0.72), (2, 0.12, 1)]
+        for strand in strands {
             let trail = effect(CAShapeLayer())
             let path = CGMutablePath()
             path.move(to: a)
