@@ -32,7 +32,13 @@ public struct CodeCard: View {
 
     private var lineCount: Int { code.reduce(1) { $1 == "\n" ? $0 + 1 : $0 } }
     private var lineHeight: CGFloat { codeSize * 1.46 }
-    private var isCapped: Bool { !expanded && CGFloat(lineCount) * lineHeight + 20 > maxHeight }
+    /// The code's drawn height with its padding, measured: wrapped lines are taller than the
+    /// line count says.
+    @State private var drawnHeight: CGFloat = 0
+    private var isCapped: Bool {
+        guard !expanded else { return false }
+        return wraps ? drawnHeight + 40 > maxHeight : CGFloat(lineCount) * lineHeight + 20 > maxHeight
+    }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -45,6 +51,9 @@ public struct CodeCard: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 4)
                     .padding(.bottom, 16)
+                    .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+                        if abs(drawnHeight - height) > 0.5 { drawnHeight = height }
+                    }
                     // Wrapping: as wide as the card, so lines break instead of scrolling.
                     .containerRelativeFrame(wraps ? .horizontal : [], alignment: .leading)
             }
@@ -57,7 +66,7 @@ public struct CodeCard: View {
                     VStack(spacing: 0) {
                         LinearGradient(colors: [.cmuxMobileCodeBackground.opacity(0), .cmuxMobileCodeBackground], startPoint: .top, endPoint: .bottom)
                             .frame(height: 48)
-                        Button("Show all \(lineCount) lines") {
+                        Button(lineCount > 1 ? "Show all \(lineCount) lines" : "Show all") {
                             withAnimation(.cmuxMobileSmooth.unlessReduceMotion) { expanded = true }
                         }
                         .font(.subheadline.weight(.semibold))

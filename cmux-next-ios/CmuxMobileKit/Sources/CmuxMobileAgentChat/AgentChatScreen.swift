@@ -831,7 +831,7 @@ public struct AgentChatBottomStack: View {
                         // 54 pt while the dock, the transcript's bottom inset and the jump circle
                         // stayed on 96 pt).
                         let target = frame.height
-                        withAnimation(spring) { reportedHeight = target } completion: {
+                        withAnimation(spring, completionCriteria: .removed) { reportedHeight = target } completion: {
                             guard reportedHeight == target, target > 0 else { return }
                             surface.drawnStackHeight = target
                             surface.stackHeightFrame?(target)
@@ -949,7 +949,7 @@ struct StreamingMarkdown: View {
                      animatesBlocks: animatesBlocks, marks: findMarks)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = markdown }
-                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(markdown) }
+                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(ChatSelectText.readable(markdown)) }
                 ShareLink(item: markdown) { Label("Share", systemImage: "square.and.arrow.up") }
             }
     }

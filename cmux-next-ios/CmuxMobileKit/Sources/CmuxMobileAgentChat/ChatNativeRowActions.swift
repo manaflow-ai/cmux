@@ -178,18 +178,19 @@ enum ChatSelectText {
     }
 
     /// An answer's Markdown as the transcript reads it, for selecting: link and image
-    /// targets, emphasis marks, inline-code ticks, heading and quote marks, code fences
-    /// and table rules go; lines, list items, code and table cells (tab-separated) stay.
+    /// targets, emphasis marks, inline-code ticks, heading and quote marks, code fences,
+    /// rules and table rules go; lines, list items, code (verbatim) and table cells
+    /// (tab-separated) stay.
     nonisolated static func readable(_ markdown: String) -> String {
         var out: [String] = []
-        var inFence = false
+        var fence: Character?
         for raw in markdown.components(separatedBy: "\n") {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
-                inFence.toggle()
-                continue
+            if let mark = trimmed.first, mark == "`" || mark == "~", trimmed.hasPrefix(String(repeating: mark, count: 3)) {
+                if fence == nil { fence = mark; continue }
+                if fence == mark { fence = nil; continue }
             }
-            if inFence {
+            if fence != nil {
                 out.append(raw)
                 continue
             }
@@ -200,40 +201,67 @@ enum ChatSelectText {
                 if cells.first == "" { cells.removeFirst() }
                 if cells.last == "" { cells.removeLast() }
                 // A header rule (|---|:--:|) is the table's drawing, not its text.
-                if !cells.isEmpty, cells.allSatisfy({ !$0.isEmpty && $0.allSatisfy { "-:".contains($0) } }) { continue }
+                if !cells.isEmpty, cells.allSatisfy({ !$0.isEmpty && $0.allSatisfy { "-: ".contains($0) } }) { continue }
                 out.append(cells.map(inline).joined(separator: "\t"))
                 continue
             }
-            var line = raw
-            let rules: [(String, String)] = [
-                (#"^(\s*)#{1,6}\s+"#, "$1"),
-                (#"^(\s*)>+\s?"#, "$1"),
-                (#"^(\s*)[-*+]\s+\[[ xX]\]\s+"#, "$1• "),
-                (#"^(\s*)[-*+]\s+"#, "$1• "),
-            ]
-            for (pattern, template) in rules {
-                line = line.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
-            }
-            out.append(inline(line))
+            // A thematic break (---, ***, * * *) is drawing too.
+            let compact = trimmed.filter { $0 != " " }
+            if compact.count >= 3, let mark = compact.first, "-*_".contains(mark), compact.allSatisfy({ $0 == mark }) { continue }
+            out.append(inline(Self.blockMarks.apply(raw)))
         }
         return out.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Inline Markdown as read: `[text](url)` and `![alt](src)` keep their text, code its
-    /// characters, and bold, strike and underscore-bold lose their marks.
+    /// Inline Markdown as read. Code spans keep their characters as written (`__init__`,
+    /// `*.swift`); outside them `[text](url)` and `![alt](src)` keep their text and bold,
+    /// strike and emphasis lose their marks (underscores only at word edges).
     nonisolated private static func inline(_ text: String) -> String {
-        var text = text
-        let rules: [(String, String)] = [
-            (#"!\[([^\]]*)\]\([^)]*\)"#, "$1"),
-            (#"\[([^\]]*)\]\([^)]*\)"#, "$1"),
-            (#"`([^`]*)`"#, "$1"),
-            (#"(\*\*|__|~~)(.+?)\1"#, "$2"),
-            (#"(^|[\s(])\*([^*\s][^*]*)\*"#, "$1$2"),
-        ]
-        for (pattern, template) in rules {
-            text = text.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
+        var result = ""
+        var rest = Substring(text)
+        while let open = rest.firstIndex(of: "`") {
+            let ticks = rest[open...].prefix { $0 == "`" }
+            let after = rest[ticks.endIndex...]
+            guard let close = after.range(of: String(ticks)) else { break }
+            result += inlineMarks.apply(String(rest[..<open]))
+            result += after[..<close.lowerBound].trimmingCharacters(in: .whitespaces)
+            rest = after[close.upperBound...]
         }
-        return text
+        return result + inlineMarks.apply(String(rest))
+    }
+
+    nonisolated private static let blockMarks = MarkdownRewrite([
+        (#"^(\s*)#{1,6}\s+"#, "$1"),
+        (#"^(\s*)>+\s?"#, "$1"),
+        (#"^(\s*)[-*+]\s+\[[ xX]\]\s+"#, "$1• "),
+        (#"^(\s*)[-*+]\s+"#, "$1• "),
+    ])
+
+    nonisolated private static let inlineMarks = MarkdownRewrite([
+        (#"!\[([^\]]*)\]\([^)]*\)"#, "$1"),
+        (#"\[([^\]]*)\]\([^)]*\)"#, "$1"),
+        (#"(\*\*|~~)(.+?)\1"#, "$2"),
+        (#"(?<![\w])__(.+?)__(?![\w])"#, "$1"),
+        (#"(^|[\s(])\*([^*\s][^*]*)\*"#, "$1$2"),
+        (#"(?<![\w])_([^_\s][^_]*)_(?![\w])"#, "$1"),
+    ])
+}
+
+/// Regular-expression rewrites compiled once, applied in order. Shared read-only:
+/// NSRegularExpression is immutable and documented safe to use from any thread.
+struct MarkdownRewrite: @unchecked Sendable {
+    private let rules: [(NSRegularExpression, String)]
+
+    init(_ rules: [(String, String)]) {
+        self.rules = rules.compactMap { pattern, template in
+            (try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines])).map { ($0, template) }
+        }
+    }
+
+    func apply(_ text: String) -> String {
+        rules.reduce(text) { text, rule in
+            rule.0.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: rule.1)
+        }
     }
 }
 #endif

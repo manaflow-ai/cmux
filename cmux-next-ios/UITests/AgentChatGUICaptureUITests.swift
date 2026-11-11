@@ -44,8 +44,8 @@ final class AgentChatGUICaptureUITests: XCTestCase {
                 let bar = app.otherElements["voiceMode.bar"].firstMatch
                 self.waitFor(bar, "voice bar", timeout: 10)
                 // The bar sits above the navigation bar, never over its back button.
-                let back = app.navigationBars.buttons.firstMatch
-                if bar.exists, back.exists {
+                // Back: the navigation bar's leading button.
+                if bar.exists, let back = app.navigationBars.buttons.allElementsBoundByIndex.first(where: { $0.frame.minX < 60 }) {
                     XCTAssertLessThanOrEqual(bar.frame.maxY, back.frame.minY + 1, "voice bar covers the back button (\(look))")
                     XCTAssertTrue(back.isHittable, "back button is not hittable under the voice bar (\(look))")
                 }
@@ -65,17 +65,30 @@ final class AgentChatGUICaptureUITests: XCTestCase {
                 app.typeText("/")
             }
             scene("select-text", look, Self.history) { app in
-                app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.45)).press(forDuration: 1.2)
+                // The newest answer's first paragraph (a table, links and code follow it),
+                // brought fully under the navigation bar with small drags (ChatSelectTextUITests).
+                let paragraph = app.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label BEGINSWITH %@", "The transport switch holds up")).firstMatch
+                let window = app.windows.firstMatch
+                let barBottom = app.navigationBars.firstMatch.frame.maxY
+                func clear() -> Bool { paragraph.exists && paragraph.frame.minY > barBottom + 8 && paragraph.frame.maxY < window.frame.maxY - 140 }
+                for _ in 0..<6 where !clear() {
+                    let start = window.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+                    start.press(forDuration: 0.05, thenDragTo: start.withOffset(CGVector(dx: 0, dy: paragraph.exists ? 120 : 180)))
+                }
+                XCTAssertTrue(clear(), "the answer paragraph is on screen (\(look))")
+                guard clear() else { return }
+                paragraph.press(forDuration: 1.2)
                 let select = app.buttons["Select Text"].firstMatch
                 self.waitFor(select, "Select Text in the answer's menu")
                 guard select.exists else { return }
                 select.tap()
-                let field = app.textViews.firstMatch
+                let field = app.textViews["selectText.text"]
                 self.waitFor(field, "the selectable text")
-                // The answer as read: no link targets, table rules or code ticks.
+                // The answer as read: no link targets, table rules, code ticks or bold marks.
                 let text = (field.value as? String) ?? ""
-                XCTAssertFalse(text.isEmpty, "Select Text shows no text (\(look))")
-                for mark in ["](", "|---", "`", "**"] {
+                XCTAssertTrue(text.contains("The transport switch holds up"), "Select Text holds the answer (\(look))")
+                for mark in ["](", "| ---", "|---", "`", "**"] {
                     XCTAssertFalse(text.contains(mark), "Select Text shows raw Markdown \"\(mark)\" (\(look))")
                 }
             }
@@ -90,8 +103,9 @@ final class AgentChatGUICaptureUITests: XCTestCase {
     func testTurnStates() {
         for look in Look.allCases {
             scene("running-turn", look, Self.history, after: [("running-turn-later", 4)]) { app in
+                // The offline demo chat's mock turn may finish before a Stop is drawn, so the
+                // running state is captured, not asserted.
                 self.send(app, "Summarize the transport layer")
-                self.waitFor(app.buttons["Stop"].firstMatch, "Stop while the turn runs", timeout: 10)
             }
             scene("first-turn-permission", look, Self.empty, after: [("first-turn-later", 8)]) { app in
                 self.send(app, "Plan the release")

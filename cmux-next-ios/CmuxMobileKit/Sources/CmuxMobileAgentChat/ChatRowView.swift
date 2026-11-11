@@ -199,7 +199,7 @@ struct MarkdownBlockRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .contextMenu {
                 Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = message() }
-                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(message()) }
+                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(ChatSelectText.readable(message())) }
                 Button("Share", systemImage: "square.and.arrow.up") { ChatShare.present(message()) }
             }
     }

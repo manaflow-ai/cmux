@@ -799,6 +799,10 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     /// turn: never for an empty chat, the rubber band, or a drag that is
     /// pulling the keyboard down (verify/jump-button.md).
     private func updateJump() {
+        // The bottom edge softens only rows that are under the stack; resting on the newest
+        // row (8 pt over the stack) nothing is, and the edge stays off it (as the terminal's).
+        let under = !isEmpty && distanceFromBottom > Self.contentGap
+        if scrollView.bottomEdgeEffect.isHidden == under { scrollView.bottomEdgeEffect.isHidden = !under }
         let shown: Bool
         if isEmpty {
             jumpVisibility = JumpToBottomVisibility()
