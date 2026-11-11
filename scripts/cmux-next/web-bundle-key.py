@@ -40,6 +40,7 @@ INPUTS = [
     "Resources/markdown-viewer/marked.min.js",
     "scripts/build-webviews-app.sh",
     "scripts/check-webviews-bun-version.sh",
+    "scripts/webviews_bun_version.py",
     "scripts/cmux-next/build-agent-pane-web.sh",
     "scripts/cmux-next/build-agent-activity-web.sh",
     "scripts/cmux-next/build-pages-web.sh",
@@ -245,9 +246,19 @@ def file_digest(path):
 
 
 def declared_bun_version(root):
-    with open(os.path.join(root, "webviews/package.json"), encoding="utf-8") as f:
-        package_manager = (json.load(f).get("devEngines") or {}).get("packageManager") or {}
-    return package_manager.get("version", "1.4.4") if package_manager.get("name") == "bun" else "1.4.4"
+    # scripts/webviews_bun_version.py is the one reader of the pin (the pre-commit hook and
+    # check-webviews-bun-version.sh use it too); it sits one folder up, here and in the
+    # installed hook copy. No valid bun pin keeps the old default.
+    import importlib.util
+
+    reader_path = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "webviews_bun_version.py")
+    spec = importlib.util.spec_from_file_location("webviews_bun_version", reader_path)
+    reader = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(reader)
+    try:
+        return reader.bun_version(os.path.join(root, "webviews/package.json"))
+    except ValueError:
+        return "1.4.4"
 
 
 def toolchain_identity(root):

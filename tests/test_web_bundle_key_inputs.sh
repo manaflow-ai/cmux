@@ -22,7 +22,7 @@ mkdir -p "$src"
 
 git -C "$ROOT" archive HEAD webviews web/data clients/ts/cloud Resources/markdown-viewer config schemas release-notes/next/highlights \
   Packages/Shared/CmuxAgentQuestion \
-  scripts/cmux-next/web-bundle-key.py README.md | tar -x -C "$src"
+  scripts/cmux-next/web-bundle-key.py scripts/webviews_bun_version.py README.md | tar -x -C "$src"
 cp "$KEY" "$src/scripts/cmux-next/web-bundle-key.py"
 git -C "$src" init -q
 git -C "$src" -c user.name=t -c user.email=t@example.com -c core.hooksPath=/dev/null add -A

@@ -14,6 +14,7 @@ if [[ ! -r "$PYTHON_PATH_FILE" ]] || ! IFS= read -r PYTHON3_BIN < "$PYTHON_PATH_
 fi
 REGISTRY_VALIDATOR="$HOOK_DIR/validate_test_execution_registry.py"
 PBX_NORMALIZER="$HOOK_DIR/normalize-pbxproj.py"
+BUN_VERSION_READER="$HOOK_DIR/webviews_bun_version.py"
 if [[ ! -f "$REGISTRY_VALIDATOR" || ! -f "$PBX_NORMALIZER" ]]; then
     echo "pre-commit: trusted helper copies are missing; rerun scripts/install-git-hooks.sh." >&2
     exit 1
@@ -447,19 +448,24 @@ web_packages_stale() { # package-dir
 # pin like ../../../repository/payload walked out of the mise directory and ran
 # the checkout's own payload/bin/bun. Every candidate goes through resolve_tool
 # (above), with the install root it must stay inside.
-# The bun version webviews/package.json devEngines pins, only as an exact
-# major.minor.patch (the rule scripts/check-webviews-bun-version.sh applies).
-# Anything else is refused with a warning and treated as no pin. Never fails.
+# The bun version webviews/package.json devEngines pins, as the one shared reader
+# (scripts/webviews_bun_version.py, installed beside this hook) reads it: the
+# devEngines.packageManager entry named "bun", only as an exact major.minor.patch.
+# check-webviews-bun-version.sh calls the same reader, so the two cannot disagree.
+# No bun entry or any other pin is refused with a warning and treated as no pin.
+# Never fails.
 pinned_bun_version() {
-    local pin
+    local pin status=0
     [[ -f "$REPO_ROOT/webviews/package.json" ]] || return 0
-    pin="$("$TOOL_SED" -n '/"devEngines"/,/}/p' "$REPO_ROOT/webviews/package.json" 2>/dev/null \
-        | "$TOOL_SED" -n 's/.*"version": *"\([^"]*\)".*/\1/p' | "$TOOL_HEAD" -n 1 || true)"
-    [[ -n "$pin" ]] || return 0
-    if [[ "$pin" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    if [[ ! -f "$BUN_VERSION_READER" ]]; then
+        echo "pre-commit: the trusted copy of webviews_bun_version.py is missing; rerun scripts/install-git-hooks.sh. Using PATH's bun." >&2
+        return 0
+    fi
+    pin="$("$PYTHON3_BIN" -I "$BUN_VERSION_READER" "$REPO_ROOT/webviews/package.json" 2>&1)" || status=$?
+    if (( status == 0 )); then
         printf '%s\n' "$pin"
     else
-        echo "pre-commit: webviews/package.json pins bun '${pin//[^A-Za-z0-9._\/-]/?}', not an exact major.minor.patch version; ignoring the pin and using PATH's bun." >&2
+        echo "pre-commit: ${pin//[^[:print:]]/?}; ignoring the pin and using PATH's bun." >&2
     fi
 }
 # Every bun and npm call runs through tool_env: BUN_OPTIONS is the caller's,
