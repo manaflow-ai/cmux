@@ -121,9 +121,11 @@ public final class PersonalStore {
         return pinIndex
     }
 
-    /// Workspace `key` of `session` is in room `room` from now until a snapshot pins it (`expectedPins`).
+    /// Workspace `key` of `session` is in room `room` from now until a snapshot pins it (`expectedPins`). A key the
+    /// daemon already pins needs none: its pin wins, and a pin that changes nothing brings no refetch to drop one.
     public func expectPin(session: String, key: WorkspaceKey, room: ProfileID) {
-        guard expectedPins[session]?[key.rawValue] != room else { return }
+        guard pins.allSatisfy({ $0.sessionID != session || $0.workspaceKey != key }),
+              expectedPins[session]?[key.rawValue] != room else { return }
         expectedPins[session, default: [:]][key.rawValue] = room
         rebuildPinIndex()
     }

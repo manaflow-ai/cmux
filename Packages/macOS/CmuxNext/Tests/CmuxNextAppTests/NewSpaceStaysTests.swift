@@ -51,6 +51,15 @@ struct NewSpaceStaysTests {
         #expect(personal.pinnedRooms["s-local"]?["k2"] == nil)
     }
 
+    /// A create that reuses a key the daemon already pins brings no refetch: no expectation, or it would outlive an unpin.
+    @Test func anAlreadyPinnedKeyGetsNoExpectation() throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        fixture.apply(pinned: true)
+        fixture.store.personal.expectPin(session: "s-local", key: WorkspaceKey(rawValue: "k2"), room: fixture.fresh)
+        #expect(fixture.store.personal.expectedPins.isEmpty)
+    }
+
     @MainActor
     final class Fixture {
         let services = AppServices(environment: AppEnvironment.current([:]))
