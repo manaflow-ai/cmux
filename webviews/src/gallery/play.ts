@@ -132,6 +132,8 @@ export type StepReport = {
   boxMoves?: BoxMove[];
   /** Durations in ms of the frames over 16.7 ms. */
   longFrames: number[];
+  /** Where each long frame's time went (`longFramePart`), where the engine says; never judged. */
+  longFrameParts?: string[];
   frameSource: "long-animation-frame" | "raf";
   status: "pass" | "warn" | "fail";
   problems: string[];
@@ -179,6 +181,57 @@ export function judgePopups(popups: PopupMeasure[], viewport: { width: number; h
       );
   }
   return problems;
+}
+
+/** What the stage reads of a Long Animation Frames entry (Chromium's `PerformanceLongAnimationFrameTiming`). */
+export type LongFrameEntry = {
+  startTime: number;
+  duration: number;
+  /** When the frame's rendering began; 0 when it rendered nothing. */
+  renderStart?: number;
+  /** When its style and layout began; 0 when it did none. */
+  styleAndLayoutStart?: number;
+  /** The scripts that ran 5 ms or more in the frame. */
+  scripts?: {
+    invoker?: string;
+    sourceURL?: string;
+    sourceFunctionName?: string;
+    duration: number;
+    forcedStyleAndLayoutDuration?: number;
+  }[];
+};
+
+const ms = (value: number) => `${value.toFixed(1)} ms`;
+
+/**
+ * Where a long frame's time went, for the person who reads a red: the time before its render (the
+ * step's own handlers, and the wait for the display's next refresh), its frame callbacks, and its
+ * style and layout; when it began against the step's start (a frame that began before the step
+ * carries work that is not the step's); and its three longest scripts by who called them. A
+ * diagnosis only: `judgeStep` reads `longFrames`.
+ */
+export function longFramePart(entry: LongFrameEntry, stepStart: number): string {
+  const end = entry.startTime + entry.duration;
+  const render = entry.renderStart || end;
+  const layout = entry.styleAndLayoutStart || end;
+  const began = entry.startTime - stepStart;
+  const scripts = [...(entry.scripts ?? [])].sort((a, b) => b.duration - a.duration);
+  const named = scripts.slice(0, 3).map((script) => {
+    const source = [script.sourceFunctionName, script.sourceURL?.replace(/[?#].*$/, "").replace(/^.*\//, "")]
+      .filter(Boolean)
+      .join(" in ");
+    const forced = script.forcedStyleAndLayoutDuration
+      ? `, ${ms(script.forcedStyleAndLayoutDuration)} of it forced style and layout`
+      : "";
+    return `${script.invoker || "a script"}${source ? ` (${source})` : ""} ${ms(script.duration)}${forced}`;
+  });
+  return [
+    `${ms(entry.duration)}: ${ms(render - entry.startTime)} before its render, ${ms(layout - render)} frame callbacks, ${ms(end - layout)} style and layout`,
+    `began ${ms(Math.abs(began))} ${began < 0 ? "before" : "after"} the step's start`,
+    scripts.length
+      ? `scripts ${ms(scripts.reduce((sum, script) => sum + script.duration, 0))}: ${named.join(", ")}`
+      : "no script of 5 ms or more",
+  ].join("; ");
 }
 
 export function rectDelta(before: Rect | null, after: Rect | null): number {

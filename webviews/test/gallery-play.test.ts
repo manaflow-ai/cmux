@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { runPlay, selectTextWithDriver, syntheticKey, syntheticPointer } from "../src/gallery/frame/playRunner";
-import { isSubpixelLayoutShift } from "../src/gallery/play";
+import { isSubpixelLayoutShift, longFramePart } from "../src/gallery/play";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -192,6 +192,52 @@ describe("gallery layout-shift measurement", () => {
     expect(isSubpixelLayoutShift([{ previousRect: rect(10), currentRect: rect(10.49) }])).toBe(true);
     expect(isSubpixelLayoutShift([{ previousRect: rect(10), currentRect: rect(10.5) }])).toBe(false);
     expect(isSubpixelLayoutShift([{ previousRect: rect(10) }])).toBe(false);
+  });
+});
+
+describe("where a long frame's time went", () => {
+  test("a frame that the step's own handler made says the handler, and the layout it forced", () => {
+    // A click at 1000 ms: its handler runs 40 ms, 12 of them a forced layout; the render is 22 ms more.
+    const part = longFramePart(
+      {
+        startTime: 1002,
+        duration: 62,
+        renderStart: 1042,
+        styleAndLayoutStart: 1045,
+        scripts: [
+          { invoker: "DOMWindow.requestAnimationFrame", duration: 3, sourceURL: "" },
+          {
+            invoker: "BUTTON.onclick",
+            sourceFunctionName: "stop",
+            sourceURL: "http://127.0.0.1:4173/assets/Composer-abc.js?v=1#x",
+            duration: 37,
+            forcedStyleAndLayoutDuration: 12,
+          },
+        ],
+      },
+      1000,
+    );
+    expect(part).toBe(
+      "62.0 ms: 40.0 ms before its render, 3.0 ms frame callbacks, 19.0 ms style and layout; " +
+        "began 2.0 ms after the step's start; " +
+        "scripts 40.0 ms: BUTTON.onclick (stop in Composer-abc.js) 37.0 ms, 12.0 ms of it forced style and layout, " +
+        "DOMWindow.requestAnimationFrame 3.0 ms",
+    );
+  });
+
+  test("a frame that began before the step, with no script, says both", () => {
+    // Nothing of the page ran: the time is the wait for the frame, which is not the step's work.
+    expect(longFramePart({ startTime: 990, duration: 55, renderStart: 1044, styleAndLayoutStart: 1044.5 }, 1000)).toBe(
+      "55.0 ms: 54.0 ms before its render, 0.5 ms frame callbacks, 0.5 ms style and layout; " +
+        "began 10.0 ms before the step's start; no script of 5 ms or more",
+    );
+  });
+
+  test("a frame that rendered nothing gives all its time to the part before a render", () => {
+    expect(longFramePart({ startTime: 0, duration: 51, renderStart: 0, styleAndLayoutStart: 0 }, 0)).toBe(
+      "51.0 ms: 51.0 ms before its render, 0.0 ms frame callbacks, 0.0 ms style and layout; " +
+        "began 0.0 ms after the step's start; no script of 5 ms or more",
+    );
   });
 });
 

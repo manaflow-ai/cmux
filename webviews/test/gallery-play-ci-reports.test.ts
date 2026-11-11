@@ -180,6 +180,27 @@ describe("a gallery play's notice", () => {
     );
   });
 
+  test("says where the long frame's time went, where the stage's engine said it", () => {
+    const report = {
+      status: "fail",
+      steps: [
+        {
+          step: 'click button "Stop"',
+          status: "fail",
+          problems: ["1 frame(s) over 33 ms (longest 63.8 ms)"],
+          longFrameParts: ["63.8 ms: 61.0 ms before its render; no script of 5 ms or more"],
+        },
+        { step: "wait", status: "pass", problems: [] },
+      ],
+    };
+    expect(playNotice("streaming", JSON.stringify(report))).toBe(
+      '::notice title=streaming play::status fail; step 1 of 2, click button "Stop": 1 frame(s) over 33 ms (longest 63.8 ms); ' +
+        'step 1 of 2, click button "Stop": long frame 63.8 ms: 61.0 ms before its render; no script of 5 ms or more',
+    );
+    // What the test fails on does not change: the diagnosis is not a problem.
+    expect(playFailures(JSON.stringify(report), "all")).toEqual([]);
+  });
+
   test("names the play's error, and a report with no problem named", () => {
     expect(playNotice("gone", JSON.stringify({ status: "fail", steps: [], error: "no element for button" }))).toBe(
       "::notice title=gone play::status fail; no element for button",

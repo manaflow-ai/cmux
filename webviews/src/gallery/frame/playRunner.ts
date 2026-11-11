@@ -4,9 +4,11 @@ import {
   isSubpixelLayoutShift,
   judgePopups,
   judgeStep,
+  longFramePart,
   overall,
   rectDelta,
   resolveTarget,
+  type LongFrameEntry,
   type Play,
   type PlayAction,
   type PlayChecks,
@@ -400,6 +402,8 @@ async function measured(
         });
   const shifts: Shift[] = [];
   const longFrames: number[] = [];
+  const longFrameParts: string[] = [];
+  const stepStart = performance.now();
   const loafSupported = PerformanceObserver.supportedEntryTypes?.includes("long-animation-frame") ?? false;
   const observers: PerformanceObserver[] = [];
   if (PerformanceObserver.supportedEntryTypes?.includes("layout-shift")) {
@@ -444,7 +448,11 @@ async function measured(
   let rafRunning = !loafSupported;
   if (loafSupported) {
     const observer = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) if (entry.duration > 16.7) longFrames.push(entry.duration);
+      for (const entry of list.getEntries()) {
+        if (entry.duration <= 16.7) continue;
+        longFrames.push(entry.duration);
+        longFrameParts.push(longFramePart(entry as LongFrameEntry, stepStart));
+      }
     });
     observer.observe({ type: "long-animation-frame", buffered: false });
     observers.push(observer);
@@ -501,6 +509,7 @@ async function measured(
     shifts,
     ...(boxShift ? { boxShift: boxShift.score, boxMoves: boxShift.moves } : {}),
     longFrames,
+    ...(longFrameParts.length ? { longFrameParts } : {}),
     frameSource: loafSupported ? ("long-animation-frame" as const) : ("raf" as const),
     popupProblems: judgePopups(measurePopups(), { width: window.innerWidth, height: window.innerHeight }),
   };
