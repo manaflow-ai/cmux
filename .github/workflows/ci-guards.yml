@@ -1577,6 +1577,15 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_next_cancelled_tip.py
 
+      # The rule reads main's scripts/ci/delivery_workflows.py, as the workflow does.
+      - name: Validate the nightly-next supersede drops an older run that holds the tip's group and never started
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --depth=1 origin main
+          git show FETCH_HEAD:scripts/ci/delivery_workflows.py > "$RUNNER_TEMP/delivery_workflows.py"
+          NIGHTLY_RULES_PY="$RUNNER_TEMP/delivery_workflows.py" python3 tests/test_nightly_next_supersede.py
+
       - name: Validate the run artifact download waits through a refused GitHub call
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_download_run_artifact_retries.py
