@@ -1,5 +1,6 @@
-//! Every refusal the cmux platform answers a workspace's machine with reaches `ensure`'s line
-//! intact: its code, whether it is final, retried or waited out, and a rate limit's window. The
+//! Every refusal the cmux platform answers a workspace's machine or a composer reservation with
+//! reaches the line the App reads (`ensure`, `reserve`) intact: its code, whether it is final,
+//! retried or waited out, and a rate limit's window. The
 //! client half of cmux-platform#1254's table test: each row of
 //! [`cmux_cloud_machine::refusals::PLATFORM`] goes out of a loopback platform as an HTTP status,
 //! a body and a Retry-After header, through [`crate::cli::Platform`]'s call, to the line the App
@@ -11,7 +12,7 @@ use std::net::TcpListener;
 use cmux_cloud_machine::refusals::{self, Handling, PLATFORM, Refusal};
 use serde_json::{Value, json};
 
-use super::{Ensure, Flags};
+use super::{Ensure, Flags, reservations};
 
 /// What a rate limit's Retry-After asks for: not the platform's 60 s default, so a dropped
 /// header shows.
@@ -52,9 +53,9 @@ fn answering(status: u16, headers: String, body: String) -> String {
     origin
 }
 
-/// `ensure`'s line when the platform answers `refusal` as cmux-platform#1192 does: its status,
-/// its code, its `retryable`, a 503's `cause`, and a rate limit's window only in Retry-After.
-fn ensure_line(refusal: &Refusal) -> Value {
+/// A loopback platform that answers `refusal` as cmux-platform#1192 does: its status, its code,
+/// its `retryable`, a 503's `cause`, and a rate limit's window only in Retry-After.
+fn refusing(refusal: &Refusal) -> String {
     let mut body = json!({
         "_tag": "CloudRefusal", "code": refusal.code, "message": "refused", "retryable": refusal.retryable,
     });
@@ -63,15 +64,38 @@ fn ensure_line(refusal: &Refusal) -> Value {
     }
     let headers =
         if refusal.status == 429 { format!("retry-after: {WINDOW_S}\r\n") } else { String::new() };
-    let origin = answering(refusal.status, headers, body.to_string());
+    answering(refusal.status, headers, body.to_string())
+}
+
+/// A fresh UUID-shaped key.
+fn key() -> String {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
     let next = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let key = format!("0000000B-0000-4000-8000-{next:012X}");
+    format!("0000000B-0000-4000-8000-{next:012X}")
+}
+
+fn flags(words: &[&str]) -> Flags {
+    Flags::parse(&words.iter().map(|word| word.to_string()).collect::<Vec<_>>()).expect("flags")
+}
+
+/// `ensure`'s line when the platform refuses the workspace's machine with `refusal`.
+fn ensure_line(refusal: &Refusal) -> Value {
+    let origin = refusing(refusal);
+    let key = key();
     let words =
         ["--workspace", "ws-1", "--key", &key, "--repo", "manaflow-ai/cmux", "--platform", &origin];
-    let flags = Flags::parse(&words.iter().map(|word| word.to_string()).collect::<Vec<_>>())
-        .expect("flags");
-    Ensure::of(&flags).expect("ensure").run(&mut "cmux-credential\n".as_bytes())
+    Ensure::of(&flags(&words)).expect("ensure").run(&mut "cmux-credential\n".as_bytes())
+}
+
+/// `reserve`'s line when the platform refuses the composer's reservation with `refusal`.
+fn reserve_line(refusal: &Refusal) -> Value {
+    let request = json!({"composeKey": key().to_lowercase(), "platform": refusing(refusal)});
+    reservations::run(
+        &flags(&["--request", &request.to_string()]),
+        reservations::Action::Reserve,
+        &mut "cmux-credential\n\n".as_bytes(),
+    )
+    .expect("reserve")
 }
 
 fn assert_reaches_the_line(refusal: &Refusal, line: &Value) {
@@ -89,6 +113,7 @@ fn assert_reaches_the_line(refusal: &Refusal, line: &Value) {
 fn every_platform_refusal_reaches_the_start_answer_with_its_handling() {
     for refusal in PLATFORM {
         assert_reaches_the_line(refusal, &ensure_line(refusal));
+        assert_reaches_the_line(refusal, &reserve_line(refusal));
     }
 }
 
@@ -101,5 +126,6 @@ fn a_refusal_outside_the_table_keeps_its_bodys_retryable() {
         let outage = Refusal { code: "machine.placement_unavailable", status: 503, retryable };
         assert!(refusals::platform(outage.code).is_none(), "the row is in the table now");
         assert_reaches_the_line(&outage, &ensure_line(&outage));
+        assert_reaches_the_line(&outage, &reserve_line(&outage));
     }
 }
