@@ -333,7 +333,7 @@ session locks it deletes the session with no confirmation, as `cmux session
   empty lock file `session-locks/<session>-<hash>.lock`, and its queued agent
   hook events (in the runtime directory).
 
-It keeps the Chief's own home (`~/.cmux/chief/...`, outside the state root),
+It keeps the Chief's own home folder (outside the state root),
 the page history all sessions share (`<state root>/history`), the shared
 terminal-loss log (`<state root>/terminal-losses.jsonl`), the machine identity
 files, the user's cmux config, and every other session's folder. On a session
