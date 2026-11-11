@@ -63,6 +63,7 @@ CHROMIUM_CURRENCY_STEP = "Pinned Chromium against Chrome stable"
 
 import argparse
 import bisect
+import contextlib
 import contextvars
 import copy
 import functools
@@ -361,11 +362,18 @@ class GitHub(_evidence.GitHub):
     def artifact_file_whole(self, repo: str, artifact: int, member: str) -> str | None:
         """MEMBER's text in Actions ARTIFACT's zip, downloaded whole through gh. Refused when the download fails,
         passes ARTIFACT_SECONDS, or the zip or the file passes ARTIFACT_MAX_BYTES."""
-        with tempfile.TemporaryFile() as output, tempfile.TemporaryFile() as errors:
-            # gh in a group of its own: a gh wrapper's child holds stdout too, and only killing the whole group
-            # ends the read.
-            process = subprocess.Popen(["gh", "api", f"repos/{repo}/actions/artifacts/{int(artifact)}/zip"],
-                                       stdout=subprocess.PIPE, stderr=errors, start_new_session=True)
+        with contextlib.ExitStack() as stack:
+            # The temp files and gh's start are setup: one that fails is a Refused, never a traceback (cmux#41386
+            # review). gh in a group of its own: a gh wrapper's child holds stdout too, and only killing the whole
+            # group ends the read.
+            try:
+                output = stack.enter_context(tempfile.TemporaryFile())
+                errors = stack.enter_context(tempfile.TemporaryFile())
+                process = subprocess.Popen(["gh", "api", f"repos/{repo}/actions/artifacts/{int(artifact)}/zip"],
+                                           stdout=subprocess.PIPE, stderr=errors, start_new_session=True)
+            except SETUP_ERRORS as error:
+                raise Refused(f"artifact {artifact} could not be downloaded: {type(error).__name__}: {error}"[:300]) \
+                    from None
 
             def kill() -> None:
                 try:
@@ -462,38 +470,60 @@ def _past_deadline(signum, frame):
     raise Deadline()
 
 
+class NoHome(OSError):
+    """Path.home() could not name a home directory (no HOME, no passwd entry): an OSError, so SETUP_ERRORS has it."""
+
+
+def home_dir() -> Path:
+    """Path.home(), with its RuntimeError for a host that has no home turned into NoHome (an OSError)."""
+    try:
+        return Path.home()
+    except RuntimeError as error:
+        raise NoHome(str(error)) from None
+
+
 def source_cache() -> Path:
     named = os.environ.get(SOURCE_CACHE_ENV)
     if named:
         return Path(named)
-    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "base-red-excuse" / "src"
+    return Path(os.environ.get("XDG_CACHE_HOME") or home_dir() / ".cache") / "base-red-excuse" / "src"
 
 
 def git_remote(repo: str) -> str:
     return f"https://github.com/{repo}.git"
 
 
+# What a setup step (a cache's place, a directory, a temp file, a git or gh start) raises when the host cannot give it:
+# an OS error (no home directory included: home_dir) or a git that does not start or answer. Caught where the step
+# runs. Never RuntimeError: Refused is one, and a guard that caught it would rewrite or swallow a refusal.
+SETUP_ERRORS = (OSError, subprocess.SubprocessError)
+
+
 def git_cache(repo: str) -> Callable[..., subprocess.CompletedProcess] | None:
     """`git` in REPO's bare repo under source_cache(), made and pointed at REPO's remote (blob-less) on first use; None
-    when it cannot be."""
+    when it cannot be. Every setup step (the cache's place, its directory, `git init`, its config) is inside the one
+    guard, so an unwritable or unplaceable cache is None to every caller, never a traceback (cmux#41386 review)."""
     if not re.fullmatch(r"[\w.-]+/[\w.-]+", repo):
         return None
-    where = source_cache() / (repo.replace("/", "__") + ".git")
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": ""}
+    try:
+        where = source_cache() / (repo.replace("/", "__") + ".git")
 
-    def git(*args: str) -> subprocess.CompletedProcess:
-        return subprocess.run(["git", "--git-dir", str(where), *args], capture_output=True, env=env,
-                              timeout=GIT_SECONDS, stdin=subprocess.DEVNULL)
+        def git(*args: str) -> subprocess.CompletedProcess:
+            return subprocess.run(["git", "--git-dir", str(where), *args], capture_output=True, env=env,
+                                  timeout=GIT_SECONDS, stdin=subprocess.DEVNULL)
 
-    if not (where / "HEAD").is_file():
-        where.mkdir(parents=True, exist_ok=True)
-        if subprocess.run(["git", "init", "-q", "--bare", str(where)], capture_output=True,
-                          timeout=GIT_SECONDS).returncode:
-            return None
-    for key, value in (("remote.origin.url", git_remote(repo)), ("remote.origin.promisor", "true"),
-                       ("remote.origin.partialclonefilter", "blob:none")):
-        if git("config", key, value).returncode:
-            return None
+        if not (where / "HEAD").is_file():
+            where.mkdir(parents=True, exist_ok=True)
+            if subprocess.run(["git", "init", "-q", "--bare", str(where)], capture_output=True,
+                              timeout=GIT_SECONDS, stdin=subprocess.DEVNULL).returncode:
+                return None
+        for key, value in (("remote.origin.url", git_remote(repo)), ("remote.origin.promisor", "true"),
+                           ("remote.origin.partialclonefilter", "blob:none")):
+            if git("config", key, value).returncode:
+                return None
+    except SETUP_ERRORS:
+        return None
     return git
 
 
@@ -515,7 +545,7 @@ def git_commit(repo: str, ref: str) -> str | None:
         named = git("rev-parse", "--verify", f"{mine}^{{commit}}")
         commit = named.stdout.decode().strip() if not named.returncode else ""
         return commit if re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", commit) else None
-    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+    except (*SETUP_ERRORS, UnicodeDecodeError):
         return None
     finally:
         if git is not None:
@@ -538,7 +568,7 @@ def git_text(repo: str, ref: str, path: str) -> str | None:
         git = git_cache(repo)
         shown = git("show", f"{commit}:{path}") if git is not None else None
         return shown.stdout.decode() if shown is not None and not shown.returncode else None
-    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+    except (*SETUP_ERRORS, UnicodeDecodeError):
         return None
 
 
@@ -2735,12 +2765,16 @@ def jobs_cache() -> Path | None:
         return None
     if named:
         return Path(named)
-    return Path(os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache") / "base-red-excuse" / "jobs"
+    return Path(os.environ.get("XDG_CACHE_HOME") or home_dir() / ".cache") / "base-red-excuse" / "jobs"
 
 
 def base_run_jobs(repo: str, run: dict, github) -> list[dict]:
     """The jobs of base RUN's newest attempt (jobs?filter=latest), from the disk cache when RUN is completed."""
-    where, key = jobs_cache(), None
+    key = None
+    try:
+        where = jobs_cache()
+    except NoHome:  # no home directory: no cache, the jobs are read (cmux#41386 review)
+        where = None
     if (where is not None and run.get("status") == "completed" and isinstance(run.get("run_attempt"), int)
             and re.fullmatch(r"[0-9TZ:.+-]{10,40}", str(run.get("updated_at") or ""))):
         stamp = re.sub(r"[^0-9]", "", run["updated_at"])
@@ -4675,9 +4709,12 @@ HEX40 = re.compile(r"[0-9a-f]{40}")
 def ws_check_mirror(repo: str) -> Path | None:
     """This host's mirror of REPO (GH_MIRROR_ROOT, else ~/Projects/.wt-mirrors: wt's and gh_mirror_reads'), or None."""
     owner, _, name = repo.partition("/")
-    root = Path(os.environ.get("GH_MIRROR_ROOT") or Path.home() / "Projects" / ".wt-mirrors")
-    mirror = root / owner / f"{name}.git"
-    return mirror if (mirror / "HEAD").is_file() and (mirror / "objects").is_dir() else None
+    try:
+        root = Path(os.environ.get("GH_MIRROR_ROOT") or home_dir() / "Projects" / ".wt-mirrors")
+        mirror = root / owner / f"{name}.git"
+        return mirror if (mirror / "HEAD").is_file() and (mirror / "objects").is_dir() else None
+    except SETUP_ERRORS:  # no home, or a mirror root this user cannot read: no mirror, the cache fetches instead
+        return None
 
 
 @once_per_judgement("git squash tree")
@@ -4688,12 +4725,18 @@ def ws_check_squash_tree(repo: str, head: str, tip: str) -> str:
     else `git merge-tree --write-tree TIP HEAD`). Read from git only: git_cache(REPO) over this host's mirror's objects
     (ws_check_mirror), fetching a commit neither has. Refused when git cannot answer, the merge conflicts or the merged
     tree names no paths: never guessed."""
-    git = git_cache(repo)
-    if git is None or not (HEX40.fullmatch(head) and HEX40.fullmatch(tip)):
-        raise Refused(f"no git repository for {repo} to merge {head[:12]} with {tip[:12]} in")
-    where = source_cache() / (repo.replace("/", "__") + ".git")
+    nowhere = f"no git repository for {repo} to merge {head[:12]} with {tip[:12]} in"
+    if not (HEX40.fullmatch(head) and HEX40.fullmatch(tip)):
+        raise Refused(nowhere)
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "", "SSH_ASKPASS": ""}
-    mirror = ws_check_mirror(repo)
+    try:  # the setup too: an unwritable cache or a missing home is a Refused, never a traceback (cmux#41386 review)
+        made = git_cache(repo) is not None
+        where = source_cache() / (repo.replace("/", "__") + ".git")
+        mirror = ws_check_mirror(repo)
+    except SETUP_ERRORS as error:
+        raise Refused(f"{nowhere}: {type(error).__name__}: {error}"[:300]) from None
+    if not made:
+        raise Refused(nowhere)
     if mirror is not None:  # read through, never written: every object made here goes to the cache
         env["GIT_ALTERNATE_OBJECT_DIRECTORIES"] = str(mirror / "objects")
 
@@ -4749,7 +4792,7 @@ def ws_check_squash_tree(repo: str, head: str, tip: str) -> str:
         keep = [listed for path in paths if (listed := run("ls-tree", merged, "--", path).stdout.strip())]
         made = run("mktree", text="\n".join(keep) + "\n") if keep else None
         cut = made.stdout.strip() if made is not None and not made.returncode else ""
-    except (OSError, subprocess.SubprocessError) as error:
+    except SETUP_ERRORS as error:
         raise Refused(f"git cannot merge {head[:12]} with {tip[:12]}: {type(error).__name__}: {error}"[:300]) from None
     if not HEX40.fullmatch(cut):
         raise Refused(f"{head[:12]} merged with {tip[:12]} has none of {', '.join(paths)}")
