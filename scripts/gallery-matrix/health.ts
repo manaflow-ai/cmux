@@ -143,6 +143,8 @@ async function main(): Promise<void> {
       "invariant-baseline": { type: "string", default: INVARIANT_BASELINE_PATH },
       engines: { type: "string", default: "chromium" },
       retries: { type: "string", default: "2" },
+      // Cases rendered at once on the first pass (runner.ts runLocal); retries always render one at a time.
+      concurrency: { type: "string", default: process.env.CMUX_GALLERY_CONCURRENCY ?? "1" },
       "shard-count": { type: "string", default: "1" },
       "shard-index": { type: "string", default: "0" },
     },
@@ -159,8 +161,12 @@ async function main(): Promise<void> {
   const cases = shardCases(all, Number(values["shard-count"]), Number(values["shard-index"]));
   const outputDir = resolve(values["output-dir"]);
   await mkdir(outputDir, { recursive: true });
+  const concurrency = Number(values.concurrency);
+  if (!Number.isInteger(concurrency) || concurrency < 1) throw new Error("--concurrency must be a whole number of at least 1");
+  // The first pass renders `concurrency` cases at once. A retry confirms a red state alone on the runner, so a
+  // state another render slowed or shifted is never held red: it is red only if it is red again by itself.
   const run = (manifest: string, attempt: number) =>
-    runLocal({ manifest, galleryDir: values["gallery-dir"]!, outputDir: join(outputDir, `attempt-${attempt}`), threshold: 0, engines, shardCount: 1, shardIndex: 0 });
+    runLocal({ manifest, galleryDir: values["gallery-dir"]!, outputDir: join(outputDir, `attempt-${attempt}`), threshold: 0, engines, shardCount: 1, shardIndex: 0, concurrency: attempt === 0 ? concurrency : 1 });
 
   const shard = join(outputDir, "shard.json");
   await writeFile(shard, JSON.stringify(cases));

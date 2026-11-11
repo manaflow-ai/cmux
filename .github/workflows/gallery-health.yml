@@ -250,7 +250,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
+          # A pull request needs the merge and its two parents (the base is HEAD^1, which the base replay
+          # restores); a dispatch needs only the tip. Only a push compares with `before`, which may be any
+          # depth back. Full history took ~90 s of every shard's ~95 s checkout (2026-11-11 timing records).
+          fetch-depth: ${{ github.event_name == 'push' && 0 || 2 }}
           filter: blob:none
           sparse-checkout-cone-mode: false # patterns: .github/checkout-lean.json
           sparse-checkout: |
@@ -358,7 +361,13 @@ jobs:
         id: render
         if: ${{ steps.entries.outputs.all == 'true' || steps.entries.outputs.ids != '' }}
         continue-on-error: true
+        # A render that stalls stops here with time left for the judge and the upload, instead of the job's
+        # 45 minutes cancelling it with no verdict. Three cases at once render a shard in under 10 minutes.
+        timeout-minutes: 20
         env:
+          # Cases rendered at once on the first pass, on the 4-vCPU runner (runner.ts DEFAULT_CONCURRENCY);
+          # a retry renders a red state alone. One at a time had this step at a 24-minute p50 on 2026-11-10/11.
+          CMUX_GALLERY_CONCURRENCY: "3"
           ALL: ${{ steps.entries.outputs.all }}
           IDS: ${{ steps.entries.outputs.ids }}
           SHARD: ${{ matrix.shard }}
@@ -401,6 +410,10 @@ jobs:
           classify="$RUNNER_TEMP/test_reds.py"
           cp scripts/ci/test_reds.py "$classify"
           head="$RUNNER_TEMP/health/health.json"
+          if [ ! -s "$head" ]; then
+            echo "::error::the render step stopped before it wrote health.json (it ran past its 20-minute limit or crashed): no verdict, see its log"
+            exit 1
+          fi
           if [ -z "$BASE_SHA" ]; then
             echo "::error::gallery health is red on this $EVENT, which has no base to compare with: every red state fails it"
             exit 1
