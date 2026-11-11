@@ -359,7 +359,10 @@ fn many_file_commands_in_one_read_share_one_budget() {
         KittyMediaRewriter::with_limits(Limits { max_file_bytes: 100_000, ..Limits::default() });
     let mut out = Vec::new();
     rewriter.rewrite(&input, &mut out);
-    let one_image = data.len() / 3 * 4 + 4 * 64;
+    // One image as `write_direct` writes it: its base64 (rounded up), at most 16 bytes of
+    // framing per chunk (ESC _ G, `q=N,`, `m=0|1`, `;`, ESC \), and the first chunk's keys.
+    let chunks = data.len().div_ceil(CHUNK_BASE64_BYTES / 4 * 3);
+    let one_image = data.len().div_ceil(3) * 4 + chunks * 16 + 64;
     assert!(
         out.len() <= one_image + input.len(),
         "one read of 200 commands grew to {} bytes",
