@@ -11237,33 +11237,31 @@ def _forged_error_log(letters):
     return job, log
 
 
-def _same_second_headers(n):
-    """A job whose failing step prints N `##[group]Run` headers in one second (step_owners' hardest placement)."""
-    job = {"name": "job", "steps": framed_steps([("Build", "success", 3, 5), ("Tests", "failure", 20, 40)])}
-    rows = [("Build", 3, "##[group]Run make"), ("Tests", 20, "##[group]Run tests")]
-    rows += [("Tests", 21, f"##[group]Run case {i}") for i in range(n)]
-    return job, framed_log([*rows, ("Tests", 39, EXIT)])
+def _same_second_case(n):
+    """bench_aligned_starts.same_second_case: N same-second `##[group]Run x` headers over 10 workflow steps whose
+    StepNames carry those headers, so step_owners reads them with _aligned_starts (no other reading places them),
+    which must come back ambiguous. With STEP_NAMES_UNKNOWN it returned at once and timed nothing (#41399's review)."""
+    import bench_aligned_starts  # scripts/ci, on sys.path above
+    job, log, names = bench_aligned_starts.same_second_case(n, 10)
+    return job, log, {"step_names": names}
 
 
 # The excuse's public parser entry points, each on the input shape an attacker controls that makes it work hardest,
 # as BUILD(N) for growth_failure: (N, BUILD). A PR's log is attacker-shaped text read all the way through, so each
-# must cost linear in it. test_reds.plain joins once cmux#41382 (where it comes in) is on this base.
+# must cost linear in it, and each case proves it reaches the path it times by failing that path's known-bad version
+# (KNOWN_BAD_OF, AdversarialCasesReachTheirPath). The escape strip's case (test_reds.plain on unterminated OSC
+# openers, against the greedy OSC) is cmux#41390's PlainCostsLinearInItsInput until that and this are on one base.
 ADVERSARIAL = {
     "base_red_excuse.normalise_error, one forged marker (\\0 z...z \\0)": (
         1_600, lambda n: (lambda text=f"\0{'z' * n}\0 Sources/A1.swift:3 failed": excuse.normalise_error(text))),
-    "base_red_excuse.normalise_error, many forged markers": (
-        200, lambda n: (lambda text="\0zzzz\0 " * n + "Sources/A1.swift": excuse.normalise_error(text))),
-    "base_red_excuse.normalise_error, a forged marker among many paths": (
-        200, lambda n: (lambda text=" ".join(f"S/A{i}.swift" for i in range(n)) + f" \0{'z' * n}\0":
-                        excuse.normalise_error(text))),
+    "base_red_excuse.normalise_error, many paths on one line": (
+        1_000, lambda n: (lambda text=" ".join(f"S/A{i}.swift:3" for i in range(n)): excuse.normalise_error(text))),
     "base_red_excuse.unplaced_signature, a forged marker in an error line": (
         1_600, lambda n: (lambda case=_forged_error_log(n): excuse.unplaced_signature(*case))),
     "base_red_excuse.step_owners, same-second step headers": (
-        40, lambda n: (lambda case=_same_second_headers(n): excuse.step_owners(*case, **UNKNOWN))),
+        100, lambda n: (lambda case=_same_second_case(n): excuse.step_owners(case[0], case[1], **case[2]))),
     "base_red_excuse.failed_steps_log, same-second step headers": (
-        40, lambda n: (lambda case=_same_second_headers(n): excuse.failed_steps_log(*case, **UNKNOWN))),
-    "test_reds.log_lines, CSI introducers": (
-        2_000, lambda n: (lambda text="\x1b[" * n + "\x1b[1;" * n: excuse.test_reds.log_lines(text))),
+        100, lambda n: (lambda case=_same_second_case(n): excuse.failed_steps_log(case[0], case[1], **case[2]))),
 }
 
 
@@ -11331,12 +11329,10 @@ def _patch_ansi():
 # Which known-bad version each ADVERSARIAL case must fail (AdversarialCasesReachTheirPath).
 KNOWN_BAD_OF = {
     "base_red_excuse.normalise_error, one forged marker (\\0 z...z \\0)": "the unbounded marker decode",
-    "base_red_excuse.normalise_error, many forged markers": "the unbounded marker decode",
-    "base_red_excuse.normalise_error, a forged marker among many paths": "the per-path replace",
+    "base_red_excuse.normalise_error, many paths on one line": "the per-path replace",
     "base_red_excuse.unplaced_signature, a forged marker in an error line": "the unbounded marker decode",
     "base_red_excuse.step_owners, same-second step headers": "the frozen quadratic mapper",
     "base_red_excuse.failed_steps_log, same-second step headers": "the frozen quadratic mapper",
-    "test_reds.log_lines, CSI introducers": "the greedy OSC",
 }
 
 
