@@ -13,18 +13,29 @@ reads the commit instead:
 - a directory, a submodule (mode 160000), a binary blob (a NUL byte in its first 8000, git's own test) and a path the
   commit does not have are each refused by name;
 - a blob a partial clone (`--filter=blob:none`) never fetched is refused as NeedsFullTree, never read as missing, and
-  never fetched behind the caller's back (GIT_NO_LAZY_FETCH, git 2.44 and later; an older git fetches it).
+  never fetched behind the caller's back.
 
-Blobs are read through one `git cat-file --batch` process, so a scan of thousands of files costs one process.
+Which blobs this clone lacks is asked first, once per tree, of `git rev-list --objects --no-walk --missing=print
+--stdin` (a `?oid` line is missing), the probe leo-workspace's tools/git_missing.py uses (LW#4389). rev-list turns lazy
+fetching off in-process on every git and does not scan the promisor packs for a miss. `cat-file` is then asked only
+for blobs that are present: on a missing blob it lazily fetches where git ignores GIT_NO_LAZY_FETCH (before 2.44 and
+its backports), scans every promisor pack where git honours it (976-5538 s on a blobless mirror), and on Git 2.43
+answers an empty line, not `missing`. Present blobs are read through one `git cat-file --batch` process, so a scan of
+thousands of files costs two processes.
 """
 from __future__ import annotations
 
 import os
 import posixpath
+import signal
 import subprocess
 from pathlib import Path
 
 GIT_SECONDS = 120
+# Which named objects this clone lacks, never fetching (leo-workspace tools/git_missing.py's ARGS): `?oid` lines are
+# missing; --ignore-missing keeps a missing named object from failing the call; --no-walk reads only what is named.
+MISSING_ARGS = ("rev-list", "--objects", "--no-walk", "--filter=tree:1", "--ignore-missing", "--missing=print",
+                "--stdin")
 SYMLINK_HOPS = 40
 BINARY_PROBE = 8000  # bytes git reads for a NUL before calling a blob binary (buffer_is_binary)
 REGULAR = ("100644", "100755")
@@ -53,6 +64,7 @@ class GitTree:
         self.root = Path(root)
         self.ref = ref
         self._entries: dict[str, tuple[str, str]] | None = None
+        self._missing: set[str] | None = None
         self._batch: subprocess.Popen | None = None
 
     def __enter__(self) -> "GitTree":
@@ -100,6 +112,45 @@ class GitTree:
                 entries[name.decode("utf-8", "surrogateescape")] = (mode, oid)
             self._entries = entries
         return self._entries
+
+    def missing(self) -> set[str]:
+        """The object ids of the tree's blobs (files and symlinks) this clone does not hold, asked of rev-list once
+        (MISSING_ARGS) so that nothing is fetched and no promisor pack is scanned, on any git. Raises Unreadable when
+        git cannot say."""
+        if self._missing is None:
+            oids = sorted({oid for mode, oid in self.entries().values() if mode in REGULAR or mode == SYMLINK})
+            if not oids:
+                self._missing = set()
+                return self._missing
+            try:
+                proc = subprocess.Popen(["git", "-C", str(self.root), *MISSING_ARGS], stdin=subprocess.PIPE,
+                                        stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=_env(),
+                                        start_new_session=True)
+            except OSError as why:
+                raise Unreadable(f"git rev-list failed in {self.root}: {why}") from None
+            try:
+                out, err = proc.communicate("".join(f"{oid}\n" for oid in oids).encode(), timeout=GIT_SECONDS)
+            except subprocess.TimeoutExpired:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+                proc.communicate()
+                raise Unreadable(f"git rev-list in {self.root} could not say within {GIT_SECONDS} s which of "
+                                 f"{len(oids)} blobs this clone holds") from None
+            if proc.returncode:
+                raise Unreadable(f"git rev-list failed in {self.root}: "
+                                 + err.decode(errors="replace").strip()[:500])
+            present = {line.split()[0] for line in out.decode(errors="replace").splitlines()
+                       if line and not line.startswith("?")}
+            self._missing = {oid for oid in oids if oid not in present}
+        return self._missing
+
+    def _needs_full_tree(self, path: str, oid: str) -> NeedsFullTree:
+        return NeedsFullTree(
+            f"{self.ref}: {path} (blob {oid[:12]}) is in the tree but not in this clone's objects, a partial clone "
+            f"that never fetched it: this check needs a full tree (a clone without --filter, or "
+            f"`git -C {self.root} fetch --refetch origin`), and reads nothing in its place")
 
     def _link(self, path: str, oid: str) -> str:
         target = self._blob(path, oid).decode("utf-8", "surrogateescape")
@@ -163,6 +214,8 @@ class GitTree:
                       and (mode in REGULAR or (mode == SYMLINK and self.is_file(path))))
 
     def _blob(self, path: str, oid: str) -> bytes:
+        if oid in self.missing():
+            raise self._needs_full_tree(path, oid)  # never asked of cat-file (missing(), module docs)
         if self._batch is None:
             try:
                 self._batch = subprocess.Popen(["git", "-C", str(self.root), "cat-file", "--batch"], env=_env(),
@@ -187,11 +240,8 @@ class GitTree:
             code = batch.wait()
             batch.stdout.close()
             raise Unreadable(f"git cat-file in {self.root} ended reading {path} (exit {code})")
-        if len(header) == 2 and header[1] == "missing":
-            raise NeedsFullTree(
-                f"{self.ref}: {path} (blob {oid[:12]}) is in the tree but not in this clone's objects, a partial "
-                f"clone that never fetched it: this check needs a full tree (a clone without --filter, or "
-                f"`git -C {self.root} fetch --refetch origin`), and reads nothing in its place")
+        if len(header) == 2 and header[1] == "missing":  # gone since missing() asked
+            raise self._needs_full_tree(path, oid)
         if len(header) != 3:
             raise Unreadable(f"git cat-file answered {' '.join(header)!r} for {path}")
         size = int(header[2])
