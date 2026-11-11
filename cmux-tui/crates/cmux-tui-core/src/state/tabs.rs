@@ -2,6 +2,8 @@
 //! the personal saved tab groups. Every mutation commits through
 //! [`Mux::commit_tab_strip_change`] (tab order changes) or
 //! [`Mux::commit_state`] (rows only), keyed by the request's idempotency key.
+//! `tab.update` writes one tab's rows, so it is a rows-only commit: its cost
+//! does not follow the size of the session.
 
 use crate::Actor;
 use crate::mux::tab_groups::{pane_by_public_id, tab_public_id};
@@ -11,8 +13,10 @@ use crate::state::commit::{StateEffects, state_not_found};
 use crate::state::prelude::*;
 use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert};
 use crate::state::tab_state_store::{
-    TabStateUpdate, delete_saved_tab_group, saved_tab_group, tab_group_ids, tab_group_snapshot,
+    TabStateUpdate, delete_saved_tab_group, saved_tab_group, tab_attention_record, tab_group_ids,
+    tab_group_snapshot, update_tab_state,
 };
+use crate::state::values::{fresh_upserts, upserted_value};
 
 /// Advertises `icon` on `tab_group.update`, `TabGroupSnapshot`,
 /// `SavedTabGroupSnapshot` and the raw `update-tab-group` and tab group runs.
@@ -32,6 +36,20 @@ pub(crate) fn resolve_tabs(state: &State, tabs: &[String]) -> anyhow::Result<Vec
         })
         .collect()
 }
+
+/// `tab.update` found no stored row of a tab the session holds, so the rows
+/// commit has no value to restate. The request then commits through the tab
+/// strip commit, which writes the session's topology with the record.
+#[derive(Debug)]
+struct TabRowNotStored;
+
+impl std::fmt::Display for TabRowNotStored {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("the tab has no stored row")
+    }
+}
+
+impl std::error::Error for TabRowNotStored {}
 
 impl Mux {
     /// `tab.pin` / `tab.unpin`. A pinned tab leaves its group and moves to
@@ -83,7 +101,17 @@ impl Mux {
         Ok(commit)
     }
 
-    /// `tab.update`: zoom and a browser tab's back/forward lists.
+    /// `tab.update`: one tab's record (zoom, icon, unread mark, attention
+    /// mark, a browser tab's back/forward lists, emulation and owner).
+    ///
+    /// A rows-only commit ([`Self::commit_state_refreshing`]): under the
+    /// registry lock it resolves the tab (the state lock covers only that),
+    /// writes the tab's rows, restates the tab by point reads and patches the
+    /// two presentation cache fields a tab's record feeds. It clones no
+    /// session state, projects no workspace and reads no whole topology or
+    /// presentation, so its cost is the same on a session of any size
+    /// (AGENT TRAFFIC 800: at 826 workspaces the tab strip commit held both
+    /// locks for the whole session's projection).
     pub(crate) fn state_update_tab(
         self: &Arc<Self>,
         request: StripRequest,
@@ -95,52 +123,118 @@ impl Mux {
         if let Some(Some(icon)) = &update.icon {
             self.with_icon_registry(|registry| registry.require_icon_asset(icon))?;
         }
-        let (_, commit) =
-            self.commit_tab_strip_change(request, None, move |mux, state, edit| {
-                let resolved =
-                    mux.resolve_in_state(state, crate::ResourceTarget::Tab, &selectors)?;
-                let surface = resolved.tab.context("tab selector resolved no tab")?;
-                let tab = tab_public_id(state, surface)?;
-                let browser = state
-                    .surfaces
-                    .get(&surface)
-                    .is_some_and(|runtime| runtime.kind() == SurfaceKind::Browser);
-                anyhow::ensure!(
-                    browser || (update.back.is_none() && update.forward.is_none()),
-                    "bad request: back and forward apply only to browser tabs"
-                );
-                anyhow::ensure!(
-                    browser || update.emulation.is_none(),
-                    "bad request: device emulation applies only to browser tabs"
-                );
-                if update.back.is_some() || update.forward.is_some() {
-                    let runtime = state.surfaces.get(&surface).context("tab has no surface")?;
-                    mux.refuse_conversation_tab(runtime)?;
+        let StripRequest { mutation, operation, fingerprint, expected_revision } = request;
+        // What the commit wrote that the presentation cache holds.
+        let written = std::cell::RefCell::new(None);
+        let committed = self.commit_state_refreshing(
+            &mutation,
+            &operation,
+            &fingerprint,
+            expected_revision,
+            true,
+            |transaction, state| {
+                let (tab, browser, update) =
+                    self.tab_record_update(state, &selectors, update.clone())?;
+                // No stored row of this tab yet: write nothing here (an
+                // `owner` update would fail on the browser row it lacks).
+                let stored: bool = transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM resource_tabs WHERE public_id = ?1)",
+                    [tab.as_str()],
+                    |row| row.get(0),
+                )?;
+                if !stored {
+                    return Err(TabRowNotStored.into());
                 }
-                let frontend = state
-                    .surfaces
-                    .get(&surface)
-                    .is_some_and(|runtime| mux.frontend_browser_id(runtime).is_some());
-                anyhow::ensure!(
-                    frontend || update.owner.is_none(),
-                    "bad request: owner applies only to frontend browser tabs"
-                );
-                let mut update = update;
-                // tab-attention-v1: a browser tab's new mark records the page
-                // it was set on, so only a later page clears it.
-                if matches!(update.attention, Some(Some(_))) {
-                    update.attention_page = state
-                        .surfaces
-                        .get(&surface)
-                        .and_then(|runtime| runtime.as_browser())
-                        .map(|browser| browser.url())
-                        .filter(|url| !url.is_empty());
+                update_tab_state(transaction, &tab, &update)?;
+                let changes = fresh_upserts(transaction, &[], &[], std::slice::from_ref(&tab))?;
+                let value = upserted_value(&changes, "tab", &tab).ok_or(TabRowNotStored)?;
+                // The mark as stored: a stale request id leaves the old one.
+                let attention = match update.attention {
+                    Some(_) => Some(tab_attention_record(transaction, &tab)?),
+                    None => None,
+                };
+                let owner = browser.zip(update.owner);
+                *written.borrow_mut() = Some((tab, attention, owner));
+                Ok(StateChanges::new(value, changes))
+            },
+            |_| {
+                if let Some((tab, attention, owner)) = written.take() {
+                    self.patch_tab_presentation(&tab, attention, owner);
                 }
-                edit.tab_state.push((tab.clone(), update));
-                edit.result = StripResult::Tab(tab);
                 Ok(())
-            })?;
-        Ok(commit)
+            },
+        );
+        let commit = match committed {
+            Ok(commit) => commit,
+            Err(error) if error.is::<TabRowNotStored>() => {
+                // The store holds no row of this tab yet: the transaction
+                // rolled back, and the whole-session commit writes the
+                // topology with the record.
+                let request = StripRequest { mutation, operation, fingerprint, expected_revision };
+                let (_, commit) =
+                    self.commit_tab_strip_change(request, None, move |mux, state, edit| {
+                        let (tab, _, update) = mux.tab_record_update(state, &selectors, update)?;
+                        edit.tab_state.push((tab.clone(), update));
+                        edit.result = StripResult::Tab(tab);
+                        Ok(())
+                    })?;
+                return Ok(commit);
+            }
+            Err(error) => return Err(error),
+        };
+        Ok(ResourcePatchCommit {
+            revision: commit.revision,
+            result: commit.result,
+            replayed: commit.replayed,
+        })
+    }
+
+    /// What `tab.update` reads from the locked session: the tab's public id,
+    /// its frontend browser (the only tab an owner applies to), and `update`
+    /// with the page a new attention mark is set on. Refuses a field the
+    /// tab's kind does not hold.
+    fn tab_record_update(
+        &self,
+        state: &State,
+        selectors: &crate::ResourceSelectors,
+        mut update: TabStateUpdate,
+    ) -> anyhow::Result<(String, Option<crate::resource::BrowserPublicId>, TabStateUpdate)> {
+        let resolved = self.resolve_in_state(state, crate::ResourceTarget::Tab, selectors)?;
+        let surface = resolved.tab.context("tab selector resolved no tab")?;
+        let tab = tab_public_id(state, surface)?;
+        let browser = state
+            .surfaces
+            .get(&surface)
+            .is_some_and(|runtime| runtime.kind() == SurfaceKind::Browser);
+        anyhow::ensure!(
+            browser || (update.back.is_none() && update.forward.is_none()),
+            "bad request: back and forward apply only to browser tabs"
+        );
+        anyhow::ensure!(
+            browser || update.emulation.is_none(),
+            "bad request: device emulation applies only to browser tabs"
+        );
+        if update.back.is_some() || update.forward.is_some() {
+            let runtime = state.surfaces.get(&surface).context("tab has no surface")?;
+            self.refuse_conversation_tab(runtime)?;
+        }
+        let frontend =
+            state.surfaces.get(&surface).and_then(|runtime| self.frontend_browser_id(runtime));
+        anyhow::ensure!(
+            frontend.is_some() || update.owner.is_none(),
+            "bad request: owner applies only to frontend browser tabs"
+        );
+        // tab-attention-v1: a browser tab's new mark records the page
+        // it was set on, so only a later page clears it.
+        if matches!(update.attention, Some(Some(_))) {
+            update.attention_page = state
+                .surfaces
+                .get(&surface)
+                .and_then(|runtime| runtime.as_browser())
+                .map(|browser| browser.url())
+                .filter(|url| !url.is_empty());
+        }
+        Ok((tab, frontend, update))
     }
 
     /// `tab-attention-v1`: a browser tab now on `page` drops an attention
@@ -195,7 +289,7 @@ impl Mux {
                         page,
                     )?;
                 let restated: &[String] = if cleared { std::slice::from_ref(&tab) } else { &[] };
-                let changes = crate::state::values::fresh_upserts(transaction, &[], &[], restated)?;
+                let changes = fresh_upserts(transaction, &[], &[], restated)?;
                 Ok(StateChanges::new(serde_json::json!({"tab": tab, "cleared": cleared}), changes))
             },
         );
@@ -209,7 +303,7 @@ impl Mux {
     /// Store the owner (hosting app's install id) of a frontend-rendered
     /// browser tab on its record, restating the tab on `session.events`.
     /// The raw `update-frontend-browser-tab {owner}` path; `tab.update`
-    /// writes the same column through the tab strip commit.
+    /// writes the same column in its own rows commit.
     pub(crate) fn commit_browser_owner(
         &self,
         actor: &Actor,
@@ -232,9 +326,8 @@ impl Mux {
             |transaction, _| {
                 let update =
                     TabStateUpdate { owner: Some(owner.to_string()), ..Default::default() };
-                crate::state::tab_state_store::update_tab_state(transaction, tab, &update)?;
-                let changes =
-                    crate::state::values::fresh_upserts(transaction, &[], &[], &[tab.to_string()])?;
+                update_tab_state(transaction, tab, &update)?;
+                let changes = fresh_upserts(transaction, &[], &[], &[tab.to_string()])?;
                 Ok(StateChanges::new(serde_json::json!({"tab": tab}), changes))
             },
         )?;

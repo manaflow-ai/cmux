@@ -139,6 +139,13 @@ fn is_registry_file(path: &Path) -> bool {
     })
 }
 
+/// Whether `path` is the daemon's slow request log or its older file (cmux-tui-core
+/// diagnostics/request_log.rs): a record of a slow request or a long lock hold, never output.
+fn is_slow_request_log(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|name| name == "slow-requests.jsonl" || name == "slow-requests.jsonl.1")
+}
+
 fn idle_terminals_write_nothing(mode: &str) {
     let _exclusive = exclusive_process_test();
     let harness = harness(&format!("output-idle-{mode}"), mode);
@@ -188,10 +195,23 @@ fn idle_terminals_write_nothing(mode: &str) {
         grown.is_empty(),
         "idle redrawing terminals added journal rows in {mode} mode: {grown:?}"
     );
+    // A request or a lock hold that passes the 100 ms limit of the slow request log in the window
+    // (a loaded host) adds a record there. That file is diagnostics, not terminal output: it is
+    // printed here and is not part of the assert below.
+    for (path, len, _) in after.iter().filter(|state| !before.contains(state)) {
+        if is_slow_request_log(path) {
+            let text = fs::read_to_string(path).unwrap_or_default();
+            eprintln!(
+                "output-store idle {mode}: the slow request log changed in the idle window (not \
+                 part of this assert): {} ({len} bytes)\n{text}",
+                path.display()
+            );
+        }
+    }
     let changed = after
         .iter()
         .filter(|state| !before.contains(state))
-        .filter(|(path, _, _)| !is_registry_file(path))
+        .filter(|(path, _, _)| !is_registry_file(path) && !is_slow_request_log(path))
         .map(|(path, len, _)| format!("{} ({len} bytes)", path.display()))
         .collect::<Vec<_>>();
     assert!(

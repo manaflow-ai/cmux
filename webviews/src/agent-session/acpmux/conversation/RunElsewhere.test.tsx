@@ -386,7 +386,7 @@ test("the host refusing to relay the run says so plainly, and no row offers it a
     throw refusal;
   });
   const host = await clickChip(runs);
-  expectOnlyLine(host, translate("runElsewhere.hostRefused"));
+  expectOnlyLine(host, translate("runElsewhere.unavailable"));
   expect(host.textContent).not.toContain("Refused by the cmux host");
   expect(runs.store.relays()).toBe(false);
   await act(async () => root!.unmount());

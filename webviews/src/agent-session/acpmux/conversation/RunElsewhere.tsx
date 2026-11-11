@@ -8,7 +8,6 @@ import type { KeyboardEvent, MouseEvent } from "react";
 import { useContext, useEffect, useRef, useState } from "react";
 import { Button } from "../../../ui/Button";
 import { translate, useT } from "../i18n";
-import { isHostRefusal } from "../transportErrors";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import {
@@ -61,13 +60,14 @@ export function afterPlan(plan: RunPlan, last?: string): RunState {
   return { phase: "choosing", plan, machine: firstMachine(plan.machines, last), send: [] };
 }
 
-/** What a failed plan leaves under the row. The pane's host refusing to relay it (a `transport.`
- * code: acpmux never saw the ask) means this app cannot move commands at all, so the chip goes
- * from every row; acpmux's own refusal says its reason. */
+/** What a failed plan leaves under the row. The pane's host refusing to relay it (not on its relay
+ * allowlist, `transport.method_refused`: acpmux never saw the ask) means this build cannot move
+ * commands at all, so the chip goes from every row; any other transport error (a dropped
+ * connection) passes. acpmux's own refusal says its reason. */
 export function afterPlanError(runs: Runs, error: unknown): RunState {
-  if (isHostRefusal(error)) {
+  if ((error as { code?: unknown } | null)?.code === "transport.method_refused") {
     runs.store.hostRefused();
-    return { phase: "note", text: translate("runElsewhere.hostRefused") };
+    return { phase: "note", text: translate("runElsewhere.unavailable") };
   }
   const why = String((error as Error)?.message ?? error);
   // acpmux's refusal (a JSON-RPC code) names why the command stays; anything else (this chat lost
