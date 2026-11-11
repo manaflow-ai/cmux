@@ -27,6 +27,8 @@ fn mac_close_on_exec_marker_does_not_claim_an_unrelated_process() {
     };
     let current = process_identity(std::process::id()).unwrap();
     let scanned = scan_registered_processes(&[registration], ProcessScanCursor::default());
+    // The whole process table fits one scan, so no match can hide behind a resume cursor.
+    assert!(scanned.next.is_none(), "the scan finished in one pass");
     assert!(
         !scanned.matches.contains(&(0, current)),
         "a close-on-exec marker is incidental fork inheritance, not scope membership"
