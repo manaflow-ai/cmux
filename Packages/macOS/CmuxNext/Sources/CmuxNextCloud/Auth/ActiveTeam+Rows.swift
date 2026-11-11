@@ -28,19 +28,17 @@ extension ActiveTeam {
 
     /// The teams this device may use, in the account's order, the active one checked.
     public var rows: [Row] {
-        Self.rows(teams.map { ($0.id, $0.displayName, $0.plan) }, active: id, ownEmail: source.signedInEmail)
+        Self.rows(teams.map { ($0.id, $0.displayName, $0.plan) }, active: id)
     }
 
     /// The active team's row, once membership has loaded.
     public var activeRow: Row? { rows.first(where: \.active) }
 
-    /// `ownEmail`: the signed-in account's email, whose sign-in service default team shows as Personal.
-    nonisolated static func rows(_ teams: [(id: String, name: String, plan: String?)], active: String?,
-                                 ownEmail: String? = nil) -> [Row] {
+    nonisolated static func rows(_ teams: [(id: String, name: String, plan: String?)], active: String?) -> [Row] {
         struct Facts: Encodable { var id: String, name: String, plan: String? }
-        struct Request: Encodable { var teams: [Facts], active: String?, ownEmail: String? }
+        struct Request: Encodable { var teams: [Facts], active: String? }
         struct Answer: Decodable { var rows: [Row] }
-        let request = Request(teams: teams.map { Facts(id: $0.id, name: $0.name, plan: $0.plan) }, active: active, ownEmail: ownEmail)
+        let request = Request(teams: teams.map { Facts(id: $0.id, name: $0.name, plan: $0.plan) }, active: active)
         // An FFI that does not answer still lists every team, by name, with the active one checked.
         return CloudStartCore().call("cloud_auth_team_rows", request, as: Answer.self)?.rows
             ?? teams.map { Row(id: $0.id, title: $0.name, kind: .team, active: $0.id == active) }
