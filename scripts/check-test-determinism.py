@@ -98,6 +98,7 @@ import json
 import pathlib
 import re
 import sys
+import unicodedata
 from dataclasses import dataclass, replace
 from functools import lru_cache
 from typing import Iterable, Optional
@@ -709,19 +710,42 @@ _JAVASCRIPT_EXPRESSION_KEYWORDS = frozenset(
     {"await", "delete", "in", "instanceof", "new", "of", "return", "throw", "typeof", "void", "yield"}
 )
 _JAVASCRIPT_BLOCK_KEYWORDS = frozenset({"do", "else", "finally", "try"})
+# Restricted productions: a line terminator after these ends the statement (automatic semicolon insertion).
+_JAVASCRIPT_ASI_KEYWORDS = frozenset({"return", "yield"})
+_JAVASCRIPT_LINE_TERMINATOR = re.compile("[\n\r\u2028\u2029]")
 # Heads after whose `)` a `{` opens a block (a statement's body): the control heads, `switch` and `catch`.
 _JAVASCRIPT_BLOCK_HEAD_KEYWORDS = _JAVASCRIPT_CONTROL_HEAD_KEYWORDS | {"switch", "catch"}
 
 
-def _javascript_identifier_character(character: str) -> bool:
-    """Whether CHARACTER continues a JavaScript identifier (Unicode ID_Continue, `$` or `_`): `πif` is one name,
-    not `π` and the keyword `if`."""
-    return character in "_$" or character.isalnum() or ("a" + character).isidentifier()
+# ECMAScript IdentifierStart is Unicode ID_Start, `$` and `_`; IdentifierPart adds ID_Continue, U+200C (ZWNJ) and
+# U+200D (ZWJ). Python's own rule (XID, and no ZWNJ or ZWJ) differs, so these follow Unicode's definitions: ID_Start
+# is the letter categories, Nl and Other_ID_Start; ID_Continue adds Mn, Mc, Nd, Pc and Other_ID_Continue.
+_UNICODE_ID_START_CATEGORIES = frozenset({"Lu", "Ll", "Lt", "Lm", "Lo", "Nl"})
+_UNICODE_ID_CONTINUE_CATEGORIES = _UNICODE_ID_START_CATEGORIES | {"Mn", "Mc", "Nd", "Pc"}
+_UNICODE_OTHER_ID_START = frozenset("\u1885\u1886\u2118\u212e\u309b\u309c")
+_UNICODE_OTHER_ID_CONTINUE = frozenset("\u00b7\u0387\u1369\u136a\u136b\u136c\u136d\u136e\u136f\u1370\u1371\u19da")
+_UNICODE_PATTERN_SYNTAX_IN_ID = frozenset("\u2e2f")  # Lm, but Pattern_Syntax: never in an identifier
 
 
 def _javascript_identifier_start(character: str) -> bool:
-    """Whether CHARACTER starts a JavaScript identifier (Unicode ID_Start, `$` or `_`)."""
-    return character in "_$" or character.isidentifier()
+    """Whether CHARACTER starts a JavaScript identifier (ECMAScript IdentifierStart: ID_Start, `$` or `_`)."""
+    if character.isascii():
+        return character.isalpha() or character in "_$"
+    if character in _UNICODE_PATTERN_SYNTAX_IN_ID:
+        return False
+    return unicodedata.category(character) in _UNICODE_ID_START_CATEGORIES or character in _UNICODE_OTHER_ID_START
+
+
+def _javascript_identifier_character(character: str) -> bool:
+    """Whether CHARACTER continues a JavaScript identifier (ECMAScript IdentifierPart: ID_Continue, `$`, `_`,
+    U+200C or U+200D): `πif` and `x\u200cif` are one name each, not a name and the keyword `if`."""
+    if character.isascii():
+        return character.isalnum() or character in "_$"
+    if character in "\u200c\u200d" or character in _UNICODE_OTHER_ID_START or character in _UNICODE_OTHER_ID_CONTINUE:
+        return True
+    if character in _UNICODE_PATTERN_SYNTAX_IN_ID:
+        return False
+    return unicodedata.category(character) in _UNICODE_ID_CONTINUE_CATEGORIES
 
 
 def _javascript_word_before(source: str, end: int, comments: bytearray) -> tuple[str, int]:
@@ -806,36 +830,6 @@ def _javascript_matching_open(
     return -1
 
 
-_JAVASCRIPT_JSX_ATTRIBUTE_CHARACTERS = frozenset("=-:.")
-
-
-def _javascript_brace_in_jsx_open_tag(
-    source: str, open_brace: int, executable: bytearray, comments: bytearray
-) -> bool:
-    """Whether the `{` at OPEN_BRACE is an attribute's (or a spread's) value inside a JSX open tag: walking back
-    over attribute names, `=`, strings and other braced values reaches `<Name` with nothing else between."""
-    index = open_brace - 1
-    while index >= 0:
-        character = source[index]
-        if not executable[index] or comments[index] or character.isspace():
-            index -= 1
-            continue
-        if character == "}":
-            index = _javascript_matching_open(source, index, "{", "}", executable)
-            if index < 0:
-                return False
-            index -= 1
-            continue
-        if _javascript_identifier_character(character) or character in _JAVASCRIPT_JSX_ATTRIBUTE_CHARACTERS:
-            index -= 1
-            continue
-        if character == "<":
-            after = index + 1
-            return after < open_brace and (source[after].isalpha() or source[after] in "_$")
-        return False
-    return False
-
-
 def _javascript_brace_closes_block(
     source: str, close: int, executable: bytearray, comments: bytearray
 ) -> Optional[bool]:
@@ -872,6 +866,10 @@ def _javascript_brace_closes_block(
         word, start = _javascript_word_before(source, previous + 1, comments)
         if not _javascript_is_keyword_at(source, start, comments):
             return None
+        if word in _JAVASCRIPT_ASI_KEYWORDS and _JAVASCRIPT_LINE_TERMINATOR.search(source, start + len(word), open_brace):
+            # `return` and `yield` take no line terminator before their operand: a semicolon is inserted, and the
+            # `{` on the next line opens a block (a terminator inside a comment between counts too).
+            return True
         if word in _JAVASCRIPT_EXPRESSION_KEYWORDS:
             return False
         if word in _JAVASCRIPT_BLOCK_KEYWORDS:
@@ -924,21 +922,10 @@ def _javascript_regex_literal_starts_at(
     if character == ")":
         return _javascript_paren_closes_control_head(source, previous, executable, comments)
     if character == "}":
-        open_brace = _javascript_matching_open(source, previous, "{", "}", executable)
-        # `<Tag a={b} />`, `<Tag {...p} />`: the slash of a self-closing JSX tag, but only inside a JSX open tag
-        # (`if (ok) {} />x{/.test(s)` holds a regex literal).
-        if (
-            source.startswith("/>", index)
-            and open_brace >= 0
-            and _javascript_brace_in_jsx_open_tag(source, open_brace, executable, comments)
-        ):
-            return False
-        closes_block = _javascript_brace_closes_block(source, previous, executable, comments)
-        return None if closes_block is None else closes_block
+        # A JSX tag's `/>` and `</` never get here: the lexer reads a JSX element (in .js, .jsx and .tsx) as its own
+        # context, so a slash after a `}` or a `<` is a regex literal or a division.
+        return _javascript_brace_closes_block(source, previous, executable, comments)
     if character in "]'\"`.":
-        return False
-    if character == "<" and previous + 1 == index:
-        # `</div>`: a JSX closing tag, not `<` followed by a regex literal.
         return False
     if (
         character in "+-"
@@ -954,14 +941,16 @@ def _javascript_regex_literal_starts_at(
 # text or comment), marked in one step. Without these the lexer is a Python loop over every character.
 _LEXER_CODE_STOP = re.compile(r"[/#'\"`\\$]")
 _LEXER_EXPRESSION_STOP = re.compile(r"[/#'\"`\\$(){}]")
-# In a .tsx or .jsx file a `<` may open a JSX element, so code also stops there.
+# In a .js, .jsx or .tsx file a `<` may open a JSX element, so code also stops there.
 _LEXER_JSX_CODE_STOP = re.compile(r"[/#'\"`\\$<]")
 _LEXER_JSX_EXPRESSION_STOP = re.compile(r"[/#'\"`\\$(){}<]")
 # A JSX element's children are text up to a `{` hole of code or a `<` (a nested element or the closing tag).
 _LEXER_JSX_CHILDREN_STOP = re.compile(r"[{<]")
 # Inside a JSX open tag: names, `=`, `.`, `:`, `-` and blanks carry on; anything else is decided one at a time.
 _LEXER_JSX_TAG_STOP = re.compile(r"[^A-Za-z0-9_$\s=.:\-]")
-_JSX_SUFFIXES = frozenset({".jsx", ".tsx"})
+# The files that may hold JSX. A .ts, .mts or .cts file holds none (`<T,>(x) => x`, `a < b > c` are TypeScript);
+# in plain JavaScript a `<` where an expression starts can only open JSX.
+_JSX_SUFFIXES = frozenset({".js", ".jsx", ".tsx"})
 _LEXER_TEMPLATE_STOP = re.compile(r"[\\`$]")
 _LEXER_SHELL_DOUBLE_STOP = re.compile(r'[\\"$`]')
 _LEXER_REGEX_STOP = re.compile(r"[\\\r\n\[\]/]")
@@ -1017,7 +1006,7 @@ def _lexical_positions_and_unresolved(
     # opening hash count there. Nested quote/template contexts sit above them.
     contexts: list[tuple[str, int, str]] = [("code", 0, "")]
     is_shell = path_suffix == ".sh"
-    # Only a .tsx or .jsx file holds JSX: in a .ts file `<T,>(x) => x / 2` and `a < b > c` are generics and
+    # Only a .js, .jsx or .tsx file holds JSX: in a .ts file `<T,>(x) => x / 2` and `a < b > c` are generics and
     # comparisons.
     is_jsx = path_suffix in _JSX_SUFFIXES
     code_stop = _LEXER_JSX_CODE_STOP if is_jsx else _LEXER_CODE_STOP
