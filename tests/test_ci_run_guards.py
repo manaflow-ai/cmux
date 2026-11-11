@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import copy
+import os
 import re
 import subprocess
 import sys
@@ -491,6 +492,33 @@ class FeatRoutesSelectTheGroups(unittest.TestCase):
         self.assertIn("workflow-guard-tests / preflight:", listed)
         # The routed-groups line still names it; the plan leaves it out.
         self.assertNotIn("workflow-guard-tests / release-notary:", listed)
+
+
+class ATestSpawnedGuardRunLeavesTheCallersFilesAlone(unittest.TestCase):
+    """The guard runner points CMUX_GUARD_CHECK_RESULTS, GITHUB_STEP_SUMMARY, GITHUB_OUTPUT and GITHUB_ENV at the
+    running step's own files. A guard run a test spawns (a failing payload fixture, the runner-guard fixtures) must
+    write none of them: on #41333 the payload fixtures' `./a.sh` reds landed in the real step's results and the CI
+    guard group charged them to the change."""
+
+    def test_the_fixture_suites_leave_all_four_files_byte_identical(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            outer = {name: Path(temp) / f"outer-{name.lower()}" for name in
+                     ("CMUX_GUARD_CHECK_RESULTS", "GITHUB_STEP_SUMMARY", "GITHUB_OUTPUT", "GITHUB_ENV")}
+            for name, path in outer.items():
+                path.write_text(f"1\tthe caller's own {name}\n", encoding="utf-8")
+            before = {name: path.read_bytes() for name, path in outer.items()}
+            env = {key: value for key, value in os.environ.items() if not key.startswith("CMUX_GUARD_")}
+            env.update({name: str(path) for name, path in outer.items()})
+            done = subprocess.run(
+                [sys.executable, "-m", "unittest", "-q",
+                 "test_ci_run_guards.PortableSubstitutes", "test_ci_guard_check_isolation"],
+                cwd=ROOT / "tests", env=env, capture_output=True, text=True, timeout=600,
+            )
+            self.assertEqual(done.returncode, 0, done.stdout[-3000:] + done.stderr[-3000:])
+            after = {name: path.read_bytes() for name, path in outer.items()}
+            for name in outer:
+                with self.subTest(file=name):
+                    self.assertEqual(after[name], before[name])
 
 
 if __name__ == "__main__":
