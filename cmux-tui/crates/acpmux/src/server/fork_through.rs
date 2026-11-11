@@ -71,7 +71,7 @@ pub(super) fn retarget(params: &Value) -> Result<Option<crate::hub::Retarget>, R
         ));
     }
     Ok(match text("harness")? {
-        Some(harness) => Some(crate::hub::Retarget { harness, model }),
+        Some(harness) => Some(crate::hub::Retarget { harness, model, remote: false }),
         None if model.is_some() => {
             return Err(RpcError::invalid_params("_meta.acpmux.model needs _meta.acpmux.harness"));
         }

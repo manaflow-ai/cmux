@@ -21,7 +21,7 @@ fn hub() -> Arc<Hub> {
 }
 
 fn to(harness: &str) -> Retarget {
-    Retarget { harness: harness.into(), model: None }
+    Retarget { harness: harness.into(), model: None, remote: false }
 }
 
 /// The text the agent answered in `session`'s turns.
