@@ -1888,7 +1888,7 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/check-single-omnibar.py "$GITHUB_WORKSPACE"
 
-      - name: React pages are listed (native chrome and Home are Swift, plans/cmux-next/language-layers.md)
+      - name: React pages are listed (native chrome and Home are Swift)
         id: react-pages
         continue-on-error: true
         env:
