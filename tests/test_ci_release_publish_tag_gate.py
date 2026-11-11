@@ -463,6 +463,30 @@ class TagGate(unittest.TestCase):
             with self.subTest(read=command):
                 self.assertEqual(self.check(fixture(job("p", f"      - run: |\n          {command}\n"))), [], command)
 
+    def test_a_wrapped_gh_api_release_write_is_classified_like_a_direct_one(self) -> None:
+        write = "gh api repos/o/r/releases -X POST"
+        field = "gh api repos/o/r/releases -f tag=v1"
+        wrapped = [
+            f'eval "{write}"', f"eval '{field}'", f"eval {write}", f"bash -c '{field}'", f'sh -c "{write}"',
+            f"bash -lc '{write}'", f"echo repos/o/r/releases | xargs gh api -X POST", f"xargs -n1 {field}",
+            f"echo x | xargs -I{{}} {field}", f"url=$({write})", f"url=`{field}`", f"echo $({field})",
+            f"sudo {write}", f"env GH_TOKEN=x {field}", f"timeout 60 {write}", f"nice -n 5 {field}",
+            f"sudo -E bash -c '{write}'", f"eval \"bash -c '{field}'\"", f"time {write}",
+            "eval \"gh release upload v1 dist/x\"", "bash -c 'cargo publish'", "sh -c 'codesign --force -s - x'",
+            "xargs codesign --force -s - < files", "bash -c 'unterminated",
+        ]
+        for command in wrapped:
+            with self.subTest(command):
+                steps = f"      - run: |\n          {command}\n"
+                self.assertEqual(len(self.check(fixture(job("p", steps)))), 1, command)
+                self.assertEqual(self.check(fixture(job("p", steps, f"    if: {PUSH_TAG}\n"))), [], command)
+        harmless = ["eval \"echo hi\"", "bash -c 'echo gh api repos/o/r/releases -X POST'", "xargs rm -f < files",
+                    "sudo apt-get install -y gh", "env FOO=1 true", "timeout 5 gh api repos/o/r/releases",
+                    "bash -c 'gh api repos/o/r/releases -X GET'", "xargs -n1 echo"]
+        for command in harmless:
+            with self.subTest(harmless=command):
+                self.assertEqual(self.check(fixture(job("p", f"      - run: |\n          {command}\n"))), [], command)
+
     def test_the_real_workflows_lose_a_gate_to_this_detector(self) -> None:
         # Mutate the real documents: remove the tag gate from one publishing job, then from one step.
         documents = load_real()
