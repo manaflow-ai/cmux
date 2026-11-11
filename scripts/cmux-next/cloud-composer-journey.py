@@ -328,6 +328,20 @@ def sweep(journey: Journey) -> list[str]:
     return left
 
 
+def composer_snapshot(journey, pane, chip):
+    """The chip text next to what the composer decided it from (the debug chat_state verb's
+    composerInputs and runPlace) and the Cloud start it sent, for a red that reads a bare "Mode"."""
+    state = journey.pane("chat_state", pane)
+    return {
+        "chip": chip,
+        "inputs": state.get("composerInputs"),
+        "run_place": state.get("runPlace"),
+        "chips": state.get("composer"),
+        "session_id": state.get("sessionId"),
+        "error": state.get("error"),
+    }
+
+
 def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, account: str, mode: str,
                   team_for_account: str, timeout: int) -> dict:
     cell = {"folder": folder_kind, "account": account, "mode": mode, "driver": "composer", "problems": []}
@@ -346,27 +360,41 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     # Run 43071400243: after the first start, every later chat opened in the machine's workspace, a chat on
     # that machine ("Cloud isn't available for this chat", code unsupported). So later cells open by target
     # in the first cell's pane, in the launch window's local workspace.
+    # action.run answers within the control plane's 2 s deadline; on a busy runner the open can miss it and
+    # still apply (code `timeout`: ControlError+ActionRun.swift), so a timeout waits for the pane, never fails
+    # the cell or opens a second chat (run 43079388412: "action.run did not finish within 1999 ms").
+    def still_opening(answer: dict) -> bool:
+        return answer.get("code") == "timeout"
+
     opened: dict = {}
     if journey.launch_pane:
         opened = journey.call("action.run", {"action": "palette.newAgentChat", "target": journey.launch_pane})
-        if not opened.get("error"):
+        if not opened.get("error") or still_opening(opened):
             journey.home_pane = journey.launch_pane
-    if not journey.launch_pane or opened.get("error"):
+    targeted = bool(journey.launch_pane) and (not opened.get("error") or still_opening(opened))
+    if not targeted:
         journey.call("action.run", {"action": "selectWorkspaceByNumber", "index": 1})
     # The panes showing an agent tab now (untargeted: the focused one, or every one when none is focused).
     shown = journey.pane("chat_state", journey.home_pane) if journey.home_pane else journey.pane("chat_state")
     listed_before = set(shown.get("agent_panes") or ([shown["pane"]] if shown.get("pane") else []))
-    if not journey.launch_pane or opened.get("error"):
+    if not targeted:
         opened = journey.call("action.run", {"action": "palette.newAgentChat"})
-    if opened.get("error"):
+    cell["open_answer"] = opened
+    if opened.get("error") and not still_opening(opened):
         cell["result"] = f"fail: new chat tab: {opened['error']}"
         return cell
     state, pane = {}, None
-    for _ in range(30):
+    for attempt in range(30):
         state = journey.pane("chat_state", journey.home_pane)
         if state.get("pane") and not state.get("error"):
             pane = state["pane"]
-            break
+            # The pane can still show the last cell's tab while the new one opens (a timed-out open above):
+            # wait for a new chat's composer (runPlace.freshChat) before taking it, up to the loop's end.
+            fresh = (state.get("runPlace") or {}).get("freshChat")
+            if fresh is not False or attempt >= 20:
+                break
+            time.sleep(1)
+            continue
         # Several panes show a chat (an earlier cell's Cloud chat opened in its machine's workspace): the one
         # the open added, else the pane the first cell used while it still shows an agent tab, else the newest.
         listed = [p for p in (state.get("agent_panes") or []) if isinstance(p, str)]
@@ -394,6 +422,7 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     cell["run_mode"] = run.get("runMode")
     if run.get("error") or run.get("runMode") != "cloud":
         problems.append(f"Cloud pick: {run.get('error') or run.get('runMode')}")
+        cell["run_place_at_pick"] = journey.pane("chat_state", pane).get("runPlace")
 
     # What the composer says before Return: the team it names, the Mode chip, any Cloud refusal.
     cell["team_tag"] = " ".join(journey.page_text(".acpmux-team-tag-name")).strip()
@@ -401,6 +430,7 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
         problems.append("the team tag names a team the account is not in")
     mode_chip = " ".join(journey.page_text(".acpmux-access-trigger .acpmux-mode-text")).strip()
     cell["mode_chip"] = mode_chip
+    cell["composer_before_mode"] = composer_snapshot(journey, pane, mode_chip)
     if mode_chip == "Mode":
         problems.append('the Mode chip reads a bare "Mode"')
     if mode == "bypass":
@@ -412,6 +442,7 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
             problems.append(f"Mode menu offers no Bypass permissions with Cloud picked ({clean(clicked['error'], 120)})")
         journey.pane("close_menus", pane)
         cell["mode_chip_after"] = " ".join(journey.page_text(".acpmux-access-trigger .acpmux-mode-text")).strip()
+        cell["composer_after_mode"] = composer_snapshot(journey, pane, cell["mode_chip_after"])
         if cell["mode_chip_after"] and "Bypass" not in cell["mode_chip_after"]:
             problems.append(f"the Mode chip reads {cell['mode_chip_after']!r} after picking Bypass permissions")
     said_unavailable_before = any(UNAVAILABLE in t for t in journey.page_text(".acpmux-composer, .acpmux-composer-strip"))
