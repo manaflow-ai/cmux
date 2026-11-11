@@ -448,12 +448,12 @@ async fn a_task_started_during_the_daemons_startup_waits_for_it() {
     r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "restarted").await;
     let session = r.hub.resolve(&id).unwrap();
+    // The chat's agent asks through its own connection, as its MCP server does.
+    let mut agent = acpmux_caller(&r.hub, &id).await;
     // A restarted daemon: its login environment is not read yet.
     r.hub.begin_startup(false);
-    let (hub, early) = (r.hub.clone(), session.clone());
-    let start = tokio::spawn(async move {
-        hub.bg_start(&early, "echo started", None, None, false, false, None, None).await
-    });
+    let params = json!({"sessionId": id, "command": "echo started"});
+    let start = tokio::spawn(async move { agent.request(method::MUX_BG_START, params).await });
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(!start.is_finished(), "a task started before the daemon's startup ended");
     let list = r.hub.bg_list(&session);
@@ -465,10 +465,29 @@ async fn a_task_started_during_the_daemons_startup_waits_for_it() {
     assert_eq!(text(&r, &id, &task), "started\n");
 }
 
+/// One request with no deadline of its own (`TestClient::request` gives up at 20 s), for a test on
+/// a paused clock that measures how long the daemon takes to answer.
+async fn request_unbounded(c: &mut TestClient, m: &str, params: Value) -> Result<Value, String> {
+    c.next += 1;
+    let id = c.next;
+    c.tx.send(Message::request(id, m, params).to_line()).await.unwrap();
+    loop {
+        let line = c.rx.recv().await.expect("connection closed");
+        if let Message::Response { id: rid, result, error } = Message::parse(&line).unwrap()
+            && rid == id
+        {
+            return match error {
+                Some(e) => Err(e.message),
+                None => Ok(result.unwrap_or(Value::Null)),
+            };
+        }
+    }
+}
+
 /// A start behind a startup slower than its caller's deadline (Codex's MCP tool timeout, 60 s)
 /// answers a retryable "still starting" error before that deadline and launches nothing, so the
-/// caller never gave up on a task that then ran. Its retries with the same idempotencyKey, by the
-/// hub or the RPC the MCP server sends, are one task that ran once; the key with another command
+/// caller never gave up on a task that then ran. Its retries with the same idempotencyKey, on
+/// the agent's connection or another, are one task that ran once; the key with another command
 /// is refused.
 #[cfg(unix)]
 #[tokio::test]
@@ -477,32 +496,29 @@ async fn a_start_behind_a_slow_startup_fails_retryably_and_a_keyed_retry_is_one_
     r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
     let id = new_session(&mut r.c, "keyed").await;
     let session = r.hub.resolve(&id).unwrap();
-    let start = |command: &'static str| {
-        let (hub, session) = (r.hub.clone(), session.clone());
-        async move {
-            hub.bg_start(&session, command, None, None, false, false, None, Some("retry-1")).await
-        }
-    };
+    let mut agent = acpmux_caller(&r.hub, &id).await;
+    let keyed =
+        |command: &str| json!({"sessionId": id, "command": command, "idempotencyKey": "retry-1"});
     // A startup that does not end within the caller's deadline.
     r.hub.begin_startup(false);
     tokio::time::pause();
     let asked = tokio::time::Instant::now();
-    let error = start("echo once").await.expect_err("a start behind the startup launched");
+    let error = request_unbounded(&mut agent, method::MUX_BG_START, keyed("echo once")).await;
     let waited = asked.elapsed();
     tokio::time::resume();
+    let error = error.expect_err("a start behind the startup launched");
     assert!(waited < Duration::from_secs(50), "it answered after the caller gave up: {waited:?}");
-    let data = error.data.clone().unwrap_or_default();
-    assert_eq!(data["retryable"], true, "{error:?}");
-    assert!(error.message.contains("still starting"), "{}", error.message);
+    assert!(error.contains("daemon startup"), "{error}");
+    assert!(error.contains("still starting and no task was started"), "{error}");
+    assert!(error.contains("retry with the same idempotencyKey"), "{error}");
     let list = r.hub.bg_list(&session);
     assert_eq!(list["tasks"].as_array().map(Vec::len), Some(0), "{list}");
     r.hub.finish_startup().await;
-    let first = start("echo once").await.unwrap();
-    let again = start("echo once").await.unwrap();
+    let first = agent.request(method::MUX_BG_START, keyed("echo once")).await.unwrap();
+    let again = agent.request(method::MUX_BG_START, keyed("echo once")).await.unwrap();
     assert_eq!(first["id"], again["id"], "a retry started a second task");
-    let by_rpc = json!({"sessionId": id, "command": "echo once", "idempotencyKey": "retry-1"});
-    let by_rpc = r.c.request(method::MUX_BG_START, by_rpc).await.unwrap();
-    assert_eq!(by_rpc["id"], first["id"], "the RPC's retry started a second task");
+    let by_person = r.c.request(method::MUX_BG_START, keyed("echo once")).await.unwrap();
+    assert_eq!(by_person["id"], first["id"], "a retry on another connection started a second task");
     let task = first["id"].as_str().unwrap().to_owned();
     r.until("the task never ended", || state(&r, &id, &task) == "exited").await;
     assert_eq!(text(&r, &id, &task), "once\n", "the keyed task ran more than once");
