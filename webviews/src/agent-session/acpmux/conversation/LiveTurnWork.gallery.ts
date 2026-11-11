@@ -25,7 +25,7 @@ const running = () =>
         run("rg -n scheduleReconnect src"),
         run("git log -5 --oneline src/net"),
         thought("The backoff timer is armed twice when the socket closes during a retry."),
-        run("bun test src/net/reconnect.test.ts --rerun-each 10", "running"),
+        run("bun test src/net/reconnect.test.ts --rerun-each 10", "in_progress"),
       ],
       1,
     ),
@@ -41,7 +41,10 @@ const withReply = () =>
         "reconnect can race the first. I'm moving the arm into one place and rerunning the test.",
       1.5,
     ),
-    activity([run("bun run lint src/net"), run("bun test src/net/reconnect.test.ts --rerun-each 20", "running")], 1),
+    activity(
+      [run("bun run lint src/net"), run("bun test src/net/reconnect.test.ts --rerun-each 20", "in_progress")],
+      1,
+    ),
   ]);
 
 /// Between steps: the calls all finished, the agent thinks.
