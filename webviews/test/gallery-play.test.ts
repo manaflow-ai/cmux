@@ -273,6 +273,75 @@ describe("where a long frame's time went", () => {
   });
 });
 
+describe("which long frames are a step's", () => {
+  // The engine reports a Long Animation Frame after the frame ends, and a step's observer hears each
+  // report that comes while the step runs. A frame that ENDED before the step began was counted in
+  // the step and failed it: on a CI shard the gallery entry's own module load, a 52.0 ms frame that
+  // began 56.8 ms before `click .acpmux-summary-button` and so ended 4.8 ms before it (job
+  // 130436819024). The step's own frame begins a little before the step (a step with no driver
+  // starts inside the frame callback that ended the last settle) and ends in it: that one is the
+  // step's. The frames here end 40 ms before the step, so a slow machine does not change the case.
+  const stepWithFrame = async (frame: (stepStart: number) => { startTime: number; duration: number }) => {
+    const root = document.getElementById("root")!;
+    root.innerHTML = '<button id="plain">Plain</button>';
+    const restore = ["requestAnimationFrame", "PerformanceObserver", "innerWidth", "innerHeight"].map(
+      (key) => [key, key in scope, scope[key]] as const,
+    );
+    type Heard = (list: { getEntries(): unknown[] }) => void;
+    Object.assign(scope, {
+      requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+      innerWidth: 800,
+      innerHeight: 600,
+      PerformanceObserver: class {
+        static supportedEntryTypes = ["long-animation-frame"];
+        private readonly heard: Heard;
+        constructor(heard: Heard) {
+          this.heard = heard;
+        }
+        // The step's observer starts right after the step's start; the report comes in a later task.
+        observe(options: { type?: string }) {
+          if (options.type !== "long-animation-frame") return;
+          const entry = frame(performance.now());
+          setTimeout(() => this.heard({ getEntries: () => [entry] }), 0);
+        }
+        takeRecords() {
+          return [];
+        }
+        disconnect() {}
+      },
+    });
+    Object.defineProperty(dom.window, "innerWidth", { configurable: true, value: 800 });
+    Object.defineProperty(dom.window, "innerHeight", { configurable: true, value: 600 });
+    try {
+      const report = await runPlay((ctx) => ctx.focus({ selector: "#plain" }), {});
+      return report.steps[0]!;
+    } finally {
+      for (const [key, had, value] of restore) {
+        if (had) scope[key] = value;
+        else delete scope[key];
+      }
+      delete (dom.window as unknown as Record<string, unknown>).innerWidth;
+      delete (dom.window as unknown as Record<string, unknown>).innerHeight;
+    }
+  };
+
+  test("a long frame that ended before the step began is not counted in the step", async () => {
+    const step = await stepWithFrame((start) => ({ startTime: start - 92, duration: 52 }));
+    expect(step.frameSource).toBe("long-animation-frame");
+    expect(step.longFrames).toEqual([]);
+    expect(step.longFrameParts).toBeUndefined();
+    expect(step.problems.join("\n")).not.toMatch(/frame\(s\) over/);
+  });
+
+  test("a long frame that began before the step and ended in it is the step's, and fails it", async () => {
+    const step = await stepWithFrame((start) => ({ startTime: start - 1.9, duration: 71.4 }));
+    expect(step.longFrames).toEqual([71.4]);
+    expect(step.longFrameParts?.length).toBe(1);
+    expect(step.status).toBe("fail");
+    expect(step.problems.join("\n")).toMatch(/1 frame\(s\) over 33 ms \(longest 71\.4 ms\)/);
+  });
+});
+
 describe("gallery play settle budget", () => {
   // Headless WebKit on the CPU-only CI VM has no Long Animation Frames: the stage times frames by
   // rAF, and one software-painted frame there takes 200-450 ms where Chromium's data shows no frame
