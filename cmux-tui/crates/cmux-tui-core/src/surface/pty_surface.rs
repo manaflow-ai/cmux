@@ -2,6 +2,7 @@
 //! transactions and terminal colors for `PtySurface`.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl PtySurface {
     pub(super) fn journal_target(&self) -> Option<(Arc<Mux>, Arc<TerminalPublicId>)> {
@@ -23,7 +24,13 @@ impl PtySurface {
         bytes: &[u8],
         history: Option<crate::output_store::HistoryRows>,
     ) {
-        mux.output_store.append(&terminal_id, &self.journal_generation, bytes, history);
+        mux.output_store.append_cached(
+            &self.output_log,
+            &terminal_id,
+            &self.journal_generation,
+            bytes,
+            history,
+        );
     }
 
     /// Journals an accepted geometry change without a wait: callers hold the
@@ -129,8 +136,7 @@ impl PtySurface {
         if taps.is_empty() {
             return false;
         }
-        let frame = AttachFrame::Output(bytes.to_vec());
-        taps.retain(|tap| tap.try_send(frame.clone()));
+        send_to_each(&mut taps, AttachFrame::Output(bytes.to_vec()));
         let sent = !taps.is_empty();
         drop(taps);
         if sent {
@@ -189,9 +195,10 @@ impl PtySurface {
 
     pub(super) fn broadcast_attach_frame(&self, frame: AttachFrame) {
         self.snapshot_position.observe_frame(&frame);
+        let is_output = matches!(frame, AttachFrame::OutputWithColors { .. });
         let mut taps = self.taps.lock().unwrap();
-        taps.retain(|tap| tap.try_send(frame.clone()));
-        let sent_output = matches!(frame, AttachFrame::OutputWithColors { .. }) && !taps.is_empty();
+        send_to_each(&mut taps, frame);
+        let sent_output = is_output && !taps.is_empty();
         drop(taps);
         if sent_output {
             self.mark_attach_output_sent();
@@ -381,16 +388,24 @@ impl PtySurface {
     /// Build and fan out one immutable frame while the caller holds `term`.
     /// This never calls into the mux; a producer-driven caller publishes the
     /// output event through [`Self::build_producer_frame`] after unlocking.
+    ///
+    /// `for_viewers`: the frame is only for the render taps (output, a scroll,
+    /// a resize, a clear, new colors), so none is built while no tap is
+    /// attached; the terminal damage waits in the render state. A caller that
+    /// reads `latest` itself (an attach, [`Surface::render_frame`]) passes
+    /// false and builds at the current generation first, so a skipped frame
+    /// is never served stale.
     pub(super) fn build_frame_locked(
         &self,
         term: &mut Terminal,
         generation: u64,
-        producer_driven: bool,
+        for_viewers: bool,
     ) -> ghostty_vt::Result<bool> {
         let built = {
-            let mut render = self.render.lock().unwrap();
-            if (producer_driven && render.taps.is_empty()) || render.built_generation >= generation
-            {
+            // A panic that held this lock left no half state a rebuild keeps:
+            // `build_frame` reads the frame again from the render state.
+            let mut render = self.render.lock().recover_poison();
+            if (for_viewers && render.taps.is_empty()) || render.built_generation >= generation {
                 false
             } else {
                 render.state.update(term)?;
@@ -698,7 +713,7 @@ impl PtySurface {
             position_after
         });
         let generation = self.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
-        let _ = self.build_frame_locked(&mut term, generation, false);
+        let _ = self.build_frame_locked(&mut term, generation, true);
         // A direct PTY's reader publishes the bus event, in order with the
         // output events it publishes: this caller may hold `Mux::state`.
         #[cfg(unix)]
@@ -762,4 +777,17 @@ pub(super) struct GeometryCommit {
     /// The viewport position the resize moved to, if it moved and the bus
     /// event was not queued on a direct PTY's reader.
     pub(super) scroll: Option<(u64, bool)>,
+}
+
+/// Send `frame` to every tap, dropping the taps that refuse it. The last tap
+/// takes `frame` itself: N viewers cost N copies, and one viewer none more.
+fn send_to_each(taps: &mut Vec<AttachTap>, frame: AttachFrame) {
+    let last = taps.len().saturating_sub(1);
+    let mut frame = Some(frame);
+    let mut index = 0usize;
+    taps.retain(|tap| {
+        let send = if index == last { frame.take() } else { frame.clone() };
+        index = index.saturating_add(1);
+        send.is_some_and(|send| tap.try_send(send))
+    });
 }

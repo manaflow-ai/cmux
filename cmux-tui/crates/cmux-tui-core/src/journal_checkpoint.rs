@@ -716,6 +716,15 @@ impl RestoreReducer {
             }
             "delete" => {
                 values.remove(id);
+                // A closed terminal has no agent: the registry deletes the agent record in the
+                // tombstone's transaction, and the terminal's `delete` is the only change.
+                if resource == "terminal"
+                    && let Some(agents) = self.resources.get_mut("agents")
+                {
+                    agents.retain(|_, agent| {
+                        agent.get("terminal_id").and_then(Value::as_str) != Some(id)
+                    });
+                }
             }
             _ => anyhow::bail!("validated replay change kind is unsupported"),
         }
@@ -951,6 +960,69 @@ mod tests {
         assert_eq!(preview["fully_reducible"], true);
         assert_eq!(preview["state"]["session_snapshot"]["workspaces"][0]["id"], "workspace_new");
         assert_eq!(preview["state"]["session_snapshot"]["cursor"]["revision"], "2");
+    }
+
+    /// A closed terminal has no agent (`spec/resource-api-v2.md`, "Agent"): the registry deletes
+    /// the agent record in the transaction that tombstones the terminal, and the journal has
+    /// the terminal's `delete` change only. The preview must not keep the agent, or it shows an
+    /// agent that the live snapshot does not have.
+    #[test]
+    fn reducer_ends_the_agent_of_a_deleted_terminal() {
+        let checkpoint = JournalCheckpoint {
+            checkpoint_id: "checkpoint_test".into(),
+            source_sequence: 3,
+            reducer_version: JOURNAL_REDUCER_VERSION,
+            state: json!({
+                "session_snapshot":{
+                    "cursor":{"generation":"generation","revision":"1"},
+                    "terminals":[{"id":"term_closed"},{"id":"term_open"}],
+                    "agents":[
+                        {"id":"agent_closed","terminal_id":"term_closed","state":"working"},
+                        {"id":"agent_open","terminal_id":"term_open","state":"working"},
+                    ],
+                },
+                "journal_extensions":{"producers":[],"hooks":[]},
+            }),
+            content_refs: vec![],
+            sha256: "00".repeat(32),
+            created_at_ms: 1,
+        };
+        let record = SessionJournalRecord {
+            sequence: 4,
+            event_id: "event_4".into(),
+            schema_version: 1,
+            kind: "terminal.close".into(),
+            class: JournalClass::State,
+            replay: JournalReplayPolicy::Required,
+            occurred_at_ms: 1,
+            committed_at_ms: 1,
+            producer: JournalProducer { kind: "test".into(), id: "test".into() },
+            authority: None,
+            causation_id: None,
+            correlation_id: None,
+            causation_depth: 0,
+            subjects: vec![JournalSubject { kind: "session".into(), id: "session".into() }],
+            sensitivity: JournalSensitivity::Sensitive,
+            payload: json!({"changes":[
+                {"kind":"delete","sequence":0,"resource":"terminal","id":"term_closed"},
+            ]}),
+            resource_revision: Some(2),
+            previous_resource_revision: Some(1),
+            terminal_output: None,
+        };
+        let preview = restore_preview(&checkpoint, &[record], 4).unwrap();
+        assert_eq!(preview["fully_reducible"], true);
+        let snapshot = &preview["state"]["session_snapshot"];
+        let ids = |collection: &str| {
+            snapshot[collection]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|value| value["id"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(ids("terminals"), ["term_open"], "setup: the terminal is deleted");
+        assert_eq!(ids("agents"), ["agent_open"], "the agents after the terminal's delete");
     }
 
     #[test]

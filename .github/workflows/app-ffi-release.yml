@@ -629,11 +629,16 @@ jobs:
   repin:
     name: open the re-pin pull request
     needs: [build, publish]
-    if: ${{ !cancelled() && needs.build.result == 'success' && needs.publish.result == 'success' && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch') }}
+    # always(): a run that ends with no release (its build failed or was cancelled) still re-pins the newest published
+    # release, since a newer run's pending build holds the re-pin of an older one (publish-app-ffi-repin.sh).
+    if: always() && github.ref == 'refs/heads/feat-cmux-next' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     environment: ffi-release
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
+    # actions: write only for the failure step's dispatch of app-ffi-repin.yml; the re-pin script reads runs and
+    # jobs with this token (READ_TOKEN) and writes nothing with it.
     permissions:
+      actions: write
       contents: read
       checks: read
       statuses: read
@@ -723,3 +728,16 @@ jobs:
           CHECKSUM: ${{ needs.build.outputs.checksum }}
         shell: bash
         run: bash scripts/cmux-next/publish-app-ffi-repin.sh
+
+      # A failed or timed-out re-pin starts app-ffi-repin.yml, which re-pins the newest published release:
+      # another run's re-pin may have held for this one (publish-app-ffi-repin.sh), and without this no job
+      # re-pins until the next FFI push or pin merge. Needs actions: write. A dispatched app-ffi-repin.yml
+      # run does not start another, so a re-pin that keeps failing runs once more, not in a loop. A run cancelled
+      # by hand also starts one re-pin: harmless, a re-pin of the newest published release.
+      - name: Start the re-pin workflow when this re-pin failed
+        if: failure() || cancelled()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: gh workflow run app-ffi-repin.yml --ref feat-cmux-next

@@ -13,7 +13,22 @@ A prompt "auto-tools: <JSON>" runs the calls in the JSON list, each `[tool_name,
 `file_path`, any other tool does nothing. FAKE_AUTO_LOG=<path> gets one JSON line per call:
 `{"tool", "input", "ran", "reason", "hookMs"}` (`hookMs`: each hook callback's id and how long it
 took to be answered, `{"callback", "ms"}`). The turn's result text lists the same.
+
+Claude Code's own cross-session messaging, as Claude Code 2.1.322 does it (measured on a fleet
+Mac, W7-A 2026-11-10): unless `CLAUDE_CODE_HARBOR_KITE=0`, the session registers itself in the
+machine-wide peer registry (FAKE_CLAUDE_PEER_REGISTRY, standing in for `~/.claude/sessions`) under
+its `--name`, offers `ListAgents` (every other live registered session, whichever acpmux daemon
+started it) and lets `SendMessage` reach a registered peer's inbox (the result says "in that
+session's inbox, not yet read"). With `CLAUDE_CODE_HARBOR_KITE=0` it registers nothing, has no
+`ListAgents` ("No such tool available") and `SendMessage` reaches only "main" ("No agent named 'X'
+is reachable."). FAKE_CLAUDE_IGNORE_SWITCH=1 models a Claude Code that renamed or dropped the
+switch: messaging stays on whatever `CLAUDE_CODE_HARBOR_KITE` says. A logged call has its tool
+result as `output`.
+
+A prompt "peer-hold: <JSON>" writes Claude Code's `system/peer_message_hold` line with the JSON's
+fields (`state`, `message_uuid`, `from`, `from_name`, `cause`, `outcome`, `lane`) and ends the turn.
 """
+import atexit
 import json
 import os
 import subprocess
@@ -24,6 +39,36 @@ SESSION = "auto-claude-session"
 for flag in ("--session-id", "--resume"):
     if flag in sys.argv[:-1]:
         SESSION = sys.argv[sys.argv.index(flag) + 1]
+NAME = SESSION
+if "--name" in sys.argv[:-1]:
+    NAME = sys.argv[sys.argv.index("--name") + 1]
+# Claude Code's cross-session messaging (module docs).
+MESSAGING = (
+    os.environ.get("FAKE_CLAUDE_IGNORE_SWITCH") == "1"
+    or os.environ.get("CLAUDE_CODE_HARBOR_KITE") != "0"
+)
+REGISTRY = os.environ.get("FAKE_CLAUDE_PEER_REGISTRY")
+if MESSAGING and REGISTRY:
+    ENTRY = os.path.join(REGISTRY, "%d.json" % os.getpid())
+    with open(ENTRY, "w") as f:
+        json.dump({"pid": os.getpid(), "name": NAME, "sessionId": SESSION}, f)
+    atexit.register(lambda: os.path.exists(ENTRY) and os.remove(ENTRY))
+
+
+def peers():
+    """The other live sessions of the peer registry, by name."""
+    names = []
+    for entry in sorted(os.listdir(REGISTRY)) if REGISTRY and os.path.isdir(REGISTRY) else []:
+        try:
+            with open(os.path.join(REGISTRY, entry)) as f:
+                record = json.load(f)
+            if record["pid"] == os.getpid():
+                continue
+            os.kill(record["pid"], 0)
+        except (OSError, ValueError, KeyError):
+            continue
+        names.append(record["name"])
+    return names
 MODE = "auto"
 if "--permission-mode" in sys.argv[:-1]:
     MODE = sys.argv[sys.argv.index("--permission-mode") + 1]
@@ -127,7 +172,21 @@ def judge(tool, tool_input, use_id, cwd):
     return True, ""
 
 
+def native_message(tool, tool_input):
+    """Claude Code's own result for ListAgents or SendMessage (module docs)."""
+    if tool == "ListAgents":
+        return "This session is %s.\n\nPeer sessions (%d):\n%s" % (
+            NAME, len(peers()), "\n".join("  " + p for p in peers()))
+    to = tool_input.get("to", "")
+    if to == "main" or (MESSAGING and to in peers()):
+        return json.dumps({"success": True, "message": "%s (another Claude session on this machine; "
+                           "in that session's inbox, not yet read by its Claude)" % to})
+    return json.dumps({"success": False, "message": "No agent named '%s' is reachable." % to})
+
+
 def run(tool, tool_input, cwd):
+    if tool in ("ListAgents", "SendMessage"):
+        return native_message(tool, tool_input)
     if tool == "Bash":
         subprocess.run(["sh", "-c", tool_input.get("command", "")], cwd=cwd, stdin=subprocess.DEVNULL,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
@@ -141,15 +200,26 @@ def turn(text):
     lines = []
     if text.startswith("auto-tools: "):
         for i, (tool, tool_input) in enumerate(json.loads(text[len("auto-tools: "):])):
-            runs, reason = judge(tool, tool_input, "toolu_auto_%d" % i, cwd)
+            output = None
+            if tool == "ListAgents" and not MESSAGING:
+                # No such tool in this session: the model cannot call it, so no hook fires.
+                runs, reason = False, "No such tool available: ListAgents"
+                del GATE_MS[:]
+            else:
+                runs, reason = judge(tool, tool_input, "toolu_auto_%d" % i, cwd)
             if runs:
-                run(tool, tool_input, cwd)
+                output = run(tool, tool_input, cwd)
             record = {"tool": tool, "input": tool_input, "ran": runs, "reason": reason,
-                      "hookMs": list(GATE_MS)}
+                      "output": output, "hookMs": list(GATE_MS)}
             lines.append(json.dumps(record))
             if os.environ.get("FAKE_AUTO_LOG"):
                 with open(os.environ["FAKE_AUTO_LOG"], "a") as f:
                     f.write(json.dumps(record) + "\n")
+    if text.startswith("peer-hold: "):
+        hold = {"type": "system", "subtype": "peer_message_hold", "lane": "socket",
+                "uuid": "hold-%d" % time.monotonic_ns(), "session_id": SESSION}
+        hold.update(json.loads(text[len("peer-hold: "):]))
+        send(hold)
     said = "\n".join(lines) or "ok"
     send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
           "delta": {"type": "text_delta", "text": said}}, "session_id": SESSION})
@@ -172,5 +242,5 @@ for line in sys.stdin:
             text = content
         else:
             text = "".join(b.get("text", "") for b in content or [] if isinstance(b, dict)
-                           and b.get("text", "").startswith("auto-tools: "))
+                           and b.get("text", "").startswith(("auto-tools: ", "peer-hold: ")))
         turn(text.strip())

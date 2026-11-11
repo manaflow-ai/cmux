@@ -2659,6 +2659,8 @@ pre.cv-math-source {
     -webkit-mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
     mask-image: linear-gradient(100deg, transparent 30%, #000 50%, transparent 70%);
     animation: cmux-shimmer-band var(--cmux-shimmer-period, 2.8s) linear infinite;
+    /* The shared phase, from the mount (ShimmerText.tsx, ui/spinnerClock.ts `setLoopPhase`). */
+    animation-delay: var(--cmux-loop-delay, 0s);
   }
   :root:not([data-status-indicators="static"]) .cv-shimmer__lit {
     display: flex;
@@ -2668,6 +2670,8 @@ pre.cv-math-source {
     white-space: nowrap;
     color: color-mix(in srgb, var(--agent-accent, var(--cv-text)) 70%, var(--cv-text));
     animation: cmux-shimmer-lit var(--cmux-shimmer-period, 2.8s) linear infinite;
+    /* The shared phase, from the mount (ShimmerText.tsx, ui/spinnerClock.ts `setLoopPhase`). */
+    animation-delay: var(--cmux-loop-delay, 0s);
   }
   :root:not([data-status-indicators="static"]) .cv-shimmer__lit-label {
     min-width: 0;
@@ -2850,6 +2854,8 @@ pre.cv-math-source {
     -webkit-mask-repeat: no-repeat;
     mask-repeat: no-repeat;
     animation: cmux-shimmer-band var(--cv-row-shimmer-period) linear infinite;
+    /* The shared phase, from the mount (ShimmerText.tsx, ui/spinnerClock.ts `setLoopPhase`). */
+    animation-delay: var(--cmux-loop-delay, 0s);
   }
   /* The lit copy lays out as the words do (one line cut with an ellipsis, or wrapped when opened). */
   .cv-tool.is-live .cv-row-shimmer__lit {
@@ -2862,6 +2868,8 @@ pre.cv-math-source {
     overflow-wrap: inherit;
     color: var(--cv-row-shimmer-lit);
     animation: cmux-shimmer-lit var(--cv-row-shimmer-period) linear infinite;
+    /* The shared phase, from the mount (ShimmerText.tsx, ui/spinnerClock.ts `setLoopPhase`). */
+    animation-delay: var(--cmux-loop-delay, 0s);
   }
   /* Marks with their own colour (edit counts, a failure word) keep it inside the band. */
   .cv-tool.is-live .cv-row-shimmer__lit *:not(.cv-edit-diff__add, .cv-edit-diff__del, .cv-tool__failed) {
@@ -7565,8 +7573,20 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   letter-spacing: var(--text-detail--letter-spacing);
   color: var(--cv-text);
 }
-.cv-run-elsewhere--loading {
-  min-height: var(--cv-tool-row-height, 28px);
+/* The quiet line under the row (RunElsewhere.tsx RunElsewhereLine): the plan loading, or why the
+   command stays here. A status line in the row's dim ink, under its words, cut to the width. Its
+   own rule, not .cv-tool-error's: failed calls hide their cause line. */
+.cv-run-elsewhere-line {
+  display: block;
+  margin: 0 0 var(--ds-space-1);
+  padding-left: var(--cv-tool-text-inset);
+  overflow: hidden;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cv-run-elsewhere__head {
   display: flex;
@@ -7585,15 +7605,11 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
 }
 .cv-run-elsewhere__base,
 .cv-run-elsewhere__label,
-.cv-run-elsewhere__aside,
-.cv-run-elsewhere__note {
+.cv-run-elsewhere__aside {
   color: var(--cv-text-dim);
 }
-.cv-run-elsewhere__note,
 .cv-run-elsewhere__error {
   margin: 0;
-}
-.cv-run-elsewhere__error {
   color: var(--agent-status-failure);
 }
 .cv-run-elsewhere__label {
@@ -7670,10 +7686,11 @@ button.cv-worked.is-toggle:is(:hover, :focus-visible) * {
   margin-left: auto;
   font-family: var(--cv-font);
 }
+/* Cancel (ghost) and Run (solid) are ui/Button.tsx's, drawn by ui/controls.css. */
 .cv-run-elsewhere__actions {
   display: flex;
   justify-content: flex-end;
-  gap: var(--ds-space-2);
+  gap: var(--ds-space-1);
 }
 .cv-run-elsewhere__link {
   margin-left: auto;

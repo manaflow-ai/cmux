@@ -173,7 +173,7 @@
 /* A video the host could not read (no poster): the same square tile, the play glyph on the tile's
    neutral backing, never a file chip's long name strip (Leo, 2026-10-26: "Just do the square."). */
 .acpmux-attachment-video-unread .acpmux-attachment-video-open {
-  width: 104px;
+  width: 100%;
   height: var(--acpmux-attach-height);
   border-radius: var(--acpmux-attach-radius);
   background: color-mix(in srgb, var(--agent-text) 10%, transparent);
@@ -320,6 +320,21 @@
 .acpmux-attachment-image.acpmux-attachment-failed {
   flex-direction: column;
   width: 104px;
+}
+/* A video's one box (composer/videoShape.ts): its shape from its file's header, at the tile's height,
+   loading, failed, with its poster or without, so nothing resizes from the paste to the sent message
+   (Leo, 2026-11-10: "the preview placeholder boxes are incongruent between the initial load, then the
+   second load, and the chat attachment itself"). Its poster fills the box, cropped past its bounds.
+   One still held for its header (`[data-sizing]`) stays zero wide and unseen. */
+.acpmux-attachment-image[data-video-shape]:not([data-sizing]) {
+  width: calc(var(--acpmux-attach-height) * var(--acpmux-video-ratio, 1));
+  min-width: 0;
+  max-width: none;
+}
+.acpmux-attachment-video img {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
 }
 .acpmux-attachment-file.acpmux-attachment-failed {
   max-width: min(260px, 70vw);
@@ -1211,6 +1226,16 @@ button.acpmux-attachment-pasted-open:hover {
   color: var(--agent-muted);
   opacity: 0.85;
 }
+/* A loading image that shows its own picture (attachmentIntake.tsx InstantPreview, `data-instant`)
+   is the chip it becomes from its first frame: no glass over it, no dim, no coming up, so a paste
+   is one step, the picture, and the ready chip that takes its place changes nothing (Leo,
+   2026-11-11: "this 3 stage attachment thing is still there"). Only a late indicator shows on it. */
+:is(.acpmux-md-inline-chip, .acpmux-attachment).acpmux-paste-loading[data-instant] {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+  opacity: 1;
+}
 /* Its indicator (a ring, a bar, an upload's progress) shows only once a read passes 400 ms
    (pasteLoading.tsx sets data-late from one timer); a quick paste never flashes one. */
 .acpmux-paste-late {
@@ -1275,7 +1300,7 @@ button.acpmux-attachment-pasted-open:hover {
    the indicator appears at 400 ms with no fade, the bar is its track and half fill, the picture
    shows at once. */
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-loading {
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-loading:not([data-instant]) {
     animation: acpmux-paste-arrive calc(var(--agent-motion-in, 120ms) * 8) var(--agent-ease-out, ease-out) both;
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-paste-late[data-late] {
