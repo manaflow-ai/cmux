@@ -291,3 +291,59 @@ fn a_ppm_decodes() {
     assert!(decode_ppm(b"P3\n1 1\n255\n0 0 0").is_err());
     assert!(decode_ppm(b"P6\n2 2\n255\n\x00").is_err());
 }
+
+// MARK: installing
+
+fn scratch(tag: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("cmux-theme-scheme-{tag}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+#[test]
+fn an_imported_scheme_installs_as_a_ghostty_theme_the_loader_reads() {
+    let home = scratch("install");
+    let env =
+        Env { home: Some(home.clone()), xdg_data_dirs: Some(String::new()), ..Env::default() };
+    let path = install_scheme(&env, "Tomorrow Night Import", &tomorrow(), false).unwrap();
+    assert_eq!(path, home.join(".config/ghostty/themes/Tomorrow Night Import"));
+    assert_eq!(find_theme_file(&env, "Tomorrow Night Import"), Some(path.clone()));
+    // A second install without replace is refused; with replace it writes.
+    assert!(matches!(
+        install_scheme(&env, "Tomorrow Night Import", &tomorrow(), false),
+        Err(InstallError::Exists(_))
+    ));
+    install_scheme(&env, "Tomorrow Night Import", &tomorrow(), true).unwrap();
+    // The loader applies it as `theme = Tomorrow Night Import`.
+    let loaded =
+        load(&env.clone().with_theme_override("Tomorrow Night Import").unwrap(), Appearance::Dark);
+    assert_eq!(loaded.input.background.to_hex(), 0x1d1f21, "{:?}", loaded.diagnostics);
+    assert_eq!(loaded.input.palette.map(hex), tomorrow().palette.map(hex));
+    for bad in ["", "a/b", ".hidden", "light:x,dark:y", "x=y", " pad"] {
+        assert!(
+            matches!(install_scheme(&env, bad, &tomorrow(), true), Err(InstallError::InvalidName)),
+            "{bad:?}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn installing_never_shadows_a_shipped_theme() {
+    let home = scratch("shipped");
+    let resources = home.join("res");
+    std::fs::create_dir_all(resources.join("themes")).unwrap();
+    std::fs::write(resources.join("themes/Nord"), "background = #2e3440\n").unwrap();
+    let env = Env {
+        home: Some(home.clone()),
+        ghostty_resources_dir: Some(resources),
+        xdg_data_dirs: Some(String::new()),
+        ..Env::default()
+    };
+    assert!(matches!(
+        install_scheme(&env, "Nord", &tomorrow(), true),
+        Err(InstallError::ShippedName(_))
+    ));
+    let _ = std::fs::remove_dir_all(&home);
+}

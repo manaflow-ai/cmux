@@ -27,6 +27,12 @@
 //! read by `load`, or the app's `appearance.themeEdits` `<theme>/accent`)
 //! wins over `appearance.accent`. Do not invent other values.
 //!
+//! 16-color schemes (`scheme.rs`): base16 YAML, iTerm2 `.itermcolors`,
+//! Windows Terminal JSON and Ghostty theme files, read into one [`Scheme`]
+//! and written back in any of them. A scheme from a background image
+//! (`image_palette.rs`): median cut over the caller's decoded pixels, held
+//! to the spec's contrast floors.
+//!
 //! ```no_run
 //! use cmux_theme_tokens::{Appearance, Env, ThemeTokens, load};
 //! let loaded = load(&Env::current(), Appearance::Dark);
@@ -43,7 +49,9 @@
 mod app_theme;
 mod colors;
 mod config;
+mod image_palette;
 mod rgb;
+mod scheme;
 mod spec;
 mod tokens;
 
@@ -53,7 +61,14 @@ pub use config::{
     Appearance, DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, Env, Loaded, THEME_ACCENT_KEY,
     THEME_OVERRIDE_MAX_CHARS, load, theme_file_accent, theme_for, theme_override_value,
 };
+pub use image_palette::{
+    ImageError, ImagePalette, MAX_SAMPLES, Pixels, SWATCHES, decode_ppm, palette_from_image,
+};
 pub use rgb::Rgb;
+pub use scheme::{
+    InstallError, MAX_SCHEME_BYTES, Scheme, SchemeError, SchemeFormat, find_theme_file,
+    install_scheme, is_valid_theme_name,
+};
 pub use tokens::*;
 
 /// Loads the process's Ghostty config for `appearance` and derives the

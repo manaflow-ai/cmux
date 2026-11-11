@@ -189,10 +189,13 @@ mod status;
 mod stream_output;
 mod surface;
 mod tab_capabilities;
+// `cmux theme` (16-color schemes); dispatched with the other Unix scopes in `run`.
 #[cfg(unix)]
 mod terminal_lifecycle;
 #[cfg(unix)]
 mod terminal_talk;
+#[cfg(unix)]
+mod theme_scheme;
 mod topology_help;
 mod wire;
 #[cfg(unix)]
@@ -822,6 +825,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| apps_place::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| ext::run_if_requested(args))
+        .or_else(|| theme_scheme::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
         .or_else(|| setup::run_if_requested(args))
         .or_else(|| remote_host::run_if_requested(args))
