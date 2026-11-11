@@ -292,7 +292,6 @@ public final class AddDeviceView: NSView {
         case .makeJoinLine: "makeJoinLine"
         case .newJoinLine: "newJoinLine"
         case .signIn: "signIn"
-        case .showMachines: "showMachines"
         case .pairAnotherMachine: "pairAnotherMachine"
         case .toggleAdvanced: "toggleAdvanced"
         case .done: "done"

@@ -8,7 +8,7 @@ extension RegistryPaletteProvider {
         "closePane", "splitRight", "splitDown", "openBrowser", "palette.newAgentChat",
         "palette.quickAgentChat", "openSettings", "goToWorkspace", "tab.search", "search.chats",
         "globalSearch", "find", "findInDirectory", "renameWorkspace", "renameTab",
-        "toggleSidebar", "toggleRightSidebar", "toggleSplitZoom", "equalizeSplits", "openFolder",
+        "toggleSidebar", "toggleSplitZoom", "equalizeSplits", "openFolder",
         "file.open", "reopenClosedBrowserPanel", "reopenClosedWorkspace", "recentlyClosed", "jumpToUnread",
         "openDiffViewer", "terminal.setTheme", "appearance.customize", "appearance.changeBackground", "terminal.increaseFontSize",
         "terminal.decreaseFontSize", "remote.connect", "workspace.newOnMachine", "newCloudWorkspace", "keybindings.open",

@@ -539,6 +539,8 @@ final class RowCell: UICollectionViewCell {
     /// (a highlight over the rows landed at the row's end place at once while the row sprang there: Lawrence
     /// 2026-10-19, "a layout shift for the highlight thing ... janky and disjoint"). Joins the tree on first use.
     let selectionHighlight = CAShapeLayer()
+    /// cmux: the style `selectionHighlight` draws in now (nil: none set yet).
+    private(set) var selectionHighlightStyle: SelectionHighlightStyle?
     /// Long text rows: tiles and the three-slice bubble (TiledBubble.swift).
     var tiled: TiledBody?
     /// Markdown rows: scrollable blocks and copy buttons (MarkdownOverlay.swift).
@@ -654,8 +656,7 @@ final class RowCell: UICollectionViewCell {
             l.actions = noActions
             l.contentsScale = renderScale
         }
-        selectionHighlight.fillColor = TranscriptSelection.highlightFill
-        selectionHighlight.compositingFilter = "screenBlendMode"
+        // cmux: the fill and blend follow the surface under the row (setSelectionHighlight, SelectionHighlightStyle).
         // Over the bitmap, the long-text tiles, the markdown blocks and the receipt (added after it or not).
         selectionHighlight.zPosition = 100
         typingBody.actions = noActions.merging(["fillColor": NSNull()]) { a, _ in a }
@@ -733,10 +734,16 @@ final class RowCell: UICollectionViewCell {
     }
 
     /// cmux: draws the selection highlight (`selectionHighlight`), nil for none. The path is in this cell's
-    /// coordinates.
-    func setSelectionHighlight(_ path: CGPath?) {
+    /// coordinates; `style` is its fill and blend for the surface under it (SelectionHighlightStyle: a screen
+    /// blend shows nothing on a light bubble or page, issue 38145).
+    func setSelectionHighlight(_ path: CGPath?, style: SelectionHighlightStyle = .screen) {
         if path == nil, selectionHighlight.path == nil { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
+        if path != nil, selectionHighlightStyle != style {
+            selectionHighlightStyle = style
+            selectionHighlight.fillColor = style.cgFill
+            selectionHighlight.compositingFilter = style.blend.rawValue
+        }
         if path != nil, selectionHighlight.superlayer !== contentView.layer { contentView.layer.addSublayer(selectionHighlight) }
         selectionHighlight.path = path
         CATransaction.commit()

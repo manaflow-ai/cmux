@@ -100,3 +100,10 @@ if (!("Element" in scope)) {
   useSystemChrome(chromium as unknown as Parameters<typeof useSystemChrome>[0]);
   refusePlaywrightOnMacs([chromium, webkit, firefox]);
 }
+
+// Cross-file leaks: a test file that leaves module state, a timer, a listener or a global behind
+// for the next file fails, naming what it left (support/leakDetector.ts says how).
+{
+  const { installLeakDetector } = await import("./support/leakDetector");
+  installLeakDetector();
+}
