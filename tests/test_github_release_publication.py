@@ -593,10 +593,22 @@ class TransportTests(unittest.TestCase):
 
     def test_rate_limit_wait_is_capped_by_the_budget(self):
         reset = int(publisher.time.time()) + 3600
-        waits = self.rate_limited_publish(
-            (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(reset)}, {"message": "API rate limit exceeded"}))
+        # 1000.84 is a clock for which (now + 600) - now is 600.0000000000001: the cap held only by luck of the clock.
+        with patch.object(publisher, "_clock", return_value=1000.84):
+            waits = self.rate_limited_publish(
+                (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(reset)}, {"message": "API rate limit exceeded"}))
         self.assertEqual(len(waits), 1)
         self.assertLessEqual(waits[0], publisher.RATE_LIMIT_BUDGET_SECONDS)
+
+    def test_the_wait_never_exceeds_the_budget_at_any_clock(self):
+        # The boundary: a reset further off than the budget waits exactly the budget, whatever the clock's float.
+        reset = int(publisher.time.time()) + 3600
+        for clock in (1000.84, 8000.3, 123456.789, 3.0e7 + 0.1):
+            with self.subTest(clock=clock), patch.object(publisher, "_clock", return_value=clock), \
+                    patch.object(publisher, "RATE_LIMIT_BUDGET_SECONDS", 600):
+                waits = self.rate_limited_publish(
+                    (403, {"x-ratelimit-remaining": "0", "x-ratelimit-reset": str(reset)}, {"message": "API rate limit exceeded"}))
+                self.assertEqual(waits, [600.0])
 
     def test_rate_limit_that_outlasts_the_budget_fails(self):
         publisher._rate_limit_deadline = publisher.time.monotonic() - 1
