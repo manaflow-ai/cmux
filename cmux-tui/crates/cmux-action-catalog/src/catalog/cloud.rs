@@ -196,7 +196,7 @@ pub static ACTIONS: &[Action] = &[
         id: "cloudMoveToMachine",
         group: GROUP,
         title: t("ActionCatalog", "action.cloudMoveToMachine", "Move to Another Machine"),
-        description: Some("Moves a chat that a move from this Mac put on a Cloud machine to another Cloud machine (--machine machine:<id>, else a connected one, else any, else a new one): pulls its folder to this Mac, copies it to that machine, moves the chat there with the old machine's last changes, opens it there and closes the old machine's tab. Only a person runs it: an agent's run (MCP, or the CLI from an agent's chat) is refused."),
+        description: Some("Moves a chat that a move from this Mac put on a Cloud machine to another Cloud machine (--machine machine:<id>, else a connected one, else any, else a new one): its folder goes machine to machine and never into this Mac's folder (as git when it can: the new machine clones from GitHub and gets only the folder's own changes), the chat moves there with the old machine's last changes, opens there, and the old machine's tab closes. Only a person runs it: an agent's run (MCP, or the CLI from an agent's chat) is refused."),
         keywords: &["vm", "cloud", "move", "machine", "other", "another", "remote", "chat", "agent", "sync"],
         category: "cloud",
         symbol: "arrow.left.arrow.right",

@@ -411,7 +411,7 @@ impl Seed {
                 .ok()
                 .map(|out| String::from_utf8_lossy(&out).trim().to_owned())
         };
-        let Some(record) = super::export::RECORDS
+        let Some(record) = super::export::DELTA_RECORDS
             .into_iter()
             .find(|record| read(&format!("{record}/work^{{commit}}")).as_deref() == Some(since))
         else {
