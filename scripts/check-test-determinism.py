@@ -748,10 +748,71 @@ def _javascript_identifier_character(character: str) -> bool:
     return unicodedata.category(character) in _UNICODE_ID_CONTINUE_CATEGORIES
 
 
+# ECMAScript WhiteSpace (tab, VT, FF, space, U+00A0, U+FEFF and every Zs) and LineTerminator.
+def _javascript_is_blank(character: str) -> bool:
+    return character in "\t\v\f \u00a0\ufeff\n\r\u2028\u2029" or (
+        not character.isascii() and unicodedata.category(character) == "Zs"
+    )
+
+
+def _javascript_skip_blanks(source: str, index: int) -> int:
+    while index < len(source) and _javascript_is_blank(source[index]):
+        index += 1
+    return index
+
+
+_JAVASCRIPT_TYPE_LOOKAHEAD = 2000
+_JAVASCRIPT_CLOSERS = {"(": ")", "[": "]", "{": "}", "<": ">"}
+
+
+def _javascript_balanced_end(source: str, index: int) -> int:
+    """The offset just past the bracket that closes the one at INDEX (`(`, `[`, `{` or `<`), skipping nested brackets
+    and quoted strings, or -1 when it is not within reach."""
+    stack = [_JAVASCRIPT_CLOSERS[source[index]]]
+    position = index + 1
+    limit = min(len(source), index + _JAVASCRIPT_TYPE_LOOKAHEAD)
+    while position < limit:
+        character = source[position]
+        if source.startswith("=>", position):
+            position += 2  # a function type's arrow closes no `<`
+            continue
+        if character in "'\"`":
+            close = source.find(character, position + 1, limit)
+            if close < 0:
+                return -1
+            position = close + 1
+            continue
+        if character in _JAVASCRIPT_CLOSERS:
+            stack.append(_JAVASCRIPT_CLOSERS[character])
+        elif character == stack[-1]:
+            stack.pop()
+            if not stack:
+                return position + 1
+        position += 1
+    return -1
+
+
+def _javascript_angle_is_type_parameters(source: str, index: int) -> bool:
+    """Whether the `<` at INDEX opens a generic arrow's type parameters, the way TypeScript reads a .tsx file: the
+    list closes with `>`, then a parenthesized parameter list, then `=>` or a `:` return type."""
+    close = _javascript_balanced_end(source, index)
+    if close < 0:
+        return False
+    params = _javascript_skip_blanks(source, close)
+    if not source.startswith("(", params):
+        return False
+    params_end = _javascript_balanced_end(source, params)
+    if params_end < 0:
+        return False
+    after = _javascript_skip_blanks(source, params_end)
+    return source.startswith(("=>", ":"), after)
+
+
 def _javascript_jsx_tag_opens_at(source: str, index: int) -> bool:
     """Whether the `<` at INDEX reads as a JSX open tag or fragment where an expression may start: `<>` or `<Name`,
-    unless the name is followed by `extends` (not `extends=`), `=` or `,`, which make it a type parameter list
-    (`<T extends U>`, `<T = V>`, `<T,>`)."""
+    unless the name is followed by `=` or `,` (`<T = V>`, `<T,>`: type parameters), or by `extends` that opens a
+    generic arrow's type parameters (`<T extends U>(x) => x`). An attribute named `extends`, bare or with a value
+    (`<Tile extends {...p} />`, `<div extends="x">`), keeps the tag. Blanks are ECMAScript's (U+00A0 included)."""
     after = index + 1
     if after >= len(source):
         return False
@@ -762,17 +823,16 @@ def _javascript_jsx_tag_opens_at(source: str, index: int) -> bool:
     end = after + 1
     while end < len(source) and _javascript_identifier_character(source[end]):
         end += 1
-    while end < len(source) and source[end] in " \t\r\n":
-        end += 1
+    end = _javascript_skip_blanks(source, end)
     if source.startswith(("=", ","), end):
         return False
     if source.startswith("extends", end) and not (
         end + 7 < len(source) and _javascript_identifier_character(source[end + 7])
     ):
-        rest = end + 7
-        while rest < len(source) and source[rest] in " \t\r\n":
-            rest += 1
-        return source.startswith("=", rest) and not source.startswith(("==", "=>"), rest)
+        rest = _javascript_skip_blanks(source, end + 7)
+        if source.startswith("=", rest) and not source.startswith(("==", "=>"), rest):
+            return True  # `extends="x"`: an attribute
+        return not _javascript_angle_is_type_parameters(source, index)
     return True
 
 
@@ -962,6 +1022,15 @@ def _javascript_regex_literal_starts_at(
         and executable[previous - 1]
     ):
         return False
+    if character == "!" and previous > 0 and executable[previous - 1]:
+        # A `!` right after a name, `)` or `]` is TypeScript's postfix non-null assertion (`value!`): the expression
+        # is complete. After a keyword (`return!x`) it is the prefix not.
+        before = source[previous - 1]
+        if before in ")]":
+            return False
+        if _javascript_identifier_character(before):
+            word, start = _javascript_word_before(source, previous, comments)
+            return _javascript_is_keyword_at(source, start, comments) and word in _JAVASCRIPT_REGEX_PREFIX_KEYWORDS
     return True
 
 
