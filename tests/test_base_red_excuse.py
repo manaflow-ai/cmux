@@ -11319,10 +11319,16 @@ KNOWN_BAD = {
 }
 
 
-def _patch_ansi():
+# The OSC body that eats text: `.*` reads on to the line's LAST terminator, so the text between two OSC sequences (a
+# hyperlink, then a title) goes with them. lines_of's correctness case below must fail it.
+SPANNING_OSC = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\].*(?:\x07|\x1b\\))")
+
+
+def _patch_ansi(pattern=GREEDY_OSC):
+    """PATTERN as the escape strip of every reader: base_red_excuse.ANSI and test_reds.ANSI, one object or two."""
     stack = contextlib.ExitStack()
-    stack.enter_context(unittest.mock.patch.object(excuse.test_reds, "ANSI", GREEDY_OSC))
-    stack.enter_context(unittest.mock.patch.object(excuse, "ANSI", GREEDY_OSC))
+    stack.enter_context(unittest.mock.patch.object(excuse.test_reds, "ANSI", pattern))
+    stack.enter_context(unittest.mock.patch.object(excuse, "ANSI", pattern))
     return stack
 
 
@@ -11355,6 +11361,20 @@ class AdversarialCasesReachTheirPath(unittest.TestCase):
                     failure = growth_failure(build, n, ADVERSARIAL_FACTORS[0], label, attempts=1, ceiling=60)
                 self.assertIsNotNone(failure, f"{label}: {KNOWN_BAD_OF[label]} scales linearly on this case, so the "
                                               "case never reaches the path it times")
+
+    def test_text_between_two_osc_sequences_survives_the_strip(self):
+        """lines_of once stripped OSC escapes with a body that read past its own terminator, so two OSC sequences on
+        one line (a hyperlink round a `FAIL:` marker, then a title) ate the text between them, the marker with it. The
+        marker and the text after it must survive, and the case must reach the strip: SPANNING_OSC must eat them."""
+        osc_line = "\x1b]8;;url\x07FAIL: a\x1b]8;;\x07 text \x1b]0;t\x07"
+        log = f"build\tRun checks\t2026-11-11T10:00:00.0000000Z {osc_line}"
+        self.assertEqual(excuse.lines_of(log), ["FAIL: a text"])
+        self.assertTrue(excuse.SHELL_FAIL.match(excuse.lines_of(log)[0]), "the FAIL marker is no longer read")
+        with _patch_ansi(SPANNING_OSC):
+            eaten = excuse.lines_of(log)
+        self.assertNotEqual(eaten, ["FAIL: a text"], "the spanning OSC keeps the text too, so this case never "
+                                                    "reaches the strip it checks")
+        self.assertFalse(any(excuse.SHELL_FAIL.match(line) for line in eaten))
 
 class AdversarialInputsScale(unittest.TestCase):
     """#41220's follow-up (dep-fleet-6): "F1 follow-up (base_red_excuse.py:1082): a forged marker (a NUL, many 'z',
