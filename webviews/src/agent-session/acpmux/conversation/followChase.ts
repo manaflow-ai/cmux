@@ -109,7 +109,7 @@ const MAX_STEP_S = 1 / 30;
 /// switched away covers or parks its view while it still reads visible). What lands meanwhile moves
 /// at once, so the first frame back draws the rows where they rest instead of a chase held back the
 /// whole time away (Leo, 2026-11-11: "austin was navigating between workspaces ... a sliver of
-/// space at the bottom"; agent-pane-reveal-in-place.test.ts). A busy page still runs a frame well
+/// space at the bottom"; agent-pane-reveal-in-place.shared.ts). A busy page still runs a frame well
 /// within it.
 const FRAMELESS_MS = 150;
 /// The fixed-duration arm's step: the standard step, eased out (MOTION_EASE_OUT's start slope).
