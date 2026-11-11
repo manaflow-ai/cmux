@@ -13,14 +13,22 @@
 //! `mode-mismatch`), later `dropped`.
 //!
 //! What acpmux does, in three layers:
-//! - Off at the source: every Claude Code the daemon starts gets [`SWITCH_ENV`]`=0`
-//!   (`agent/command.rs`), Claude Code's switch for cross-session messaging. Measured on 2.1.322:
+//! - Off at the source: every Claude Code the daemon starts gets [`SWITCH_ENV`]`=0`: an agent
+//!   (`agent/command.rs`) and the model probe that reads a Claude harness's models
+//!   (`live_models/mod.rs`, its own spawn path). Claude Code's switch for cross-session
+//!   messaging; measured on 2.1.322:
 //!   no `ListAgents` tool, no inbox socket and no peer address, so the agent lists no session of
 //!   any daemon and no other session lists or messages it; a `SendMessage` to another session
 //!   answers "No agent named 'X' is reachable". `SendMessage` to the agent's own subagents and
-//!   teammates still works. The switch is not documented, so the next two layers do not depend
-//!   on it. A profile or preset that sets the variable itself keeps its value (the person's
-//!   choice to take part in Claude Code's peer list).
+//!   teammates still works. The switch is an undocumented Claude Code setting (found in its
+//!   binary, not in its docs), so the next two layers do not depend on it. If a later Claude Code
+//!   renames or drops it, its messaging is on again in acpmux agents: `ListAgents` lists every
+//!   Claude Code of the machine (acpmux agents of other daemons too), and other sessions can
+//!   message an acpmux agent, which may hold the message. The gate below still refuses every
+//!   native send to an acpmux session (tested with a Claude Code that ignores the switch,
+//!   `tests/claude_native_messaging.rs`), and a hold still shows in `pending`; only the
+//!   cross-daemon peer list comes back. A profile or preset that sets the variable itself keeps
+//!   its value (the person's choice to take part in Claude Code's peer list).
 //! - Refused with the way that works: acpmux's PreToolUse gate (`claude_stdio/policy_gate.rs`,
 //!   every mode, every tool) refuses a `SendMessage` whose target is a session of this daemon or
 //!   any cross-session address (a `NAME [ref]` row of `ListAgents`, a `uds:` or `bridge:`
@@ -31,8 +39,9 @@
 //!   on, a Claude Code that ignores the switch) is in the session's `heldMessages` (summary and
 //!   info) and in `acpmux pending` until Claude Code says it was released or dropped
 //!   ([`Hub::note_peer_message_hold`]). The frame is information only: Claude Code has no host
-//!   approval for it, so acpmux shows it and cannot release it. Kept in memory: a daemon restart
-//!   forgets the holds of the agents it adopts.
+//!   approval for it, so acpmux shows it and cannot release it. Kept in memory only (no log
+//!   record): a daemon restart forgets the holds of the agents it adopts, and `pending` then
+//!   shows them no more although Claude Code may still hold them.
 
 use super::*;
 

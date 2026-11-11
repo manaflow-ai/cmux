@@ -30,6 +30,11 @@ struct Daemon(PathBuf);
 
 impl Daemon {
     fn new(tag: &str, registry: &Path) -> Self {
+        Self::with_claude_env(tag, registry, json!({}))
+    }
+
+    /// `new`, with `extra` added to the stand-in Claude Code's environment.
+    fn with_claude_env(tag: &str, registry: &Path, extra: Value) -> Self {
         // Short: the socket path must stay under the macOS limit.
         let dir = std::env::temp_dir().join(format!("w7a-{tag}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
@@ -38,10 +43,13 @@ impl Daemon {
         let dir = fs::canonicalize(&dir).unwrap();
         fs::create_dir(dir.join("work")).unwrap();
         let log = dir.join("calls.jsonl");
+        let mut env = json!({"FAKE_AUTO_LOG": log, "FAKE_CLAUDE_PEER_REGISTRY": registry});
+        for (key, value) in extra.as_object().into_iter().flatten() {
+            env[key] = value.clone();
+        }
         let config = json!({
             "harnesses": {
-                "claude": {"argv": ["python3", FAKE_AUTO], "kind": "claude-stdio",
-                    "env": {"FAKE_AUTO_LOG": log, "FAKE_CLAUDE_PEER_REGISTRY": registry}},
+                "claude": {"argv": ["python3", FAKE_AUTO], "kind": "claude-stdio", "env": env},
                 "fake": {"argv": ["python3", FAKE_AGENT]},
             },
             "defaultHarness": "claude",
@@ -150,6 +158,37 @@ fn w7a_a_native_send_to_an_acpmux_session_is_refused_with_the_acpmux_command() {
     }
     let own = call(&calls, "SendMessage", Some("main"));
     assert_eq!(own["ran"], true, "a send to the session's own agent was refused: {own}");
+    let _ = fs::remove_dir_all(&registry);
+}
+
+/// `CLAUDE_CODE_HARBOR_KITE` is not a documented Claude Code setting. If a later Claude Code
+/// renames or drops it, its own messaging is on again in acpmux agents: `ListAgents` lists the
+/// other acpmux agents of the machine, and a `SendMessage` to one would be held or dropped out of
+/// sight. The gate does not depend on the switch: it still refuses a native send to a session of
+/// this daemon, or to a `NAME [ref]` row of `ListAgents`, with the acpmux command.
+#[test]
+fn w7a_the_gate_refuses_a_native_send_when_the_switch_has_no_effect() {
+    let registry = registry("noswitch");
+    let daemon =
+        Daemon::with_claude_env("noswitch", &registry, json!({"FAKE_CLAUDE_IGNORE_SWITCH": "1"}));
+    daemon.start("beta", "claude", &auto(&json!([])));
+    let calls = json!([
+        ["ListAgents", {}],
+        ["SendMessage", {"to": "beta", "message": "What is the capital of France?"}],
+        ["SendMessage", {"to": "beta [3fa9c1]", "message": "you, specifically"}],
+    ]);
+    daemon.start("alpha", "claude", &auto(&calls));
+    let calls = daemon.calls();
+    // The switch had no effect: Claude Code's own messaging is on and reaches beta.
+    let listed = call(&calls, "ListAgents", None);
+    assert_eq!(listed["ran"], true, "{listed}");
+    assert!(listed["output"].as_str().unwrap_or_default().contains("beta"), "{listed}");
+    for to in ["beta", "beta [3fa9c1]"] {
+        let send = call(&calls, "SendMessage", Some(to));
+        assert_eq!(send["ran"], false, "the native send to {to:?} ran: {send}");
+        let reason = send["reason"].as_str().unwrap_or_default();
+        assert!(reason.contains("\"$ACPMUX_BIN\" send beta --wait"), "{reason}");
+    }
     let _ = fs::remove_dir_all(&registry);
 }
 

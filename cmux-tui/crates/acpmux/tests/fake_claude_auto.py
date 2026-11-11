@@ -21,7 +21,9 @@ its `--name`, offers `ListAgents` (every other live registered session, whicheve
 started it) and lets `SendMessage` reach a registered peer's inbox (the result says "in that
 session's inbox, not yet read"). With `CLAUDE_CODE_HARBOR_KITE=0` it registers nothing, has no
 `ListAgents` ("No such tool available") and `SendMessage` reaches only "main" ("No agent named 'X'
-is reachable."). A logged call has its tool result as `output`.
+is reachable."). FAKE_CLAUDE_IGNORE_SWITCH=1 models a Claude Code that renamed or dropped the
+switch: messaging stays on whatever `CLAUDE_CODE_HARBOR_KITE` says. A logged call has its tool
+result as `output`.
 
 A prompt "peer-hold: <JSON>" writes Claude Code's `system/peer_message_hold` line with the JSON's
 fields (`state`, `message_uuid`, `from`, `from_name`, `cause`, `outcome`, `lane`) and ends the turn.
@@ -41,7 +43,10 @@ NAME = SESSION
 if "--name" in sys.argv[:-1]:
     NAME = sys.argv[sys.argv.index("--name") + 1]
 # Claude Code's cross-session messaging (module docs).
-MESSAGING = os.environ.get("CLAUDE_CODE_HARBOR_KITE") != "0"
+MESSAGING = (
+    os.environ.get("FAKE_CLAUDE_IGNORE_SWITCH") == "1"
+    or os.environ.get("CLAUDE_CODE_HARBOR_KITE") != "0"
+)
 REGISTRY = os.environ.get("FAKE_CLAUDE_PEER_REGISTRY")
 if MESSAGING and REGISTRY:
     ENTRY = os.path.join(REGISTRY, "%d.json" % os.getpid())

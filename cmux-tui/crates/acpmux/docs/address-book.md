@@ -49,7 +49,10 @@ should offer it for codex too! ..." (and for the other harnesses people use).
   and `ListAgents` listed a session of another acpmux daemon. acpmux's PreToolUse gate refuses a
   `SendMessage` to an acpmux session or a cross-session address, with the `acpmux send` command
   that delivers it. A message Claude Code still holds (a profile that turned the messaging back
-  on) is in `heldMessages` and `acpmux pending`.
+  on, or a Claude Code that ignores the switch) is in `heldMessages` and `acpmux pending`, in
+  memory only (a daemon restart forgets it). The switch is undocumented in Claude Code; the
+  model probe (`src/live_models/mod.rs`) sets it too. If Claude Code renames it, the gate's
+  refusal and `pending` still work; only the cross-daemon peer list comes back.
 
 ## How a message reaches each kind of session
 

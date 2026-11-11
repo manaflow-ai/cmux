@@ -231,6 +231,9 @@ the person's prompt. What the receiver gets depends on who you are to it:
   `"$ACPMUX_BIN" send NAME --wait "…"` (its reply in this turn) or the `send`
   tool. `SendMessage` still reaches your own subagents. `acpmux ls` is the peer
   list. A profile that sets `CLAUDE_CODE_HARBOR_KITE` itself keeps its value.
+  That variable is an undocumented Claude Code switch: if a later Claude Code
+  renames it, `ListAgents` may list other Claude Code sessions again, but the
+  refusal above still applies.
 - `wait` right after `send --no-wait` waits for the turn the message brings;
   it never answers with the idle state from before the message.
 
@@ -341,7 +344,8 @@ its Needs you list. Its `heldMessages` lists another session's message that a
 chat's Claude Code holds instead of reading it (`session`, `fromName`, `from`,
 `cause`, `messageUuid`, `heldAt`; also `heldMessages` of `session info`). Claude
 Code gives acpmux no way to release it: it waits for that chat's approval or
-expires, so have the sender send it with `acpmux send` instead.
+expires, so have the sender send it with `acpmux send` instead. acpmux keeps
+held messages in memory only: after a daemon restart they no longer show.
 
 Show UI instead of describing it. A reply in cmux draws `![alt](/abs/path.png)`,
 a bare image path (`.png`, `.jpg`, `.gif`, `.webp`), a `file://` URL or an

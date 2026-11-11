@@ -333,6 +333,8 @@ pub(crate) fn harness_command(
         // its inbox socket) is off: its peer list is every Claude Code of the machine, whichever
         // daemon started it, and a message it holds shows nowhere; an agent here messages others
         // through acpmux (`hub/native_messaging.rs`). A value the profile or login set wins.
+        // Undocumented in Claude Code: if it renames it, the PreToolUse gate still refuses a
+        // SendMessage to an acpmux session; only the cross-daemon peer list comes back.
         if get(crate::hub::native_messaging::SWITCH_ENV).is_none() {
             cmd.env(crate::hub::native_messaging::SWITCH_ENV, "0");
         }
