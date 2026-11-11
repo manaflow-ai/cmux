@@ -1,6 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
-import CmuxNextDesign
+@testable import CmuxNextDesign
 import CmuxNextDesignTokens
 @testable import CmuxNextSidebar
 import CmuxTheme
