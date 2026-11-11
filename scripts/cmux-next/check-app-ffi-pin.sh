@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
 # Checks the app FFI pin (CCmuxAppFFI: the remote desktop core and the sidebar
-# layout reducer over one Rust runtime) in Packages/macOS/CmuxNext/Package.swift.
+# layout reducer over one Rust runtime) in Packages/macOS/CmuxNext/app-ffi-pin.json,
+# which Package.swift's one fixed loader block reads at manifest time.
 #
-#   scripts/cmux-next/check-app-ffi-pin.sh [--verify-release] [--base REF] [--tree DIR] [--stale-grace SECONDS]
+#   scripts/cmux-next/check-app-ffi-pin.sh [--verify-release] [--resolve] [--base REF] [--tree DIR] [--stale-grace SECONDS]
 #   scripts/cmux-next/check-app-ffi-pin.sh --list-inputs [--tree DIR]
+#
+# With --resolve (a Mac with the Swift 6.2 tools: a fleet step) it also evaluates
+# the manifest with `swift package dump-package`, fails unless the CCmuxAppFFI
+# binary target it yields carries the pin file's url and checksum, then runs
+# `swift package resolve`.
 #
 # Fails when the FFI sources at HEAD differ from the pinned source sha (the tag
 # is cmux-app-ffi-<source sha>): change the Rust code, let
@@ -32,6 +38,7 @@
 set -euo pipefail
 
 verify=0
+resolve=0
 list_inputs=0
 base_ref=""
 tree=""
@@ -39,13 +46,14 @@ stale_grace=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --verify-release) verify=1 ;;
+    --resolve) resolve=1 ;;
     --base) base_ref="${2:?--base needs a ref}"; shift ;;
     --list-inputs) list_inputs=1 ;;
     --tree) tree="${2:?--tree needs a directory}"; shift ;;
     --stale-grace)
       stale_grace="${2:?--stale-grace needs seconds}"; shift
       [[ "$stale_grace" =~ ^[0-9]+$ ]] || { echo "error: --stale-grace needs a whole number of seconds" >&2; exit 2; } ;;
-    *) echo "usage: $0 [--verify-release] [--base REF] [--tree DIR] [--stale-grace SECONDS]" >&2; exit 2 ;;
+    *) echo "usage: $0 [--verify-release] [--resolve] [--base REF] [--tree DIR] [--stale-grace SECONDS]" >&2; exit 2 ;;
   esac
   shift
 done
@@ -57,13 +65,13 @@ if [[ -n "$tree" ]]; then
   root="$(cd "$tree" 2>/dev/null && pwd -P)" || { echo "error: --tree $tree is not a directory" >&2; exit 2; }
 fi
 manifest="$root/Packages/macOS/CmuxNext/Package.swift"
-# The JSON pin (cmux#37645): when the tree has it, the pin is that file's and Package.swift holds only its loader block.
 pin_file="$root/Packages/macOS/CmuxNext/app-ffi-pin.json"
 asset="CCmuxAppFFI.xcframework.zip"
 
-# The pin is read only through scripts/ci/app_ffi_pin.py's fail-closed canonical match (the classifier, the repin
-# picker and the repin script read it the same way). A Package.swift whose pin is not the canonical block fails here,
-# naming its first line that does not match.
+# The pin is read only through scripts/ci/app_ffi_pin.py: the pin file strictly,
+# and Package.swift only for its one fixed loader block, whose checksum line
+# must equal the pin file's, and no pin of its own (the classifier, the repin
+# picker and the repin script read it the same way).
 pin_reader="$code/scripts/ci/app_ffi_pin.py"
 workspace_manifest=cmux-tui/Cargo.toml
 # The cmux-tui workspace manifest: while cmux-app-ffi has its own [workspace] table (cargo builds it as its own
@@ -119,10 +127,12 @@ fi
 # reader, or json.py at the root for the python3 -c below) is imported in place of the standard library and decides
 # the verdict, while base_red_excuse.py trusts the verdict of a change that leaves this check's files alone. The
 # reader imports only the standard library.
-read_pin=(read "$manifest")
-[[ -f "$pin_file" ]] && read_pin=(read-pin-file "$pin_file" "$manifest")
-if ! pinned="$(python3 -I "$pin_reader" "${read_pin[@]}" 2>&1)"; then
-  echo "error: no canonical cmux-app-ffi pin in $manifest: ${pinned#error: }" >&2
+if ! pinned="$(python3 -I "$pin_reader" read "$pin_file" 2>&1)"; then
+  echo "error: no canonical cmux-app-ffi pin in $pin_file: ${pinned#error: }" >&2
+  exit 1
+fi
+if ! loader="$(python3 -I "$pin_reader" check-manifest "$manifest" "$pin_file" 2>&1)"; then
+  echo "error: $manifest does not read the pin through its one loader block: ${loader#error: }" >&2
   exit 1
 fi
 read -r sha checksum <<<"$pinned"
@@ -171,17 +181,9 @@ inputs_differ() { # inputs_differ A B: exit 0 when an input differs between comm
 own_change=1
 if [[ -n "$base_ref" ]]; then
   if base_commit="$(git rev-parse --verify --quiet "$base_ref^{commit}")"; then
-    # The base's pin through the same canonical match, in either form; a base that does not match it pins nothing
-    # here.
-    base_dir="$(mktemp -d)"
-    base_pin=""
-    if git show "$base_commit:Packages/macOS/CmuxNext/Package.swift" >"$base_dir/Package.swift" 2>/dev/null; then
-      read_pin=(read "$base_dir/Package.swift")
-      git show "$base_commit:Packages/macOS/CmuxNext/app-ffi-pin.json" >"$base_dir/app-ffi-pin.json" 2>/dev/null \
-        && read_pin=(read-pin-file "$base_dir/app-ffi-pin.json" "$base_dir/Package.swift")
-      base_pin="$(python3 -I "$pin_reader" "${read_pin[@]}" 2>/dev/null | awk '{print $1}' || true)"
-    fi
-    rm -rf "$base_dir"
+    # The base's pin through the same strict read; a base without a canonical pin file pins nothing here.
+    base_pin="$(git show "$base_commit:Packages/macOS/CmuxNext/app-ffi-pin.json" 2>/dev/null \
+      | python3 -I "$pin_reader" read /dev/stdin 2>/dev/null | awk '{print $1}' || true)"
     list_inputs "$base_commit" HEAD
     if ! inputs_differ "$base_commit" HEAD && [[ "$base_pin" == "$sha" ]]; then
       own_change=0
@@ -260,7 +262,7 @@ elif [[ "$drift" -eq 1 ]]; then
   echo "Owning lane(s), which publish the release and update the pin:$(sort -u <<<"$owners")" >&2
   echo "Commits since the pin:" >&2
   git log --format='  %h %an: %s' "$sha..HEAD" -- "${shown[@]}" >&2 || true
-  echo "Fix: the push to feat-cmux-next runs app-ffi-release.yml; publish its artifact (by hand when the run says so), then pin the new URL and checksum in Package.swift in one commit, in the same push as the source change when possible." >&2
+  echo "Fix: the push to feat-cmux-next runs app-ffi-release.yml; publish its artifact (by hand when the run says so), then pin the new URL and checksum in Packages/macOS/CmuxNext/app-ffi-pin.json in one commit, in the same push as the source change when possible." >&2
   # A release is published only from a feat-cmux-next push, so a pull request cannot pin its own FFI sources.
   echo "If this PR changes FFI inputs: split it into a Rust-only step A and a Swift step B after the re-pin (docs/ci/app-ffi-release.md, \"A pull request that changes FFI inputs\")." >&2
   exit 1
@@ -296,4 +298,21 @@ if [[ "$verify" -eq 1 ]]; then
   grep -qxF "$checksum  $asset" "$work/SHA256SUMS" \
     || { echo "error: release SHA256SUMS does not carry the pinned checksum $checksum" >&2; exit 1; }
   echo "app FFI pin: release built from $sha with checksum $checksum"
+fi
+
+if [[ "$resolve" -eq 1 ]]; then
+  package="$root/Packages/macOS/CmuxNext"
+  dump="$(mktemp)"
+  swift package --package-path "$package" dump-package > "$dump" \
+    || { echo "error: swift package dump-package failed for $package" >&2; rm -f "$dump"; exit 1; }
+  if ! evaluated="$(python3 -I "$pin_reader" check-dump "$dump" "$pin_file" 2>&1)"; then
+    rm -f "$dump"
+    echo "error: ${evaluated#error: }" >&2
+    exit 1
+  fi
+  rm -f "$dump"
+  echo "app FFI pin: the evaluated manifest pins CCmuxAppFFI to cmux-app-ffi-$sha ($checksum)"
+  swift package --package-path "$package" resolve \
+    || { echo "error: swift package resolve failed for $package" >&2; exit 1; }
+  echo "app FFI pin: swift package resolve passed"
 fi

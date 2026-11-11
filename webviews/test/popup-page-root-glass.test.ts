@@ -57,13 +57,6 @@ const POPUP_PAGES: Record<string, string[]> = {
     "pages/changelog/updateSurfaces.css",
     "pages/changelog/surface.css",
   ],
-  // The bookmarks bar (pages/bookmarks-bar) over the native strip's pane fill.
-  "Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/Page/BookmarksBarPage.swift": [
-    "pages/shared/pageBase.css",
-    "ui/ui.css",
-    "browser-chrome/bookmarks-bar/bookmarksBar.css",
-    "pages/bookmarks-bar/styles.css",
-  ],
   // The floating web card host (server cards): the panel's glass is the page's background.
   "Packages/macOS/CmuxNext/Sources/CmuxNextPages/WebCard/WebCardPanel.swift": [
     "pages/shared/pageBase.css",
