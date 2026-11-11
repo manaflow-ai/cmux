@@ -98,40 +98,34 @@ struct GroupCloseCleanupUndoTests {
             let ending: [String] = personal.endingGroups.map { short($0.rawValue) }
             return "groups \(groups) ending \(ending) open \(open) rows \(rows) closed \(closed)"
         }
-        var last = ""
-        // Polls `condition` each 4 ms up to `limit` and writes each change of the snapshot.
-        @MainActor func watch(_ limit: Duration, _ condition: () -> Bool) async {
-            let deadline = clock.now + limit
-            repeat {
+        // DIAG 5: the recorder runs beside the test (each 4 ms) and gates nothing: Undo is pressed when the ORIGINAL test presses it
+        // (the helper `until` polls each 50 ms).
+        let recorder = Task { @MainActor in
+            var last = ""
+            while !Task.isCancelled {
                 let now = snap()
                 if now != last { timeline.add("+\(start.duration(to: clock.now)) \(now)"); last = now }
-                if condition() { return }
                 try? await Task.sleep(for: .milliseconds(4))
-            } while clock.now < deadline
+            }
         }
-        defer { print("DIAG-TIMELINE group \(short(setup.group.rawValue)):\n" + timeline.lines.joined(separator: "\n")) }
-        await watch(.seconds(60)) { personal.group(setup.group) == nil && setup.members.allSatisfy { services.workspace(id: $0) == nil } }
+        defer { recorder.cancel(); print("DIAG-TIMELINE group \(short(setup.group.rawValue)):\n" + timeline.lines.joined(separator: "\n")) }
         try await PinnedPageTests.until({ personal.group(setup.group) == nil && setup.members.allSatisfy { services.workspace(id: $0) == nil } },
                                         within: .seconds(60),
                                         report: { "group \(personal.group(setup.group)?.name ?? "deleted"), open \(setup.members.filter { services.workspace(id: $0) != nil })" })
-        await watch(.seconds(10)) { CmuxToastCenter.shared.toasts(in: setup.window).contains { $0.id == Self.toastID } }
         try await PinnedPageTests.until({ CmuxToastCenter.shared.toasts(in: setup.window).contains { $0.id == Self.toastID } },
                                         within: .seconds(10), report: { "toasts \(CmuxToastCenter.shared.toasts(in: setup.window).map(\.message))" })
         timeline.add("+\(start.duration(to: clock.now)) UNDO PRESSED")
         #expect(CmuxToastCenter.shared.runAction(id: Self.toastID, in: setup.window))
         @MainActor func held() -> Set<String> { Set(context.workspaces(inPersonalGroup: setup.group).map(\.name)) }
-        await watch(.seconds(60)) { held() == ["undo-1", "undo-2"] }
-        timeline.add("+\(start.duration(to: clock.now)) FIRST WAIT ENDS: held \(held().sorted())")
-        // What comes in the 2 seconds after (a late write shows here).
-        await watch(.seconds(2)) { false }
-        try await PinnedPageTests.until({ held() == ["undo-1", "undo-2"] }, within: .seconds(5), report: {
-            let open = services.machines.daemons.flatMap(\.store.workspaces).map { "\($0.name)[\(context.personalGroupID(of: $0)?.rawValue ?? "-")]" }
-            let rows = personal.workspaces.map { "\($0.workspaceKey.rawValue):\($0.group?.rawValue ?? "-")" }
-            let closed = DaemonClosedHistory.entries([.workspace], in: services).map {
-                "\($0.item.id) name=\($0.item.name ?? "nil") members=\($0.item.memberNames.map { $0 ?? "nil" }) group=\($0.item.group?.id ?? "-")"
-            }
-            return "group \(personal.group(setup.group)?.name ?? "missing") holds \(held().sorted()); groups \(personal.groups.map(\.name)); DIAG group id \(setup.group.rawValue); open \(open); rows \(rows); closed \(closed)"
-        })
+        do {
+            try await PinnedPageTests.until({ held() == ["undo-1", "undo-2"] }, within: .seconds(60), report: {
+                "group \(personal.group(setup.group)?.name ?? "missing") holds \(held().sorted()); groups \(personal.groups.map(\.name)); DIAG \(snap())"
+            })
+        } catch {
+            timeline.add("+\(start.duration(to: clock.now)) WAIT ENDS RED: held \(held().sorted())")
+            throw error
+        }
+        timeline.add("+\(start.duration(to: clock.now)) WAIT ENDS: held \(held().sorted())")
         let restored = try #require(personal.group(setup.group))
         #expect(restored.name == setup.name)
         #expect(restored.pinned == setup.pinned)
