@@ -74642,7 +74642,7 @@
         "contextMenus" : [
           {
             "context" : "agentChat",
-            "folder" : null,
+            "folder" : "move",
             "group" : "move",
             "label" : null,
             "parent" : null,
@@ -74718,7 +74718,7 @@
         "contextMenus" : [
           {
             "context" : "agentChat",
-            "folder" : null,
+            "folder" : "move",
             "group" : "move",
             "label" : null,
             "parent" : null,
@@ -74808,7 +74808,7 @@
         "contextMenus" : [
           {
             "context" : "agentChat",
-            "folder" : null,
+            "folder" : "move",
             "group" : "move",
             "label" : null,
             "parent" : null,
