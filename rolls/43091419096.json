@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43091419096",
+  "recorded_at": "2026-11-11T20:07:54Z",
+  "reason": "cmux-tui 497ac4922fbd changes the image's cmux-tui (pinned 3f0852ca2bba)",
+  "dry_run": false,
+  "cmux_tui": "497ac4922fbd54e38a3e4a81b795bcfbad455964",
+  "fixes": [
+    {
+      "sha": "497ac4922fbd54e38a3e4a81b795bcfbad455964",
+      "mergedAt": "2026-11-11T11:38:26-08:00",
+      "subject": "acpmux: every cancel path settles what the normal finish does (review of #41361, F2-F4) (#41392)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T20:07:54Z",
+    "snapshot_id": "sh-d001e4ac788049689907be17ef6b9949",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43091419096): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c5c17c780fa05cc04ab328dec786e1e5ed023311",
+    "image": "cloud-native-auto-497ac492-43091419096-1",
+    "revision": "ci-43091419096-1",
+    "at": "2026-11-11T20:07:54Z"
+  },
+  "rolled_back": false
+}
