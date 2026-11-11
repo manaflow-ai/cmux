@@ -5622,13 +5622,17 @@ def _main() -> int:
     workers = int(requested) if requested else len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else 1
     # Off Linux only an explicit CMUX_TEST_WORKERS forks (scripts/ci/run_ci_guards.py
     # sets it on macOS, where the serial run takes about two minutes).
+    failures = []
     if workers <= 1 or (sys.platform != "linux" and not requested):
+        # The same collector as the forked run: a red test does not stop the
+        # ones after it, and every red is printed and written below.
         for name in names:
-            globals()[name]()
-        return 0
+            name, error = _run_named_test(name)
+            if error:
+                failures.append((name, error))
+        return _report(failures, names)
     import multiprocessing
 
-    failures = []
     with multiprocessing.get_context("fork").Pool(workers, maxtasksperchild=1) as pool:
         results = pool.imap_unordered(_run_named_test, names)
         pending = set(names)
@@ -5647,6 +5651,11 @@ def _main() -> int:
             pending.discard(name)
             if error:
                 failures.append((name, error))
+    return _report(failures, names)
+
+
+def _report(failures: list[tuple[str, str]], names: list[str]) -> int:
+    """Prints every red test and writes one check per red for the guard runner."""
     for name, error in sorted(failures):
         print(f"FAIL: {name}\n{error}", file=sys.stderr)
     # One check per red test for the guard runner (scripts/ci/run_ci_guards.py), so a
