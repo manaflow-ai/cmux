@@ -278,6 +278,19 @@ impl LinkGroup for Tracked {
     }
 }
 
+/// How long one attempt's link may stay parked before the dial opens a new one. A link opened
+/// while a new machine's host was still binding stayed parked for the whole deadline (4 of 13
+/// first dials on 2026-11-10: `parked_ms` 178 s, then `parked_timeout`), though the host
+/// registered 13 s in and the next dial was allocated in 0.5 s. A machine that registers is
+/// allocated in well under a second, so a longer park is a link the relay will not pair.
+pub(super) const PARK_REDIAL: Duration = Duration::from_secs(10);
+
+/// When an attempt begun at `now` stops waiting for its parked link: the dial's `deadline`.
+pub(super) fn park_until(deadline: Instant, now: Instant) -> Instant {
+    let _ = now;
+    deadline
+}
+
 fn relay_provider(
     answer: &CarrierAnswer,
     tickets: Arc<TicketCache>,
@@ -296,7 +309,7 @@ fn relay_provider(
         },
         credentials,
     )
-    .map(|provider| provider.with_allocation_deadline(deadline))
+    .map(|provider| provider.with_allocation_deadline(park_until(deadline, Instant::now())))
     .map_err(|e| Failure::fatal(Step::Relay, e.to_string()))
 }
 
