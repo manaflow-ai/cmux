@@ -1,0 +1,9 @@
+{
+  "envs": [["light", "none"], ["dark", "none"]],
+  "shots": [
+    { "name": "too-big-repos", "entry": "agent-pane.cloud-start", "variant": "folder-too-big-repos", "width": 760, "height": 420, "deviceScaleFactor": 2, "arms": { "now": "" } },
+    { "name": "too-big-more-24-narrow", "entry": "agent-pane.cloud-start", "variant": "folder-too-big-more", "width": 360, "height": 640, "deviceScaleFactor": 2, "arms": { "now": "" } },
+    { "name": "too-big-more-24-wide", "entry": "agent-pane.cloud-start", "variant": "folder-too-big-more", "width": 760, "height": 480, "deviceScaleFactor": 2, "arms": { "now": "" } },
+    { "name": "too-big-plain", "entry": "agent-pane.cloud-start", "variant": "folder-too-big-plain", "width": 760, "height": 360, "deviceScaleFactor": 2, "arms": { "now": "" } }
+  ]
+}
