@@ -26,10 +26,6 @@ import {
   type HeaderPanelContext,
   type HeaderPanelState,
 } from "./header/HeaderPanelBar";
-import { FeedNeedsYou, NEEDS_YOU_ACTION } from "./needsYou/FeedNeedsYou";
-import { MockFeedProvider, sampleFeed } from "../../feed/mockProvider";
-import { ACTION_RUN } from "../../feed/types";
-import type { PageClient } from "../../shared/pageClient";
 
 const strings = cardStrings();
 
@@ -327,36 +323,12 @@ function Header({
   );
 }
 
-// A Chief chat's pinned Needs you: the Feed page's own view (cards/needsYou/FeedNeedsYou.tsx) over the
-// Feed's mock provider, its actions arriving as the host's `needsYou.action`.
-const NEEDS_YOU_NOW = Date.parse("2026-11-06T15:00:00Z");
-type NeedsYouLook = "rows" | "bar" | "cards";
-
-function needsYouHost(): PageClient {
-  const feed = new MockFeedProvider(sampleFeed(NEEDS_YOU_NOW), { now: () => NEEDS_YOU_NOW });
-  return {
-    call: (op, params) => feed.call(op === NEEDS_YOU_ACTION ? ACTION_RUN : op, params),
-    subscribe: (stream, onEvent) => feed.subscribe(stream, onEvent),
-    handle: (op, handler) => feed.handle(op, handler),
-  };
-}
-
-function NeedsYouStage({ look }: { look: NeedsYouLook }) {
-  const [host] = useState(needsYouHost);
-  return (
-    <div style={{ maxWidth: 640, padding: 16 }}>
-      <FeedNeedsYou host={host} route={`#/needs-you?style=${look}`} clock={() => NEEDS_YOU_NOW} />
-    </div>
-  );
-}
-
 type Props =
   | { card: "mcp"; server: string; style: McpCardStyle; phase: McpPhaseName }
   | { card: "pills"; shape: AgentPillShape; width: number }
   | { card: "links"; cards: string[] }
   | ({ card: "first-run" } & FirstRunStage)
-  | { card: "header"; context: HeaderPanelContext; states: HeaderPanelState[]; enabled: boolean }
-  | { card: "needs-you"; look: NeedsYouLook };
+  | { card: "header"; context: HeaderPanelContext; states: HeaderPanelState[]; enabled: boolean };
 
 function Cards(props: Props) {
   switch (props.card) {
@@ -372,8 +344,6 @@ function Cards(props: Props) {
     }
     case "header":
       return <Header {...props} />;
-    case "needs-you":
-      return <NeedsYouStage look={props.look} />;
   }
 }
 
@@ -394,7 +364,6 @@ export default componentEntry<Props>({
     "pages/home-messages/cards/links/HomeLinkChip.tsx",
     "pages/home-messages/cards/firstRun/FirstRunPanel.tsx",
     "pages/home-messages/cards/header/HeaderPanelBar.tsx",
-    "pages/home-messages/cards/needsYou/FeedNeedsYou.tsx",
   ],
   load: async () => Cards,
   styles: () => import("./cards.gallery.css"),
@@ -509,15 +478,6 @@ export default componentEntry<Props>({
         enabled: false,
       },
     },
-    "needs-you-rows": {
-      note: "The Feed page's Needs you rows under a Chief chat's header, one-click answers in place.",
-      props: { card: "needs-you", look: "rows" },
-    },
-    "needs-you-bar": {
-      note: "One line: the first request; a click opens the Feed.",
-      props: { card: "needs-you", look: "bar" },
-    },
-    "needs-you-cards": { note: "Each request in its own card.", props: { card: "needs-you", look: "cards" } },
     "header-person": {
       note: "A chat with a person: only the right sidebar.",
       props: { card: "header", context: { isChief: false }, states: [], enabled: true },

@@ -43,6 +43,13 @@ WORKFLOW = ROOT / ".github/workflows/app-ffi-release.yml"
 REPIN_WORKFLOW = ROOT / ".github/workflows/app-ffi-repin.yml"
 sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 SHA = "45845b2d13d794c435d31f72ea74dc0f4a5739d0"
 TAG = f"cmux-app-ffi-{SHA}"
@@ -53,6 +60,16 @@ FAKE_GH = r"""#!/usr/bin/env bash
 # Fake gh: FAKE_CREATE is ok, 403 or noop. A created release is the directory $STATE/release.
 set -u
 rel="$STATE/release"
+# FAKE_READ_FAILS: the release reads (view and download, counted from 1) that
+# fail with a 502, as GitHub's did in run 42919934207, whether or not the
+# release exists; "all" fails every read.
+if [[ "$1 $2" == "release view" || "$1 $2" == "release download" ]]; then
+  reads=$(( $(cat "$STATE/reads" 2>/dev/null || echo 0) + 1 ))
+  echo "$reads" > "$STATE/reads"
+  if [[ "${FAKE_READ_FAILS:-}" == all || " ${FAKE_READ_FAILS:-} " == *" $reads "* ]]; then
+    echo "HTTP 502: Bad Gateway" >&2; exit 1
+  fi
+fi
 case "$1 $2" in
   "release view") [[ -d "$rel" ]] && exit 0; echo "release not found" >&2; exit 1 ;;
   "release create")
@@ -77,6 +94,10 @@ exit 2
 
 FAKE_CURL = r"""#!/usr/bin/env bash
 set -u
+# FAKE_CURL_FAILS: the downloads (counted from 1) that fail with a 502.
+calls=$(( $(cat "$STATE/curls" 2>/dev/null || echo 0) + 1 ))
+echo "$calls" > "$STATE/curls"
+if [[ " ${FAKE_CURL_FAILS:-} " == *" $calls "* ]]; then echo "curl: (22) The requested URL returned error: 502" >&2; exit 22; fi
 out=""
 while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && out="$2"; shift; done
 [[ -f "$STATE/release/CCmuxAppFFI.xcframework.zip" ]] || { echo "curl: (22) 404" >&2; exit 22; }
@@ -108,7 +129,8 @@ def condition(expression: str | None, context: dict, failed: bool) -> bool:
 
 
 class PublishJob(unittest.TestCase):
-    def run_publish(self, *, workflow_changed: bool, create: str = "ok", existing: bool = False) -> tuple[bool, str]:
+    def run_publish(self, *, workflow_changed: bool, create: str = "ok", existing: bool = False,
+                    read_fails: str = "", curl_fails: str = "") -> tuple[bool, str]:
         job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]
         with tempfile.TemporaryDirectory() as temp:
             temp_path = Path(temp)
@@ -137,11 +159,11 @@ class PublishJob(unittest.TestCase):
                                                 "workflow_changed": "true" if workflow_changed else "false"}}},
                 "vars": {}, "runner": {"temp": str(temp_path)},
             }
-            base_env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": temp, "STATE": str(state),
-                        "FAKE_CREATE": create, "GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
+            base_env = git_fixture_env.fixture_env({"PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": temp, "STATE": str(state),
+                        "FAKE_CREATE": create, "FAKE_READ_FAILS": read_fails, "FAKE_CURL_FAILS": curl_fails, "GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
                         "GITHUB_RUN_ID": RUN_ID, "GITHUB_SERVER_URL": "https://github.com",
                         "RUNNER_TEMP": temp, "GITHUB_OUTPUT": str(temp_path / "output"),
-                        "GITHUB_STEP_SUMMARY": str(temp_path / "summary")}
+                        "GITHUB_STEP_SUMMARY": str(temp_path / "summary")})
             base_env.update({key: render(value, context) for key, value in (job.get("env") or {}).items()})
             failed, log = False, []
             for step in job["steps"]:
@@ -187,6 +209,31 @@ class PublishJob(unittest.TestCase):
         passed, log = self.run_publish(workflow_changed=False, existing=True)
         self.assertTrue(passed, log)
 
+    def test_a_failed_read_of_a_published_release_is_asked_again(self):
+        # Run 42919934207 published the release, then one read in the last
+        # check failed (GitHub 502s) and the job said the release did not
+        # exist, which skipped the re-pin and left base red. Download 1 is the
+        # anonymous check; downloads 2 and 3 are the last check's first two tries.
+        passed, log = self.run_publish(workflow_changed=False, curl_fails="2 3")
+        self.assertTrue(passed, log)
+        self.assertIn("read 2 of release", log, log)
+        self.assertIn("exists with checksum", log, log)
+        self.assertNotIn("publish by hand", log.lower(), log)
+
+    def test_a_failed_read_before_the_create_is_asked_again(self):
+        # The create step's own read fails first; it asks again instead of
+        # taking the 502 for "no release" and creating over a published tag.
+        passed, log = self.run_publish(workflow_changed=False, existing=True, create="403", read_fails="1")
+        self.assertTrue(passed, log)
+        self.assertIn("already has the matching archive", log, log)
+
+    def test_a_release_that_never_reads_fails_loud_without_a_create(self):
+        # Six failed reads are not "no release": the create step stops there
+        # instead of creating, and still names the hand publish.
+        passed, log = self.run_publish(workflow_changed=False, existing=True, create="403", read_fails="all")
+        self.assert_fails_loud(passed, log)
+        self.assertIn("could not read release", log, log)
+        self.assertNotIn("HTTP 403", log, log)
 
 APP_TOKEN_ACTION = "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"
 
@@ -605,7 +652,7 @@ class NewestPublishedRelease(unittest.TestCase):
         self.addCleanup(subprocess.run, ["rm", "-rf", str(self.temp)])
         self.origin, self.work, self.releases = self.temp / "origin.git", self.temp / "work", self.temp / "releases"
         self.releases.mkdir()
-        subprocess.run(["git", "init", "-q", "--bare", str(self.origin)], check=True)
+        git_fixture_env.init_repo(self.origin, "--bare")
         subprocess.run(["git", "init", "-q", str(self.work)], check=True)
         self.git("remote", "add", "origin", str(self.origin))
         self.commits = [self.commit(f"c{i}") for i in range(6)]
@@ -821,6 +868,71 @@ class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
         self.assertEqual(pr[self.SMALL], ())
         nightly = cascade.cascade(["release-compile"], live, waiting, reserved=held, fresh=("release-compile",))
         self.assertEqual(nightly[self.SMALL], ("release-compile",))
+
+
+STATUS_CALL = re.compile(r"\b(success|failure|cancelled|always)\(\)")
+
+
+def run_jobs(results: dict[str, str], event: str = "push") -> dict[str, str]:
+    """Which jobs of the workflow run, given the result of the jobs named in `results`, by GitHub's job-gate rule:
+    an `if` with no status function is `success() && (if)`, and success() asks that every ancestor, not only the
+    named needs, succeeded; failure() asks that one failed. A job that runs and is not in `results` succeeds."""
+    jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    needs = {name: ([job["needs"]] if isinstance(job.get("needs"), str) else list(job.get("needs") or ()))
+             for name, job in jobs.items()}
+    outcome: dict[str, str] = {}
+
+    def ancestors(name: str) -> set[str]:
+        found: set[str] = set()
+        for parent in needs[name]:
+            found |= {parent} | ancestors(parent)
+        return found
+
+    def decide(name: str) -> str:
+        if name not in outcome:
+            for parent in needs[name]:
+                decide(parent)
+            above = [outcome[a] for a in ancestors(name)]
+            status = {"success": all(r == "success" for r in above), "failure": "failure" in above,
+                      "cancelled": False, "always": True}
+            condition = str(jobs[name].get("if", "true")).strip()
+            if condition.startswith("${{") and condition.endswith("}}"):
+                condition = condition[3:-2]
+            if not STATUS_CALL.search(condition):
+                condition = f"success() && ({condition})"
+            condition = STATUS_CALL.sub(lambda m: "true" if status[m.group(1)] else "false", condition)
+            context = {"github": {"ref": "refs/heads/feat-cmux-next", "event_name": event,
+                                  "repository_owner": "manaflow-ai"},
+                       "needs": {p: {"result": outcome[p]} for p in needs[name]}}
+            outcome[name] = results.get(name, "success") if evaluate(condition, context) else "skipped"
+        return outcome[name]
+
+    for name in jobs:
+        decide(name)
+    return outcome
+
+
+class PlacementNeverGatesThePublish(unittest.TestCase):
+    """The build runs past its placement (it only picks a runner), so nothing after the build may wait on the
+    placement either. A downstream `if` without a status function keeps the implicit success() over every
+    ancestor, placement included: a failed placement then skipped publish and repin under a green build, and the
+    FFI pin stayed red (Codex review of cmux#40734 at 2283666f, P1)."""
+
+    def test_a_failed_placement_still_publishes_and_repins_a_good_build(self):
+        for event in ("push", "workflow_dispatch"):
+            ran = run_jobs({"placement": "failure"}, event)
+            self.assertEqual(ran["build"], "success", event)
+            for job in ("macos-cross-shadow", "publish", "repin"):
+                self.assertEqual(ran[job], "success", (event, job))
+
+    def test_a_failed_build_publishes_nothing(self):
+        for placement in ("success", "failure"):
+            ran = run_jobs({"placement": placement, "build": "failure"})
+            for job in ("macos-cross-shadow", "publish", "repin"):
+                self.assertEqual(ran[job], "skipped", (placement, job))
+
+    def test_a_failed_publish_opens_no_repin(self):
+        self.assertEqual(run_jobs({"placement": "failure", "publish": "failure"})["repin"], "skipped")
 
 
 if __name__ == "__main__":
