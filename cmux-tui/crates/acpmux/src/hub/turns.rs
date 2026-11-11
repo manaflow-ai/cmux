@@ -1773,14 +1773,32 @@ impl Hub {
             // A Stop kept the prompt from the fallback a failover started (`stopped_before_prompt`),
             // or the agent of a turn a Stop was stopping ended it with an error (it exited, its
             // cancel failed, or it reported one): the turn ends as the Stop's, cancelled, and holds
-            // no queue as a failure does; the prompt's caller still hears why.
+            // no queue as a failure does; the prompt's caller still hears why. So does a turn
+            // whose agent's process ended because the chat was closed under it (`kill`): acpmux
+            // ended that process, which is no crash to retry (manaflow-ai/cmux#40960).
+            let closed_under = dead && session.closing.load(Ordering::SeqCst);
             let stopped_early = result
                 .as_ref()
                 .err()
-                .filter(|e| is_stopped_before_prompt(e) || (was_stopping && !carries_on))
+                .filter(|e| {
+                    is_stopped_before_prompt(e) || (was_stopping && !carries_on) || closed_under
+                })
                 .cloned();
             if stopped_early.is_some() {
                 result = Ok(stopped_answer());
+                // Its agent's process ended under the Stop, and acpmux did not end it (a signal
+                // took it right after the interrupt, manaflow-ai/cmux#40960): it starts again on
+                // the same conversation as this turn ends (`respawn_stopped_agent`), as one a
+                // Stop's escalation ended does, so the chat is not left disconnected on a Retry.
+                if dead
+                    && was_stopping
+                    && !child.ended_on_purpose()
+                    && !session.closing.load(Ordering::SeqCst)
+                    && session.status() != SessionStatus::Closed
+                {
+                    let cancels = session.cancels.load(Ordering::SeqCst);
+                    session.stop_respawn.store(cancels + 1, Ordering::SeqCst);
+                }
             }
             // The turn's wrap-up answer, taken whatever the turn's end (`wrap_up_suggestion.rs`).
             // The facts it offered for the project's instructions (`memory_inbox.rs`), first.
