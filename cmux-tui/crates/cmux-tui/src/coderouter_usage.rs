@@ -597,8 +597,10 @@ mod tests {
         wait(
             &|event| matches!(event, cmux_tui_core::MuxEvent::MachineUsageChanged(Some(usage)) if usage.vm_id == "vm-123"),
         );
-        assert_eq!(mux.machine_usage().map(|usage| usage.total_tokens), Some(17));
+        // The order CI hit (run 42990900270): the poller's next poll, 1 ms
+        // later, answers 404 and clears the readout before this thread reads it.
         wait(&|event| matches!(event, cmux_tui_core::MuxEvent::MachineUsageChanged(None)));
+        assert_eq!(mux.machine_usage().map(|usage| usage.total_tokens), Some(17));
         assert_eq!(mux.machine_usage(), None);
         poller.stop();
         server.join().unwrap();
