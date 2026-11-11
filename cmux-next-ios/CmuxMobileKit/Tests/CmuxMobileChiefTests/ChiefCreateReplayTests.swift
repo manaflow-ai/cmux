@@ -30,15 +30,15 @@ import Testing
             let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
             let body: String = Self.lock.withLock {
                 if object["op"] as? String == "chief.list" {
-                    let ids = (Self.made ? [Self.fresh] : []) + (Self.kept.map { [$0] } ?? [])
-                    let tombstone = #"{"id":"\#(Self.deleted)","owner_user":"user_1","archived_at":"2026-11-09T00:00:00Z"}"#
+                    let ids = (Self.made ? [ChiefCreateReplayTests.fresh] : []) + (Self.kept.map { [$0] } ?? [])
+                    let tombstone = #"{"id":"\#(ChiefCreateReplayTests.deleted)","owner_user":"user_1","archived_at":"2026-11-09T00:00:00Z"}"#
                     return #"{"ok":true,"value":{"chiefs":[\#(ids.map(Self.chief).joined(separator: ","))],"tombstones":[\#(tombstone)]}}"#
                 }
                 let key = object["idempotency_key"] as? String ?? ""
                 Self.keys.append(key)
-                if key == "chief-default" { return #"{"ok":true,"value":\#(Self.chief(Self.kept ?? Self.deleted))}"# }
+                if key == "chief-default" { return #"{"ok":true,"value":\#(Self.chief(Self.kept ?? ChiefCreateReplayTests.deleted))}"# }
                 Self.made = true
-                return #"{"ok":true,"value":\#(Self.chief(Self.fresh))}"#
+                return #"{"ok":true,"value":\#(Self.chief(ChiefCreateReplayTests.fresh))}"#
             }
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, // crash-allow: test stub
                                            headerFields: ["Content-Type": "application/json"])!
