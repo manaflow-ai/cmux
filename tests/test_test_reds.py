@@ -1840,6 +1840,42 @@ class BunFileOwnershipStaysInItsStep(unittest.TestCase):
         self.assertEqual([r for r in found.records if r[2] == "unnamed"], [(2, 1, "unnamed", "FAIL test/a.test.ts (exit 1)")])
 
 
+def growth(call, small, large, repeats=3, min_seconds=0.005):
+    """CALL(LARGE)'s best CPU time over CALL(SMALL)'s, each sample repeating the call until it takes MIN_SECONDS (the
+    same count at both sizes), best of REPEATS each, in turn: about LARGE/SMALL when linear."""
+    import math
+    import time
+
+    def sample(size, loops):
+        began = time.process_time()
+        for _ in range(loops):
+            call(size)
+        return (time.process_time() - began) / loops
+    loops = max(1, math.ceil(min_seconds / max(sample(small, 1), 1e-9)))
+    best = {small: float("inf"), large: float("inf")}
+    for _ in range(repeats):
+        for size in (small, large):
+            best[size] = min(best[size], sample(size, loops))
+    return best[large] / max(best[small], 1e-9), best
+
+
+class PlainCostsLinearInItsInput(unittest.TestCase):
+    """The same greed as F1, as cost: an OSC body that ran to the next BEL or ST read the rest of the log from every
+    `ESC ]` with no terminator, so a log of N unterminated openers cost N^2 (20,000 took 3 to 9 CPU s at cmux#41382's
+    head; a PR's test output can print them). Each opener now reads to the next escape or line end. Linear is about
+    10x for 10x the input and quadratic 100x; the bound is 30x, never seconds."""
+
+    SHAPES = {"openers": "\x1b]x", "openers per line": "\x1b]xxxxx\n", "openers before an ST": "\x1b]0;t",
+              "CSI introducers": "\x1b[", "stray terminators": "\x1b\\\x07"}
+
+    def test_plain_is_linear_in_hostile_escapes(self):
+        for name, shape in self.SHAPES.items():
+            with self.subTest(shape=name):
+                text = {n: shape * n for n in (2_000, 20_000)}
+                ratio, best = growth(lambda n: reds.plain(text[n]), 2_000, 20_000)
+                self.assertLess(ratio, 30, f"{name}: 10x the input took {ratio:.0f}x ({best})")
+
+
 # --- the log-rewrite property test (cmux#41382's review: "a parser that over-reaches hides a new failure") ----------
 # Escapes a terminal writes: CSI colours and cursor moves, OSC titles ended by BEL or by ST, OSC 8 hyperlinks.
 INLINE_NOISE = ("\x1b[0m", "\x1b[31m", "\x1b[1;32m", "\x1b[38;5;208m", "\x1b[2K", "\x1b[1G", "\x1b]0;cargo test\x07",
