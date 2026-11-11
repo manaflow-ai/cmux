@@ -65,3 +65,17 @@ test("compose_send says when no composer shows, and refuses an empty prompt", as
   expect(await composeSend(host(none), "hi")).toEqual({ error: "no composer shows (the New Tab page?)" });
   expect(await composeSend(host(none), "  ")).toEqual({ error: "empty prompt" });
 });
+
+test("a kept compose_send says what holds Send", async () => {
+  const kept: AutomationCompose = {
+    ...composer().compose,
+    send: async () => false,
+    blocked: () => "unii isn't signed in.",
+  };
+  expect(await composeSend(host(kept), "hi")).toEqual({
+    sent: false,
+    runMode: "persistent",
+    cloudStart: null,
+    blocked: "unii isn't signed in.",
+  });
+});

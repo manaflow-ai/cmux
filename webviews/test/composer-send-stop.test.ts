@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { playFailures, playNotice } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-send-stop.test.ts", async () => {
@@ -64,15 +65,25 @@ await requireBrowserLane("composer-send-stop.test.ts", async () => {
       mic: document.querySelector(".acpmux-composer-actions .acpmux-mic") !== null,
       stop: document.querySelector('button[aria-label="Stop"]') !== null,
       calls: (window as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog.map(({ method }) => method),
-      play: document.documentElement.dataset.galleryPlay,
     }));
+    const report = await page.evaluate(() =>
+      JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
+    );
+    await page.close();
     expect(state).toEqual({
       send: false,
       mic: true,
       stop: false,
       calls: expect.arrayContaining(["chat.cancel"]),
-      play: "pass",
     });
-    await page.close();
+    // What the play did wrong, by name: a step that did not run, a moved anchor, a layout shift past
+    // the variant's limit. The stage's status alone is also "fail" for a frame over 33 ms or a slow
+    // settle, which on the shared CI runner time the runner as much as the page; those stay in the
+    // gallery report and fail no behavior test (support/galleryPlay.ts). Each problem the stage
+    // reported, those too, is printed as a workflow notice, which the runner keeps for a file that
+    // passes (scripts/ci/run-webviews-tests.sh), so a run on a slow runner still says what it was.
+    const notice = playNotice("composer-send-stop", report);
+    if (notice) console.log(notice);
+    expect(playFailures(report)).toEqual([]);
   });
 });

@@ -260,6 +260,8 @@ pub struct PtyTerminalRuntime {
     /// while `SurfaceMeta::resource_identity` belongs to one view placement.
     pub(super) terminal_public_id: Option<Arc<TerminalPublicId>>,
     pub(super) journal_generation: Arc<str>,
+    /// This terminal's handle on its output store log (record_output).
+    pub(super) output_log: crate::output_store::OutputLogCache,
     /// Legacy terminal hosts remain attachable, but cannot source-fence
     /// output at daemon shutdown and therefore never enter journal capture.
     pub(super) journal_capture_supported: bool,
