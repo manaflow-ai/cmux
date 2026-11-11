@@ -219,8 +219,8 @@ nonisolated extension SidebarLayoutOptions {
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
-        content.runsInCloud = cloudMachines.contains(ws.machineID)
-        content.machine = content.runsInCloud ? nil : machines[ws.machineID].map(SidebarMachineMark.init)
+        content.runsInCloud = cloudMachines.contains(ws.machineID) || ws.startsInCloud
+        content.machine = cloudMachines.contains(ws.machineID) ? nil : machines[ws.machineID].map(SidebarMachineMark.init)
         // Every mode (compact, minimal, workspaces as tabs, expanded), mark drawn or not: VoiceOver says the
         // computer and its status when it cannot connect, as no line does (review of #28510 at 58ee6d24).
         content.machineLabel = machine.flatMap { $0.isEmpty ? nil : $0 }

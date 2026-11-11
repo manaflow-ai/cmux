@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextCloud
 import CmuxNextCloudCredentials
 // Re-exported: every App file and `@testable import CmuxNextApp` test reads Cloud's start-session strings (CloudStartSessionStrings).
@@ -38,6 +39,7 @@ struct CloudStartChat {
                   services.machines.daemon(forTab: tab).isLocal else {
                 return AgentPaneReply.failure(code: "unavailable", message: CloudMoveStrings.notAChat)
             }
+            let titles = AgentCloudStartTitles.shared; titles.begin(tab, task: start.task, untitled: AgentPaneModel.tabTitle); defer { titles.end(tab) } // the page reads as its chat from the Send
             return await CloudStartChat(services: services, asker: .card(view, start: start.key)).reply(start, tab: tab) { [weak view] step in
                 if let view { start.progress(step, to: view) }
             }
@@ -89,9 +91,7 @@ struct CloudStartChat {
                 signedIn: services.cloud.isSignedIn)
     }
 
-    nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool) -> String? { // the rule: cmux-cloud-start-core `start`
-        CloudStartCore().refusal(cloudDisabled: cloudDisabled, signedIn: signedIn)
-    }
+    nonisolated static func refusal(cloudDisabled: Bool, signedIn: Bool) -> String? { CloudStartCore().refusal(cloudDisabled: cloudDisabled, signedIn: signedIn) } // the rule: cmux-cloud-start-core `start`
 
     /// Where a start comes from: the tab that sent (this Mac's new tab, or for a repick the chat's tab on
     /// the machine it was on), the chat's folder on this Mac, the Mac workspace and account the send
@@ -239,7 +239,7 @@ struct CloudStartChat {
         guard let surface = made.tab, let anchor = await CloudHandlers.mirroredAnchor(id: made.key.rawValue, on: machine),
               let tab = anchor.pane.tabs.first(where: { $0.surface == surface }) else { throw failure }
         let opened = (key: tab.id, surface: surface)
-        if let copy { services.cloud.movedChats.copied(copy) }
+        if let copy { services.cloud.movedChats.copied(copy) }; AgentCloudStartTitles.shared.hand(from: origin.tab, to: tab) // the chat keeps the start's title
         await AgentSessionAttachClient.trustCopiedFolder(cwd, sourceTrusted: trusted, surface: opened.surface.rawValue, ownerLink: CloudMachineLinks(appLink: machine.appLink).ownerLink, endpoint: AgentTabRemoteHost.endpoint(on: machine.daemon))
         CloudHandlers.show(anchor.id, context)
         for window in services.windows.controllers { window.state.selection.select(opened.key, in: anchor.pane.id) }

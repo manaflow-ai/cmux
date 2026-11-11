@@ -71,12 +71,12 @@ struct TabTitleResolver {
     /// for a terminal).
     func untitled(_ tab: TabModel, fallback: String = Strings.untitledTerminal) -> String {
         if tab.agentSession != nil {
-            if isNewTabPage(tab) { return newTabPageTitle(tab) ?? Strings.untitledBrowser }
+            if isNewTabPage(tab) { return AgentCloudStartTitles.shared.title(of: tab) ?? newTabPageTitle(tab) ?? Strings.untitledBrowser } // a Cloud start's page reads as its chat
             // A subagent's pane is a tab on its chat's session: it shows the subagent's own name, never
             // the chat's (Leo 2026-10-30: "subagents shouldn't be tab-named the exact same as the parent").
             if let subagent = subagentTitle(tab) { return subagent }
             let title = chatTitle(tab)
-            if title == AgentPaneModel.tabTitle, let name = workspaceName.flatMap(AgentChatTabTitle.taskName) { return name }
+            if title == AgentPaneModel.tabTitle, let name = AgentCloudStartTitles.shared.title(of: tab) ?? workspaceName.flatMap(AgentChatTabTitle.taskName) { return name }
             return title
         }
         switch tab.kind {
