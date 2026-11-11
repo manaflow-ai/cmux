@@ -322,6 +322,10 @@ jobs:
           test "${PIPESTATUS[0]}" -eq 0
       - name: Walk the reviewer path on each device
         run: |
+          # Never -e (Actions runs `bash -e`): a failing suite must still
+          # write its status and result for the report, and the next device
+          # must still run (run 42947653685 stopped at the first exit 65).
+          set +e
           set -uo pipefail
           xctestrun="$(find "$DERIVED/Build/Products" -name '*.xctestrun' | head -n 1)"
           for family in iphone ipad duo; do
@@ -466,6 +470,10 @@ jobs:
         env:
           ASC_RESULT: ${{ needs.asc-validate.result }}
           JUDGED_SHA: ${{ needs.plan.outputs.sha }}
+          # A direct push or pull_request run reports the app's readiness for
+          # the record; a submission (dispatch, or a call from the production
+          # pipeline) is the one that refuses on a blocker.
+          ADVISORY: ${{ contains(github.workflow_ref, '/.github/workflows/ios-review-gate.yml@') && (github.event_name == 'push' || github.event_name == 'pull_request') }}
         run: |
           set -uo pipefail
           echo "Judged: \`$JUDGED_SHA\`" >> "$GITHUB_STEP_SUMMARY"
@@ -488,6 +496,13 @@ jobs:
           python3 -I cmux-next-ios/scripts/app_review_gate.py "${args[@]}"
           code=$?
           echo "blocking=$(grep -oE '[0-9]+ blocking' review-gate.md | head -n1 | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          if [ "$code" -ne 0 ] && [ "$ADVISORY" = true ]; then
+            # The verdict judges the whole app at this commit, not the change
+            # that started the run, so it never turns a push or a pull request
+            # red; the summary above and the `blocking` output carry it.
+            echo "::warning::App Review gate: this commit would not pass App Review yet (see the run summary); a submission run refuses it"
+            exit 0
+          fi
           exit $code
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

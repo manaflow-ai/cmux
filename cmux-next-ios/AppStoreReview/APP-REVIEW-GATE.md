@@ -33,6 +33,12 @@ The upload job then `needs: [app-source, review-gate]` with `if: always() && ...
 `needs.review-gate.outputs.sha == needs.app-source.outputs.sha`. The gate's
 `blocking` output is the number of blocking findings.
 
+A called or dispatched run (a submission) fails on any blocker. A direct
+feat-cmux-next push or pull request run judges the whole app at that commit,
+not the change that started it, so it reports the same ranked list in its
+summary and `blocking` output but stays green: until the app is ready, every
+app push would otherwise be red.
+
 ## Checks
 
 | Check | Where | Catches |
