@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use super::{Change, Fake, WORKSPACE, call, sent_of};
+use super::{Change, Fake, GENERATION, WORKSPACE, call, sent_of};
 use crate::cli::mcp::Server;
 
 const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
@@ -349,6 +349,43 @@ fn agents_events_restarts_from_a_snapshot_when_the_cursor_is_unknown() {
     let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
     assert_eq!(list(&answer).len(), 1, "it continues from the new journal: {answer}");
     assert_eq!(list(&answer)[0]["name"], "c");
+}
+
+/// `after` with a live position in its daemon cursor, as a call against a
+/// daemon with `session-live-cursor-v1` gives it.
+fn with_live_position(after: &str, live: &str) -> String {
+    use base64::Engine as _;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    let body = after.strip_prefix("evc1_").expect("an events cursor");
+    let mut cursor: Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(body).unwrap()).unwrap();
+    assert!(cursor["d"].is_object(), "the cursor has no daemon position: {cursor}");
+    cursor["d"]["l"] = json!(live);
+    format!("evc1_{}", URL_SAFE_NO_PAD.encode(serde_json::to_vec(&cursor).unwrap()))
+}
+
+/// A saved cursor with a live position against a daemon before
+/// `session-live-cursor-v1` (an older daemon after a downgrade, or another
+/// machine): that daemon refuses the unknown cursor field. The call tries
+/// once more without the field and continues from the same revision, so no
+/// event is lost and there is no reset.
+#[test]
+fn agents_events_drops_the_live_position_for_a_daemon_that_refuses_it() {
+    let mut server = Server::new(fake(), None);
+    let after = start(&mut server);
+    now(&server, Change::Journal(json!([tab(TAB, "a")])));
+    let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+    let after = with_live_position(answer["next_after"].as_str().unwrap(), "epoch.7");
+
+    server.backend.live.borrow_mut().no_live_cursor = true;
+    now(&server, Change::Journal(json!([tab(TAB, "b")])));
+    let answer = events(&mut server, json!({"after": after, "timeout_seconds": 0}));
+    let got = list(&answer);
+    assert_eq!(got.len(), 1, "the event after the cursor did not come: {answer}");
+    assert_eq!(got[0]["name"], "b", "{answer}");
+    let streams = sent_of(&server, "events");
+    let [.., refused, opened] = streams.as_slice() else { panic!("two tries: {streams:?}") };
+    assert_eq!(refused["cursor"]["live"], "epoch.7", "{refused}");
+    assert_eq!(opened["cursor"], json!({"generation": GENERATION, "revision": "1"}));
 }
 
 #[test]

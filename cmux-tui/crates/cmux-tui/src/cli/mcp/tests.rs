@@ -90,6 +90,9 @@ struct Live {
     oldest: usize,
     /// Every daemon read fails.
     daemon_down: bool,
+    /// A daemon before `session-live-cursor-v1`: its catalog refuses the
+    /// `live` field of a cursor as an unknown field.
+    no_live_cursor: bool,
     changes: Vec<(Instant, Change)>,
 }
 
@@ -482,6 +485,14 @@ impl Fake {
         tick: Duration,
         on_wake: &mut dyn FnMut(Option<&Value>) -> bool,
     ) -> Result<(), CallFailure> {
+        let live_field = cursor.is_some_and(|cursor| cursor.get("live").is_some());
+        if live_field && self.live.borrow().no_live_cursor {
+            return Err(CallFailure {
+                kind: FailureKind::Rejected,
+                error: json!({"code": "validation.invalid", "message": "unknown fields"}),
+                idempotency_key: None,
+            });
+        }
         let head = || {
             let mut live = self.live.borrow_mut();
             live.settle();
