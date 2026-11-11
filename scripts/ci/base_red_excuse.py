@@ -1144,7 +1144,7 @@ class FailedView:
         return f"FailedView({'base' if self.base else 'head'}, {[(k, status) for k, status, _ in self.sections]})"
 
 
-def failed_view(job: dict, log: str, *, step_names, base: bool = False) -> "FailedView | Unplaced":
+def failed_view(job: dict, log: str, *, step_names, base: bool) -> "FailedView | Unplaced":
     """The one reader of a job log for every comparator, head and base alike (signature, step_errors, compare_window,
     crash_signals, the panic ratchet, the package, guard and quarantine rules, next_batch's expand_job): LOG's
     sections step_owners places that are not PASSED (FailedView), or UNPLACED when any line of it is AMBIGUOUS. No
@@ -1152,7 +1152,12 @@ def failed_view(job: dict, log: str, *, step_names, base: bool = False) -> "Fail
     scans for both): #40542's seventh Codex BLOCK, F1, at 35f63387, was signature() reading a head's failing tests
     from its whole log while a base's came from its failed sections alone, so a passing negative-case step's
     `✘ Test fake()` matched the base's real fake() failure and compare_window excused an unrelated new error in the
-    step that failed. An empty log is placed and has no section. STEP_NAMES: step_owners'."""
+    step that failed. An empty log is placed and has no section. STEP_NAMES: step_owners'. BASE, keyword-only with no
+    default, is the log's role, which every caller names: True for a base's log (evidence: FAILED sections alone),
+    False for the head's or a stack's (its red: FAILED and ERRORED). The test scan (FailedViewIsTheOnlyReader) checks
+    each caller's role against where its log came from: the follow-up to #40542's Codex F1 at 8dc7e0dc, where
+    next_batch read its base runs with the head's default role, so a base's ERRORED continue-on-error section was
+    base evidence and next-batch said "no new failures" for a red judge() refuses."""
     if not log.strip():
         return FailedView(job, base, [], [])
     owned = step_owners(job, log, step_names=step_names)
@@ -1736,7 +1741,7 @@ def guard_routes_view(repo: str, guard: dict, github) -> "FailedView | Unplaced"
     report = test_reds.read(text)
     if report.crashes or report.truncated:
         raise Refused(f"'{name}': routing process crashed or ended early")
-    return failed_view(guard, text, step_names=job_step_names(repo, guard, github, {}))
+    return failed_view(guard, text, step_names=job_step_names(repo, guard, github, {}), base=False)
 
 
 def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict], github) -> None:
@@ -4303,7 +4308,7 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
             return Head(inherited_compile_red(repo, base, sha, name, github))
         except Refused:
             pass
-    view = failed_view(job, head_log, step_names=names)
+    view = failed_view(job, head_log, step_names=names, base=False)
     early = signature(view)
     # An unplaced head has no signature: no rule that reads one (the Chromium currency step, the app FFI pin) applies
     # to it, and the base comparison refuses it; per-test web and gallery verdicts read their own evidence.
