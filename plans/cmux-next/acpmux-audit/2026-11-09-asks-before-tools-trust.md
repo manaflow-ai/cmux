@@ -89,6 +89,26 @@ Owner W5-L, lead decisions of 2026-11-09. Read with #39648 and its follow-up PR 
   such a script. Any other word that names an interpreter, a wrapper or a runner, any unknown
   option of those, a relative script, a shell's command string (`sh -c`, `bash -lc`) and PyPy
   count as reading the folder.
+- Delta review of #40158 (w5l-delta-rev): the fix still failed open by names (`perl5.34`,
+  `tclsh8.5`, `node22`, `osascript`; `PYTHON3` and `NODE` on a volume that ignores case; a runner
+  inside a composite word such as `-c mcp_servers.x.command=node` or inline JSON; env names such
+  as `RUBYOPT`, `BASH_ENV`, `PYTHONHOME`, `DYLD_INSERT_LIBRARIES`). Lead decisions: "agent CLIs
+  plus 2 interpreters" and "strict names, change fixtures". Fixed in `claim_basis.rs`:
+  - Program allowlist (`Program`, `Launch::program`): `opencode` and `codex` (with their own
+    arguments), CPython 3 (`python3`, `python3.N`) and Node in their strict forms, and the wrappers
+    of before. The written name and the real file's name (links resolved) must give the same kind,
+    case folded. Every other program refuses, also one acpmux cannot find.
+  - Argument parts (`Launch::parts_understood`): every argument word is split on whitespace,
+    quotes, brackets and `=`, `:`, `,`, `;`. A part that names a runner (case folded, any version),
+    an absolute path to a program, or a bare word that `PATH` resolves (except the value literals
+    `true`, `false`, `yes`, `info`) refuses, as does a part that is a path in the folder.
+  - Env allowlist (`env_kept`): `PATH`, `LANG`, `LANGUAGE`, `LC_*`, `TERM`, `COLORTERM`,
+    `NO_COLOR`, `FORCE_COLOR`, `CLICOLOR`, `TZ`, `RUST_LOG`, `RUST_BACKTRACE`, `PYTHONUNBUFFERED`,
+    `PYTHONDONTWRITEBYTECODE`, `PYTHONIOENCODING`, `PYTHONSAFEPATH`, `PYTHONNOUSERSITE`,
+    `NODE_ENV`, `NODE_NO_WARNINGS`, `ACPMUX_AGENT_TOOLS` and names that end in `_API_KEY`,
+    `_AUTH_TOKEN`, `_BASE_URL`, `_MODEL`, each with a value that names nothing of the folder.
+    Every other name refuses (also `PYTHONPATH`, `NODE_OPTIONS`, `HOME`). The test fake agent now
+    takes its `FAKE_*` settings as `--fake KEY VALUE` words, not env (no product exception).
 ## Still open
 - F1 (codex review of #40158, deferred by the lead, cmux#40605): a pooled agent is judged at
   take time. The pool prewarm spawns with no claim (`spawn.rs` `spawn_profile_for`,

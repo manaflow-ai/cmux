@@ -362,7 +362,14 @@ option names or an interpreter or wrapper runs: `--config agent.json`,
 `env python3 agent.py`, a bare `NODE_OPTIONS` preload such as `--require hook`;
 acpmux believes the claim only from a launch whose every word it understands, so
 `sh -c`, `bash -lc`, an unknown wrapper such as `pyenv exec`, PyPy and
-`python3` with only `PYTHONSAFEPATH` count too),
+`python3` with only `PYTHONSAFEPATH` count too; the program must be `opencode`,
+`codex`, `python3`/`python3.N` or `node` by its written name and by the real
+file it runs, any case, and every env name must be a reviewed one such as
+`LANG`, `NO_COLOR`, `PYTHONSAFEPATH` or a `*_API_KEY`, `*_BASE_URL` or
+`*_MODEL` name, so `perl5.34`, `ruby`, `RUBYOPT`, `NODE_OPTIONS` or
+`DYLD_INSERT_LIBRARIES` count too, as does an argument that names another
+program inside a `KEY=VALUE`, quoted, JSON or command-string word such as
+`-c mcp_servers.x.command=node`),
 from an entry, defaults or preset changed or removed after the start, or from
 a fork or moved chat that has a copy of another agent's claim. Each claim is in
 the session events as `asks_before_tools_claim`, with `trusted` and, when

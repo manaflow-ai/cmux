@@ -25,12 +25,6 @@
 use super::*;
 use std::collections::BTreeMap;
 
-/// Programs that run the chat folder's own packages, project files or settings (`package.json`,
-/// `pyproject.toml`, `bunfig.toml`, `deno.json`, `.env`) before any other: their launch is the
-/// folder's.
-const PACKAGE_RUNNERS: &[&str] =
-    &["npx", "bunx", "pnpx", "npm", "pnpm", "yarn", "bun", "deno", "uv", "uvx", "pipx"];
-
 /// Node's flags that preload a module: a bare name resolves from the working folder.
 const NODE_PRELOAD: &[&str] = &["-r", "--require", "--import", "--loader", "--experimental-loader"];
 
@@ -99,12 +93,13 @@ fn judge(spawned: &HarnessProfile, cwd: &Path, path: &[PathBuf]) -> Option<&'sta
     reads_folder(spawned, cwd, path).then_some("launch_reads_folder")
 }
 
-/// Whether launch `spawned` may run code that folder `cwd` chose. Fail closed: it reads nothing of
-/// the folder only when acpmux understands every word of it ([`Launch::understood`]), its env
-/// names nothing of the folder ([`env_names_folder`]), and no `PATH` entry is empty or relative
-/// (it names the folder). A bare program that `PATH` resolves to a file whose real path is inside
-/// the folder is the folder's (a chat in the home folder counts `~/.local/bin/agent` as the
-/// folder's); a link in a `PATH` folder to a program outside the chat folder is that program.
+/// Whether launch `spawned` may run code that folder `cwd` chose. Fail closed, by allowlists: it
+/// reads nothing of the folder only when acpmux understands every word of it
+/// ([`Launch::understood`]), every env name of it is a reviewed one whose value names nothing of
+/// the folder ([`env_kept`]), and no `PATH` entry is empty or relative (it names the folder). A bare
+/// program that `PATH` resolves to a file whose real path is inside the folder is the folder's (a
+/// chat in the home folder counts `~/.local/bin/agent` as the folder's); a link in a `PATH` folder
+/// to a program outside the chat folder is that program.
 ///
 /// The root folder holds every program, so it chooses none.
 fn reads_folder(spawned: &HarnessProfile, cwd: &Path, path: &[PathBuf]) -> bool {
@@ -112,7 +107,7 @@ fn reads_folder(spawned: &HarnessProfile, cwd: &Path, path: &[PathBuf]) -> bool 
         return false;
     }
     let folder = Folder::of(cwd);
-    if spawned.env.iter().any(|(key, value)| env_names_folder(key, value, &folder))
+    if spawned.env.iter().any(|(key, value)| !env_kept(key, value, &folder))
         || path.iter().any(|dir| dir.as_os_str().is_empty() || dir.is_relative())
     {
         return true;
@@ -120,11 +115,45 @@ fn reads_folder(spawned: &HarnessProfile, cwd: &Path, path: &[PathBuf]) -> bool 
     !Launch { folder: &folder, path }.understood(&spawned.argv, spawned.env.clone())
 }
 
-/// Whether env entry `key`=`value` names something of `folder`: [`env_in_folder`], or a
-/// `NODE_OPTIONS` preload by a name that is no absolute path ([`bare_preload`]).
-fn env_names_folder(key: &str, value: &str, folder: &Folder) -> bool {
-    env_in_folder(key, value, folder)
-        || (key == "NODE_OPTIONS" && bare_preload(value.split_whitespace()))
+/// Env names a launch may set and keep its claim: names that no runtime reads as code, as a file
+/// to load, or as a folder to search for code (reviewed for #40158). Every other name refuses the
+/// claim (fail closed): `RUBYOPT`, `PERL5OPT`, `BASH_ENV`, `PYTHONHOME`, `PYTHONPATH`,
+/// `NODE_OPTIONS`, `DYLD_INSERT_LIBRARIES`, `ZDOTDIR`, `HOME` and any name not reviewed.
+const REVIEWED_ENV: &[&str] = &[
+    "PATH",
+    "LANG",
+    "LANGUAGE",
+    "TERM",
+    "COLORTERM",
+    "NO_COLOR",
+    "FORCE_COLOR",
+    "CLICOLOR",
+    "TZ",
+    "RUST_LOG",
+    "RUST_BACKTRACE",
+    "PYTHONUNBUFFERED",
+    "PYTHONDONTWRITEBYTECODE",
+    "PYTHONIOENCODING",
+    "PYTHONSAFEPATH",
+    "PYTHONNOUSERSITE",
+    "NODE_ENV",
+    "NODE_NO_WARNINGS",
+    // acpmux's own switch for the cmux tools of the agents a profile starts.
+    "ACPMUX_AGENT_TOOLS",
+];
+
+/// Suffixes of reviewed env names: a credential, an endpoint or a model name of the agent's own
+/// provider (`OPENAI_API_KEY`, `ANTHROPIC_BASE_URL`, `GEMINI_MODEL`), which no runtime loads.
+const REVIEWED_ENV_SUFFIXES: &[&str] = &["_API_KEY", "_AUTH_TOKEN", "_BASE_URL", "_MODEL"];
+
+/// Whether env entry `key`=`value` keeps the claim: a reviewed name ([`REVIEWED_ENV`], `LC_*`, a
+/// name with a suffix of [`REVIEWED_ENV_SUFFIXES`]) whose value names nothing of `folder`
+/// ([`env_in_folder`]).
+fn env_kept(key: &str, value: &str, folder: &Folder) -> bool {
+    let reviewed = REVIEWED_ENV.contains(&key)
+        || key.strip_prefix("LC_").is_some_and(|rest| !rest.is_empty())
+        || REVIEWED_ENV_SUFFIXES.iter().any(|s| key.len() > s.len() && key.ends_with(s));
+    reviewed && !env_in_folder(key, value, folder)
 }
 
 /// The file name of program word `word` (`python3` of `/usr/bin/python3`).
@@ -132,34 +161,81 @@ fn name_of(word: &str) -> &str {
     Path::new(word).file_name().and_then(|n| n.to_str()).unwrap_or(word)
 }
 
-/// Interpreters that run a script named by their first argument, which acpmux accepts with no
-/// option at all (any option may run code of the command line: `sh -c`, `ruby -e`, `perl -I.`).
-const SCRIPT_INTERPRETERS: &[&str] =
-    &["ruby", "perl", "php", "lua", "bash", "sh", "zsh", "dash", "ksh", "fish", "tsx", "ts-node"];
+/// The agent CLIs whose launch keeps the claim, with arguments that name no program and nothing of
+/// the folder ([`Launch::args_understood`]), reviewed for #40158. Each reads its own project
+/// config in the chat folder (`opencode.json`, `.codex/`): the one assumption the lead accepted.
+const AGENT_CLIS: &[&str] = &["opencode", "codex"];
 
-/// Programs that may run the words after them as a program: the wrappers [`wrapped`] reads, and
-/// others it does not (`sudo`, `pyenv`, `mise`, `op`...). A word of a launch that names one, an
-/// interpreter or a package runner makes the launch one acpmux does not understand.
-const WRAPPER_NAMES: &[&str] = &[
+/// Names of programs that run other code (interpreters, shells, wrappers, package runners, build
+/// tools), as an argument names them ([`Launch::names_program`]), case folded and with any version
+/// (`Node22`, `perl5.34`): a name that is not here but that `PATH` resolves to a program is one
+/// too.
+const RUNNERS: &[&str] = &[
+    "python",
+    "pypy",
+    "node",
+    "nodejs",
+    "deno",
+    "bun",
+    "bunx",
+    "npx",
+    "pnpx",
+    "npm",
+    "pnpm",
+    "yarn",
+    "uv",
+    "uvx",
+    "pipx",
+    "ruby",
+    "irb",
+    "perl",
+    "php",
+    "lua",
+    "luajit",
+    "tclsh",
+    "wish",
+    "expect",
+    "osascript",
+    "swift",
+    "java",
+    "jshell",
+    "kotlin",
+    "scala",
+    "groovy",
+    "dotnet",
+    "go",
+    "cargo",
+    "rustc",
+    "make",
+    "sh",
+    "bash",
+    "zsh",
+    "dash",
+    "ksh",
+    "fish",
+    "csh",
+    "tcsh",
     "env",
-    "nice",
+    "sudo",
+    "doas",
+    "exec",
+    "eval",
+    "source",
+    "command",
+    "xargs",
     "nohup",
+    "nice",
     "timeout",
     "stdbuf",
     "time",
     "caffeinate",
     "setsid",
-    "sudo",
-    "doas",
-    "exec",
-    "command",
+    "sandbox-exec",
     "xcrun",
     "arch",
-    "sandbox-exec",
     "pyenv",
     "mise",
     "asdf",
-    "rtx",
     "direnv",
     "op",
     "dotenv",
@@ -174,19 +250,52 @@ const WRAPPER_NAMES: &[&str] = &[
     "chrt",
     "unbuffer",
     "script",
+    "tsx",
+    "ts-node",
+    "docker",
+    "podman",
 ];
 
-/// Whether word `word` names a program that may run other code: an interpreter, a wrapper or a
-/// package runner.
-fn names_runner(word: &str) -> bool {
-    let named = name_of(word);
-    named.starts_with("python")
-        || named.starts_with("pypy")
-        || named == "node"
-        || named == "nodejs"
-        || SCRIPT_INTERPRETERS.contains(&named)
-        || WRAPPER_NAMES.contains(&named)
-        || PACKAGE_RUNNERS.contains(&named)
+/// Value literals of the words a launch's arguments hold (JSON and TOML booleans, a log level):
+/// no program, though `PATH` holds programs of these names (`/usr/bin/true`, `/usr/bin/info`),
+/// which run no code of their arguments.
+const VALUE_LITERALS: &[&str] = &["true", "false", "yes", "info"];
+
+/// What a launch's program is ([`Launch::program`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Program {
+    /// An agent CLI of [`AGENT_CLIS`].
+    Agent,
+    /// CPython 3, with its minor version when a name tells it (`python3.12`).
+    Python(Option<u32>),
+    /// Node.
+    Node,
+    /// `env`.
+    Env,
+    /// A wrapper that [`wrapped`] reads.
+    Wrapper,
+}
+
+/// The [`Program`] that file name `name` names, case folded (`PYTHON3` is `python3`; a script
+/// extension such as `codex.js` is dropped), or `None`: acpmux has no form for it.
+fn program_of(name: &str) -> Option<Program> {
+    let lower = name.to_lowercase();
+    let bare = [".js", ".mjs", ".cjs"].iter().find_map(|e| lower.strip_suffix(e)).unwrap_or(&lower);
+    if AGENT_CLIS.contains(&bare) {
+        return Some(Program::Agent);
+    }
+    if bare == "python3" {
+        return Some(Program::Python(None));
+    }
+    if let Some(minor) = bare.strip_prefix("python3.") {
+        return minor.parse().ok().map(|minor| Program::Python(Some(minor)));
+    }
+    match bare {
+        "node" | "nodejs" => Some(Program::Node),
+        "env" => Some(Program::Env),
+        _ if wrapped(bare, &[]).is_some() => Some(Program::Wrapper),
+        _ => None,
+    }
 }
 
 /// Node's options that load or run nothing.
@@ -263,56 +372,69 @@ fn wrapped(named: &str, args: &[String]) -> Option<Option<usize>> {
     Some(Some(i))
 }
 
-/// The forms of a launch that acpmux understands to read nothing of the chat folder. Every other
-/// form reads it (fail closed): an unknown wrapper, an unknown interpreter option, a relative
-/// script, a module or code of the command line without Python's safe path, a shell's command
-/// string, PyPy.
+/// The forms of a launch that acpmux understands to read nothing of the chat folder: allowlists
+/// of programs ([`Program`]), of their options, and of env names. Every other form reads it (fail
+/// closed).
 struct Launch<'a> {
     folder: &'a Folder,
     path: &'a [PathBuf],
 }
 
 impl Launch<'_> {
-    /// Whether `argv`, run with env `env`, is understood to read nothing of the folder:
-    /// - its program is an absolute path outside the folder, or a bare name that `PATH` does not
-    ///   resolve into the folder, and no package runner;
+    /// Whether `argv`, run with env `env`, is understood to read nothing of the folder. Its
+    /// program is outside the folder and is a [`Program`] by its written name and by the real
+    /// file it runs ([`Self::program`]):
+    /// - an agent CLI, with arguments that [`Self::args_understood`];
     /// - a wrapper of [`wrapped`], or `env` (its `KEY=VALUE` words judged as env, `-u` and `-i`
-    ///   applied), runs an understood launch;
-    /// - Python runs, with options of its safe list, a script by an absolute path outside the
-    ///   folder, or a module, code of the command line or stdin with the safe path (`-P`, `-I`,
-    ///   or `PYTHONSAFEPATH` on a Python known to be 3.11 or later: `python3.12`, not `python3`);
-    /// - Node runs, with options of its safe list (a preload by an absolute path outside the
-    ///   folder), a script by an absolute path outside the folder;
-    /// - a script interpreter ([`SCRIPT_INTERPRETERS`]) runs, with no option, a script by an
-    ///   absolute path outside the folder;
-    /// - any other program, with arguments that [`Self::args_understood`].
+    ///   applied), that runs an understood launch;
+    /// - Python, with options of its safe list, and a script by an absolute path outside the
+    ///   folder, or a module, code of the command line or stdin with the safe path (`-P`, `-I`, or
+    ///   `PYTHONSAFEPATH` on a Python known to be 3.11 or later);
+    /// - Node, with options of its safe list (a preload by an absolute path outside the folder),
+    ///   and a script by an absolute path outside the folder.
+    ///
+    /// Any other program refuses: an interpreter acpmux has no form for (`ruby`, `sh -c`, PyPy),
+    /// a versioned or unknown name (`perl5.34`, `node22`), a package runner, a program acpmux
+    /// cannot find.
     fn understood(&self, argv: &[String], env: BTreeMap<String, String>) -> bool {
         let Some((program, args)) = argv.split_first() else { return true };
-        let named = name_of(program);
-        if PACKAGE_RUNNERS.contains(&named) || !self.program_outside(program) {
+        if !self.program_outside(program) {
             return false;
         }
-        if named == "env" {
-            return self.env_wrapper(args, env);
+        match self.program(program) {
+            None => false,
+            Some(Program::Agent) => self.args_understood(args, false),
+            Some(Program::Env) => self.env_wrapper(args, env),
+            Some(Program::Wrapper) => match wrapped(&name_of(program).to_lowercase(), args) {
+                Some(Some(at)) => self.understood(args.get(at..).unwrap_or_default(), env),
+                _ => false,
+            },
+            Some(Program::Python(minor)) => self.python(minor, args, &env),
+            Some(Program::Node) => self.node(args),
         }
-        if let Some(at) = wrapped(named, args) {
-            return at.is_some_and(|at| self.understood(args.get(at..).unwrap_or_default(), env));
+    }
+
+    /// The [`Program`] that program word `program` runs, or `None` (fail closed). Its written name
+    /// and the name of the real file it runs (an absolute path, or the first program `PATH`
+    /// finds, links resolved) must name the same kind, case folded: a link named `python3` to
+    /// Perl is no Python. A program acpmux cannot find is none. A Python's minor version is the
+    /// real file's when its name tells one.
+    fn program(&self, program: &str) -> Option<Program> {
+        let written = program_of(name_of(program))?;
+        let found = if program.contains('/') {
+            Some(PathBuf::from(program)).filter(|p| p.is_absolute() && is_program(p))?
+        } else {
+            self.path.iter().map(|dir| dir.join(program)).find(|p| is_program(p))?
+        };
+        let real = std::fs::canonicalize(&found).ok()?;
+        let real = program_of(real.file_name()?.to_str()?)?;
+        match (written, real) {
+            (Program::Python(written), Program::Python(real)) => {
+                Some(Program::Python(real.or(written)))
+            }
+            (written, real) if written == real => Some(written),
+            _ => None,
         }
-        if named.starts_with("pypy") {
-            return false;
-        }
-        if named.starts_with("python") {
-            return self.python(named, args, &env);
-        }
-        if named == "node" || named == "nodejs" {
-            return self.node(args);
-        }
-        if SCRIPT_INTERPRETERS.contains(&named) {
-            return args.split_first().is_some_and(|(script, rest)| {
-                self.script_outside(script) && self.args_understood(rest, true)
-            });
-        }
-        self.args_understood(args, false)
     }
 
     /// Whether program word `program` runs a file outside the folder: an absolute path outside
@@ -330,14 +452,13 @@ impl Launch<'_> {
         at.is_absolute() && !self.folder.holds(at)
     }
 
-    /// Whether arguments `args` name nothing of the folder and no program that may run other code
-    /// ([`names_runner`]: it may be a wrapper acpmux does not know). A word (or an option's
-    /// value: `--flag=value`, `-rvalue`) names something of the folder when it is a path inside
-    /// it, a relative path to something it holds (so a model name such as `zai/glm-5` is none),
-    /// or a bare word that names something it holds as an option's value (the word after
-    /// `-x`/`--xx`) or, `interpreted`, as any argument of a script. A bare word of another
-    /// program that follows no option (`opencode acp`, `agent .`) is a subcommand or the
-    /// program's own argument: the one form acpmux takes as no path without proof (lead).
+    /// Whether arguments `args` name nothing of the folder and no program ([`Self::parts_understood`]).
+    /// A word (or an option's value: `--flag=value`, `-rvalue`) names something of the folder when
+    /// it is a path inside it, a relative path to something it holds (so a model name such as
+    /// `zai/glm-5` is none), or a bare word that names something it holds as an option's value
+    /// (the word after `-x`/`--xx`) or, `interpreted`, as any argument of a script. A bare word of
+    /// an agent CLI that follows no option (`opencode acp`) is a subcommand: the one form acpmux
+    /// takes as no path without proof (lead).
     fn args_understood(&self, args: &[String], interpreted: bool) -> bool {
         let cwd = self.folder.written.as_path();
         let mut after_option = false;
@@ -349,18 +470,71 @@ impl Launch<'_> {
                 } else {
                     (word.contains('/') || interpreted || option_value) && cwd.join(word).exists()
                 };
-                if inside || names_runner(word) {
+                if inside {
                     return false;
                 }
+            }
+            if !self.parts_understood(arg) {
+                return false;
             }
             after_option = arg.starts_with('-') && arg != "-" && arg != "--" && !arg.contains('=');
         }
         true
     }
 
+    /// Whether the parts of argument word `arg` name no program ([`Self::names_program`]) and
+    /// nothing of the folder. Its parts are split on whitespace, quotes, brackets and `=`, `:`,
+    /// `,`, `;`, so a `KEY=VALUE` (`mcp_servers.x.command=node`), a quoted value, inline JSON
+    /// (`{"command":"node","args":["./srv.js"]}`) and a command string (`node hook.js`) are read
+    /// part by part, case folded. A part names something of the folder when it is a path inside
+    /// it, or (in a word of more than one part) a relative path to something it holds.
+    fn parts_understood(&self, arg: &str) -> bool {
+        let cwd = self.folder.written.as_path();
+        let parts: Vec<&str> = arg
+            .split(|c: char| c.is_whitespace() || "\"'`[]{}()=:,;".contains(c))
+            .filter(|p| !p.is_empty())
+            .collect();
+        let composite = parts.as_slice() != [arg];
+        parts.iter().all(|part| {
+            let at = Path::new(part);
+            !self.names_program(part)
+                && if at.is_absolute() {
+                    !self.folder.holds(at)
+                } else {
+                    !(composite && cwd.join(part).exists())
+                }
+        })
+    }
+
+    /// Whether word `part` names a program other than an agent CLI: a runner of [`RUNNERS`] (case
+    /// folded, any version; any name that starts with `python` or `pypy`), an absolute path to a
+    /// program, or a bare name that `PATH` resolves to a program and that is no value literal
+    /// ([`VALUE_LITERALS`]).
+    fn names_program(&self, part: &str) -> bool {
+        let name = name_of(part);
+        if program_of(name) == Some(Program::Agent) {
+            return false;
+        }
+        let lower = name.to_lowercase();
+        let plain = lower.trim_end_matches(|c: char| c.is_ascii_digit() || ".-_".contains(c));
+        if RUNNERS.contains(&plain) || lower.starts_with("python") || lower.starts_with("pypy") {
+            return true;
+        }
+        let at = Path::new(part);
+        if at.is_absolute() {
+            return is_program(at);
+        }
+        !VALUE_LITERALS.contains(&lower.as_str())
+            && !part.contains('/')
+            && !part.starts_with('-')
+            && part.chars().any(|c| c.is_ascii_alphabetic())
+            && self.path.iter().any(|dir| is_program(&dir.join(part)))
+    }
+
     /// `env` with arguments `args`, given env `env`: its options (`-i`, `-u NAME`, `--`) change
     /// the env; any other option is one acpmux does not know. Its `KEY=VALUE` words are env,
-    /// judged as the entry's env is (and a `PATH` of its own is one acpmux does not follow).
+    /// judged as the entry's env is ([`env_kept`]); a `PATH` of its own is one acpmux does not
+    /// follow.
     fn env_wrapper(&self, args: &[String], mut env: BTreeMap<String, String>) -> bool {
         let mut i = 0;
         while let Some(arg) = args.get(i).map(String::as_str) {
@@ -385,7 +559,7 @@ impl Launch<'_> {
             }
         }
         while let Some((key, value)) = args.get(i).and_then(|a| a.split_once('=')) {
-            if key == "PATH" || env_names_folder(key, value, self.folder) {
+            if key == "PATH" || !env_kept(key, value, self.folder) {
                 return false;
             }
             env.insert(key.to_owned(), value.to_owned());
@@ -394,15 +568,12 @@ impl Launch<'_> {
         self.understood(args.get(i..).unwrap_or_default(), env)
     }
 
-    /// Python `named` with arguments `args` and env `env` ([`Self::understood`]). Its short
-    /// options are read as clusters (`-um` is a module run).
-    fn python(&self, named: &str, args: &[String], env: &BTreeMap<String, String>) -> bool {
-        // `PYTHONSAFEPATH` exists from 3.11; a `python3` the folder's `.python-version` may
-        // choose is not known to have it.
-        let knows_safe_path = named
-            .strip_prefix("python3.")
-            .and_then(|minor| minor.parse::<u32>().ok())
-            .is_some_and(|minor| minor >= 11);
+    /// CPython 3 of minor version `minor` (when known) with arguments `args` and env `env`
+    /// ([`Self::understood`]). Its short options are read as clusters (`-um` is a module run).
+    fn python(&self, minor: Option<u32>, args: &[String], env: &BTreeMap<String, String>) -> bool {
+        // `PYTHONSAFEPATH` exists from 3.11; a Python whose version no name tells (`python3`, a
+        // shim that the folder's `.python-version` may point) is not known to have it.
+        let knows_safe_path = minor.is_some_and(|minor| minor >= 11);
         let safe_env = knows_safe_path && env.get("PYTHONSAFEPATH").is_some_and(|v| !v.is_empty());
         let (mut safe_flag, mut no_env) = (false, false);
         let mut i = 0;
@@ -618,27 +789,6 @@ fn arg_paths(arg: &str, after_option: bool) -> Vec<(&str, bool)> {
     words.into_iter().filter(|(w, _)| !w.is_empty()).collect()
 }
 
-/// The module preload option `word` names, taking its value from `word` (`--import=hook`) or
-/// from the next of `words` (`-r hook`), or None when `word` is no preload option.
-fn preload_value<'a>(word: &'a str, words: &mut impl Iterator<Item = &'a str>) -> Option<&'a str> {
-    if NODE_PRELOAD.contains(&word) {
-        return Some(words.next().unwrap_or_default());
-    }
-    NODE_PRELOAD.iter().find_map(|f| word.strip_prefix(f).and_then(|v| v.strip_prefix('=')))
-}
-
-/// Whether Node options `words` (argv or `NODE_OPTIONS`) preload a module by a name that is no
-/// absolute path, which Node resolves from the working folder. A quoted value is no absolute path
-/// (fail closed).
-fn bare_preload<'a>(mut words: impl Iterator<Item = &'a str>) -> bool {
-    while let Some(word) = words.next() {
-        if preload_value(word, &mut words).is_some_and(|v| !Path::new(v).is_absolute()) {
-            return true;
-        }
-    }
-    false
-}
-
 /// Whether env key `key` holds a list of folders a program searches (`PATH`, `PYTHONPATH`,
 /// `NODE_PATH`, `*_PATH`), not a switch such as `PYTHONSAFEPATH`.
 fn is_path_list(key: &str) -> bool {
@@ -688,43 +838,103 @@ mod tests {
         paths("/usr/bin:/bin")
     }
 
+    /// A folder of stand-in programs (empty scripts that are programs) of every name a believed
+    /// launch runs, and a `PATH` that finds them first: no result depends on what the machine has.
+    fn tools() -> (tempfile::TempDir, Vec<PathBuf>) {
+        use std::os::unix::fs::PermissionsExt as _;
+        let tools = tempfile::tempdir().unwrap();
+        for name in
+            ["opencode", "codex", "python3", "python3.10", "python3.11", "python3.12", "node"]
+        {
+            let program = tools.path().join(name);
+            std::fs::write(&program, "#!/bin/sh\n").unwrap();
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let path = paths(&format!("{}:/usr/bin:/bin", tools.path().display()));
+        (tools, path)
+    }
+
     #[test]
     fn a_launch_of_programs_outside_the_folder_carries_a_claim() {
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path();
-        let plain = launch(&["/usr/bin/python3", "/opt/agent.py", "--mode=ask"], &[]);
-        assert_eq!(judge(&plain, cwd, &system_path()), None);
+        let (tools, path) = tools();
+        let python = tools.path().join("python3").to_string_lossy().into_owned();
+        let plain = launch(&[python.as_str(), "/opt/agent.py", "--mode=ask"], &[]);
+        assert_eq!(judge(&plain, cwd, &path), None);
         // A bare program found on PATH, also when the folder holds a file of its name.
         std::fs::write(cwd.join("python3"), "").unwrap();
         let bare = launch(&["python3", "-u", "/opt/agent.py"], &[]);
-        assert_eq!(judge(&bare, cwd, &system_path()), None);
+        assert_eq!(judge(&bare, cwd, &path), None);
         // Python that guards its import path, Node that preloads an absolute module.
         let guarded = launch(&["python3", "-P", "-m", "agent"], &[]);
-        assert_eq!(judge(&guarded, cwd, &system_path()), None);
+        assert_eq!(judge(&guarded, cwd, &path), None);
         let safe = launch(&["python3.12", "-m", "agent"], &[("PYTHONSAFEPATH", "1")]);
-        assert_eq!(judge(&safe, cwd, &system_path()), None);
+        assert_eq!(judge(&safe, cwd, &path), None);
         let node = launch(&["node", "--require", "/opt/hook.js", "/opt/agent.js"], &[]);
-        assert_eq!(judge(&node, cwd, &system_path()), None);
-        // A model name with a slash is no path, nor is a plain env value.
+        assert_eq!(judge(&node, cwd, &path), None);
+        // An agent CLI. A model name with a slash is no path, nor is a reviewed env value.
         let model =
-            launch(&["/usr/bin/agent", "--model", "zai/glm-5"], &[("AGENT_MODEL", "zai/glm-5")]);
-        assert_eq!(judge(&model, cwd, &system_path()), None);
+            launch(&["opencode", "--model", "zai/glm-5"], &[("OPENCODE_MODEL", "zai/glm-5")]);
+        assert_eq!(judge(&model, cwd, &path), None);
         // A path that only starts with the folder's name is another folder.
         let sibling = format!("{}-other/bin", cwd.display());
-        let beside = launch(&["/usr/bin/agent"], &[("TOOLS", sibling.as_str())]);
-        assert_eq!(judge(&beside, cwd, &system_path()), None);
-        let beside_path = paths(&format!("{sibling}:/usr/bin"));
-        assert_eq!(judge(&plain, cwd, &beside_path), None);
-        // A PATH folder inside the chat folder whose program links to one outside it, as the
-        // test PATH's tool links are, runs that program.
-        let tools = cwd.join("tools");
-        std::fs::create_dir_all(&tools).unwrap();
-        std::os::unix::fs::symlink("/bin/sh", tools.join("agent")).unwrap();
-        let linked = paths(&format!("{}:/usr/bin", tools.display()));
-        assert_eq!(judge(&launch(&["agent", "/opt/agent.sh"], &[]), cwd, &linked), None);
+        let beside = launch(&["opencode", "acp"], &[("OPENCODE_BASE_URL", sibling.as_str())]);
+        assert_eq!(judge(&beside, cwd, &path), None);
+        let beside_path = paths(&format!("{sibling}:{}", tools.path().display()));
+        assert_eq!(judge(&launch(&["opencode", "acp"], &[]), cwd, &beside_path), None);
+        // A PATH folder inside the chat folder whose program links to one outside it runs that
+        // program.
+        let links = cwd.join("tools");
+        std::fs::create_dir_all(&links).unwrap();
+        std::os::unix::fs::symlink(tools.path().join("opencode"), links.join("opencode")).unwrap();
+        let linked = paths(&format!("{}:/usr/bin", links.display()));
+        assert_eq!(judge(&launch(&["opencode", "acp"], &[]), cwd, &linked), None);
         // The root folder chooses nothing.
         let root = launch(&["/usr/bin/python3", "-m", "agent"], &[]);
         assert_eq!(judge(&root, Path::new("/"), &paths(".")), None);
+    }
+
+    /// A value literal of the words acpmux reads (`true`, `false`, `yes`, the log level `info`) is
+    /// no program, in any case, though `PATH` holds programs of those names; any other bare word
+    /// that `PATH` resolves is one.
+    #[test]
+    fn a_value_literal_is_no_program() {
+        let dir = tempfile::tempdir().unwrap();
+        let (_tools, path) = tools();
+        for argv in [
+            &["codex", "-c", "sandbox_workspace_write.network_access=true"][..],
+            &["codex", "-c", "hide_agent_reasoning=FALSE"],
+            &["opencode", "acp", "--log-level", "INFO"],
+        ] {
+            assert_eq!(judge(&launch(argv, &[]), dir.path(), &path), None, "{argv:?}");
+        }
+        for argv in [&["opencode", "--hook", "ls"][..], &["codex", "-c", r#"notify=["sh"]"#]] {
+            let why = judge(&launch(argv, &[]), dir.path(), &path);
+            assert_eq!(why, Some("launch_reads_folder"), "{argv:?}");
+        }
+    }
+
+    /// Only a program of the allowlist keeps the claim, by its written name and by the real file
+    /// it runs: an unknown program, a link named for an allowed program that runs another, and a
+    /// program acpmux cannot find keep none (lead, #40158).
+    #[test]
+    fn only_a_program_of_the_allowlist_carries_a_claim() {
+        let dir = tempfile::tempdir().unwrap();
+        let (tools, path) = tools();
+        let other = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(tools.path().join("node"), other.path().join("opencode"))
+            .unwrap();
+        let disguised = other.path().join("opencode").to_string_lossy().into_owned();
+        for argv in [
+            &["/usr/bin/agent", "acp"][..],
+            &["agent-cli", "acp"],
+            &[disguised.as_str(), "acp"],
+            &["/opt/missing/opencode", "acp"],
+        ] {
+            let why = judge(&launch(argv, &[]), dir.path(), &path);
+            assert_eq!(why, Some("launch_reads_folder"), "{argv:?}");
+        }
     }
 
     #[test]
@@ -739,6 +949,8 @@ mod tests {
             assert_eq!(why, Some("launch_reads_folder"), "{argv:?} {env:?} {path:?}");
         };
         let sys = "/usr/bin:/bin";
+        let (tools, _) = tools();
+        let tp = format!("{}:/usr/bin:/bin", tools.path().display());
         // The program.
         reads(&["./agent"], &[], sys);
         reads(&["bin/agent"], &[], sys);
@@ -758,19 +970,18 @@ mod tests {
         reads(&["python3", inside.as_str()], &[], sys);
         reads(&["python3", "agent.py"], &[], sys);
         reads(&["python3", format!("--script={inside}").as_str()], &[], sys);
-        reads(&["/usr/bin/agent", format!("-r{inside}").as_str()], &[], sys);
+        reads(&["opencode", format!("-r{inside}").as_str()], &[], &tp);
         // Env values.
-        reads(&["/usr/bin/agent"], &[("PYTHONPATH", folder)], sys);
-        reads(&["/usr/bin/agent"], &[("PYTHONPATH", ".")], sys);
-        reads(&["/usr/bin/agent"], &[("PYTHONPATH", "lib")], sys);
-        reads(&["/usr/bin/agent"], &[("NODE_PATH", "node_modules")], sys);
-        reads(&["/usr/bin/agent"], &[("PYTHONPATH", "/opt::/usr/lib")], sys);
-        reads(&["/usr/bin/agent"], &[("NODE_OPTIONS", "--require ./hook.js")], sys);
-        reads(
-            &["/usr/bin/agent"],
-            &[("NODE_OPTIONS", format!("--require={inside}").as_str())],
-            sys,
-        );
+        reads(&["opencode"], &[("PYTHONPATH", folder)], &tp);
+        reads(&["opencode"], &[("PYTHONPATH", ".")], &tp);
+        reads(&["opencode"], &[("PYTHONPATH", "lib")], &tp);
+        reads(&["opencode"], &[("NODE_PATH", "node_modules")], &tp);
+        reads(&["opencode"], &[("PYTHONPATH", "/opt::/usr/lib")], &tp);
+        reads(&["opencode"], &[("NODE_OPTIONS", "--require ./hook.js")], &tp);
+        reads(&["opencode"], &[("NODE_OPTIONS", format!("--require={inside}").as_str())], &tp);
+        // A reviewed env name whose value names the folder.
+        reads(&["opencode"], &[("OPENCODE_BASE_URL", folder)], &tp);
+        reads(&["opencode"], &[("NO_COLOR", inside.as_str())], &tp);
         // PATH entries: relative, empty, or inside the folder (the login shell's too).
         reads(&["agent"], &[], "bin:/usr/bin");
         reads(&["agent"], &[], ":/usr/bin");
@@ -809,27 +1020,29 @@ mod tests {
         std::os::unix::fs::symlink(&real, &link).unwrap();
         let through_link = link.join("agent.py").to_string_lossy().into_owned();
         let direct = real.join("agent.py").to_string_lossy().into_owned();
+        let (_tools, tools_path) = tools();
         for (cwd, script) in [(&real, &through_link), (&link, &direct)] {
             for argv in [vec!["python3", script.as_str()], vec![script.as_str()]] {
                 let why = judge(&launch(&argv, &[]), cwd, &system_path());
                 assert_eq!(why, Some("launch_reads_folder"), "{argv:?} in {}", cwd.display());
             }
-            let env = launch(&["/usr/bin/agent"], &[("PYTHONPATH", script.as_str())]);
-            let why = judge(&env, cwd, &system_path());
+            let env = launch(&["opencode"], &[("OPENCODE_BASE_URL", script.as_str())]);
+            let why = judge(&env, cwd, &tools_path);
             assert_eq!(why, Some("launch_reads_folder"), "env {script} in {}", cwd.display());
         }
     }
 
-    /// A bare word of a program that is no interpreter or wrapper, and that follows no option, is
-    /// no path: a subcommand (`opencode acp`) or `.` is no file of the folder, even when the folder
-    /// holds one of that name (review of #40158).
+    /// A bare word of an agent CLI that follows no option is no path: a subcommand (`opencode acp`)
+    /// or `.` is no file of the folder, even when the folder holds one of that name (review of
+    /// #40158).
     #[test]
     fn a_bare_argument_word_is_no_path() {
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path();
         std::fs::write(cwd.join("acp"), "").unwrap();
-        for argv in [["/usr/bin/opencode", "acp"], ["/usr/bin/agent", "."]] {
-            assert_eq!(judge(&launch(&argv, &[]), cwd, &system_path()), None, "{argv:?}");
+        let (_tools, path) = tools();
+        for argv in [["opencode", "acp"], ["codex", "."]] {
+            assert_eq!(judge(&launch(&argv, &[]), cwd, &path), None, "{argv:?}");
         }
         // The script an interpreter runs is still judged.
         std::fs::write(cwd.join("agent.py"), "").unwrap();
@@ -853,11 +1066,12 @@ mod tests {
             &["nice", "node", "agent.js"],
             &["timeout", "3600", "python3", "agent.py"],
             &["env", "python3", "-m", "agent"],
-            &["/usr/bin/agent", "--config", "agent.json"],
-            &["/usr/bin/agent", "--config=agent.json"],
+            &["opencode", "--config", "agent.json"],
+            &["opencode", "--config=agent.json"],
         ];
+        let (_tools, path) = tools();
         for argv in argvs {
-            let why = judge(&launch(argv, &[]), cwd, &system_path());
+            let why = judge(&launch(argv, &[]), cwd, &path);
             assert_eq!(why, Some("launch_reads_folder"), "{argv:?}");
         }
     }
@@ -885,8 +1099,9 @@ mod tests {
             (&["python3", "-P", "-um", "agent"], &[]),
             (&["python3.12", "-um", "agent"], &safe),
         ];
+        let (_tools, path) = tools();
         for (argv, env) in guarded {
-            assert_eq!(judge(&launch(argv, env), cwd, &system_path()), None, "{argv:?} {env:?}");
+            assert_eq!(judge(&launch(argv, env), cwd, &path), None, "{argv:?} {env:?}");
         }
     }
 
@@ -902,9 +1117,14 @@ mod tests {
             let node = launch(&["node", "/opt/agent.js"], &[("NODE_OPTIONS", options)]);
             assert_eq!(judge(&node, cwd, &system_path()), Some("launch_reads_folder"), "{options}");
         }
+        // `NODE_OPTIONS` is no reviewed env name: an absolute preload there refuses too (lead,
+        // #40158), and the same preload on Node's command line keeps the claim.
         let absolute =
             launch(&["node", "/opt/agent.js"], &[("NODE_OPTIONS", "--require /opt/hook.js")]);
-        assert_eq!(judge(&absolute, cwd, &system_path()), None);
+        assert_eq!(judge(&absolute, cwd, &system_path()), Some("launch_reads_folder"));
+        let (_tools, path) = tools();
+        let argv = launch(&["node", "--require", "/opt/hook.js", "/opt/agent.js"], &[]);
+        assert_eq!(judge(&argv, cwd, &path), None);
     }
 
     /// The folder a launch reads, for the review cases of #40158 (w5l-158-rev-2): `agent.py`,
@@ -1105,10 +1325,14 @@ mod tests {
     fn the_safe_path_counts_only_on_a_python_known_to_have_it() {
         let dir = review_folder();
         let safe = [("PYTHONSAFEPATH", "1")];
-        assert_reads(dir.path(), &["python3", "-m", "agent"], &safe);
-        assert_reads(dir.path(), &["python3.10", "-m", "agent"], &safe);
-        for argv in [&["python3.12", "-m", "agent"][..], &["/usr/bin/python3.11", "-um", "agent"]] {
-            assert_eq!(judge(&launch(argv, &safe), dir.path(), &system_path()), None, "{argv:?}");
+        let (tools, path) = tools();
+        for argv in [&["python3", "-m", "agent"][..], &["python3.10", "-m", "agent"]] {
+            let why = judge(&launch(argv, &safe), dir.path(), &path);
+            assert_eq!(why, Some("launch_reads_folder"), "{argv:?}");
+        }
+        let absolute = tools.path().join("python3.11").to_string_lossy().into_owned();
+        for argv in [&["python3.12", "-m", "agent"][..], &[absolute.as_str(), "-um", "agent"]] {
+            assert_eq!(judge(&launch(argv, &safe), dir.path(), &path), None, "{argv:?}");
         }
     }
 
