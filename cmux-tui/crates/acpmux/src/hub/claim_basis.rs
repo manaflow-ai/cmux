@@ -925,6 +925,37 @@ mod tests {
         assert_eq!(judge(&root, Path::new("/"), &paths(".")), None);
     }
 
+    /// Python's code of the command line (`-c`, in any form) and a module run (`-m`) read the
+    /// folder even with the safe path: the code can open a folder file by a name it builds
+    /// (`__import__('ag'+'ent')`), and a stock module runs code it is given (`timeit -s`, `pdb`,
+    /// `runpy`). No supported agent CLI is launched by `python -m`, so no module keeps the claim
+    /// (w5l-delta-rev at d2e3f400, lead).
+    #[test]
+    fn python_code_and_modules_read_the_folder_even_with_the_safe_path() {
+        let dir = review_folder();
+        let (_tools, path) = tools();
+        let code = "__import__('ag'+'ent')";
+        let attached = format!("-c{code}");
+        let safe = [("PYTHONSAFEPATH", "1")];
+        let cases: &[(&[&str], &[(&str, &str)])] = &[
+            (&["python3.12", "-I", "-c", code], &[]),
+            (&["python3.12", "-Ic", code], &[]),
+            (&["python3.12", "-P", &attached], &[]),
+            (&["python3.12", "-c", code], &safe),
+            (&["python3.12", "-I", "-m", "timeit", "-s", code], &[]),
+            (&["python3.12", "-Im", "pdb", "/opt/agent.py"], &[]),
+            (&["python3.12", "-P", "-m", "runpy"], &[]),
+            (&["python3.12", "-m", "cProfile", "/opt/agent.py"], &safe),
+        ];
+        for (argv, env) in cases {
+            let why = judge(&launch(argv, env), dir.path(), &path);
+            assert_eq!(why, Some("launch_reads_folder"), "{argv:?} {env:?}");
+        }
+        // A script by an absolute path outside the folder keeps the claim.
+        let script = launch(&["python3.12", "-I", "/opt/agent.py"], &[]);
+        assert_eq!(judge(&script, dir.path(), &path), None);
+    }
+
     /// A word with a backslash refuses: an escape in a TOML, JSON or shell string can spell a
     /// program that no part check sees (`-c mcp_servers.x.command="\u006eode"`) (lead, #40158).
     #[test]
