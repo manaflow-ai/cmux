@@ -39,4 +39,6 @@ export interface Env {
   readonly STACK_TEST_JWKS?: string
   /** JSON {userId: [teamId]} for primary-project users, {"<projectId>:<userId>": [teamId]} for the others; replaces Stack membership calls. */
   readonly STACK_TEST_TEAMS?: string
+  /** JSON {dev, prod}: each deployed environment's APNS_TOPICS from wrangler.jsonc (vitest.config.ts). */
+  readonly TEST_DEPLOYED_APNS_TOPICS?: string
 }
