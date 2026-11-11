@@ -219,14 +219,14 @@ final class RemoteTmuxControlConnection {
     /// outlived its process — a liveness probe answered after a respawn, say — can tell that its
     /// answer describes a stream that no longer exists. Writable only here.
     private(set) var processGeneration: UInt64 = 0
-    var pendingCommands: [CommandKind] = []
+    var pendingCommands = RemoteTmuxFIFO<CommandKind>()
     /// How many replies this stream has taken off ``pendingCommands``, which is also the
     /// position of its first entry counted from the start of the stream.
     var dequeuedCommandCount = 0
     /// The positions, by that count, of each queued line still waiting on replies. tmux stops
     /// a queued line at its first failing command, so the commands after it are never
     /// answered and their slots have to go when the failure arrives.
-    var pendingCommandQueues: [Range<Int>] = []
+    var pendingCommandQueues = RemoteTmuxFIFO<Range<Int>>()
     /// A `detach-client` cmux sent is still waiting for tmux's `%exit`. That exit is cmux's own
     /// doing, so it must not reach the exit observers as a session that ended remotely.
     private var awaitingDeliberateDetach = false
@@ -1229,10 +1229,9 @@ final class RemoteTmuxControlConnection {
         // Record before the writer can emit bytes, so a fast `%begin`/`%end`
         // reply never outruns its local FIFO slot. If the bounded writer rejects
         // the payload, remove the whole batch immediately and reconnect.
-        let pendingStart = pendingCommands.count
         pendingCommands.append(contentsOf: kinds)
         guard stdinWriter.enqueue(data) else {
-            pendingCommands.removeSubrange(pendingStart...)
+            pendingCommands.removeLast(kinds.count)
             record("stdin-write-backpressure")
             beginReconnecting()
             return false
@@ -1253,7 +1252,7 @@ final class RemoteTmuxControlConnection {
         let pendingStart = pendingCommands.count
         pendingCommands.append(contentsOf: kinds)
         guard stdinWriter.enqueue(data) else {
-            pendingCommands.removeSubrange(pendingStart...)
+            pendingCommands.removeLast(kinds.count)
             record("stdin-write-backpressure")
             beginReconnecting()
             return false

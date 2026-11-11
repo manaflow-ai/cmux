@@ -16,7 +16,11 @@ extension RemoteTmuxControlConnection {
     /// - Parameter position: where the result just dequeued sat, by ``dequeuedCommandCount``.
     /// - Returns: the skipped commands, in order. Empty unless a queued line failed early.
     func takeCommandsSkippedByQueueFailure(at position: Int, isError: Bool) -> [CommandKind] {
-        pendingCommandQueues.removeAll { $0.upperBound <= position }
+        // Queued lines are recorded in send order and never overlap, so the finished ones
+        // are always at the front.
+        while let queue = pendingCommandQueues.first, queue.upperBound <= position {
+            pendingCommandQueues.removeFirst()
+        }
         guard let queue = pendingCommandQueues.first, queue.contains(position) else { return [] }
         let isLast = position == queue.upperBound - 1
         if isLast || isError { pendingCommandQueues.removeFirst() }

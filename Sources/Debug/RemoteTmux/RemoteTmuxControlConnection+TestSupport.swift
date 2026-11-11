@@ -11,7 +11,7 @@ extension RemoteTmuxControlConnection {
     }
 
     var pendingCommandKindsForTesting: [RemoteTmuxControlCommandKind] {
-        pendingCommands
+        Array(pendingCommands)
     }
 
     func hasPendingSizingSettlementWork(windowId: Int) -> Bool {
