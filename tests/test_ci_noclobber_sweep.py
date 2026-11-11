@@ -347,11 +347,16 @@ class NoclobberSweep(unittest.TestCase):
         template even where bash never writes it (an echo, an array's words, a function never called)."""
         corpus = shell_tree.corpus()
         before = mktemp_names()
-        lines = [c for c, wrote in zip(corpus, shell_tree.bash_verdicts([line for line, _ in corpus])) if wrote]
+        verdicts = shell_tree.bash_verdicts([line for line, _ in corpus])
+        # Every row bash is asked about has its answer; one with none fails here, never drops out (cmux#41336 review).
+        self.assertEqual(shell_tree.no_oracle([line for line, _ in corpus], verdicts), [])
+        lines = [c for c, wrote in zip(corpus, verdicts) if wrote is True]
         self.assertEqual([line for line, unsafe in lines if not (unsafe and flagged(code(line)))], [],
                          "lines bash writes a guessable name with, which the tree passes or the corpus calls safe")
         shell = [f for f in shell_tree.FILES if not f[0].endswith(".yml")]
-        files = [f for f, wrote in zip(shell, shell_tree.bash_verdicts([text for _, text, _ in shell])) if wrote]
+        ran = shell_tree.bash_verdicts([text for _, text, _ in shell])
+        self.assertEqual(shell_tree.no_oracle([text for _, text, _ in shell], ran), [])
+        files = [f for f, wrote in zip(shell, ran) if wrote is True]
         found = scratch_hits(files)
         self.assertEqual([p for p, _, unsafe in files if not (unsafe and p in found)], [],
                          "files bash writes a guessable name with, which hits() passes or FILES calls safe")
@@ -477,6 +482,31 @@ class NoclobberSweep(unittest.TestCase):
         finally:
             shutil.rmtree(bindir, ignore_errors=True)
 
+    def test_the_oracle_answers_every_row_or_names_why_not(self):
+        """Review of manaflow-ai/cmux#41336: bash's answer for a row is never a crash. A row past its time
+        (ORACLE_SECONDS) or its processes (MAX_BASH_PROCESSES) is NoOracle with the reason, not an exception; such a
+        row fails the differential check unless TREE_ONLY lists it with its reason, and a tree-only depth fixture has a
+        bash-sized twin that bash does answer."""
+        spin = "while :; do :; done"
+        [late] = shell_tree.bash_verdicts([spin], timeout=0.5)
+        self.assertIsInstance(late, shell_tree.NoOracle)
+        self.assertIn("budget", late.reason)
+        [message] = shell_tree.no_oracle([spin], [late])
+        self.assertIn("no answer from bash", message)
+        self.assertIn(spin, message)
+        deep = shell_tree._deep(200)
+        [wide] = shell_tree.bash_verdicts([deep])
+        self.assertIsInstance(wide, shell_tree.NoOracle)
+        self.assertIn("MAX_BASH_PROCESSES", wide.reason)
+        self.assertEqual(shell_tree.no_oracle([deep], [wide]), [], "a TREE_ONLY row needs no oracle answer")
+        corpus = dict(shell_tree.corpus())
+        self.assertEqual([t[:80] for t, why in shell_tree.TREE_ONLY.items() if t not in corpus or not why.strip()], [])
+        twins = [shell_tree._deep(shell_tree.BASH_TWIN_DEPTH), shell_tree._deep(shell_tree.BASH_TWIN_DEPTH,
+                                                                               "; echo > /tmp/out.$$")]
+        self.assertEqual([corpus.get(t) for t in twins], [False, True])
+        self.assertEqual(shell_tree.bash_verdicts(twins), [False, True])
+        self.assertLessEqual(shell_tree.bash_processes(twins[1]), shell_tree.MAX_BASH_PROCESSES)
+
     def test_tmpdir_is_the_scratch_temp_folder(self):
         """Review of manaflow-ai/cmux-platform#1286, F1: the script's TMPDIR was renamed to a name never set, so
         "$TMPDIR/out.$$" was /out.$$, outside the scratch folder. It is the scratch temp folder, so bash's write lands
@@ -502,10 +532,20 @@ class NoclobberSweep(unittest.TestCase):
                                     stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
             return seen | {"git: " + line for line in status.stdout.splitlines()}
 
-        before = state()
-        shell_tree.bash_verdicts([line for line, _ in shell_tree.corpus()] +
-                                 [text for path, text, _ in shell_tree.FILES if not path.endswith(".yml")])
-        self.assertEqual(sorted(state() - before), [])
+        # This run's own TMPDIR, so another process's temp names on a shared host are not read as a fixture's.
+        own, was = tempfile.mkdtemp(prefix="isolation-"), os.environ.get("TMPDIR")
+        os.environ["TMPDIR"] = own
+        try:
+            before = state()
+            shell_tree.bash_verdicts([line for line, _ in shell_tree.corpus()] +
+                                     [text for path, text, _ in shell_tree.FILES if not path.endswith(".yml")])
+            self.assertEqual(sorted(state() - before), [])
+        finally:
+            if was is None:
+                del os.environ["TMPDIR"]
+            else:
+                os.environ["TMPDIR"] = was
+            shutil.rmtree(own, ignore_errors=True)
 
     def test_a_busy_setsid_child_is_killed_at_the_deadline(self):
         """Review of #4380 at 27a11d16, F1: only bash's process group was killed, so a setsid child in a loop with no

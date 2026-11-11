@@ -24,8 +24,9 @@ shell_tree.pin beside it naming the leo-workspace commit it was copied from and 
 its copy against that pin, and leo-workspace's VendoredCopies test checks each copy against this file at that commit.
 
 Run as a script it reads a JSON list of strings on stdin and prints the list of their scan_text(code(...))
-(cmux-platform's TypeScript sweep runs it so); --corpus, --file-corpus, --files, --unparsed and
---bash print corpus(), FILES, each file's scan_file(), each file's unparsed() and each text's bash_writes() as JSON.
+(cmux-platform's TypeScript sweep runs it so); --corpus, --file-corpus, --files, --unparsed, --bash, --no-oracle
+and --tree-only print corpus(), FILES, each file's scan_file(), each file's unparsed(), each text's oracle() (true,
+false or {"no_oracle": reason}), no_oracle() of the texts and TREE_ONLY as JSON.
 """
 from __future__ import annotations
 
@@ -1400,12 +1401,19 @@ ASSIGNMENT_WORDS = (
     ("exec -c X_T=0 cmd", []),
     ("exec -l X_T=0 cmd", []),
     ("exec -cl -a name X_T=0 cmd", []),
+    # manaflow-ai/cmuxterm-hq#9375 review, F1: exec -a name X_TIMEOUT=0 cmd runs a command named X_TIMEOUT=0.
+    ("exec -a name X_TIMEOUT=0 cmd", []),
     # manaflow-ai/cmuxterm-hq#9370 review at 4b4f59b6, F1: env's NAME=value words after its options.
     ('env -i PATH="$PATH" X_T=0 cmd', ["PATH", "X_T"]),
     ("env -- X_T=0 cmd", ["X_T"]),
     ("env -u HOME X_T=0 cmd", ["X_T"]),
     ("env -C / X_T=0 cmd", ["X_T"]),
     ("env -S 'X_T=0 cmd'", ["X_T"]),
+    # manaflow-ai/cmuxterm-hq#9375 review, F2: -S's string attached to its option, short and long.
+    ("env -SX_T=0 cmd", ["X_T"]),
+    ("env -S'X_T=0 cmd'", ["X_T"]),
+    ("env --split-string=X_T=0 cmd", ["X_T"]),
+    ("env --split-string='X_T=0 cmd'", ["X_T"]),
     ("time X_T=0 cmd", ["X_T"]),
     ("command time -p env X_T=0 cmd", ["X_T"]),
     # teamleaderleo/leo-workspace#4382 review, F1: a declaration's word after quote removal and escapes.
@@ -1436,6 +1444,10 @@ ASSIGNMENT_WORDS = (
 # (F3). The sweep runs bash on each row: `cmd` prints that it ran, and any other name is not found.
 RUN_WORDS = (
     ("time cmd", "cmd"),
+    # manaflow-ai/cmuxterm-hq#9375 review: what exec -a and an attached env -S run.
+    ("exec -a name X_TIMEOUT=0 cmd", "X_TIMEOUT=0"),
+    ("env -SX_T=0 cmd", "cmd"),
+    ("env --split-string=X_T=0 cmd", "cmd"),
     ("time -p cmd", "cmd"),
     ("time -- cmd", "cmd"),
     ("time -p -- cmd", "cmd"),
@@ -1491,6 +1503,8 @@ def _deep(levels: int, write: str = "") -> str:
     return "d=" + line[len("echo "):] if levels else line
 
 
+# A depth bash runs well inside MAX_BASH_PROCESSES and ORACLE_SECONDS: the twin of each tree-only depth fixture.
+BASH_TWIN_DEPTH = 20
 UNPARSED = NOT_SHELL + (_deep(MAX_DEPTH + 1), _deep(200), "x=${a:-" * 300 + "}" * 300 + " > /tmp/out.$$")
 
 
@@ -1546,6 +1560,9 @@ def corpus() -> list[tuple[str, bool]]:
         out[line] = unsafe
     out[_deep(MAX_DEPTH)] = False
     out[_deep(MAX_DEPTH, "; echo > /tmp/out.$$")] = True
+    # _deep(200) is tree-only (TREE_ONLY); its bash-sized twin is run by bash too.
+    out[_deep(BASH_TWIN_DEPTH)] = False
+    out[_deep(BASH_TWIN_DEPTH, "; echo > /tmp/out.$$")] = True
     for line in MISSES:
         out[line] = True
     return sorted(out.items())
@@ -1741,7 +1758,8 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
         return None
     bash = shutil.which("bash")
     try:
-        if subprocess.run([bash, "-n"], input=text, text=True, capture_output=True, timeout=timeout).returncode:
+        if subprocess.run([bash, "-O", "extglob", "-n"], input=text, text=True, capture_output=True,
+                          timeout=timeout).returncode:
             return None
     except subprocess.TimeoutExpired:
         raise BashTimeout(text, timeout, 0) from None
@@ -1815,19 +1833,64 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
         shutil.rmtree(root, ignore_errors=True)
 
 
-def bash_verdicts(texts: list[str]) -> list[bool | None]:
-    """bash_writes() of each of TEXTS, several bash runs at a time, with the processes they may hold together
+# The bash oracle's budget for one row: its wall time (ORACLE_SECONDS) and the processes it may hold at once
+# (MAX_BASH_PROCESSES). Its answer is True or False, or NoOracle naming why there is none; never an exception.
+ORACLE_SECONDS = 10
+
+
+@dataclass(frozen=True)
+class NoOracle:
+    """Bash gave no answer for a row, and why: bash -n refuses it, it needs more than MAX_BASH_PROCESSES at once, or
+    it ran past its time. Falsy, so it is never read as "bash wrote". A differential check fails on it unless the row
+    is in TREE_ONLY (no_oracle())."""
+    reason: str
+
+    def __bool__(self) -> bool:
+        return False
+
+
+# The rows bash is never asked about, each with its reason; every other row must get an oracle answer. A depth
+# fixture past MAX_BASH_PROCESSES has a bash-sized twin (BASH_TWIN_DEPTH) in the corpus.
+TREE_ONLY = {
+    _deep(200): "200 nested substitutions hold 200 processes at once, past MAX_BASH_PROCESSES; near a host's limit "
+                "bash's fork backs off past any time budget (cmux#41336 review). Its twin is _deep(BASH_TWIN_DEPTH)",
+    **{line: "not shell: bash -n refuses it, and the tree must refuse it too (UNPARSED)" for line in NOT_SHELL},
+}
+
+
+def oracle(text: str, timeout: float = ORACLE_SECONDS) -> bool | NoOracle:
+    """bash_writes(TEXT) within the row's budget: True or False, or NoOracle with the reason it has no answer."""
+    need = bash_processes(text)
+    if need > MAX_BASH_PROCESSES:
+        return NoOracle(f"needs {need} processes at once, past MAX_BASH_PROCESSES ({MAX_BASH_PROCESSES})")
+    try:
+        wrote = bash_writes(text, timeout=timeout)
+    except BashTimeout:
+        return NoOracle(f"bash ran past its {timeout:g} s budget (ORACLE_SECONDS)")
+    return NoOracle("bash -n refuses it") if wrote is None else wrote
+
+
+def no_oracle(texts: list[str], verdicts: list[bool | NoOracle]) -> list[str]:
+    """Each of TEXTS whose verdict is NoOracle and which TREE_ONLY does not list, with why: a differential row with no
+    oracle answer is a failure, never a skip."""
+    return [f"{text[:120]!r}: no answer from bash ({v.reason}). Make it fit the budget, or list it in TREE_ONLY "
+            "with its reason and add a bash-sized twin" for text, v in zip(texts, verdicts)
+            if isinstance(v, NoOracle) and text not in TREE_ONLY]
+
+
+def bash_verdicts(texts: list[str], timeout: float = ORACLE_SECONDS) -> list[bool | NoOracle]:
+    """oracle() of each of TEXTS, several bash runs at a time, with the processes they may hold together
     (bash_processes) kept under PROCESS_BUDGET."""
     room = threading.Condition()
     free = [PROCESS_BUDGET]
 
-    def one(text: str) -> bool | None:
+    def one(text: str) -> bool | NoOracle:
         cost = min(bash_processes(text), MAX_BASH_PROCESSES)
         with room:
             room.wait_for(lambda: free[0] >= cost)
             free[0] -= cost
         try:
-            return bash_writes(text)
+            return oracle(text, timeout)
         finally:
             with room:
                 free[0] += cost
@@ -1846,7 +1909,13 @@ if __name__ == "__main__":
         json.dump([unparsed(p, t) for p, t in json.load(sys.stdin)], sys.stdout)
     elif sys.argv[1:] == ["--file-corpus"]:
         json.dump(FILES, sys.stdout)
-    elif sys.argv[1:] == ["--bash"]:  # [text, ...] -> [bash_writes(text), ...]
-        json.dump(bash_verdicts(json.load(sys.stdin)), sys.stdout)
+    elif sys.argv[1:] == ["--bash"]:  # [text, ...] -> [true, false or {"no_oracle": reason}, ...]
+        json.dump([v if isinstance(v, bool) else {"no_oracle": v.reason}
+                   for v in bash_verdicts(json.load(sys.stdin))], sys.stdout)
+    elif sys.argv[1:] == ["--tree-only"]:
+        json.dump(TREE_ONLY, sys.stdout)
+    elif sys.argv[1:] == ["--no-oracle"]:  # [text, ...] -> no_oracle() of their verdicts
+        texts = json.load(sys.stdin)
+        json.dump(no_oracle(texts, bash_verdicts(texts)), sys.stdout)
     else:
         json.dump([scan_text(code(t)) for t in json.load(sys.stdin)], sys.stdout)
