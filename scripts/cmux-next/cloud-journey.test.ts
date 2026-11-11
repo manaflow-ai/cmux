@@ -1482,6 +1482,37 @@ describe("clean-room provider key probe", () => {
     }
   });
 
+  test("a key's value behind YAML comments, tags and anchors, or nested in another assignment, is read", () => {
+    const keys = ["Ra3Vk8Lq2Wz7Np5Tx9Hc4Jb6Dm1Fs0Ge", "Sb4Wl9Mr3Xa8Pq6Uy0Jd5Kc7En2Gt1Hf", "Tc5Xm0Ns4Yb9Qr7Vz1Ke6Ld8Fo3Hu2Ig", "Ud6Yn1Ot5Zc0Rs8Wa2Lf7Me9Gp4Iv3Jh", "Ve7Zo2Pu6Ad1St9Xb3Mg8Nf0Hq5Jw4Ki"];
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      "workspace/project/a.yaml": `MISTRAL_API_KEY: # rotated monthly\n  ${keys[0]}\n`,
+      "workspace/project/b.yaml": `GROQ_API_KEY: !!str ${keys[1]}\n`,
+      "workspace/project/c.yaml": `XAI_API_KEY: &shared !vault |- # note\n  # the value\n  ${keys[2]}\n`,
+      "workspace/project/d.js": `const env={MISTRAL_API_KEY:"${keys[3]}"};\n`,
+    });
+    const page = Buffer.alloc(8192);
+    Buffer.from("SQLite format 3\0").copy(page, 0);
+    Buffer.from(`cfg={OPENAI_API_KEY:"${keys[4]}"}`).copy(page, 3000);
+    writeFileSync(join(root, "workspace/project/e.db"), page);
+    try {
+      const { probe, out } = run(root);
+      for (const v of keys) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/[a name].db: OPENAI_API_KEY",
+        "file /workspace/project/[a name].js:1: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].yaml:1: GROQ_API_KEY",
+        "file /workspace/project/[a name].yaml:1: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].yaml:1: XAI_API_KEY",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("the budget holds inside one large file, and what that file showed is kept", () => {
     const named = "Hv5Kp8Qx2Lt7Rz4Nw9Bd3Fj6Cm1Gs0Ya";
     const dir = mkdtempSync(join(tmpdir(), "key-probe-deadline-"));

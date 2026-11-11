@@ -97,9 +97,13 @@ PLACEHOLDERS = {"", "cmux-vm-edge-placeholder"}
 
 # `NAME=value`, `export NAME=value`, `"NAME": "value"` and `NAME: value` lines in a file, the name in any case
 # (an AWS credentials file writes `aws_secret_access_key = ...`).
-# A YAML block scalar's header (`|`, `|-`, `>+2`, a comment after it): its value is the indented line that follows.
-BLOCK_SCALAR = r'(?:[|>][-+1-9]{0,2}[ \t]*(?:#[^\r\n]*)?(?:\r?\n\s*)?)?'
-ASSIGN = re.compile(r'["\']?\b([A-Za-z][A-Za-z0-9_]*)\b["\']?\s*[:=]\s*' + BLOCK_SCALAR + r'["\']?([^"\'\s,;)}]*)')
+# What may stand between a name's `:` or `=` and its value, in any order and across lines: spaces and line breaks,
+# a YAML block scalar's header (`|`, `|-`, `>+2`), a comment after a space, a YAML tag (`!!str`, `!vault`) or anchor
+# (`&key`). Its alternatives start on different characters, so a failed match does not backtrack through them.
+GAP = r'(?:\s+|(?<=\s)#[^\r\n]*|[|>][-+1-9]{0,2}(?=\s)|![^\s]*|&[^\s]+)*'
+# A name, then its value in a lookahead: a match takes only the name, so a name that is not a key's
+# (`env={MISTRAL_API_KEY:...}`) never takes the key's name with it, and every name is tried.
+ASSIGN = re.compile(r'["\']?\b([A-Za-z][A-Za-z0-9_]*)\b(?=["\']?\s*[:=]' + GAP + r'["\']?([^"\'\s,;)}]*))')
 # In a file a key's name alone is common (code that reads it, docs that name it): only a literal that looks
 # like a secret counts there, at least 16 characters of token alphabet with a letter and a digit, and no
 # reference (`$X`, `process.env.X`, `os.environ[...]`) or stand-in word.
@@ -461,8 +465,8 @@ def scan_text(text):
 
 
 # A key's name or a refresh token's field, then `:` or `=`: its value follows, on this line or a later one.
-OPENER = re.compile(r'(?:"refresh_token"|\b[A-Za-z][A-Za-z0-9_]*(?:_KEY|_TOKEN|_JSON|_key|_token|_json)\b["\']?)\s*[:=]\s*'
-                    + BLOCK_SCALAR + r'["\']?')
+OPENER = re.compile(r'(?:"refresh_token"|\b[A-Za-z][A-Za-z0-9_]*(?:_KEY|_TOKEN|_JSON|_key|_token|_json)\b["\']?)\s*[:=]'
+                    + GAP + r'["\']?')
 VALUE_TO_END = re.compile(r'[^"\'\s,;)}]*')
 # How far past its line a value is followed before it counts as ended: past any real key.
 MAX_VALUE = 1 << 20
