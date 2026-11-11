@@ -213,4 +213,45 @@ import Testing
         #expect(await relaunched.load("mac:a.b")?.meID == "dot")
         #expect(await relaunched.load("mac:a/b")?.meID == "slash")
     }
+
+    /// Kept conversations together stay under the byte limit: after a write, the ones written
+    /// longest ago leave first, never the one just written (the user, 2026-11-09: "chats
+    /// preserved on disk up to a storage limit, latest kept"). Before, every conversation ever
+    /// opened stayed on the phone.
+    @Test func theOldestConversationsLeaveAtTheByteLimit() throws {
+        let directory = Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let messages = (1...20).map { ConversationMessage(id: "m\($0)", seq: $0, clientMessageID: nil, senderID: "lc",
+                                                          sentAt: Date(timeIntervalSince1970: Double($0)), text: "message \($0)") }
+        func file(_ key: String) -> URL { directory.appending(path: "\(ConversationTranscriptCache.fileName(for: key)).json") }
+        func exists(_ key: String) -> Bool { FileManager.default.fileExists(atPath: file(key).path(percentEncoded: false)) }
+        func age(_ key: String, seconds: Double) throws {
+            try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-seconds)],
+                                                  ofItemAtPath: file(key).path(percentEncoded: false))
+        }
+        // One conversation's size on disk (every key below writes the same bytes).
+        let measuring = ConversationTranscriptCache(directory: directory, writeDelay: .milliseconds(0))
+        measuring.save("a", info: nil, meID: "me", messages: messages)
+        measuring.flush()
+        let size = try #require(try file("a").resourceValues(forKeys: [.fileSizeKey]).fileSize)
+
+        // Room for two and a half.
+        let cache = ConversationTranscriptCache(directory: directory, byteLimit: size * 5 / 2, writeDelay: .milliseconds(0))
+        try age("a", seconds: 1000)
+        cache.save("b", info: nil, meID: "me", messages: messages)
+        cache.flush()
+        #expect(exists("a") && exists("b"))
+        try age("b", seconds: 500)
+        cache.save("c", info: nil, meID: "me", messages: messages)
+        cache.flush()
+        #expect(!exists("a"))
+        #expect(exists("b") && exists("c"))
+
+        // A limit under one file: the file just written stays.
+        let tight = ConversationTranscriptCache(directory: directory, byteLimit: size / 2, writeDelay: .milliseconds(0))
+        tight.save("d", info: nil, meID: "me", messages: messages)
+        tight.flush()
+        #expect(exists("d"))
+        #expect(!exists("b") && !exists("c"))
+    }
 }

@@ -19,6 +19,7 @@
 //! follows the close-workspace rule.
 
 use super::*;
+use crate::mux::resource_content::collect_screen_split_ids;
 
 /// The workspace close a tab close cascades into.
 pub(super) struct EmptiedWorkspaceClose {
@@ -30,6 +31,44 @@ pub(super) struct EmptiedWorkspaceClose {
     pub(super) changed_screens: Vec<ScreenId>,
     /// Whether one of them was the active workspace.
     pub(super) was_active: bool,
+}
+
+/// Drop what the indexes of `projected` hold of `closed` (the workspace as it was before its
+/// close, at `index`), after its surfaces and its row left `projected`: its screens, its splits,
+/// and a pane the close did not collapse. This is what `Mux::rebuild_split_screen_index` leaves of
+/// that workspace, without the walk of every other workspace. `split_screens` holds each split's
+/// workspace by position, so the entries of the workspaces after the closed one move down by one
+/// (one integer each, no walk of their trees).
+pub(super) fn forget_closed_workspace_indexes(
+    projected: &mut State,
+    closed: &Workspace,
+    index: usize,
+) {
+    let mut splits = HashSet::new();
+    for screen in &closed.screens {
+        collect_screen_split_ids(screen, &mut splits);
+        projected.resource_indexes.screens.remove(&screen.public_id);
+        projected.resource_indexes.screen_ids.remove(&screen.id);
+        projected.resource_indexes.screen_workspace.remove(&screen.id);
+        for pane in screen.root.pane_ids_vec() {
+            if let Some(public_id) = projected.resource_indexes.pane_ids.remove(&pane) {
+                projected.resource_indexes.panes.remove(&public_id);
+            }
+            projected.resource_indexes.pane_screen.remove(&pane);
+        }
+    }
+    for split in splits {
+        if let Some(public_id) = projected.resource_indexes.split_ids.remove(&split) {
+            projected.resource_indexes.splits.remove(&public_id);
+        }
+    }
+    // By position, not by the ids above: no entry may keep the closed workspace's position.
+    projected.split_screens.retain(|_, (workspace_index, _, _)| *workspace_index != index);
+    for (workspace_index, _, _) in projected.split_screens.values_mut() {
+        if *workspace_index > index {
+            *workspace_index -= 1;
+        }
+    }
 }
 
 impl Mux {

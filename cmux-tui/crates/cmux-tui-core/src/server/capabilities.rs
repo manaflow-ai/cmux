@@ -414,6 +414,7 @@ pub(super) fn advertised_capabilities(
         crate::state::sidebar_doc_store::CAPABILITY,
         crate::state::sidebar_doc_store::HOST_GROUP_OPTOUT_CAPABILITY,
         crate::state::placement_shift::CAPABILITY,
+        SESSION_LIVE_CURSOR_CAPABILITY,
         crate::state::projects_store::CAPABILITY,
         crate::state::projects_store::SOURCES_CAPABILITY,
         crate::state::palette_usage_store::CAPABILITY,

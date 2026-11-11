@@ -71,8 +71,6 @@ final class CloudPageProvider: PageProvider {
 
     /// Live watch streams (one per Cloud page that loaded its list).
     var watcherCount: Int { watchers.count }
-    /// Live auth streams (one per open Cloud page).
-    var accountWatcherCount: Int { accountWatchers.count }
 
     func call(_ name: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard name.hasPrefix(Self.prefix) else { throw PageError.unknownOp(name) }

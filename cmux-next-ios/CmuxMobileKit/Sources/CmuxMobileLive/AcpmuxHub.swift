@@ -27,6 +27,9 @@ public final class AcpmuxHub {
     @ObservationIgnored private var readyWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
     @ObservationIgnored private var sources: [String: WeakSource] = [:]
+    /// Where each chat keeps its newest records on this phone (nil: none kept, as in tests and
+    /// Cloud chats). Set by the live coordinator before any chat opens.
+    @ObservationIgnored public var transcriptCache: AgentTranscriptCache?
     /// Watch-level events for the Feed: `(sessionId, notification)`.
     @ObservationIgnored public var onWatchEvent: (@MainActor (AcpmuxHub.WatchEvent) -> Void)?
     /// Signs an Allow or an answer with the phone's approval key
@@ -482,14 +485,128 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         self.sessionID = sessionID
         self.summary = summary
         records = AcpmuxRecords(sessionID: sessionID)
+        restoreKept()
         if hub.isReady { linkUp() }
+    }
+
+    /// Reads the chat's history before its records come (``AgentSessionSource/loadsHistory``):
+    /// until an attach catches up, the chat shows what this phone kept, or a loading state.
+    public var loadsHistory: Bool { !attached }
+
+    // MARK: Kept transcript (AgentTranscriptCache)
+
+    /// The chat's key in the phone's transcript cache; nil when it keeps none (no account).
+    private var keptKey: String? {
+        AgentTranscriptCache.key(accountID: summary.accountID, macID: summary.macID, tabID: summary.id)
+    }
+    /// The newest records applied, oldest first, from a prompt: what the cache keeps.
+    private var kept: [JSONValue] = []
+    /// The Mac holds records older than `kept`'s first.
+    private var keptEarlier = false
+    /// The kept records are being read from disk: the attach waits, so it reads on from them.
+    private var restoring = false
+    /// The chat shows restored kept records and has not caught up since (``CatchUpRead/fromKept``).
+    private var keptRestored = false
+    /// Kept records are being applied: their asks are not shown (they may have been answered
+    /// since); the attach reply's pending list brings back the ones still open.
+    private var applyingKept = false
+
+    /// Shows the records this phone kept for the chat at once (from memory in the same turn,
+    /// else after a read off the main thread), so the attach that follows reads only what came
+    /// after them (`lastSeq`), as a reattach does.
+    private func restoreKept() {
+        guard let cache = hub?.transcriptCache, let key = keptKey else { return }
+        if let entry = cache.cached(key) {
+            restore(entry)
+            return
+        }
+        restoring = true
+        Task { [weak self] in
+            let entry = await cache.load(key)
+            guard let self else { return }
+            self.restoring = false
+            if let entry { self.restore(entry) }
+            if self.hub?.isReady == true { self.linkUp() }
+        }
+    }
+
+    /// Applies kept records as the chat's history (one batch), when they are this session's and
+    /// nothing was applied yet.
+    private func restore(_ entry: AgentTranscriptEntry) {
+        guard entry.sessionID == sessionID, lastSeq == 0, !attaching, !entry.records.isEmpty else { return }
+        log.info("restore \(self.sessionID, privacy: .public): \(entry.records.count, privacy: .public) kept records through \(entry.lastSeq, privacy: .public)")
+        beginHistory()
+        emit(.earlierHistory(entry.earlier))
+        earlierBefore = entry.earlier ? entry.records.first(where: Self.isPrompt)?["seq"]?.numberValue.map { Int($0) } : nil
+        earlierCarry = []
+        keptEarlier = entry.earlier
+        keptRestored = true
+        applyingKept = true
+        for record in entry.records { apply(record: record) }
+        applyingKept = false
+        endHistory()
+    }
+
+    /// The kept copy is too old to catch up from: this source forgets it and everything it applied,
+    /// its readers stop (a store showing the kept turns would otherwise get the newest page on top
+    /// of them), the chat's store is rebuilt, and the next read is a first attach.
+    private func dropKept() {
+        log.info("kept copy of \(self.sessionID, privacy: .public) too old at \(self.lastSeq, privacy: .public): opening on the newest page")
+        keptRestored = false
+        gapTask?.cancel()
+        gapTask = nil
+        gapFill = nil
+        lastSeq = 0
+        replay = []
+        openChunk = nil
+        openChunkText = ""
+        kept = []
+        keptEarlier = false
+        earlierBefore = nil
+        earlierCarry = []
+        seenPermissions = []
+        listedPermissions = []
+        questions = [:]
+        if let key = keptKey { hub?.transcriptCache?.forget(key) }
+        for continuation in continuations { continuation.finish() }
+        continuations = []
+        onReset?()
+    }
+
+    /// Runs when the source dropped its kept copy (``dropKept()``): the chat's store is built again
+    /// on it. Set by the coordinator; tests read it.
+    var onReset: (@MainActor () -> Void)?
+
+    /// Records kept in memory past the cache's own bound before they are cut (the cache cuts
+    /// its copy again by bytes).
+    private var keptLimit: Int { hub?.transcriptCache?.recordLimit ?? 600 }
+
+    private func keep(_ record: JSONValue) {
+        guard hub?.transcriptCache != nil, keptKey != nil else { return }
+        kept.append(record)
+        if kept.count > keptLimit * 2 {
+            kept = AgentTranscriptCache.fromPrompt(Array(kept.suffix(keptLimit)))
+            keptEarlier = true
+        }
+    }
+
+    /// Hands the kept records to the cache (it writes them to disk shortly after, bounded).
+    private func saveKept() {
+        guard let cache = hub?.transcriptCache, let key = keptKey, !kept.isEmpty else { return }
+        cache.save(key, sessionID: sessionID, earlier: keptEarlier, records: kept)
     }
 
     public func events() -> AsyncStream<AgentSessionEvent> {
         let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream(bufferingPolicy: .unbounded)
         // What this source already has is history to a new reader: one change, drawn in place.
         flushOpenChunk()
-        if !replay.isEmpty { continuation.yield(.batch(replay)) }
+        // A reader made after the attach caught up (a rebuilt store) starts current: the load
+        // state goes in the same batch, so the reader gets one change.
+        if !replay.isEmpty {
+            continuation.yield(.batch(attached ? replay + [.historyLoading(false)] : replay))
+        } else if attached {
+            continuation.yield(.historyLoading(false))
+        }
         continuations.append(continuation)
         return stream
     }
@@ -1085,7 +1202,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         // where it stopped (`startGapFill`).
         gapTask?.cancel()
         gapTask = nil
+        saveKept()
         emit(.status(.disconnected))
+        // A chat with history catches up again when the link comes back (a new chat stays new).
+        if lastSeq > 0 { emit(.historyLoading(true)) }
         // Only a connection's own `initialize` says Full access covers it (`attach` sends it again).
         fullAccessChanged(false)
     }
@@ -1121,7 +1241,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     static let pageTimeout: Duration = .seconds(30)
 
     func linkUp() {
-        guard !attaching, let hub, hub.isReady else { return }
+        // Kept records still being read: the attach starts once they are in (`restoreKept`).
+        guard !attaching, !restoring, let hub, hub.isReady else { return }
         retryTask?.cancel()
         retryTask = nil
         gapTask?.cancel()
@@ -1171,6 +1292,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         /// A reattach may read the newest records first and leave a gap before them: none
         /// is filling now (one gap at a time).
         var allowGap = true
+        /// The first catch-up after kept records were restored (``restoreKept()``): a gap longer
+        /// than one page means the kept copy is old, and the chat opens fresh instead of paging
+        /// through everything since (``CatchUpPages/keptTooOld``).
+        var fromKept = false
         var firstAttach: Bool { after == 0 }
     }
 
@@ -1191,13 +1316,17 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         /// Set when `page` is the newest records with a gap before them (tail-first).
         var gap: CatchUpGap?
         var failure: (any Error)?
+        /// A catch-up from kept records found more than one page since them: nothing was read past
+        /// the attach reply, and the chat opens on its newest page instead (``dropKept()``).
+        var keptTooOld = false
     }
 
     /// The next catch-up of attach `generation`, or nil when it is no longer current.
     private func nextRead(_ generation: Int) -> CatchUpRead? {
         guard generation == self.generation else { return nil }
         refillPending = false
-        return CatchUpRead(sessionID: sessionID, after: lastSeq, allowGap: gapFill == nil)
+        return CatchUpRead(sessionID: sessionID, after: lastSeq, allowGap: gapFill == nil,
+                           fromKept: keptRestored)
     }
 
     /// The `beforeSeq` of a tail-first reattach: past any seq, so the page is the newest
@@ -1246,7 +1375,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 params["maxBytes"] = .number(Double(openBytes))
             } else {
                 params["afterSeq"] = .number(Double(read.after))
-                if read.allowGap {
+                if read.allowGap, !read.fromKept {
                     // Tail-first: with both cursors acpmux reads the newest `limit` records
                     // between them (`_acpmux/attach`, cmux-tui acpmux server/requests.rs),
                     // capped as an open is, so a reattach after hours away reads what an
@@ -1254,6 +1383,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                     params["beforeSeq"] = .number(tailBeforeSeq)
                     params["maxBytes"] = .number(Double(openBytes))
                 }
+                // From kept records the read stays forward: a gap past one page drops the kept
+                // copy (`keptTooOld`) instead of filling in behind it.
             }
             out.result = try await request("_acpmux/attach", params)
             let page = out.result["events"]?.arrayValue ?? []
@@ -1266,6 +1397,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             // Without that (one gap filling already, a Mac that pages forward only, a newest
             // page inside one turn longer than itself) the reattach pages forward from the
             // last record applied until a page reaches the log's end, as it always did.
+            if read.fromKept, out.result["hasMore"] == .bool(true) {
+                // The kept copy is more than a page behind: open on the newest page instead
+                // (``dropKept()``), not on a gap after an old copy.
+                out.page = page
+                out.keptTooOld = true
+                return out
+            }
             if !read.firstAttach {
                 var more = out.result["hasMore"] == .bool(true)
                 var cursor: Double?
@@ -1345,6 +1483,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// dropped. Applying them would move `lastSeq` past the dropped one for good.
     private func caughtUp(_ pages: CatchUpPages, _ read: CatchUpRead, _ generation: Int) -> Bool {
         guard generation == self.generation else { return false }
+        if pages.keptTooOld {
+            dropKept()
+            return true
+        }
         guard apply(pages, read) else {
             attaching = false
             attachTask = nil
@@ -1360,10 +1502,13 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         attachTask = nil
         failures = 0
         attached = true
+        keptRestored = false
         let pending = held
         held = []
         for record in pending { apply(record: record) }
         startGapFill()
+        emit(.historyLoading(false))
+        saveKept()
         return false
     }
 
@@ -1495,6 +1640,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         // records missed while the link was down). Records after the reply are live.
         beginHistory()
         if read.firstAttach {
+            kept = []
+            keptEarlier = pages.earlier
             emit(.earlierHistory(pages.earlier))
             // Older pages are read before the oldest prompt shown.
             earlierBefore = pages.earlier ? page.first(where: Self.isPrompt)?["seq"]?.numberValue.map { Int($0) } : nil
@@ -1506,7 +1653,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let boundary = Self.stateSeq(result)
         var stateApplied = false
         // Tail-first: the turns the chat has, then a gap, then these newest records.
-        if let gap = pages.gap { emit(.gapOpened(beforeTurnID: gap.turnID)) }
+        if let gap = pages.gap {
+            emit(.gapOpened(beforeTurnID: gap.turnID))
+            // The gap's records reach the chat but not the kept copy (`applyGap`): the kept
+            // copy starts again at these newest records, with older ones on the Mac, so a
+            // restore never shows the turns before the gap joined to these with nothing between.
+            kept = []
+            keptEarlier = true
+        }
         for record in page {
             if !stateApplied, Int(record["seq"]?.numberValue ?? 0) > boundary {
                 applyState(result, page: page)
@@ -1711,17 +1865,23 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             return
         }
         apply(record: record)
+        // A turn's start and end are where the kept transcript is saved (not every streamed chunk).
+        if let kind = record["kind"]?.stringValue, kind == "user_message" || kind == "turn_result" { saveKept() }
     }
 
     /// A record in order: one already applied (its seq at most `lastSeq`) is skipped.
     private func apply(record: JSONValue) {
         let seq = Int(record["seq"]?.numberValue ?? 0)
         guard seq == 0 || seq > lastSeq else { return }
-        if seq > 0 { lastSeq = seq }
+        if seq > 0 {
+            lastSeq = seq
+            keep(record)
+        }
         journal.record(record)
         for event in records.map(record) {
             switch event {
             case .permissionRequest, .question:
+                if applyingKept { continue }
                 emitPermission(event)
             default:
                 emit(event)
@@ -1769,7 +1929,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     private func emit(_ event: AgentSessionEvent) {
         switch event {
-        case .clientError, .promptNotSent:
+        case .clientError, .promptNotSent, .historyLoading:
+            // Not history: a later reader learns the load state from `events()` itself.
             break
         default:
             if history != nil {

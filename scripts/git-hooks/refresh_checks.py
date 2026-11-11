@@ -36,9 +36,10 @@ CHECKS = "cmux-next-checks"
 SOURCE_DIR = "scripts/cmux-next"
 MASKER = "scripts/swift_source_mask.py"
 RELEASE_DOWNLOAD = "scripts/ci/github_release_download.py"  # the gate's release download fallback
+TRANSPORT = "scripts/ci/deadline_http.py"  # the HTTP transport the fallback imports from beside itself
 STAMP = ".source"  # "<commit> <scripts/cmux-next tree>" of the copy, or "worktree" for an install from a dirty tree
 ENTRY_POINTS = {"prepush-gate.py": "cmux_next_prepush_gate.py", "git_batch.py": "git_batch.py",
-                "github_release_download.py": "github_release_download.py"}
+                "github_release_download.py": "github_release_download.py", "deadline_http.py": "deadline_http.py"}
 
 
 def git(repo: Path, *args: str, check: bool = True, data: bytes | None = None) -> bytes:
@@ -172,11 +173,13 @@ def refresh(repo: Path, hook_dir: Path, commit: str) -> str | None:
         if masker:
             files.append(("100644", Path(MASKER).name))
             contents.append(masker)
-        # The gate loads its release download fallback from beside itself (prepush-gate.py, release_download).
-        helper = git(repo, "cat-file", "blob", f"{commit}:{RELEASE_DOWNLOAD}", check=False)
-        if helper:
-            files.append(("100644", Path(RELEASE_DOWNLOAD).name))
-            contents.append(helper)
+        # The gate loads its release download fallback from beside itself (prepush-gate.py, release_download), and
+        # the fallback its HTTP transport from beside itself.
+        for source in (RELEASE_DOWNLOAD, TRANSPORT):
+            helper = git(repo, "cat-file", "blob", f"{commit}:{source}", check=False)
+            if helper:
+                files.append(("100644", Path(source).name))
+                contents.append(helper)
         version = f"{CHECKS}.v{int(time.time())}.{os.getpid()}"
         stage = hook_dir / f"{version}.partial"
         shutil.rmtree(stage, ignore_errors=True)

@@ -552,7 +552,8 @@ Found by the inventory. None needs a curve pick unless it says so:
    per spring start; the WebKit container's autoresizing per frame). The rule a focused CEF page already has
    (`holdPageAtRest`) then becomes the only rule.
 9. The daemon round trip before a zoom or a swap shows.
-10. The app-wide live resize snap; it becomes per window.
+10. Done (#40387): the app-wide live resize snap is per window. A child panel is in its parent window's resize; a
+    popup's shrink and a hover card's morph ask about their own window.
 11. With #40174: `TerminalFramePresenter`, the frame owner, the spring draw-ahead and the Reduce Motion snap wait.
 12. After the key resize pick: the per-frame follow of a key resize (`PaneMotionHoldFollowing`, the reflow preview
     in a spring).
@@ -581,7 +582,7 @@ macOS 14 or 15. Each owner writes its red test first and runs it itself on the f
 | 8 | TAB STRIP | the overflow reveal and the drag ghost pass their target | `CmuxNextTabs/`, `CmuxNextApp/Drag/` | nothing; tell the tab strip owner | now |
 | 9 | SIDEBAR ROWS and PIN | the card slot lays out on main per frame; pin has no motion | `CmuxNextSidebar/Views/` | the pin pick (draft #38267); tell the sidebar owner | card slot now; pin after the pick |
 | 10 | OVERLAYS and HOVER CARDS | an overlay's first frame comes later than the next refresh after the key | `CmuxNextDesign/Motion/Motion+Popup.swift`, `CmuxNextDesign/HoverCards/` | the overlay pick for curves | now for the first-frame test |
-| 11 | WINDOW RESIZE and FULL SCREEN | a live resize in window A snaps a motion in window B; in full screen the grid goes at the end | `CmuxNextDesign/Motion/Motion+LiveResize.swift`, `CmuxNextBridge/ResizeCoordinator.swift`, `CmuxNextApp/Windows/WindowController+FullScreen.swift` | #40174 for the terminal part | now for the per-window snap |
+| 11 | WINDOW RESIZE and FULL SCREEN | (the per-window snap is done, #40387: a live resize in window A no longer snaps a motion in window B) in full screen the grid goes at the end | `CmuxNextDesign/Motion/Motion+LiveResize.swift`, `CmuxNextBridge/ResizeCoordinator.swift`, `CmuxNextApp/Windows/WindowController+FullScreen.swift` | #40174 for the terminal part | the per-window snap is merged; the full screen part after #40174 |
 | 12 | COLUMN REVEAL | the camera passes its target; it steps on main | `CmuxNextLayout/Views/ScreenContentView+Scrolling.swift` | curve from Motion Lab | now |
 | 13 | MOVE and SWAP | the first changed frame comes after the daemon's answer | `CmuxNextApp/Handlers/PaneHandlers+Verbs.swift` | the move pick for the motion | now (model in the key's turn) |
 | 14 | SPACE and SCREEN CHANGE | owned: SPACE SWITCH and SCREEN SWITCH INSTANT | | | running |
