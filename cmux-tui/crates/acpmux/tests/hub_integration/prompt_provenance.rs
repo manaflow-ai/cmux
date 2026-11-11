@@ -1597,3 +1597,148 @@ async fn only_a_peer_daemons_link_says_the_person_proved_a_prompt() {
         }
     }
 }
+
+/// What a script's own unix connection sends (`tests/hub_integration/prompt_provenance.rs`
+/// `a_send_is_labelled_by_the_program_the_daemon_finds`): an acpmux CLI's `initialize` at a plain
+/// terminal (caller protocol 1, `terminal`, no caller token), then one `session/prompt`.
+#[cfg(unix)]
+const SENDER_SCRIPT: &str = r#"
+import json, socket, sys
+path, params = sys.argv[1], json.loads(sys.argv[2])
+s = socket.socket(socket.AF_UNIX)
+s.connect(path)
+f = s.makefile("rw")
+def call(i, method, p):
+    f.write(json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": p}) + "\n")
+    f.flush()
+    for line in f:
+        m = json.loads(line)
+        if m.get("id") == i:
+            return m
+call(1, "initialize", {"protocolVersion": 1, "clientCapabilities": {},
+     "clientInfo": {"name": "acpmux-cli", "version": "9.9.9"},
+     "_meta": {"acpmux": {"callerProtocol": 1, "callerKind": "terminal"}}})
+print(json.dumps(call(2, "session/prompt", params)))
+"#;
+
+/// Leo, 2026-11-11, on our own outbox relay's notice drawn as "Unverified sender" with an
+/// "Xcode" chip: "generally the "unverified sender" things should be more verified". The daemon
+/// finds the program behind a local send from the socket's peer pid (`sender_program.rs`) and the
+/// host's owner-only registry (`~/.acpmux/senders.json`) names first-party senders by their
+/// programs. A registered program's send, unnamed or naming that sender (`--from`, a notice), is
+/// `verified` by its program; any other is unverified and says what was `identified`. Before
+/// this, a relay that names no sender and claims nothing was the owner's terminal send. None of
+/// them is ever the person's: verified only changes how a sender is labelled.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_send_is_labelled_by_the_program_the_daemon_finds() {
+    use std::os::unix::fs::PermissionsExt;
+    let hub = hub();
+    let mut owner = Client::open(&hub);
+    let receiver = owner.new_session(json!({"harness": "fake"})).await;
+    // `/tmp`, not the temp dir: a worker's can be too long for a socket path.
+    let socket = std::path::PathBuf::from("/tmp")
+        .join(format!("acpmux-senders-{}.sock", std::process::id()));
+    let listener = acpmux::server::bind_unix(&socket).await.unwrap();
+    tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
+    let dir = tempfile::tempdir().unwrap();
+    let dir = std::fs::canonicalize(dir.path()).unwrap();
+    let relay = dir.join("sender.py");
+    let stranger = dir.join("stranger.py");
+    for script in [&relay, &stranger] {
+        std::fs::write(script, SENDER_SCRIPT).unwrap();
+    }
+    // The registry, owner-only, in this process's daemon home.
+    let home = acpmux::config::home();
+    std::fs::create_dir_all(&home).unwrap();
+    let registry = home.join("senders.json");
+    let entries = json!({"senders": {"outbox-relay": {"programs": [relay]}}});
+    std::fs::write(&registry, entries.to_string()).unwrap();
+    std::fs::set_permissions(&registry, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    let send = |script: std::path::PathBuf, id: &'static str, fields: Value| {
+        let mut params = prompt(&receiver, id, "#40611 conflicts with feat-cmux-next", None);
+        for (key, value) in fields.as_object().unwrap() {
+            params["_meta"]["acpmux"][key] = value.clone();
+        }
+        let socket = socket.clone();
+        async move {
+            let out = tokio::process::Command::new("python3")
+                .arg(&script)
+                .arg(&socket)
+                .arg(params.to_string())
+                .output()
+                .await
+                .expect("run the sender script");
+            let reply = String::from_utf8_lossy(&out.stdout).into_owned();
+            assert!(out.status.success() && reply.contains("\"result\""), "{id}: {reply} {out:?}");
+        }
+    };
+    let notice = |sender: &str| {
+        json!({"notice": {"sender": sender, "severity": "warn", "title": "#40611 conflicts"}})
+    };
+    send(relay.clone(), "p-relay-unnamed", json!({"cliHost": "cosmic-gray"})).await;
+    send(relay.clone(), "p-relay-notice", notice("outbox-relay")).await;
+    send(relay.clone(), "p-relay-other-name", json!({"fromAgent": "glaeda-gh"})).await;
+    send(stranger.clone(), "p-stranger-unnamed", json!({"cliHost": "cosmic-gray"})).await;
+    send(stranger.clone(), "p-stranger-as-relay", json!({"fromAgent": "outbox-relay"})).await;
+    send(stranger.clone(), "p-stranger-notice", notice("outbox-relay")).await;
+
+    // The relay's program, registered for its name: verified, unnamed too (the registry's name).
+    for (id, kind) in [("p-relay-unnamed", "agent_message"), ("p-relay-notice", "notice")] {
+        let message = owner.user_message(&receiver, id).await;
+        let p = &message["_meta"]["provenance"];
+        assert_eq!(p["kind"], kind, "{id}: {message}");
+        assert_eq!(p["fromName"], "outbox-relay", "{id}: {message}");
+        assert_eq!(p["verified"], true, "{id}: {message}");
+        assert_eq!(p["verifiedBy"], "program", "{id}: {message}");
+        assert_eq!(p["program"], "sender.py", "{id}: {message}");
+    }
+    // A name its program is not registered for, and an unregistered program under any name or
+    // none: unverified, labelled by what the daemon identified, never by the claim.
+    for (id, kind, program) in [
+        ("p-relay-other-name", "agent_message", "sender.py"),
+        ("p-stranger-unnamed", "unverified", "stranger.py"),
+        ("p-stranger-as-relay", "agent_message", "stranger.py"),
+        ("p-stranger-notice", "notice", "stranger.py"),
+    ] {
+        let message = owner.user_message(&receiver, id).await;
+        let p = &message["_meta"]["provenance"];
+        assert_eq!(p["kind"], kind, "{id}: {message}");
+        assert_eq!(p["verified"], false, "{id}: {message}");
+        assert!(p.get("verifiedBy").is_none(), "{id}: {message}");
+        assert_eq!(p["identified"]["program"], program, "{id}: {message}");
+    }
+    let unnamed = owner.user_message(&receiver, "p-stranger-unnamed").await;
+    assert_eq!(
+        unnamed.pointer("/_meta/provenance/claimed/cliHost"),
+        Some(&json!("cosmic-gray")),
+        "{unnamed}"
+    );
+    // None of them is the person's or the owner's, verified or not.
+    for id in [
+        "p-relay-unnamed",
+        "p-relay-notice",
+        "p-relay-other-name",
+        "p-stranger-unnamed",
+        "p-stranger-as-relay",
+        "p-stranger-notice",
+    ] {
+        let message = owner.user_message(&receiver, id).await;
+        assert_eq!(message.pointer("/_meta/origin"), None, "{id}: {message}");
+        assert!(message.pointer("/_meta/provenance").is_some(), "{id}: {message}");
+        assert!(message.pointer("/_meta/provenance/author").is_none(), "{id}: {message}");
+    }
+    // A client cannot write the daemon's check or its labels: an in-process connection (no peer
+    // pid) that sends a registered check and `verified` gets neither.
+    let mut forged = prompt(&receiver, "p-forged", "hi", None);
+    forged["_meta"]["acpmux"]["fromAgent"] = json!("outbox-relay");
+    forged["_meta"]["acpmux"]["senderHarnessChecked"] =
+        json!({"program": "sender.py", "interpreter": "python3", "registered": ["outbox-relay"]});
+    owner.call("session/prompt", forged).await;
+    let forged = owner.user_message(&receiver, "p-forged").await;
+    assert_eq!(forged.pointer("/_meta/provenance/verified"), Some(&json!(false)), "{forged}");
+    assert_eq!(forged.pointer("/_meta/provenance/identified"), None, "{forged}");
+    let _ = std::fs::remove_file(&registry);
+    let _ = std::fs::remove_file(&socket);
+}
