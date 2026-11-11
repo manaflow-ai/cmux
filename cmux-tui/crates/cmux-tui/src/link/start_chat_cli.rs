@@ -898,23 +898,7 @@ pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>
                     crate::cli::platform_refusal_reason(code, facts.as_ref())
                 ),
             );
-            // A refusal of the platform's Cloud table says how it is handled: final (shown, never
-            // retried), a rate limit's wait, or a retry with the same key.
-            if let (Some(row), Value::Object(object)) =
-                (cmux_cloud_machine::refusals::platform(code), &mut line)
-            {
-                let facts = facts.unwrap_or_default();
-                let handling =
-                    cmux_cloud_machine::refusals::handling(status, Some(row.code), facts.retryable);
-                object.insert("handling".into(), json!(handling));
-                object.insert(
-                    "retryable".into(),
-                    json!(handling != cmux_cloud_machine::refusals::Handling::Final),
-                );
-                if handling == cmux_cloud_machine::refusals::Handling::RetryAfter {
-                    object.insert("retry_after_s".into(), json!(facts.wait_s()));
-                }
-            }
+            with_handling(&mut line, status, code, facts);
             line
         }
         Err(E::Unreachable(reason)) => {
@@ -924,6 +908,32 @@ pub(super) fn ensure_answer(answer: Result<Value, crate::cli::PlatformCallError>
             "bad_answer",
             format!("the cmux platform answered {status} with no readable body"),
         ),
+    }
+}
+
+/// Adds to a refused `line` how the refusal is handled: final (shown, never retried), a rate
+/// limit's wait (`retry_after_s`: the body's `retryAfterSeconds`, the Retry-After header or
+/// `details.retry_after_ms`), or a retry with the same key. The body's `retryable` decides for
+/// any code, in the platform's Cloud table or not (a workspace's 503
+/// `machine.placement_unavailable`); a code of the table with no flag takes its row's. A code of
+/// neither, with no flag, adds nothing: the App reads the code alone, as before.
+pub(super) fn with_handling(
+    line: &mut Value,
+    status: u16,
+    code: &str,
+    facts: Option<cmux_cloud_machine::refusals::Facts>,
+) {
+    use cmux_cloud_machine::refusals::{self, Handling};
+    let facts = facts.unwrap_or_default();
+    let Value::Object(object) = line else { return };
+    if refusals::platform(code).is_none() && facts.retryable.is_none() {
+        return;
+    }
+    let handling = refusals::handling(status, Some(code), facts.retryable);
+    object.insert("handling".into(), json!(handling));
+    object.insert("retryable".into(), json!(handling != Handling::Final));
+    if handling == Handling::RetryAfter {
+        object.insert("retry_after_s".into(), json!(facts.wait_s()));
     }
 }
 
