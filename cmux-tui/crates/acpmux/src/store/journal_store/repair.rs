@@ -93,7 +93,7 @@ impl Replay {
                 self.chats.entry(chat.to_owned()).or_default().clear();
                 self.metas.remove(chat);
             }
-            super::meta::KIND_META => self.take_meta(&record)?,
+            super::meta::KIND_META | super::meta::KIND_META_PATCH => self.take_meta(&record)?,
             KIND_FROZEN => self.frozen = true,
             other => return Err(format!("unknown event journal record kind {other}")),
         }
