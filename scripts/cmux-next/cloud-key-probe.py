@@ -482,8 +482,11 @@ def context_kinds(text, line_end):
     and YAML put it there freely): matches that start before `line_end` in `text`, the line and what follows it.
     Each value is recorded for redaction."""
     seen = set()
-    # Each reading's own line end: taking escapes off shortens the line.
-    for reading, end in zip(readings(text), (len(r) for r in readings(text[:line_end]))):
+    # Each reading's own line end: taking escapes off shortens the line. The line can run out of escapes before what
+    # follows it does (a value escaped on the next line): every later reading keeps the line's last length.
+    ends = [len(r) for r in readings(text[:line_end])]
+    for i, reading in enumerate(readings(text)):
+        end = ends[min(i, len(ends) - 1)]
         if '"refresh_token"' in reading:
             for m in REFRESH.finditer(reading):
                 if m.start() < end and not PUBLIC_VALUE.search(m.group(0)):

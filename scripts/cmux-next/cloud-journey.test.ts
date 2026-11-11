@@ -1429,6 +1429,30 @@ describe("clean-room provider key probe", () => {
     }
   });
 
+  test("a key's name on one line and its escaped value on the next is found", () => {
+    const named = "Hv5Kp8Qx2Lt7Rz4Nw9Bd3Fj6Cm1Gs0Ya";
+    const aws = "Wq4Lp9Zt2Kx7Rn5Vb8Hd3Jf6Cm1Gs0YaPe7Tu";
+    const root = plant({
+      "proc/5/comm": "bash\n",
+      "proc/5/environ": "HOME=/root\0",
+      "proc/5/cmdline": "bash\0",
+      // The name's line has no escape; the value's line does, so only a later reading of the two lines decodes it.
+      "workspace/project/conf.json": `{"MISTRAL_API_KEY":\n "\\u0048${named.slice(1)}"}\n`,
+      "workspace/project/aws.json": `{"region": "x",\n  "AWS_SECRET_ACCESS_KEY":\n  "\\u0057${aws.slice(1)}"}\n`,
+    });
+    try {
+      const { probe, out } = run(root);
+      for (const v of [named, named.slice(1), aws, aws.slice(1)]) expect(out).not.toContain(v);
+      expect(probe.findings.map((f) => `${f.place} ${f.where}: ${f.what}`).sort()).toEqual([
+        "file /workspace/project/[a name].json:1: MISTRAL_API_KEY",
+        "file /workspace/project/[a name].json:2: AWS_SECRET_ACCESS_KEY",
+      ]);
+      expect(probe.complete).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   test("any ASCII character JSON writes as \\u00XX is read as itself, in a text file and a binary one", () => {
     const named = "Hv5Kp8Qx2Lt7Rz4Nw9Bd3Fj6Cm1Gs0Ya";
     const proj = PROJ.replace("sk-", "sk\\u002d");
