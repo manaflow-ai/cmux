@@ -385,10 +385,18 @@ for (const agentFamily of ["claude", "codex"])
     test(`${agentFamily} ${working ? "live" : "finished"} turn projects mixed calls into one folded run`, async () => {
       const { mixedToolTurnFixture } = await import("./mixedToolRunFixture");
       const { turnView } = await import("./turns");
-      const projected = turnView(mixedToolTurnFixture(working), new Set(["worked-mixed-prompt"]), {
-        agentFamily,
-        working,
-      });
+      // A live turn draws its finished runs under liveTurnWork.experiment.ts `runs` only; the shipped
+      // `line` draws none (live-turn-one-line.test.ts).
+      if (working) globalThis.cmuxExperiments = { "live-turn-work": "runs" };
+      let projected: ReturnType<typeof turnView>;
+      try {
+        projected = turnView(mixedToolTurnFixture(working), new Set(["worked-mixed-prompt"]), {
+          agentFamily,
+          working,
+        });
+      } finally {
+        delete globalThis.cmuxExperiments;
+      }
       const work = projected.find((row) => row.kind === "activity")!;
       expect(work).toBeDefined();
       // A live turn folds its finished runs as the ended turn does, as the Codex app (Lucas, 2026-11-11:
