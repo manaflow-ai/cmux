@@ -119,13 +119,16 @@ async function timed<T>(work: () => Promise<T>): Promise<number> {
 
 /// The probe running or done last, which `read` answers.
 let last: { running: true } | PasteProbeResult | undefined;
+let running: Promise<PasteProbeResult> | undefined;
 
-/// Starts a probe and answers at once (`{started: true}`), or with `read`, answers the last one.
-export function pasteProbe(options: PasteProbeOptions): PasteProbeResult {
+/// Starts a probe and answers at once (`{started: true}`); with `read`, answers the last one; with
+/// `wait` (a test's page call, which has no deadline), answers the last one once it ends.
+export async function pasteProbe(options: PasteProbeOptions & { wait?: boolean }): Promise<PasteProbeResult> {
+  if (options.wait) return (await running) ?? last ?? { error: "no probe ran" };
   if (options.read) return last ?? { error: "no probe ran" };
   if (last && "running" in last) return { error: "a probe is running" };
   last = { running: true };
-  void runProbe(options).then(
+  running = runProbe(options).then(
     (result) => (last = result),
     (error: unknown) => (last = { error: String(error) }),
   );
