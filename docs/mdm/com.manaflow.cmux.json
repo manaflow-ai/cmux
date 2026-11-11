@@ -657,6 +657,12 @@
       "title" : "Hide Dock Icon When No Windows Are Open",
       "type" : "boolean"
     },
+    "app.internalDeveloperMode" : {
+      "default" : false,
+      "description" : "Shows the debug commands (playgrounds, Debug Settings, diagnostics) in the Command Palette as \"Debug: …\" rows. There is no Debug menu.",
+      "title" : "Internal Developer Mode",
+      "type" : "boolean"
+    },
     "app.quitBehavior" : {
       "default" : "keep",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
