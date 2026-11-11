@@ -134,6 +134,13 @@ class FakeGitHub:
                                     for job in self.jobs.values() if job["head_sha"] == HEAD]}]
         if "/actions/jobs/" in route:
             return copy.deepcopy(self.jobs[int(route.rsplit("/", 1)[1])])
+        if "/actions/runs?head_sha=" in route:
+            # The head's run list (head_runs): each run's workflow, no workflow file or time, so none supersedes
+            # another by run (superseding_run) unless a test lists them (SupersededRunGitHub).
+            sha = route.split("head_sha=", 1)[1].split("&", 1)[0]
+            runs = [{"id": run, "workflow_id": self.workflows.get(run, 7), "head_sha": sha}
+                    for run in sorted({job["run_id"] for job in self.jobs.values() if job["head_sha"] == sha})]
+            return [{"total_count": len(runs), "workflow_runs": runs}]
         if "/actions/runs/" in route:
             run = int(route.rsplit("/", 1)[1])
             return {"id": run, "workflow_id": self.workflows.get(run, 7)}
@@ -1987,7 +1994,6 @@ class CancelledRunSupersededByLaterGreen(unittest.TestCase):
         self.assertEqual(len(lines), 1, lines)
         self.assertTrue(lines[0].startswith("ignored 'backend-migrations': its cancelled run 30 is superseded by run 31"),
                         lines)
-        self.assertEqual(self.gh.logged if hasattr(self.gh, "logged") else [], [])
 
     def test_every_cancelled_run_of_a_head_shares_one_run_list_read(self):
         self.gh.listed += [head_run(32, "cancelled", 2), head_run(31, "success", 5)]
@@ -1995,40 +2001,44 @@ class CancelledRunSupersededByLaterGreen(unittest.TestCase):
         self.assertEqual(len(lines), 2, lines)
         self.assertEqual(len([r for r in self.gh.routes if "runs?head_sha=" in r]), 1, self.gh.routes)
 
+    def superseded_then(self, **later):
+        """The cancelled run 30 with a later green run 31 is ignored; with LATER changed in run 31, it refuses: each
+        refusal below is that one part of the rule failing, never an unread or unlisted run."""
+        self.gh.listed[1:] = [head_run(31, "success", 5)]
+        self.assertTrue(self.judge()[0].startswith("ignored 'backend-migrations': its cancelled run 30"))
+        self.gh.listed[1:] = [head_run(31, later.pop("conclusion", "success"), later.pop("created", 5), **later)]
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            self.judge()
+
     def test_a_cancelled_run_with_no_later_run_refuses(self):
+        self.gh.listed[1:] = [head_run(31, "success", 5)]
+        self.assertTrue(self.judge()[0].startswith("ignored 'backend-migrations': its cancelled run 30"))
+        del self.gh.listed[1:]
         with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
             self.judge()
 
     def test_a_later_green_at_another_sha_refuses(self):
-        self.gh.listed.append(head_run(31, "success", 5, sha="c" * 40))
-        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
-            self.judge()
+        self.superseded_then(sha="c" * 40)
 
     def test_a_later_green_of_another_workflow_file_with_the_same_name_refuses(self):
-        self.gh.listed.append(head_run(31, "success", 5, path=".github/workflows/backend-migrations-2.yml"))
-        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
-            self.judge()
+        self.superseded_then(path=".github/workflows/backend-migrations-2.yml")
 
     def test_a_later_run_that_skipped_refuses(self):
         for conclusion in ("skipped", "neutral", "cancelled"):
             with self.subTest(conclusion=conclusion):
-                self.gh.listed[1:] = [head_run(31, conclusion, 5)]
-                with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
-                    self.judge()
+                self.superseded_then(conclusion=conclusion)
 
     def test_a_green_created_before_the_cancelled_run_refuses(self):
-        self.gh.listed.append(head_run(31, "success", 0))
-        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
-            self.judge()
+        self.superseded_then(created=0)
 
     def test_a_later_green_from_another_event_refuses(self):
-        self.gh.listed.append(head_run(31, "success", 5, event="push"))
-        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
-            self.judge()
+        self.superseded_then(event="push")
 
     def test_a_workflow_dispatch_with_other_inputs_refuses(self):
         self.gh.listed = [head_run(30, "cancelled", 1, event="workflow_dispatch", inputs={"lane": "a"}),
-                          head_run(31, "success", 5, event="workflow_dispatch", inputs={"lane": "b"})]
+                          head_run(31, "success", 5, event="workflow_dispatch", inputs={"lane": "a"})]
+        self.assertTrue(self.judge()[0].startswith("ignored 'backend-migrations': its cancelled run 30"))
+        self.gh.listed[1]["inputs"] = {"lane": "b"}
         with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
             self.judge()
         # Inputs GitHub's run record does not carry are unknown, never the same.
@@ -2036,9 +2046,6 @@ class CancelledRunSupersededByLaterGreen(unittest.TestCase):
             del run["inputs"]
         with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
             self.judge()
-        self.gh.listed = [head_run(30, "cancelled", 1, event="workflow_dispatch", inputs={"lane": "a"}),
-                          head_run(31, "success", 5, event="workflow_dispatch", inputs={"lane": "a"})]
-        self.assertTrue(self.judge()[0].startswith("ignored 'backend-migrations': its cancelled run 30"))
 
     def test_a_superseded_run_names_each_cancelled_job_and_still_judges_a_failure(self):
         self.gh.listed.append(head_run(31, "success", 5))
