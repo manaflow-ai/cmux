@@ -60,6 +60,16 @@ APP_NAMES = {
 
 # (path, a piece of the line): why the grep's hit is safe
 ALLOWED = {
+    # Shell blocks shell_tree cannot parse (shell_tree.unparsed), each reported by its first line: none is bash.
+    (".github/workflows/cmux-tui-build-package.yml",
+     "pwsh -NoProfile -File cmux-tui/scripts/smoke-windows-install-key-handoff.ps1 `"):
+        "a run block of a `shell: pwsh` step: PowerShell, which this lint does not read; it names no shared temp path",
+    (".github/workflows/cmux-tui.yml", "$ErrorActionPreference = 'Stop'"):
+        "the first line of each of two `shell: pwsh` run blocks: PowerShell, which this lint does not read; their "
+        "folders are C:\\ paths on a throwaway Windows runner",
+    ("scripts/server-release/install.sh.in", "#!/bin/sh"):
+        "a template: @@KEYS@@ and @@UNIX_CASES@@ are filled in at release time, so the file is shell only once "
+        "generated; its fixed text names no shared temp path",
     ("scripts/cmux-next/push-from-host.sh", '"mktemp -d /tmp/$NAME-XXXXXX"'):
         "a mktemp template in the command string ssh runs on HOST: mktemp makes it there, and the line after checks it",
     ("scripts/check-test-determinism.py", "lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-$UID"):
@@ -178,6 +188,12 @@ def hits(root: Path = ROOT) -> list[tuple[str, int, str, str, int]]:
         if shell_tree.shebang(text) == "unresolved":
             first = text.split("\n", 1)[0]
             out.append((path, 1, first, first, 0))
+        # A shell block shell_tree cannot parse is a hit of its own, its first line: what it runs is unknown, and its
+        # raw text is scanned besides, never read line by line (manaflow-ai/cmux-platform#1271 review, F2).
+        text_lines = text.split("\n")
+        for n in shell_tree.unparsed(path, text):
+            first = text_lines[n - 1]
+            out.append((path, n, first, first.strip(), len(first) - len(first.lstrip())))
         # The file is read whole where it is shell (shell_tree.scan_file), so a here-document, a continued line or
         # a quote across lines keeps its context; the hit keeps the line's own text.
         for n, (line, scan) in enumerate(zip(text.split("\n"), shell_tree.scan_file(path, text)), 1):
