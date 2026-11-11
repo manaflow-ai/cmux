@@ -401,7 +401,7 @@ class TagGate(unittest.TestCase):
         passes = (f"{branch} && ({push} || {dispatch})", f"{branch} && {push}", f"{branch} && {dispatch}",
                   f"${{{{ {branch} && ({push} || {dispatch}) }}}}", f"({push} || {dispatch}) && {branch}",
                   f"{branch} && ({push} || {dispatch}) && github.repository_owner == 'manaflow-ai'",
-                  f"!cancelled() && {branch} && {push} && github.event.head_commit.message != ''")
+                  f"github.event.head_commit.message != '' && {branch} && {push}")
         refused = {
             "ref only": branch,
             "ref and an unrelated term": f"{branch} && github.repository_owner == 'manaflow-ai'",
