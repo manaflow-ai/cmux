@@ -43,8 +43,15 @@
 //! - **The limits stay.** A git past its limit is ended by its runner, the
 //!   request gets that error, and the end of a run frees its place.
 //! - **A connection's end.** After a clean end of its input the requests it
-//!   sent still run and answer ([`GitLane::drain`]); after a broken one the
-//!   requests that wait are dropped ([`GitLane::abandon`]).
+//!   sent still run and answer ([`GitLane::drain`]). After a broken one
+//!   nobody reads a reply: its reads that wait are dropped, and its
+//!   mutations that wait still run, as when the reader ran each line it
+//!   read ([`GitLane::abandon`]).
+//! - **Nothing starts after the shutdown began.** A daemon that shuts down
+//!   or hands its session over refuses each line it reads as "not executed"
+//!   (`connection_frame.rs`), so the client sends it again to the next
+//!   daemon. A request that still waits here has not run either: it gets
+//!   that refusal and does not start ([`GitLane::start_ready`]).
 //!
 //! Requests of one class start in the order they came (among those their
 //! connection's order lets start); the lane knows no other priority.
@@ -80,9 +87,10 @@ const MAX_LONG_READ_RUNS: usize = 3;
 /// whole daemon, beside the reads. They are a person's own actions and few.
 const MAX_MUTATION_RUNS: usize = 2;
 
-/// Git requests of one connection that wait for a place. One more gets an
-/// error and does not run: a client that asks faster than git answers must
-/// ask less.
+/// Git runs of one connection that wait for a place (a run is one request
+/// and the equal reads that share it, [`SHARED_READS`] at most). One more
+/// gets an error and does not run: a client that asks faster than git
+/// answers must ask less.
 const QUEUED_PER_CLIENT: usize = 512;
 
 /// Equal reads that share one run. One more waits as a request of its own.
@@ -230,12 +238,19 @@ impl<J> Schedule<J> {
         self.running.retain(|running| running.run != run);
     }
 
-    /// Takes the requests of `client` that wait.
+    /// Takes the reads of `client` that wait. Its mutations stay: the
+    /// daemon took them, so they run in their turn.
     fn take_waiting_reads(&mut self, client: u64) -> Vec<J> {
-        let (taken, kept): (Vec<_>, Vec<_>) =
-            std::mem::take(&mut self.queue).into_iter().partition(|entry| entry.client == client);
+        let (taken, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.queue)
+            .into_iter()
+            .partition(|entry| entry.client == client && !entry.class.is_mutation());
         self.queue = kept.into();
         taken.into_iter().map(|entry| entry.job).collect()
+    }
+
+    /// Takes each request that waits, of every connection.
+    fn take_waiting(&mut self) -> Vec<J> {
+        std::mem::take(&mut self.queue).into_iter().map(|entry| entry.job).collect()
     }
 }
 
@@ -333,13 +348,13 @@ impl Job {
         }
     }
 
-    /// The run never started: each waiter gets `reason` as its error.
-    fn fail(self, reason: &str) {
+    /// The run never started: each waiter gets the error `error` makes.
+    fn fail(self, error: impl Fn(ResourceOperation) -> ResourceError) {
         let operation = self.request.envelope.operation;
         for waiter in std::iter::once(self.first).chain(self.joined) {
             let _scope = request_log::resume(waiter.slow_log);
-            let error = ResourceError::operation_failed(operation.wire_name(), reason, json!({}));
-            let _ = send_resource_response(&self.writer, waiter.id, operation, Err(error));
+            let _ =
+                send_resource_response(&self.writer, waiter.id, operation, Err(error(operation)));
         }
     }
 }
@@ -411,8 +426,22 @@ impl Drop for Place {
 
 impl GitLane {
     /// Starts each request that may start now, on a thread of its own.
+    ///
+    /// After the shutdown or a handoff began, none: each request that waits
+    /// gets the refusal of a line read after that ("not executed"). The runs
+    /// that started before go on to their end. A run that ends calls this,
+    /// and a request waits only while one runs, so each gets its refusal.
     fn start_ready(&self, mux: &Arc<Mux>) {
         loop {
+            if mux.daemon_shutdown_requested() || mux.daemon_handoff_in_progress() {
+                let refused = self.schedule.lock().recover_poison().take_waiting();
+                for job in refused {
+                    job.fail(super::pending_handoff::not_executed);
+                }
+                // After the refusals: a connection that waits in `drain` closes next.
+                self.changed.notify_all();
+                return;
+            }
             let started = self.schedule.lock().recover_poison().start_next();
             let Some((run, job)) = started else { return };
             // The job stays reachable when the thread does not start.
@@ -429,7 +458,10 @@ impl GitLane {
                 self.schedule.lock().recover_poison().finish(run);
                 self.changed.notify_all();
                 if let Some(job) = slot.lock().recover_poison().take() {
-                    job.fail(&format!("could not start the git thread: {error}"));
+                    let reason = format!("could not start the git thread: {error}");
+                    job.fail(|operation| {
+                        ResourceError::operation_failed(operation.wire_name(), &reason, json!({}))
+                    });
                 }
             }
         }
@@ -446,8 +478,9 @@ impl GitLane {
         }
     }
 
-    /// Drops the git requests of `client` that wait: its connection broke,
-    /// so nobody reads their replies. The ones that run end by themselves.
+    /// Drops the git reads of `client` that wait: its connection broke, so
+    /// nobody reads their replies. Its mutations that wait still run, and
+    /// the requests that run end by themselves.
     pub(super) fn abandon(&self, client: u64) {
         let dropped = self.schedule.lock().recover_poison().take_waiting_reads(client);
         self.changed.notify_all();
