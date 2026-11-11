@@ -201,6 +201,35 @@ test("with Cloud picked, the menu offers only the modes a Cloud start can run in
   expect(rows.some((row) => row.includes("Auto"))).toBe(false);
 });
 
+// A Mac with no agent CLI shows another harness (unii) in the composer; the Cloud send names none,
+// so the machine starts its default agent, Claude (acpmux default_harness.rs). The chip and its menu
+// name that agent's modes, never a bare "Mode" (journey run 42975854214: every cell read "Mode").
+test("with Cloud picked and a harness cmux knows no Cloud mode for, the chip names Claude's asking mode", async () => {
+  await render(await newChat(true, "unii"));
+  expect(chipText()).toBe("Manual");
+});
+
+test("with Cloud picked and such a harness, a Bypass permissions pick is what the chip names", async () => {
+  await render(await newChat(true, "unii", "bypassPermissions"));
+  expect(chipText()).toBe("Bypass permissions");
+});
+
+test("with Cloud picked and such a harness, the menu offers Claude's Cloud modes, Bypass included", async () => {
+  await render(await newChat(true, "unii"));
+  const button = host.querySelector<HTMLElement>(".acpmux-mode .acpmux-access-trigger");
+  expect(button).not.toBeNull();
+  await act(async () => {
+    button!.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+    button!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    button!.click();
+  });
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  const rows = [...dom.window.document.querySelectorAll("[role=menuitemradio]")].map((row) => row.textContent ?? "");
+  expect(rows.some((row) => row.includes("Manual"))).toBe(true);
+  expect(rows.some((row) => row.includes("Bypass permissions"))).toBe(true);
+  expect(rows.some((row) => row.includes("Accept edits"))).toBe(false);
+});
+
 test("the Cloud start request carries the picked mode to the host, and only a pick", async () => {
   const { startCloudChat } = await import("../src/agent-session/acpmux/cloudRun");
   const calls: Record<string, unknown>[] = [];
