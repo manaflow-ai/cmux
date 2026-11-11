@@ -155,7 +155,7 @@ enum CacheFixture {
         #expect(store.load(accountID: "user")?.linkedMacID == nil)
     }
 
-    @Test func signOutDeletesTheCache() throws {
+    @MainActor @Test func signOutDeletesTheCache() throws {
         let (store, directory) = CacheFixture.saved(500)
         defer { try? FileManager.default.removeItem(at: directory) }
         LiveCoordinator.forgetSnapshots(store)
