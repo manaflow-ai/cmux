@@ -162,6 +162,7 @@ import { newTabComposerTrailingGapArm } from "./composerGap.experiment";
 import { newTabIconColumnArm } from "./iconColumn.experiment";
 import { elementBox, reportToastAvoidance } from "../toastAvoidance";
 import { githubIssueLink } from "../../../githubReferences";
+import { reportInputReadyWhenFocused } from "./inputReady";
 
 /// What the screen asks the host to do. A prompt stays in the page (the tab becomes the chat).
 export type NewTabScreenActions = NewTabCommandActions & {
@@ -1283,11 +1284,16 @@ export function NewTabScreen(props: Props) {
       else field.current?.setCaret(0);
     };
     if (fieldReady && focusOnShow) focus();
-    if (fieldReady && inputToken && inputReadyReported.current !== inputToken) {
-      inputReadyReported.current = inputToken;
-      onInputReady.current?.(inputToken);
-    }
     const view = fieldElement()?.ownerDocument.defaultView;
+    // The app replays the keys typed after Cmd-T into the page at this readiness: it waits until
+    // the page has focus, or a page not focused yet loses them (reportInputReadyWhenFocused).
+    let cancelReady = () => {};
+    if (fieldReady && inputToken && inputReadyReported.current !== inputToken) {
+      cancelReady = reportInputReadyWhenFocused(view, () => {
+        inputReadyReported.current = inputToken;
+        onInputReady.current?.(inputToken);
+      });
+    }
     view?.addEventListener(FOCUS_LOCATION_EVENT, focus);
     // The page got the keyboard back (a tab or pane switch back: WebKit focuses the window as its
     // web view becomes first responder) with nothing in it focused, as after a press on the page's
@@ -1308,6 +1314,7 @@ export function NewTabScreen(props: Props) {
     };
     if (focusOnShow) doc?.addEventListener("keydown", tab);
     return () => {
+      cancelReady();
       view?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
       view?.removeEventListener("focus", reclaim);
       doc?.removeEventListener("keydown", tab);
