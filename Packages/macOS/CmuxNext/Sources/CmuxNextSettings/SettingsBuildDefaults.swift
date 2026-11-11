@@ -34,9 +34,15 @@ extension SettingsController {
     /// below the file fills the key. The file then leaves the key out, so it follows a later change of
     /// the default (Leo 2026-11-08: "if I'm on the default selection and the default selection changes
     /// its properties, that's something that should happen").
+    /// A login consent is never unset by its answer: the person's no (the schema's default, false) is stored,
+    /// so a build that reads no answer as yes (DEV and NIGHTLY carry the Codex login, ``CloudCodexSignInConsentSetting``)
+    /// never sends a login the person turned off, and the stored-defaults pass never drops it (#41072 review).
     func isUnsetValue(_ value: JSONValue, of descriptor: SettingDescriptor) -> Bool {
-        value == defaultValue(of: descriptor) && !layerBelowFileSets(descriptor.id)
+        value == defaultValue(of: descriptor) && !layerBelowFileSets(descriptor.id) && !Self.storesEveryAnswer.contains(descriptor.path)
     }
+
+    /// The keys whose every answer is stored, the default's included: the login consents.
+    nonisolated static let storesEveryAnswer: Set<[String]> = [CloudLoginCopyConsentSetting.configPath, CloudCodexSignInConsentSetting.configPath]
 
     /// Whether the person's file sets `descriptor` to something other than this build's default,
     /// so Settings offers Reset (an explicit off in NIGHTLY, whose default is on, counts).
