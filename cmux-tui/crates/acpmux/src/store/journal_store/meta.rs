@@ -26,12 +26,34 @@
 //! The replay never makes a chat's folder again: a new chat is acknowledged only once its
 //! folder's entry is durable ([`super::new_folders`]), so a folder that is gone was removed (by a
 //! delete, a run without the journal, the transfer recovery), and its images go aside.
+//!
+//! A change journals only the fields it changed ([`KIND_META_PATCH`]): the fields whose value
+//! differs from the chat's previous record of this process, and the fields it no longer has, over
+//! that record (its base). A save that changes nothing journals nothing. Before, every change
+//! journaled the whole image: 26 KB on average on a busy machine (2026-11-11: 463
+//! records in 16 minutes, 45% of the journal's bytes), mostly fields that never change
+//! (`cmuxContext`, `contextBreakdown`, `configOptions`), for a change of one counter or flag
+//! (`hibernatedMs`, `seenSeq`, `idleLaunch`): the `pwrite` and `write` of disk-write reports
+//! against the daemon (cmuxterm-hq#9262, #9263). A chat's first record in a process, one in a
+//! new folder, one whose save saw a `session.json` this store did not write, and a chat's first
+//! change after the checkpoint wrote its `session.json` are whole images: a chain starts at a
+//! whole image in the journal, never at a file a transfer's swap may replace.
+//!
+//! The replay rebuilds a chain: the patches over the whole image before them. A patch journaled
+//! while the checkpoint was writing its base through has that base retired: it applies over the
+//! `session.json` the checkpoint wrote (it holds the base or a newer image of the same chain: a
+//! checkpoint retires a record only after it wrote that chat's newest image through it). A chain
+//! whose base it cannot find goes aside, as an image whose `session.json` moved on does.
 
 use super::*;
 
 /// A chat's metadata image: chat id, flags, its folder's identity, the stamp of the
 /// `session.json` its save saw (with [`SAW_FILE`]), the image as compact JSON.
 pub(super) const KIND_META: u16 = 4;
+/// A chat's metadata change over its previous record: the header of [`KIND_META`], then the
+/// base record's LSN (8 bytes), then `{"set": {field: value, ...}, "unset": [field, ...]}`.
+/// (Kind 5 was planned for S3 and never used; 6 is `frozen`.)
+pub(super) const KIND_META_PATCH: u16 = 7;
 /// Flag: the save saw a `session.json`; its stamp follows the folder's identity.
 const SAW_FILE: u8 = 1;
 /// The key `session.json` keeps the LSN of the image it holds under (absent without the journal):
@@ -41,12 +63,48 @@ const JOURNAL_LSN_KEY: &str = "journalLsn";
 /// JSON reader may keep a number only to 2^53).
 const JOURNAL_ID_KEY: &str = "journalId";
 
-/// Tests: a `settle_meta` of the chat this names stops right after it read the chat's image,
-/// says so on the first channel and waits for the second.
 #[cfg(test)]
 type SettleHold = (String, std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>);
+
+/// Tests: a `settle_meta` of the chat this names stops right after it read the chat's image,
+/// says so on the first channel and waits for the second. Only [`on_settle_hold`] sets it.
+///
+/// One per process, not per thread: the settle it stops runs on another thread than the test's.
+/// So [`on_settle_hold`] holds [`SETTLE_HOLD_TEST`] until its guard drops, and a second test's
+/// hold waits for the first instead of replacing or clearing it before its settle ran.
+// test-hook-allow: serialized by SETTLE_HOLD_TEST, held by on_settle_hold until its guard drops
 #[cfg(test)]
-pub(crate) static SETTLE_HOLD: std::sync::Mutex<Option<SettleHold>> = std::sync::Mutex::new(None);
+static SETTLE_HOLD: std::sync::Mutex<Option<SettleHold>> = std::sync::Mutex::new(None);
+/// The tests that hold a settle run one at a time ([`SETTLE_HOLD`]).
+#[cfg(test)]
+static SETTLE_HOLD_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The hold [`on_settle_hold`] set; dropping it takes the hold off and lets the next test's in.
+#[cfg(test)]
+pub(crate) struct SettleHoldGuard {
+    _serial: std::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(test)]
+impl Drop for SettleHoldGuard {
+    fn drop(&mut self) {
+        SETTLE_HOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+    }
+}
+
+/// Stops the next settle of `chat` right after it read the chat's image: it sends on `arrived`
+/// and waits on `release`. Waits for another test's hold to end first.
+#[cfg(test)]
+pub(crate) fn on_settle_hold(
+    chat: &str,
+    arrived: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+) -> SettleHoldGuard {
+    let serial = SETTLE_HOLD_TEST.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    *SETTLE_HOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+        Some((chat.to_owned(), arrived, release));
+    SettleHoldGuard { _serial: serial }
+}
 
 /// Tests: the stop of [`SETTLE_HOLD`].
 #[cfg(test)]
@@ -166,6 +224,20 @@ fn session_file(dir: &Path, journal: u64) -> std::io::Result<SessionFile> {
     })
 }
 
+/// The image `dir`'s `session.json` holds when this journal (`journal`) wrote it: its LSN and the
+/// image as compact JSON, without the journal's keys. `None` for any other file, or none.
+fn journaled_image(dir: &Path, journal: u64) -> Option<(Lsn, Vec<u8>)> {
+    let path = dir.join("session.json");
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut crate::config::private_state_file(&path).ok()?, &mut bytes)
+        .ok()?;
+    let mut object: serde_json::Map<String, Value> = serde_json::from_slice(&bytes).ok()?;
+    let lsn = object.remove(JOURNAL_LSN_KEY)?.as_u64().filter(|lsn| *lsn > 0)?;
+    let id = object.remove(JOURNAL_ID_KEY)?;
+    (id.as_str() == Some(journal_id_text(journal).as_str())).then_some(())?;
+    Some((lsn, serde_json::to_vec(&object).ok()?))
+}
+
 /// The stamp of `dir`'s `session.json` for a save's record: one `lstat`, no read. `None` when
 /// there is none, or when it does not stat (a file there at the replay then counts as moved on).
 fn saw_file(dir: &Path) -> Option<FileStamp> {
@@ -184,11 +256,195 @@ pub(super) struct Pending {
 /// The newest replayed image of a chat, after its last `forget`.
 pub(super) struct Replayed {
     lsn: Lsn,
-    image: Vec<u8>,
+    image: Image,
     folder: FolderId,
     /// The `session.json` files the chat's replayed records (for this folder) saw: a file the
     /// journal did not write is written over only when it is one of them.
     saw: Vec<FileStamp>,
+}
+
+/// A replayed chat's image through its newest record.
+enum Image {
+    /// Whole: a whole image, with the patches after it applied.
+    Whole(Vec<u8>),
+    /// Patches over the image of `base`, a record the checkpoint retired: its `session.json`
+    /// holds that image or a newer one of the same chain.
+    Chain { base: Lsn, patches: Vec<(Lsn, Vec<u8>)> },
+    /// A chain that does not read (a patch whose base is not the record before it, or a body
+    /// that does not parse): kept aside, never applied.
+    Broken { why: String, bodies: Vec<Vec<u8>> },
+}
+
+impl Image {
+    /// What goes aside for it: the image, or the patches (one JSON body per line).
+    fn aside(&self) -> Vec<u8> {
+        match self {
+            Self::Whole(image) => image.clone(),
+            Self::Chain { patches, .. } => {
+                patches.iter().flat_map(|(_, body)| body.iter().copied().chain([b'\n'])).collect()
+            }
+            Self::Broken { bodies, .. } => {
+                bodies.iter().flat_map(|body| body.iter().copied().chain([b'\n'])).collect()
+            }
+        }
+    }
+}
+
+/// What this process last journaled of a chat: the base of its next patch.
+pub(super) struct LastImage {
+    lsn: Lsn,
+    folder: FolderId,
+    /// The image's top-level field names, sorted: one shared list for every chat with the same
+    /// fields (the store holds every chat's metadata for the sidebar's list).
+    names: Arc<[Arc<str>]>,
+    /// Each field's value hash, in `names`' order.
+    hashes: Box<[u64]>,
+    /// The `session.json` that record saw, or the one this store wrote since.
+    saw: Option<FileStamp>,
+    /// The checkpoint wrote `session.json` since: the next change journals a whole image, so a
+    /// patch's base is a record in the journal, never a file a later swap may replace.
+    whole_next: bool,
+}
+
+impl LastImage {
+    /// Whether a record whose save saw `saw` in folder `folder` may skip or patch over this one.
+    fn base_for(&self, folder: FolderId, saw: Option<FileStamp>) -> bool {
+        self.folder == folder && saw == self.saw
+    }
+}
+
+/// The interned name list of `fields`, sorted, and their value hashes in that order.
+fn shape(fields: &[(String, &serde_json::value::RawValue)]) -> (Arc<[Arc<str>]>, Box<[u64]>) {
+    static SHAPES: std::sync::LazyLock<Mutex<std::collections::HashSet<Arc<[Arc<str>]>>>> =
+        std::sync::LazyLock::new(Default::default);
+    let mut sorted: Vec<&(String, &serde_json::value::RawValue)> = fields.iter().collect();
+    sorted.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    let names: Vec<Arc<str>> = sorted.iter().map(|(name, _)| intern(name)).collect();
+    let hashes = sorted.iter().map(|(_, value)| fnv(value.get().as_bytes())).collect();
+    let mut shapes = SHAPES.lock_or_recover();
+    if let Some(known) = shapes.get(names.as_slice()) {
+        return (Arc::clone(known), hashes);
+    }
+    let names: Arc<[Arc<str>]> = Arc::from(names);
+    shapes.insert(Arc::clone(&names));
+    (names, hashes)
+}
+
+/// A field name, shared by every chat's [`LastImage`]: the names are the metadata's own keys.
+fn intern(name: &str) -> Arc<str> {
+    static NAMES: std::sync::LazyLock<Mutex<std::collections::HashSet<Arc<str>>>> =
+        std::sync::LazyLock::new(Default::default);
+    let mut names = NAMES.lock_or_recover();
+    if let Some(known) = names.get(name) {
+        return Arc::clone(known);
+    }
+    let name: Arc<str> = Arc::from(name);
+    names.insert(Arc::clone(&name));
+    name
+}
+
+/// FNV-1a 64 of `bytes`: stable, nothing allocated.
+fn fnv(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |hash, &b| {
+        (hash ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    })
+}
+
+/// The top-level fields of a compact image, each with its raw JSON value.
+fn raw_fields(image: &[u8]) -> Result<Vec<(String, &serde_json::value::RawValue)>> {
+    struct Fields<'a>(Vec<(String, &'a serde_json::value::RawValue)>);
+    impl<'de> Deserialize<'de> for Fields<'de> {
+        fn deserialize<D: serde::Deserializer<'de>>(d: D) -> std::result::Result<Self, D::Error> {
+            struct Visit;
+            impl<'de> serde::de::Visitor<'de> for Visit {
+                type Value = Fields<'de>;
+                fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    f.write_str("a JSON object")
+                }
+                fn visit_map<A: serde::de::MapAccess<'de>>(
+                    self,
+                    mut map: A,
+                ) -> std::result::Result<Self::Value, A::Error> {
+                    let mut out = Vec::new();
+                    while let Some(entry) = map.next_entry()? {
+                        out.push(entry);
+                    }
+                    Ok(Fields(out))
+                }
+            }
+            d.deserialize_map(Visit)
+        }
+    }
+    Ok(serde_json::from_slice::<Fields<'_>>(image)?.0)
+}
+
+/// The patch body of `fields` (a new image's) over `last` (sorted by name): `None` when no
+/// field changed.
+fn patch_body(
+    fields: &[(String, &serde_json::value::RawValue)],
+    last: &LastImage,
+) -> Result<Option<Vec<u8>>> {
+    let was = |name: &str| {
+        last.names
+            .binary_search_by(|have| (**have).cmp(name))
+            .ok()
+            .and_then(|at| last.hashes.get(at))
+    };
+    let mut set = Vec::new();
+    for (name, value) in fields {
+        if was(name).copied() != Some(fnv(value.get().as_bytes())) {
+            set.push((name, value));
+        }
+    }
+    let unset: Vec<&str> = last
+        .names
+        .iter()
+        .map(|name| &**name)
+        .filter(|name| !fields.iter().any(|(have, _)| have == name))
+        .collect();
+    if set.is_empty() && unset.is_empty() {
+        return Ok(None);
+    }
+    let mut body = Vec::from(&b"{\"set\":{"[..]);
+    for (index, (name, value)) in set.iter().enumerate() {
+        if index > 0 {
+            body.push(b',');
+        }
+        serde_json::to_writer(&mut body, name)?;
+        body.push(b':');
+        body.extend_from_slice(value.get().as_bytes());
+    }
+    body.extend_from_slice(b"},\"unset\":");
+    serde_json::to_writer(&mut body, &unset)?;
+    body.push(b'}');
+    Ok(Some(body))
+}
+
+/// A patch's body as written: the fields it sets and the fields it removes.
+#[derive(Deserialize)]
+struct PatchBody {
+    set: serde_json::Map<String, Value>,
+    #[serde(default)]
+    unset: Vec<String>,
+}
+
+/// `image` (a compact JSON object) with the patch `body` applied.
+fn apply_patch(image: &[u8], body: &[u8]) -> std::result::Result<Vec<u8>, String> {
+    let mut object: serde_json::Map<String, Value> =
+        serde_json::from_slice(image).map_err(|e| format!("the base image does not read: {e}"))?;
+    let patch: PatchBody =
+        serde_json::from_slice(body).map_err(|e| format!("a patch does not read: {e}"))?;
+    for name in patch.unset {
+        object.remove(&name);
+    }
+    object.extend(patch.set);
+    serde_json::to_vec(&object).map_err(|e| format!("the patched image does not write: {e}"))
+}
+
+/// The base LSN and the body of a [`KIND_META_PATCH`] record's image part.
+fn split_patch(image: &[u8]) -> Option<(Lsn, &[u8])> {
+    let base = u64::from_le_bytes(image.get(..8)?.try_into().ok()?);
+    Some((base, image.get(8..)?))
 }
 
 /// One `meta` record, read.
@@ -338,26 +594,50 @@ impl super::repair::Replay {
             .ok_or_else(|| format!("meta record {} does not read", record.lsn))?;
         // What earlier records of this replay saw, for the same folder (a record for another
         // folder starts over: that folder replaced this one).
-        let mut saw = self
-            .metas
-            .remove(&decoded.chat)
-            .filter(|replayed| replayed.folder == decoded.folder)
-            .map(|replayed| replayed.saw)
-            .unwrap_or_default();
+        let prior =
+            self.metas.remove(&decoded.chat).filter(|replayed| replayed.folder == decoded.folder);
+        let (mut saw, prior) = match prior {
+            Some(replayed) => (replayed.saw, Some((replayed.lsn, replayed.image))),
+            None => (Vec::new(), None),
+        };
         if let Some(stamp) = decoded.saw
             && !saw.contains(&stamp)
         {
             saw.push(stamp);
         }
-        self.metas.insert(
-            decoded.chat,
-            Replayed {
-                lsn: record.lsn,
-                image: decoded.image.to_vec(),
-                folder: decoded.folder,
-                saw,
-            },
-        );
+        let image = if record.kind == KIND_META_PATCH {
+            let (base, body) = split_patch(decoded.image)
+                .ok_or_else(|| format!("meta patch {} does not read", record.lsn))?;
+            match prior {
+                // Its base was retired by the checkpoint: `session.json` holds it.
+                None => Image::Chain { base, patches: vec![(record.lsn, body.to_vec())] },
+                Some((lsn, Image::Whole(image))) if lsn == base => {
+                    match apply_patch(&image, body) {
+                        Ok(image) => Image::Whole(image),
+                        Err(why) => Image::Broken { why, bodies: vec![image, body.to_vec()] },
+                    }
+                }
+                Some((lsn, Image::Chain { base: first, mut patches })) if lsn == base => {
+                    patches.push((record.lsn, body.to_vec()));
+                    Image::Chain { base: first, patches }
+                }
+                Some((_, Image::Broken { why, mut bodies })) => {
+                    bodies.push(body.to_vec());
+                    Image::Broken { why, bodies }
+                }
+                Some((lsn, prior)) => Image::Broken {
+                    why: format!(
+                        "meta patch {} names base {base}, the record before it is {lsn}",
+                        record.lsn
+                    ),
+                    bodies: vec![prior.aside(), body.to_vec()],
+                },
+            }
+        } else {
+            Image::Whole(decoded.image.to_vec())
+        };
+        self.metas
+            .insert(decoded.chat, Replayed { lsn: record.lsn, image, folder: decoded.folder, saw });
         Ok(())
     }
 }
@@ -387,6 +667,7 @@ impl Inner {
         // change it meanwhile, and a stamp of a file the store wrote is harmless (the replay
         // compares such a file's `journalLsn`, never its stamp).
         let saw = saw_file(&dir);
+        let fields = raw_fields(&image)?;
         let mut order = self.order.lock_or_recover();
         drop(self.local.writable()?);
         // Checked before the folder is made: a refused save makes nothing.
@@ -402,26 +683,61 @@ impl Inner {
         };
         // A folder made now holds no `session.json`.
         let saw = if made { None } else { saw };
-        let payload = encode_meta(&meta.id, folder, saw, &image);
-        meta_parts::note_written(payload.len());
         let kept = keep == ShowAfter::Written && !made;
+        let shown = if kept { &self.kept } else { &self.acked };
+        // Only the fields that changed since this chat's previous record ([module docs](self)).
+        let base = order.images.get(&meta.id).filter(|last| last.base_for(folder, saw));
+        let patch = match base {
+            Some(last) => patch_body(&fields, last)?.map(|body| (last.lsn, body)),
+            None => None,
+        };
+        if let Some(last) = base
+            && patch.is_none()
+            && saw == last.saw
+        {
+            // Nothing changed: no record. A reply that waits for this save waits for the record
+            // that holds this image; the overlay keeps the fields no image holds.
+            shown.fetch_max(last.lsn, std::sync::atomic::Ordering::SeqCst);
+            if let Some(pending) = order.metas.get_mut(&meta.id)
+                && pending.folder == folder
+            {
+                pending.meta = meta.clone();
+            }
+            return Ok(());
+        }
+        let (kind, payload) = match (base, patch) {
+            (Some(last), Some((base_lsn, body)))
+                if !last.whole_next && body.len().saturating_add(8) < image.len() =>
+            {
+                let mut part = Vec::with_capacity(body.len().saturating_add(8));
+                part.extend_from_slice(&base_lsn.to_le_bytes());
+                part.extend_from_slice(&body);
+                (KIND_META_PATCH, encode_meta(&meta.id, folder, saw, &part))
+            }
+            _ => (KIND_META, encode_meta(&meta.id, folder, saw, &image)),
+        };
+        meta_parts::note_written(payload.len());
         // A kept record is a `Stream` record synced in the journal's idle time, so the next acked
         // change (a prompt) does not sync a burst of drafts in its own turn.
         let append = || {
             if kept {
-                self.journal.append_kept(KIND_META, &payload)
+                self.journal.append_kept(kind, &payload)
             } else {
-                self.journal.append(KIND_META, Class::Ack, &payload)
+                self.journal.append(kind, Class::Ack, &payload)
             }
             .map_err(JournalStore::journal_error)
         };
         // A new folder's record is held back from the gate until the folder's entry is synced.
         let lsn = if made { self.new_folders.append_made(append)? } else { append()? };
-        let shown = if kept { &self.kept } else { &self.acked };
         shown.store(lsn, std::sync::atomic::Ordering::SeqCst);
         order.applied = lsn;
         order.bytes = order.bytes.saturating_add(u64::try_from(payload.len()).unwrap_or(u64::MAX));
         order.metas.insert(meta.id.clone(), Pending { lsn, meta: meta.clone(), folder });
+        let (names, hashes) = shape(&fields);
+        order.images.insert(
+            meta.id.clone(),
+            LastImage { lsn, folder, names, hashes, saw, whole_next: false },
+        );
         let full = order.bytes > CHECKPOINT_BYTES && !order.frozen;
         drop(order);
         if parts.is_none()
@@ -555,6 +871,19 @@ impl Inner {
                     )
                 })
                 .with_context(|| format!("write the metadata of {id}"))?;
+                // A save that sees this file and changes nothing journals nothing (the file
+                // holds this chain's image); one that changes something journals a whole image,
+                // so no patch's base is this file ([module docs](self)).
+                let stamp = saw_file(&dir);
+                let mut order = self.order.lock_or_recover();
+                if let Some(last) = order.images.get_mut(id)
+                    && last.folder == pending.folder
+                {
+                    if stamp.is_some() {
+                        last.saw = stamp;
+                    }
+                    last.whole_next = true;
+                }
             }
         } else {
             let image = serde_json::to_vec(&pending.meta)?;
@@ -564,6 +893,12 @@ impl Inner {
                 self.keep_aside_meta(id, pending.lsn, &image)
             })?;
             tracing::warn!(session = %id, kept = %kept.display(), "the chat's folder was removed or replaced outside the store: its metadata is kept aside");
+            // The folder's `session.json` never got this image, and the folder may come back
+            // (a failed transfer renames it back, same identity): no patch may name this record
+            // as its base, so the chat's next change journals a whole image.
+            if let Some(last) = self.order.lock_or_recover().images.get_mut(id) {
+                last.whole_next = true;
+            }
         }
         let mut order = self.order.lock_or_recover();
         if order.metas.get(id).is_some_and(|now| now.lsn == pending.lsn) {
@@ -581,14 +916,58 @@ impl Inner {
     pub(super) fn apply_metas(&self, metas: BTreeMap<String, Replayed>) -> Result<()> {
         for (chat, replayed) in metas {
             let dir = self.local.dir(&chat);
-            let meta: SessionMeta = match serde_json::from_slice(&replayed.image) {
+            let image = match &replayed.image {
+                Image::Whole(image) => image.clone(),
+                Image::Chain { base, patches } => {
+                    let here = folder_id(&dir).ok().flatten();
+                    let held = (here == Some(replayed.folder))
+                        .then(|| journaled_image(&dir, self.journal.journal_id()))
+                        .flatten();
+                    match held {
+                        // The file holds the newest image already.
+                        Some((lsn, _)) if lsn >= replayed.lsn => continue,
+                        // The file holds the chain's base or a newer image of it: the patches
+                        // after it, over it.
+                        Some((lsn, image)) if lsn >= *base => {
+                            let rebuilt = patches
+                                .iter()
+                                .filter(|(at, _)| *at > lsn)
+                                .try_fold(image, |image, (_, body)| apply_patch(&image, body));
+                            match rebuilt {
+                                Ok(image) => image,
+                                Err(why) => {
+                                    let kept = self.keep_aside_image(
+                                        &chat,
+                                        replayed.lsn,
+                                        &replayed.image,
+                                    )?;
+                                    tracing::error!(session = %chat, kept = %kept.display(), "journaled metadata changes of a chat do not apply: {why}");
+                                    continue;
+                                }
+                            }
+                        }
+                        _ => {
+                            let kept =
+                                self.keep_aside_image(&chat, replayed.lsn, &replayed.image)?;
+                            tracing::error!(session = %chat, kept = %kept.display(), "journaled metadata changes of a chat not written again: its session.json does not hold the image they change (its folder or file changed without this journal since)");
+                            continue;
+                        }
+                    }
+                }
+                Image::Broken { why, .. } => {
+                    let kept = self.keep_aside_image(&chat, replayed.lsn, &replayed.image)?;
+                    tracing::error!(session = %chat, kept = %kept.display(), "journaled metadata changes of a chat do not read: {why}");
+                    continue;
+                }
+            };
+            let meta: SessionMeta = match serde_json::from_slice(&image) {
                 Ok(mut meta) => {
                     // A split image's large fields are in its folder's parts file.
-                    self.local.parts.merge(&dir, &replayed.image, &mut meta);
+                    self.local.parts.merge(&dir, &image, &mut meta);
                     meta
                 }
                 Err(error) => {
-                    let kept = self.keep_aside_meta(&chat, replayed.lsn, &replayed.image)?;
+                    let kept = self.keep_aside_meta(&chat, replayed.lsn, &image)?;
                     tracing::error!(session = %chat, kept = %kept.display(), "a journaled metadata image does not read: {error}");
                     continue;
                 }
@@ -610,7 +989,7 @@ impl Inner {
                 Err(_) => Some("its folder does not read"),
             };
             if let Some(why) = why {
-                let kept = self.keep_aside_meta(&chat, replayed.lsn, &replayed.image)?;
+                let kept = self.keep_aside_meta(&chat, replayed.lsn, &image)?;
                 tracing::error!(session = %chat, kept = %kept.display(), "journaled metadata of a chat not written again: {why}");
                 continue;
             }
@@ -630,5 +1009,20 @@ impl Inner {
     /// #35963, finding 1): the folder's next sync covers that new entry.
     fn keep_aside_meta(&self, id: &str, lsn: Lsn, image: &[u8]) -> Result<PathBuf> {
         self.write_kept(id, &format!("{lsn}.session.json"), None, &[image.to_vec()])
+    }
+
+    /// Keeps a replayed image aside: a whole one as [`Self::keep_aside_meta`] does, the changes
+    /// of one that does not rebuild as `<id>.<lsn>.session-changes.ndjson`, one JSON body per
+    /// line, oldest first.
+    fn keep_aside_image(&self, id: &str, lsn: Lsn, image: &Image) -> Result<PathBuf> {
+        match image {
+            Image::Whole(image) => self.keep_aside_meta(id, lsn, image),
+            _ => self.write_kept(
+                id,
+                &format!("{lsn}.session-changes.ndjson"),
+                None,
+                &[image.aside()],
+            ),
+        }
     }
 }
