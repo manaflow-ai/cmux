@@ -1,0 +1,308 @@
+name: Cloud composer journey (nightly's source, tagged DEV app)
+run-name: ${{ format('Cloud composer journey ({0}, nightly {1}){2}', inputs.backend || 'staging', inputs.nightly_build || 'newest', inputs.request_id != '' && format(' {0}', inputs.request_id) || '') }}
+
+# Leo, 2026-11-10: "how did NONE of these work/get tested?", "i already told you to test these", "did you guys
+# not test these". The other Cloud journeys drive the CLI or the API with one small repo; this one drives the
+# new-chat composer of a real app the way a person does (scripts/cmux-next/cloud-composer-journey.py): folder
+# (small repo, a parent of several repos, a plain folder, one past the copy cap, none) x account (personal, a
+# team, a team the account is not in) x mode (default, Bypass permissions). Each cell checks that what the
+# composer says matches what happens, that a start replies or is refused before a machine is leased with an
+# actionable message, and that no machine is left behind. The chips' widths are the gallery's half
+# (cloudComposerChips.gallery.ts, gallery health).
+#
+# The app: a tagged DEV build (the composer verbs are DEBUG-only) of the nightly's own source commit, the
+# feed item's cmux:sourceCommit (nightly_build: digits, empty for the newest Nightly build), so a run tests
+# what the nightly shipped. The harness comes from this workflow's own ref, so a harness fix runs against an
+# older nightly.
+#
+# When: on demand (workflow_dispatch on feat-cmux-next), on a pull request that changes the harness, and on
+# the scheduled Cloud e2e check: cloud-journey-prod.yml on main dispatches it every six hours (schedules run
+# only from main). A dispatched run's red opens or updates the issue "Cloud composer journey (BACKEND) is red"
+# and a green closes it, as cloud-journey-prod.yml's red-journey issue does; the coordinator watches both.
+#
+# Secrets: the agent test account of the backend's environment (cmux-next-vm-image-dev for staging,
+# cmux-next-cloud-journey for prod), written to a 0600 file an always() step removes. Never a person's login.
+on:
+  workflow_dispatch:
+    inputs:
+      nightly_build:
+        description: The Nightly feed build to test (digits); empty for the newest
+        required: false
+        default: ""
+        type: string
+      backend:
+        description: The Cloud backend the app signs in to
+        required: false
+        default: staging
+        type: choice
+        options: [staging, prod]
+      only:
+        description: "Cell filter: comma list of folder, account or mode names, or folder/account/mode ids"
+        required: false
+        default: ""
+        type: string
+      request_id:
+        description: Names the run, so a dispatcher finds it
+        required: false
+        default: ""
+        type: string
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - scripts/cmux-next/cloud-composer-journey.py
+      - scripts/cmux-next/cloud-chat-matrix.py
+      - .github/workflows/cloud-composer-journey.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-composer-journey-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    # The nightly build and its source commit, from the live feed (no secret).
+    if: github.repository == 'manaflow-ai/cmux' && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository || github.ref == 'refs/heads/feat-cmux-next')
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.pick.outputs.build }}
+      commit: ${{ steps.pick.outputs.commit }}
+    steps:
+      - name: Pick the Nightly build and its source commit
+        id: pick
+        env:
+          BUILD: ${{ inputs.nightly_build }}
+        run: |
+          set -euo pipefail
+          case "$BUILD" in *[!0-9]*) echo "::error::nightly_build must be digits"; exit 1;; esac
+          curl -fsSL --retry 3 -o feed.xml https://files-next.cmux.com/nightly-next/appcast-arm64.xml
+          python3 - "$BUILD" >> "$GITHUB_OUTPUT" <<'PY'
+          import re, sys
+          import xml.etree.ElementTree as ET
+          want = sys.argv[1]
+          ns = {"sparkle": "http://www.andymatuschak.org/xml-namespaces/sparkle", "cmux": "https://cmux.com/xml-namespaces/cmux"}
+          for item in ET.parse("feed.xml").getroot().iter("item"):
+              channel = (item.findtext("sparkle:channel", "", ns) or "").strip()
+              if channel not in ("", "cmux-next", "cmux-next-stable"):
+                  continue  # Dev-ring and Canary-only items are never Nightly's
+              build = (item.findtext("sparkle:version", "", ns) or "").strip()
+              commit = (item.findtext("cmux:sourceCommit", "", ns) or "").strip()
+              if want and build != want:
+                  continue
+              if re.fullmatch(r"[0-9a-f]{40}", commit):
+                  print(f"build={build}\ncommit={commit}")
+                  break
+          else:
+              raise SystemExit(f"no Nightly feed item {want or '(newest)'} with a source commit")
+          PY
+          cat "$GITHUB_OUTPUT" >> "$GITHUB_STEP_SUMMARY"
+
+  pick-runner:
+    # As cloud-chat-proof.yml: an ephemeral Blacksmith macOS 26 label whose queue moves (owned Macs stay out:
+    # the job holds an account pair).
+    if: github.repository == 'manaflow-ai/cmux'
+    continue-on-error: true
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      label: ${{ steps.pool.outputs.label }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: github.run_attempt == 1
+        with:
+          sparse-checkout: |
+            scripts/ci/e2e_runner_pool.py
+            scripts/ci/pr_runner_pool.py
+            scripts/ci/github_spend.py
+            scripts/ci/deadline_http.py
+            scripts/ci/simple_pool_picker.py
+            scripts/ci/warm_distance.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Pick the Blacksmith macOS 26 pool
+        id: pool
+        if: github.run_attempt == 1
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          POOL_ORDER: ${{ vars.CI_PR_POOL_ORDER }}
+          POOL_MAX_QUEUED: ${{ vars.CI_PR_POOL_MAX_QUEUED }}
+        run: |
+          set -uo pipefail
+          label="$(python3 scripts/ci/e2e_runner_pool.py --requested auto --order "$POOL_ORDER" \
+            --max-queued "$POOL_MAX_QUEUED" --owned 0)" || label=""
+          case "$label" in blacksmith-*-macos-26) ;; *) label="" ;; esac
+          echo "label=$label" >> "$GITHUB_OUTPUT"
+
+  journey:
+    needs: [resolve, pick-runner]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' }}
+    environment:
+      name: ${{ inputs.backend == 'prod' && 'cmux-next-cloud-journey' || 'cmux-next-vm-image-dev' }}
+      deployment: false
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-runner.outputs.label || fromJSON(vars.RUNNER_POOLS).macos_26 }}
+    timeout-minutes: 240
+    permissions:
+      contents: read
+      issues: write
+    env:
+      CMUX_JOURNEY_TAG: ccj-${{ github.run_id }}
+      BACKEND: ${{ inputs.backend || 'staging' }}
+      NIGHTLY_BUILD: ${{ needs.resolve.outputs.build }}
+      NIGHTLY_COMMIT: ${{ needs.resolve.outputs.commit }}
+      CMUX_SKIP_ZIG_BUILD: "1"
+      SWIFT_BACKTRACE: interactive=no,timeout=0s,symbolicate=off,color=no
+    steps:
+      - name: Checkout the nightly's source commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ needs.resolve.outputs.commit }}
+          persist-credentials: false
+          submodules: recursive
+
+      - name: Checkout the harness from this run's ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          path: harness
+          persist-credentials: false
+          sparse-checkout: scripts/cmux-next
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Install build prerequisites
+        run: |
+          set -euo pipefail
+          ./scripts/install-zig-ci.sh
+          GHOSTTY_ZIG_SOURCE=ghostty-next ZIG_FORCE_LOCAL_INSTALL=1 ZIG_PUBLISH_ENV=CMUX_VT_ZIG ./scripts/install-zig-ci.sh
+          ./scripts/download-prebuilt-ghosttykit.sh || ./scripts/ensure-ghosttykit.sh
+
+      - name: Build in-tree acpmux
+        run: |
+          set -euo pipefail
+          ./scripts/install-rust-ci.sh
+          if [[ -z "${ZIG:-}" && -n "${CMUX_VT_ZIG:-}" ]]; then export ZIG="$CMUX_VT_ZIG"; fi
+          acpmux_bin="$RUNNER_TEMP/cmux-next-acpmux/acpmux"
+          scripts/cmux-next/build-acpmux.sh --output "$acpmux_bin"
+          echo "CMUX_NEXT_ACPMUX_BIN=$acpmux_bin" >> "$GITHUB_ENV"
+
+      - name: Install the matching published cmux-tui client
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          client_commit="$(scripts/ci/resolve-cmux-tui-client-commit.sh)"
+          git diff --exit-code "$client_commit" HEAD -- cmux-tui ghostty ghostty-next
+          client_bundle="$RUNNER_TEMP/cmux-tui-prebuilt"
+          mkdir -p "$client_bundle/Contents"
+          env -u CMUX_TUI_CLIENT_LOCAL scripts/install-cmux-tui-client.sh "$client_bundle" \
+            --manifest-url "https://files.cmux.com/cmux-tui/$client_commit/manifest.json" \
+            --expected-commit "$client_commit" --require-capability wireguard-hub \
+            --attest-signer-workflow "$GITHUB_REPOSITORY/.github/workflows/cmux-tui-artifacts.yml"
+          echo "CMUX_TUI_CLIENT_LOCAL=$client_bundle/Contents/Resources/bin/cmux" >> "$GITHUB_ENV"
+
+      - name: Materialize the agent profile
+        env:
+          STACK_EMAIL: ${{ secrets.CMUX_DOGFOOD_STACK_EMAIL }}
+          STACK_PASSWORD: ${{ secrets.CMUX_DOGFOOD_STACK_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "${STACK_EMAIL:-}" ] || [ -z "${STACK_PASSWORD:-}" ]; then
+            echo "::error::the agent Stack pair is missing from this job's environment"; exit 1
+          fi
+          out="$RUNNER_TEMP/composer-journey"
+          mkdir -p "$out" "$HOME/.secrets"
+          ( umask 077; printf 'CMUX_UITEST_STACK_EMAIL=%s\nCMUX_UITEST_STACK_PASSWORD=%s\n' "$STACK_EMAIL" "$STACK_PASSWORD" ) > "$out/active.env"
+          chmod 600 "$out/active.env"
+          cp "$out/active.env" "$HOME/.secrets/cmuxterm-dev.env"
+          echo "CMUX_JOURNEY_CREDENTIALS=$out/active.env" >> "$GITHUB_ENV"
+
+      - name: Build the nightly's source as a tagged DEV app
+        run: |
+          set -euo pipefail
+          ./scripts/reload.sh --tag "$CMUX_JOURNEY_TAG" --build-only \
+            --keep-app "$RUNNER_TEMP/composer-journey-app/cmux DEV $CMUX_JOURNEY_TAG.app" \
+            --auth-profile agent --credentials-file "$CMUX_JOURNEY_CREDENTIALS" \
+            --swift-frontend-workaround | tee "$RUNNER_TEMP/reload.out"
+          app="$(awk '/^App path:/{getline; sub(/^ +/, ""); print; exit}' "$RUNNER_TEMP/reload.out")"
+          if [ -z "$app" ] || [ ! -d "$app" ]; then echo "::error::reload.sh printed no app path"; exit 1; fi
+          echo "CMUX_JOURNEY_APP=$app" >> "$GITHUB_ENV"
+
+      - name: The composer matrix
+        id: journey
+        timeout-minutes: 150
+        env:
+          ONLY: ${{ inputs.only }}
+          CMUX_JOURNEY_PRODUCT_TEAM: ${{ vars.CMUX_JOURNEY_PRODUCT_TEAM }}
+        run: |
+          set -euo pipefail
+          case "$BACKEND" in
+            prod) origin=https://cloud-api.cmux.dev ;;
+            *) origin=https://cloud-api-staging.cmux.dev ;;
+          esac
+          out="$RUNNER_TEMP/composer-journey/out"
+          status=0
+          # The harness from this run's ref; it imports cloud-chat-matrix.py beside it.
+          python3 -I harness/scripts/cmux-next/cloud-composer-journey.py --app "$CMUX_JOURNEY_APP" \
+            --tag "$CMUX_JOURNEY_TAG" --cloud-backend "$BACKEND" --expected-api-origin "$origin" \
+            --credentials-file "$CMUX_JOURNEY_CREDENTIALS" --grant-claude-login --only "$ONLY" \
+            --nightly "$NIGHTLY_BUILD ($NIGHTLY_COMMIT)" --out "$out" || status=$?
+          [ -s "$out/journey.md" ] && cat "$out/journey.md" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+
+      - name: Upload the journey
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cloud-composer-journey-${{ env.BACKEND }}
+          path: ${{ runner.temp }}/composer-journey/out/
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Open, update or close the red-journey issue
+        # Dispatched runs only (the scheduled check's and on-demand ones); a pull request's red is its own check.
+        if: always() && github.event_name == 'workflow_dispatch' && steps.journey.outcome != 'skipped'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUTCOME: ${{ steps.journey.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="Cloud composer journey ($BACKEND) is red"
+          open="$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number,title \
+            --jq "map(select(.title == \"$title\"))[0].number // empty")"
+          if [ "$OUTCOME" = success ]; then
+            if [ -n "$open" ]; then gh issue close "$open" --repo "$GITHUB_REPOSITORY" --comment "Green again: $RUN_URL (nightly $NIGHTLY_BUILD)"; fi
+            exit 0
+          fi
+          table="$RUNNER_TEMP/composer-journey/out/journey.md"
+          {
+            echo "The Cloud composer journey (scripts/cmux-next/cloud-composer-journey.py) is red on $BACKEND for nightly $NIGHTLY_BUILD (source $NIGHTLY_COMMIT): $RUN_URL"
+            echo
+            if [ -s "$table" ]; then cat "$table"; else echo "The run wrote no table (outcome: $OUTCOME)."; fi
+          } > "$RUNNER_TEMP/issue.md"
+          if [ -n "$open" ]; then
+            gh issue edit "$open" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/issue.md"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$RUNNER_TEMP/issue.md"
+          fi
+
+      - name: Remove the auth profile
+        if: always()
+        run: |
+          rm -f "$HOME/.secrets/cmuxterm-dev.env" "$RUNNER_TEMP/composer-journey/active.env"
