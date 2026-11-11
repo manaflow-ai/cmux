@@ -279,7 +279,7 @@ extension UpdaterService {
         // them. The app restarts on the person's click (the Update button, Restart to Update), unless
         // they opted in to `updates.installAutomatically`: then a staged update installs by itself at a
         // moment that cuts nothing off (``updaterDefersAutomaticInstall(until:)``). Leo 2026-11-11: "I
-        // want to click the [...] button, just like how ChatGPT has this [...] button. Maybe I can
+        // want to click the [...] button, just like how [another app] has this [...] button. Maybe I can
         // enable it, right?"
         if let controller, controller.installsUpdatesWhenIdle != installsAutomatically {
             controller.installsUpdatesWhenIdle = installsAutomatically

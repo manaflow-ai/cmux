@@ -4,7 +4,7 @@
   installing with no click is the opt-in `updates.installAutomatically` (off). Leo, verbatim, with a recording of the
   Codex app's Update available button: "when I click the button, it just downloads and it installs, right? Like I'm
   not saying it just does it, you know, automatically, as in I don't have to click a button. I want to click the
-  [...] button, just like how ChatGPT has this [...] button. Maybe I can enable it, right? [...] If you can manually
+  [...] button, just like how [another app] has this [...] button. Maybe I can enable it, right? [...] If you can manually
   control when the restart is, that's good, right?" The footer's Update Available button keeps its look; its tooltip
   says "…: Click to Update and Restart". A download that staged by itself (the nightly ring) still waits on Restart
   to Update, so the restart stays his to time. Regression: `UpdateOneClickInstallTests`.

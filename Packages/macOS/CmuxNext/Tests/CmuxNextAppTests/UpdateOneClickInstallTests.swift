@@ -10,7 +10,7 @@ import Testing
 /// that?" `updates.oneClickInstall` makes Update on a found update the only ask: the download shows
 /// its progress, then cmux installs and relaunches with no Restart to Update click. Leo 2026-11-11
 /// made it the default: "when I click the button, it just downloads and it installs [...] I want to
-/// click the [...] button, just like how ChatGPT has this [...] button". Off, the flow asks twice as
+/// click the [...] button, just like how [another app] has this [...] button". Off, the flow asks twice as
 /// before (``UpdateAsksBeforeInstallTests``). A button that just
 /// showed under the pointer ignores a click for a moment, so a click meant for what was there never
 /// starts an update that restarts cmux.
