@@ -107,6 +107,11 @@ const STDIO_MCP_SERVERS: [&str; 8] = [
 /// Worker threads of a stdio MCP server: it answers one client's requests
 /// on one pipe. Still a multi-thread runtime, so `block_in_place` works.
 const MCP_WORKERS: usize = 2;
+/// Worker threads of `tools-mcp` (`tools_mcp.rs`), acpmux's own servers in one process per chat:
+/// each call is a daemon request it waits on, so one worker serves them, and the process is a
+/// main thread, this worker and the parent watch. Still a multi-thread runtime, so
+/// `block_in_place` works.
+const TOOLS_MCP_WORKERS: usize = 1;
 /// The longest a stopping daemon waits for its queued log lines to be written: a log output
 /// that takes no bytes must not keep a stopped daemon from exiting.
 const LOG_FLUSH_BUDGET: std::time::Duration = std::time::Duration::from_secs(1);
@@ -118,6 +123,9 @@ fn runtime_workers(args: &[OsString]) -> Option<usize> {
     let command = words.next()?;
     // `bridge mcp` is the desktop apps' stdio server (`cli/bridge.rs`).
     let bridge_mcp = command == "bridge" && words.next().is_some_and(|a| a == "mcp");
+    if command == crate::tools_mcp::ARG {
+        return Some(TOOLS_MCP_WORKERS);
+    }
     (bridge_mcp || STDIO_MCP_SERVERS.iter().any(|name| command == name)).then_some(MCP_WORKERS)
 }
 
@@ -458,6 +466,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         Some(Command::RepoMcp) => crate::cloud_repo_mcp::run().await,
         Some(Command::HostedMcp) => crate::hosted_mcp::run().await,
         Some(Command::AcpmuxMcp) => crate::acpmux_mcp::run().await,
+        Some(Command::ToolsMcp) => crate::tools_mcp::run().await,
         Some(Command::Skill) => {
             use std::io::Write;
             let _ = std::io::stdout().write_all(crate::cli::orchestrate::guide().as_bytes());
@@ -520,6 +529,9 @@ mod tests {
         }
         let bridge = os(&["bridge", "mcp", "--as", "codex-desktop"]);
         assert_eq!(runtime_workers(&bridge), Some(MCP_WORKERS));
+        // acpmux's own servers in one process per chat: one worker.
+        assert_eq!(runtime_workers(&os(&["tools-mcp"])), Some(TOOLS_MCP_WORKERS));
+        assert_eq!(runtime(&os(&["tools-mcp"])).unwrap().metrics().num_workers(), 1);
     }
 
     #[test]

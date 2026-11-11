@@ -210,6 +210,7 @@ pub mod tailnet;
 mod test_exec;
 #[cfg(test)]
 mod test_stack;
+pub mod tools_mcp;
 pub mod touched_files;
 pub mod transcript;
 pub mod trust;
