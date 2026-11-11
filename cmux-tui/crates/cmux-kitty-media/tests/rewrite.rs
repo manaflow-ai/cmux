@@ -342,3 +342,54 @@ fn borrowed_rewrite_matches_and_copies_nothing_without_a_command() {
     let out = rewriter.rewrite_borrowed(plain, &mut scratch);
     assert!(std::ptr::eq(out, &plain[..]), "plain output is not copied");
 }
+
+/// One read's file commands share one byte budget (the per-file cap): a read of hundreds of
+/// short commands that each name a large file cannot make the rewritten output grow without
+/// bound. Before, each command was only checked against the per-file cap, so ~1000 commands
+/// in one 64 KiB read built ~13 GB in one buffer of the PTY reader. Later commands of the same
+/// read pass through unchanged, and the next read has a new budget.
+#[test]
+fn many_file_commands_in_one_read_share_one_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = pattern(100_000);
+    let path = temp_file(dir.path(), "big.png", &data);
+    let command = file_command("a=T,f=100,t=f", &path);
+    let input: Vec<u8> = std::iter::repeat_n(command.clone(), 200).flatten().collect();
+    let mut rewriter =
+        KittyMediaRewriter::with_limits(Limits { max_file_bytes: 100_000, ..Limits::default() });
+    let mut out = Vec::new();
+    rewriter.rewrite(&input, &mut out);
+    let one_image = data.len() / 3 * 4 + 4 * 64;
+    assert!(
+        out.len() <= one_image + input.len(),
+        "one read of 200 commands grew to {} bytes",
+        out.len()
+    );
+    assert_eq!(rewriter.rewritten_commands(), 1);
+    assert_eq!(rewriter.last_refusal(), Some(&MediaRefusal::TooLarge));
+
+    let mut next = Vec::new();
+    rewriter.rewrite(&command, &mut next);
+    assert_eq!(rewriter.rewritten_commands(), 2, "the next read has a new budget");
+    assert_eq!(reassemble(&commands(&next)), data);
+}
+
+/// The scratch buffer of the borrowed path does not keep an image's size for the terminal's
+/// life: the next read gives the memory back.
+#[test]
+fn the_scratch_buffer_shrinks_after_a_large_image() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = temp_file(dir.path(), "big.png", &pattern(2_000_000));
+    let command = file_command("a=T,f=100,t=f", &path);
+    let mut rewriter = KittyMediaRewriter::new();
+    let mut scratch = Vec::new();
+    let out = rewriter.rewrite_borrowed(&command, &mut scratch).len();
+    assert!(out > 2_000_000, "the image was rewritten");
+    let plain = b"plain output\r\n";
+    assert_eq!(rewriter.rewrite_borrowed(plain, &mut scratch), plain);
+    assert!(
+        scratch.capacity() < 1 << 20,
+        "the scratch buffer kept {} bytes after the image",
+        scratch.capacity()
+    );
+}
