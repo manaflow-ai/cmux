@@ -137,7 +137,8 @@ await requireBrowserLane("video-length-badge.browser.test.ts", async () => {
   for (const scale of [1, 2])
     test(`at ${scale}x every drawn length is one line inside its tile's corner, clear of the glyph's centre`, async () => {
       const all = await cells("corner-or-hidden", scale);
-      expect(all.map((cell) => cell.size).sort()).toEqual(SIZES.flatMap((size) => Array(9).fill(size)).sort());
+      expect(all).toHaveLength(SIZES.length * 9);
+      for (const size of SIZES) expect(all.filter((cell) => cell.size === size)).toHaveLength(9);
       for (const size of SIZES)
         for (const length of LENGTHS)
           expect(all.filter((cell) => cell.size === size && cell.length === length)).toHaveLength(3);
