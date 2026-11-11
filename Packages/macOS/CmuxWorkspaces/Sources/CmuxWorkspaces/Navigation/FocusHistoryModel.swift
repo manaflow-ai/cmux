@@ -530,6 +530,7 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         }
 
         let leavingEntry = recordedEntryLeft(for: entry)
+        let resolvedEntry = resolvedFocusHistoryEntry(for: entry)
         var didRestore = false
         withFocusHistoryRecordingSuppressed {
             didRestore = restoreFocusHistoryEntry(entry)
@@ -538,6 +539,18 @@ public final class FocusHistoryModel: FocusHistoryNavigating {
         if let leavingEntry {
             lastLeftFocusEntry = leavingEntry
             noteFocusLeft(leavingEntry, for: entry)
+        }
+        // Workspace-only navigation restores the workspace's remembered tab,
+        // which can differ from the tab this record ended on. Record the tab
+        // focus landed on, the same rewrite the restore's deferred focus
+        // notice makes, so that notice doesn't read as a move away from a tab
+        // focus never left and the next move leaves the right tab.
+        if navigationScope() == .workspacesOnly,
+           let resolvedEntry,
+           focusHistory.indices.contains(targetIndex),
+           focusHistory[targetIndex].entry.workspaceId == resolvedEntry.workspaceId,
+           focusHistory[targetIndex].entry != resolvedEntry {
+            focusHistory[targetIndex] = FocusHistoryRecord(entry: resolvedEntry, focusedAt: now())
         }
         historyIndex = targetIndex
         didNavigate = true

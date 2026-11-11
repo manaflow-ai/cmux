@@ -858,6 +858,50 @@ struct FocusHistoryModelTests {
         #expect(host.focusedPanels.last?.panelId == panelA1)
     }
 
+    /// Workspace-only Back lands on the workspace's remembered tab (A3) while
+    /// the record for that older visit still ends on A2.
+    private func backTwiceOntoRememberedTab() -> (FocusHistoryModel, FakeFocusHistoryHost, UUID, UUID, UUID, UUID) {
+        let (model, host) = makeModel(scope: .workspacesOnly)
+        let panelA2 = UUID()
+        let panelA3 = UUID()
+        let panelB = UUID()
+        let wsA = host.addWorkspace(title: "A", panels: [UUID(): "a1", panelA2: "a2", panelA3: "a3"])
+        let wsB = host.addWorkspace(title: "B", panels: [panelB: "b"])
+        focus(model, host, workspaceId: wsA, panelId: panelA2)
+        focus(model, host, workspaceId: wsB, panelId: panelB)
+        focus(model, host, workspaceId: wsA, panelId: panelA2)
+        focus(model, host, workspaceId: wsA, panelId: panelA3)
+        #expect(model.navigateBack())
+        #expect(model.navigateBack())
+        #expect(host.selectedWorkspaceId == wsA)
+        #expect(host.focusedPanels.last?.panelId == panelA3)
+        return (model, host, wsA, wsB, panelA3, panelB)
+    }
+
+    @Test(arguments: [true, false])
+    func focusLastSurfaceIgnoresTheRestoredTabsFocusEchoAfterBack(withEcho: Bool) {
+        let (model, host, wsA, wsB, panelA3, panelB) = backTwiceOntoRememberedTab()
+        if withEcho {
+            // The restore's deferred focus notice, recorded after suppression
+            // ends, is a focus on the tab focus already landed on.
+            model.recordFocusInHistory(workspaceId: wsA, panelId: panelA3)
+        }
+
+        #expect(model.navigateToLastFocusedSurface())
+        #expect(host.selectedWorkspaceId == wsB)
+        #expect(host.focusedPanels.last?.panelId == panelB)
+    }
+
+    @Test func focusLastSurfaceReturnsToTheRestoredTabAfterBackThenForward() {
+        let (model, host, wsA, wsB, panelA3, _) = backTwiceOntoRememberedTab()
+        #expect(model.navigateForward())
+        #expect(host.selectedWorkspaceId == wsB)
+
+        #expect(model.navigateToLastFocusedSurface())
+        #expect(host.selectedWorkspaceId == wsA)
+        #expect(host.focusedPanels.last?.panelId == panelA3)
+    }
+
     @Test func focusLastSurfaceTogglesAfterBackBetweenTabsInOneWorkspace() {
         let (model, host) = makeModel(scope: .panesAndTabs)
         let panelA1 = UUID()
