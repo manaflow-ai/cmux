@@ -1432,6 +1432,8 @@ jobs:
           CASCADE_JOBS: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && 'swift-test daemon-test generated-files' || '' }}
           # Why: docs/ci/cmux-next-workflow-notes.md#note-119
           PROMOTE_LABEL: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || '' }}
+          # '1': nothing is placed on Blacksmith, promote jobs included (next_macos_cascade.blacksmith_off()).
+          CI_BLACKSMITH_OFF: ${{ vars.CI_BLACKSMITH_OFF }}
           NIGHTLY_POOL: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_NEXT_TRUSTED_POOL || '' }}
           NIGHTLY_RUNNER: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && github.run_attempt == 1 && vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER || '' }}
           SIDE_LABEL: ${{ env.CMUX_NEXT_SIDE_ROUTE }}

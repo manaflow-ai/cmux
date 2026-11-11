@@ -783,8 +783,21 @@ def bot_rerun(env: Mapping[str, str]) -> bool:
             and (env.get("GITHUB_TRIGGERING_ACTOR") or "").strip() in RESCUE_ACTORS)
 
 
+# The repository variable that turns Blacksmith off by hand (main's scripts/ci/runner_pools.py and
+# cloud_overflow_switch.py move the runner variables; Leo, 2026-11-10: "just stop using blacksmith temporarily").
+# While it is '1' the cascade places no job on Blacksmith: promoted jobs keep PROMOTE_LABEL, the rest the owned label.
+OFF_VARIABLE = "CI_BLACKSMITH_OFF"
+
+
+def blacksmith_off(env: Mapping[str, str]) -> bool:
+    """CI_BLACKSMITH_OFF is exactly '1'."""
+    return (env.get(OFF_VARIABLE) or "").strip() == "1"
+
+
 def skipped(env: Mapping[str, str]) -> str:
     """Why this run places nothing on Blacksmith before reading anything, or ""."""
+    if blacksmith_off(env):
+        return f"{OFF_VARIABLE} is '1', so no job takes Blacksmith"
     label = (env.get("SIDE_LABEL") or "").strip()
     if (env.get("GITHUB_RUN_ATTEMPT") or "").strip() not in ("", "1") and not bot_rerun(env):
         return "a person re-run keeps its own route"

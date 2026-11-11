@@ -71,6 +71,52 @@ class OffLabels(unittest.TestCase):
         self.assertGreater(checked, 50)
 
 
+def _load(name: str):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(name, ROOT / "scripts" / "ci" / f"{name}.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+class PromotePlacement(unittest.TestCase):
+    """A feat-cmux-next push's promoted Release compile, and every other cascade job, takes no Blacksmith slot."""
+
+    PROMOTE = {"SIDE_LABEL": "glaeda-side-std-xcode-26.6", "GITHUB_RUN_ATTEMPT": "1",
+               "PROMOTE_LABEL": "glaeda-promote-xcode-26.6", "JOBS": "fast-tier release-compile",
+               "CASCADE_RUNS": " fast-tier release-compile ", "FIRST_JOBS": "release-compile",
+               "FRESH_JOBS": "release-compile"}
+
+    def setUp(self):
+        self.cascade = _load("next_macos_cascade")
+        self.placement = _load("side_lane_placement")
+
+    def test_with_the_switch_on_a_busy_promote_label_takes_no_blacksmith_slot(self):
+        idle = {label: 0 for label in self.cascade.LABELS}
+        on = self.cascade.place({**self.PROMOTE, "CI_BLACKSMITH_OFF": "1"}, (), idle, idle,
+                                promote_busy=True, saturated=True)
+        self.assertEqual({label: jobs for label, jobs in on.jobs.items() if jobs}, {})
+        self.assertEqual(on.retry_runner, "")
+        self.assertIn("CI_BLACKSMITH_OFF", on.why)
+        # Unset, the same reading still sends the promoted compile to Blacksmith (today's route).
+        off = self.cascade.place(self.PROMOTE, (), idle, idle, promote_busy=True, saturated=True)
+        self.assertIn("release-compile", {job for jobs in off.jobs.values() for job in jobs})
+
+    def test_the_read_deadline_fallback_names_the_owned_pool(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("r+", suffix=".out") as out:
+            self.placement._timeout_fallback({"GITHUB_OUTPUT": out.name, "CI_BLACKSMITH_OFF": "1"})
+            written = out.read()
+        self.assertNotIn("blacksmith-", written)
+        self.assertIn(f"runner={self.placement.OFF_MACOS}", written)
+        self.assertEqual(self.placement.OFF_MACOS, pools()["macos_26"]["off"])
+
+    def test_the_placement_step_passes_the_switch(self):
+        text = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
+        self.assertIn("          CI_BLACKSMITH_OFF: ${{ vars.CI_BLACKSMITH_OFF }}\n", text)
+
+
 class SigningGuard(unittest.TestCase):
     def test_the_gcp_fleet_is_an_ephemeral_label_for_signing_variables(self):
         self.assertTrue(signing_runner_variables.allowed_value("LINUX_RUNNER", GCP_FLEET_LINUX))

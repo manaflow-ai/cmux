@@ -161,6 +161,11 @@ def _cascade():
 cascade = _cascade()
 
 
+# Where Mac jobs go while CI_BLACKSMITH_OFF is '1' and no owned route was read: the macos_26 pool's `off`
+# label in .github/runners.json, the owned std minis.
+OFF_MACOS = "glaeda-std-xcode-26.6"
+
+
 def compatible_labels(label: str) -> tuple[str, ...]:
     """`label`, then the same label on each wider class: every label whose runners can run its jobs.
 
@@ -1068,6 +1073,10 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
     # after the slots this run's cascade just took (gui_overflow()). An unread fleet vouches for no owned GUI
     # queue either, so it overflows too, as it did before (the step's synthesized `runner` sent it to 6 vCPU).
     overflow = "" if gui_route else gui_overflow(env, live, waiting, seen, placed)
+    if overflow and cascade.blacksmith_off(env):
+        # CI_BLACKSMITH_OFF: the GUI jobs wait on the owned GUI label instead of a Blacksmith size.
+        overflow = live_gui or OFF_MACOS
+        why += f"; {cascade.OFF_VARIABLE} is '1', so the GUI jobs take `{overflow}`, not Blacksmith"
     if live_gui and not gui_route:
         # Its own name: `owned` is the jobs the idle minis took, which cascade.place() read above.
         role_queues = getattr(seen, "owned_queued", None) or {}
@@ -1103,27 +1112,29 @@ def _main(env: Mapping[str, str] = os.environ) -> int:
 
 
 def _timeout_fallback(env: Mapping[str, str]) -> int:
-    """Publish a safe ephemeral Mac route when placement reads exceed the deadline."""
+    """Publish a safe ephemeral Mac route when placement reads exceed the deadline (with CI_BLACKSMITH_OFF '1',
+    the owned std pool, .github/runners.json's macos_26 `off` label, instead of Blacksmith 6 vCPU)."""
+    fallback = OFF_MACOS if cascade.blacksmith_off(env) else cascade.SMALL
     output = env.get("GITHUB_OUTPUT")
     if output:
         retry_jobs = cascade.delimited(cascade.candidates(env, ())[:cascade.MAX_PER_RUN])
         with open(output, "a", encoding="utf-8") as handle:
             handle.write(
-                f"owned_jobs=\nfallback_jobs=\nrunner={cascade.SMALL}\ndeferred_runner=\n"
+                f"owned_jobs=\nfallback_jobs=\nrunner={fallback}\ndeferred_runner=\n"
                 f"gui_runner=\nsession_runner=\nfree_gui_runner=\nfree_session_runner=\n"
-                f"gui_overflow={cascade.SMALL}\nsession_lane_runner=\n"
+                f"gui_overflow={fallback}\nsession_lane_runner=\n"
                 f"nightly_runner_ready=\nfast_runner=\nfresh_runner=\nfresh_jobs=\n"
                 f"gateway_runner=\ngateway_attempt=\nwatch=false\n"
                 f"blacksmith_12_jobs=\nblacksmith_6_jobs=\nfresh_stalled=\nfleet_jobs=\n"
-                f"retry_runner={cascade.SMALL}\nfree_retry_runner={cascade.SMALL}\n"
+                f"retry_runner={fallback}\nfree_retry_runner={fallback}\n"
                 f"retry_jobs={retry_jobs}\n"
             )
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as handle:
             handle.write("### macOS placement\n\nPlacement exceeded its read deadline; using "
-                         f"{cascade.SMALL}.\n")
-    print(f"::warning title=side-lane placement::read deadline exceeded; using {cascade.SMALL}")
+                         f"{fallback}.\n")
+    print(f"::warning title=side-lane placement::read deadline exceeded; using {fallback}")
     return 0
 
 
