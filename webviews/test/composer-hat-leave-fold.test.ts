@@ -11,7 +11,7 @@
 // On the gallery stage (agent-pane.composer-hat-linger, `last-leaves`: one running command, a 1 s
 // grace), the command finishes and the pointer stays off the hat; a per-frame sampler
 // reads the stack's height and top and the composer's top after every painted frame until the hat and its copy
-// are gone. The stack loses exactly the hat's height, it takes at least three quarters of the leave's
+// are gone. The stack loses exactly the hat's height, it takes at least 70% of the leave's
 // own length (read from the leaving copy: the settle token, 180 ms) of wall time from its full height
 // to its final one with at least two painted heights in between (frame-rate independent: headless
 // WebKit paints sparse frames), and the composer never moves. With Reduce Motion the hat goes in one
