@@ -31,11 +31,15 @@ def _load_git_fixture_env():
 
 
 git_fixture_env = _load_git_fixture_env()
+_process_gone_spec = importlib.util.spec_from_file_location("process_gone", Path(__file__).resolve().parent / "process_gone.py")
+process_gone = importlib.util.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
 
 
 SOURCE = Path(__file__).resolve().parents[1]
 INSTALLER = "scripts/install-git-hooks.sh"
 GATE = "scripts/cmux-next/prepush-gate.py"
+
 # The fixture is a developer's own push: GITHUB_ACTIONS (set on CI) would turn the guardrails off in the hook
 # (prepush-gate.py runs them locally only), and the tests that expect a guardrails line would fail only on CI.
 AGENT_VARS = ("CMUX_AGENT", "CMUX_REQUIRE_FORMATTERS", "CI", "CLAUDECODE", "CODEX_CI", "CODEX_THREAD_ID",
@@ -458,8 +462,7 @@ class PrePushGateTests(unittest.TestCase):
         self.assertIn("| arch ratchet | incomplete: timed out after 3s |", table)
         pgid = int(mark.read_text())
         self.assertNotEqual(pgid, os.getpgrp(), "the advisory runs in its own process group")
-        with self.assertRaises(ProcessLookupError, msg=f"process group {pgid} outlived the gate"):
-            os.killpg(pgid, 0)
+        self.assertTrue(process_gone.group_died(pgid), f"process group {pgid} outlived the gate")
 
     def test_ci_advisory_marks_a_layer_whose_rule_failed_incomplete_and_names_the_failure(self):
         # Codex review of #40811 (F2): the checkers' own failure notes were dropped, so a broken rule read "clean".

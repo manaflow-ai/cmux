@@ -36,6 +36,10 @@ def _load_git_fixture_env():
 
 
 git_fixture_env = _load_git_fixture_env()
+# tests/process_gone.py by path, for the same reason.
+_process_gone_spec = importlib.util.spec_from_file_location("process_gone", Path(__file__).resolve().parent / "process_gone.py")
+process_gone = importlib.util.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
 
 SOURCE = Path(__file__).resolve().parents[1]
 PKG = "Packages/macOS/CmuxNext"
@@ -2684,7 +2688,7 @@ class HookTests(Fixture):
 
         self.addCleanup(stop)
         self.assertEqual(first.returncode, 0, first.stderr)
-        os.kill(detached, 0)  # the stand-in daemon outlived the install
+        self.assertTrue(process_gone.running(detached), "the stand-in daemon outlived the install")
         lock = os.open(hooks / "install.lock", os.O_RDONLY)
         try:
             try:
