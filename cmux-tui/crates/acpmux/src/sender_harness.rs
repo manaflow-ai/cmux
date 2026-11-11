@@ -604,14 +604,104 @@ fn run_codesign(path: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Who signed each app bundle the daemon has looked at.
+/// Who signed each app bundle the daemon has looked at, kept while the bundle's files are the
+/// same. A send from an agent inside an app (cmux.app, Claude.app) walks to that app every time,
+/// and `codesign -dv` costs about 15 ms; reading what it reads costs a few `stat`s.
 #[derive(Default)]
-struct Signers {}
+struct Signers {
+    known: std::sync::Mutex<std::collections::HashMap<String, (BundleFiles, Option<String>)>>,
+}
+
+/// At most this many bundles are kept; past it the cache starts again empty.
+const MAX_SIGNERS: usize = 64;
 
 impl Signers {
-    /// Who signed the bundle at `path`, by `run` (`codesign -dv`'s stderr).
+    /// Who signed the bundle at `path`, by `run` (`codesign -dv`'s stderr), run again only when
+    /// the bundle's files changed since the last answer for `path`. A path whose files cannot
+    /// be read is asked each time and never kept.
     fn signer(&self, path: &str, run: impl FnOnce(&str) -> String) -> Option<String> {
-        parse_signer(&run(path))
+        let Some(files) = BundleFiles::read(path) else {
+            return parse_signer(&run(path));
+        };
+        if let Some((seen, signer)) = self.known().get(path)
+            && *seen == files
+        {
+            return signer.clone();
+        }
+        // codesign runs with no lock held: two sends from one new bundle may both run it.
+        let signer = parse_signer(&run(path));
+        let mut known = self.known();
+        if known.len() >= MAX_SIGNERS && !known.contains_key(path) {
+            known.clear();
+        }
+        known.insert(path.to_owned(), (files, signer.clone()));
+        signer
+    }
+
+    fn known(
+        &self,
+    ) -> std::sync::MutexGuard<'_, std::collections::HashMap<String, (BundleFiles, Option<String>)>>
+    {
+        self.known.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// What `codesign -dv` reads of a bundle, as the file system describes it: the bundle folder,
+/// `Contents/Info.plist`, `Contents/_CodeSignature/CodeResources` and every entry of
+/// `Contents/MacOS` (identity, size, change time). An update, a re-sign or a replaced bundle
+/// changes at least one. Provenance only (see the module notes): a writer that keeps all of
+/// these the same could just as well sign the bundle itself.
+#[derive(Debug, PartialEq, Eq)]
+struct BundleFiles(Vec<(String, FileStamp)>);
+
+#[derive(Debug, PartialEq, Eq)]
+struct FileStamp {
+    dev: u64,
+    ino: u64,
+    len: u64,
+    modified: Option<std::time::SystemTime>,
+    changed: (i64, i64),
+}
+
+impl BundleFiles {
+    fn read(path: &str) -> Option<Self> {
+        let root = std::path::Path::new(path);
+        let mut files = vec![(String::new(), FileStamp::of(root)?)];
+        for part in ["Contents/Info.plist", "Contents/_CodeSignature/CodeResources"] {
+            if let Some(stamp) = FileStamp::of(&root.join(part)) {
+                files.push((part.to_owned(), stamp));
+            }
+        }
+        let macos = root.join("Contents/MacOS");
+        if let Some(stamp) = FileStamp::of(&macos) {
+            files.push(("Contents/MacOS".to_owned(), stamp));
+        }
+        let mut executables: Vec<(String, FileStamp)> = std::fs::read_dir(&macos)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                Some((format!("Contents/MacOS/{name}"), FileStamp::of(&entry.path())?))
+            })
+            .collect();
+        executables.sort_by(|a, b| a.0.cmp(&b.0));
+        files.extend(executables);
+        Some(Self(files))
+    }
+}
+
+impl FileStamp {
+    fn of(path: &std::path::Path) -> Option<Self> {
+        use std::os::unix::fs::MetadataExt;
+        let meta = std::fs::metadata(path).ok()?;
+        Some(Self {
+            dev: meta.dev(),
+            ino: meta.ino(),
+            len: meta.len(),
+            modified: meta.modified().ok(),
+            changed: (meta.ctime(), meta.ctime_nsec()),
+        })
     }
 }
 
