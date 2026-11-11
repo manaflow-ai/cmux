@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43016123307",
+  "recorded_at": "2026-11-11T12:11:21Z",
+  "reason": "cmux-tui a90d8327cb54 changes the image's cmux-tui (pinned a5543e3fbd74)",
+  "dry_run": false,
+  "cmux_tui": "a90d8327cb54b24f09dddb6f69e6262139630cb4",
+  "fixes": [
+    {
+      "sha": "a90d8327cb54b24f09dddb6f69e6262139630cb4",
+      "mergedAt": "2026-11-11T11:42:26Z",
+      "subject": "Sidebar: Undo after closing a group's last workspaces brings them back in the group (a late adopt no longer places a closed workspace) (#41251)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T12:11:21Z",
+    "snapshot_id": "sh-6d4486342aa943e4b84107d27aaf5f32",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43016123307): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "16fb13c1e174dbef4fbc70359657a34a22dac6af",
+    "image": "cloud-native-auto-a90d8327-43016123307-1",
+    "revision": "ci-43016123307-1",
+    "at": "2026-11-11T12:11:21Z"
+  },
+  "rolled_back": false
+}
