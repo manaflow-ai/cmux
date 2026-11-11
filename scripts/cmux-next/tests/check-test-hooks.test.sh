@@ -309,6 +309,23 @@ RS
 passes "an unresolved static with a reasoned marker"
 rm "$src/unseen.rs"
 
+# Review of #41427 (F1): a projection rooted at a parameter, `<T as Future>::Output`, is unresolved; it is never
+# the file's own `Output`, which a hand tokenizer splits it into.
+cat >"$src/alias.rs" <<'RS'
+struct Fut;
+type Output = u8;
+type Slot<T> = std::sync::OnceLock<<T as Future>::Output>;
+static S: Slot<Fut> = std::sync::OnceLock::new();
+RS
+refused cmux-tui/crates/acpmux/src/alias.rs 4 "<T as Future>::Output beside a type Output of the file" "unresolved"
+rm "$src/alias.rs"
+# Review of #41383 (F1): a static on the line a thread_local! opens is judged; only the macro's span is per thread.
+cat >"$src/local.rs" <<'RS'
+static AFTER_HOOK: std::sync::OnceLock<fn()> = std::sync::OnceLock::new(); thread_local! { static LOCAL: std::cell::Cell<u8> = const { std::cell::Cell::new(0) }; }
+RS
+refused cmux-tui/crates/acpmux/src/local.rs 1 "a static before a thread_local! on its line" "closure"
+rm "$src/local.rs"
+
 # BASE_CHECK: the check at origin/feat-cmux-next. Generated alias chains: whatever it refuses, this check refuses.
 if [ -n "${BASE_CHECK:-}" ]; then
   python3 -I "$repo/scripts/cmux-next/tests/check-test-hooks-property.py" "$check" "$BASE_CHECK" \
