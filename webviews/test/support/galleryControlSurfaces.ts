@@ -1,14 +1,29 @@
-// cmux-web-test-timeout: 900
 // l10n-allow-file: browser audit diagnostics, not shipped UI.
+// The gallery control-surface audit over every web gallery entry, split into parts
+// (browser/gallery-control-surfaces-N.test.ts): a control's trailing group paints no plate of its
+// own, and a control's hover never lights an ancestor outside it.
+//
+// Why parts: one file for all 372 entries warmed for about 270 s and audited for about 240 s alone
+// (runs 41601401847, 41601405383). Beside the other browser files on a shard it took about 740 s,
+// ran out of its 380 s audit budget, and its alone retry took another 683 s: about 24 minutes of
+// shard 1's 28 to 33 (react-apps-check on #40611, 2026-11-10). Each part warms and audits only
+// every `parts`-th entry, so no part comes near the old file's time, and the duration split spreads
+// the parts over the shards. Every entry is still audited exactly once.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
 import { chromium, type Browser } from "playwright";
 import { loadEntrySources } from "../../scripts/gallery/entries";
-import { requireBrowserLane } from "../support/requireBrowserLane";
-import { galleryFrame, warmGalleryFrame } from "../support/galleryFrame";
+import { galleryFrame, warmGalleryFrame } from "./galleryFrame";
 
-await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
+export type GalleryControlPart = {
+  /** One-based. */
+  part: number;
+  parts: number;
+};
+
+/** Call inside requireBrowserLane, from the part's own file (the runner reads that file for the lane). */
+export async function galleryControlSurfaces({ part, parts }: GalleryControlPart): Promise<void> {
   // Every web entry's default variant plus the shared-row cases. Native entries are capture
   // descriptors, not DOM surfaces, so the browser cannot inspect their paint.
   const EXTRA_VARIANTS: Record<string, string[]> = {
@@ -222,13 +237,25 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
   // Local red/green reproduction can select the known regressions. CI always walks every entry.
   const filter = process.env.GALLERY_CONTROL_ENTRIES;
   if (process.env.CI && filter) throw new Error("CI cannot filter the gallery control guard");
-  const selected = filter ? cases.filter((c) => filter.split(",").includes(c.id)) : cases;
-  // Both phases share the file's 900 s limit (header). Measured on Linux CI with 372 web entries
-  // (runs 41601401847, 41601405383): the warm-up took 269 s with 4 workers and 267 s with 8 (Vite's
-  // transforms bound it, not the browser), and the audit 240 s. The old 300 s warm-up budget left
-  // ~10% and went red (run 41597839583); this split keeps ~1.8x on the warm-up and ~1.6x on the audit.
-  const WARM_MS = 480_000;
-  const AUDIT_MS = 380_000;
+  // A filtered local run audits its entries in part 1; every part of CI's run takes every
+  // `parts`-th entry.
+  const selected = filter
+    ? part === 1
+      ? cases.filter((c) => filter.split(",").includes(c.id))
+      : []
+    : cases.filter((_, index) => index % parts === part - 1);
+  if (selected.length === 0 && filter) {
+    test.skip(`gallery control audit part ${part} of ${parts}: GALLERY_CONTROL_ENTRIES runs in part 1`, () => {});
+    return;
+  }
+  // Both phases share the part's limit (its file's header). Measured on Linux CI with 372 web
+  // entries in one file (runs 41601401847, 41601405383): the warm-up took 269 s with 4 workers and
+  // 267 s with 8 (Vite's transforms bound it, not the browser), and the audit 240 s; the old 300 s
+  // warm-up budget left ~10% and went red (run 41597839583). A part warms and audits a quarter of
+  // the entries, but the modules they share still compile once per part, so its warm-up keeps more
+  // than a quarter of the old budget: these keep ~1.3x over a quarter of the contended 740 s run.
+  const WARM_MS = 360_000;
+  const AUDIT_MS = 240_000;
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>>;
   let browser: Browser;
@@ -260,7 +287,7 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
     await vite?.close();
   });
   test(
-    "every web gallery entry keeps trailing surfaces clear and hover inside its control",
+    `every web gallery entry keeps trailing surfaces clear and hover inside its control (part ${part} of ${parts})`,
     async () => {
       expect(selected.length).toBeGreaterThan(0);
       const port = (vite.httpServer!.address() as { port: number }).port;
@@ -332,7 +359,7 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
         }),
       );
       console.log(
-        `Gallery control audit: ${visited}/${selected.length} states, ${groups} groups, ${hovered} controls hovered; ${sources.filter(({ entry }) => entry.host === "native").length} native capture descriptors excluded.`,
+        `Gallery control audit, part ${part} of ${parts}: ${visited}/${selected.length} states, ${groups} groups, ${hovered} controls hovered; ${sources.filter(({ entry }) => entry.host === "native").length} native capture descriptors excluded.`,
       );
       expect(failures).toEqual([]);
       expect(groups).toBeGreaterThan(0);
@@ -340,4 +367,4 @@ await requireBrowserLane("gallery-control-surfaces.test.ts", async () => {
     },
     AUDIT_MS,
   );
-});
+}

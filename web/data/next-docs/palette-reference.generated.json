@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1389,
-    "shortcuts": 188
+    "entries": 1393,
+    "shortcuts": 189
   },
   "sections": [
     {
@@ -5944,6 +5944,12 @@
           "command": null
         },
         {
+          "id": "sidebar.custom.toggle",
+          "title": "Toggle Custom Sidebar",
+          "shortcut": "⌃⌥⌘B",
+          "command": "cmux sidebar toggle-custom"
+        },
+        {
           "id": "toggleSidebar",
           "title": "Toggle Left Sidebar",
           "shortcut": "⌘B",
@@ -7612,6 +7618,12 @@
           "command": null
         },
         {
+          "id": "debug.blockingCalls.copy",
+          "title": "Copy Main-Thread Blocking Sites",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "fileEditor.importEditorSettings",
           "title": "Copy Settings from VS Code or Zed",
           "shortcut": null,
@@ -8152,6 +8164,12 @@
           "command": null
         },
         {
+          "id": "debug.sidebarToggleIcon",
+          "title": "Sidebar Toggle Icon…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "links.signInPagesByLinkSettings",
           "title": "Sign-In Pages: Follow Link Settings",
           "shortcut": null,
@@ -8172,6 +8190,12 @@
         {
           "id": "liveSwift.start",
           "title": "Start Swift Live Mode",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "debug.statusIconSet",
+          "title": "Status Icons…",
           "shortcut": null,
           "command": null
         },

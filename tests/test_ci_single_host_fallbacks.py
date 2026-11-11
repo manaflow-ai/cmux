@@ -344,22 +344,62 @@ class PrepushGateLayer(unittest.TestCase):
 
     def test_the_install_line_reaches_the_interpreter_the_hook_runs(self) -> None:
         command = self.gate.pyyaml_install_command
+        apt_dir = self.gate.APT_DIST_PACKAGES
         with tempfile.TemporaryDirectory() as tmp:
             writable, stdlib = Path(tmp) / "site", Path(tmp) / "lib"
             writable.mkdir(); stdlib.mkdir()
             python = "/opt/py 3/bin/python3"
-            self.assertEqual(command(python, str(writable), str(stdlib), apt=False),
-                             "'/opt/py 3/bin/python3' -m pip install PyYAML==6.0.3")
-            (stdlib / "EXTERNALLY-MANAGED").write_text("", encoding="utf-8")
-            self.assertEqual(command(python, str(writable), str(stdlib), apt=False),
-                             "'/opt/py 3/bin/python3' -m pip install --break-system-packages PyYAML==6.0.3")
             unwritable = str(Path(tmp) / "missing-site")
-            self.assertEqual(command(python, unwritable, str(stdlib), apt=True), "sudo apt-get install -y python3-yaml")
-            self.assertEqual(command(python, unwritable, str(stdlib), apt=False),
-                             "sudo '/opt/py 3/bin/python3' -m pip install PyYAML==6.0.3")
-            for line in (command(python, str(writable), str(stdlib), apt=False),
-                         command(python, unwritable, str(stdlib), apt=False)):
+            # Codex on #40880 (F2): apt on the host says nothing about this interpreter. A venv or a custom Python whose
+            # sys.path lacks apt's dist-packages gets pip, as -I (user site off), into its own prefix.
+            self.assertEqual(command(python, str(writable), str(stdlib), apt=True, syspath=[str(writable)]),
+                             "'/opt/py 3/bin/python3' -I -m pip install PyYAML==6.0.3")
+            self.assertEqual(command(python, unwritable, str(stdlib), apt=True, syspath=[unwritable]),
+                             "sudo '/opt/py 3/bin/python3' -I -m pip install PyYAML==6.0.3")
+            # The interpreter apt's python3-yaml reaches: apt.
+            self.assertEqual(command(python, unwritable, str(stdlib), apt=True, syspath=[unwritable, apt_dir]),
+                             "sudo apt-get install -y python3-yaml")
+            self.assertEqual(command(python, str(writable), str(stdlib), apt=False, syspath=[apt_dir]),
+                             "'/opt/py 3/bin/python3' -I -m pip install PyYAML==6.0.3")
+            # PEP 668 with no apt route: a refusal that says what to do, never --break-system-packages.
+            (stdlib / "EXTERNALLY-MANAGED").write_text("", encoding="utf-8")
+            managed = command(python, str(writable), str(stdlib), apt=False, syspath=[str(writable)])
+            self.assertIn("externally managed", managed)
+            for line in (managed, command(python, str(writable), str(stdlib), apt=True, syspath=[]),
+                         command(python, unwritable, str(stdlib), apt=False, syspath=[])):
                 self.assertNotIn("--user", line, "-I ignores user site-packages, so a --user install never helps")
+                self.assertNotIn("--break-system-packages", line)
+
+    def test_the_interpreters_own_sys_path_decides_the_apt_route(self) -> None:
+        # Without SYSPATH the command reads the target interpreter's sys.path as the hook runs it (-I).
+        command = self.gate.pyyaml_install_command(sys.executable, apt=True)
+        reaches = self.gate.APT_DIST_PACKAGES in self.gate.interpreter_sys_path(sys.executable)
+        self.assertEqual(command == "sudo apt-get install -y python3-yaml", reaches, command)
+
+    def test_a_venv_is_not_externally_managed_even_where_its_base_is(self) -> None:
+        # Codex on #40966 (F1): a Debian venv reads its base's stdlib, so it sees the base's EXTERNALLY-MANAGED marker,
+        # yet pip installs into the venv. Externally managed is one rule, asked of the probed interpreter with -I: it
+        # is not a venv (sys.prefix == sys.base_prefix) and the marker is present.
+        base = getattr(sys, "_base_executable", sys.executable)
+        asked = subprocess.run([base, "-I", "-c", "import sys; print(sys.prefix == sys.base_prefix)"],
+                               capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(asked, "True", f"{base} is itself a venv, so it cannot stand for a base interpreter")
+        with tempfile.TemporaryDirectory() as tmp:
+            site, stdlib, env = Path(tmp) / "site", Path(tmp) / "lib", Path(tmp) / "venv"
+            site.mkdir(); stdlib.mkdir()
+            (stdlib / "EXTERNALLY-MANAGED").write_text("", encoding="utf-8")
+            subprocess.run([base, "-I", "-m", "venv", "--without-pip", str(env)], check=True, capture_output=True)
+            venv_python = str(env / "bin" / "python3")
+            self.assertTrue(self.gate.externally_managed(base, str(stdlib)))
+            self.assertFalse(self.gate.externally_managed(venv_python, str(stdlib)))
+            # The venv interpreter, marker present: pip into the venv.
+            self.assertEqual(self.gate.pyyaml_install_command(venv_python, str(site), str(stdlib), apt=False,
+                                                              syspath=[str(site)]),
+                             f"{venv_python} -I -m pip install PyYAML==6.0.3")
+            # The base interpreter, marker present, no apt route: the refusal that says what to do.
+            refused = self.gate.pyyaml_install_command(base, str(site), str(stdlib), apt=False, syspath=[str(site)])
+            self.assertIn("externally managed", refused)
+            self.assertNotIn("--break-system-packages", refused)
 
     def test_a_missing_install_only_warns(self) -> None:
         self.workflow("b.yml", "${{ vars.NEW_X }}")

@@ -439,11 +439,13 @@ jobs:
           # The head keeps a state red only when it is red on every retry; the base renders twice with
           # no retries and a state red in either render is the base's. Holding the base to every retry
           # too called states that flake on the base (layout shift) the pull request's own.
+          # One case at a time, like the head's retries: a base render under load would excuse a red
+          # that the head kept on a quiet runner.
           bases=()
           for pass in 1 2; do
             rc=0
             bun health.ts --manifest "$RUNNER_TEMP/base-manifest.json" --gallery-dir "$RUNNER_TEMP/base-gallery" \
-              --retries 0 --output-dir "$RUNNER_TEMP/health/base/$pass" || rc=$?
+              --retries 0 --concurrency 1 --output-dir "$RUNNER_TEMP/health/base/$pass" || rc=$?
             if [ ! -s "$RUNNER_TEMP/health/base/$pass/health.json" ]; then
               echo "::error::the base replay of $entries wrote no health.json (health.ts exited $rc): no base verdict, so nothing is excused"
               exit 1
