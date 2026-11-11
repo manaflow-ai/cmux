@@ -76,6 +76,11 @@ on:
         type: boolean
         required: false
         default: true
+      gate_ref:
+        description: Where the gate's own scripts come from when called from another branch (resolved to one SHA)
+        type: string
+        required: false
+        default: feat-cmux-next
     outputs:
       blocking:
         description: Number of blocking findings
@@ -95,11 +100,12 @@ concurrency:
 
 jobs:
   plan:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 5
     outputs:
       sha: ${{ steps.plan.outputs.sha }}
       lane: ${{ steps.plan.outputs.lane }}
+      gate_sha: ${{ steps.plan.outputs.gate_sha }}
     steps:
       - id: plan
         env:
@@ -107,6 +113,9 @@ jobs:
           REF_INPUT: ${{ inputs.ref }}
           LANE_INPUT: ${{ inputs.lane }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          GATE_REF_INPUT: ${{ inputs.gate_ref }}
+          # A called workflow reports its caller's workflow_ref and sha.
+          CALLED: ${{ !contains(github.workflow_ref, '/.github/workflows/ios-review-gate.yml@') }}
         run: |
           set -euo pipefail
           # One full SHA for every job, so the lint, the walk and the caller's
@@ -120,14 +129,29 @@ jobs:
           [[ "$sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve $ref: $sha" >&2; exit 1; }
           lane="${LANE_INPUT:-appstore}"
           case "$lane" in appstore|internal) ;; *) echo "::error::unknown lane $lane" >&2; exit 1 ;; esac
-          echo "sha=$sha" >> "$GITHUB_OUTPUT"
-          echo "lane=$lane" >> "$GITHUB_OUTPUT"
+          # The gate's own scripts, history and UI tests. Run directly, that is
+          # this run's commit. Called from another branch (main's production
+          # pipeline), github.sha is the caller's commit, which has no gate, so
+          # the gate is read from `gate_ref` (feat-cmux-next by default),
+          # resolved once to a full SHA here.
+          if [ "$CALLED" = true ]; then
+            gate_ref="${GATE_REF_INPUT:-feat-cmux-next}"
+            gate_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$gate_ref" --jq .sha)"
+          else
+            gate_sha="$GITHUB_SHA"
+          fi
+          [[ "$gate_sha" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve the gate's commit: $gate_sha" >&2; exit 1; }
+          {
+            echo "sha=$sha"
+            echo "gate_sha=$gate_sha"
+            echo "lane=$lane"
+          } >> "$GITHUB_OUTPUT"
           echo "App Review gate judges $sha ($lane)" | tee -a "$GITHUB_STEP_SUMMARY"
 
   lint:
     needs: plan
     name: Guideline lint (${{ needs.plan.outputs.lane }})
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 15
     permissions:
       contents: read
@@ -138,10 +162,9 @@ jobs:
       - name: Checkout the gate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # The gate's own commit: a caller on another branch (main's
-          # production pipeline calling this file @feat-cmux-next) still runs
-          # this copy's scripts.
-          ref: ${{ github.job_workflow_sha || github.sha }}
+          # The gate's own commit (plan's gate_sha): a caller on another
+          # branch (main's production pipeline) still runs the gate's scripts.
+          ref: ${{ needs.plan.outputs.gate_sha }}
           path: gate
           persist-credentials: false
           sparse-checkout: |
@@ -206,10 +229,18 @@ jobs:
   reviewer-path:
     needs: plan
     name: Reviewer path (${{ needs.plan.outputs.lane }})
-    # An ephemeral 6 vCPU macOS 26 machine, named literally: the job holds a
-    # secret (the agent pass), so no variable may move it to a reused one.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    # The 6 vCPU macOS 26 pool (ephemeral Blacksmith Macs): the job holds a
+    # secret (the agent pass's Claude token), so it takes no owned Mac
+    # (.github/runners.json picker_followup). A fork pull request takes the
+    # same label directly, since it reads no repository variables.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 120
+    # The agent pass reads CLAUDE_CODE_OAUTH_TOKEN; a credentialed job runs in
+    # an environment (tests/test_supplychain_security.py). NEXT's development
+    # environment, with no deployment record.
+    environment:
+      name: cmux-next-development
+      deployment: false
     env:
       LANE: ${{ needs.plan.outputs.lane }}
     steps:
@@ -231,13 +262,15 @@ jobs:
       - name: Checkout the gate
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.job_workflow_sha || github.sha }}
+          ref: ${{ needs.plan.outputs.gate_sha }}
           path: .review-gate
           persist-credentials: false
           sparse-checkout: |
             cmux-next-ios/scripts
             cmux-next-ios/AppStoreReview
             cmux-next-ios/UITests
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
       - name: The source is the NEXT app
         run: |
           set -euo pipefail
@@ -251,8 +284,6 @@ jobs:
           cp .review-gate/cmux-next-ios/UITests/AppReviewGateUITests.swift cmux-next-ios/UITests/
           mkdir -p cmux-next-ios/AppStoreReview
           cp .review-gate/cmux-next-ios/AppStoreReview/rejection-history.json cmux-next-ios/AppStoreReview/
-      - name: Select Xcode
-        run: ./scripts/select-ci-xcode.sh
       # cmux-next-ios/rust pins the same toolchain as cmux-tui.
       - name: Set up pinned Rust
         uses: ./.github/actions/setup-cmux-tui-rust
@@ -350,18 +381,9 @@ jobs:
             ${{ env.RESULTS }}/screens
             ${{ env.RESULTS }}/agent-pass
           if-no-files-found: error
-          retention-days: 30
-      - name: Upload the xcresult bundles
-        # Separate and short-lived: about 1 GB, and the report job's
-        # review-gate-* download must not wait on it.
-        if: always()
-        continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: xcresult-${{ env.LANE }}
-          path: ${{ env.RESULTS }}/*.xcresult
-          if-no-files-found: warn
           retention-days: 3
+      # The xcresult bundles (about 1 GB) are not uploaded: their test results,
+      # logs and screenshots are exported above, which is all the report reads.
 
   asc-validate:
     # Apple's own readiness check, read-only: the version, the attached
@@ -374,7 +396,7 @@ jobs:
       && needs.plan.outputs.lane == 'appstore'
       && github.ref == 'refs/heads/main'
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || fromJSON(vars.RUNNER_POOLS).macos_26 }}
     timeout-minutes: 20
     env:
       ASC_APP_ID: ${{ vars.IOS_APPSTORE_APP_ID }}
@@ -422,14 +444,14 @@ jobs:
   report:
     needs: [plan, lint, reviewer-path, asc-validate]
     if: always() && needs.plan.result == 'success'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     timeout-minutes: 10
     outputs:
       blocking: ${{ steps.report.outputs.blocking }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.job_workflow_sha || github.sha }}
+          ref: ${{ needs.plan.outputs.gate_sha }}
           persist-credentials: false
           sparse-checkout: cmux-next-ios/scripts
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -470,3 +492,4 @@ jobs:
         with:
           name: app-review-gate-report
           path: review-gate.md
+          retention-days: 3
