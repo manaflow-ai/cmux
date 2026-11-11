@@ -22,8 +22,12 @@ extension CloudService {
     /// gave it stays. A rename that fails leaves the old name, which the next card to open tries again.
     func nameForChief(_ machineID: String, chief: String) async {
         guard let title = machines.session(machineID)?.machine.title, CloudMachine.isGenericName(title) else { return }
+        let name = chiefComputerName(for: chief)
+        // Held until the rename ends, so another Chief of that name picks the next number.
+        machineNamesInFlight.append(name)
+        defer { if let index = machineNamesInFlight.firstIndex(of: name) { machineNamesInFlight.remove(at: index) } }
         do {
-            try await renameMachine(machineID, to: chiefComputerName(for: chief))
+            try await renameMachine(machineID, to: name)
         } catch {
             logger.error("naming \(machineID, privacy: .public) after its Chief: \(String(describing: error), privacy: .public)")
         }
