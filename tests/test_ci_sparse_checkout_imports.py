@@ -112,6 +112,9 @@ DYNAMIC_IMPORT_AUDIT: dict[tuple[str, ...], str] = {
         "importlib.util.spec_from_file_location",
         "'crash_ratchet', head_tree / 'scripts/cmux-next/crash_ratchet.py'",
     ): "loads crash_ratchet.py from the --head-tree archive it compares, not from this checkout",
+    ("scripts/ci/nightly_next_supersede.py", "importlib.util.spec_from_file_location", "'delivery_workflows', path"): (
+        "loads main's delivery_workflows.py from its --rules path, the job's separate .main-rules checkout"
+    ),
     ("scripts/ci/web_subareas.py", "scripts/cmux-next/web-bundle-key.py"): (
         "optional: web_bundle_input_matcher() returns None when the key script is missing, and callers fall back"
     ),
