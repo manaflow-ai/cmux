@@ -27,6 +27,9 @@ import Testing
 @MainActor @Suite(.serialized, .closesItsWindows) struct PaneChromeEvenGapTests {
     /// Applies `style` the way a settings load does, with nothing else set.
     private func load(_ style: ChromeStyle?) {
+        // These sweeps check the tab pill's geometry in every style; the flush corner, the default over
+        // flat and default chrome, has its own (`CornerFlushTests`).
+        MainPaneGutterSuites.pinsCornerFlushOff(style != nil)
         let appearance: JSONValue = style.map { .object(["chromeStyle": .string($0.rawValue)]) } ?? .object([:])
         let snapshot = CmuxConfigSnapshot.parse(.object(["appearance": appearance]), validDensities: SettingsApplier.validDensities,
                                                 validMetrics: SettingsApplier.validMetrics)
