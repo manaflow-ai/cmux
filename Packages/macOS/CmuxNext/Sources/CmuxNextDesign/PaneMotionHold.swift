@@ -1,9 +1,9 @@
 public import AppKit
 
-/// A pane's content held through a layout spring, as a value (FRAME OWNER REFACTOR S1): the edges the held content rides.
-/// The pane hands it down its view tree. Every in-process container (the tab strip, the content area) follows the pane's
-/// rect in each frame and hands the hold on; only what draws its pixels on another thread or in another process (a
-/// terminal surface, a page) keeps its start size, on these edges, and lays out once when the hold ends.
+/// The edges of a pane that stay while a keyboard resize moves it, as a value (FRAME OWNER REFACTOR S1). The pane hands
+/// it down its view tree. Every view (the tab strip, the content area, a page, a chat) takes the pane's rect in each
+/// frame; what draws its pixels on another thread or in another process (a terminal surface, a Chromium page) reads
+/// these edges to place a frame that is late, and hears once when the motion ends.
 public nonisolated struct PaneMotionHold: Equatable, Sendable {
     /// The held content's trailing edge rides the pane's trailing edge (false: its leading edge rides the leading one).
     public var trailing: Bool
@@ -15,12 +15,6 @@ public nonisolated struct PaneMotionHold: Equatable, Sendable {
         self.bottom = bottom
     }
 
-    /// The bounds origin of a container that is not flipped, `size` big, whose subviews keep the frames they had when it
-    /// was `held` big: they show on these edges, cut where the container is smaller.
-    public func boundsOrigin(holding held: CGSize, in size: CGSize) -> CGPoint {
-        CGPoint(x: trailing ? held.width - size.width : 0, y: bottom ? 0 : held.height - size.height)
-    }
-
     /// Where a producer `size` big sits on these edges of `area`, in a view that is not flipped (FRAME OWNER S3): its
     /// edge on the side that does not move stays put, and the moving edge of a growing pane uncovers it.
     public func producerFrame(_ size: CGSize, in area: CGRect) -> CGRect {
@@ -29,24 +23,25 @@ public nonisolated struct PaneMotionHold: Equatable, Sendable {
     }
 }
 
-/// Pane content whose chrome follows the pane in every frame of a hold (FRAME OWNER REFACTOR S1): its tab strip lays out
-/// at the pane's rect in the frame's tick, and only its content area holds. A nil area: the pane holds the whole view,
-/// its chrome included.
+/// Pane content that follows the pane in every frame of a hold (FRAME OWNER REFACTOR S1): its tab strip and what its
+/// content area shows lay out at the pane's rect in the frame's tick, and the area tells the hold to the producers in it.
+/// Content with no area (nil; a view that is not a pane's own content view) is held whole by its pane host.
 @MainActor
 public protocol PaneMotionHolding: NSView {
-    /// The area that holds while the pane's chrome follows, or nil to be held whole.
+    /// The area that hears the hold while the content follows the pane, or nil to be held whole.
     var paneMotionHoldArea: PaneContentAreaView? { get }
 }
 
-/// A container in a pane's content area that follows the area in every frame of a hold (FRAME OWNER REFACTOR S3: a
-/// terminal's host, a browser's chrome). The area gives it its own bounds in each frame, so its background, padding,
-/// toolbar and scroller cover the pane. Its producer (the terminal surface, the page: pixels drawn on another thread or
-/// in another process) keeps its size on the hold's edges and lays out once when the hold ends; a terminal's surface
-/// follows the area too (cmux-ad m6, m18: each size shows with its frame, or, late, the last frame top-left in the new
-/// bounds for a commit).
+/// A container in a pane's content area that hears the area's hold (FRAME OWNER REFACTOR S3: a terminal's host, a
+/// browser's chrome), because its producer (the terminal surface, the page) draws its pixels on another thread or in
+/// another process. Every view shown in the area takes the area's size in each frame; this one also gets the hold's
+/// edges, once, and each frame's size ahead of its refresh, so its producer can have that frame ready: a terminal's
+/// surface follows the area (cmux-ad m6, m18: each size shows with its frame, or, late, the last frame top-left in the
+/// new bounds for a commit), a page lays out at the page area in each frame. Content that draws in this process, or
+/// that lays out at once at each size (an internal page, a chat, Home), needs none of it and does not adopt this.
 @MainActor
 public protocol PaneMotionHoldFollowing: NSView {
-    /// Whether it follows now (a page kind that cannot hold its pixels yet is held whole, as in S1).
+    /// Whether it hears the hold now (a browser's chrome with no page in a window does not: it lays out live, as any view).
     var followsPaneMotion: Bool { get }
     /// The area holds on `hold`'s edges, from an area `heldSize` big when the hold began (the size the view had then);
     /// nil, nil: the hold ended, and the view's frame is the area's again. Called once per change, never per frame.

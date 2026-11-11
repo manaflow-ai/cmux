@@ -128,8 +128,8 @@ public nonisolated enum PaneResize {
         case .rowHeights: nil
         }
         if let values, !values.canSend(in: model) { return false }
-        // Every pane of the screen keeps its content's size through the spring and lays it out once at the landing; a
-        // trade keeps its left column (and the camera) in place, so only the divider between them moves.
+        // Every pane of the screen is on the key hold through the spring (its content follows it in every frame; a
+        // terminal's or a browser's producer hears the hold, `PaneContentAreaView`); a trade keeps its left column (and the camera) in place, so only the divider between them moves.
         if case .columnTrade(let left, _, _, _) = change {
             view.keyboardResizeWillChange(screenContaining: pane, keeping: left)
         } else {
