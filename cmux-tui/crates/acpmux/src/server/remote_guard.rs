@@ -916,7 +916,14 @@ async fn web_starts_asking(
         if let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key)) {
             let mut would_be = s.meta();
             would_be.harness = harness.to_owned();
-            would_be.family = None;
+            // The family the fork would carry (`hub/fork.rs` `Target`): a Claude adapter that is not
+            // Claude Code itself (family `claude`) is Claude here too. No such profile: the name, and
+            // `local_claude_refusal` refuses a profile it cannot read.
+            would_be.family =
+                Some(hub.config.read().await.profile(harness).map_or_else(
+                    || harness.to_owned(),
+                    |p| crate::config::derive_family(harness, p),
+                ));
             if let Some(e) = hub.local_claude_refusal(&would_be) {
                 return Err(e);
             }
