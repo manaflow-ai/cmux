@@ -94,7 +94,7 @@ view is laid out as the Chromium column says. Those five columns were read at th
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Split, close, equalize | once, at the spring's start, in the key's turn [read] | final size at the start, held [read] | laid out every frame; a page that holds the keys: once at its rest size [read] | every frame [read] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] |
 | Zoom, unzoom | once, at the spring's start, which is after the daemon's answer [read] | final size at the spring's start, held [read] | as a split [read] | every frame [read] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] |
-| Key resize | one per refresh at most [read] | every frame, reflow preview [read] | every frame [read] | every frame [read] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] |
+| Key resize | one per refresh at most [read] | every frame, reflow preview [read] | every frame [read] | every frame [read] | every frame [read, pr] | every frame; the 2 Home pages (the docked Home, the Home page tab): held at the start size, one size after the landing [read, pr] | every frame [read, pr] | every frame [read, pr] | every frame [read, pr] |
 | Divider drag | one per refresh at most; the newest at the release [read] | every frame [read] | page window detached unless it holds focus, attached again at the landing [read, 2nd] | every frame [read] | [not read] | [not read] | [not read] | [not read] | [not read] |
 | Sidebar show or hide | once, at the END of the slide [read] | every frame [read] | every frame [read] | every frame [read] | [not read] | [not read] | [not read] | [not read] | [not read] |
 | Window live resize | after each committed size [inferred by the helper, not confirmed] | every size AppKit gives | page window detached unless it holds focus [read, 2nd]; the commit waits `liveResizeDeadlineMs` for the page, default 0 [read] | every size | [not read] | [not read] | [not read] | [not read] | [not read] |
@@ -108,8 +108,16 @@ The pane host has one rule for the three first rows, with no kind in it (`PaneHo
 edge on a ground the host painted where the chat did not cover its pane. That path is deleted (Lawrence 2026-11-11:
 "all must have smooth transition"). What stays is the shape of a new pane's arrival beside a chat: it enters at its
 final width and slides in (`PaneArrival.slidingIn`, the provider's `slidesNewPaneInBeside`); the chat beside it
-follows its narrowing pane in every frame. In a key resize, content with no hold area (no pane content of the app; a
-bare view in a test) still holds whole at its start size until after the landing.
+follows its narrowing pane in every frame.
+
+A key resize has 2 holds that stay. (1) The host holds whole, at its start size until after the landing, content that
+has no hold area: a bare view in a test, and no pane content of the app. (2) The app's pane content (`PaneContentView`)
+has a hold area (`PaneContentAreaView`), and that area holds one kind: the 2 Home pages (`InternalPageID.homeDock` and
+`.homeTab`, the views that state `PaneKeyResizeHeld`). The area keeps the Home at its start size, under the tab strip,
+at the edge that stays, and gives it one new size after the landing (`keepsSizeInHold`, `keepsOutOfTabRowInHold`;
+cmux#41105 and cmux#41291). The cause is measured: a Home that followed its pane missed 13 to 15 of about 125 refreshes.
+So "every frame" in the key resize row is false for these 2 pages until the Home's layout is cheap enough to follow. In
+a split, a close and a zoom the area holds no kind.
 
 What shows between the old and the new picture today:
 
