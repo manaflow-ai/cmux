@@ -1,0 +1,138 @@
+// A clip on the row above a glide ends with that glide. The tail glide clips a reply at the drawn top
+// of the live line gliding down under it (tailGlide.ts), so no row draws over the next while a reply
+// streams (Leo, 2026-11-11: "esp when it's lagging, there's a breif moment where ther'es overlapping
+// text between the sent out text (from you) and the subequent tool calls/thinking"). When the reader
+// scrolls up, both hold; a glide that leaves the view is dropped (`dropUnseen`). Its clip used to stay
+// on the reply, still in view, so the reply's last lines were hidden over nothing once the live line
+// had landed (review of cmux#41034: a held 44 px clip). Fake rows and animations: no browser needed.
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { Window } from "happy-dom";
+import { createTailGlide } from "../src/agent-session/acpmux/conversation/tailGlide";
+
+class FakeAnimation extends EventTarget {
+  playState: "running" | "paused" | "finished" | "idle" = "running";
+  constructor(
+    readonly effect: { target: HTMLElement },
+    readonly keyframes: Keyframe[],
+  ) {
+    super();
+  }
+  pause() {
+    if (this.playState === "running") this.playState = "paused";
+  }
+  play() {
+    if (this.playState === "paused") this.playState = "running";
+  }
+  cancel() {
+    if (this.playState === "idle") return;
+    this.playState = "idle";
+    this.dispatchEvent(new Event("cancel"));
+  }
+}
+
+// Rows are elements, as the app's are (a check on the row's kind sees one); their layout is set here.
+const dom = new Window();
+// Bun names an Element of its own, which happy-dom's elements are not: the row's kind checks see
+// happy-dom's while this file runs, and the globals come back after it.
+const saved = ["Element", "HTMLElement"].map(
+  (name) => [name, Object.getOwnPropertyDescriptor(globalThis, name)] as const,
+);
+beforeAll(() => {
+  for (const name of ["Element", "HTMLElement"] as const)
+    Object.defineProperty(globalThis, name, { value: dom[name], configurable: true, writable: true });
+});
+afterAll(() => {
+  for (const [name, descriptor] of saved)
+    if (descriptor) Object.defineProperty(globalThis, name, descriptor);
+    else delete (globalThis as Record<string, unknown>)[name];
+});
+
+const style = { getPropertyValue: () => "", translate: "none" };
+const view = { getComputedStyle: () => style };
+const doc = { defaultView: view };
+
+type Row = HTMLElement & { animations: FakeAnimation[]; box: { top: number; bottom: number } };
+
+function row(id: string, top: number, height: number): Row {
+  const node = {
+    dataset: { rowId: id },
+    offsetTop: top,
+    offsetHeight: height,
+    ownerDocument: doc,
+    animations: [] as FakeAnimation[],
+    box: { top, bottom: top + height },
+    querySelector: () => null,
+    getBoundingClientRect() {
+      return node.box as DOMRect;
+    },
+    animate(keyframes: Keyframe[]) {
+      const animation = new FakeAnimation({ target: node as unknown as HTMLElement }, keyframes);
+      node.animations.push(animation);
+      return animation as unknown as Animation;
+    },
+  };
+  Object.setPrototypeOf(node, dom.HTMLElement.prototype);
+  return node as unknown as Row;
+}
+
+function thread(rows: Row[]): HTMLElement {
+  return {
+    ownerDocument: doc,
+    animate: () => undefined,
+    closest: () => null,
+    querySelectorAll: () => rows,
+  } as unknown as HTMLElement;
+}
+
+/// The reply grows by a line of 40 px; the live line under it glides down from where it was drawn,
+/// and the reply is clipped where the live line is drawn. Then the reader takes the view.
+function grownAndHeld() {
+  const anchor = row("a", 0, 20);
+  const reply = row("r", 20, 40);
+  const live = row("l", 60, 30);
+  const rows = [anchor, reply, live];
+  const glide = createTailGlide();
+  glide.place(thread(rows), true, "a");
+  (reply as { offsetHeight: number }).offsetHeight = 80;
+  (live as { offsetTop: number }).offsetTop = 100;
+  glide.place(thread(rows), true, "a");
+  const clip = reply.animations.find((animation) => "clipPath" in animation.keyframes[0]!);
+  const slide = live.animations.find((animation) => "translate" in animation.keyframes[0]!);
+  glide.hold();
+  return { glide, reply, live, clip: clip!, slide: slide! };
+}
+
+describe("tail glide clip release", () => {
+  test("a reply's clip ends when the glide under it is dropped out of view", () => {
+    const { glide, reply, live, clip, slide } = grownAndHeld();
+    expect(clip.keyframes[0]).toEqual({ clipPath: "inset(-4096px -4096px 40px -4096px)" });
+    expect(clip.playState).toBe("paused");
+    // The reader scrolled so the live line lies below the view and the reply still shows.
+    reply.box = { top: 20, bottom: 100 };
+    live.box = { top: 100, bottom: 130 };
+    glide.dropUnseen({ top: 0, bottom: 90 } as DOMRect);
+    expect(slide.playState).toBe("idle");
+    expect(clip.playState).toBe("idle");
+    expect(glide.moving()).toBe(false);
+  });
+
+  test("a reply's clip holds while the glide under it is still in view", () => {
+    const { glide, reply, live, clip, slide } = grownAndHeld();
+    reply.box = { top: 20, bottom: 100 };
+    live.box = { top: 60, bottom: 90 };
+    glide.dropUnseen({ top: 0, bottom: 200 } as DOMRect);
+    expect(slide.playState).toBe("paused");
+    expect(clip.playState).toBe("paused");
+    glide.resume();
+    expect(clip.playState).toBe("running");
+  });
+
+  test("a clipped row out of view never drops its clip while the glide it guards still shows", () => {
+    const { glide, reply, live, clip, slide } = grownAndHeld();
+    reply.box = { top: -100, bottom: -20 };
+    live.box = { top: 0, bottom: 30 };
+    glide.dropUnseen({ top: 0, bottom: 200 } as DOMRect);
+    expect(slide.playState).toBe("paused");
+    expect(clip.playState).toBe("paused");
+  });
+});
