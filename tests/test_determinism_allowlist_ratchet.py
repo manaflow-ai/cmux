@@ -69,6 +69,18 @@ class AllowlistRatchet(unittest.TestCase):
                                      f"test instead of listing it (a hang guard's reason starts 'hang guard:'): "
                                      f"{listed[-5:]}")
 
+    def test_each_debt_ceiling_is_the_current_count(self):
+        # A ceiling above its rule's count is room to list new debt under an old number (a merge that drops fixed
+        # entries and adds others keeps the total under it): each ceiling is exactly what the allowlist holds, so a
+        # fix lowers it in the same change and a new entry fails here.
+        entries = determinism.load_allowlist_entries(ALLOWLIST)
+        debt = Counter(entry.rule for entry in entries if not entry.is_hang_guard)
+        for rule in set(debt) | set(DEBT_CEILING):
+            with self.subTest(rule):
+                self.assertEqual(DEBT_CEILING.get(rule, CEILING.get(rule, 0)), debt[rule],
+                                 f"{rule}: DEBT_CEILING says {DEBT_CEILING.get(rule, 0)}, the allowlist holds "
+                                 f"{debt[rule]}: set the ceiling to the count")
+
     def test_a_hang_guard_bounds_a_duration_and_says_what_would_hang(self):
         # A hang guard is a deadline-only bound, well above any normal run, kept so a hang fails instead of stalling
         # CI. Its entry names what would hang; it is never a sleep or a poll by another name.
