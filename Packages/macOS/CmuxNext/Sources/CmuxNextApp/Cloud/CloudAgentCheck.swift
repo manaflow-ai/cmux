@@ -115,8 +115,7 @@ import os
         return ((try? await send(request))?.1 as? HTTPURLResponse).map(Self.probe)
     }
 
-    /// The probe: Claude Code's own request shape for a subscription login, the smallest it can be, on the start's own
-    /// model as ``modelID(_:)`` reads it (its limits are that model's).
+    /// The probe: Claude Code's request shape for a subscription login, as small as it gets, on ``modelID(_:)`` (its limits).
     nonisolated static func probeRequest(bearer: String, model: String? = nil) -> URLRequest? {
         guard let url = URL(string: "https://api.anthropic.com/v1/messages") else { return nil }
         var request = URLRequest(url: url, timeoutInterval: probeTimeout)
