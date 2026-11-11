@@ -14,8 +14,9 @@
 #    receive-pack, which then runs its own maintenance in the bare repository.
 # 2. The same three as exported GIT_CONFIG_KEY/VALUE pairs, for the git the
 #    scripts under test run.
-# 3. GIT_CONFIG_GLOBAL (when unset) names a file that includes ~/.gitconfig
-#    and ~/.config/git/config, then sets the three.
+# 3. GIT_CONFIG_GLOBAL (when unset) names a file that includes the person's
+#    global config in plain git's order (${XDG_CONFIG_HOME:-~/.config}/git/config,
+#    then ~/.gitconfig), then sets the three.
 
 _git_fixture_opt_out=(maintenance.auto=false gc.auto=0 receive.autogc=false)
 
@@ -29,14 +30,23 @@ export GIT_CONFIG_COUNT=$_git_fixture_count
 unset _git_fixture_count _git_fixture_pair
 
 if [[ -z "${GIT_CONFIG_GLOBAL:-}" ]]; then
-  # One file per user, rewritten only when its text differs; the text never changes, so tests share it.
-  _git_fixture_global="${TMPDIR:-/tmp}/cmux-git-fixture-$(id -u)-v1.gitconfig"
-  _git_fixture_text=$'[include]\n\tpath = ~/.gitconfig\n\tpath = ~/.config/git/config\n[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[receive]\n\tautogc = false'
+  # The person's global config in plain git's order (tests/git_fixture_env.py global_config_text):
+  # $XDG_CONFIG_HOME/git/config (default ~/.config/git/config) first, ~/.gitconfig after it so it wins,
+  # each by absolute [include] path (their own includes keep working; git skips a missing one), then the
+  # opt-out last. One file per distinct text, written atomically.
+  _git_fixture_xdg=${XDG_CONFIG_HOME:-${HOME:+$HOME/.config}}
+  _git_fixture_text=
+  for _git_fixture_path in ${_git_fixture_xdg:+"$_git_fixture_xdg/git/config"} ${HOME:+"$HOME/.gitconfig"}; do
+    # Quoted for spaces, '#' and ';'. A path holding '"' or a backslash is not supported here (Python escapes them).
+    _git_fixture_text+=$'[include]\n\tpath = "'"$_git_fixture_path"$'"\n'
+  done
+  _git_fixture_text+=$'[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[receive]\n\tautogc = false'
+  _git_fixture_global="${TMPDIR:-/tmp}/cmux-git-fixture-$(id -u)-$(printf '%s' "$_git_fixture_text" | cksum | tr ' ' -).gitconfig"
   if [[ "$(cat "$_git_fixture_global" 2>/dev/null)" != "$_git_fixture_text" ]]; then
     printf '%s\n' "$_git_fixture_text" >"$_git_fixture_global.$$" && mv -f "$_git_fixture_global.$$" "$_git_fixture_global"
   fi
   export GIT_CONFIG_GLOBAL=$_git_fixture_global
-  unset _git_fixture_global _git_fixture_text
+  unset _git_fixture_global _git_fixture_text _git_fixture_xdg _git_fixture_path
 fi
 
 # Quiet git that still says why when it fails: a bare exit 128 told nobody which call broke.
