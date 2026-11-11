@@ -43,6 +43,8 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 [dependencies]
 acpmux-build-id = { path = "../acpmux-build-id", optional = true }
 acpmux-hot = { workspace = true, optional = true, features = ["wasm"] }
+arc-swap.workspace = true
+imbl.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }

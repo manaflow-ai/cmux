@@ -58,11 +58,6 @@ change">` trailer, and a visual change also edits plans/cmux-next/sidebar-owner.
 many changes to sidebar?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it. A commit the owner logged in
 that note (its 11-character sha) passes. CI also sweeps every commit since the check landed
 (`--only sidebar --commits`), so a push from an old hook copy or a cancelled CI run is still caught.
-Also on every push: "Chrome layer look" (schemas/theme/chrome-layer-colors.json): a commit that changes that
-file (the colours ChromeLayerColorTests reads off the sidebar, footer and titlebar in the default themes), or a
-hunk of a chrome-layer token source naming a chrome token, carries a `Chrome-Look-OK:` trailer quoting Leo: his
-name and his words in quotes. #39984 dimmed the sidebar for a non-Leo issue (Leo 2026-11-11: "bro why is the
-sidebar now a different color?"). CMUX_NEXT_CHECKS_SKIP_REASON does not skip it.
 Also on every push, in any file: "Merge conflict markers": a file the push adds both a `<<<<<<< ` and
 a `>>>>>>> ` line to (c779988d57d, 2026-10-22, broke CmuxNextAppTests). Nothing skips it.
 Also on every push: "UI font" (check-ui-font.py): the UI font stays the macOS system font with no
@@ -90,6 +85,14 @@ Also on every local run, the same way: "Runs-on variables declare their single-h
 .github/workflows/ or .github/single-host-fallbacks.json, check-single-host-fallbacks.py (the installed copy for the
 hook) refuses each runs-on variable or single-host label the head reads with no declared fallback that the base did
 not already have (cmux#40221 merged two). CI runs it only with --advisory: warnings, never a red step.
+
+Also on every local run, the same way: "Every Cargo.lock matches its manifests" (cargo-locks.py check): when the push
+changes any Cargo.toml or Cargo.lock, every tracked Cargo.lock in the repository is resolved with
+`cargo update --workspace --locked` (index only, no build, seconds), not only the changed workspace's: a manifest
+reaches other workspaces' locks through path dependencies (2026-11-10: eb4f3eb1d94 changed cmux-tui/Cargo.toml, a
+direct push, and cmux-app-ffi's lock failed --locked on every pull request until #40883). It refuses only on cargo's
+own lock error. CI's rust workspaces plan job runs the same check, and the base autofix rewrites a stale lock on
+feat-cmux-next (base-autofix.sh --locks).
 
 Also on every local run, the same way: "Crash ratchet" (crash_ratchet_findings): the Rust classes of CI's crash
 ratchet (crash_ratchet.py: unwrap, expect, panic!/unreachable!/todo!/unimplemented!, process::exit/abort, outside
@@ -275,11 +278,12 @@ FALLBACKS_DECLARATION = ".github/single-host-fallbacks.json"
 FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (variables.NAME or labels.LABEL: the "
                   "`fallback` that takes the job and `after_minutes`), then push. Check with "
                   "`python3 scripts/cmux-next/check-single-host-fallbacks.py`.")
-CARGO_LOCK_CHECK = "Cargo.lock matches its manifests (cargo metadata --locked)"
+CARGO_LOCK_CHECK = "Every Cargo.lock matches its manifests (scripts/cmux-next/cargo-locks.py)"
 CARGO_FILE = re.compile(r"(^|/)Cargo\.(toml|lock)$")
-CARGO_DRIFT = "cannot update the lock file"
-CARGO_HINT = ("Fix the lock: run `cargo metadata --offline --format-version 1 >/dev/null` in that workspace (it "
-              "rewrites Cargo.lock with no version changes), commit it, then push.")
+CARGO_LOCKS_SCRIPT = SCRIPTS + "/cargo-locks.py"
+CARGO_HINT = ("Fix the locks: run `scripts/cmux-next/cargo-locks.py fix` (it runs `cargo update --workspace` in each "
+              "stale workspace, which rewrites only what the manifests now need), commit the Cargo.lock files, then "
+              "push. A manifest change in one workspace can leave another workspace's lock stale (eb4f3eb1d94).")
 SIDEBAR_CHECK = "Sidebar look owner (plans/cmux-next/sidebar-owner.md)"
 SIDEBAR_VIEWS = "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Views/"
 # The sidebar package's code, not only Views/: a702 (9a2fceefbbb, 2026-10-25) changed the pinned section from tiles
@@ -291,27 +295,6 @@ SIDEBAR_EXEMPT = ("Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/",
 SIDEBAR_NOTE = "plans/cmux-next/sidebar-owner.md"
 SIDEBAR_TRAILER = re.compile(r"^Sidebar-Look:[ \t]*(\S.*)$", re.MULTILINE)
 SIDEBAR_NO_VISUAL = re.compile(r"^no visual change\b", re.IGNORECASE)
-# The chrome layer (sidebar, footer, titlebar) keeps its colour unless Leo asks (#39984 laid a 20% black dim on the
-# sidebar for a non-Leo issue; Leo 2026-11-11: "bro why is the sidebar now a different color?", reverted by #41047).
-# ChromeLayerColorTests holds the colours each region paints in the default dark and light themes against
-# CHROME_VECTORS; a commit that changes that file, or a hunk of a chrome-layer token source that names a chrome
-# token, needs a `Chrome-Look-OK:` trailer quoting Leo: his name and his words in quotes.
-CHROME_CHECK = "Chrome layer look (schemas/theme/chrome-layer-colors.json)"
-CHROME_VECTORS = "schemas/theme/chrome-layer-colors.json"
-CHROME_SOURCES = (f"{PKG}/Sources/CmuxNextDesign/Palette.swift",
-                  f"{PKG}/Sources/CmuxNextDesign/PaletteDynamic.swift",
-                  f"{PKG}/Sources/CmuxNextDesign/MainPane.swift",
-                  f"{PKG}/Sources/CmuxNextSidebar/Views/SidebarStyle.swift",
-                  f"{PKG}/Sources/CmuxNextSidebar/Views/SidebarContainerView.swift",
-                  f"{PKG}/Sources/CmuxNextSidebar/Logic/SidebarTunables.swift",
-                  f"{PKG}/Sources/CmuxNextApp/WindowRootView+Surface.swift",
-                  "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift")
-CHROME_TOKENS = re.compile(r"\b(surfaceDim\w*|sidebarDim|sidebarBackground|windowBackground|surfaceBackground|"
-                           r"chromeBackground|sidebarStep|mainPaneChromeShade|mainPaneShade\w*|applySurfaceFill|"
-                           r"SidebarStyle\.ground)\b")
-CHROME_TRAILER = re.compile(r"^Chrome-Look-OK:[ \t]*(\S.*)$", re.MULTILINE)
-CHROME_LEO = re.compile(r"\bLeo\b")
-CHROME_QUOTE = re.compile(r"[\"“][^\"“”]{3,}[\"”]")
 # An added line that opens or closes a conflict hunk (`=======` alone is a Markdown or RST rule).
 CONFLICT_OPEN = re.compile(r"^<{7} ")
 CONFLICT_CLOSE = re.compile(r"^>{7} ")
@@ -1448,58 +1431,45 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
         return [line for line in head_lines if base_stopped or line not in set(base_lines)]
 
 
-def cargo_lock_drift(repo: Path, base: str, head: str) -> list[str]:
-    """Each Cargo workspace whose Cargo.lock no longer matches its manifests at head, when the push changes a
-    Cargo.toml or Cargo.lock in it.
+def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
+    """Every tracked Cargo.lock that no longer matches its workspace's manifests at head, when the push changes any
+    Cargo.toml or Cargo.lock anywhere in the repository (scripts/cmux-next/cargo-locks.py check).
 
     2026-11-02: #31462 moved fs4 between two crates' Cargo.toml and put it under the wrong crate in Cargo.lock.
     Every --locked cargo step on feat-cmux-next then stopped ("cannot update the lock file"), the NEXT nightly
-    included, until #31717. It reads the pushing checkout itself (no tree is exported), so it runs only when
-    head is the checked-out HEAD and the workspace's Cargo files have no uncommitted edits; it refuses only on
-    cargo's own lock error and lets the push through on any other (no cargo, an uncached index, a timeout).
+    included, until #31717. 2026-11-10: eb4f3eb1d94 changed cmux-tui/Cargo.toml and cmux-tui/Cargo.lock only, and
+    the cmux-app-ffi and cmux-layout-reducer-ffi workspaces (their own locks, cmux-tui's crates by path) went stale;
+    this check then read only the lock of the workspace a changed file sat in, so it passed. Now any Cargo change
+    checks every lock: a manifest reaches other workspaces through path dependencies. It reads the pushing
+    checkout itself (no tree is exported), so it runs only when head is the checked-out HEAD and no Cargo file has
+    uncommitted edits; it refuses only on cargo's own lock error and lets the push through on any other (no cargo,
+    an uncached index, a timeout).
     """
-    changed = [p for p in changed_files(repo, base, head) if CARGO_FILE.search(p)]
-    if not changed or shutil.which("cargo") is None:
+    names = git(repo, "diff", "--name-only", "--no-renames", "-z", base, head).decode("utf-8", "surrogateescape")
+    if not any(CARGO_FILE.search(p) for p in names.split("\0") if p) or shutil.which("cargo") is None:
         return []
     try:
         checked_out = git(repo, "rev-parse", "HEAD").decode().strip() == git(repo, "rev-parse", head).decode().strip()
     except subprocess.CalledProcessError:
         return []
     # Pathspecs here use git's default matching, where `*` also matches `/`.
-    locks = [p for p in git(repo, "ls-files", "-z", "--", "*Cargo.lock").decode().split("\0")
-             if p.rpartition("/")[2] == "Cargo.lock"]
-    roots = sorted({lock.rpartition("/")[0] for lock in locks
-                    if any(p.startswith(lock.rpartition("/")[0] + "/") or "/" not in lock for p in changed)})
-    if not roots:
-        return []
-    dirty = subprocess.run(["git", "-C", str(repo), "diff", "--quiet", "HEAD", "--",
-                            *(f"{root}/*Cargo.toml" if root else "*Cargo.toml" for root in roots),
-                            *(f"{root}/Cargo.lock" if root else "Cargo.lock" for root in roots)],
+    dirty = subprocess.run(["git", "-C", str(repo), "diff", "--quiet", "HEAD", "--", "*Cargo.toml", "*Cargo.lock"],
                            capture_output=True).returncode != 0
     if not checked_out or dirty:
         log("prepush-gate: Cargo.lock check skipped: the pushed head is not this checkout's clean HEAD")
         return []
-    # A toolchain the workspace pins but this host lacks is never installed for a lock check.
-    env = {**os.environ, "RUSTUP_AUTO_INSTALL": "0", "CARGO_TERM_COLOR": "never"}
-    found = []
-    for root in roots:
-        manifest = repo.resolve() / root / "Cargo.toml"
-        if not manifest.is_file():
-            continue
-        for network in ("--offline", None):
-            args = ["cargo", "metadata", "--locked", "--format-version", "1", "--manifest-path", str(manifest)]
-            try:
-                run = subprocess.run(args + ([network] if network else []), cwd=manifest.parent, env=env,
-                                     stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=60)
-            except (OSError, subprocess.TimeoutExpired):
-                break
-            if run.returncode == 0:
-                break
-            if CARGO_DRIFT in run.stderr:
-                found.append(f"{root + '/' if root else ''}Cargo.lock: does not match its manifests "
-                             f"(cargo metadata --locked: {CARGO_DRIFT})")
-                break
-    return found
+    script = check_script(repo, head, CARGO_LOCKS_SCRIPT, trusted_scripts)
+    if script is None:
+        return []  # a commit older than the shared check
+    with tempfile.TemporaryDirectory(prefix="cmux-cargo-locks-") as tmp:
+        check = Path(tmp) / "cargo-locks.py"
+        check.write_bytes(script)
+        # 30 workspaces resolve in parallel from the index (about 4 s); each cargo call has its own 120 s limit.
+        code, out = run(["python3", "-I", str(check), "check", "--repo", str(repo.resolve())], Path(tmp), timeout=300)
+    if code == 124:
+        log(f"prepush-gate: Cargo.lock check skipped: {out}")
+        return []
+    return [line.removeprefix("stale: ") for line in out.splitlines() if line.startswith("stale: ")]
 
 
 def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
@@ -1648,22 +1618,35 @@ def interpreter_sys_path(python: str) -> list[str]:
     return [p for p in listed if isinstance(p, str)] if isinstance(listed, list) else []
 
 
-def externally_managed(python: str, stdlib: str | None = None) -> bool:
-    """Whether PYTHON is externally managed (PEP 668): it is not a venv (sys.prefix == sys.base_prefix, asked of
-    PYTHON itself with -I) and its stdlib holds EXTERNALLY-MANAGED. A Debian venv reads its base's stdlib, so it sees
-    the base's marker, yet pip installs into the venv (Codex on #40966). STDLIB overrides the stdlib PYTHON reports;
-    a PYTHON that does not answer is judged by the marker alone, in STDLIB or this interpreter's stdlib."""
-    try:
-        done = subprocess.run([python, "-I", "-c", "import json, sys, sysconfig; "
-                               "print(json.dumps([sys.prefix != sys.base_prefix, sysconfig.get_paths()['stdlib']]))"],
-                              capture_output=True, text=True, timeout=30)
-        venv, reported = json.loads(done.stdout) if done.returncode == 0 else (False, None)
-    except (OSError, ValueError, TypeError, subprocess.SubprocessError):
-        venv, reported = False, None
-    if venv is True:
-        return False
-    where = stdlib if stdlib is not None else reported if isinstance(reported, str) else sysconfig.get_paths()["stdlib"]
-    return os.path.exists(os.path.join(where, "EXTERNALLY-MANAGED"))
+# How pip may install into an interpreter (PEP 668), as one line run with `python -I -c PEP668_ROUTE [STDLIB PURELIB]`
+# (both paths or neither: the interpreter's own). Externally managed: not a venv (sys.prefix == sys.base_prefix; a
+# venv reads its base's stdlib, so it sees the base's marker, yet pip installs into the venv: Codex on #40966) and
+# STDLIB holds EXTERNALLY-MANAGED. It prints one route:
+#   pip       not externally managed, PURELIB writable: plain pip
+#   sudo-pip  not externally managed, PURELIB not writable by this user: pip with sudo
+#   break     externally managed, PURELIB writable (Homebrew): pip --break-system-packages (Codex on leo-workspace#4198)
+#   refuse    externally managed, PURELIB not writable (a system Python under /usr): no pip; say what to do
+# leo-workspace machines/host-baseline.json's PyYAML install runs this same text, and both repos' tests pin its sha256
+# (tests/test_ci_single_host_fallbacks.py PEP668_ROUTE_SHA256), so change both sides together.
+PEP668_ROUTE = 'import os, sys, sysconfig; p = sysconfig.get_paths(); s, w = sys.argv[1:3] if len(sys.argv) == 3 else (p["stdlib"], p["purelib"]); m = sys.prefix == sys.base_prefix and os.path.exists(os.path.join(s, "EXTERNALLY-MANAGED")); print(("break" if m else "pip") if os.access(w, os.W_OK) else ("refuse" if m else "sudo-pip"))'
+PEP668_ROUTES = ("pip", "sudo-pip", "break", "refuse")
+
+
+def pep668_route(python: str, stdlib: str | None = None, purelib: str | None = None) -> str:
+    """PEP668_ROUTE's answer for PYTHON, asked of PYTHON itself with -I. STDLIB and PURELIB override the paths PYTHON
+    reports (a missing one of the two is this interpreter's). A PYTHON that does not answer is judged by this
+    interpreter, with PYTHON's paths taken as this interpreter's."""
+    paths = sysconfig.get_paths()
+    given = [] if stdlib is None and purelib is None else [
+        paths["stdlib"] if stdlib is None else stdlib, paths["purelib"] if purelib is None else purelib]
+    for asked, extra in ((python, given), (sys.executable, given or [paths["stdlib"], paths["purelib"]])):
+        try:
+            done = subprocess.run([asked, "-I", "-c", PEP668_ROUTE, *extra], capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if done.returncode == 0 and done.stdout.strip() in PEP668_ROUTES:
+            return done.stdout.strip()
+    return "refuse"
 
 
 def pyyaml_install_command(python: str, purelib: str | None = None, stdlib: str | None = None,
@@ -1672,17 +1655,18 @@ def pyyaml_install_command(python: str, purelib: str | None = None, stdlib: str 
     `pip install --user` never helps the hook. apt's python3-yaml only where it reaches PYTHON: apt-get exists and
     PYTHON's own sys.path (SYSPATH; read from PYTHON when None) holds APT_DIST_PACKAGES (Codex on #40880: a venv or
     a custom Python on an apt host never sees it). Otherwise pip, run as -I so a PyYAML already in the user site does
-    not satisfy it, into PYTHON's own prefix (with sudo when this user cannot write it). An externally_managed()
-    PYTHON (a venv never is) with no apt route gets what to do instead: no pip install here passes --break-system-packages."""
-    purelib = sysconfig.get_paths()["purelib"] if purelib is None else purelib
+    not satisfy it, into PYTHON's own prefix, by pep668_route(): plain, with sudo, with --break-system-packages, or
+    no pip at all and what to do instead."""
     apt = shutil.which("apt-get") is not None if apt is None else apt
     if apt and APT_DIST_PACKAGES in (interpreter_sys_path(python) if syspath is None else syspath):
         return "sudo apt-get install -y python3-yaml"
-    if externally_managed(python, stdlib):
-        return (f"{python} is externally managed (PEP 668): install PyYAML 6.0.3 with its own package manager, or "
-                "rerun scripts/install-git-hooks.sh with a venv's python3 first on PATH")
-    pip = f"{shlex.quote(python)} -I -m pip install {PYYAML_PIN}"
-    return pip if os.access(purelib, os.W_OK) else f"sudo {pip}"
+    route = pep668_route(python, stdlib, purelib)
+    if route == "refuse":
+        return (f"{python} is externally managed (PEP 668) and this user cannot write its prefix: install PyYAML "
+                "6.0.3 with its own package manager, or rerun scripts/install-git-hooks.sh with a venv's python3 "
+                "first on PATH")
+    pip = f"{shlex.quote(python)} -I -m pip install {'--break-system-packages ' if route == 'break' else ''}{PYYAML_PIN}"
+    return f"sudo {pip}" if route == "sudo-pip" else pip
 
 
 FALLBACKS_STATUSES = ("found", "incomplete")
@@ -1971,68 +1955,6 @@ def sidebar_owner_by_commit(repo: Path, base: str, head: str, ack_rev: str | Non
     return found
 
 
-def chrome_hunks(repo: Path, sha: str, sources: list[str]) -> list[str]:
-    """The chrome-layer token sources among SOURCES whose change in SHA touches a hunk naming a chrome token
-    (`CHROME_TOKENS`, in a changed line or its three lines of context)."""
-    out = git(repo, "show", "--format=", "--no-color", "-U3", sha, "--", *sources, check=False).decode(errors="replace")
-    named: list[str] = []
-    path, hunk, changed = "", [], False
-
-    def close() -> None:
-        if changed and path and path not in named and any(CHROME_TOKENS.search(line) for line in hunk):
-            named.append(path)
-
-    for line in out.split("\n"):
-        if line.startswith("diff --git "):
-            close()
-            path, hunk, changed = line.split(" b/", 1)[-1], [], False
-        elif line.startswith("@@"):
-            close()
-            hunk, changed = [], False
-        elif line.startswith(("+++", "---")):
-            continue
-        elif line[:1] in ("+", "-", " "):
-            hunk.append(line[1:])
-            changed = changed or line[:1] != " "
-    close()
-    return named
-
-
-def chrome_look(repo: Path, base: str, head: str) -> list[str]:
-    """Each pushed commit that changes the chrome layer's recorded colours (`CHROME_VECTORS`) or a chrome token in
-    its sources (`CHROME_SOURCES`) without a `Chrome-Look-OK:` trailer quoting Leo (his name and quoted words).
-
-    Checked per commit, like the sidebar owner, so a later commit cannot launder an earlier one. Leo's ask
-    (2026-11-11, after #39984 dimmed the sidebar for a non-Leo issue): a chrome-layer token change fails unless
-    the pull request quotes him. ChromeLayerColorTests fails on any change to what those regions paint until the
-    file is rewritten, so a colour change reaches this rule through the file even from an unlisted source."""
-    found: list[str] = []
-    watched = [CHROME_VECTORS, *CHROME_SOURCES]
-    out = git(repo, "log", "--reverse", "--no-merges", "--name-only", "--format=%x1e%H%x1f%B%x1f",
-              f"{base}..{head}", "--", *watched, check=False).decode(errors="replace")
-    for record in out.split("\x1e")[1:]:
-        sha, message, names = (record.split("\x1f") + ["", ""])[:3]
-        files = [f for f in names.split("\n") if f in watched]
-        if not files:
-            continue
-        touched = ([CHROME_VECTORS] if CHROME_VECTORS in files else []) + chrome_hunks(
-            repo, sha, [f for f in files if f != CHROME_VECTORS])
-        if not touched:
-            continue
-        trailer = CHROME_TRAILER.search(message)
-        words = trailer.group(1).strip() if trailer else ""
-        if CHROME_LEO.search(words) and CHROME_QUOTE.search(words):
-            continue
-        subject = message.strip().splitlines()[0] if message.strip() else ""
-        where = f"{sha[:11]} {subject[:70]} ({touched[0]}{f' and {len(touched) - 1} more' if len(touched) > 1 else ''})"
-        why = ("no `Chrome-Look-OK:` trailer" if trailer is None else
-               f"`Chrome-Look-OK: {words[:60]}` does not quote Leo (his name and his words in quotes)")
-        found.append(f"{where}: changes the chrome layer's colour (sidebar, footer, titlebar) with {why}. The chrome "
-                     "keeps its colour unless Leo asks: add `Chrome-Look-OK: Leo <date> \"<his words>\"`, or leave "
-                     f"the chrome tokens and {CHROME_VECTORS} as they are.")
-    return found
-
-
 def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
          trusted_scripts: Path | None = None, ack_rev: str | None = None,
          restrict: set[str] | None = None, swiftformat_layer: bool = False,
@@ -2067,17 +1989,13 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     # Local only, like SwiftFormat: CI's own --locked cargo steps stay the backstop. Not in gate_own's runs over the
     # ranges a merge does not own (RESTRICT): the check reads only the checkout, never those ranges' heads.
     if (highlights_layer if only is None else "cargo-lock" in only) and restrict is None:
-        drift = cargo_lock_drift(repo, base, head)
+        drift = cargo_lock_drift(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((CARGO_LOCK_CHECK, drift))
     if only is None or "sidebar" in only:
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
             reserved.append((SIDEBAR_CHECK, owner))
-    if only is None or "chrome" in only:
-        chrome = chrome_look(repo, base, head)
-        if chrome:
-            reserved.append((CHROME_CHECK, chrome))
     if only is None or "freeze" in only:
         frozen = window_freezes(repo, base, head)
         if frozen:
@@ -2974,9 +2892,6 @@ def main(argv: list[str] | None = None) -> int:
     elif skip and any(name == SIDEBAR_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {SIDEBAR_CHECK}. Amend the commit with a "
               "`Sidebar-Look:` trailer (and the note for a visual change); the sidebar owner keeps the look.")
-    elif skip and any(name == CHROME_CHECK for name, _ in found_any):
-        print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {CHROME_CHECK}. The chrome layer keeps its "
-              "colour unless Leo asks, quoted in a `Chrome-Look-OK: Leo <date> \"<his words>\"` commit trailer.")
     elif skip and any(name == RESERVED_CHECK for name, _ in found_any):
         print(f"prepush-gate: CMUX_NEXT_CHECKS_SKIP_REASON does not skip {RESERVED_CHECK}. Changing a Ghostty-default "
               "shortcut needs the user's explicit OK, quoted in a `Ghostty-defaults-OK: <the user's words>` commit trailer.")

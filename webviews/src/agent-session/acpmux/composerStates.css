@@ -556,6 +556,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   outline: 0;
   background: transparent;
   resize: none;
+  /* As tall as its lines, up to the cap: the browser sizes it, no script reads its scrollHeight. */
+  field-sizing: content;
   overflow-y: auto;
   overscroll-behavior: contain;
   font: var(--text-content)/var(--text-content--line-height) ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -698,6 +700,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-queued-edit {
   grid-column: 1 / -1;
   min-width: 0;
+  /* As tall as its lines, up to the cap: the browser sizes it, no script reads its scrollHeight. */
+  field-sizing: content;
   max-height: calc(var(--text-content--line-height) * 4);
   /* Its text stays where the row's text was. */
   margin: 2px 0 2px -6px;

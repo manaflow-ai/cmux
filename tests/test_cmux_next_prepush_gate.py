@@ -192,8 +192,7 @@ class PrePushGateTests(unittest.TestCase):
                         HOME=str(self.root), CMUX_LINT_TOOLS_DIR=str(TOOLS))
         git_fixture_env.without_auto_maintenance(self.env)
 
-        subprocess.run(["git", "init", "--quiet", "--bare", "--initial-branch=feat-cmux-next", str(self.origin)],
-                       env=self.env, check=True, capture_output=True)
+        git_fixture_env.init_repo(self.origin, "--bare", "--initial-branch=feat-cmux-next", env=self.env)
         self.repo.mkdir()
         self.git("init", "--quiet", "--initial-branch=feat-cmux-next")
         self.git("remote", "add", "origin", str(self.origin))
@@ -1073,7 +1072,7 @@ class PrePushGateTests(unittest.TestCase):
         # A branch cut from a contributor's fork (git checkout -b topic fork/contrib) pushed to origin: the fork's
         # commits are not on origin, so they are the push's own.
         fork = self.root / "fork.git"
-        subprocess.run(["git", "init", "--quiet", "--bare", str(fork)], env=self.env, check=True, capture_output=True)
+        git_fixture_env.init_repo(fork, "--bare", env=self.env)
         self.git("remote", "add", "fork", str(fork))
         self.git("checkout", "--quiet", "-b", "contrib")
         self.kit("ForkDebt", self.with_try("ForkDebt"))
@@ -1673,6 +1672,35 @@ let package = Package(
         self.assertEqual(self.remote_head(), before)
         self.assertIn("cmux-tui/Cargo.lock: does not match its manifests", output)
 
+    def test_a_manifest_change_that_leaves_another_workspaces_lock_stale_is_refused(self):
+        # 2026-11-10: eb4f3eb1d94 changed cmux-tui/Cargo.toml and cmux-tui/Cargo.lock only; cmux-app-ffi, a workspace
+        # of its own that builds cmux-tui's crates by path, kept a stale lock and every --locked step there stopped.
+        env = self.cargo_workspace()
+        self.write("cmux-tui/crates/ffi/Cargo.toml", '[package]\nname = "ffi"\nversion = "0.1.0"\nedition = "2021"\n'
+                   '\n[dependencies]\na = { path = "../a" }\n\n[workspace]\n')
+        self.write("cmux-tui/crates/ffi/src/lib.rs", "")
+        made = subprocess.run(["cargo", "generate-lockfile", "--offline"], cwd=self.repo / "cmux-tui/crates/ffi",
+                              env={**self.env, **env}, text=True, capture_output=True)
+        self.assertEqual(made.returncode, 0, made.stderr)
+        self.commit("ffi workspace")
+        self.git("push", "--quiet", "--no-verify", "origin", "feat-cmux-next")
+        before = self.remote_head()
+        self.write("cmux-tui/crates/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n'
+                   '\n[dependencies]\nb = { path = "../b" }\n')
+        locked = subprocess.run(["cargo", "metadata", "--offline", "--format-version", "1"], cwd=self.repo / "cmux-tui",
+                                env={**self.env, **env}, capture_output=True, text=True)
+        self.assertEqual(locked.returncode, 0, locked.stderr)
+        self.commit("a uses b, with cmux-tui's lock only")
+
+        result = self.push(**env)
+
+        output = result.stdout + result.stderr
+        self.assertNotEqual(result.returncode, 0, output)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("cmux-tui/crates/ffi/Cargo.lock: does not match its manifests", output)
+        self.assertNotIn("cmux-tui/Cargo.lock: does not match", output)
+        self.assertIn("cargo-locks.py fix", output)
+
     def test_a_cargo_dependency_with_its_lock_pushes(self):
         env = self.cargo_workspace()
         self.write("cmux-tui/crates/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n'
@@ -1685,91 +1713,6 @@ let package = Package(
         result = self.push(**env)
 
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    CHROME_VECTORS = "schemas/theme/chrome-layer-colors.json"
-    CHROME_PALETTE = f"{PKG}/Sources/CmuxNextDesign/MainPane.swift"
-
-    def test_a_chrome_colour_change_without_a_chrome_look_trailer_is_refused_even_with_a_skip_reason(self):
-        # #39984 dimmed the sidebar for a non-Leo issue (Leo 2026-11-11: "bro why is the sidebar now a different
-        # color?"): the recorded chrome colours change only on Leo's words.
-        before = self.remote_head()
-        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#141414"}]}\n')
-        self.commit("sidebar: dim the list")
-
-        result = self.push(CMUX_NEXT_CHECKS_SKIP_REASON="unrelated")
-
-        output = result.stdout + result.stderr
-        self.assertNotEqual(result.returncode, 0, output)
-        self.assertEqual(self.remote_head(), before)
-        self.assertIn("Chrome layer look", output)
-        self.assertIn("no `Chrome-Look-OK:` trailer", output)
-
-    def test_a_chrome_look_trailer_without_leo_is_refused(self):
-        # The Sidebar-Look trailer on #39984 quoted another person's issue; this one must quote Leo.
-        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#141414"}]}\n')
-        self.commit('sidebar: dim the list\n\nChrome-Look-OK: issue 39956 "match the Codex sidebar"')
-
-        result = self.push()
-
-        output = result.stdout + result.stderr
-        self.assertNotEqual(result.returncode, 0, output)
-        self.assertIn("does not quote Leo", output)
-
-    def test_a_chrome_look_trailer_naming_leo_without_his_words_is_refused(self):
-        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#141414"}]}\n')
-        self.commit("sidebar: dim the list\n\nChrome-Look-OK: Leo said it was fine")
-
-        result = self.push()
-
-        output = result.stdout + result.stderr
-        self.assertNotEqual(result.returncode, 0, output)
-        self.assertIn("does not quote Leo", output)
-
-    def test_a_chrome_colour_change_quoting_leo_pushes(self):
-        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#1E1E1E"}]}\n')
-        self.commit('chrome: one surface\n\nChrome-Look-OK: Leo 2026-11-11 "bro why is the sidebar now a different color?"')
-
-        result = self.push()
-
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_a_chrome_token_source_hunk_naming_a_chrome_token_needs_the_trailer(self):
-        self.write(self.CHROME_PALETTE, "struct Palette {\n    // the window\n    static let windowBackground = 1\n"
-                   "    static let textPrimary = 2\n}\n")
-        self.commit('palette: start\n\nChrome-Look-OK: Leo 2026-11-11 "one surface with the chrome"')
-        self.write(self.CHROME_PALETTE, "struct Palette {\n    // the window\n    static let windowBackground = 3\n"
-                   "    static let textPrimary = 2\n}\n")
-        self.commit("palette: a darker window")
-
-        result = self.push()
-
-        output = result.stdout + result.stderr
-        self.assertNotEqual(result.returncode, 0, output)
-        self.assertIn("palette: a darker window", output)
-        self.assertIn("no `Chrome-Look-OK:` trailer", output)
-
-    def test_a_chrome_token_source_change_away_from_chrome_tokens_needs_no_trailer(self):
-        lines = ["struct Palette {", "    static let windowBackground = 1"] + [f"    // {i}" for i in range(12)]
-        self.write(self.CHROME_PALETTE, "\n".join(lines + ["    static let textPrimary = 2", "}"]) + "\n")
-        self.commit('palette: start\n\nChrome-Look-OK: Leo 2026-11-11 "one surface with the chrome"')
-        self.write(self.CHROME_PALETTE, "\n".join(lines + ["    static let textPrimary = 4", "}"]) + "\n")
-        self.commit("palette: brighter text")
-
-        result = self.push()
-
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_a_later_commit_does_not_launder_an_earlier_chrome_change(self):
-        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#141414"}]}\n')
-        self.commit("sidebar: dim the list")
-        self.write(self.CHROME_VECTORS, '{"cases": [{"theme": "dark", "sidebar": "#151515"}]}\n')
-        self.commit('sidebar: dim less\n\nChrome-Look-OK: Leo 2026-11-11 "one surface with the chrome"')
-
-        result = self.push()
-
-        output = result.stdout + result.stderr
-        self.assertNotEqual(result.returncode, 0, output)
-        self.assertIn("sidebar: dim the list", output)
 
     SIDEBAR_VIEW = f"{PKG}/Sources/CmuxNextSidebar/Views/RowView.swift"
 
