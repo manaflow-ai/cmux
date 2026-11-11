@@ -290,7 +290,10 @@ export class HarnessSwitch {
     // `null`: a new chat with no folder (startFolderModel newChatFolder). acpmux's host fills it; an
     // earlier start's folder never carries over, so one refused folder (a tab's inherited `~`) never
     // becomes the folder of the next start, of this agent or another (cmux#40938).
-    const cwd = folder === null ? undefined : (folder ?? previous?.cwd ?? shownSession?.cwd);
+    // A folder the pane refused (`transport.path_outside_roots`) is never carried either: only a
+    // folder the person names again, which goes through the host's folder grant first, starts there.
+    const carried = previous && !refusedFolder(previous) ? previous.cwd : undefined;
+    const cwd = folder === null ? undefined : (folder ?? carried ?? shownSession?.cwd);
     const held = Object.entries(options.options ?? {});
     if (previous && previous.harness === harness && previous.phase !== "failed" && previous.cwd === cwd) {
       if (options.model) void this.pickModel(options.model);
@@ -549,7 +552,10 @@ export class HarnessSwitch {
   /// Retry after a failure: starts the harness again (the prompt stays in the composer).
   retry(): void {
     const intent = this.intent;
-    if (intent?.phase === "failed") void this.switchTo(intent.harness, intent.cwd, { deferred: !intent.shown });
+    // Retry after the pane refused the folder starts with no folder (the host fills it), never the
+    // refused one again, which could only fail the same way (cmux#40938).
+    if (intent?.phase === "failed")
+      void this.switchTo(intent.harness, refusedFolder(intent) ? null : intent.cwd, { deferred: !intent.shown });
   }
 
   /// The user went elsewhere (another session, a fork, a default new chat): the switch ends and
@@ -965,4 +971,9 @@ export function applySwitch(
     unavailable: undefined,
     missingReason: undefined,
   };
+}
+
+/// The pane's relay refused the intent's folder (AcpmuxPathPolicy): it is outside the pane's roots.
+function refusedFolder(intent: { phase: string; code?: string; cwd?: string }): boolean {
+  return intent.phase === "failed" && intent.code === "transport.path_outside_roots" && !!intent.cwd;
 }

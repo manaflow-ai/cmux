@@ -31,7 +31,10 @@ started in the whole home folder.
    chat has no folder (`null`) and the host fills it. The harness switch never gives such a chat an
    earlier start's folder, so one refused folder cannot become the next start's folder for any
    agent (cmux#40938: a fresh workspace's `~` did, and every agent failed with "This folder is
-   outside the folders this pane may use").
+   outside the folders this pane may use"). A folder the pane refused
+   (`transport.path_outside_roots`) is never started again by the switch: not as the folder a later
+   folderless pick carries over, and not by the failure card's Retry, which starts with no folder.
+   Only a folder the person names again (through decision 2's grant) starts there.
 2. A folder the user picks goes through the host first (`workspace.useFolder {cwd, confirm}`):
    `ok` (used at once; a folder outside every root still passes on the user's click, as #18347
    decided), `confirm` with reason `home` for the home folder, `refused` with reason `root` for `/`
