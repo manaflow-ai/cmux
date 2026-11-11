@@ -117,6 +117,14 @@ impl Engine {
             return None;
         }
         let before = self.desktop.focus_snapshot()?;
+        // The app the agent brought forward stops being the agent's once
+        // anything else is in front (the person switched apps).
+        {
+            let mut slot = self.agent_front.lock().unwrap_or_else(|e| e.into_inner());
+            if slot.is_some_and(|pid| pid != before.pid) {
+                *slot = None;
+            }
+        }
         let inputs = self.takeover.input_count();
         let window = args_str(args, "window_id");
         let targets = window
@@ -167,6 +175,14 @@ impl Engine {
         if !moved(&g.before, &now, &g.targets) {
             return FocusReport::Kept;
         }
+        // The agent brought this app to the front itself (foreground
+        // delivery, allowed by the person) and it still is: a window of it
+        // opening or coming forward (an About or Settings window) is the
+        // agent's work, so it is left where it is. Another app taking focus
+        // is still put back.
+        if now.pid == g.before.pid && self.agent_front_pid() == Some(g.before.pid) {
+            return FocusReport::Kept;
+        }
         let taker = self.focus_taker(g, &now);
         let after = self.takeover.input_count();
         let watched = g.inputs.is_some() && after.is_some();
@@ -214,6 +230,31 @@ impl Engine {
             .ok()
             .and_then(|apps| apps.into_iter().find(|a| a.pid == top).map(|a| a.id))
             .unwrap_or_else(|| format!("pid:{top}"))
+    }
+}
+
+impl Engine {
+    /// After a foreground call that acted: remember the app now in front if
+    /// it is the call's target.
+    pub(super) fn note_agent_front(&self, args: &Value) {
+        if !asks_foreground(args) {
+            return;
+        }
+        let target = args_str(args, "window_id")
+            .and_then(|id| self.desktop.window(id).ok().flatten())
+            .map(|w| w.pid);
+        let front = self.desktop.focus_snapshot().map(|s| s.pid);
+        if let (Some(t), Some(f)) = (target, front)
+            && t == f
+        {
+            *self.agent_front.lock().unwrap_or_else(|e| e.into_inner()) = Some(t);
+        }
+    }
+
+    /// The app the agent brought forward (see focus_begin for when that
+    /// ends).
+    fn agent_front_pid(&self) -> Option<u32> {
+        *self.agent_front.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 

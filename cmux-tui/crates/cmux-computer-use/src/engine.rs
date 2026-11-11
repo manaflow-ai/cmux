@@ -293,6 +293,10 @@ pub struct Engine {
     settle: Settle,
     sleep: Arc<dyn Fn(Duration) + Send + Sync>,
     clock: Arc<dyn Fn() -> Duration + Send + Sync>,
+    /// The app an agent last brought to the front with foreground delivery
+    /// (the person allowed it), while it stays frontmost: its windows
+    /// coming and going are the agent's work, not the person's focus.
+    agent_front: Mutex<Option<u32>>,
 }
 
 /// What a capture checks before it reads a window.
@@ -363,6 +367,7 @@ impl Engine {
             settle: parts.settle,
             sleep: parts.sleep,
             clock: parts.clock,
+            agent_front: Mutex::new(None),
         }
     }
 
@@ -443,6 +448,9 @@ impl Engine {
             Err(out) => (out, None),
         };
         let mut focus = guard.as_mut().map(|g| self.focus_after_action(g, &out));
+        if !out.is_error && tool.acts() && guard.is_none() {
+            self.note_agent_front(&args);
+        }
         if let Some(call_id) = acting_id {
             self.sessions.remember(&ctx.session, call_id, out.to_json().to_string());
         }

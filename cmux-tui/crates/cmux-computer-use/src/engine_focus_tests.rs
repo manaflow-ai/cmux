@@ -244,3 +244,58 @@ fn a_batch_is_guarded_once() {
     assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari");
     assert_eq!(r.desktop.restores().len(), 1);
 }
+
+/// Safari (pid 10) in front with another of its windows (an About or
+/// Settings window) as the key window.
+fn safari_other_window() -> FocusSnapshot {
+    FocusSnapshot { window_id: Some("9".into()), ..safari_front() }
+}
+
+#[test]
+fn a_window_of_the_app_the_agent_brought_forward_stays() {
+    let r = rig();
+    r.engine.set_config(PolicyConfig { allow_foreground: true, ..PolicyConfig::default() });
+    // The agent brings Safari forward on purpose (foreground delivery).
+    *r.desktop.steal_on_input.lock().unwrap() = Some(safari_front());
+    let out = r.engine.call(
+        &ctx("f"),
+        "click",
+        &json!({"window_id": "1", "element_id": "e1", "delivery": "foreground"}),
+    );
+    assert!(!out.is_error, "{:?}", out.body);
+    // Then a background press opens Safari's About window, which becomes
+    // the key window: the agent's work, left in front (it was put back
+    // behind the main window, and a task graded on the front window failed).
+    *r.desktop.steal_on_input.lock().unwrap() = Some(safari_other_window());
+    let out = click(&r, "c2");
+    assert_eq!(out.body["focus"], json!({"kept": true}), "{:?}", out.body);
+    assert!(r.desktop.restores().is_empty());
+    // Another app taking the front is still put back.
+    *r.desktop.steal_on_input.lock().unwrap() = Some(person());
+    let out = click(&r, "c3");
+    assert_eq!(out.body["focus"]["restored_from"], "com.apple.TextEdit", "{:?}", out.body);
+}
+
+#[test]
+fn the_person_switching_apps_ends_the_agents_front_app() {
+    let r = rig();
+    r.engine.set_config(PolicyConfig { allow_foreground: true, ..PolicyConfig::default() });
+    *r.desktop.steal_on_input.lock().unwrap() = Some(safari_front());
+    let _ = r.engine.call(
+        &ctx("f"),
+        "click",
+        &json!({"window_id": "1", "element_id": "e1", "delivery": "foreground"}),
+    );
+    // The person goes back to TextEdit; later Safari comes forward again on
+    // its own (not by a foreground call), and its window activates.
+    *r.desktop.focus.lock().unwrap() = Some(person());
+    let _ = click(&r, "c2");
+    *r.desktop.focus.lock().unwrap() = Some(safari_front());
+    *r.desktop.steal_on_input.lock().unwrap() = Some(safari_other_window());
+    let out = click(&r, "c3");
+    assert!(
+        out.body["focus"].get("restored_from").is_some(),
+        "Safari is no longer the agent's front app: {:?}",
+        out.body
+    );
+}
