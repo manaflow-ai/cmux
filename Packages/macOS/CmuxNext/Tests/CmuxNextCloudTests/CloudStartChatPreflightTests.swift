@@ -38,32 +38,32 @@ import Testing
     let made = CloudMoveCLI.StartChatPlan(createKey: "c", tabKey: "t")
 
     @Test func onlyAFailureWithAWorkingRetryKeepsTheMachine() {
-        #expect(!CloudStartStranded.strands(CloudMoveFailure(message: "stopped answering", retry: .move(machineID: "m1"))))
-        #expect(CloudStartStranded.strands(CloudMoveFailure(message: "too big to copy")))
-        #expect(CloudStartStranded.strands(Boom()))
-        #expect(!CloudStartStranded.strands(CancellationError()))
+        #expect(!CloudMoveCLI.StartChatPlan.strands(CloudMoveFailure(message: "stopped answering", retry: .move(machineID: "m1"))))
+        #expect(CloudMoveCLI.StartChatPlan.strands(CloudMoveFailure(message: "too big to copy")))
+        #expect(CloudMoveCLI.StartChatPlan.strands(Boom()))
+        #expect(!CloudMoveCLI.StartChatPlan.strands(CancellationError()))
     }
 
     @Test func aMachineIsMadeForTheStartOnlyWhenTheAppOrThePlatformMadeItNow() {
-        #expect(CloudStartStranded.madeForStart(made))
-        #expect(!CloudStartStranded.madeForStart(.init(machine: "vm-found", createKey: "c", tabKey: "t")))
-        #expect(CloudStartStranded.madeForStart(.init(machine: "vm-ensured", createKey: "c", tabKey: "t", madeForSend: true)))
+        #expect(made.madeForStart)
+        #expect(!CloudMoveCLI.StartChatPlan(machine: "vm-found", createKey: "c", tabKey: "t").madeForStart)
+        #expect(CloudMoveCLI.StartChatPlan(machine: "vm-ensured", createKey: "c", tabKey: "t", madeForSend: true).madeForStart)
     }
 
     @Test func aStrandedStartDeletesItsMachineAndRethrows() async {
         var deleted = 0
         await #expect(throws: Boom.self) {
-            try await CloudStartStranded.releasing(made, sameAccount: { true }, delete: { deleted += 1 }) { () async throws -> String in throw Boom() }
+            try await made.releasing(sameAccount: { true }, delete: { deleted += 1 }) { () async throws -> String in throw Boom() }
         }
         #expect(deleted == 1)
         // A Retry that reuses the machine, another account, a found machine or a success: nothing is deleted.
-        _ = try? await CloudStartStranded.releasing(made, sameAccount: { true }, delete: { deleted += 1 }) { () async throws -> String in
+        _ = try? await made.releasing(sameAccount: { true }, delete: { deleted += 1 }) { () async throws -> String in
             throw CloudMoveFailure(message: "x", retry: .move(machineID: "m1"))
         }
-        _ = try? await CloudStartStranded.releasing(made, sameAccount: { false }, delete: { deleted += 1 }) { () async throws -> String in throw Boom() }
-        _ = try? await CloudStartStranded.releasing(.init(machine: "vm-found", createKey: "c", tabKey: "t"), sameAccount: { true },
+        _ = try? await made.releasing(sameAccount: { false }, delete: { deleted += 1 }) { () async throws -> String in throw Boom() }
+        _ = try? await CloudMoveCLI.StartChatPlan(machine: "vm-found", createKey: "c", tabKey: "t").releasing(sameAccount: { true },
                                                     delete: { deleted += 1 }) { () async throws -> String in throw Boom() }
-        #expect(try! await CloudStartStranded.releasing(made, sameAccount: { true }, delete: { deleted += 1 }) { "ok" } == "ok")
+        #expect(try! await made.releasing(sameAccount: { true }, delete: { deleted += 1 }) { "ok" } == "ok")
         #expect(deleted == 1)
     }
 }

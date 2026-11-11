@@ -123,7 +123,7 @@ struct CloudStartChat {
         let (machine, plan) = try await self.machine(for: start, account: account, workspace: origin.workspace, cli: cli, invocation: invocation) {
             await CloudChatPick(services: services).read(folder: chat, tab: tab)
         }
-        return try await CloudStartStranded.releasing(plan, sameAccount: { account == services.cloud.account }, delete: { try await services.cloud.deleteMachine(machine.machineID) }) { // a start that can't go on deletes its machine
+        return try await plan.releasing(sameAccount: { account == services.cloud.account }, delete: { try await services.cloud.deleteMachine(machine.machineID) }) { // a start that can't go on deletes its machine
             let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
             // The account may have changed while the machine connected: copy nothing then.
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
@@ -164,7 +164,6 @@ struct CloudStartChat {
             return try await open(start, from: origin, on: machine, cwd: copy.1.chat, trusted: copy.1.sourceTrusted, tabKey: plan.tabKey, targetPane: plan.targetPane, cli: cli, copy: entry)
         }
     }
-
 
     /// What a copy answers: the CLI's answer, and the chat's folder and the copied folder on the machine, whether it copied now (false: an earlier
     /// copy under the key finished) and whether this Mac trusts the source.
@@ -254,7 +253,7 @@ struct CloudStartChat {
         report(.init(name: "machine"))
         let (machine, plan) = try await self.machine(for: start, account: account, workspace: origin.workspace,
                                                      cli: CloudMoveCLI(binary: binary, timeout: services.cloud.move.timeout), invocation: invocation) { await CloudChatPick(services: services).read(folder: nil, tab: tab) }
-        return try await CloudStartStranded.releasing(plan, sameAccount: { account == services.cloud.account }, delete: { try await services.cloud.deleteMachine(machine.machineID) }) { // a start that can't go on deletes its machine
+        return try await plan.releasing(sameAccount: { account == services.cloud.account }, delete: { try await services.cloud.deleteMachine(machine.machineID) }) { // a start that can't go on deletes its machine
             try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
             // The harness login before the first prompt, as for a chat with a project (+Login), and remote approvals meanwhile.
             _ = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) { await passHarnessLogin(harness: start.harness, machine: machine) }

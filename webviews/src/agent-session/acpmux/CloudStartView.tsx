@@ -220,7 +220,10 @@ function TooBigActions({
       {repos.length > 0 && onPickRepo && (
         <>
           <span className="acpmux-cloud-too-big__label">{t("cloudStart.pickRepo")}</span>
-          <span className="acpmux-cloud-ask__actions acpmux-cloud-too-big__repos" role="group" aria-label={t("cloudStart.pickRepo")}>
+          <fieldset
+            className="acpmux-cloud-ask__actions acpmux-cloud-too-big__repos"
+            aria-label={t("cloudStart.pickRepo")}
+          >
             {repos.map((repo) => (
               <button
                 key={repo.path}
@@ -233,7 +236,7 @@ function TooBigActions({
                 {repo.name}
               </button>
             ))}
-          </span>
+          </fieldset>
         </>
       )}
       {(offerFolder || onStartWithoutFolder) && (

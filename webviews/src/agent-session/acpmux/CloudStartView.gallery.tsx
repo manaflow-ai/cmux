@@ -105,10 +105,12 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
             "~/Projects is too big to copy to a Cloud machine (at least 20.1 GB in 323,831 files). It holds repositories of its own: pick one to start in, or start without a folder.",
           tooBig: {
             folder: "~/Projects",
-            repos: ["cmux", "cmux-platform-docs", "dotfiles", "leo-workspace", "paint", "work/api", "work/web"].map((name) => ({
-              name,
-              path: `/Users/me/Projects/${name}`,
-            })),
+            repos: ["cmux", "cmux-platform-docs", "dotfiles", "leo-workspace", "paint", "work/api", "work/web"].map(
+              (name) => ({
+                name,
+                path: `/Users/me/Projects/${name}`,
+              }),
+            ),
             more: false,
           },
         },
