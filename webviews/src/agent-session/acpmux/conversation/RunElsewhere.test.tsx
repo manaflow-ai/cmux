@@ -313,6 +313,17 @@ test("a host that refuses the plan says the build can't do it, and Cancel is the
   expect(host.querySelector(".cv-run-elsewhere")).toBeNull();
 });
 
+test("a dropped connection is not said as a build that can't send commands", async () => {
+  const { runs } = harness();
+  runs.client.plan = async () => {
+    throw Object.assign(new Error("No connection to acpmux"), { code: "transport.no_connection" });
+  };
+  const host = await render(call("in_progress", Date.now() - 30_000), runs);
+  await act(async () => host.querySelector<HTMLElement>(".cv-run-elsewhere-chip")!.click());
+  await flush();
+  expect(host.querySelector(".cv-run-elsewhere")!.textContent).not.toContain(translate("runElsewhere.unavailable"));
+});
+
 test("acpmux's own reason a command stays is still said", async () => {
   const { runs } = harness();
   runs.client.plan = async () => {

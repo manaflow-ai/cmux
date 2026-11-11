@@ -8,7 +8,6 @@ import type { KeyboardEvent, MouseEvent } from "react";
 import { useContext, useEffect, useRef, useState } from "react";
 import { DialogButton } from "../../../ui/DialogButton";
 import { useT } from "../i18n";
-import { isHostRefusal } from "../transportErrors";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import {
@@ -62,11 +61,13 @@ function openPanel(runs: Runs, toolCallId: string, command: string) {
     },
     (error: unknown) => {
       if (runs.store.get(toolCallId)?.phase !== "loading") return;
-      // A host that does not pass the plan on (its relay allowlist) is said as such, never its
-      // transport error ("Refused by the cmux host" read as a reason the command stays).
-      const plan: RunPlan = isHostRefusal(error)
-        ? { eligible: false, unavailable: true, machines: [] }
-        : { eligible: false, why: String((error as Error)?.message ?? error), machines: [] };
+      // A host that does not pass the plan on (not on its relay allowlist) is said as such, never
+      // its transport error ("Refused by the cmux host" read as a reason the command stays). A
+      // dropped connection is not that, so only the allowlist's own refusal counts.
+      const plan: RunPlan =
+        (error as { code?: unknown })?.code === "transport.method_refused"
+          ? { eligible: false, unavailable: true, machines: [] }
+          : { eligible: false, why: String((error as Error)?.message ?? error), machines: [] };
       runs.store.set(toolCallId, { phase: "choosing", plan, send: [] });
     },
   );
