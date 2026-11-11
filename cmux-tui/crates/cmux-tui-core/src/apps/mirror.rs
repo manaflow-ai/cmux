@@ -150,6 +150,82 @@ pub struct Mirror {
     /// (key, fingerprint) of the latest applied ops, oldest first.
     #[serde(default)]
     pub applied: VecDeque<(String, String)>,
+    /// Mirror fields this build does not know (a newer build's, read after a
+    /// rollback): written back unchanged.
+    #[serde(flatten)]
+    pub newer_fields: serde_json::Map<String, serde_json::Value>,
+    /// Records as stored, for [`Mirror::to_stored`].
+    #[serde(skip)]
+    pub stored: StoredRecords,
+}
+
+/// Records as `apps.json` held them, so a save writes back what this build
+/// did not change. A newer build may add a record field or a source kind; an
+/// older build that the person rolls back to must keep such records, never
+/// set the file aside or drop the grants in it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct StoredRecords {
+    /// Records this build cannot read (a source kind it does not know, a
+    /// field it needs that is missing). The app counts as not installed here,
+    /// so it holds no grant; the record is written back while this build
+    /// makes no record of its own for the app.
+    unreadable: BTreeMap<String, serde_json::Value>,
+    /// Records this build reads whose stored form holds more (fields it does
+    /// not know): the record as read and its stored form, written back while
+    /// the record is unchanged.
+    read: BTreeMap<String, (Record, serde_json::Value)>,
+}
+
+impl StoredRecords {
+    /// Whether `app` has a stored record this build cannot read.
+    pub fn unreadable(&self, app: &str) -> bool {
+        self.unreadable.contains_key(app)
+    }
+}
+
+impl Mirror {
+    /// The mirror `apps.json` stores as `value`. `None` only when the
+    /// mirror's own fields do not parse; a record this build cannot read is
+    /// kept aside ([`StoredRecords`]), never a reason to refuse the file.
+    pub fn from_stored(mut value: serde_json::Value) -> Option<Self> {
+        let object = value.as_object_mut()?;
+        let serde_json::Value::Object(apps) = object.remove("apps")? else { return None };
+        object.insert("apps".into(), serde_json::Value::Object(serde_json::Map::new()));
+        let mut mirror: Mirror = serde_json::from_value(value).ok()?;
+        for (app, stored) in apps {
+            match serde_json::from_value::<Record>(stored.clone()) {
+                Ok(record) => {
+                    if serde_json::to_value(&record).ok().as_ref() != Some(&stored) {
+                        mirror.stored.read.insert(app.clone(), (record.clone(), stored));
+                    }
+                    mirror.apps.insert(app, record);
+                }
+                Err(_) => {
+                    mirror.stored.unreadable.insert(app, stored);
+                }
+            }
+        }
+        Some(mirror)
+    }
+
+    /// The `mirror` member of `apps.json`: this build's records, a record it
+    /// did not change as it was stored, and records it cannot read.
+    pub fn to_stored(&self) -> serde_json::Result<serde_json::Value> {
+        let mut value = serde_json::to_value(self)?;
+        if let Some(serde_json::Value::Object(apps)) = value.get_mut("apps") {
+            for (app, (read, stored)) in &self.stored.read {
+                if self.apps.get(app) == Some(read) {
+                    apps.insert(app.clone(), stored.clone());
+                }
+            }
+            for (app, stored) in &self.stored.unreadable {
+                if !self.apps.contains_key(app) {
+                    apps.insert(app.clone(), stored.clone());
+                }
+            }
+        }
+        Ok(value)
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -297,7 +373,8 @@ pub fn reduce(mirror: &Mirror, op: &Op, facts: Option<&Facts>) -> Result<Outcome
     match op {
         Op::Seed { app, hidden } => {
             let facts = facts.ok_or(Reject::UnknownApp)?;
-            if mirror.apps.contains_key(app) {
+            // A record this build cannot read is the person's (a newer build's): never seeded over.
+            if mirror.apps.contains_key(app) || mirror.stored.unreadable(app) {
                 return Ok(unchanged(mirror, false));
             }
             let mut next = mirror.clone();

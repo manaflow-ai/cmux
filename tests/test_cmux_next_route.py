@@ -26,6 +26,13 @@ from cmux_next_push_attribution import (MAX_COMMENTED_PRS, failed_jobs, bisect_h
 import cmux_next_route  # noqa: E402
 from cmux_next_route import MAX_PRIORITY_SUITES, outputs, route  # noqa: E402
 from cmux_next_route import matches as route_matches  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 PACKAGE = "Packages/macOS/CmuxNext"
 GRAPH = json.loads((ROOT / PACKAGE / "ci-target-graph.json").read_text(encoding="utf-8"))
@@ -412,6 +419,20 @@ class PullRequestTiers(unittest.TestCase):
             with self.subTest(path=path):
                 result = tiers([path])
                 for tier in ("native", "scheme", "macos", "swift", "generated", "daemon"):
+                    self.assertEqual(result[tier], "false", tier)
+
+    def test_a_workflow_and_its_script_only_tool_run_no_mac_compile(self):
+        """#40575 changed only classic-migration-staging.yml and the classic-migrate .ts it runs with
+        bun, and waited on cmux-next/compile, a compile its diff could not change."""
+        for changed in ([".github/workflows/classic-migration-staging.yml",
+                         "scripts/cmux-next/classic-migrate/staging-proof.test.ts",
+                         "scripts/cmux-next/classic-migrate/staging-proof.ts"],
+                        ["scripts/cmux-next/classic-migrate/fixtures/base-cli-ledger.jsonl"],
+                        ["scripts/cmux-next/proxy-demo/demo.py"], ["scripts/cmux-next/team-vm-spike/caps.sh"],
+                        ["scripts/cmux-next/mac-screen-rd-rig/run.sh"]):
+            with self.subTest(changed=changed):
+                result = tiers(changed)
+                for tier in ("native", "scheme", "macos", "mac_release", "swift", "generated", "daemon"):
                     self.assertEqual(result[tier], "false", tier)
 
     def test_a_path_no_mac_build_reads_beside_swift_keeps_the_swift_tiers(self):
