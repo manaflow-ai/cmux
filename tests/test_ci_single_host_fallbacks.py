@@ -226,6 +226,22 @@ class SingleHostFallbacks(unittest.TestCase):
                 self.assertEqual(wj.variable_reads(text), expected)
         self.assertEqual(self.scan({"x.yml": "jobs:\n  a:\n    runs-on: ${{ 'vars.NEW_X' }}\n"}), [])
 
+    def test_a_closing_brace_pair_inside_a_string_literal_does_not_end_the_expression(self) -> None:
+        """Codex on hq#9175: the `${{ }}` scan stopped at the first `}}`, also one inside a quoted literal, so
+        `contains('}}', '}') && vars.NEW_X || ...` hid the variable after it and the rest read as plain text. The scan
+        is quote-aware: an expression ends at a `}}` outside every literal, and one never closed reads as a variable
+        no declaration can name."""
+        wj = checker.load_workflow_jobs()
+        for text, expected in (("${{ contains('}}', '}') && vars.NEW_X || 'blacksmith-4vcpu-ubuntu-2404' }}", ["NEW_X"]),
+                               ("${{ '}}' }}${{ vars.AFTER }}", ["AFTER"]),
+                               ("${{ vars.A == 1e+2 || vars.B == -1 || vars.C == 0x1F || vars.D == 1.5E-3 }}",
+                                ["A", "B", "C", "D"]),
+                               ("${{ vars.OPEN ", [None])):
+            with self.subTest(text=text):
+                self.assertEqual(wj.variable_reads(text), expected)
+        runs_on = "${{ contains('}}', '}') && vars.NEW_X || 'blacksmith-4vcpu-ubuntu-2404' }}"
+        self.assert_names(self.scan({"x.yml": f'jobs:\n  a:\n    runs-on: "{runs_on}"\n'}), "NEW_X")
+
     def test_a_part_that_reads_no_variable_is_not_this_policys_business(self) -> None:
         for runs_on in ("${{ needs.setup.outputs.runner }}", "${{ fromJSON(needs.setup.outputs.runners).mac }}",
                         "${{ inputs.runner }}"):
