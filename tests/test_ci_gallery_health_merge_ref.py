@@ -101,8 +101,9 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertIn("steps.render.outcome == 'failure'", judge["if"])
         self.assertIn("!cancelled()", judge["if"])
         names = [entry.get("name") for entry in steps()]
-        self.assertEqual(names.index("Judge the red states against the base"),
-                         names.index("Render the gallery and judge it") + 1)
+        # Only the base gallery's download sits between them, and it runs only when the render failed too.
+        self.assertEqual(names[names.index("Render the gallery and judge it") + 1:names.index("Judge the red states against the base")],
+                         ["Fetch the base gallery"])
         self.assertLess(names.index("Judge the red states against the base"), names.index("Upload the health run"))
 
     def test_the_base_is_the_merges_first_parent_rendered_by_the_same_checker(self) -> None:
@@ -203,7 +204,7 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertLess(check, judge.index('rm -rf "$RUNNER_TEMP/base-gallery"'))
         # Run the branch: a gallery for another base (a moved merge ref) is not used.
         with tempfile.TemporaryDirectory(prefix="gallery-base-") as tmp:
-            block = judge[judge.index("if [ \"$(cat"):judge.index("          fi\n", check) + len("          fi\n")]
+            block = judge[judge.index('if [ "$(cat'):judge.index("\nfi\n", check) + len("\nfi\n")]
             gallery = Path(tmp) / "base-gallery"
             for stamped, built in (("a" * 40, False), ("b" * 40, True)):
                 gallery.mkdir(exist_ok=True)
@@ -222,9 +223,9 @@ class GalleryHealthBaseReds(unittest.TestCase):
         replay = run[run.index("for pass in 1 2"):]
         self.assertIn("--concurrency 1", replay)
         self.assertIn(") &", replay)
-        self.assertLess(replay.index(") &"), replay.index("\n          wait\n"))
+        self.assertLess(replay.index(") &"), replay.index("\nwait\n"))
         # Both verdicts are read only after both renders ended.
-        self.assertLess(replay.index("\n          wait\n"), replay.index('[ ! -s "$RUNNER_TEMP/health/base/$pass/health.json" ]'))
+        self.assertLess(replay.index("\nwait\n"), replay.index('[ ! -s "$RUNNER_TEMP/health/base/$pass/health.json" ]'))
 
     def test_one_classifier_judges_it_and_fails_closed(self) -> None:
         run = step("Judge the red states against the base")["run"]
