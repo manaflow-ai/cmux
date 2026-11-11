@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43084364363",
+  "recorded_at": "2026-11-11T19:22:10Z",
+  "reason": "cmux-tui 195193e407d6 changes the image's cmux-tui (pinned 40d75db754e4)",
+  "dry_run": false,
+  "cmux_tui": "195193e407d6706777c52cde0fe615270addbb66",
+  "fixes": [
+    {
+      "sha": "195193e407d6706777c52cde0fe615270addbb66",
+      "mergedAt": "2026-11-11T10:51:34-08:00",
+      "subject": "cmux-remote: the batched relay sender's latency and batching are checked on a paused clock; relay tests trust their CA per test (#41442)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T19:22:10Z",
+    "snapshot_id": "sh-1e8e2b3cc209487b87d82f483c30daa8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43084364363): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "95455e36d8a039de279d9e175e344c5851da184a",
+    "image": "cloud-native-auto-195193e4-43084364363-1",
+    "revision": "ci-43084364363-1",
+    "at": "2026-11-11T19:22:10Z"
+  },
+  "rolled_back": false
+}
