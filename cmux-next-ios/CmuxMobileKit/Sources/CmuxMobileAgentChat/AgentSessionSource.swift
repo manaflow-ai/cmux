@@ -90,6 +90,18 @@ public enum AgentSessionEvent: Hashable, Sendable {
     /// whole turns, oldest first, all older than what the chat shows. `hasEarlier`: older records
     /// are still on the Mac. An empty page is a read that failed or found no prompt yet.
     case earlierPage([AgentSessionEvent], hasEarlier: Bool)
+    /// A reattach after a long time away read the newest records first (tail-first): the
+    /// records between what the chat already had and them are still on the Mac. Sent in the
+    /// reattach's batch just before the newest records, whose first turn is `beforeTurnID`.
+    case gapOpened(beforeTurnID: String)
+    /// Records of that gap, oldest first, read in the background after the newest ones
+    /// showed: they go in before `beforeTurnID`, continuing the turn the chat had last.
+    /// `done`: the gap is filled.
+    case gapPage([AgentSessionEvent], done: Bool)
+    /// Whether the source is still reading the chat's history from the Mac (true) or has caught
+    /// up with it (false). While it reads, the chat shows what it already has (kept rows) or a
+    /// loading state, never the empty new-chat screen (``AgentChatStore/isLoadingHistory``).
+    case historyLoading(Bool)
     case modelsAvailable([ACPModelInfo], current: String?)
     case modesAvailable([ACPMode], current: String?)
     /// Whether this phone's Full-access setting on the Mac covers it (acpmux `initialize`
@@ -252,6 +264,11 @@ public protocol AgentSessionSource: AnyObject {
     /// The bytes of an attachment a recorded prompt names but this phone does not hold (an
     /// image another device or an earlier launch sent), or nil when the source can't read it.
     func attachmentData(_ attachment: AgentAttachment) async -> Data?
+    /// The source reads the chat's history before its first records arrive (a chat that exists
+    /// on the Mac): the chat opens on a loading state until ``AgentSessionEvent/historyLoading(_:)``
+    /// says it caught up, instead of the empty new-chat screen. Sources that hold the whole
+    /// history at once (mocks, an unbound tab) return false.
+    var loadsHistory: Bool { get }
     /// The chat reached the oldest turn it shows: read the page before it, delivered as
     /// ``AgentSessionEvent/earlierPage(_:hasEarlier:)``. Sources that hold the whole history do nothing.
     func loadEarlierHistory()
@@ -283,6 +300,7 @@ public protocol AgentSessionSource: AnyObject {
 extension AgentSessionSource {
     public func attachmentData(_ attachment: AgentAttachment) async -> Data? { nil }
     public func loadEarlierHistory() {}
+    public var loadsHistory: Bool { false }
 }
 
 extension AgentSessionSource {

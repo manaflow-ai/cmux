@@ -30,6 +30,8 @@ mod replay_rows;
 
 mod settled_replay;
 
+mod alternate_replay;
+
 mod color_override;
 use color_override::*;
 
@@ -2243,7 +2245,21 @@ impl Terminal {
         if total > max_bytes || graphics.total_len > graphics_budget {
             return Err(Error::OutOfSpace);
         }
-        let mut bytes = Vec::with_capacity(total);
+        // Under an alternate screen, the primary screen and its history go
+        // first, in what the alternate replay left (`alternate_replay`). Not
+        // before a reset, which would clear them.
+        let primary = if reset_before_images {
+            None
+        } else {
+            self.primary_under_alternate_replay(
+                max_bytes - total,
+                include_palette,
+                max_history_rows,
+            )
+        }
+        .unwrap_or_default();
+        let mut bytes = Vec::with_capacity(total + primary.len());
+        bytes.extend_from_slice(&primary);
         if reset_before_images {
             bytes.extend_from_slice(&interleaved);
             bytes.extend_from_slice(&graphics.image_bytes);
@@ -3247,6 +3263,10 @@ mod replay_layout_tests;
 #[cfg(test)]
 #[path = "prompt_clear_tests.rs"]
 mod prompt_clear_tests;
+
+#[cfg(test)]
+#[path = "alternate_replay_tests.rs"]
+mod alternate_replay_tests;
 
 #[path = "terminal_history.rs"]
 mod history;

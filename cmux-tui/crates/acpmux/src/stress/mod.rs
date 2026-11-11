@@ -17,8 +17,14 @@
 //! A check fails when the cost of one operation grows with the size around it (the god size over
 //! the small size past [`GOD_OVER_SMALL`]) or when a resource keeps growing after warm-up (a
 //! positive slope past the stated noise band). Run: `cargo test -p acpmux --lib stress::`.
+//!
+//! Time is ticked, not waited for: [`reconnect`] runs a peer's whole reconnect loop through a day
+//! and more of outage under tokio's paused clock, with the wall clock following it
+//! (`store::test_clock::follow_tokio`) and a seeded jitter, so hours of backoff take
+//! milliseconds and a seed replays a run draw for draw.
 
 mod outbox;
+mod reconnect;
 mod store;
 
 use std::path::Path;

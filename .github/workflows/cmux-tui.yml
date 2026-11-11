@@ -1366,6 +1366,10 @@ jobs:
           # the opened object.
           cargo test --locked --target x86_64-pc-windows-gnu -p acpmux \
             --lib owner_only::tests:: -- --test-threads=1
+          # A torn log append is cut back through a handle that may truncate (the
+          # writer's may only append on Windows; review of #40884).
+          cargo test --locked --target x86_64-pc-windows-gnu -p acpmux \
+            --lib store::torn_append_tests:: -- --test-threads=1
           # Per-terminal hosts on Windows (bead cx-ko2e,
           # plans/cmux-next/windows-terminal-hosts.md): a terminal survives a
           # fenced daemon restart, and a daemon in a kill-on-close job without

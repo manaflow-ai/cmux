@@ -184,7 +184,11 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
 - Dictation: `com.cmuxterm.dictation.recording` (one dictation session's recording file, utility, serial: its
   file writes block this queue, never the audio tap or main; one write per second of audio heard, each
   one second of 16 kHz PCM, so it keeps up by orders of magnitude; the finish's header patch and read of a
-  recording within 4 MiB run here too)
+  recording within 4 MiB run here too), `com.cmuxterm.dictation.microphone-activity` (the composer's
+  outside-dictation mark, CoreAudioMicrophoneSource, utility, serial: its CoreAudio property listeners fire here
+  and its property reads, each a synchronous message to the audio server, block this queue, never main (the
+  NIGHTLY 85b0999 30 s main-thread hang, 2026-11-10); it runs only while a composer watches; one read runs and
+  at most one more waits, as reads asked for meanwhile join it, so no back-pressure)
 - Design: `com.cmuxterm.next.desktop-picture` (the desktop wallpaper watch's reads, utility, serial: its
   `NSWorkspace.desktopImageURL(for:)` WindowServer round trip and file stat block this queue, never main
   (#26394); one read at a time, and events during it fold into one more read, so no back-pressure)

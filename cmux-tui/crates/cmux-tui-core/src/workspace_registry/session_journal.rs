@@ -201,28 +201,37 @@ impl SessionJournalReader {
         Ok(Self { connection })
     }
 
+    /// One page after `sequence`. Like every multi-statement read on this
+    /// connection, it reads in one read transaction: the head, the sealed
+    /// segments and the active rows come from one snapshot, so a seal that
+    /// commits on the registry connection between two of them (moving
+    /// records from the active table into a segment) cannot show as a gap.
     pub(crate) fn after(&self, sequence: u64, limit: usize) -> anyhow::Result<SessionJournalPage> {
-        query_session_journal_after(&self.connection, sequence, limit)
+        let snapshot = self.connection.unchecked_transaction()?;
+        query_session_journal_after(&snapshot, sequence, limit)
     }
 
     /// The resource events after `revision`, read on this reader's own
-    /// read-only connection (no registry lock). `generation` is the
-    /// registry's, which never changes while it is open.
+    /// read-only connection (no registry lock) in one read transaction.
+    /// `generation` is the registry's, which never changes while it is open.
     pub(crate) fn resource_events_after(
         &self,
         generation: &str,
         revision: u64,
     ) -> anyhow::Result<ResourceEventPage> {
-        resource_store::query_resource_events_after(&self.connection, generation, revision)
+        let snapshot = self.connection.unchecked_transaction()?;
+        resource_store::query_resource_events_after(&snapshot, generation, revision)
     }
 
+    /// One subject-filtered page, in one read transaction (see [`Self::after`]).
     pub(crate) fn after_subjects(
         &self,
         sequence: u64,
         limit: usize,
         subjects: &[JournalSubject],
     ) -> anyhow::Result<SessionJournalSubjectPage> {
-        query_session_journal_after_subjects(&self.connection, sequence, limit, subjects)
+        let snapshot = self.connection.unchecked_transaction()?;
+        query_session_journal_after_subjects(&snapshot, sequence, limit, subjects)
     }
 
     pub(crate) fn restore_cursor(
@@ -870,33 +879,6 @@ pub(crate) fn migrate_resource_events_to_session_journal(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn append_resource_journal_record(
-    transaction: &Transaction<'_>,
-    revision: u64,
-    previous_revision: u64,
-    origin: &str,
-    idempotency_key: &str,
-    operation: &str,
-    patch: Option<&ResourcePatch>,
-    result: &Value,
-    changes: &Value,
-) -> anyhow::Result<()> {
-    append_resource_journal_record_at(
-        transaction,
-        revision,
-        previous_revision,
-        origin,
-        idempotency_key,
-        operation,
-        patch,
-        result,
-        changes,
-        unix_epoch_ms()?,
-        true,
-    )
-}
-
 pub(crate) fn append_resource_effect_journal_record(
     transaction: &Transaction<'_>,
     idempotency_key: &str,
@@ -985,6 +967,7 @@ pub(crate) fn append_resource_effect_journal_record(
     Ok(())
 }
 
+/// Gives the changes as the record states them (`session_journal/resource_record.rs`).
 #[allow(clippy::too_many_arguments)]
 fn append_resource_journal_record_at(
     transaction: &Transaction<'_>,
@@ -998,7 +981,7 @@ fn append_resource_journal_record_at(
     changes: &Value,
     occurred_at_ms: u64,
     with_current_state: bool,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Value> {
     validate_identifier("journal operation", operation)?;
     // Every upsert carries the state fields a fresh snapshot shows, whatever
     // path produced it (state-ownership.md: clients rebuild from events).
@@ -1013,11 +996,9 @@ fn append_resource_journal_record_at(
     }
     let changes = &decorated;
     let kind = semantic_journal_kind(operation);
-    let session_id = transaction.query_row(
-        "SELECT value FROM meta WHERE key = 'session_public_id'",
-        [],
-        |row| row.get::<_, String>(0),
-    )?;
+    let session_id = transaction
+        .prepare_cached("SELECT value FROM meta WHERE key = 'session_public_id'")?
+        .query_row([], |row| row.get::<_, String>(0))?;
     let mut subjects = BTreeSet::from([JournalSubject { kind: "session".into(), id: session_id }]);
     if let Some(patch) = patch {
         collect_patch_subjects(patch, &mut subjects);
@@ -1060,7 +1041,7 @@ fn append_resource_journal_record_at(
             actor: actor.as_deref(),
         },
     )?;
-    Ok(())
+    Ok(decorated)
 }
 
 /// The registry journal's write budget per kind (`cmux_tui_platform::write_budget`): a kind past
@@ -1113,15 +1094,17 @@ pub(crate) fn append_journal_record(
     let subjects_json = canonical_json(&serde_json::to_value(append.subjects)?)?;
     let payload_json = canonical_json(append.payload)?;
     note_write_budget(append, &payload_json, committed_at_ms);
-    transaction.execute(
-        "INSERT INTO session_journal(
+    transaction
+        .prepare_cached(
+            "INSERT INTO session_journal(
            event_id, schema_version, kind, class, replay_policy,
            occurred_at_ms, committed_at_ms, producer_json, authority_json,
            causation_id, correlation_id, causation_depth, subjects_json,
            sensitivity, payload_json, content, resource_revision, previous_resource_revision, actor
          ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
                   ?19)",
-        params![
+        )?
+        .execute(params![
             append.event_id,
             i64::from(append.schema_version),
             append.kind,
@@ -1155,26 +1138,25 @@ pub(crate) fn append_journal_record(
                 .transpose()
                 .context("previous resource revision exceeds SQLite range")?,
             append.actor,
-        ],
-    )?;
+        ])?;
     let sequence = transaction.last_insert_rowid();
     let causal_hook_id = if append.producer.kind == "hook_dispatcher" {
         Some(append.producer.id.clone())
     } else if let Some(causation_id) = append.causation_id {
-        transaction.query_row(
-            "SELECT causal_hook_id FROM journal_event_index WHERE event_id = ?1",
-            [causation_id],
-            |row| row.get::<_, Option<String>>(0),
-        )?
+        transaction
+            .prepare_cached("SELECT causal_hook_id FROM journal_event_index WHERE event_id = ?1")?
+            .query_row([causation_id], |row| row.get::<_, Option<String>>(0))?
     } else {
         None
     };
-    transaction.execute(
-        "INSERT INTO journal_event_index(
+    transaction
+        .prepare_cached(
+            "INSERT INTO journal_event_index(
            event_id, sequence, causation_depth, causation_id, causal_hook_id,
            resource_revision, previous_resource_revision
          ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-        params![
+        )?
+        .execute(params![
             append.event_id,
             sequence,
             i64::from(append.causation_depth),
@@ -1190,14 +1172,14 @@ pub(crate) fn append_journal_record(
                 .map(i64::try_from)
                 .transpose()
                 .context("previous resource revision exceeds SQLite range")?,
-        ],
-    )?;
-    transaction.execute(
-        "INSERT OR IGNORE INTO journal_subject_index(sequence, kind, id)
+        ])?;
+    transaction
+        .prepare_cached(
+            "INSERT OR IGNORE INTO journal_subject_index(sequence, kind, id)
          SELECT ?1, json_extract(value, '$.kind'), json_extract(value, '$.id')
          FROM json_each(?2)",
-        params![sequence, subjects_json],
-    )?;
+        )?
+        .execute(params![sequence, subjects_json])?;
     u64::try_from(sequence).context("journal sequence is negative")
 }
 
@@ -1448,8 +1430,10 @@ pub(crate) fn query_session_journal_after(
         records.truncate(limit);
         return Ok(SessionJournalPage { head_sequence, records });
     }
+    #[cfg(test)]
+    run_between_journal_reads_for_test();
     let active_after = records.last().map_or(sequence, |record| record.sequence);
-    let mut statement = connection.prepare(
+    let mut statement = connection.prepare_cached(
         "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
                     occurred_at_ms, committed_at_ms, producer_json, authority_json,
                     causation_id, correlation_id, causation_depth, subjects_json,
@@ -1493,11 +1477,9 @@ pub(crate) fn query_session_journal_after(
 }
 
 fn query_archived_journal_head(connection: &Connection) -> anyhow::Result<u64> {
-    let end: i64 = connection.query_row(
-        "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
-        [],
-        |row| row.get(0),
-    )?;
+    let end: i64 = connection
+        .prepare_cached("SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments")?
+        .query_row([], |row| row.get(0))?;
     u64::try_from(end).context("archived journal sequence is negative")
 }
 
@@ -1697,6 +1679,25 @@ thread_local! {
         const { Cell::new(None) };
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Test seam: runs once on this thread between a journal read's sealed
+    /// part and its active rows ([`query_session_journal_after`],
+    /// [`query_session_journal_sequences`]), where a concurrent seal can
+    /// commit.
+    pub(crate) static BETWEEN_JOURNAL_READS_FOR_TEST: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn run_between_journal_reads_for_test() {
+    // Taken before it runs: a read the hook itself makes does not run it again.
+    let hook = BETWEEN_JOURNAL_READS_FOR_TEST.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
+    }
+}
+
 fn not_output(kind: &str) -> bool {
     kind != "terminal.output"
 }
@@ -1769,14 +1770,14 @@ fn load_journal_segment(
 }
 
 pub(super) fn query_journal_head(connection: &Connection) -> anyhow::Result<u64> {
-    let head_sequence = connection.query_row(
-        "SELECT MAX(
+    let head_sequence = connection
+        .prepare_cached(
+            "SELECT MAX(
            COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
            COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
          )",
-        [],
-        |row| row.get::<_, i64>(0),
-    )?;
+        )?
+        .query_row([], |row| row.get::<_, i64>(0))?;
     u64::try_from(head_sequence).context("journal head sequence is negative")
 }
 
@@ -1796,7 +1797,7 @@ pub(crate) fn query_session_journal_sequences(
     let requested_set = sequences.iter().copied().collect::<HashSet<_>>();
     let mut records = BTreeMap::new();
 
-    let mut segment_statement = connection.prepare(
+    let mut segment_statement = connection.prepare_cached(
         "SELECT segment_id, start_sequence, end_sequence, record_count, codec,
                 content, uncompressed_bytes, sha256
          FROM journal_segments
@@ -1817,8 +1818,10 @@ pub(crate) fn query_session_journal_sequences(
             }
         }
     }
+    #[cfg(test)]
+    run_between_journal_reads_for_test();
 
-    let mut active_statement = connection.prepare(
+    let mut active_statement = connection.prepare_cached(
         "SELECT sequence, event_id, schema_version, kind, class, replay_policy,
                 occurred_at_ms, committed_at_ms, producer_json, authority_json,
                 causation_id, correlation_id, causation_depth, subjects_json,
@@ -1855,14 +1858,14 @@ fn query_session_journal_after_subjects(
         "journal page limit exceeds {MAX_JOURNAL_PAGE_SIZE}"
     );
     anyhow::ensure!(!subjects.is_empty(), "journal subject filter must not be empty");
-    let head_sequence = connection.query_row(
-        "SELECT MAX(
+    let head_sequence = connection
+        .prepare_cached(
+            "SELECT MAX(
            COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
            COALESCE((SELECT MAX(end_sequence) FROM journal_segments), 0)
          )",
-        [],
-        |row| row.get::<_, i64>(0),
-    )?;
+        )?
+        .query_row([], |row| row.get::<_, i64>(0))?;
     let head_sequence =
         u64::try_from(head_sequence).context("journal head sequence is negative")?;
     anyhow::ensure!(
@@ -1870,7 +1873,7 @@ fn query_session_journal_after_subjects(
         "cursor.invalid: journal sequence {sequence} is ahead of {head_sequence}"
     );
     let requested_json = canonical_json(&serde_json::to_value(subjects)?)?;
-    let mut statement = connection.prepare(
+    let mut statement = connection.prepare_cached(
         "SELECT DISTINCT indexed.sequence
          FROM json_each(?1) AS requested
          JOIN journal_subject_index AS indexed
@@ -2524,7 +2527,7 @@ pub(crate) fn expand_topology_subjects(
     }
     let ids = subjects.iter().map(|subject| &subject.id).collect::<Vec<_>>();
     let ids_json = canonical_json(&serde_json::to_value(ids)?)?;
-    let mut statement = transaction.prepare(
+    let mut statement = transaction.prepare_cached(
         "WITH seeds(id) AS (
            SELECT value FROM json_each(?1)
          ),
@@ -2573,7 +2576,7 @@ pub(crate) fn terminal_topology_subjects_batch(
         return Ok(HashMap::new());
     }
     let ids_json = canonical_json(&serde_json::to_value(&terminal_ids)?)?;
-    let mut statement = transaction.prepare(
+    let mut statement = transaction.prepare_cached(
         "WITH seeds(terminal_id) AS (
            SELECT value FROM json_each(?1)
          ),
@@ -2673,8 +2676,11 @@ mod digest_reader;
 pub(crate) mod kind_read;
 #[cfg(test)]
 pub(crate) mod kind_read_tests;
+mod live_terminal;
 pub(crate) mod reducer_records;
+mod resource_record;
 use digest_reader::DigestReader;
+pub(crate) use resource_record::{append_resource_journal_record, journal_resource_record};
 #[cfg(test)]
 mod actor_tests;
 
@@ -2740,10 +2746,11 @@ pub(crate) fn write_journal_reducer_state(
         "cursor": cursor.to_string(),
         "snapshot": snapshot,
     });
-    connection.execute(
-        "INSERT INTO meta(key, value) VALUES(?1, ?2)
+    connection
+        .prepare_cached(
+            "INSERT INTO meta(key, value) VALUES(?1, ?2)
          ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        params![format!("journal_reducer.{reducer_id}"), value.to_string()],
-    )?;
+        )?
+        .execute(params![format!("journal_reducer.{reducer_id}"), value.to_string()])?;
     Ok(())
 }
