@@ -4,6 +4,9 @@
 mod agent_hook_children;
 mod agent_hook_errors;
 mod agent_hook_projection;
+mod agent_hooks_at_rest;
+mod agent_plugin_reports_at_rest;
+mod agent_reports_at_rest;
 mod terminal_size_clamp;
 pub(crate) use terminal_size_clamp::clamp_terminal_size;
 mod terminal_exit_snapshot;
@@ -27,6 +30,8 @@ use terminal_host_records::{
     terminate_discovered_terminal_host_in,
 };
 mod detached_terminals;
+pub(crate) use agent_hooks_at_rest::{JournalFollowerFilter, JournalRowFollower};
+pub use agent_hooks_at_rest::{JournalFollowerSnapshot, JournalFollowersSnapshot};
 pub(crate) use detached_terminals::DetachedTerminalSpawn;
 mod terminal_runtime_index;
 use terminal_runtime_index::{
@@ -176,7 +181,8 @@ pub(crate) use browser_tab_create::{
     effect_transaction as frontend_browser_transaction, frontend_fields as frontend_browser_fields,
 };
 pub(crate) use spawn_options::{
-    CLIENT_PANE_ID_FIELD, CLIENT_SPLIT_ID_FIELD, CLIENT_TAB_ID_FIELD, terminal_identity,
+    AROUND_SPLIT_FIELD, CLIENT_PANE_ID_FIELD, CLIENT_SPLIT_ID_FIELD, CLIENT_TAB_ID_FIELD,
+    terminal_identity,
 };
 pub use spawn_options::{PaneSurfaceCreation, TerminalSpawnOptions};
 pub(crate) use topology_ops::split_direction_field;
@@ -219,6 +225,8 @@ mod launch_identity;
 mod ledger_maintenance;
 mod output_cleanup;
 mod pinned_columns;
+#[cfg(unix)]
+mod project_chats;
 mod pty_reclaim;
 mod viewport_scroll;
 mod workspace_name;
@@ -236,6 +244,7 @@ use agent_types::{
     agent_hook_notification, agent_provider_identity, legacy_hook_session_id,
     parse_projection_agent_state, published_agent_session_id,
 };
+mod divider_visibility;
 mod events;
 pub(crate) mod layout_invariants;
 mod layout_ratio_error;
@@ -285,6 +294,10 @@ mod screen_changed;
 pub(crate) mod screen_groups;
 mod signaled_mutex;
 #[cfg(test)]
+pub(crate) use signaled_mutex::plain_turns_ahead_on_this_thread;
+#[cfg(test)]
+pub(crate) use signaled_mutex::registry_locks_taken_on_this_thread;
+#[cfg(test)]
 pub(crate) use signaled_mutex::state_locks_taken_on_this_thread;
 pub(crate) use signaled_mutex::{SignaledMutex, interactive_scope};
 mod command_history;
@@ -326,6 +339,8 @@ mod incognito_terminals;
 mod terminal_exit;
 mod terminal_exit_wait;
 mod terminal_host_link;
+mod terminal_live;
+pub(crate) use terminal_live::TerminalProgressFollower;
 mod terminal_move;
 mod terminal_move_topology;
 mod terminal_progress;
@@ -360,6 +375,8 @@ pub(crate) use agent_chat_columns::{
     is_agent_chat_top, pane_is_agent_chat_top, release_agent_chat_role,
 };
 pub use column_move::{ColumnMoveDirection, ColumnMoveError};
+pub(crate) use divider_visibility::DIVIDER_HIDDEN_FIELD;
+pub use divider_visibility::{DividerVisibilityError, SPLIT_DIVIDER_VISIBILITY_CAPABILITY};
 pub use dock_columns::PINNED_COLUMN_CODE;
 pub use dock_columns::{
     ColumnDockError, ColumnDockOutcome, PERMANENT_COLUMN_CODE, parse_column_dock,
@@ -531,6 +548,9 @@ pub struct Mux {
     /// The registry's id and generation, fixed when it opened: read without
     /// its lock, which durable commits hold.
     registry_identity: (String, String),
+    /// The session snapshot's committed rows and their read-only connection
+    /// (`resource_api/committed_snapshot.rs`); `None` for an in-memory registry.
+    pub(crate) committed_snapshots: Option<crate::resource_api::CommittedSnapshots>,
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
@@ -667,6 +687,10 @@ pub struct Mux {
     agent_hook_fences: Mutex<HashMap<TerminalPublicId, HookFence>>,
     /// Orders durable hook catch-up and live projection as one operation.
     agent_hook_projection: Mutex<()>,
+    /// Which hook reports change nothing the journal holds (`agent_hooks_at_rest.rs`).
+    agent_hooks_at_rest: agent_hooks_at_rest::AgentHooksAtRest,
+    /// Which plugin reports repeat the roster (`agent_plugin_reports_at_rest.rs`).
+    agent_plugin_reports_at_rest: agent_plugin_reports_at_rest::AgentPluginReportsAtRest,
     /// Live, never-persisted presence per terminal (`agent_presence.rs`).
     agent_presence: Mutex<HashMap<TerminalPublicId, agent_presence::PresenceSlot>>,
     /// Child agents each terminal agent runs past its turn, memory only (`agent_hook_children.rs`).
@@ -676,6 +700,9 @@ pub struct Mux {
     agent_message_pump: agent_message_pump::AgentMessagePump,
     #[cfg(unix)]
     agent_chat_notices: agent_chat_notices::AgentChatNoticesWake,
+    /// The chat-index project import's wake (`project_chats.rs`).
+    #[cfg(unix)]
+    project_chats: project_chats::ProjectChatsWake,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
@@ -692,6 +719,8 @@ pub struct Mux {
     command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
     /// Makes the durable commits terminal output asks for, off the output readers.
     terminal_publisher: terminal_publisher::TerminalPublisher,
+    /// The terminals whose live facts changed (`mux/terminal_live.rs`).
+    terminal_live: terminal_live::TerminalLiveLog,
     /// Pinned terminals' last lines and their publisher (`terminal-tail-pin-v1`).
     terminal_tail_pins: terminal_tail_pins::TerminalTailPins,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
@@ -851,8 +880,8 @@ pub struct Mux {
     /// Reap grace period for unplaced terminals, in milliseconds.
     terminal_reap_grace_ms: AtomicU64,
     creating_inputs: creating_input::CreatingInputs,
-    /// The running reaper's event receiver, so keep and grace changes can wake it.
-    terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
+    /// The reaper's event receiver while it runs, and its announcement.
+    terminal_reaper: Mutex<terminal_reap::TerminalReaperSlot>,
     /// The launch snapshot file while its writer runs (`launch-snapshot-v1`).
     launch_snapshot_path: Mutex<Option<std::path::PathBuf>>,
     /// The settings owner (the settings file), started on first use or at
@@ -965,6 +994,24 @@ impl Mux {
                 focused_at: 0,
             },
         ))
+    }
+
+    /// The routing tables as of the last finished change of the session state, for a read that walks them with no
+    /// lock (the session snapshot). With stage S1 off they are not published: one short state lock hold copies
+    /// the tables' `Arc`s, never a walk.
+    #[track_caller]
+    pub(crate) fn published_routes(
+        &self,
+    ) -> anyhow::Result<Arc<crate::route_table::RouteSnapshot>> {
+        if self.control_clients.input_lane.on() {
+            let routes = self.state.routes();
+            if !self.state.is_poisoned() {
+                return Ok(arc_swap::Guard::into_inner(routes));
+            }
+        }
+        let state =
+            self.state.lock().map_err(|_| anyhow::anyhow!("the session state is poisoned"))?;
+        Ok(Arc::new(crate::route_table::RouteSnapshot::of(&state)))
     }
 
     #[track_caller]
