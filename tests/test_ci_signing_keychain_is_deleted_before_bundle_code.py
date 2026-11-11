@@ -78,6 +78,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import sys
 from collections.abc import Iterator
 from pathlib import Path
@@ -611,10 +612,37 @@ def bundle_code_with_secrets(name: str, job: dict) -> list[str]:
     return failures
 
 
+# Words a command may start with before the program it runs: `if !`, a shell, `exec`, `time`.
+_COMMAND_PREFIX = {"if", "!", "then", "do", "exec", "time", "bash", "sh", "command", "{", "("}
+_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+
+
+def invoked_program(command: str) -> str | None:
+    """The program one logical command runs (commands()): its first word after env assignments and the
+    _COMMAND_PREFIX words, with a leading `./` dropped; None when there is none or it cannot be read."""
+    try:
+        words = shlex.split(command, posix=True)
+    except ValueError:
+        return None
+    for word in words:
+        if _ASSIGNMENT.match(word) or word in _COMMAND_PREFIX:
+            continue
+        return word.removeprefix("./")
+    return None
+
+
 def script_made_keychain(job: dict) -> str | None:
-    """The KEYCHAIN_MAKING_SCRIPTS script the job (its moved step scripts already inline) runs, if any."""
-    text = json.dumps(job)
-    return next((script for script in KEYCHAIN_MAKING_SCRIPTS if script in text), None)
+    """The KEYCHAIN_MAKING_SCRIPTS script that a step reading the Developer ID certificate runs (its moved step
+    scripts already inline), if any. Only a command of that step's `run:` that invokes the script counts: a step
+    name, a comment, an env value or another step that only mentions it makes no keychain."""
+    for step in job.get("steps") or []:
+        if not isinstance(step, dict) or not workflow_jobs.reads_secret(step, "APPLE_CERTIFICATE_BASE64"):
+            continue
+        for command in commands(str(step.get("run", ""))):
+            program = invoked_program(command)
+            if program in KEYCHAIN_MAKING_SCRIPTS:
+                return program
+    return None
 
 
 def release_pool_signer(job: dict) -> str | None:
@@ -749,6 +777,20 @@ def script_made_fixture_failures(documents: dict[str, dict]) -> list[str]:
     if found != [f"{label}: imports the Developer ID certificate without scripts/ci/signing-keychain.sh create"]:
         problems.append(f"script-made keychains: a job that reads the certificate and makes no keychain is not "
                         f"named: {found}")
+    # Codex: the script named only as text (a step name, a comment, an env value, an echo, another step) makes no
+    # keychain; the certificate step runs ./sign.sh, so rule 3 still names the job.
+    script = KEYCHAIN_MAKING_SCRIPTS[0]
+    for form, steps in (
+            ("step name", [{**CERTIFICATE_STEP, "name": f"Sign (see {script})", "run": "./sign.sh"}]),
+            ("comment", [{**CERTIFICATE_STEP, "run": f"# later: ./{script}\n./sign.sh"}]),
+            ("env value", [{**CERTIFICATE_STEP, "env": {**CERTIFICATE_STEP["env"], "NEXT": script}, "run": "./sign.sh"}]),
+            ("echoed", [{**CERTIFICATE_STEP, "run": f"echo ./{script}\n./sign.sh"}]),
+            ("another step", [{**CERTIFICATE_STEP, "run": "./sign.sh"}, {"name": "Notarize", "run": f"./{script}"}])):
+        mentioned = {"runs-on": "blacksmith-6vcpu-macos-26", "steps": steps}
+        found = [why for why in tree_job_failures(with_job(documents, "release.yml", "script-keychain-fixture",
+                                                           mentioned), label) if "Developer ID certificate" in why]
+        if found != [f"{label}: imports the Developer ID certificate without scripts/ci/signing-keychain.sh create"]:
+            problems.append(f"script-made keychains: a job that only mentions {script} ({form}) is not named: {found}")
     return problems
 
 

@@ -63,6 +63,8 @@ class CacheRestoreReceiptTests(unittest.TestCase):
             guard = "tests/test_ci_pull_request_caches_are_read_only.py"
             (fixture / guard).parent.mkdir(parents=True)
             shutil.copyfile(ROOT / guard, fixture / guard)
+            # The guard reads jobs through tests/workflow_jobs.py, which it imports from its own tree.
+            shutil.copyfile(ROOT / "tests/workflow_jobs.py", fixture / "tests/workflow_jobs.py")
             action_path = fixture / ".github/actions/cache-restore/action.yml"
             original = action_path.read_text()
             for mutation, valid in ((None, True), ("receipt_command", False), ("overlapping_route", False)):

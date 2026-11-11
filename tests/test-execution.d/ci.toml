@@ -188,6 +188,11 @@ path = "tests/test_ci_guard_workflow_structure.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_guards_read_through_workflow_jobs.py"
+lane = "manual"
+reason = "No new CI tests (Lawrence 2026-10-23). Fails on any guard under tests/ that reads a job's runs-on, environment, env or secrets raw, or copies a job with {**job} or dict(job), instead of through tests/workflow_jobs.py; run python3 tests/test_ci_guards_read_through_workflow_jobs.py yourself after changing a workflow guard (a few seconds, no build)."
+
+[[test]]
 path = "tests/test_ci_health_report.py"
 lane = "linux-guard"
 
@@ -207,11 +212,6 @@ reason = "Portable unit tests for the overflow watch's hosted light rescue (main
 [[test]]
 path = "tests/test_ci_ios_conventions_diff.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_ci_guards_read_through_workflow_jobs.py"
-lane = "manual"
-reason = "No new CI tests (Lawrence 2026-10-23). Fails on any guard under tests/ that reads a job's runs-on, environment, env or secrets raw, or copies a job with {**job} or dict(job), instead of through tests/workflow_jobs.py; run python3 tests/test_ci_guards_read_through_workflow_jobs.py yourself after changing a workflow guard (a few seconds, no build)."
 
 [[test]]
 path = "tests/test_ci_job_list_fixture_mutations.py"

@@ -123,6 +123,11 @@ UNWIRED: set[str] = {
     # `deployment: false`, so the PR logs no "temporarily deployed" event. Run it by hand after adding an
     # environment to a job.
     "tests/test_ci_secrets_only_environments_log_no_deployment.py",
+    # lane = "manual" for the same rule. The first proves each derived job list red against its pre-fix reader
+    # with fixture workflows; the second fails on a guard that reads a job field raw instead of through
+    # tests/workflow_jobs.py. Run both by hand after changing a job-list guard or the resolver. Exit: as above.
+    "tests/test_ci_job_list_fixture_mutations.py",
+    "tests/test_ci_guards_read_through_workflow_jobs.py",
 }
 
 

@@ -41,7 +41,8 @@ rule on a signing matrix's Linux leg), a fromJSON matrix (a literal one read cel
 the output a sibling step echoes; a computed one fails unless workflow_jobs.UNRESOLVED_MATRICES names why, where
 guards used to fall back to the raw string), a job copy that dropped the workflow env (copy_job), and a
 `secrets: inherit` call followed into the workflow it calls (or named when it cannot be). Where the fix is one new
-reader, PRE_FIX_ONLY swaps back only that reader, so the fixture is shown to need exactly that fix: 28 fixtures.
+reader, PRE_FIX_ONLY swaps back only that reader, so the fixture is shown to need exactly that fix. One more: a
+keychain-making script only named as text (a step name, a comment, an env value) makes no keychain: 29 fixtures.
 
 The SIGNING_JOBS cap fixture has no pre-fix reader to swap in: its fix added the classification and changed no
 reader (the owned pick is read with the same dotted() and NEEDS_OUTPUT as before), so its only pre-fix is the guard
@@ -166,6 +167,10 @@ class KeychainListFixtures(unittest.TestCase):
         self.assertEqual(self.guard.inline_keychain_fixture_failures(self.documents), [])
 
     def test_script_made_keychains(self) -> None:
+        self.assertEqual(self.guard.script_made_fixture_failures(self.documents), [])
+
+    def test_script_made_keychains_need_an_invocation(self) -> None:
+        """The same fixtures, for the text-only mentions: the pre-fix trait searched the whole job's text."""
         self.assertEqual(self.guard.script_made_fixture_failures(self.documents), [])
 
     def test_release_pool_signers(self) -> None:
@@ -388,6 +393,10 @@ def _plain_copy(job: Mapping[str, Any], changes: Mapping[str, Any] | None = None
 PRE_FIX_ONLY = {
     "copy_job (a copied job keeps the workflow env)": (("workflow_jobs", "copy_job", _plain_copy),),
     "fromJSON literal matrix (a control on the nightly pool)": (("workflow_jobs", "_matrix", _matrix_as_written),),
+    "SCRIPT_MADE_KEYCHAINS (a mention is no invocation)": (
+        (KEYCHAIN, "script_made_keychain", lambda job: next(
+            (script for script in importlib.import_module(KEYCHAIN).KEYCHAIN_MAKING_SCRIPTS if script in json.dumps(job)),
+            None)),),
     "secrets: inherit (followed into the called workflow)": (
         ("workflow_jobs", "effective_secrets", lambda job, workflows=None, _seen=frozenset(): (
             workflow_jobs.secret_names(job), set())),),
@@ -447,6 +456,8 @@ FIXTURES = (
     ("INLINE_DEVELOPER_ID_KEYCHAINS", HERE, "KeychainListFixtures", "test_inline_developer_id_keychains", None),
     ("SCRIPT_MADE_KEYCHAINS (derived)", HERE, "KeychainListFixtures", "test_script_made_keychains", None),
     ("RELEASE_POOL_SIGNERS (derived)", HERE, "KeychainListFixtures", "test_release_pool_signers", None),
+    ("SCRIPT_MADE_KEYCHAINS (a mention is no invocation)", HERE, "KeychainListFixtures",
+     "test_script_made_keychains_need_an_invocation", None),
     ("runs-on per matrix cell (keychain rule 4)", HERE, "ResolverGaps",
      "test_a_signing_job_whose_matrix_linux_leg_reads_a_runner_variable_first_is_named", None),
     ("fromJSON literal matrix (a credentialed control)", HERE, "ResolverGaps",
@@ -477,8 +488,8 @@ def outcome(result: unittest.TestResult) -> str:
 
 
 class PreFixMutation(unittest.TestCase):
-    def test_there_are_twenty_eight_fixtures(self) -> None:
-        self.assertEqual(len({row[3] for row in FIXTURES}), 28)
+    def test_there_are_twenty_nine_fixtures(self) -> None:
+        self.assertEqual(len({row[3] for row in FIXTURES}), 29)
         self.assertLessEqual(set(PRE_FIX_ONLY), {row[0] for row in FIXTURES})
 
     def test_each_fixture_is_green_with_the_shared_reader(self) -> None:
