@@ -26,8 +26,9 @@ fn wait_for(what: &str, done: impl Fn() -> bool) {
     }
 }
 
-/// A terminal's output made its "last output" fact due. Queuing the publication returns at once while the
-/// registry is held, nothing commits until the registry is free, and then the publication commits a revision.
+/// A terminal's program reported a new status (a durable edge). Queuing the publication returns at once while
+/// the registry is held, nothing commits until the registry is free, and then the publication commits a
+/// revision. Output alone ("last output") is a live fact and commits nothing (`at_rest_writers.rs`).
 #[test]
 fn a_queued_publication_commits_once_the_registry_is_free() {
     let mux = test_mux();
@@ -37,6 +38,10 @@ fn a_queued_publication_commits_once_the_registry_is_free() {
     surface.publish_pending_progress();
     let before = mux.with_state(|state| state.resource_revision);
     surface.apply_stream_output_for_test(b"output").unwrap();
+    surface.report_program_status_for_test(
+        ghostty_vt::ProgramStatusState::Working,
+        crate::workspace_registry::unix_epoch_ms().unwrap(),
+    );
 
     let (release, holder) = hold_registry(&mux);
     let queued = Instant::now();

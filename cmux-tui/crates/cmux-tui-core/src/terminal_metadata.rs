@@ -661,10 +661,16 @@ impl TerminalMetadata {
         }
     }
 
-    /// Whether the command, prompt or last-output fact changed since the last
-    /// call (marks it taken).
+    /// Whether the command or prompt fact changed since the last call (marks
+    /// it taken): a durable edge, one terminal upsert commit.
     pub(crate) fn take_busy_change(&mut self) -> bool {
-        self.activity.take_change()
+        self.activity.take_edge_change()
+    }
+
+    /// Whether the last output moved a whole publish interval since the last
+    /// call (marks it taken): a live fact, never a commit.
+    pub(crate) fn take_output_change(&mut self) -> bool {
+        self.activity.take_output_change()
     }
 
     /// Whether `take_progress_change` or `take_busy_change` would report a

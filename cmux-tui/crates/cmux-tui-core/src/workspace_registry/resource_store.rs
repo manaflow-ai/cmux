@@ -5,13 +5,16 @@ use crate::resource::{NotificationPublicId, TerminalPublicId};
 pub(crate) use events_page::query_resource_events_after;
 use serde_json::json;
 mod patch_apply;
+mod terminal_live;
 mod topology_load;
 use patch_apply::decorate_snapshot_result;
 pub(crate) use patch_apply::{
     apply_resource_patch, apply_resource_patch_timed, apply_resource_patch_unrecorded,
 };
+pub(crate) use terminal_live::{LiveTerminalRows, query_live_terminal};
 pub(crate) use topology_load::{
-    load_resource_topology, load_resource_topology_scoped, load_topology_frame,
+    load_resource_topology, load_resource_topology_scoped, load_session_panes, load_session_tabs,
+    load_terminal_tabs, load_topology_frame,
 };
 
 /// Completed pure mutations keep a finite exactly-once replay window. Pruning
@@ -1395,20 +1398,7 @@ impl WorkspaceRegistry {
     /// Return every live public terminal-to-host identity in one deterministic
     /// bulk read instead of resolving each terminal with a separate query.
     pub fn live_terminal_resource_ids(&self) -> anyhow::Result<Vec<(String, TerminalPublicId)>> {
-        let db = self.connection.get();
-        let mut statement = db.prepare(
-            "SELECT terminal_id, public_id
-             FROM resource_terminals
-             WHERE deleted_revision IS NULL
-             ORDER BY created_revision ASC, public_id ASC",
-        )?;
-        statement
-            .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
-            .map(|row| {
-                let (terminal_id, public_id) = row?;
-                Ok((terminal_id, TerminalPublicId::parse(public_id)?))
-            })
-            .collect()
+        load_live_terminal_resource_ids(&self.connection.get())
     }
 
     /// Resolve the immutable resource-to-host relationship, including after
@@ -1957,6 +1947,28 @@ pub struct RegistryTab {
     pub name_revision: u64,
     pub browser_url: Option<String>,
     pub terminal_id: Option<String>,
+}
+
+/// Each live terminal resource of `connection` with its durable host:
+/// `(host id, terminal id)`, in creation order. The registry's read and a
+/// committed read (a `terminal.list` with no scope, which takes no registry
+/// lock) share it.
+pub(crate) fn load_live_terminal_resource_ids(
+    connection: &Connection,
+) -> anyhow::Result<Vec<(String, TerminalPublicId)>> {
+    let mut statement = connection.prepare(
+        "SELECT terminal_id, public_id
+         FROM resource_terminals
+         WHERE deleted_revision IS NULL
+         ORDER BY created_revision ASC, public_id ASC",
+    )?;
+    statement
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .map(|row| {
+            let (terminal_id, public_id) = row?;
+            Ok((terminal_id, TerminalPublicId::parse(public_id)?))
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, PartialEq)]

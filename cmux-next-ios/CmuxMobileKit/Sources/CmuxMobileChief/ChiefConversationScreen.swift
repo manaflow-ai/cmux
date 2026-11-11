@@ -376,11 +376,9 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
 
     // MARK: Chief's questions
 
-    /// The bar under the header while Chief asks (``ChiefQuestionBar``).
+    /// The bar under the header: a failed turn, Chief unavailable, the Mac away (``ChiefQuestionBar``).
     lazy var questionBar: UIHostingController<ChiefQuestionBar> = {
-        var bar = ChiefQuestionBar(session: session) { [weak self] question in
-            self?.presentQuestion(question.id)
-        }
+        var bar = ChiefQuestionBar(session: session)
         bar.resized = { [weak self] in self?.view.setNeedsLayout() }
         bar.askCloudChief = { [weak self] in self?.askCloudChief() }
         bar.fading = { [weak self] out, duration in
@@ -509,20 +507,6 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         liveBubbleBottom?.isActive = false
         bottom.isActive = true
         liveBubbleBottom = bottom
-    }
-
-    public func presentQuestion(_ id: String) {
-        guard presentedViewController == nil, conversation.presentedViewController == nil else { return }
-        view.endEditing(true)
-        let host = UIHostingController(rootView: ChiefQuestionSheet(session: session, questionID: id))
-        host.modalPresentationStyle = .pageSheet
-        host.sheetPresentationController?.detents = [.medium(), .large()]
-        host.sheetPresentationController?.prefersGrabberVisible = true
-        // At accessibility sizes the card does not fit half a screen.
-        if traitCollection.preferredContentSizeCategory.isAccessibilityCategory {
-            host.sheetPresentationController?.selectedDetentIdentifier = .large
-        }
-        present(host, animated: true)
     }
 
     private var headerAvatar: String?

@@ -27,6 +27,12 @@ import time
 import urllib.error
 import urllib.request
 import zipfile
+from pathlib import Path
+
+# resume-unsigned-nightly.py and nightly_ghostty_helper_reuse.py load this file by path, so its folder may
+# not be on sys.path.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import deadline_http  # noqa: E402
 
 API = os.environ.get("GITHUB_API_URL", "https://api.github.com")
 
@@ -55,6 +61,13 @@ clock = time.monotonic
 # One wall-clock deadline for the whole download (lookup, redirect and its
 # refreshes), set by the first retry: no retry starts after it.
 retry_deadline: float | None = None
+# A range read waits at most RANGE_STALL_SECONDS for each byte, as urlopen(timeout=120) did, and ends as a whole
+# by RANGE_DEADLINE_SECONDS. Before, nothing bounded the whole range: a server trickling bytes under the stall
+# held it forever. 30 minutes is far past any range that is moving (the whole 242 MB app takes about 10 s over
+# 16 ranges, and 611 s over download-artifact's one connection) and no tighter than the steps that run this,
+# which have no step timeout of their own.
+RANGE_STALL_SECONDS = 120
+RANGE_DEADLINE_SECONDS = 30 * 60
 
 
 def retry_wait(error: urllib.error.HTTPError, attempt: int, now: float | None = None) -> float:
@@ -103,8 +116,8 @@ def api_json(path: str, token: str) -> dict:
             f"{API}{path}",
             headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
         )
-        with urllib.request.urlopen(req, timeout=60) as resp:
-            return json.load(resp)
+        _, body, _ = deadline_http.request(req, 60, raise_errors=True)
+        return json.loads(body)
 
     return with_retries(call, f"GET {path}")
 
@@ -135,7 +148,7 @@ def blob_url(artifact: dict, token: str) -> str:
 
 def fetch_range(url: str, fd: int, lo: int, hi: int) -> None:
     req = urllib.request.Request(url, headers={"Range": f"bytes={lo}-{hi}"})
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with deadline_http.stream(req, RANGE_DEADLINE_SECONDS, stall=RANGE_STALL_SECONDS, raise_errors=True) as resp:
         if resp.status != 206:
             raise OSError(f"range {lo}-{hi}: HTTP {resp.status}, expected 206")
         offset = lo
