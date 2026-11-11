@@ -21,11 +21,35 @@ final class AgentChatGUICaptureUITests: XCTestCase {
             scene("history-bottom", look, Self.history) { _ in }
             scene("history-scrolled-up", look, Self.history) { app in
                 self.dragDown(app, times: 3)
-                self.waitFor(app.buttons["Jump to bottom"].firstMatch, "jump control after scrolling up")
+                let jump = app.buttons["Jump to bottom"].firstMatch
+                self.waitFor(jump, "jump control after scrolling up")
+                // The circle rides the collapsed composer: its 44 pt host sits 8 pt above the
+                // stack, so the gap to the capsule's "Reply to" row (6 pt inside the glass) is
+                // about 14 pt. A dock left on the expanded composer's 96 pt put it ~55 pt up.
+                let bar = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Reply to'")).firstMatch
+                if jump.exists, bar.waitForExistence(timeout: 5) {
+                    let gap = bar.frame.minY - jump.frame.maxY
+                    XCTAssertLessThan(gap, 24, "jump circle floats \(gap) pt above the composer (\(look))")
+                    XCTAssertGreaterThan(gap, 4, "jump circle overlaps the composer (\(look))")
+                }
             }
             scene("pending-question", look, ["-cmux-mobile-demo", "kbd-chat"]) { _ in }
             scene("empty-chat", look, Self.empty) { _ in }
             scene("offline-queued", look, ["-cmux-mobile-demo", "offline-send"], settle: 8) { _ in }
+            scene("voice-mode", look, ["-cmux-mobile-demo", "voice-chat"],
+                  env: ["CMUX_MOBILE_VOICE_MODE_DEMO": "1", "CMUX_MOBILE_VOICE_MODE_DEMO_PROMPT": "what changed today"]) { app in
+                let voice = app.buttons["agentChat.composer.voice"].firstMatch
+                self.waitFor(voice, "voice button")
+                if voice.exists { voice.tap() }
+                let bar = app.otherElements["voiceMode.bar"].firstMatch
+                self.waitFor(bar, "voice bar", timeout: 10)
+                // The bar sits above the navigation bar, never over its back button.
+                let back = app.navigationBars.buttons.firstMatch
+                if bar.exists, back.exists {
+                    XCTAssertLessThanOrEqual(bar.frame.maxY, back.frame.minY + 1, "voice bar covers the back button (\(look))")
+                    XCTAssertTrue(back.isHittable, "back button is not hittable under the voice bar (\(look))")
+                }
+            }
         }
     }
 
@@ -39,6 +63,21 @@ final class AgentChatGUICaptureUITests: XCTestCase {
             scene("slash-suggestions", look, Self.history) { app in
                 self.openComposer(app)
                 app.typeText("/")
+            }
+            scene("select-text", look, Self.history) { app in
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.45)).press(forDuration: 1.2)
+                let select = app.buttons["Select Text"].firstMatch
+                self.waitFor(select, "Select Text in the answer's menu")
+                guard select.exists else { return }
+                select.tap()
+                let field = app.textViews.firstMatch
+                self.waitFor(field, "the selectable text")
+                // The answer as read: no link targets, table rules or code ticks.
+                let text = (field.value as? String) ?? ""
+                XCTAssertFalse(text.isEmpty, "Select Text shows no text (\(look))")
+                for mark in ["](", "|---", "`", "**"] {
+                    XCTAssertFalse(text.contains(mark), "Select Text shows raw Markdown \"\(mark)\" (\(look))")
+                }
             }
             scene("long-draft", look, Self.history) { app in
                 self.openComposer(app)
@@ -63,11 +102,12 @@ final class AgentChatGUICaptureUITests: XCTestCase {
     // MARK: Helpers
 
     @MainActor
-    private func scene(_ id: String, _ look: Look, _ args: [String], settle: TimeInterval = 6,
+    private func scene(_ id: String, _ look: Look, _ args: [String], env: [String: String] = [:], settle: TimeInterval = 6,
                        after: [(String, TimeInterval)] = [], _ drive: (XCUIApplication) -> Void) {
         XCUIDevice.shared.appearance = look == .dark ? .dark : .light
         let app = XCUIApplication()
         app.launchEnvironment["CMUX_MOBILE_MOCK_AUTH"] = "1"
+        for (key, value) in env { app.launchEnvironment[key] = value }
         app.launchArguments += ["-cmuxMobile.setupComplete", "YES", "-cmux-mobile-no-restore",
                                 "-cmuxMobile.settings.appearance", look.rawValue] + args
         app.launch()
