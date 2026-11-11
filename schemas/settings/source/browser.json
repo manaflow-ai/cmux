@@ -94,6 +94,27 @@
             "devtools",
             "bookmarks"
           ]
+        },
+        {
+          "key": "browser.showLoadingBar",
+          "title": {
+            "key": "settings.browser.showLoadingBar",
+            "text": "Show Loading Bar"
+          },
+          "help": {
+            "key": "settings.browser.showLoadingBar.help",
+            "text": "A thin progress line under the address bar while a page loads. The Stop button shows either way."
+          },
+          "kind": "toggle",
+          "swift_owner": "BrowserLoadingBarSetting",
+          "default": false,
+          "keywords": [
+            "loading",
+            "progress",
+            "bar",
+            "line",
+            "omnibar"
+          ]
         }
       ]
     },

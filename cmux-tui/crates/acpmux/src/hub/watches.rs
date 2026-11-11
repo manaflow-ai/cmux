@@ -50,6 +50,7 @@ const REMOTE_WORKERS: usize = 8;
 type ReadHook = Arc<
     dyn Fn(String) -> Pin<Box<dyn Future<Output = Result<bool, RpcError>> + Send>> + Send + Sync,
 >;
+// test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
 #[cfg(test)]
 static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
 #[derive(Default)]

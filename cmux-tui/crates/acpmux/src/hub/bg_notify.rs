@@ -64,6 +64,9 @@ impl Hub {
 
     /// At a start: watches every task of every chat folder whose end is still owed (asked for,
     /// not marked sent). One that ended while no daemon ran is sent at once.
+    ///
+    /// It reads only the records whose folder listing shows no `.notified` mark: on the owner's
+    /// Mac 5,000 of 6,043 records had one (2026-11-11).
     pub(super) fn bg_notify_resume(self: &Arc<Self>) {
         let root = crate::config::home().join("bg");
         for entry in std::fs::read_dir(&root).into_iter().flatten().flatten() {
@@ -72,11 +75,49 @@ impl Hub {
                 continue;
             }
             let dir = entry.path();
-            for record in self.bg_records(&dir) {
-                if record.notify && !bg_run::notified_path(&dir, &record.id).exists() {
+            let Ok(generation) = bg_generation(&dir, false) else { continue };
+            let names: std::collections::HashSet<String> = std::fs::read_dir(&dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter_map(|e| e.file_name().into_string().ok())
+                .collect();
+            for name in &names {
+                let Some(id) = name.strip_suffix(".json") else { continue };
+                if names.contains(&format!("{id}.notified")) {
+                    continue;
+                }
+                if let Some(record) = bg_run::read_record(&dir, id)
+                    && record.generation == generation
+                    && record.notify
+                    && !bg_run::notified_path(&dir, &record.id).exists()
+                {
                     self.bg_watch(&dir, &record);
                 }
             }
+        }
+    }
+
+    /// [`Self::bg_notify_resume`] on a thread of its own, after the store is ready: it reads a
+    /// file per task of every chat, thousands at a start, cold after an update (8.9 s on a
+    /// fleet Mac's disk), and nothing that answers a request or adopts an agent waits on it.
+    /// A task's end it finds owed reaches its chat a little later, as one that ends now does.
+    pub(super) fn bg_notify_resume_in_background(self: &Arc<Self>) {
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            return self.bg_notify_resume();
+        };
+        // Weak: the pass never keeps a dropped hub alive.
+        let hub = Arc::downgrade(self);
+        let spawned =
+            std::thread::Builder::new().name("acpmux-bg-resume".into()).spawn(move || {
+                // Its watches spawn onto the daemon's runtime (`bg_watch`).
+                let _runtime = runtime.enter();
+                if let Some(hub) = hub.upgrade() {
+                    hub.bg_notify_resume();
+                }
+            });
+        if let Err(e) = spawned {
+            tracing::warn!("the owed ends of background tasks cannot be watched: {e}");
         }
     }
 
