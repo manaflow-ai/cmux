@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42989335395",
+  "recorded_at": "2026-11-11T08:51:38Z",
+  "reason": "cmux-tui fea7d1655da5 changes the image's cmux-tui (pinned 475452d5782b)",
+  "dry_run": false,
+  "cmux_tui": "fea7d1655da5fc50a4ec86b70e87e3eb02864e4f",
+  "fixes": [
+    {
+      "sha": "74d6839af0cfa7a7d5c78cd12b20f67d0621ae99",
+      "mergedAt": "2026-11-11T00:30:00-08:00",
+      "subject": "cmux-link: a key lock nobody claims is waited for, not read as held"
+    },
+    {
+      "sha": "69c7b18b6bc30ac36e38c515cb18aa5b658b5346",
+      "mergedAt": "2026-11-11T00:30:00-08:00",
+      "subject": "test(cmux-link): a key lock descriptor a forked child still holds is not a holder (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T08:51:38Z",
+    "snapshot_id": "sh-59b945a106bf4e278fa264ca8b455ca8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42989335395): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a1882072474c973dee9353f6664bf84bcd386e00",
+    "image": "cloud-native-auto-fea7d165-42989335395-1",
+    "revision": "ci-42989335395-1",
+    "at": "2026-11-11T08:51:38Z"
+  },
+  "rolled_back": false
+}
