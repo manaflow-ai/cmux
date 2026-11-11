@@ -5569,6 +5569,70 @@ def _attribution_self_test() -> list[str]:
     return failures
 
 
+# The regex-after-token table shared with manaflow-ai/cmux-platform#1271's JS tokenizer: each case is a source
+# and whether the text `echo` after its slash is code (a hit) or a comment. regex-after-token.json is a pinned
+# byte copy (its .pin sidecar names the commit and sha256); cmux-rows.json holds the rows cmux adds.
+REGEX_AFTER_TOKEN_DIR = pathlib.Path(__file__).resolve().parent / "fixtures" / "regex-after-token"
+
+
+def _regex_after_token_cases(table: dict) -> list[tuple[str, bool, bool]]:
+    """(source, hit, forks) for every row and generated case of TABLE; FORKS where the shared tokenizer cannot
+    decide the slash (it starts with an `undecided_before` token) and keeps the union of both readings."""
+    generate = table.get("generate", {})
+    undecided = generate.get("undecided_before", [])
+    cases = [
+        (row["source"], row["hit"], any(row["source"].startswith(f"{before} /") for before in undecided))
+        for row in table["rows"]
+    ]
+    for befores, line, hit, forks in (
+        (generate.get("regex_before", []), "regex_line", True, False),
+        (undecided, "regex_line", True, True),
+        (generate.get("division_before", []), "division_line", False, False),
+        (undecided, "division_line", True, True),
+    ):
+        bodies = generate.get("bodies", []) if line == "regex_line" else [""]
+        for before in befores:
+            for body in bodies:
+                cases.append((generate[line].format(before=before, body=body), hit, forks))
+    return cases
+
+
+def _regex_after_token_self_test() -> tuple[list[str], int]:
+    """Run the lexer over the shared table and cmux's rows: each case gives the table's answer, or is unresolved
+    (fails --strict) where the table forks. Returns the failures and the number of cases."""
+    import hashlib
+
+    failures: list[str] = []
+    shared = REGEX_AFTER_TOKEN_DIR / "regex-after-token.json"
+    pin = dict(
+        line.split(": ", 1)
+        for line in (REGEX_AFTER_TOKEN_DIR / "regex-after-token.json.pin").read_text().splitlines()
+        if line and not line.startswith("#")
+    )
+    digest = hashlib.sha256(shared.read_bytes()).hexdigest()
+    if digest != pin.get("sha256"):
+        failures.append(
+            f"REGEX-AFTER-TOKEN {shared.name}: sha256 {digest} is not the pinned {pin.get('sha256')} "
+            f"({pin.get('repo')}@{pin.get('commit')}:{pin.get('path')}); copy that file unchanged or re-pin it"
+        )
+    cases = 0
+    for path in (shared, REGEX_AFTER_TOKEN_DIR / "cmux-rows.json"):
+        for source, hit, forks in _regex_after_token_cases(json.loads(path.read_text(encoding="utf-8"))):
+            cases += 1
+            target = source.index("echo")
+            _, comments, unresolved = _lexical_positions_and_unresolved(source, ".ts")
+            if any(offset < target for offset in unresolved):
+                if not forks:
+                    failures.append(f"REGEX-AFTER-TOKEN {path.name}: unresolved where the table decides: {source!r}")
+                continue
+            if (not comments[target]) != hit:
+                failures.append(
+                    f"REGEX-AFTER-TOKEN {path.name}: the text after the slash reads as "
+                    f"{'a comment' if hit else 'code'}, the table says {'code' if hit else 'a comment'}: {source!r}"
+                )
+    return failures, cases
+
+
 def _allowlist_self_test() -> list[str]:
     """The per-function allowlist: an entry hides its own function's findings only, and a stale one fails."""
     import contextlib
@@ -7821,6 +7885,8 @@ def _self_test() -> int:
     failures += _isolated_import_self_test()
     failures += _allowlist_self_test()
     failures += _attribution_self_test()
+    regex_failures, regex_cases = _regex_after_token_self_test()
+    failures += regex_failures
     isolated_fixtures = 6
 
     if failures:
@@ -7830,10 +7896,10 @@ def _self_test() -> int:
         return 1
 
     attribution = len(ATTRIBUTION_FIXTURES) + len(ATTRIBUTION_GUARDS)
-    total = len(positives) + len(negatives) + isolated_fixtures + attribution
+    total = len(positives) + len(negatives) + isolated_fixtures + attribution + regex_cases
     print(f"self-test OK: {len(positives)} positive + {len(negatives)} negative fixtures, "
-          f"{isolated_fixtures} isolated-import fixtures, {attribution} function-attribution fixtures and the "
-          f"per-function allowlist cases passed ({total} total)")
+          f"{isolated_fixtures} isolated-import fixtures, {attribution} function-attribution fixtures, "
+          f"{regex_cases} regex-after-token cases and the per-function allowlist cases passed ({total} total)")
     return 0
 
 

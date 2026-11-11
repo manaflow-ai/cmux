@@ -1,0 +1,188 @@
+{
+  "about": [
+    "A / in JS or TS starts a regex literal or divides, by the token before it. A tokenizer that guesses division where a regex starts reads a regex's \\/ and closing / as //, takes the rest of the line for a comment, and a lint reading the code drops what is written there. The rule: after the ) of an if, while, for or with head, a / starts a regex; after any other ), after ], ++, --, a word, a number, a string, a template or a regex, it divides (after a postfix ++ or -- the expression is complete, and a prefix one cannot take a regex); after (, [, a comma, an operator, ;, :, {, the } of a block, or a keyword such as return or typeof, it starts a regex. Where the tokenizer cannot decide (a ) or } whose opener it has not seen or cannot classify), it scans both readings and keeps the union of what each reads as code, so it fails closed.",
+    "rows: each source, as a whole file, and whether the unsafe text after the slash is code (hit) or a comment.",
+    "generate: regex_line over regex_before and undecided_before x bodies is always a hit; division_line over division_before is never one, and over undecided_before always one (the union). Run by manaflow-ai/cmux-platform test/node/no-guessable-temp-names.test.ts; written so any other hand-rolled JS tokenizer (manaflow-ai/cmux scripts/check-test-determinism.py) can run it as is, where a case its lexer reports as unresolved counts as failing closed."
+  ],
+  "rows": [
+    {
+      "source": "if (ok) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "review of manaflow-ai/cmux-platform#1271 at ba395d25, F1: after the ) of an if head a / starts a regex; its \\/ and closing / are no // comment"
+    },
+    {
+      "source": "while (s) /\\/\\//.exec(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "the ) of a while head"
+    },
+    {
+      "source": "for (const s of xs) /\\/\\//.test(s) && run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "the ) of a for head"
+    },
+    {
+      "source": "for await (const s of xs) /\\/\\//.test(s) && run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "the ) of a for await head"
+    },
+    {
+      "source": "if (f(a, (b))) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "the outer ) is the if head's, past nested calls"
+    },
+    {
+      "source": "const t = [/\\/\\//, run(\"echo > /tmp/out.$$\")]",
+      "hit": true,
+      "why": "after ["
+    },
+    {
+      "source": "f(/\\/\\//); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "after ("
+    },
+    {
+      "source": "x = a ? /\\/\\// : b; run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "after ?"
+    },
+    {
+      "source": "return /\\/\\//.test(s) || run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "after return"
+    },
+    {
+      "source": "if (ok) {} /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "after the } of a block"
+    },
+    {
+      "source": "x) /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "a ) that closes nothing seen: both readings are scanned and their union reported"
+    },
+    {
+      "source": "label: {} /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "a } whose { followed a colon (a label's block or an object literal's value): both readings"
+    },
+    {
+      "source": "const a = n++ / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after a postfix ++ the expression is complete: a / divides"
+    },
+    {
+      "source": "const a = n-- / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after a postfix --, a / divides"
+    },
+    {
+      "source": "x) / 2 // echo > /tmp/out.$$",
+      "hit": true,
+      "why": "fails closed: where the reading is undecided, the regex reading keeps the text a division reading would drop"
+    },
+    {
+      "source": "const a = f(x) / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after the ) of a call, a / divides and // is a comment"
+    },
+    {
+      "source": "const a = b[0] / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after ], a / divides"
+    },
+    {
+      "source": "const a = {} / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after the } of an object literal, a / divides"
+    },
+    {
+      "source": "const a = x.return / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "a keyword after . is a property name"
+    },
+    {
+      "source": "const a = (b + c) / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after the ) of a group"
+    }
+  ],
+  "generate": {
+    "regex_before": [
+      "",
+      "if (ok)",
+      "while (x)",
+      "for (;;)",
+      "with (o)",
+      "for await (const s of xs)",
+      "if (f(a, (b)))",
+      "x = [",
+      "f(",
+      "a,",
+      "a =",
+      "a :",
+      ";",
+      "!",
+      "a &",
+      "a |",
+      "a ?",
+      "{",
+      "if (ok) {}",
+      "a +",
+      "a -",
+      "a *",
+      "a %",
+      "a <",
+      "a >",
+      "~",
+      "a ^",
+      "x => ",
+      "a / ",
+      "return",
+      "typeof",
+      "case",
+      "do",
+      "else",
+      "in",
+      "of",
+      "void",
+      "yield",
+      "await",
+      "throw",
+      "delete",
+      "new",
+      "instanceof"
+    ],
+    "division_before": [
+      "a",
+      "f(x)",
+      "(b + c)",
+      "a[0]",
+      "2",
+      "'s'",
+      "\"s\"",
+      "`t`",
+      "/re/",
+      "x.y",
+      "this",
+      "x.return",
+      "o = {}",
+      "({})",
+      "n++",
+      "n--"
+    ],
+    "undecided_before": [
+      "x)",
+      "label: {}"
+    ],
+    "bodies": [
+      "\\/\\/",
+      "[/]\\/",
+      "a\\/\\/b",
+      "\\\\\\/\\/",
+      "\\/[/]",
+      "[\\]/]\\/"
+    ],
+    "regex_line": "{before} /{body}/.test(s); run(\"echo > /tmp/out.$$\")",
+    "division_line": "{before} / 2 // echo > /tmp/out.$$"
+  }
+}

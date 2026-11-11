@@ -1,0 +1,67 @@
+{
+  "about": [
+    "Rows cmux adds to the shared regex-after-token table (regex-after-token.json, pinned in regex-after-token.json.pin), in its row form: the cases from the review of manaflow-ai/cmux#41341 (F1: a keyword is a whole name; F3: /> is a JSX tag only inside a JSX open tag; a } is a block's or an object's by the token before its {). Sent to manaflow-ai/cmux-platform#1271 for its table too."
+  ],
+  "rows": [
+    {
+      "source": "const a = πif(x) / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "review of manaflow-ai/cmux#41341, F1: πif is one name, not the keyword if after π; after the ) of its call, a / divides"
+    },
+    {
+      "source": "const a = this.#if(x) / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "#if is a private name, not the keyword if: after the ) of its call, a / divides"
+    },
+    {
+      "source": "const a = x?.if(y) / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "a keyword after ?. is a property name"
+    },
+    {
+      "source": "const a = πreturn / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "πreturn is one name, not the keyword return: a / divides"
+    },
+    {
+      "source": "if (ok) {} />[//]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "review of manaflow-ai/cmux#41341, F3: /> is a self-closing JSX tag only inside a JSX open tag; after the } of a block it starts a regex"
+    },
+    {
+      "source": "const el = <Tile a=\"x\" b={c} {...p} />; // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "inside a JSX open tag, the / after an attribute's or a spread's } closes the tag"
+    },
+    {
+      "source": "switch (k) {} /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "after the } of a switch block, a / starts a regex"
+    },
+    {
+      "source": "try {} finally {} /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "after the } of a finally block, a / starts a regex"
+    },
+    {
+      "source": "if (ok) {} else {} /\\/\\//.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "after the } of an else block, a / starts a regex"
+    },
+    {
+      "source": "x = { a: 1 } / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after the } of an object literal that follows =, a / divides"
+    },
+    {
+      "source": "return {} / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after the } of an object literal that follows return, a / divides"
+    },
+    {
+      "source": "f({} / 2) // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "after the } of an object literal that follows (, a / divides"
+    }
+  ]
+}
