@@ -9,11 +9,10 @@ public import Observation
 /// to that chat's tab, which keeps it until its chat has a title of its own on this Mac.
 ///
 /// Each tab is held weakly by its record's identity: a closed tab's entry never names a later tab.
+/// The app owns one (`AppServices.cloudStartTitles`): the start's runner writes it, the tab strip, the sidebar row
+/// and the workspace name read it.
 @MainActor @Observable
 public final class AgentCloudStartTitles {
-    /// The app's one registry: the start's runner writes it, the tab strip, the sidebar row and the workspace name read it.
-    public static let shared = AgentCloudStartTitles()
-
     private struct Entry {
         weak var tab: TabModel?
         let title: String

@@ -43,13 +43,13 @@ public struct WorkspaceAutoNameReader {
     ///   - hold: the names rows keep while their front tab's is unknown; the
     ///     app's one (`AppServices.autoNameHold`), since it builds a reader per row it maps.
     ///   - homeShellTitle: what an unnamed workspace whose shell idles at its home reads, by its machine.
-    ///   - cloudStarts: the titles of Cloud chat starts (`AgentCloudStartTitles.shared`).
+    ///   - cloudStarts: the titles of Cloud chat starts (the app's `AppServices.cloudStartTitles`).
     public init(enabled: @escaping @MainActor () -> Bool, isNewTabPage: @escaping @MainActor (TabModel) -> Bool,
                 livePage: @escaping @MainActor (TabModel) -> LivePage?, incognitoTitle: @escaping @MainActor (TabModel) -> String??,
                 terminal: @escaping @MainActor (TabModel) -> NewWorkspaceName.Tab, turns: AgentTurnStateStore = .shared,
                 hold: WorkspaceAutoNameHold, allowsLegacyDefaults: @escaping @MainActor (WorkspaceModel) -> Bool = { _ in true },
                 homeShellTitle: @escaping @MainActor (WorkspaceModel) -> String? = { _ in nil },
-                cloudStarts: AgentCloudStartTitles = .shared) {
+                cloudStarts: AgentCloudStartTitles = AgentCloudStartTitles()) {
         self.enabled = enabled
         self.isNewTabPage = isNewTabPage
         self.livePage = livePage

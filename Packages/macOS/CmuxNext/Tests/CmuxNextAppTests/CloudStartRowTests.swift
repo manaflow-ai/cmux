@@ -10,7 +10,7 @@ import Testing
 /// with no cloud mark and its tab "New Tab". The page is a workspace of this Mac until the chat opens on its machine,
 /// and the cloud mark was drawn only for rows of a Cloud machine (`SidebarLayoutOptions.cloudMachines`), the title only
 /// from a chat. From the Send the page's tab and row read as the chat it starts and the row draws the cloud mark.
-@MainActor @Suite(.serialized)
+@MainActor
 struct CloudStartRowTests {
     private static func page(_ store: DaemonStore, surface: UInt64) throws -> TabModel {
         var tab = TabSnapshot(surface: SurfaceID(rawValue: surface), kind: .conversation, title: "about:blank", url: "about:blank")
@@ -21,9 +21,9 @@ struct CloudStartRowTests {
     }
 
     @Test func theSendingPagesTabReadsAsItsChatWhileTheStartRuns() throws {
-        let titles = AgentCloudStartTitles.shared, page = try Self.page(DaemonStore(), surface: 61)
-        defer { titles.end(page) }
+        let titles = AgentCloudStartTitles(), page = try Self.page(DaemonStore(), surface: 61)
         var strip = TabTitleResolver(newTabPages: [page.id])
+        strip.cloudStarts = titles
         strip.chatTitle = { _ in AgentPaneModel.tabTitle }
         let before = strip.title(page)
         titles.begin(page, task: "Fix the flaky login test\nIt fails on CI.", untitled: AgentPaneModel.tabTitle)
@@ -34,10 +34,10 @@ struct CloudStartRowTests {
 
     /// The chat that opened on the machine, with no title of its own on this Mac yet, keeps the start's title.
     @Test func theOpenedChatsTabKeepsTheTitle() throws {
-        let titles = AgentCloudStartTitles.shared, page = try Self.page(DaemonStore(), surface: 62)
+        let titles = AgentCloudStartTitles(), page = try Self.page(DaemonStore(), surface: 62)
         let chat = try Self.page(DaemonStore(), surface: 63)
-        defer { titles.end(chat) }
         var strip = TabTitleResolver(newTabPages: [page.id])
+        strip.cloudStarts = titles
         strip.chatTitle = { _ in AgentPaneModel.tabTitle }
         #expect(strip.title(chat) == AgentPaneModel.tabTitle, "fixture: a chat with no title")
         titles.begin(page, task: "Title: Cloud row names", untitled: AgentPaneModel.tabTitle)

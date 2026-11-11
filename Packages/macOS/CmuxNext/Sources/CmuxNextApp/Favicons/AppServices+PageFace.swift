@@ -28,7 +28,7 @@ extension AppServices {
         let favicon = sidebarPageFavicon(workspace, tab: tab)
         let names = WorkspaceAutoNameWiring(services: self, workspace: workspace).reader
         let audio = tab.kind != .browser ? nil : BrowserTabAudio.rowAudio(cache.existingBrowser(tab.id)?.tab.state)
-        return .init(title: names.label(workspace, front: tab, work: work), favicon: favicon, audio: audio, startsInCloud: AgentCloudStartTitles.shared.startsInCloud(tab))
+        return .init(title: names.label(workspace, front: tab, work: work), favicon: favicon, audio: audio, startsInCloud: cloudStartTitles.startsInCloud(tab))
     }
 
     /// The favicon `tab` shows in `workspace`'s sidebar row and band item; nil for a tab that is not a page, and while
