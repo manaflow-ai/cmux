@@ -190,7 +190,9 @@ extension CaptureSceneRegistry {
         frames.start()
         let shown = await frames.settled(until: { (section()?.waiting ?? 0) > 0 }, start: .now, window: 100, deadline: 8_000)
         var report: [String: CmuxNextSettings.JSONValue] = ["shown_frames": frames.stop(), "connected": .bool(capture.connected)]
-        let row = await (section()?.subviews.first as? PageWebView)?.debugWait(selector: ".feed-needs-row", timeoutMilliseconds: 6_000)
+        let page = section()?.subviews.first as? PageWebView
+        await page?.waitUntilLoaded() // the section's page is new: a DOM wait before its document loads watches the blank first one
+        let row = await page?.debugWait(selector: ".feed-needs-row", timeoutMilliseconds: 6_000)
         report["row"] = row ?? .null
         if scene.hasSuffix("-resolved"), shown != nil {
             capture.notifyPending()
@@ -206,14 +208,11 @@ extension CaptureSceneRegistry {
         guard shown != nil, case .object(let drawn)? = row, drawn["matched"]?.boolValue == true else {
             return .object(report.merging(["error": .string("Needs you never drew the prompt"), "scene": .string(scene)]) { $1 })
         }
-        var snapshotParams = params
-        snapshotParams["window"] = .string(windowID)
-        guard case .object(var result) = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services) else {
+        guard case .object(var result) = await DebugWindowSnapshot.captureAsync(params.merging(["window": .string(windowID)]) { $1 }, services: services) else {
             return .object(["error": .string("no snapshot"), "scene": .string(scene)])
         }
         withExtendedLifetime(bridge) {}
-        result["scene"] = .string(scene)
-        result["scene_action"] = .object(report)
+        result.merge(["scene": .string(scene), "scene_action": .object(report)]) { $1 }
         return .object(report["withdrawn"] == .bool(false) ? result.merging(["error": .string("the bridge kept the answered prompt in Needs you")]) { $1 } : result)
     }
 
