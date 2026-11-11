@@ -45,6 +45,12 @@ public struct AgentPaneDebugAutomationArguments {
                 if let value = params[key]?.doubleValue { options[key] = value }
             }
             return [options]
+        case "paste_probe":
+            // A screenshot pasted into the composer, timed until its chip shows (pasteProbe.ts).
+            var options: [String: Any] = [:]
+            for key in ["width", "height"] { if let value = params[key]?.intValue { options[key] = value } }
+            if let kind = params["kind"]?.stringValue { options["kind"] = kind }
+            return [options]
         case "idle_probe":
             // What the page asks for while nobody touches it (idleProbe.ts), over `ms`.
             return [params["ms"]?.doubleValue.map { ["ms": $0] as [String: Any] } ?? [:]]
