@@ -73,8 +73,11 @@ impl PromptStop {
             prompt
         };
         let (hub, session) = (self.hub.clone(), self.session.clone());
-        // Not under the accepting caller's locks, nor in a dropping future.
-        tokio::spawn(async move { hub.stop_cancelled_prompt(&session, &prompt).await });
+        // Not under the accepting caller's locks, nor in a dropping future; the hub's own work,
+        // which its close ends.
+        self.hub.scope.spawn_until_cancelled("cancelled-prompt-stop", async move {
+            hub.stop_cancelled_prompt(&session, &prompt).await;
+        });
     }
 }
 
@@ -122,9 +125,12 @@ where
         if !crate::request_cancel::requested() {
             return;
         }
-        let Ok(runtime) = tokio::runtime::Handle::try_current() else { return };
+        if tokio::runtime::Handle::try_current().is_err() {
+            return;
+        }
         self.stop.cancel();
-        runtime.spawn(async move {
+        // The hub's work from here, as the turn is: the connection that asked for it is done.
+        self.stop.hub.scope.spawn_named("cancelled-prompt-settle", async move {
             let _answer = run.await;
             tracing::debug!(
                 target: crate::request_cancel::LOG_TARGET,
