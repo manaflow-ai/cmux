@@ -33,6 +33,7 @@ enum AppActions {
         BookmarkHandlers.bind(into: registry, context: context)
         BookmarkIconHandlers.bind(into: registry, context: context)
         AppStoreHandlers.bind(into: registry, context: context)
+        CustomSidebarToggle(apps: { [weak services] in services?.apps.client }, environment: ProcessInfo.processInfo.environment, window: { [weak services] in services?.windows.active?.window }).bind(into: registry)
         TasksHandlers.bind(into: registry, context: context)
         TaskManagerHandlers.bind(into: registry, context: context)
         KeybindingHandlers.bind(into: registry, context: context)

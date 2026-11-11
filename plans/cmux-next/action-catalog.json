@@ -105510,6 +105510,92 @@
 
       ],
       "category" : "sidebar",
+      "cliName" : "sidebar toggle-custom",
+      "computed" : {
+        "canonical_action_id" : "sidebar.custom.toggle",
+        "cli" : true,
+        "default_aliases" : [
+
+        ],
+        "is_palette_visible" : true,
+        "palette_family" : null,
+        "palette_suggestion_rank" : null,
+        "palette_tier" : "standard"
+      },
+      "defaultChord" : null,
+      "defaultShortcut" : {
+        "key" : "b",
+        "modifiers" : [
+          "ctrl",
+          "opt",
+          "cmd"
+        ]
+      },
+      "description" : null,
+      "focuses" : false,
+      "group" : "SidebarSectionActionCatalog",
+      "hint" : null,
+      "id" : "sidebar.custom.toggle",
+      "isDebugOnly" : false,
+      "isDestructive" : false,
+      "isGlobalHotKey" : false,
+      "isPersonOnly" : false,
+      "keywords" : [
+        "sidebar",
+        "custom",
+        "customize",
+        "custom views",
+        "my views",
+        "section",
+        "show",
+        "hide",
+        "switch",
+        "starter"
+      ],
+      "mainMenu" : null,
+      "opensWorkspaceContent" : false,
+      "requires" : [
+
+      ],
+      "shortcutFamily" : null,
+      "shortcutLabel" : null,
+      "startsTerminal" : false,
+      "surfacePlan" : {
+        "cli" : "offered",
+        "contextMenuExemption" : null,
+        "contextMenus" : [
+          {
+            "context" : "sidebarBackground",
+            "folder" : "options",
+            "group" : "view",
+            "label" : null,
+            "parent" : null,
+            "rank" : 141,
+            "style" : "item"
+          }
+        ],
+        "mcpExemption" : null,
+        "palette" : "offered"
+      },
+      "surfaces" : [
+        "palette",
+        "keyboard",
+        "contextMenu"
+      ],
+      "symbol" : "sidebar.squares.left",
+      "targets" : [
+
+      ],
+      "title" : "Toggle Custom Sidebar",
+      "waitsForKeyedCreate" : false,
+      "waitsForPerson" : false,
+      "waitsForResult" : false
+    },
+    {
+      "arguments" : [
+
+      ],
+      "category" : "sidebar",
       "cliName" : "action sidebar-group-by-none",
       "computed" : {
         "canonical_action_id" : "sidebar.groupBy.none",

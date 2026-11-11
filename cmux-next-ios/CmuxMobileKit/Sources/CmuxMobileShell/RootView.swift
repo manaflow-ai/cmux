@@ -5,6 +5,7 @@ import CmuxMobileAuth
 import CmuxMobileArtifacts
 import CmuxMobileBrowserStream
 import CmuxMobileChief
+import CmuxConnectivityTelemetry
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileLive
@@ -244,6 +245,12 @@ public struct RootView: View {
             guard let id, !id.isEmpty else { return }
             AccountPreferences.standard.activate(userID: id)
             accountUserID = id
+        }
+        // Connectivity telemetry follows the account: the cmux team's own accounts
+        // (@manaflow.ai, @cmux.com) record verbosely, everyone else sampled and text-free.
+        .onChange(of: auth.isResolved && auth.isSignedIn && !auth.isMock ? auth.user?.email : nil, initial: true) { _, email in
+            ConnectivityTelemetry.shared.startOnPhone()
+            ConnectivityTelemetry.shared.setAccount(email: email)
         }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
         // A Mac's pairing code from the Camera (`cmux-next://pair?…`); never logged, it holds a token.
