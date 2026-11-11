@@ -131,8 +131,9 @@ jobs:
           for name in LINUX_RUNNER MACOS_RUNNER_26; do
             value="${!name}"
             case "$value" in
-              ""|blacksmith-*|ubuntu-*) echo "$name=${value:-<unset>}" ;;
-              *) echo "::error::vars.$name is '$value'; signing jobs run on it, so it must be blacksmith-* or ubuntu-*"; bad=1 ;;
+              # cmux-fleet-linux-x64: the GCP fleet's one-job VM, where CI_BLACKSMITH_OFF=1 sends LINUX_RUNNER.
+              ""|blacksmith-*|ubuntu-*|cmux-fleet-linux-x64) echo "$name=${value:-<unset>}" ;;
+              *) echo "::error::vars.$name is '$value'; signing jobs run on it, so it must be blacksmith-*, ubuntu-* or cmux-fleet-linux-x64"; bad=1 ;;
             esac
           done
           [ "$bad" = 0 ] || exit 1

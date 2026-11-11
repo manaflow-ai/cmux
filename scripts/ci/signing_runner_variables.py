@@ -22,11 +22,14 @@ from __future__ import annotations
 import re
 
 EPHEMERAL_RUNNER_VARIABLES = ("LINUX_RUNNER", "MACOS_RUNNER_26")
-EPHEMERAL_LABEL = re.compile(r"^(blacksmith-|ubuntu-|macos-)[a-z0-9.-]+$")
+# cmux-fleet-linux-x64 is the GCP fleet's ephemeral Linux: a fresh VM per job, deleted after it (cmuxterm-hq
+# build-fleet/swift-linux-builder/gha-runners/README.md, "Trust"). CI_BLACKSMITH_OFF points LINUX_RUNNER at it.
+EPHEMERAL_LABEL = re.compile(r"^(?:(?:blacksmith-|ubuntu-|macos-)[a-z0-9.-]+|cmux-fleet-linux-x64)$")
 
 
 def ephemeral_label(value: str | None) -> bool:
-    """Whether a runner label names an ephemeral runner (blacksmith-*, ubuntu-* or GitHub-hosted macos-*)."""
+    """Whether a runner label names an ephemeral runner (blacksmith-*, ubuntu-*, GitHub-hosted macos-* or the GCP
+    fleet's cmux-fleet-linux-x64)."""
     return bool(EPHEMERAL_LABEL.match((value or "").strip()))
 
 
