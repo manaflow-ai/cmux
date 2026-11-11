@@ -151,31 +151,35 @@ class ShellCleanup(unittest.TestCase):
 # "$2" is the scratch folder for the caller's own temp dir; "$3" the marker its cleanup writes.
 CALLER_PATTERNS = {
     "quoted command": (
-        'set -euo pipefail; source "$1"\n'
+        'set -euo pipefail; source "$1"; MARKER=$3\n'
         'tmp=$(mktemp -d "$2/caller.XXXXXX")\n'
-        'git_fixture_trap_exit \'rm -rf "$tmp"; echo "ran $?" >"$3"\'\n'
+        'git_fixture_trap_exit \'s=$?; rm -rf "$tmp"; echo "ran $s" >"$MARKER"\'\n'
     ),
     "function name": (
-        'set -euo pipefail; source "$1"\n'
+        'set -euo pipefail; source "$1"; MARKER=$3\n'
         'TMP=$(mktemp -d "$2/caller.XXXXXX")\n'
         'cleanup() { local status=$?; git -C "$TMP/repo" worktree remove --force "$TMP/wt" >/dev/null 2>&1 || true; '
-        'rm -rf "$TMP"; echo "ran $status" >"$3"; }\n'
+        'rm -rf "$TMP"; echo "ran $status" >"$MARKER"; }\n'
         'git_fixture_trap_exit cleanup\n'
         'git_fixture_init "$TMP/repo"; git_q -C "$TMP/repo" commit -q --allow-empty -m x\n'
         'git_q -C "$TMP/repo" worktree add -q --detach "$TMP/wt"\n'
     ),
     "on the mktemp line": (
-        'set -euo pipefail; source "$1"\n'
-        'T=$(mktemp -d "$2/caller.XXXXXX"); git_fixture_trap_exit \'rm -rf "$T"; echo "ran $?" >"$3"\'\n'
+        'set -euo pipefail; source "$1"; MARKER=$3\n'
+        'T=$(mktemp -d "$2/caller.XXXXXX"); git_fixture_trap_exit \'s=$?; rm -rf "$T"; echo "ran $s" >"$MARKER"\'\n'
     ),
     "a later call replaces the first": (
-        'set -euo pipefail; source "$1"\n'
-        'A=$(mktemp -d "$2/caller.XXXXXX"); git_fixture_trap_exit \'rm -rf "$A"; echo "wrong cleanup" >"$3"\'\n'
-        'B=$(mktemp -d "$2/caller.XXXXXX"); git_fixture_trap_exit \'rm -rf "$A" "$B"; echo "ran $?" >"$3"\'\n'
+        'set -euo pipefail; source "$1"; MARKER=$3\n'
+        'A=$(mktemp -d "$2/caller.XXXXXX"); git_fixture_trap_exit \'echo "wrong cleanup" >"$MARKER"\'\n'
+        'B=$(mktemp -d "$2/caller.XXXXXX"); git_fixture_trap_exit \'s=$?; rm -rf "$A" "$B"; echo "ran $s" >"$MARKER"\'\n'
+    ),
+    "a direct trap after sourcing (the trap wrapper)": (
+        'set -euo pipefail; source "$1"; MARKER=$3\n'
+        'tmp=$(mktemp -d "$2/caller.XXXXXX"); trap \'s=$?; rm -rf "$tmp"; echo "ran $s" >"$MARKER"\' EXIT INT\n'
     ),
     "a trap set before sourcing": (
-        'set -euo pipefail\n'
-        'tmp=$(mktemp -d "$2/caller.XXXXXX"); trap \'rm -rf "$tmp"; echo "ran $?" >"$3"\' EXIT\n'
+        'set -euo pipefail; MARKER=$3\n'
+        'tmp=$(mktemp -d "$2/caller.XXXXXX"); trap \'s=$?; rm -rf "$tmp"; echo "ran $s" >"$MARKER"\' EXIT\n'
         'source "$1"\n'
     ),
 }
@@ -234,8 +238,8 @@ class FailedTestCleanup(unittest.TestCase):
         script = (
             'set -euo pipefail; source "$1"\n'
             'locked=${GIT_CONFIG_GLOBAL%/*}/locked; mkdir "$locked"; : >"$locked/file"; chmod 500 "$locked"\n'
-            'tmp=$(mktemp -d "$2/caller.XXXXXX")\n'
-            'git_fixture_trap_exit \'chmod 700 "$locked"; rm -rf "$tmp"; echo "ran $?" >"$3"\'\n'
+            'tmp=$(mktemp -d "$2/caller.XXXXXX"); MARKER=$3\n'
+            'git_fixture_trap_exit \'s=$?; chmod 700 "$locked"; rm -rf "$tmp"; echo "ran $s" >"$MARKER"\'\n'
             "exit 7\n"
         )
         done, marker = self.run_case(script)
