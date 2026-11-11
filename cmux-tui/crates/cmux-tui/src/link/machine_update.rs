@@ -205,7 +205,7 @@ fn update(request: &Request) -> Result<Value, Failed> {
         )
         .about(&before));
     }
-    let install = install_path(&before).ok_or_else(|| {
+    let (install, route) = install_target(&before).ok_or_else(|| {
         Failed::new(
             "machine_update_unsupported",
             "the machine's daemon does not run from ~/.cmux/bin/cmux-tui; recreate the machine",
@@ -231,7 +231,10 @@ fn update(request: &Request) -> Result<Value, Failed> {
         let _ = super::sync_cli::delete_remote(socket, &staged);
         return Err(failed);
     }
-    let argv = apply::argv(&staged, &sha256, &install, daemon_pid, &result);
+    let mut argv = apply::argv(&staged, &sha256, &install, daemon_pid, &result);
+    if route == apply::Route::Store {
+        argv.extend(["--route".to_owned(), "store".to_owned()]);
+    }
     let terminal = match start(socket, &argv, &folder, &staged, &result, daemon_pid) {
         Ok(terminal) => terminal,
         Err(failed) => {
@@ -339,15 +342,29 @@ fn lost_start_began(seen: &AfterLostStart, old_pid: u64) -> bool {
     seen.apply_seen || !seen.staged_present || seen.daemon_pid != Some(Some(old_pid))
 }
 
-/// The daemon's binary, `<home>/.cmux/bin/cmux-tui`, from `identify`'s
-/// `cli_path`; None for any other place.
-fn install_path(identity: &Value) -> Option<String> {
+/// Where the new build goes and how, from `identify`'s `cli_path` (the daemon's own
+/// binary, its symlinks resolved): a daemon run from `<home>/.cmux/bin/cmux-tui` gets
+/// the build renamed over that file ([`apply::Route::Work`]). A Cloud machine of the
+/// self-updating image runs it from its store (`/opt/cmux/store/<sha>/cmux-tui`, which
+/// the work user's `~/.cmux/bin/cmux-tui` links to through `/opt/cmux/current`): there
+/// the build goes into the store as the machine's next profile, so the session host,
+/// acpmux (which starts every agent) and `cmux host` all run it
+/// ([`apply::Route::Store`], `cmux host update install`). None for any other place.
+fn install_target(identity: &Value) -> Option<(String, apply::Route)> {
     let path = identity["cli_path"].as_str()?;
-    let plain = path.starts_with('/')
-        && path.ends_with("/.cmux/bin/cmux-tui")
-        && path.split('/').all(|part| part != ".." && part != ".");
-    plain.then(|| path.to_owned())
+    let plain = path.starts_with('/') && path.split('/').all(|part| part != ".." && part != ".");
+    if plain && path.ends_with("/.cmux/bin/cmux-tui") {
+        return Some((path.to_owned(), apply::Route::Work));
+    }
+    let entry = path.strip_prefix(STORE_PREFIX)?.strip_suffix("/cmux-tui")?;
+    (plain && apply::is_sha256(entry)).then(|| (CLOUD_WORK_LINK.to_owned(), apply::Route::Store))
 }
+
+/// The self-updating image's store (cmux-host `updater::store::STORE_DIR`).
+const STORE_PREFIX: &str = "/opt/cmux/store/";
+/// The Cloud work user's cmux-tui, a link into the store's current profile
+/// (cmux-host `updater::WORK_CMUX_TUI_LINK`).
+const CLOUD_WORK_LINK: &str = "/home/cmux/.cmux/bin/cmux-tui";
 
 /// This client's pinned Linux build, its SHA-256 and the commit that built it.
 fn pinned_payload() -> Result<(PathBuf, String, String), Failed> {

@@ -247,6 +247,8 @@ final class AgentTabStore {
     var shareOp: (@MainActor (String, AgentPaneShareOp, String?) async -> AgentPaneShareReply?)?
     /// The display name of a remote daemon's machine, recorded on the tabs of its new chats.
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
+    /// The person's `agents.defaultPermissionMode`, which a new chat on their own Cloud machine starts in as a local one does.
+    var startPermissionMode: @MainActor () -> String? = { nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((AgentTabKey) -> NewTabPageHandler?)?
     /// Each agent session's own avatar (Set Avatar… in the chat's ⋯ menu).
@@ -593,7 +595,7 @@ final class AgentTabStore {
                 guard let self else { return [] }
                 let listed = remoteFoldersScoped?(resolvedRemoteKey(tabKey)) ?? []
                 let machine = await remoteMachineFoldersScoped?(resolvedRemoteKey(tabKey)) ?? []
-                let folders = AgentTabRemoteStart.folders(listed: listed, machine: machine)
+                let folders = AgentRemoteStartFolders.merged(listed: listed, machine: machine)
                 guard let query = query?.lowercased(), !query.isEmpty else { return folders }
                 return folders.filter { $0.lowercased().contains(query) }
             }

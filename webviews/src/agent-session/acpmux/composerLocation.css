@@ -1671,7 +1671,8 @@
   font-variant-numeric: tabular-nums;
   letter-spacing: var(--text-caption--letter-spacing);
 }
-.acpmux-env-row .acpmux-env-key + .acpmux-location-check { margin-left: 6px; }
+.acpmux-env-row :is(.acpmux-env-key, .acpmux-team-tag) + .acpmux-location-check { margin-left: 6px; }
+.acpmux-location-row:not(.acpmux-env-row) .acpmux-team-tag + .acpmux-location-check { margin-left: 4px; }
 .acpmux-env-popover .acpmux-env-icon { flex: none; color: var(--agent-muted); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="ssh"] { color: var(--agent-ansi-2, currentColor); }
 .acpmux-env-popover .acpmux-env-icon[data-kind="cloud"] { color: var(--agent-ansi-4, currentColor); }
@@ -1777,5 +1778,21 @@
 .acpmux-team-tag { display: inline-flex; flex: 0 1 auto; align-items: center; gap: 4px; min-width: 0; color: var(--agent-muted); font-size: var(--text-detail); letter-spacing: var(--text-detail--letter-spacing); white-space: nowrap; }
 .acpmux-team-tag > svg { flex: none; }
 .acpmux-team-tag-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.acpmux-location-row .acpmux-team-tag { margin-left: auto; padding-left: 8px; }
-.acpmux-location-row .acpmux-team-tag + .acpmux-location-check { margin-left: 4px; }
+/* In the environment picker the team is the Cloud row's secondary text, laid out as This Mac's
+   ⌥⌘1 (.acpmux-env-key): the label left and whole, the team at the trailing edge in the
+   shortcut's caption type and ink, 6 px before the check's own 16 px column. The team cuts
+   (never "Cloud"), at a cap so a long team name does not widen the menu. */
+.acpmux-location-row .acpmux-location-name:has(+ .acpmux-team-tag) { flex-shrink: 0; }
+.acpmux-location-row .acpmux-team-tag { flex: 0 1 auto; max-width: 18ch; margin-left: auto; padding-left: 16px; font-size: var(--text-caption); letter-spacing: var(--text-caption--letter-spacing); }
+/* On the chip's face the location word never cuts: "Cloud" stays whole and the team beside it
+   gives up its width first, then drops in a narrow strip before the location's name would
+   (design/composer-menus.md: the machine never shrinks, it drops its name in a narrow strip). */
+.acpmux-location-button > .acpmux-location-label:has(+ .acpmux-team-tag),
+.acpmux-location-readonly > .acpmux-location-label:has(+ .acpmux-team-tag) { flex-shrink: 0; }
+.acpmux-location-button > .acpmux-team-tag { flex: 0 1 auto; min-width: 0; }
+@container acpmux-strip (width < 396px) {
+  .acpmux-location-picker[data-kind="computer"] .acpmux-location-button > .acpmux-team-tag { display: none; }
+}
+@container acpmux-strip (width < 472px) {
+  .acpmux-composer-context:has(> .acpmux-location-picker:last-child:not([data-rows])) .acpmux-location-picker[data-kind="computer"] .acpmux-location-button > .acpmux-team-tag { display: none; }
+}

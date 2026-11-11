@@ -105,14 +105,11 @@ extension CloudStartChat {
             _ = try Self.checked(await cli.startChatPin(key: start.key, account: CloudStartCore().accountText(account), machine: created.machineID, workspace: workspace))
             invocation.arguments["machine"] = .string(created.machineID)
         }
-        return (try await CloudMove(services: services).machine(invocation, pick: pick), plan)
+        let session = try await CloudMove(services: services).machine(invocation, pick: pick), id = session.machineID
+        try await CloudMachineRoute(api: cloud.machineAPI, machineID: id).prepare { @MainActor [services] in _ = await CloudMachineUpdates.updateNow(id, services: services) }
+        return (session, plan)
     }
 
-    /// `answer`, or its error as the person reads it.
-    static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T {
-        guard answer.0.ok else {
-            throw answer.0.errorCode == "cloud.plan.required" ? CloudAPIError.planRequired(message: nil, upgradeURL: nil) as any Error : CloudMove.Failure(message: CloudMoveStrings.moveFailed(answer.0.error ?? answer.0.errorCode ?? ""))
-        }
-        return answer.1
-    }
+    /// `answer`, or its error as the person reads it (``CloudMoveStrings/checked(_:)``).
+    static func checked<T>(_ answer: (CloudMoveCLI.Answer, T)) throws -> T { try CloudMoveStrings.checked(answer) }
 }

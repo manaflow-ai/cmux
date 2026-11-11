@@ -75,8 +75,10 @@ import { CONTEXT_LABELS, splitForMiddleTruncation } from "./composerContextModel
 import {
   FOLDER_CHIP_LABELS,
   FOLDERLESS_CLOUD_LABELS,
+  chatFolderChoices,
+  chatOwnFolder,
   folderChipState,
-  isCloudChatFolder,
+  folderMenu,
   type FolderChipState,
 } from "./folderlessCloud";
 import { chatComputerId, ownMachineName, type ChatPlace } from "./chatMachine";
@@ -187,6 +189,7 @@ export function ComposerContext({
   cloudEnvironmentDropUp,
   unavailableGroup,
   unavailableExpanded,
+  cloudStartOut = false,
 }: {
   summary?: Summary;
   sessions?: readonly Session[];
@@ -318,6 +321,9 @@ export function ComposerContext({
   /// and whether that group starts open.
   unavailableGroup?: UnavailableGroup;
   unavailableExpanded?: boolean;
+  /// A Cloud start this page sent is out (App.tsx `cloudStarting`): the folder went with it, so the
+  /// folder chip is a plain label until the start ends (folderlessCloud.ts `folderMenu`).
+  cloudStartOut?: boolean;
 }) {
   // The machines and folders read only where each chat runs (`placeFields`): another chat's status,
   // unread, title or cost changing leaves the list they are made from as it is, so they are not made
@@ -495,6 +501,15 @@ export function ComposerContext({
   if (waitingPick && !waitMachine) setWaiting(undefined);
   const waiting = waitMachine ? waitingPick : undefined;
   const waitFailed = waitMachine?.stage === "failed";
+  // The picked machine is a Cloud one: its menu never lists another chat's private `~/chats/<chat>`.
+  // Over a remote route the `local` row is the machine the route reaches, not this Mac: its folders
+  // are the ones its host listed for it (`machineFolders`), never this Mac's `projectChoices`.
+  const routeElsewhere = route?.origin === "remote" || route?.origin === "peer";
+  const machineOnCloud =
+    selectedComputer === "local"
+      ? routeElsewhere && route?.ownerCloud === true
+      : peerKinds[selectedComputer] === "cloud" ||
+        (selectedComputer === initialComputer && summary?.hostKind === "cloud");
   const folders = useMemo(() => {
     const known = availableFolders(summary, sessions, selectedComputer);
     if (selectedComputer === "local") {
@@ -506,29 +521,44 @@ export function ComposerContext({
         known.push({ id, label: projectLabel(id), detail: id });
       }
     }
-    const choices = selectedComputer === "local" ? projectChoices : ownMachine ? machineFolders : undefined;
-    if (!choices) return known;
-    const projects = choices.map((project) => ({
+    const choices =
+      selectedComputer === "local"
+        ? routeElsewhere
+          ? machineFolders
+          : projectChoices
+        : ownMachine
+          ? machineFolders
+          : undefined;
+    const listed = choices?.map((project): Location => ({
       id: normalizeCwd(project.cwd)!,
       label: project.label,
       detail: project.cwd,
       ...(project.repo ? { repo: project.repo } : {}),
     }));
-    const seen = new Set(projects.map((project) => project.id));
-    return [...projects, ...known.filter((folder) => !seen.has(folder.id))];
-  }, [summary, sessions, selectedComputer, projectChoices, machineFolders, ownMachine, savedFolders]);
+    return chatFolderChoices({ known, listed, cloudMachine: machineOnCloud });
+  }, [
+    summary,
+    sessions,
+    selectedComputer,
+    projectChoices,
+    machineFolders,
+    ownMachine,
+    savedFolders,
+    machineOnCloud,
+    routeElsewhere,
+  ]);
   const summaryFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : undefined;
   // A chat in its private agent-home folder has no project yet: the row offers a folder instead. So
   // has a folderless Cloud chat in the fresh folder its machine made for it (folderlessCloud.ts).
   // a Cloud machine only, since an SSH machine's `~/chats/api` is a project like any other.
   const summaryOnCloud =
-    summary?.hostKind === "cloud" || (summary?.peer !== undefined && peerKinds[summary.peer] === "cloud");
+    summary?.hostKind === "cloud" ||
+    (summary?.peer !== undefined && peerKinds[summary.peer] === "cloud") ||
+    (selectedComputer === "local" && machineOnCloud);
   const currentFolder = savedFolderPick
     ? normalizeCwd(savedFolderPick.folder)
     : summaryFolder
-      ? isAgentHome(summaryFolder) || (summaryOnCloud && isCloudChatFolder(summaryFolder))
-        ? undefined
-        : normalizeCwd(summaryFolder)
+      ? normalizeCwd(chatOwnFolder(summaryFolder, summaryOnCloud))
       : projectChoices
         ? undefined
         : folders[0]?.id;
@@ -565,6 +595,16 @@ export function ComposerContext({
   const sandboxPicked = runMode?.mode === "sandboxed" && !started && !readOnly;
   const cloudPicked = runMode?.mode === "cloud" && !started && !readOnly;
   const newChats = started && onNewChat !== undefined;
+  // What the folder chip opens (folderlessCloud.ts `folderMenu`): a Cloud chat's never lists this
+  // Mac's folders or Add folder… once it runs on its machine, and is a label while its start is out.
+  const folderOpens = folderMenu({
+    cloudStartOut,
+    readOnly,
+    newChats,
+    onThisMac: selectedComputer === "local" && !routeElsewhere,
+    localChoices: projectChoices !== undefined,
+    cloudMachine: machineOnCloud || summaryOnCloud || cloudPicked,
+  });
   const branch = summary?.branch;
   // The folder control names the repository (projectRepos.ts), and a worktree's branch while no
   // branch control follows it: "cmux · issue-22273", not the worktree folder's own name. A folder
@@ -942,7 +982,7 @@ export function ComposerContext({
     <div className="acpmux-composer-strip">
       <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
         <div className="acpmux-location-leading">
-          {!folderShown ? null : !readOnly && selectedComputer === "local" && projectChoices ? (
+          {!folderShown ? null : folderOpens.kind === "localFolders" ? (
             <FolderPopover
               label={t(CONTEXT_LABELS.folder)}
               menu="Location"
@@ -998,12 +1038,12 @@ export function ComposerContext({
               value={folderValue}
               options={folders}
               selected={currentFolder}
-              disabled={readOnly && !newChats}
+              disabled={folderOpens.kind === "label"}
               icon={<FolderIcon />}
               middle={currentFolder !== undefined}
               allowPath
               {...(extra ? { extra } : {})}
-              onBrowse={newChats ? browseNewChat : undefined}
+              onBrowse={folderOpens.addFolder ? browseNewChat : undefined}
               extras={
                 newChats && currentFolder
                   ? [
