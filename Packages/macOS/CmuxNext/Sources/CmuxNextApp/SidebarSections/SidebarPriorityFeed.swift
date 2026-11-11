@@ -23,6 +23,10 @@ extension SidebarPriorityFeed {
                                openedSessions: { [weak services] in
                                    guard let tabs = services?.agentTabs else { return [] }
                                    return Set(tabs.listTabsScoped().compactMap { tabs.sessions[tabs.tabKey($0.key, machine: $0.machine)] ?? $0.record.session })
+                               },
+                               retryLoad: {
+                                   AgentTurnStateFeed.shared?.reconnectNow()
+                                   ChatsFeed.chiefTurnStates?.reconnectNow()
                                }),
                   chats: .app)
     }

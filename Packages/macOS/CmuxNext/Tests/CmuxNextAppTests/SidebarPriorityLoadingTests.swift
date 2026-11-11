@@ -12,11 +12,60 @@ import Testing
 /// "No agent chats right now" only when the list is truly empty.
 @MainActor
 struct SidebarPriorityLoadingTests {
-    private func feed(_ store: AgentLaneStore, clock: ManualClock = ManualClock()) -> SidebarPriorityFeed {
+    private func feed(_ store: AgentLaneStore, clock: ManualClock = ManualClock(),
+                      retryLoad: @escaping @MainActor () -> Void = {}) -> SidebarPriorityFeed {
         let chats = AgentPriorityChats(marks: AgentPriorityMarks(defaults: nil), stores: [store], checksFailing: { _ in false }) { _, _ in }
         return SidebarPriorityFeed(settings: .init(enabled: { true }, shown: { true }),
-                                   hooks: .init(shortcut: { nil }, open: { _ in }, rowAction: { _ in }, toggleShown: {}), chats: chats,
-                                   clock: clock)
+                                   hooks: .init(shortcut: { nil }, open: { _ in }, rowAction: { _ in }, toggleShown: {},
+                                                retryLoad: retryLoad),
+                                   chats: chats, clock: clock)
+    }
+
+    /// Waits for the next change of the panel after `body` runs.
+    private func panelChange(_ feed: SidebarPriorityFeed, after body: () -> Void) async {
+        let (changes, change) = AsyncStream<Void>.makeStream()
+        withObservationTracking { _ = feed.panel() } onChange: { change.yield() }
+        body()
+        for await _ in changes { break }
+    }
+
+    /// Round 4 (verifier M6): "Couldn't load agent chats." was a dead end, with no Retry. The panel
+    /// now shows Try Again beside it; the view's own Try Again asks the watches to connect again,
+    /// shows loading again and re-arms the deadline, which ends in the error again if nothing comes.
+    @Test func couldntLoadOffersTryAgainThatReadsAgainUnderAFreshDeadline() async throws {
+        let clock = ManualClock()
+        let store = AgentLaneStore()
+        let retries = RetryCount()
+        let feed = feed(store, clock: clock) { retries.value += 1 }
+        _ = feed.panel()
+        try await clock.waitForSleeper()
+        await panelChange(feed) { clock.advance(by: SidebarPriorityFeed.loadDeadline) }
+        let view = SidebarPriorityPanelView(frame: NSRect(x: 0, y: 0, width: 260, height: 200))
+        view.onAction = { feed.perform($0) }
+        view.show(try #require(feed.panel()))
+        #expect(view.emptyNote == Strings.priorityLoadFailed)
+        #expect(view.offersRetry, "Couldn't load agent chats. offered no Try Again")
+
+        await panelChange(feed) { view.retry.performClick(nil) }
+        #expect(retries.value == 1, "Try Again did not ask the chat lists' watches to read again")
+        let again = try #require(feed.panel())
+        #expect(!again.loaded && !again.loadFailed, "Try Again kept the error instead of loading again")
+        view.show(again)
+        #expect(view.emptyNote == Strings.priorityLoading)
+        #expect(!view.offersRetry)
+        try await clock.waitForSleeper()
+        #expect(clock.sleeperCount == 1, "Try Again did not re-arm the deadline")
+
+        await panelChange(feed) { clock.advance(by: SidebarPriorityFeed.loadDeadline) }
+        let failedAgain = try #require(feed.panel())
+        #expect(failedAgain.loadFailed, "the re-armed deadline never ended in the error")
+        view.show(failedAgain)
+        #expect(view.offersRetry)
+
+        store.live = true
+        view.show(try #require(feed.panel()))
+        #expect(view.emptyNote == Strings.priorityEmpty)
+        #expect(!view.offersRetry)
     }
 
     /// Round 2 (verifier M-2): with no acpmux daemon no store ever goes live, and the panel said
@@ -74,4 +123,9 @@ struct SidebarPriorityLoadingTests {
         view.show(SidebarPriorityPanel(entries: [], loaded: true))
         #expect(view.emptyNote == Strings.priorityEmpty)
     }
+}
+
+/// Counts the feed's retry hook calls.
+@MainActor private final class RetryCount {
+    var value = 0
 }

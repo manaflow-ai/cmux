@@ -128,4 +128,6 @@ public nonisolated enum SidebarPriorityAction: Hashable, Sendable {
     case place(String, order: [String])
     /// The titlebar bell: show or hide the view.
     case toggleShown
+    /// Try Again under "Couldn't load agent chats.": read the chat lists again, under a fresh deadline.
+    case retryLoad
 }

@@ -37,15 +37,19 @@ public final class SidebarPriorityFeed {
         public var toggleShown: @MainActor () -> Void
         /// Session ids in actual open tabs, read inside the panel observation.
         public var openedSessions: @MainActor () -> Set<String>
+        /// Try Again after "Couldn't load agent chats.": the chat lists' watches connect again now.
+        public var retryLoad: @MainActor () -> Void
 
         public init(shortcut: @escaping @MainActor () -> String?, open: @escaping @MainActor (AgentActivityLane) -> Void,
                     rowAction: @escaping @MainActor (SidebarPriorityAction) -> Void, toggleShown: @escaping @MainActor () -> Void,
-                    openedSessions: @escaping @MainActor () -> Set<String> = { [] }) {
+                    openedSessions: @escaping @MainActor () -> Set<String> = { [] },
+                    retryLoad: @escaping @MainActor () -> Void = {}) {
             self.shortcut = shortcut
             self.open = open
             self.rowAction = rowAction
             self.toggleShown = toggleShown
             self.openedSessions = openedSessions
+            self.retryLoad = retryLoad
         }
     }
 
@@ -156,7 +160,16 @@ public final class SidebarPriorityFeed {
         case .setCollapsed(let collapsed): marks.setCollapsed(collapsed)
         case .place(let id, let order): marks.place(id, in: order)
         case .toggleShown: hooks.toggleShown()
+        case .retryLoad: retryLoad()
         }
+    }
+
+    /// Try Again after "Couldn't load agent chats.": loading shows again under a fresh deadline
+    /// (the next `panel` arms it) while the chat lists' watches connect again.
+    private func retryLoad() {
+        loadTimer.cancel()
+        loadState.timedOut = false
+        hooks.retryLoad()
     }
 
     /// Wakes at the next change no lane or mark makes (a snooze end, an idle chat aging out), and

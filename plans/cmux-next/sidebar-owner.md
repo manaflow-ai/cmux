@@ -139,6 +139,10 @@
   daemon no lane store goes live, so the empty note said loading forever; past `SidebarPriorityFeed.loadDeadline`
   it says "Couldn't load agent chats." in the same note, and a list read later replaces it. Only the note's text
   changes; no layout, font or color. Regression: `SidebarPriorityLoadingTests`.
+- 2026-11-11: "Couldn't load agent chats." gets Try Again beside it (verifier round 4 of #40135: the rule says
+  "an error with Retry", and the note alone was a dead end). The link is the note's font in the accent color, on the
+  note's line; it asks this Mac's acpmux watches to connect now (`AgentTurnStateFeed.reconnectNow`), shows loading
+  again and re-arms the 10 s deadline. Regression: `SidebarPriorityLoadingTests.couldntLoadOffersTryAgainThatReadsAgainUnderAFreshDeadline`.
 - 2026-11-09: a multi-selection drags as one stack of its rows, as a browser's vertical tabs do. Leo,
   verbatim (2026-11-08, ask-2ba1bed2e4, screen recordings of ours beside a browser's): "ours vs edge's group moving i
   think we need to make ours more like edge and chrome". The card carried only the pressed row and a count badge
