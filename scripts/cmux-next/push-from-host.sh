@@ -140,6 +140,14 @@ export PATH="$PATH:/opt/homebrew/bin:$HOME/.bun/bin"
 IFS= read -r CMUX_PUSH_TOKEN
 TREE="/tmp/$NAME.tree"
 cd "$REPO"
+# Set before any step that can exit (the disk check below did, and left this push's bundle and script in /tmp).
+cleanup() {
+    cd "$REPO"
+    git worktree remove --force "$TREE" >/dev/null 2>&1 || true
+    git worktree remove --force "$TREE.hooks" >/dev/null 2>&1 || true
+    rm -f "/tmp/$NAME.bundle" "/tmp/$NAME.sh"
+}
+trap cleanup EXIT
 # Leftovers of runs that were killed, whose EXIT trap never ran: a tree is a full checkout (about 2 GB). Only this
 # script's own names, and only those older than 2 hours, so a push that runs now keeps its files. On 2026-11-10
 # this host went offline at 99% full.
@@ -168,13 +176,6 @@ if [[ "$FREE_KB" =~ ^[0-9]+$ ]]; then
             "free disk there before the pushes stop." >&2
     fi
 fi
-cleanup() {
-    cd "$REPO"
-    git worktree remove --force "$TREE" >/dev/null 2>&1 || true
-    git worktree remove --force "$TREE.hooks" >/dev/null 2>&1 || true
-    rm -f "/tmp/$NAME.bundle" "/tmp/$NAME.sh"
-}
-trap cleanup EXIT
 if [[ -f "/tmp/$NAME.bundle" ]]; then
     git fetch -q --no-tags "/tmp/$NAME.bundle" "refs/push-from-host/$NAME"
 fi

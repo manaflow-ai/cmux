@@ -7,6 +7,8 @@
 # still skipped the live-daemon suites (steps 1d2d7a3f2e5c, f6276fe17989).
 # No network: a stub curl serves the CDN and origin is a local repository.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=feat-cmux-next -c protocol.file.allow=always "$@" >/dev/null 2>&1; }

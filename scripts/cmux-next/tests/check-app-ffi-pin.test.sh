@@ -12,6 +12,8 @@
 #    verdict of a PR that leaves the check's files alone, and a new file is not
 #    one of them.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 
 script="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/check-app-ffi-pin.sh"
 # The script reads the pin only through scripts/ci/app_ffi_pin.py, so the scratch tree carries it too.
@@ -243,5 +245,43 @@ if out="$(check_tree)"; then
   fail "a stale JSON pin passed: $out"
 fi
 [[ "$out" == *"changed since the pinned source $pinned"* ]] || fail "no stale report for the JSON pin: $out"
+
+# --stale-grace (the push run of feat-cmux-next): a pin behind the sources passes with a note while the first
+# commit that left it behind is younger than the grace, and fails once it is older. Before, every FFI commit left
+# the tip red until its release was pinned (cmux-next runs 42952459700, 42958342526, 42960857925, 42973010316).
+check_at() { # check_at NOW [check option...]: the check in $repo with the clock at NOW
+  local now="$1"; shift
+  (cd "$repo" && CMUX_APP_FFI_PIN_NOW="$now" bash scripts/cmux-next/check-app-ffi-pin.sh "$@" 2>&1)
+}
+behind_at="$(git -C "$repo" show -s --format=%ct "$rb")"
+out="$(check_at "$((behind_at + 600))" --stale-grace 3600)" || fail "a pin behind for 10 minutes failed inside its grace: $out"
+[[ "$out" == *"note: the pin is behind: the app FFI sources changed 10 min ago"* ]] || fail "no behind note: $out"
+[[ "$out" == *"cmux-remote-browser"* ]] || fail "the behind note does not name what changed: $out"
+if out="$(check_at "$((behind_at + 7200))" --stale-grace 3600)"; then
+  fail "a pin behind for two hours passed a one hour grace: $out"
+fi
+[[ "$out" == *"error: the pin has been behind for 120 min"* ]] || fail "no overdue line: $out"
+[[ "$out" == *"changed since the pinned source $pinned"* ]] || fail "the overdue report lost the stale report: $out"
+# Without the flag (a pull request, the pre-push gate) the same tree still fails.
+if out="$(check_at "$((behind_at + 600))")"; then fail "a stale pin passed without --stale-grace: $out"; fi
+# The grace counts from the first commit that left the pin behind: a later FFI commit does not start it again.
+echo "// later" >> "$repo/cmux-tui/crates/cmux-rd-core/src/lib.rs"
+GIT_COMMITTER_DATE="@$((behind_at + 3000)) +0000" git -C "$repo" commit -qam "rd-core, later"
+if out="$(check_at "$((behind_at + 4000))" --stale-grace 3600)"; then
+  fail "a later FFI commit started the grace again: $out"
+fi
+[[ "$out" == *"error: the pin has been behind for 66 min"* ]] || fail "the age is not counted from the first commit: $out"
+# A shallow checkout (actions/checkout) holds no commit between the pin and HEAD: the check deepens it to date
+# the first one. Without that, HEAD's own commit read as the first, and a pin never grew overdue.
+shallow="$tmp/shallow"
+git clone -q --depth=1 "file://$repo" "$shallow"
+[[ "$(git -C "$shallow" rev-list --count HEAD)" == 1 ]] || fail "the clone is not shallow"
+out="$(cd "$shallow" && CMUX_APP_FFI_PIN_NOW="$((behind_at + 600))" bash scripts/cmux-next/check-app-ffi-pin.sh --stale-grace 3600 2>&1)" \
+  || fail "a shallow checkout failed inside the grace: $out"
+[[ "$out" == *"note: the pin is behind: the app FFI sources changed 10 min ago"* ]] || fail "a shallow checkout dated the pin wrong: $out"
+if out="$(cd "$shallow" && CMUX_APP_FFI_PIN_NOW="$((behind_at + 4000))" bash scripts/cmux-next/check-app-ffi-pin.sh --stale-grace 3600 2>&1)"; then
+  fail "a shallow checkout passed an overdue pin: $out"
+fi
+[[ "$out" == *"error: the pin has been behind for 66 min"* ]] || fail "a shallow checkout lost the first commit: $out"
 
 echo "check-app-ffi-pin.test.sh: ok"

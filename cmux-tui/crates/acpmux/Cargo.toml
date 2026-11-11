@@ -43,6 +43,8 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["ring",
 [dependencies]
 acpmux-build-id = { path = "../acpmux-build-id", optional = true }
 acpmux-hot = { workspace = true, optional = true, features = ["wasm"] }
+arc-swap.workspace = true
+imbl.workspace = true
 chrono.workspace = true
 chrono-tz.workspace = true
 cmux-server = { path = "../cmux-server" }
@@ -94,6 +96,7 @@ toml_edit.workspace = true
 thiserror = "2"
 tokio = { version = "1.52", features = ["rt-multi-thread", "macros", "process", "io-util", "io-std", "net", "sync", "time", "fs", "signal"] }
 tokio-tungstenite.workspace = true
+cmux-scope.workspace = true
 # Compressed frames for large messages on a WebSocket (src/frame_compress.rs).
 flate2.workspace = true
 # A cold-archived chat's log, one compressed file (src/store/cold.rs).

@@ -13,9 +13,11 @@ use cmux_mobile_link::{ChannelEvent, DialError, DialOptions, LinkConfig, Signali
 use tokio::runtime::Runtime;
 
 mod browser;
+mod classic_leftovers;
 mod terminal_prediction;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
+pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 
 uniffi::setup_scaffolding!();
