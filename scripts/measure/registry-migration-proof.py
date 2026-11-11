@@ -3,8 +3,18 @@
 (scripts/measure/registry-migration-proof.sh builds the binaries and writes the registry).
 
 Arms, each on its own APFS clone of the generated state, with real owner processes:
-  main   start 1 (the owner folds, names the floor, builds the new registry beside the file),
-         stop, start 2 (the swap at open), stop, start 3 (the backup goes), stop.
+  control  each older owner binary on a clone of the state BEFORE the migration: what its
+         saved roster and its History list hold there. The same binary's result on the migrated
+         state is compared with it (an older build that shows less on BOTH is not a loss of the
+         migration).
+  main   start 1 (the owner folds, names the floor, builds the new registry beside the file;
+         its memory, CPU time and the time of one identify request are sampled), stop, start 2
+         (the swap at open), stop, starts 3 and 4 (the replaced file gets its kept name and
+         stays: the rule is 7 days AND 3 full starts), stop.
+  second-swap  on a clone of the migrated state: this script removes the kept file (as the rule
+         does later) and synth_registry --advance-checkpoints moves the restore points to the
+         head (what days of use do); then start (the owner builds again at the new floor),
+         stop, start (the second swap), stop.
   kill-stage  kill -9 while start 1 stages; then start, wait for the build, stop, start, stop.
   kill-swap   kill -9 while start 2 runs the swap (the staging file changes); then start, stop.
   kill-renamed  kill -9 as soon as the backup file exists (after the rename, before the start
@@ -13,7 +23,8 @@ Arms, each on its own APFS clone of the generated state, with real owner process
   old    each older owner binary (--old-bin, a list) on its own clone of the migrated state:
          does it open it, what does it serve, what do the counts say after it stayed up
          --old-dwell seconds (a roster rebuild of another reducer version saves in that time),
-         and after the new owner opened the state again.
+         and after the new owner opened the state again (the return path: the roster and the
+         History of the head build, and the two reducer base rows byte for byte).
   old-raised  each older owner binary on a clone of the migrated state whose stored
          schema_version is RAISED by hand (sqlite, by this script: no build writes it): does it
          refuse, with which lines and exit code, and is the folder byte for byte the same after
@@ -35,6 +46,7 @@ import socket
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -45,8 +57,14 @@ _spec.loader.exec_module(drs)
 
 REGISTRY = drs.REGISTRY
 STAGING = REGISTRY + ".output-cleanup"
+# The file a swap replaced: under the first name until one full start, then the kept name.
 PREVIOUS = REGISTRY + ".pre-output-cleanup"
-EQUAL_KEYS = ("workspaces", "tabs", "terminals", "roster_agents", "history_sessions")
+KEPT = REGISTRY + ".kept-before-cleanup"
+EQUAL_KEYS = ("workspaces", "tabs", "terminals", "roster_agents", "history_sessions",
+              "roster_rested", "history_rested")
+ROSTER_KEYS = ("roster_version", "roster_agents", "roster_rested", "roster_cursor",
+               "history_sessions", "history_rested", "history_cursor")
+BASE_KEYS = ("roster_base", "history_base")
 
 
 def say(tag, value):
@@ -145,6 +163,89 @@ class Owner:
         self.log.close()
 
 
+def request_line(owner, request, timeout=10.0):
+    """One request line on the owner's socket: (reply or None, milliseconds or None)."""
+    started = time.monotonic()
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as conn:
+            conn.settimeout(timeout)
+            conn.connect(owner.socket)
+            conn.sendall(json.dumps(request).encode() + b"\n")
+            data = b""
+            while b"\n" not in data:
+                chunk = conn.recv(1 << 20)
+                if not chunk:
+                    return None, None
+                data += chunk
+        reply = json.loads(data.split(b"\n", 1)[0])
+    except (OSError, ValueError):
+        return None, None
+    return reply, round((time.monotonic() - started) * 1000, 2)
+
+
+def cleanup_stats(owner):
+    """The registry_cleanup section of server-stats: counts, sizes and one file NAME."""
+    reply, _ = request_line(owner, {"id": 2, "cmd": "server-stats", "include": ["registry_cleanup"]}, 60)
+    section = ((reply or {}).get("data") or {}).get("registry_cleanup")
+    if isinstance(section, dict) and "/" in str(section.get("error") or ""):
+        section["error"] = "an error text with a path: not shown"
+    return section
+
+
+def cpu_seconds(text):
+    """ps cputime: M:SS.ss (macOS), HH:MM:SS or D-HH:MM:SS (Linux)."""
+    days, _, rest = text.rpartition("-")
+    total = 0.0
+    for part in rest.split(":"):
+        total = total * 60 + float(part)
+    return total + (int(days) * 86400 if days else 0)
+
+
+class Sampler(threading.Thread):
+    """While an owner runs, each `period` seconds: its resident memory and CPU time (ps, the
+    whole process) and the time of one identify request on its socket."""
+
+    def __init__(self, owner, period=0.5):
+        super().__init__(daemon=True)
+        self.owner, self.period, self.rows, self.done = owner, period, [], threading.Event()
+
+    def run(self):
+        pid = str(self.owner.child.pid)
+        while not self.done.wait(self.period):
+            at = self.owner.elapsed()
+            try:
+                out = subprocess.run(["ps", "-o", "rss=", "-o", "cputime=", "-p", pid],
+                                     capture_output=True, text=True, timeout=10).stdout.split()
+                row = (at, int(out[0]), cpu_seconds(out[1]))
+            except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+                continue
+            _, ms = request_line(self.owner, {"id": 1, "cmd": "identify"}, 30)
+            self.rows.append((*row, ms))
+
+    def stop(self):
+        self.done.set()
+        self.join(timeout=60)
+
+    def phase(self, start, end):
+        """The samples from `start` to `end` (seconds from spawn; None: no such phase)."""
+        if start is None or end is None:
+            return None
+        rows = [row for row in self.rows if start <= row[0] < end]
+        if len(rows) < 2:
+            return {"samples": len(rows)}
+        times = sorted(row[3] for row in rows if row[3] is not None)
+        pick = lambda q: times[min(len(times) - 1, int(len(times) * q))] if times else None  # noqa: E731
+        wall = rows[-1][0] - rows[0][0]
+        cpu = rows[-1][2] - rows[0][2]
+        return {"samples": len(rows), "seconds": round(wall, 1),
+                "peak_rss_mb": round(max(row[1] for row in rows) / 1024, 1),
+                "cpu_s": round(cpu, 2),
+                "cpu_share_of_one_core": round(cpu / wall, 3) if wall > 0 else None,
+                "identify_ms": {"p50": pick(0.5), "p95": pick(0.95), "p99": pick(0.99),
+                                "max": times[-1] if times else None,
+                                "no_answer": sum(1 for row in rows if row[3] is None)}}
+
+
 # history_ops.rs MAX_LIST: the most rows one history.entries.list request returns.
 HISTORY_LIST_LIMIT = 5000
 
@@ -206,8 +307,17 @@ def counts(args, state):
     sdir = registry.parent
     value["staging_bytes"] = drs.file_size(sdir / STAGING)
     value["backup_bytes"] = drs.file_size(sdir / PREVIOUS)
+    value["kept_bytes"] = drs.file_size(sdir / KEPT)
     value["folder_bytes"] = sum(f.stat().st_size for f in sdir.iterdir() if f.is_file())
     return value
+
+
+def roster_of(value):
+    return {key: value.get(key) for key in ROSTER_KEYS}
+
+
+def bases_of(value):
+    return {key: value.get(key) for key in BASE_KEYS}
 
 
 def compare(before, after):
@@ -270,8 +380,9 @@ def cleanup_lines(owner):
             if "output cleanup: " in line and "/" not in line]
 
 
-def build(args, state, label):
+def build(args, state, label, timeout=None):
     """Start 1 on `state`: ready, then the new registry built beside the file. Stops the owner."""
+    timeout = timeout or args.build_timeout
     owner = Owner(args, state, label)
     ready = owner.wait_ready()
     result = {"arm": label, "ready_s": ready, "load_1m": os.getloadavg()[0]}
@@ -279,17 +390,30 @@ def build(args, state, label):
         result["error"] = "not ready"
         owner.stop()
         return result
-    staging = owner.wait_log(STAGING_LINES, args.build_timeout, BAD_BUILD)
+    sampler = Sampler(owner)
+    sampler.start()
+    staging = owner.wait_log(STAGING_LINES, timeout, BAD_BUILD)
     result["staging_started_s"] = None if staging is None else staging[1]
     built = None
     if staging is not None and staging[1] is not None:
-        built = wait_built(owner, args.build_timeout)
+        built = wait_built(owner, timeout)
     result["built_s"] = None if built is None else built[1]
     text = owner.log_text()
     result["skipped_passes"] = text.count(SKIPPED)
     result["cleanup_lines"] = cleanup_lines(owner)[-8:]
     if built is None or built[1] is None:
         result["error"] = "no build" if built is None else "no build: " + built[0]
+    else:
+        # A few seconds more: the samples after the build, on the same owner.
+        time.sleep(args.after_built)
+    sampler.stop()
+    end = owner.elapsed()
+    result["samples"] = {
+        "ready_to_staging": sampler.phase(ready, result["staging_started_s"]),
+        "while_it_builds": sampler.phase(result["staging_started_s"], result["built_s"]),
+        "after_the_build": sampler.phase(result["built_s"], end),
+    }
+    result["cleanup_stats"] = cleanup_stats(owner)
     result["served"] = served(owner)
     result["exit"] = owner.stop()
     return result
@@ -306,6 +430,7 @@ def start_stop(args, state, label, binary=None, ask=True):
         result["last_line"] = (lines[-1] if lines else "")[:200]
     elif ask:
         result["served"] = served(owner)
+        result["cleanup_stats"] = cleanup_stats(owner)
     result["exit"] = owner.stop()
     return result
 
@@ -341,12 +466,14 @@ def main_arm(args, state, before, report):
     report["after_swap"] = after
     step = start_stop(args, state, "main-start3")
     final = counts(args, state)
-    step.update(lost=compare(before, final), backup_left=final["backup_bytes"] > 0)
+    step.update(lost=compare(before, final), rollback_name_bytes=final["backup_bytes"],
+                kept_name_bytes=final["kept_bytes"])
     say("RMP", step)
     report["steps"].append(step)
     step = start_stop(args, state, "main-start4")
     final = counts(args, state)
-    step.update(lost=compare(before, final), backup_left=final["backup_bytes"] > 0)
+    step.update(lost=compare(before, final), rollback_name_bytes=final["backup_bytes"],
+                kept_name_bytes=final["kept_bytes"])
     say("RMP", step)
     say("RMP-COUNTS", {"at": "final", **final})
     report["steps"].append(step)
@@ -480,27 +607,108 @@ def log_lines(owner, limit=12):
     return [line[:300] for line in lines[:limit]]
 
 
-def old_arm(args, state, before, report, label, binary):
+def old_arm(args, state, before, report, label, binary, migrated=True):
+    """An older owner on `state`, until it saved its own roster (or --old-dwell seconds), then
+    the head build again. `migrated` False: the control, on the state before the migration."""
+    start = counts(args, state)
     owner = Owner(args, state, label, binary=binary)
     ready = owner.wait_ready()
     step = {"arm": label, "ready_s": ready, "opens": ready is not None,
-            "load_1m": os.getloadavg()[0]}
+            "load_1m": os.getloadavg()[0], "at_start": roster_of(start)}
     if ready is None:
         lines = owner.log_text().splitlines()
         step["last_line"] = (lines[-1] if lines else "")[:200]
     else:
         step["served"] = served(owner)
-        # A reducer of another version rebuilds and saves after the owner is ready.
-        time.sleep(args.old_dwell)
+        # A reducer of another version rebuilds and saves after the owner is ready: the saved
+        # roster then has that build's version.
+        deadline = time.monotonic() + args.old_dwell
+        step["saved_its_roster_s"] = None
+        while time.monotonic() < deadline and owner.child.poll() is None:
+            now = roster_of(counts(args, state))
+            if now["roster_version"] != start.get("roster_version"):
+                step["saved_its_roster_s"] = round(owner.elapsed(), 1)
+                time.sleep(min(10, args.old_dwell))
+                break
+            time.sleep(min(5, args.old_dwell))
         step["served_after_dwell"] = served(owner)
     step["exit"] = owner.stop()
     step["log_lines"] = log_lines(owner)
     after = counts(args, state)
+    step["after_old"] = roster_of(after)
     step["lost"] = compare(before, after)
+    if migrated:
+        # Older builds keep the key: the two base rows are the bytes the swap wrote.
+        step["bases_after_old"] = bases_of(after)
+        step["bases_equal_after_old"] = bases_of(after) == bases_of(report["after_swap"])
     again = start_stop(args, state, label + "-then-new")
+    final = counts(args, state)
     step["new_after_old_ready_s"] = again["ready_s"]
     step["new_after_old_served"] = again.get("served")
-    step["lost_after_new"] = compare(before, counts(args, state))
+    step["after_new"] = roster_of(final)
+    step["lost_after_new"] = compare(before, final)
+    if migrated:
+        step["bases_equal_after_new"] = bases_of(final) == bases_of(report["after_swap"])
+        control = next((item for item in report["steps"]
+                        if item["arm"] == label.replace("old-", "control-", 1)), None)
+        if control is not None:
+            keys = ("roster_agents", "roster_rested")
+            step["roster_of_the_old_build"] = {
+                "before_the_migration": {key: control["after_old"].get(key) for key in keys},
+                "after_the_migration": {key: step["after_old"].get(key) for key in keys},
+                "served_before": (control.get("served_after_dwell") or {}).get("agent_sessions"),
+                "served_after": (step.get("served_after_dwell") or {}).get("agent_sessions"),
+            }
+            step["same_as_control"] = all(
+                control["after_old"].get(key) == step["after_old"].get(key) for key in keys)
+    say("RMP", step)
+    report["steps"].append(step)
+
+
+def second_swap_arm(args, state, before, report):
+    """A second rebuild and swap of the migrated registry. The owner rebuilds again only when no
+    file of the last swap is held and 100,000 records are at or below a new floor. THIS SCRIPT
+    removes the kept file (the product does it after 7 days and 3 full starts), and
+    synth_registry --advance-checkpoints writes new checkpoints at the head by owners, seals
+    every record and back-dates the segments (what days of use do). The rest is the product."""
+    sdir = registry_of(state).parent
+    removed = {}
+    for name in (PREVIOUS, KEPT):
+        for suffix in ("", "-wal", "-shm"):
+            path = sdir / (name + suffix)
+            if path.is_file():
+                removed[name + suffix] = path.stat().st_size
+                path.unlink()
+    start = counts(args, state)
+    out = subprocess.run(
+        [args.synth, "--advance-checkpoints", "16", "--out", str(state), "--session",
+         args.session, "--seal-age-minutes", str(args.seal_age_minutes), "--quiet"],
+        stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=3600, check=False)
+    step = {"arm": "second-swap", "removed_by_this_script": removed,
+            "before": {key: start.get(key) for key in
+                       ("registry_bytes", "records", "segments", "retention_floor",
+                        "journal_head", "checkpoints")}}
+    if out.returncode != 0:
+        step["error"] = "synth_registry --advance-checkpoints failed: " + out.stderr[-300:]
+        say("RMP", step)
+        report["steps"].append(step)
+        return
+    step["advanced"] = json.loads(out.stdout.strip().splitlines()[-1])
+    step["lost_by_the_advance"] = compare(before, counts(args, state))
+    step["build"] = build(args, state, "second-swap-a", timeout=args.second_build_timeout)
+    step["swap_start"] = start_stop(args, state, "second-swap-b")
+    after = counts(args, state)
+    step["after"] = {key: after.get(key) for key in
+                     ("registry_bytes", "records", "segments", "retention_floor",
+                      "journal_head", "checkpoints", "backup_bytes", "kept_bytes")}
+    step.update(lost=compare(before, after), swapped=step["swap_start"]["swap"] is not None,
+                bases_after=bases_of(after))
+    if "error" in step["build"]:
+        step["error"] = "no second build: " + step["build"]["error"]
+    elif not step["swapped"]:
+        step["error"] = "the second start did not swap"
+    step["third_start"] = start_stop(args, state, "second-swap-c")
+    step["lost_after_third"] = compare(before, counts(args, state))
     say("RMP", step)
     report["steps"].append(step)
 
@@ -574,15 +782,24 @@ def table(report):
                  f"(load {one.get('load_1m', 0):.1f}; {one.get('error', 'ok')}; passes skipped "
                  f"first: {one.get('skipped_passes')})"))
     rows.append(("start 1: the cleanup's lines", json.dumps(one.get("cleanup_lines"))))
+    rows.append(("start 1: the owner process (memory, CPU, identify request)",
+                 json.dumps(one.get("samples"))))
+    rows.append(("start 1: server-stats registry_cleanup", json.dumps(one.get("cleanup_stats"))))
     two = steps.get("main-start2", {})
     rows.append(("start 2: ready, the swap", f"{two.get('ready_s')} s; {two.get('swap')}"))
     if after:
         rows.append(("registry after the swap", gb(after["registry_bytes"]) + f", {after['records']} "
                      f"records, {after['segments']} segments, floor {after['retention_floor']}, "
                      f"backup {gb(after['backup_bytes'])}"))
+        rows.append(("the two base rows after the swap", json.dumps(bases_of(after))))
+        rows.append(("start 2: server-stats registry_cleanup",
+                     json.dumps(two.get("cleanup_stats"))))
     if final:
-        rows.append(("folder after 2 more starts", gb(final["folder_bytes"]) + f", backup "
-                     f"{gb(final['backup_bytes'])}"))
+        rows.append(("folder after 2 more starts", gb(final["folder_bytes"]) + ", the replaced "
+                     f"file under its first name {gb(final['backup_bytes'])}, under its kept "
+                     f"name {gb(final['kept_bytes'])}"))
+        rows.append(("start 4: server-stats registry_cleanup",
+                     json.dumps(steps.get("main-start4", {}).get("cleanup_stats"))))
     for key in EQUAL_KEYS:
         rows.append((f"{key} before / after the swap / final",
                      f"{before.get(key)} / {(after or {}).get(key)} / {(final or {}).get(key)}"))
@@ -590,8 +807,9 @@ def table(report):
                  " / ".join(str((steps.get(f"main-start{n}", {}).get("served") or {})
                                 .get("agent_sessions")) for n in (1, 2, 3, 4))
                  + f"; differs: {json.dumps(report.get('served_lost', {}))}"))
-    names = ["kill-stage", "kill-swap", "kill-renamed", "space"]
-    names += [name for name in steps if name.startswith("old") and not name.endswith("-new")]
+    names = ["kill-stage", "kill-swap", "kill-renamed", "space", "second-swap"]
+    names += [name for name in steps if name.startswith(("old", "control"))
+              and not name.endswith("-new")]
     for name in names:
         step = steps.get(name)
         if step is not None:
@@ -603,7 +821,18 @@ def table(report):
                                "after_restart", "new_after_old_ready_s",
                                "served_after_dwell", "new_after_old_served", "log_lines",
                                "schema_version", "exit", "changed", "removed", "added",
-                               "untouched", "still_running_at_s", "files_before")}
+                               "untouched", "still_running_at_s", "files_before",
+                               "at_start", "after_old", "after_new", "saved_its_roster_s",
+                               "bases_after_old", "bases_equal_after_old",
+                               "bases_equal_after_new", "roster_of_the_old_build",
+                               "same_as_control", "removed_by_this_script", "before", "after",
+                               "advanced", "lost_by_the_advance", "lost_after_third",
+                               "bases_after", "error")}
+            if name == "second-swap":
+                keep["build"] = {key: step.get("build", {}).get(key) for key in
+                                 ("ready_s", "staging_started_s", "built_s", "cleanup_lines",
+                                  "samples")}
+                keep["swap"] = step.get("swap_start", {}).get("swap")
             rows.append((name, json.dumps(keep)))
     print("RMP-TABLE | item | result |")
     print("RMP-TABLE | --- | --- |")
@@ -618,8 +847,13 @@ def main():
     parser.add_argument("--debug-bin", default="")
     parser.add_argument("--old-bin", default="")
     parser.add_argument("--arms",
-                        default="main,kill-stage,kill-swap,kill-renamed,space,old,old-raised")
+                        default="control,main,kill-stage,kill-swap,kill-renamed,space,"
+                                "second-swap,old,old-raised")
+    # The longest wait for an older owner to save its own roster.
     parser.add_argument("--old-dwell", type=float, default=45)
+    parser.add_argument("--after-built", type=float, default=10)
+    parser.add_argument("--second-build-timeout", type=float, default=1800)
+    parser.add_argument("--seal-age-minutes", type=int, default=120)
     parser.add_argument("--refusal-timeout", type=float, default=90)
     parser.add_argument("--ready-timeout", type=float, default=3600)
     parser.add_argument("--build-timeout", type=float, default=7200)
@@ -632,7 +866,7 @@ def main():
     for index, item in enumerate(part for part in args.old_bin.split(",") if part):
         label, _, path = item.rpartition("=")
         olds.append((label or f"old{index + 1}", path))
-    for name in ("old", "old-raised"):
+    for name in ("control", "old", "old-raised"):
         if not olds and name in args.arms:
             args.arms.remove(name)
     scratch = Path(args.scratch)
@@ -650,8 +884,15 @@ def main():
     report = {"generated": generated, "before": before, "before_start_1": dict(before),
               "steps": [plain], "arms": args.arms,
               "host_load_1m": os.getloadavg()[0], "free_bytes": shutil.disk_usage(scratch).free}
-    if before["backup_bytes"] or plain["ready_s"] is None:
+    if before["backup_bytes"] or before["kept_bytes"] or plain["ready_s"] is None:
         plain["error"] = "the plain start swapped or did not get ready"
+    # The control: each older build on the state as it is before the migration.
+    for label, binary in olds:
+        if "control" in args.arms:
+            name = f"control-{label}"
+            old_arm(args, clone(args.state, scratch / name), before, report, name, binary,
+                    migrated=False)
+            shutil.rmtree(scratch / name)
     for name in ("kill-stage", "space"):
         if name in args.arms:
             clone(args.state, scratch / name)
@@ -663,6 +904,9 @@ def main():
             kill_at_file_arm(args, scratch / name, before, report, name)
     if "space" in args.arms:
         space_arm(args, scratch / "space", before, report)
+    if "second-swap" in args.arms and ok:
+        second_swap_arm(args, clone(args.state, scratch / "second-swap"), before, report)
+        shutil.rmtree(scratch / "second-swap")
     for label, binary in olds:
         if "old" in args.arms and ok:
             name = f"old-{label}"
@@ -674,8 +918,25 @@ def main():
             shutil.rmtree(scratch / name)
     Path(args.report).write_text(json.dumps(report, indent=1))
     table(report)
-    lost = [step["arm"] for step in report["steps"]
-            if step.get("lost") or step.get("lost_after_second") or step.get("lost_after_new")]
+    # A control step is the older build on the state BEFORE the migration: what differs
+    # there is not a loss of the migration, so it is named apart.
+    # An older build as the last writer saves ITS roster (a build before 2026-11-09 reads
+    # no record below the floor): that is named apart too. The count that must hold is the
+    # one after the head build opened the state again.
+    def older(step):
+        return "after_old" in step
+
+    lost = [step["arm"] for step in report["steps"] if not step["arm"].startswith("control-")
+            and ((step.get("lost") and not older(step)) or step.get("lost_after_second")
+                 or step.get("lost_after_new") or step.get("lost_after_third"))]
+    shows_less = {step["arm"]: step["lost"] for step in report["steps"]
+                  if older(step) and step.get("lost") and not step["arm"].startswith("control-")}
+    control = {step["arm"]: {"after_old": step.get("lost"), "after_new": step.get("lost_after_new")}
+               for step in report["steps"] if step["arm"].startswith("control-")}
+    bases_changed = [step["arm"] for step in report["steps"]
+                     if step.get("bases_equal_after_old") is False]
+    not_as_control = [step["arm"] for step in report["steps"]
+                      if step.get("same_as_control") is False]
     failed = [step["arm"] for step in report["steps"] if "error" in step]
     # A raised schema_version that an older owner opens, or a folder it changed: not a count,
     # so it is named apart and does not change the exit code.
@@ -685,8 +946,11 @@ def main():
         lost.append("served")
     unread = [step["arm"] for step in report["steps"] if "error" in (step.get("served") or {})]
     say("RMP-VERDICT", {"lost_in": lost, "failed": failed, "served_not_read_in": unread,
-                        "raised_not_clean_in": not_clean})
-    return 1 if lost or failed or not ok else 0
+                        "raised_not_clean_in": not_clean, "control": control,
+                        "an_older_build_as_the_last_writer_shows_less": shows_less,
+                        "bases_changed_by_an_older_build_in": bases_changed,
+                        "older_build_not_as_its_control_in": not_as_control})
+    return 1 if lost or failed or bases_changed or not ok else 0
 
 
 if __name__ == "__main__":

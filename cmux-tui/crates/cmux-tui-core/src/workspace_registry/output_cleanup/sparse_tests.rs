@@ -128,9 +128,11 @@ fn assert_bases(sparse: &Sparse, cut: u64) {
             cursor.is_some_and(|cursor| cursor >= cut),
             "the base of {reducer} has cursor {cursor:?}, below the floor {cut}"
         );
+        // The roster names an agent by its terminal, the History by its session.
         for index in 0..RESTED {
             assert!(
-                raw.contains(&format!("{RESTED_SESSION_PREFIX}{index}")),
+                raw.contains(&format!("{RESTED_SESSION_PREFIX}{index}"))
+                    || raw.contains(&rested_terminal(index)),
                 "the base of {reducer} does not hold rested agent {index}"
             );
         }

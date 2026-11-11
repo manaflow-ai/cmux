@@ -119,8 +119,9 @@ const MAX_FOLD_OWNERS: u32 = 400;
 /// about three quarters of it.
 const FILL_ALPHABET: &[u8; 64] =
     b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-/// The session ids of the rested agents start with this.
+/// The session ids and the terminal ids of the rested agents start with these.
 const RESTED_SESSION_PREFIX: &str = "synth-rested-";
+const RESTED_TERMINAL_PREFIX: &str = "term_00000000000040008001";
 
 /// What [`generate_shape`] writes. [`Default`] is the 1 GB class.
 #[derive(Debug, Clone)]
@@ -307,7 +308,7 @@ pub fn generate_shape(state_root: &Path, options: &ShapeOptions) -> anyhow::Resu
             })
             // The rested agents: after the lanes that the rounds turn through.
             .chain((0..options.rested_agents).map(|index| Lane {
-                terminal: format!("term_00000000000040008001{index:012x}"),
+                terminal: format!("{RESTED_TERMINAL_PREFIX}{index:012x}"),
                 session: format!("{RESTED_SESSION_PREFIX}{index}"),
                 sessions: 1,
                 step: 0,
@@ -886,11 +887,6 @@ fn reducer_state(raw: Option<String>) -> Option<(u64, u64, String)> {
     Some((version, cursor, snapshot))
 }
 
-/// True for the session id of a rested agent of the generator.
-fn rested(session: Option<&str>) -> bool {
-    session.is_some_and(|session| session.starts_with(RESTED_SESSION_PREFIX))
-}
-
 /// The counts of a registry file, as one JSON object with no path and no
 /// row content. The connection is read-only: no migration runs and no row is
 /// written (for a file in WAL mode SQLite may make the `-shm` and `-wal`
@@ -960,15 +956,17 @@ pub fn counts(registry_path: &Path) -> anyhow::Result<Value> {
         }),
         "roster_rested": roster.as_ref().and_then(|(version, _, snapshot)| {
             AgentRoster::migrate(*version as u32, snapshot).map(|roster| {
-                roster.entries.values().filter(|entry| rested(entry.session.as_deref())).count()
+                // By the key of an entry, which is its terminal id.
+                roster.entries.keys().filter(|id| id.starts_with(RESTED_TERMINAL_PREFIX)).count()
             })
         }),
         "history_rested": history.as_ref().and_then(|(_, _, snapshot)| {
             serde_json::from_str::<cmux_history::AgentSessionFold>(snapshot).ok().map(|fold| {
-                let sessions = fold.ordered();
-                sessions.iter().filter(|one| rested(Some(one.session_id.as_str()))).count()
+                let rested = |id: &str| id.starts_with(RESTED_SESSION_PREFIX);
+                fold.ordered().iter().filter(|one| rested(&one.session_id)).count()
             })
         }),
+        "roster_version": roster.as_ref().map(|(version, _, _)| *version),
         "roster_state_bytes": roster_raw.as_ref().map(String::len),
         "history_state_bytes": history_raw.as_ref().map(String::len),
         "roster_base": base(AGENT_ROSTER_REDUCER_ID),
@@ -991,7 +989,7 @@ pub fn counts(registry_path: &Path) -> anyhow::Result<Value> {
 
 #[path = "synth_sparse.rs"]
 mod sparse;
-pub use sparse::SparseReport;
+pub use sparse::{SparseReport, advance_checkpoints};
 
 #[cfg(test)]
 #[path = "synth_shape_tests.rs"]

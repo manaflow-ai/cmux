@@ -29,6 +29,7 @@
 //! result is what the cleanup writes when a long run of removed rows follows
 //! the last kept record, but the cleanup did not write it.
 
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -58,6 +59,56 @@ const EMPTY_OUTPUT_ROWS: &str = "WITH RECURSIVE filler(i) AS (
      SELECT 'synth_removed_' || ?2 || '_' || i, 1, 'terminal.output', 'observation',
             'required', ?3, ?3, '{}', 0, '[]', 'sensitive', '{}'
      FROM filler";
+
+/// A segment row refuses an update: the generator drops the trigger and
+/// makes it again in the same transaction.
+const DROP_SEGMENT_TRIGGER: &str = "DROP TRIGGER IF EXISTS journal_segments_reject_update;";
+const SEGMENT_TRIGGER: &str = "CREATE TRIGGER IF NOT EXISTS journal_segments_reject_update
+       BEFORE UPDATE ON journal_segments
+     BEGIN
+       SELECT RAISE(ABORT, 'journal segments are immutable');
+     END;";
+/// The labels of the checkpoints that [`advance_checkpoints`] makes start here.
+const ADVANCE_LABEL_BASE: u64 = 1_000;
+
+/// Moves the restore points of a generated registry to its journal head, as
+/// days of use do on a Mac: `checkpoints` new checkpoints, each by an owner
+/// (the maintenance pass of the next owner prunes the ones they replace),
+/// every record into segments, and each segment's `sealed_at_ms` moved back
+/// by [`super::ShapeOptions::seal_age_minutes`]. The retention floor of the
+/// next start is then near the head. The migration proof calls this before a
+/// SECOND rebuild of a registry. It writes no agent record. Returns what it
+/// did.
+pub fn advance_checkpoints(
+    state_root: &Path,
+    options: &super::ShapeOptions,
+    checkpoints: u64,
+) -> anyhow::Result<Value> {
+    let base = options.base();
+    let mut made = Vec::new();
+    for index in 0..checkpoints {
+        made.push(super::checkpoint(state_root, &base, ADVANCE_LABEL_BASE + index)?);
+    }
+    let (sealed_through, segments_sealed) = super::super::seal(state_root, &base)?;
+    let age_ms = options.seal_age_minutes.saturating_mul(60_000);
+    let connection =
+        rusqlite::Connection::open(super::super::registry_path(state_root, &options.session))?;
+    connection.execute_batch(&format!(
+        "BEGIN IMMEDIATE;
+         {DROP_SEGMENT_TRIGGER}
+         UPDATE journal_segments SET sealed_at_ms = MAX(sealed_at_ms - {age_ms}, 0);
+         {SEGMENT_TRIGGER}
+         COMMIT;"
+    ))?;
+    Ok(json!({
+        "checkpoints": made.len(),
+        "first_checkpoint": made.first(),
+        "last_checkpoint": made.last(),
+        "sealed_through": sealed_through,
+        "segments_sealed": segments_sealed,
+        "seal_age_minutes": options.seal_age_minutes,
+    }))
+}
 
 /// What the sparse part is after the cleanup.
 #[derive(Debug, Clone, Default)]
@@ -237,13 +288,9 @@ impl Shape {
         let connection = self.registry()?.connection.get();
         connection.execute_batch(&format!(
             "BEGIN IMMEDIATE;
-             DROP TRIGGER IF EXISTS journal_segments_reject_update;
+             {DROP_SEGMENT_TRIGGER}
              UPDATE journal_segments SET end_sequence = {to} WHERE end_sequence = {from};
-             CREATE TRIGGER IF NOT EXISTS journal_segments_reject_update
-               BEFORE UPDATE ON journal_segments
-             BEGIN
-               SELECT RAISE(ABORT, 'journal segments are immutable');
-             END;
+             {SEGMENT_TRIGGER}
              UPDATE journal_pruned_ranges SET end_sequence = {to} WHERE end_sequence = {from};
              UPDATE sqlite_sequence SET seq = {to} WHERE name = 'session_journal';
              INSERT INTO sqlite_sequence(name, seq)

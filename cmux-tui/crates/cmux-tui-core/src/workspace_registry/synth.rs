@@ -825,7 +825,9 @@ pub fn registry_path(state_root: &Path, session: &str) -> PathBuf {
 
 #[path = "synth_shape.rs"]
 mod shape;
-pub use shape::{ShapeOptions, ShapeReport, SparseReport, counts, generate_shape};
+pub use shape::{
+    ShapeOptions, ShapeReport, SparseReport, advance_checkpoints, counts, generate_shape,
+};
 
 #[cfg(test)]
 #[path = "synth_tests.rs"]

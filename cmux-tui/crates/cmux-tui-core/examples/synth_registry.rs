@@ -67,6 +67,13 @@
 //!   (default: `auto_vacuum` none and no migration marker, as a registry
 //!   made before journal maintenance)
 //!
+//! `--advance-checkpoints N --out ROOT --session NAME [--seal-age-minutes M]`
+//! works on a registry that `--shape lawrence` wrote, also after an owner
+//! rebuilt it (`synth_registry::advance_checkpoints`): N new checkpoints at
+//! the journal head, every record into segments, each segment M minutes
+//! older. The retention floor of the next owner is then near the head, as
+//! after days of use. It prints what it did as one JSON line.
+//!
 //! `--counts REGISTRY_FILE` prints the counts of an existing registry file
 //! as one JSON line, through a read-only connection, and exits.
 //!
@@ -88,8 +95,8 @@
 use std::path::PathBuf;
 
 use cmux_tui_core::synth_registry::{
-    ROSTER_REDUCER_VERSION, ShapeOptions, SynthOptions, bump_roster_version, counts, generate,
-    generate_shape, rebind_resource_pepper, registry_path,
+    ROSTER_REDUCER_VERSION, ShapeOptions, SynthOptions, advance_checkpoints, bump_roster_version,
+    counts, generate, generate_shape, rebind_resource_pepper, registry_path,
 };
 
 fn main() -> anyhow::Result<()> {
@@ -98,6 +105,7 @@ fn main() -> anyhow::Result<()> {
     let mut shape_name = None;
     let mut out = None;
     let mut registry = None;
+    let mut advance = None;
     let (mut print_registry_path, mut bump_only, mut rebind_pepper) = (false, false, false);
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -127,6 +135,7 @@ fn main() -> anyhow::Result<()> {
             "--receipt-percent" => shape.receipt_percent = value()?.parse()?,
             "--subjects-per-record" => shape.subjects_per_record = value()?.parse()?,
             "--keep-auto-vacuum" => shape.legacy_auto_vacuum = false,
+            "--advance-checkpoints" => advance = Some(value()?.parse::<u64>()?),
             "--counts" => {
                 println!("{}", counts(&PathBuf::from(value()?))?);
                 return Ok(());
@@ -170,6 +179,12 @@ fn main() -> anyhow::Result<()> {
     }
     if print_registry_path {
         println!("{}", registry_path(&out, &options.session).display());
+        return Ok(());
+    }
+    if let Some(checkpoints) = advance {
+        shape.session = options.session.clone();
+        shape.progress = options.progress;
+        println!("{}", advance_checkpoints(&out, &shape, checkpoints)?);
         return Ok(());
     }
     std::fs::create_dir_all(&out)?;

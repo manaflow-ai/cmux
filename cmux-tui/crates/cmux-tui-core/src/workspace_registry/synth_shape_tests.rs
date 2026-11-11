@@ -173,3 +173,57 @@ fn a_registry_with_a_sparse_part_has_holes_at_low_sequences_and_opens() {
     drop(mux);
     std::fs::remove_dir_all(&root).ok();
 }
+
+/// `advance_checkpoints` on a generated registry: 16 checkpoints above the
+/// old head, no young segment, and the agents and sessions it had.
+#[test]
+fn advance_checkpoints_moves_the_restore_points_to_the_head() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-synth-advance-{}", crate::workspace_registry::new_uuid_v4()));
+    let options = ShapeOptions {
+        session: "synth-advance".into(),
+        records: Some(3_000),
+        workspaces: 3,
+        agent_terminals: 5,
+        rested_agents: 2,
+        live_rows: 400,
+        seal_age_minutes: 120,
+        ..ShapeOptions::default()
+    };
+    let report = generate_shape(&root, &options).unwrap();
+    let before = report.to_json();
+    let head = number(&before, "journal_head");
+
+    let advanced = advance_checkpoints(&root, &options, 16).unwrap();
+    assert_eq!(number(&advanced, "checkpoints"), 16, "{advanced}");
+    assert!(number(&advanced, "first_checkpoint") > head, "{advanced} after head {head}");
+    assert!(number(&advanced, "sealed_through") >= number(&advanced, "last_checkpoint"));
+    let after = counts(&report.registry_path).unwrap();
+    assert!(number(&after, "journal_head") > head, "{after}");
+    assert!(number(&after, "checkpoints") >= 32, "{after}");
+    for key in ["roster_agents", "roster_rested", "history_rested", "history_sessions"] {
+        assert_eq!(after[key], before[key], "{key}: {after}");
+    }
+    // Sealed: the 400 live rows of the generator are in segments now.
+    assert!(number(&after, "live_rows") < 400, "{after}");
+    let connection = Connection::open(&report.registry_path).unwrap();
+    let young: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM journal_segments WHERE sealed_at_ms > ?1",
+            [unix_epoch_ms().unwrap() as i64 - 3_600_000],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(young, 0, "{after}");
+    // The trigger is back: a segment row refuses an update.
+    let refused = connection.execute("UPDATE journal_segments SET sealed_at_ms = 1", []);
+    assert!(refused.is_err(), "a segment row took an update after the advance");
+    drop(connection);
+
+    let mux = crate::Mux::open_persistent(options.session, crate::SurfaceOptions::default(), &root)
+        .unwrap();
+    assert!(mux.session_journal_head().unwrap() >= number(&after, "journal_head"));
+    mux.shutdown();
+    drop(mux);
+    std::fs::remove_dir_all(&root).ok();
+}
