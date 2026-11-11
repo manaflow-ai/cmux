@@ -161,11 +161,11 @@ extension MacScreenHomeView {
             let retry = MacScreenButton(L.t("macScreen.card.retry", "Try Again"), id: "macScreen.home.devicesRetry") { [weak self] in
                 self?.retryDevices()
             }
-            content = MacScreenStack.make(.vertical, spacing: 8, alignment: .leading, [MacScreenHomeParts.note(text), retry])
+            content = MacScreenHomeParts.note(text, action: retry)
         case let .signedOut(text):
             let signIn = SignInButton { [weak self] in self?.actions.signIn() }
             signIn.setAccessibilityIdentifier("macScreen.home.signIn")
-            content = MacScreenStack.make(.vertical, spacing: 8, alignment: .leading, [MacScreenHomeParts.note(text), signIn])
+            content = MacScreenHomeParts.note(text, action: signIn)
         case let .list(list):
             let rows = MacScreenStack.make(.vertical, spacing: 0, alignment: .leading)
             for device in list {
