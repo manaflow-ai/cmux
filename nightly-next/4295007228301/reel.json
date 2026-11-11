@@ -1,0 +1,173 @@
+{
+  "version": 1,
+  "build": "4295007228301",
+  "notes": "notes/4295007228301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41000,
+      "title": "base_red_excuse: a cancelled run whose jobs all passed or skipped is superseded by a later green run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40996,
+      "title": "test(base red excuse): the classifier runs under python3 -I from an unpacked scripts/ci copy",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41004,
+      "title": "agent-pane-policy: the C ABI answers what the Swift host still asks its own copy (ABI 2, step A of the pane policy move)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40970,
+      "title": "test: the mid-turn rowless-page test asks as the transcript's loader does (base red since 8f85161c)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40936,
+      "title": "test(cmux-next): the title-key check reads the exported titles, so debug rows are checked again",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40917,
+      "title": "cmux-remote: a relay socket that dies silently while opening or just after registering is found in seconds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40958,
+      "title": "Settings: the daemon reports its settings file in settings.snapshot and keeps it across a restart",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40990,
+      "title": "inference: Particle-1 through Particle's own API (its only route)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 39917,
+      "title": "Agent chat: tool groups, Shell cards and Show more fold without rendering the transcript every frame; a frame-budget guard for chat folds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40959,
+      "title": "base red: the sidebar ground composited from theme tokens carries colour-allow",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40573,
+      "title": "acpmux: a chat's open reads its prompts from their copies, not its whole log",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40983,
+      "title": "base red: MicrophoneActivityTests compiles again (ReadLog is not main-actor isolated)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40687,
+      "title": "cmux-next iOS: windowed Home read, so a 5,000-conversation Home opens like a 20-conversation one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40985,
+      "title": "ci(stable-next): post each run to Slack, one message kept current; no GitHub issue",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40978,
+      "title": "fix(nightly): keep the Go module cache removable for the warm checkout",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40847,
+      "title": "cmux-next route: script-only tool directories run no app compile",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40758,
+      "title": "send-path caps: claude_peers procargs size and the preparer's read chunk are not send caps",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40897,
+      "title": "cmux NEXT: open chat pull request links on github.com by default",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40756,
+      "title": "cmux NEXT Home: the native Swift Home is back (revert #37777, #37736)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40963,
+      "title": "base_red_excuse: a cancelled run a later green run of its workflow file superseded is not red",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40833,
+      "title": "cmux inference setup: a refused gateway model call shows its answer, so it names the hop",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40950,
+      "title": "base_red_excuse: a ws-check red fixed on base says \"fixed on base by <commit>: update the branch\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40899,
+      "title": "cmux NEXT: a click on a workspace menu color swatch colors the workspace (#39953)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40850,
+      "title": "Gallery health: the full gallery's ten base-broken states draw what ships",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40811,
+      "title": "ci: hook-only checks show as advisory warnings on the fast gates, never a gate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40856,
+      "title": "tests: swiftpm metrics fake git execs git itself, and wrapper runs end with their process group",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40949,
+      "title": "cmux-chat-index: an event on an unchanged store reads nothing",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    }
+  ]
+}
