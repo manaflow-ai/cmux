@@ -138,13 +138,13 @@ if [ -e "$TMP_DIR/out" ]; then
   exit 1
 fi
 
-if "$SCRIPT" --dry-run --test-ps-file "$ps_file" --out "$TMP_DIR/ambiguous" >/tmp/cmux-profile-ambiguous.log 2>&1; then
+if "$SCRIPT" --dry-run --test-ps-file "$ps_file" --out "$TMP_DIR/ambiguous" >"$TMP_DIR/ambiguous.log" 2>&1; then
   echo "FAIL: unqualified selection should reject multiple cmux processes" >&2
   exit 1
 fi
-if ! grep -Fq "multiple cmux processes are running" /tmp/cmux-profile-ambiguous.log; then
+if ! grep -Fq "multiple cmux processes are running" "$TMP_DIR/ambiguous.log"; then
   echo "FAIL: ambiguous selection did not explain how to discriminate instances" >&2
-  cat /tmp/cmux-profile-ambiguous.log >&2
+  cat "$TMP_DIR/ambiguous.log" >&2
   exit 1
 fi
 
@@ -325,15 +325,15 @@ if PATH="$fail_bin:$PATH" "$SCRIPT" \
   --duration 1 \
   --template "Time Profiler" \
   --no-submit \
-  --out "$all_failed_out" >/tmp/cmux-profile-all-failed.log 2>&1; then
+  --out "$all_failed_out" >"$TMP_DIR/all-failed.log" 2>&1; then
   echo "FAIL: all-failed profiling run should exit nonzero" >&2
   exit 1
 fi
-if ! grep -Fq "all profiling templates failed" /tmp/cmux-profile-all-failed.log ||
+if ! grep -Fq "all profiling templates failed" "$TMP_DIR/all-failed.log" ||
    ! grep -Fq "Successful traces: 0" "$all_failed_out/summary.md" ||
    grep -Fq "Completed:" "$all_failed_out/summary.md"; then
   echo "FAIL: all-failed profiling run did not surface failure correctly" >&2
-  cat /tmp/cmux-profile-all-failed.log >&2
+  cat "$TMP_DIR/all-failed.log" >&2
   cat "$all_failed_out/summary.md" >&2
   exit 1
 fi
@@ -495,13 +495,13 @@ if CMUX_PROFILE_OSASCRIPT="$cancel_bin" CMUX_PROFILE_OPEN="$open_bin" CMUX_PROFI
   --target-pid 303 \
   --channel dev \
   --bundle-id com.cmuxterm.app.debug.dog \
-  --send >/tmp/cmux-profile-send-cancel.log 2>&1; then
+  --send >"$TMP_DIR/send-cancel.log" 2>&1; then
   echo "FAIL: submit helper send mode should fail when Mail send is canceled" >&2
   exit 1
 fi
-if ! grep -Fq "User canceled" /tmp/cmux-profile-send-cancel.log; then
+if ! grep -Fq "User canceled" "$TMP_DIR/send-cancel.log"; then
   echo "FAIL: submit helper send cancellation did not preserve the AppleScript error" >&2
-  cat /tmp/cmux-profile-send-cancel.log >&2
+  cat "$TMP_DIR/send-cancel.log" >&2
   exit 1
 fi
 

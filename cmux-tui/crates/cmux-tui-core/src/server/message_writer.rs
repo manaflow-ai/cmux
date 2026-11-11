@@ -122,6 +122,9 @@ pub(super) struct MessageWriter {
     /// Whether this connection carries the person's keys: its threads then run at user-interactive QoS
     /// (server/input_qos.rs).
     pub(super) input_lane: Arc<super::input_qos::InputLane>,
+    /// What the daemon knows about the client at the other end, for the request counters
+    /// (diagnostics/command_stats.rs): a request reads it here, never in the client registry.
+    pub(super) kind: Arc<crate::diagnostics::ConnectionKind>,
 }
 
 impl MessageWriter {
@@ -144,6 +147,7 @@ impl MessageWriter {
             conversation_tabs: Arc::default(),
             api_revision: Arc::default(),
             input_lane: Arc::default(),
+            kind: Arc::default(),
         }
     }
 
@@ -251,6 +255,29 @@ impl MessageWriter {
         let result = self
             .render_service
             .serialize_attach_frame(surface, frame, shape)
+            .and_then(|text| self.sink.send_stream_backpressured(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
+    /// [`MessageWriter::send_stream_backpressured`] of a snapshot viewer's
+    /// `output` event ([`RenderService::serialize_snapshot_output`]).
+    pub(super) fn send_snapshot_output_backpressured(
+        &self,
+        surface: SurfaceId,
+        output: &[u8],
+        (generation, offset): (u64, u64),
+        colors: Option<&Value>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = self
+            .render_service
+            .serialize_snapshot_output(surface, output, generation, offset, colors)
             .and_then(|text| self.sink.send_stream_backpressured(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();

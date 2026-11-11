@@ -246,10 +246,18 @@ public extension NSView {
         return layer?.backgroundColor
     }
 
-    /// How far from this pane content's leading edge its ground (``paneGroundColor``) starts: the width of what it shows
-    /// beside its content area (a vertical tab list); 0 with nothing there. It does not change with the content's size.
-    var paneGroundLeadingInset: CGFloat {
-        guard !(self is PaneContentAreaView), let area = subviews.lazy.compactMap({ $0 as? PaneContentAreaView }).first else { return 0 }
-        return max(0, area.frame.minX - bounds.minX)
+    /// How far from this pane content's top and leading edges its ground (``paneGroundColor``) starts: where its content
+    /// area is laid out now (below a tab strip at its top edge, after a vertical tab list), and below the rows of a tab
+    /// row that a view in the area shares with the pane's tabs (``tabRowCoverHeight``: the area then starts at the top,
+    /// under the row, and no ground goes behind or beside the tabs). Zeros for a chat with no strip: it paints from its
+    /// top edge, whatever header its pane reports for its ring. Nil: it has no content area of its own (it is one, or it
+    /// shows none). A row's tools that enter or leave the row move the area and the cover in one layout, by the same
+    /// height, so the top is the same before and after that layout.
+    /// Read in each frame of a spring that holds the content: O(the area's views), no layout.
+    var paneGroundInsets: (top: CGFloat, leading: CGFloat)? {
+        guard !(self is PaneContentAreaView), let area = subviews.lazy.compactMap({ $0 as? PaneContentAreaView }).first else { return nil }
+        let top = isFlipped ? area.frame.minY - bounds.minY : bounds.maxY - area.frame.maxY
+        let row = area.subviews.reduce(0) { $1.isHidden ? $0 : max($0, $1.tabRowCoverHeight) }
+        return (top: max(0, top) + row, leading: max(0, area.frame.minX - bounds.minX))
     }
 }
