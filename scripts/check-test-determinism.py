@@ -5846,6 +5846,20 @@ ATTRIBUTION_GUARDS: list[tuple[str, str, str, str, dict[int, str]]] = [
      "        time.sleep(0.5)\n"
      "        self.assertTrue(done())\n",
      RULE_SLEEP_THEN_ASSERT, {6: "Waits.test_a"}),
+    # `<Tile extends U>({a < b}): x</Tile>` is a tag: a .jsx file has no type parameters, and in a .tsx file `({a < b})`
+    # is no parameter list TypeScript parses, so it is unresolved there, never a guessed arrow. The sleep after the
+    # tag is in its comment (review of #41464, F2).
+    ("jsx tag named like a generic arrow, a comparison in a hole", "web/tests/g14.test.jsx",
+     _js_attribution_fixture(
+         "    const el = <Tile extends U>({a < b}): x</Tile>; // await new Promise((r) => setTimeout(r, 200));\n"
+         "    expect(drawn).toBe(true);\n"
+     ), RULE_SLEEP_THEN_ASSERT, {7: "pane.b"}),
+    ("tsx tag named like a generic arrow, a comparison in a hole", "web/tests/g15.test.tsx",
+     _js_attribution_fixture(
+         "    const el = <Tile extends U>({a < b}): x</Tile>; // await new Promise((r) => setTimeout(r, 200));\n"
+         "    expect(drawn).toBe(true);\n"
+     ), RULE_SLEEP_THEN_ASSERT,
+     {3: "<unresolved: JSX tag or comparison at 3:16>", 7: "<unresolved: JSX tag or comparison at 3:16>"}),
 ]
 
 
@@ -6046,6 +6060,79 @@ def _regex_after_token_self_test(strict: bool = False) -> tuple[list[str], int, 
         for group, count in counts.items()
     )
     return failures, cases, summary
+
+
+# The review of #41464 (F1) measured 24 generic arrows in a row past 10 s, where the base took 0.07 s.
+_LOOKAHEAD_SCALING_ARROWS = 64
+_LOOKAHEAD_CALLS_PER_ARROW = 2
+_LOOKAHEAD_CLI_SECONDS = 10
+
+
+def _lookahead_scaling_self_test() -> list[str]:
+    """The type-parameter lookahead costs a bounded amount per `<`: for N = 1..64 generic arrows in a row the lexer
+    runs at most 2N lookaheads (counted, never timed; the count stops at its budget, so an exponential lexer fails
+    fast instead of hanging). And the CLI finishes a file of 24 or 200 of them, with its finding, within 10 s: an
+    outcome (the run ends, the finding is reported), not a timing."""
+    import subprocess
+    import tempfile
+
+    failures: list[str] = []
+    module = sys.modules[__name__]
+    original = module._javascript_angle_is_type_parameters
+
+    class OverBudget(Exception):
+        pass
+
+    def arrows(count: int) -> str:
+        return "".join(f"const f{k} = <T extends U>(x: T) => x;\n" for k in range(count))
+
+    for count in range(1, _LOOKAHEAD_SCALING_ARROWS + 1):
+        budget = _LOOKAHEAD_CALLS_PER_ARROW * count
+        calls = 0
+
+        def counted(source: str, index: int) -> Optional[bool]:
+            nonlocal calls
+            calls += 1
+            if calls > budget:
+                raise OverBudget
+            return original(source, index)
+
+        module._javascript_angle_is_type_parameters = counted
+        try:
+            _lexical_positions_and_unresolved(arrows(count), ".tsx")
+        except OverBudget:
+            failures.append(
+                f"LOOKAHEAD scaling: {count} generic arrows in a row ran more than {budget} type-parameter lookaheads "
+                f"({_LOOKAHEAD_CALLS_PER_ARROW} per arrow)"
+            )
+            break
+        finally:
+            module._javascript_angle_is_type_parameters = original
+
+    for count in (24, 200):
+        with tempfile.TemporaryDirectory() as tmp:
+            rel = f"web/tests/arrows{count}.test.tsx"
+            source = arrows(count) + _js_attribution_fixture("    const a = 1;\n")
+            (pathlib.Path(tmp) / "web/tests").mkdir(parents=True)
+            (pathlib.Path(tmp) / rel).write_text(source)
+            want = f"{rel}:{count + _sleep_line(_js_attribution_fixture(''))}: {RULE_SLEEP_THEN_ASSERT} in pane.b:"
+            try:
+                result = subprocess.run(
+                    [sys.executable, str(pathlib.Path(__file__).resolve()), "--repo-root", tmp, "--allowlist",
+                     "allow.txt", "--roots", "web/tests", "--strict"],
+                    capture_output=True, text=True, timeout=_LOOKAHEAD_CLI_SECONDS, stdin=subprocess.DEVNULL,
+                )
+            except subprocess.TimeoutExpired:
+                failures.append(
+                    f"LOOKAHEAD {count} generic arrows: the CLI did not finish within {_LOOKAHEAD_CLI_SECONDS} s"
+                )
+                continue
+            if result.returncode != 1 or want not in result.stdout:
+                failures.append(
+                    f"LOOKAHEAD {count} generic arrows: expected exit 1 with {want!r}, got {result.returncode}: "
+                    f"{result.stdout + result.stderr!r}"
+                )
+    return failures
 
 
 def _allowlist_self_test() -> list[str]:
@@ -8300,6 +8387,7 @@ def _self_test(strict: bool = False) -> int:
     failures += _isolated_import_self_test()
     failures += _allowlist_self_test()
     failures += _attribution_self_test()
+    failures += _lookahead_scaling_self_test()
     regex_failures, regex_cases, parser_summary = _regex_after_token_self_test(strict)
     failures += regex_failures
     print(f"regex-after-token against the parser's ranges: {parser_summary}")
