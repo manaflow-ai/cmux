@@ -673,8 +673,11 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
     let route = find(dir, id)?;
     let backups = backups_dir(home);
     // Not under a lost home (`config::refuse_lost_home`): it may be another daemon's now.
+    // The backup goes through the folder this daemon holds (`home_fs`): a home replaced after the
+    // check never gets it.
     crate::config::refuse_lost_home(&backups).map_err(|e| RouteError::Failed(e.to_string()))?;
-    std::fs::create_dir_all(&backups).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::create_dir_all(&backups, 0o777)
+        .map_err(|e| RouteError::Failed(e.to_string()))?;
     let stamp = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis())
@@ -685,7 +688,7 @@ pub fn remove(dir: Option<&Path>, home: &Path, id: &str) -> Result<String, Route
         // names only a token file that is removed with it.
         std::fs::remove_file(&route.path).map_err(|e| RouteError::Failed(e.to_string()))?;
     } else {
-        std::fs::rename(&route.path, backups.join(&name))
+        crate::home_fs::rename(&route.path, &backups.join(&name))
             .map_err(|e| RouteError::Failed(e.to_string()))?;
     }
     // Chats bound to it fall back to their inherited route, and a workspace,
@@ -762,13 +765,17 @@ pub fn update_bindings(
     let mut b = bindings(home);
     change(&mut b);
     let path = bindings_path(home);
+    // Not under a lost home (`config::refuse_lost_home`), and through the folder this daemon
+    // holds (`home_fs`): a home replaced after the check never gets the bindings.
+    let failed = |e: std::io::Error| RouteError::Failed(e.to_string());
+    crate::config::refuse_lost_home(&path).map_err(|e| RouteError::Failed(e.to_string()))?;
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| RouteError::Failed(e.to_string()))?;
+        crate::home_fs::create_dir_all(parent, 0o777).map_err(failed)?;
     }
     let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, serde_json::to_vec_pretty(&b).unwrap_or_default())
-        .map_err(|e| RouteError::Failed(e.to_string()))?;
-    std::fs::rename(&tmp, &path).map_err(|e| RouteError::Failed(e.to_string()))?;
+    crate::home_fs::write_synced(&tmp, &serde_json::to_vec_pretty(&b).unwrap_or_default())
+        .map_err(failed)?;
+    crate::home_fs::rename(&tmp, &path).map_err(failed)?;
     Ok(b)
 }
 

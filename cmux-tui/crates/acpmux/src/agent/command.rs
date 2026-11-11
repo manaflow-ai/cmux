@@ -331,6 +331,15 @@ pub(crate) fn harness_command(
         if get(TODO_TOOLS_ENV).is_none() {
             cmd.env(TODO_TOOLS_ENV, "1");
         }
+        // Claude Code's own cross-session messaging (ListAgents, SendMessage to other sessions,
+        // its inbox socket) is off: its peer list is every Claude Code of the machine, whichever
+        // daemon started it, and a message it holds shows nowhere; an agent here messages others
+        // through acpmux (`hub/native_messaging.rs`). A value the profile or login set wins.
+        // Undocumented in Claude Code: if it renames it, the PreToolUse gate still refuses a
+        // SendMessage to an acpmux session; only the cross-daemon peer list comes back.
+        if get(crate::hub::native_messaging::SWITCH_ENV).is_none() {
+            cmd.env(crate::hub::native_messaging::SWITCH_ENV, "0");
+        }
         if let Some(headers) = crate::subrouter_session::custom_headers(get) {
             cmd.env(crate::subrouter_session::HEADERS_ENV, headers);
         }
