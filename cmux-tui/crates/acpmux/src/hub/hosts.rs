@@ -1384,6 +1384,8 @@ impl Hub {
                                 "turnId": turn_id, "turnSeq": turn_seq}),
                             );
                         }
+                        // A notice's turn answers the messages it carried (`inbox.rs`).
+                        hub.recovered_notice_done(&s, &prompt_id, &result);
                         outcome.send_replace(Some(result));
                         super::prompt_ledger::prune(
                             &mut s.prompts.lock().unwrap_or_else(|e| e.into_inner()),
