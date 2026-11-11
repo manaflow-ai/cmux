@@ -465,6 +465,7 @@ test("a running turn still lets the chat browse and hold another harness's model
   const calls = await mountChat(
     chat(await acpmuxCatalog(), 1, {
       canFork: true,
+      canHandoff: true,
       isWorking: true,
     } as Partial<Snapshot>),
   );
@@ -500,7 +501,9 @@ test("a new chat still launches a named harness entry that lists no models from 
 });
 
 test("the chat composer's pick of another harness's model sends nothing until a message", async () => {
-  const calls = await mountChat(chat(await acpmuxCatalog(), 1, { canFork: true } as Partial<Snapshot>));
+  const calls = await mountChat(
+    chat(await acpmuxCatalog(), 1, { canFork: true, canHandoff: true } as Partial<Snapshot>),
+  );
   await open();
   await showTab("Codex");
   await click(models()[0]!);
@@ -667,6 +670,7 @@ test("a pick in a chat that can fork asks nothing: no Fork to row and no chat ca
   const snapshot = chat(await acpmuxCatalog(), 1, {
     sessionId: "s1",
     canFork: true,
+    canHandoff: true,
   } as unknown as Partial<Snapshot>);
   const calls = await mountChat(snapshot);
   await open();
@@ -685,7 +689,7 @@ test("when no other harness can take the chat, the composer offers no Fork to an
   const catalog = (await acpmuxCatalog()).map((harness) =>
     harness.id === "claude" ? harness : { ...harness, unavailable: "probe failed", probeFailed: true },
   ) as Snapshot["catalog"];
-  const snapshot = chat(catalog, 1, { canFork: true } as Partial<Snapshot>);
+  const snapshot = chat(catalog, 1, { canFork: true, canHandoff: true } as Partial<Snapshot>);
   const calls = await mountChat(snapshot);
   await open();
   expect(railTabs().map((tab) => tab.getAttribute("aria-label"))).toEqual([STARRED, "Claude Code"]);
@@ -715,7 +719,7 @@ for (const [source, catalogFamily] of [
       { id: "claude-sr", name: "Claude (sr)", family: "claude", models: [{ id: "opus", name: "Opus" }] },
       { id: "codex", name: "Codex", family: "codex", models: [{ id: "gpt-6", name: "GPT-6" }] },
     ] as Snapshot["catalog"];
-    const snapshot = chat(catalog, 1, { canFork: true } as Partial<Snapshot>);
+    const snapshot = chat(catalog, 1, { canFork: true, canHandoff: true } as Partial<Snapshot>);
     snapshot.summary = { ...snapshot.summary!, harness: source!, family: "claude" };
     const calls = await mountChat(snapshot);
     await open();

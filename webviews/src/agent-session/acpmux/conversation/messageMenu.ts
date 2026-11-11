@@ -75,8 +75,10 @@ const forkServed = (snapshot: AcpmuxSnapshot) =>
 /// Whether a pick of another harness's model can fork the chat onto it in place (forkHold.ts, App.tsx
 /// `chat.switchModel`): acpmux serves forks, and a chat on another computer (a peer's, a Cloud machine's)
 /// too, which acpmux forwards to that machine's daemon. A connection that drops for a moment keeps
-/// the pick; the send then fails and the composer keeps the message.
-export const switchForks = (snapshot: AcpmuxSnapshot) => Boolean(snapshot.canFork);
+/// the pick; the send then fails and the composer keeps the message. The same daemons that serve
+/// Continue In… (`canHandoff`), the gate a started chat's model menu has had for its harness rail, so
+/// the chats that list other harnesses' models are the ones whose pick of one forks in place.
+export const switchForks = (snapshot: AcpmuxSnapshot) => Boolean(snapshot.canFork && snapshot.canHandoff);
 
 /// Whether a turn can be forked now: acpmux serves the fork (`forkServed`) and no turn is running.
 /// The turn footer's Fork shows on the same rule. The whole chat forks while it works too
