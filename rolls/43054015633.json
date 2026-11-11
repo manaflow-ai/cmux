@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43054015633",
+  "recorded_at": "2026-11-11T16:03:50Z",
+  "reason": "cmux-tui c93db7eb5c30 changes the image's cmux-tui (pinned 3f18ecfe7506)",
+  "dry_run": false,
+  "cmux_tui": "c93db7eb5c3078ba3b5ea3d514908963d009a0f7",
+  "fixes": [
+    {
+      "sha": "c93db7eb5c3078ba3b5ea3d514908963d009a0f7",
+      "mergedAt": "2026-11-11T07:43:26-08:00",
+      "subject": "ci: no build fetches a Zig package from a third-party host (codeberg outage base red) (#41286)"
+    },
+    {
+      "sha": "42fd7e3a61a505d6163f684f33fe7b1768250c87",
+      "mergedAt": "2026-11-11T07:40:26-08:00",
+      "subject": "acpmux: the lost-home forced test reaches its race, and a save checked before a home replace never writes into it (#41340)"
+    },
+    {
+      "sha": "064feb3a6d7fb68e762e18a474a6d8f2ce45c0cc",
+      "mergedAt": "2026-11-11T07:40:12-08:00",
+      "subject": "acpmux: journal a metadata change as the fields it changed (#41250)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-11T16:03:50Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
