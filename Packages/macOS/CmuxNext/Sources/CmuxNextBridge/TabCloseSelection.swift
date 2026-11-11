@@ -54,13 +54,18 @@ public final class TabCloseSelection {
     /// itself follows (``TabSelectionMemory/select(_:in:standIn:)``). Not for a close's own selection, the
     /// CLI, the socket or a script. With no relation held it keeps nothing.
     public func personSelects(_ tab: String, in pane: String) {
-        if let closePick, closePick == (pane, tab) { return self.closePick = nil }
+        if let pick = closePick, pick.pane == pane {
+            closePick = nil
+            if pick.tab == tab { return }
+        }
         guard !home.isEmpty else { return }
         gesture = (pane, tab)
     }
 
     /// The app is about to select `tab` in `pane` because the selected tab closes (a tab group's close moves
-    /// the selection at the press): that selection is the close's, not a person's gesture.
+    /// the selection at the press): that selection is the close's, not a person's gesture. The mark ends at
+    /// the pane's next selection, whoever makes it (a script's close never asks ``personSelects(_:in:)``), so
+    /// a later choice of the person is a gesture again.
     public func closeSelects(_ tab: String, in pane: String) {
         closePick = home.isEmpty ? nil : (pane, tab)
     }
@@ -92,6 +97,7 @@ public final class TabCloseSelection {
     func selected(_ new: String, after old: String?, in pane: String, standIn: String?) { // perf-hot: 10ms tab-switch
         let person = gesture.map { $0.pane == pane && $0.tab == new } ?? false
         if gesture?.pane == pane { gesture = nil }
+        if closePick?.pane == pane { closePick = nil }
         guard !inClosePick, !home.isEmpty || !expected.isEmpty else { return }
         let from = old.map { id($0) }
         if let standIn { adopt(new, inPlaceOf: standIn) }
