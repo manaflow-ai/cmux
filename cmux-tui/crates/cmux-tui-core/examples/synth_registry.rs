@@ -67,12 +67,13 @@
 //!   (default: `auto_vacuum` none and no migration marker, as a registry
 //!   made before journal maintenance)
 //!
-//! `--advance-checkpoints N --out ROOT --session NAME [--seal-age-minutes M]`
-//! works on a registry that `--shape lawrence` wrote, also after an owner
-//! rebuilt it (`synth_registry::advance_checkpoints`): N new checkpoints at
-//! the journal head, every record into segments, each segment M minutes
-//! older. The retention floor of the next owner is then near the head, as
-//! after days of use. It prints what it did as one JSON line.
+//! `--advance-checkpoints N --out ROOT --session NAME [--append-records A]
+//! [--seal-age-minutes M]` works on a registry that `--shape lawrence` wrote,
+//! also after an owner rebuilt it (`synth_registry::advance_checkpoints`): A
+//! more `terminal.progress` records, N new checkpoints at the journal head,
+//! every record into segments, each segment M minutes older. The retention
+//! floor of the next owner is then near the head, as after days of use. It
+//! prints what it did as one JSON line.
 //!
 //! `--counts REGISTRY_FILE` prints the counts of an existing registry file
 //! as one JSON line, through a read-only connection, and exits.
@@ -105,7 +106,7 @@ fn main() -> anyhow::Result<()> {
     let mut shape_name = None;
     let mut out = None;
     let mut registry = None;
-    let mut advance = None;
+    let (mut advance, mut append_records) = (None, 0);
     let (mut print_registry_path, mut bump_only, mut rebind_pepper) = (false, false, false);
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
@@ -136,6 +137,7 @@ fn main() -> anyhow::Result<()> {
             "--subjects-per-record" => shape.subjects_per_record = value()?.parse()?,
             "--keep-auto-vacuum" => shape.legacy_auto_vacuum = false,
             "--advance-checkpoints" => advance = Some(value()?.parse::<u64>()?),
+            "--append-records" => append_records = value()?.parse::<u64>()?,
             "--counts" => {
                 println!("{}", counts(&PathBuf::from(value()?))?);
                 return Ok(());
@@ -184,7 +186,7 @@ fn main() -> anyhow::Result<()> {
     if let Some(checkpoints) = advance {
         shape.session = options.session.clone();
         shape.progress = options.progress;
-        println!("{}", advance_checkpoints(&out, &shape, checkpoints)?);
+        println!("{}", advance_checkpoints(&out, &shape, checkpoints, append_records)?);
         return Ok(());
     }
     std::fs::create_dir_all(&out)?;

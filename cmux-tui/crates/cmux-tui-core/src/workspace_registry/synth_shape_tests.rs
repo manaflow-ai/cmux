@@ -174,8 +174,9 @@ fn a_registry_with_a_sparse_part_has_holes_at_low_sequences_and_opens() {
     std::fs::remove_dir_all(&root).ok();
 }
 
-/// `advance_checkpoints` on a generated registry: 16 checkpoints above the
-/// old head, no young segment, and the agents and sessions it had.
+/// `advance_checkpoints` on a generated registry: 500 more records, 16
+/// checkpoints above them, no young segment, and the agents and sessions it
+/// had.
 #[test]
 fn advance_checkpoints_moves_the_restore_points_to_the_head() {
     let root = std::env::temp_dir()
@@ -194,13 +195,19 @@ fn advance_checkpoints_moves_the_restore_points_to_the_head() {
     let before = report.to_json();
     let head = number(&before, "journal_head");
 
-    let advanced = advance_checkpoints(&root, &options, 16).unwrap();
+    let advanced = advance_checkpoints(&root, &options, 16, 500).unwrap();
     assert_eq!(number(&advanced, "checkpoints"), 16, "{advanced}");
-    assert!(number(&advanced, "first_checkpoint") > head, "{advanced} after head {head}");
-    assert!(number(&advanced, "sealed_through") >= number(&advanced, "last_checkpoint"));
+    assert!(number(&advanced, "appended_through") >= head + 500, "{advanced} after head {head}");
+    assert!(
+        number(&advanced, "first_checkpoint") > number(&advanced, "appended_through"),
+        "{advanced}"
+    );
+    assert!(number(&advanced, "sealed_through") > number(&advanced, "last_checkpoint"));
     let after = counts(&report.registry_path).unwrap();
-    assert!(number(&after, "journal_head") > head, "{after}");
-    assert!(number(&after, "checkpoints") >= 32, "{after}");
+    assert!(number(&after, "journal_head") >= head + 500 + 17, "{after}");
+    assert!(number(&after, "records") >= number(&before, "records") + 500 + 17, "{after}");
+    assert!(number(&after, "checkpoints") >= 16, "{after}");
+    assert_eq!(number(&after, "retention_floor"), 0, "{after}");
     for key in ["roster_agents", "roster_rested", "history_rested", "history_sessions"] {
         assert_eq!(after[key], before[key], "{key}: {after}");
     }

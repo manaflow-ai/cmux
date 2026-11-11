@@ -12,9 +12,11 @@ Arms, each on its own APFS clone of the generated state, with real owner process
          (the swap at open), stop, starts 3 and 4 (the replaced file gets its kept name and
          stays: the rule is 7 days AND 3 full starts), stop.
   second-swap  on a clone of the migrated state: this script removes the kept file (as the rule
-         does later) and synth_registry --advance-checkpoints moves the restore points to the
-         head (what days of use do); then start (the owner builds again at the new floor),
-         stop, start (the second swap), stop.
+         does later) and synth_registry --advance-checkpoints appends 200,000 records and moves
+         the restore points to the head (what days of use do); then start (the owner builds
+         again at the new floor), stop, start (the second swap), stop. Its counts are compared
+         with the counts after the advance: the appended records are progress records, which
+         change no agent and no session.
   kill-stage  kill -9 while start 1 stages; then start, wait for the build, stop, start, stop.
   kill-swap   kill -9 while start 2 runs the swap (the staging file changes); then start, stop.
   kill-renamed  kill -9 as soon as the backup file exists (after the rename, before the start
@@ -185,7 +187,8 @@ def request_line(owner, request, timeout=10.0):
 
 def cleanup_stats(owner):
     """The registry_cleanup section of server-stats: counts, sizes and one file NAME."""
-    reply, _ = request_line(owner, {"id": 2, "cmd": "server-stats", "include": ["registry_cleanup"]}, 60)
+    request = {"id": 2, "cmd": "server-stats", "include": ["registry_cleanup"]}
+    reply, _ = request_line(owner, request, 60)
     section = ((reply or {}).get("data") or {}).get("registry_cleanup")
     if isinstance(section, dict) and "/" in str(section.get("error") or ""):
         section["error"] = "an error text with a path: not shown"
@@ -234,7 +237,10 @@ class Sampler(threading.Thread):
         if len(rows) < 2:
             return {"samples": len(rows)}
         times = sorted(row[3] for row in rows if row[3] is not None)
-        pick = lambda q: times[min(len(times) - 1, int(len(times) * q))] if times else None  # noqa: E731
+
+        def pick(share):
+            return times[min(len(times) - 1, int(len(times) * share))] if times else None
+
         wall = rows[-1][0] - rows[0][0]
         cpu = rows[-1][2] - rows[0][2]
         return {"samples": len(rows), "seconds": round(wall, 1),
@@ -669,8 +675,9 @@ def second_swap_arm(args, state, before, report):
     """A second rebuild and swap of the migrated registry. The owner rebuilds again only when no
     file of the last swap is held and 100,000 records are at or below a new floor. THIS SCRIPT
     removes the kept file (the product does it after 7 days and 3 full starts), and
-    synth_registry --advance-checkpoints writes new checkpoints at the head by owners, seals
-    every record and back-dates the segments (what days of use do). The rest is the product."""
+    synth_registry --advance-checkpoints appends --second-records terminal.progress records,
+    writes new checkpoints at the head by owners, seals every record and back-dates the segments
+    (what days of use do). The rest is the product."""
     sdir = registry_of(state).parent
     removed = {}
     for name in (PREVIOUS, KEPT):
@@ -681,8 +688,9 @@ def second_swap_arm(args, state, before, report):
                 path.unlink()
     start = counts(args, state)
     out = subprocess.run(
-        [args.synth, "--advance-checkpoints", "16", "--out", str(state), "--session",
-         args.session, "--seal-age-minutes", str(args.seal_age_minutes), "--quiet"],
+        [args.synth, "--advance-checkpoints", "16", "--append-records",
+         str(args.second_records), "--out", str(state), "--session", args.session,
+         "--seal-age-minutes", str(args.seal_age_minutes), "--quiet"],
         stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=3600, check=False)
     step = {"arm": "second-swap", "removed_by_this_script": removed,
             "before": {key: start.get(key) for key in
@@ -853,6 +861,7 @@ def main():
     parser.add_argument("--old-dwell", type=float, default=45)
     parser.add_argument("--after-built", type=float, default=10)
     parser.add_argument("--second-build-timeout", type=float, default=1800)
+    parser.add_argument("--second-records", type=int, default=200000)
     parser.add_argument("--seal-age-minutes", type=int, default=120)
     parser.add_argument("--refusal-timeout", type=float, default=90)
     parser.add_argument("--ready-timeout", type=float, default=3600)

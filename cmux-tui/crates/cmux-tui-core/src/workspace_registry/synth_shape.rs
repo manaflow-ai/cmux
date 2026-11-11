@@ -122,6 +122,8 @@ const FILL_ALPHABET: &[u8; 64] =
 /// The session ids and the terminal ids of the rested agents start with these.
 const RESTED_SESSION_PREFIX: &str = "synth-rested-";
 const RESTED_TERMINAL_PREFIX: &str = "term_00000000000040008001";
+/// The terminal ids of the agents that take the rounds start with this.
+const AGENT_TERMINAL_PREFIX: &str = "term_00000000000040008000";
 
 /// What [`generate_shape`] writes. [`Default`] is the 1 GB class.
 #[derive(Debug, Clone)]
@@ -300,7 +302,7 @@ pub fn generate_shape(state_root: &Path, options: &ShapeOptions) -> anyhow::Resu
         lanes: (0..options.agent_terminals)
             .map(|index| Lane {
                 // The v4 layout of a terminal's public id.
-                terminal: format!("term_00000000000040008000{index:012x}"),
+                terminal: format!("{AGENT_TERMINAL_PREFIX}{index:012x}"),
                 session: format!("synth-agent-{index}-1"),
                 sessions: 1,
                 step: 0,
@@ -472,19 +474,7 @@ struct Shape {
 
 impl Shape {
     fn open_registry(&mut self) -> anyhow::Result<()> {
-        // An owner's last worker may still hold the session for a moment
-        // after its shutdown.
-        let mut tries = 0;
-        let registry = loop {
-            match WorkspaceRegistry::open(&self.state_root, &self.options.session) {
-                Ok(registry) => break registry,
-                Err(error) if tries >= OPEN_TRIES => return Err(error),
-                Err(_) => {
-                    tries += 1;
-                    std::thread::sleep(OPEN_RETRY_PAUSE);
-                }
-            }
-        };
+        let registry = sparse::open_registry(&self.state_root, &self.options.session)?;
         // A crash of the generator may lose the registry: it is made again.
         registry
             .connection

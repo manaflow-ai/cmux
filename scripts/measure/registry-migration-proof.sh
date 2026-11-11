@@ -8,11 +8,13 @@
 #     [ready_timeout=3600] [build_timeout=7200]
 #     [state=/abs/path/of/a/generated/state/dir]
 #     [records=N sparse_head=N sparse_records=N] [rested_agents=N] [live_rows=N]
+#     [second_records=200000]
 #     [bin=/abs/release/cmux-tui synth=/abs/release/synth_registry [debug_bin=/abs/debug/cmux-tui]]
 # records=, sparse_head= and sparse_records= write the SPARSE form of a long-lived journal (the
 # head far above the records the file holds; synth_registry's doc); rested_agents= adds agents
 # with every record below any floor; live_rows= is the count of records above the last
-# checkpoint. bin= and synth= take binaries that another host built from the same commit: this
+# checkpoint; second_records= is the count of records that the second-swap arm appends before
+# its rebuild (an owner rebuilds only with 100,000 records at or below the floor). bin= and synth= take binaries that another host built from the same commit: this
 # script then compiles nothing (debug_bin= for the free-space arm; without it that arm is left out).
 # It builds release `cmux-tui` and cmux-tui-core's `synth_registry` example (and a debug
 # `cmux-tui` with debug=1, for the free-space arm: only a debug owner has that test seam), writes
@@ -33,6 +35,7 @@ size_gb=1 workspaces=826 seal_age_minutes=120 young_segments= debug=1 old_bin= s
 arms=control,main,kill-stage,kill-swap,kill-renamed,space,second-swap,old,old-raised old_dwell=45
 ready_timeout=3600 build_timeout=7200
 records= sparse_head= sparse_records= rested_agents= live_rows= bin= synth= debug_bin=
+second_records=200000
 for kv in "$@"; do
   case "$kv" in
     size_gb=*) size_gb="${kv#*=}" ;;
@@ -51,6 +54,7 @@ for kv in "$@"; do
     sparse_records=*) sparse_records="${kv#*=}" ;;
     rested_agents=*) rested_agents="${kv#*=}" ;;
     live_rows=*) live_rows="${kv#*=}" ;;
+    second_records=*) second_records="${kv#*=}" ;;
     bin=*) bin="${kv#*=}" ;;
     synth=*) synth="${kv#*=}" ;;
     debug_bin=*) debug_bin="${kv#*=}" ;;
@@ -130,4 +134,5 @@ python3 "$root/scripts/measure/registry-migration-proof.py" \
   --session "$session" --socket-dir "$socket_dir" --scratch "$scratch" \
   --debug-bin "$debug_bin" --old-bin "$old_bin" --arms "$arms" --old-dwell "$old_dwell" \
   --ready-timeout "$ready_timeout" --build-timeout "$build_timeout" \
-  --seal-age-minutes "$seal_age_minutes" --report "$out/report.json"
+  --seal-age-minutes "$seal_age_minutes" --second-records "$second_records" \
+  --report "$out/report.json"

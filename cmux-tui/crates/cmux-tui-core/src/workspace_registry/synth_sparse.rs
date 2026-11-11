@@ -38,9 +38,12 @@ use rusqlite::params;
 use serde_json::{Value, json};
 
 use super::Shape;
+use crate::JournalSubject;
+use crate::workspace_registry::WorkspaceRegistry;
 use crate::workspace_registry::output_cleanup::{
     StageControl, StageOutcome, previous_path, stage_registry,
 };
+use crate::workspace_registry::presentation_store::append_presentation_record;
 use crate::workspace_registry::session_journal::{query_journal_head, unix_epoch_ms};
 
 /// Records by the shape's writers at the start of each burst.
@@ -71,29 +74,43 @@ const SEGMENT_TRIGGER: &str = "CREATE TRIGGER IF NOT EXISTS journal_segments_rej
 /// The labels of the checkpoints that [`advance_checkpoints`] makes start here.
 const ADVANCE_LABEL_BASE: u64 = 1_000;
 
+/// Rows of one transaction of [`append_progress`].
+const APPEND_BATCH: u64 = 1_000;
+
 /// Moves the restore points of a generated registry to its journal head, as
-/// days of use do on a Mac: `checkpoints` new checkpoints, each by an owner
-/// (the maintenance pass of the next owner prunes the ones they replace),
-/// every record into segments, and each segment's `sealed_at_ms` moved back
-/// by [`super::ShapeOptions::seal_age_minutes`]. The retention floor of the
-/// next start is then near the head. The migration proof calls this before a
-/// SECOND rebuild of a registry. It writes no agent record. Returns what it
-/// did.
+/// days of use do on a Mac. The migration proof calls this before a SECOND
+/// rebuild of a registry (an owner rebuilds only when 100,000 records are at
+/// or below a new floor). In this order:
+///
+/// - `append` more `terminal.progress` records of the shape's size (no
+///   reducer of an agent reads that kind, so no agent and no session changes);
+/// - `checkpoints` new checkpoints, each by an owner at a head of its own (the
+///   maintenance pass of the next owner prunes the ones they replace);
+/// - every record into segments, and each segment's `sealed_at_ms` moved back
+///   by [`super::ShapeOptions::seal_age_minutes`].
+///
+/// The retention floor of the next start is then near the head. Returns what
+/// it did.
 pub fn advance_checkpoints(
     state_root: &Path,
     options: &super::ShapeOptions,
     checkpoints: u64,
+    append: u64,
 ) -> anyhow::Result<Value> {
     let base = options.base();
+    let appended_through = append_progress(state_root, &options.session, append, 0)?;
     let mut made = Vec::new();
     for index in 0..checkpoints {
+        // `source_sequence` is unique: one more record for each checkpoint.
+        append_progress(state_root, &options.session, 1, append + index)?;
         made.push(super::checkpoint(state_root, &base, ADVANCE_LABEL_BASE + index)?);
     }
+    // And one for the checkpoint that the seal step takes.
+    append_progress(state_root, &options.session, 1, append + checkpoints)?;
     let (sealed_through, segments_sealed) = super::super::seal(state_root, &base)?;
     let age_ms = options.seal_age_minutes.saturating_mul(60_000);
-    let connection =
-        rusqlite::Connection::open(super::super::registry_path(state_root, &options.session))?;
-    connection.execute_batch(&format!(
+    let registry = open_registry(state_root, &options.session)?;
+    registry.connection.get().execute_batch(&format!(
         "BEGIN IMMEDIATE;
          {DROP_SEGMENT_TRIGGER}
          UPDATE journal_segments SET sealed_at_ms = MAX(sealed_at_ms - {age_ms}, 0);
@@ -101,6 +118,8 @@ pub fn advance_checkpoints(
          COMMIT;"
     ))?;
     Ok(json!({
+        "appended": append,
+        "appended_through": appended_through,
         "checkpoints": made.len(),
         "first_checkpoint": made.first(),
         "last_checkpoint": made.last(),
@@ -108,6 +127,61 @@ pub fn advance_checkpoints(
         "segments_sealed": segments_sealed,
         "seal_age_minutes": options.seal_age_minutes,
     }))
+}
+
+/// The registry of `session`. An owner's last worker may still hold the
+/// session for a moment after its shutdown.
+pub(super) fn open_registry(state_root: &Path, session: &str) -> anyhow::Result<WorkspaceRegistry> {
+    let mut tries = 0;
+    loop {
+        match WorkspaceRegistry::open(state_root, session) {
+            Ok(registry) => return Ok(registry),
+            Err(error) if tries >= super::OPEN_TRIES => return Err(error),
+            Err(_) => {
+                tries += 1;
+                std::thread::sleep(super::OPEN_RETRY_PAUSE);
+            }
+        }
+    }
+}
+
+/// Appends `rows` `terminal.progress` records of the first agent terminal,
+/// each with a filler of the shape's size. Returns the journal head.
+fn append_progress(state_root: &Path, session: &str, rows: u64, first: u64) -> anyhow::Result<u64> {
+    let registry = open_registry(state_root, session)?;
+    let connection = registry.connection.get();
+    let terminal = format!("{}{:012x}", super::AGENT_TERMINAL_PREFIX, 0);
+    let mut written = 0;
+    while written < rows {
+        let batch = (rows - written).min(APPEND_BATCH);
+        let tx = connection.unchecked_transaction()?;
+        for row in first + written..first + written + batch {
+            let subjects = vec![JournalSubject { kind: "terminal".into(), id: terminal.clone() }];
+            let payload = json!({
+                "terminal_id": terminal,
+                "progress": {"state": "set", "value": row % 100},
+                "synth_fill": progress_fill(row),
+            });
+            append_presentation_record(&tx, "terminal.progress", subjects, &payload)?;
+        }
+        tx.commit()?;
+        written += batch;
+    }
+    query_journal_head(&connection)
+}
+
+/// A filler of the size of a `terminal.progress` record's, from `seed`.
+fn progress_fill(seed: u64) -> String {
+    let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    (0..super::PROGRESS_FILL_BYTES)
+        .map(|_| {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            // The top 6 bits: an index into the 64 characters.
+            char::from(super::FILL_ALPHABET[(state >> 58) as usize])
+        })
+        .collect()
 }
 
 /// What the sparse part is after the cleanup.
