@@ -416,8 +416,8 @@
   --acpmux-composer-lead-gap: calc(var(--ds-space-2) * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
   --acpmux-text-drop: calc(var(--text-content) / 14);
   --acpmux-composer-inset: var(--nt-composer-inset);
-  --acpmux-chip-glyph: 16px;
-  --acpmux-chip-chevron: 12px;
+  --acpmux-chip-glyph: var(--acpmux-composer-glyph);
+  --acpmux-chip-chevron: calc(12px * var(--cmux-density-scale, var(--cmux-interface-scale, 1)));
 }
 /* The folder and computer chips over the box draw what the permission and model chips under it do
    (composerLocation.css, the chip tokens): the label in the control style, a 16 px glyph and a 12 px
@@ -428,17 +428,6 @@
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
   letter-spacing: var(--text-control--letter-spacing);
-}
-.nt-above .acpmux-location-button > .ui-ghost-icon:first-child {
-  width: var(--acpmux-chip-glyph);
-  height: var(--acpmux-chip-glyph);
-  margin-inline: calc((var(--ui-ghost-icon-size) - var(--acpmux-chip-glyph)) / 2);
-}
-/* The tray strip (Debug Settings) lines the folder's first ink up on the prompt's column, not its
-   center on +'s (composer-top-strip-variants.test.ts): there the glyph keeps its slot's left edge
-   and overhangs on the label's side alone, so the label stays where it is too. */
-:root[data-top-strip="tray"] .nt-above .acpmux-location-button > .ui-ghost-icon:first-child {
-  margin-inline: 0 calc(var(--ui-ghost-icon-size) - var(--acpmux-chip-glyph));
 }
 /* A project's badge is a glyph like the rest: the chip glyph's box, no tile behind it, overhanging
    its slot as the folder glyph does, so a picked project's name starts where "No folder" and the
