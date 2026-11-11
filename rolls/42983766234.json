@@ -1,0 +1,167 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42983766234",
+  "recorded_at": "2026-11-11T08:12:22Z",
+  "reason": "cmux-tui 177d23fbdeb9 changes the image's cmux-tui (pinned f830dfa2ba07)",
+  "dry_run": false,
+  "cmux_tui": "177d23fbdeb91502e8f9a0dd9a5f906f634c9174",
+  "fixes": [
+    {
+      "sha": "177d23fbdeb91502e8f9a0dd9a5f906f634c9174",
+      "mergedAt": "2026-11-10T23:46:34-08:00",
+      "subject": "acpmux: one chat folder the store refuses hides only that chat"
+    },
+    {
+      "sha": "24b4979bd3d88cfd3a52d5f42cb380d6588df232",
+      "mergedAt": "2026-11-10T23:46:32-08:00",
+      "subject": "acpmux: test that one chat folder the store refuses hides only that chat"
+    },
+    {
+      "sha": "4287654df258c22192e6f96b0d998554a9ddae14",
+      "mergedAt": "2026-11-10T23:46:28-08:00",
+      "subject": "acpmux agent host link: one cumulative ack per run of queued entries, not one per entry"
+    },
+    {
+      "sha": "3f5a834fe1140fe6a17f296b9754fcd4dc834327",
+      "mergedAt": "2026-11-10T23:46:27-08:00",
+      "subject": "cmux-tui-core: a Chief brain's host.log over 8 MiB is rotated at launch"
+    },
+    {
+      "sha": "7e287f5b6996f8fe3b7242270712d1e72d56d92f",
+      "mergedAt": "2026-11-10T23:46:26-08:00",
+      "subject": "cmux-tui-core: test that a Chief brain's host.log does not grow for its whole life"
+    },
+    {
+      "sha": "78926e161187d7d52c6dde222d502042a2e498ba",
+      "mergedAt": "2026-11-10T23:46:25-08:00",
+      "subject": "cmux-tui-core: an app server whose thread cannot start is killed and reaped"
+    },
+    {
+      "sha": "a3f0b0319ff40f8bcf8244655c8301e95ea5474a",
+      "mergedAt": "2026-11-10T23:46:24-08:00",
+      "subject": "cmux-tui-core: test that an app server whose thread cannot start is reaped"
+    },
+    {
+      "sha": "1d01743b0eb5d73938ac303ab6cc1d57a73e5811",
+      "mergedAt": "2026-11-10T23:46:23-08:00",
+      "subject": "cmux-tui-core: removing a terminal's segment files forgets its verified entry"
+    },
+    {
+      "sha": "5ebdfb4806388eb4e6fa551d3edcd0d908137822",
+      "mergedAt": "2026-11-10T23:46:23-08:00",
+      "subject": "cmux-tui-core: test that removed terminals leave no verified segment entry"
+    },
+    {
+      "sha": "96c25fdb5e1888ebd683e94d3d47fbb15efc8af3",
+      "mergedAt": "2026-11-10T23:46:22-08:00",
+      "subject": "cmux-kitty-media: one read's file commands share one byte budget; scratch gives memory back"
+    },
+    {
+      "sha": "fe42949e26ab18cfc57df29ced64df0f1b466d1a",
+      "mergedAt": "2026-11-10T23:46:21-08:00",
+      "subject": "cmux-kitty-media: tests that one read's file commands have one byte budget"
+    },
+    {
+      "sha": "ed864cb0a76810d99034dfdf3e508ae02abbb43f",
+      "mergedAt": "2026-11-10T23:46:21-08:00",
+      "subject": "cmux-tui-core: the sidebar view's terminal follows the one size rule"
+    },
+    {
+      "sha": "6612b625de6ce69ed72c0883b53acb5eda9da934",
+      "mergedAt": "2026-11-10T23:46:20-08:00",
+      "subject": "cmux-tui-core: test that sidebar view sizes follow the cell-area limit"
+    },
+    {
+      "sha": "49dca4429905251d8525bf311ccc9a68c6778c6c",
+      "mergedAt": "2026-11-10T23:46:20-08:00",
+      "subject": "cmux-tui-core: clearing notifications frees their post records"
+    },
+    {
+      "sha": "a64d89039e0371d240da992d4f6b3543560b734b",
+      "mergedAt": "2026-11-10T23:46:19-08:00",
+      "subject": "cmux-tui-core: test that clearing notifications frees their post records"
+    },
+    {
+      "sha": "941156755839abe855c4058a973aa3bd047a0d61",
+      "mergedAt": "2026-11-10T23:46:19-08:00",
+      "subject": "cmux-tui-core: a client's selection delta steps around the ring, never overflows"
+    },
+    {
+      "sha": "d2eb3972c53e9477552d00e3a543e8719de414da",
+      "mergedAt": "2026-11-10T23:46:19-08:00",
+      "subject": "cmux-tui-core: test that a huge select-tab/screen/workspace delta never overflows"
+    },
+    {
+      "sha": "43375208c90d5a65e00ec7c0af5d8d25e569c8f1",
+      "mergedAt": "2026-11-10T23:46:18-08:00",
+      "subject": "cmux-tui-core: a burst of BEL bytes is one pending bell, never a subscriber overflow"
+    },
+    {
+      "sha": "efac144a4f0298a3b5d2b1713b4e5a19445cf8d4",
+      "mergedAt": "2026-11-10T23:46:18-08:00",
+      "subject": "cmux-tui-core: tests that a burst of BEL bytes never overflows an event subscriber"
+    },
+    {
+      "sha": "2f27115387a4a8c0f67dc1cccd1aa4df44a086e4",
+      "mergedAt": "2026-11-10T23:46:18-08:00",
+      "subject": "acpmux: a config save keeps what another writer changed since the load"
+    },
+    {
+      "sha": "eb963224e7712a5ba985d1d4ed5299f5be521513",
+      "mergedAt": "2026-11-10T23:46:17-08:00",
+      "subject": "acpmux: test that a config save keeps what another writer changed since the load"
+    },
+    {
+      "sha": "7330e0b64b85518fe6f39fd214fbafba91df5607",
+      "mergedAt": "2026-11-10T23:46:17-08:00",
+      "subject": "cmux-tui: identify and session.ping read their revision on a point reader no list takes"
+    },
+    {
+      "sha": "c40097a653eee52ce2f711d505cb62cddf7ae152",
+      "mergedAt": "2026-11-10T23:46:16-08:00",
+      "subject": "cmux-tui: test that point reads do not wait for a full reader pool"
+    },
+    {
+      "sha": "2a20a9f0147a815c42ef9cb578e9f398ce959455",
+      "mergedAt": "2026-11-10T23:46:16-08:00",
+      "subject": "acpmux: a reattach never logs an entry the old reader still logs"
+    },
+    {
+      "sha": "0fee3590c2b42aae51a9cbfa9c4fe4ffba99da68",
+      "mergedAt": "2026-11-10T23:46:15-08:00",
+      "subject": "acpmux: test that a reattach never logs an entry the old reader still logs"
+    },
+    {
+      "sha": "e091b09a993ce4682e3a7e871aa17878ad90b51f",
+      "mergedAt": "2026-11-10T23:46:15-08:00",
+      "subject": "acpmux CLI: a read the daemon does not answer in 10 s says so once on stderr"
+    },
+    {
+      "sha": "3fc25600baf8a46fb5de9548602cb6c8c5f6c291",
+      "mergedAt": "2026-11-10T23:46:14-08:00",
+      "subject": "acpmux status: red test, a read the daemon never answers waits in silence"
+    },
+    {
+      "sha": "1887911fb9f0e0b9e98343ec77dbb8828974deac",
+      "mergedAt": "2026-11-10T23:46:14-08:00",
+      "subject": "cmux-tui: the session snapshot moves its per-request rows in instead of copying them"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T08:12:22Z",
+    "snapshot_id": "sh-d89e92e4687c40ff9a11b03e06f6ef6a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42983766234): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1c17fce121a806404b9d7f1369d8486dcd25c200",
+    "image": "cloud-native-auto-177d23fb-42983766234-1",
+    "revision": "ci-42983766234-1",
+    "at": "2026-11-11T08:12:22Z"
+  },
+  "rolled_back": false
+}
