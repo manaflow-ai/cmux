@@ -44,7 +44,8 @@ pub use mouse::{
 pub use render::{
     ATTR_BLINK, ATTR_BOLD, ATTR_FAINT, ATTR_INVERSE, ATTR_INVISIBLE, ATTR_ITALIC,
     ATTR_STRIKETHROUGH, Cell, CellWidth, ColorSpec, CursorInfo, CursorShape, Dirty,
-    KittyGraphicsFrameDelta, RenderFrame, RenderState, StyledRun, UnderlineStyle, rows_to_runs,
+    KittyGraphicsFrameDelta, RenderFrame, RenderRow, RenderState, StyledRun, UnderlineStyle,
+    rows_to_runs,
 };
 pub use screen_text::{ScreenRowText, ScreenSearch, ScreenTextCell};
 pub use snapshot::{

@@ -4,7 +4,8 @@
 // agent's inbox notice (Leo, 2026-11-06, on a closed "Worked for 2m 22s" that hid his answer: "your
 // intermediate message got lost. that can never happen", then "those intermediate messages should be
 // counted differently than other tool calls like it's a special never-fold type"). The work around
-// each reply folds into its own line before and after it, and no count reads a reply as a call.
+// each reply stays under Worked for, as chatgpt.com draws it (turn-fold-hides-every-call.test.ts), and
+// no count reads a reply as a call.
 // Gallery: agent-pane.turn-fold-replies.
 import { afterEach, expect, test } from "bun:test";
 import { MESSAGE_RUN, type AcpmuxActivity, type AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -109,14 +110,14 @@ const outline = (view: AcpmuxRow[]) =>
   );
 
 for (const family of FAMILIES)
-  test(`${family ?? "an unknown family"}: a closed fold keeps every reply in place and folds the work around each`, () => {
+  test(`${family ?? "an unknown family"}: a closed fold keeps every reply in place and the work around each under it`, () => {
     const view = closed(family);
     const worked = view.find((shown) => shown.kind === WORKED);
     expect(worked).toBeDefined();
     expect(worked!.foldOpen).toBe(false);
     // Every reply, the one between two tool groups included, draws, in the order it was said, with
-    // its own words; the work before and after each folds into its own line.
-    expect(outline(view)).toEqual(["a-start", "run:3", "a-middle", "run:4", "a-notice", "run:1", "a-final"]);
+    // its own words; the work before and after each stays under Worked for.
+    expect(outline(view)).toEqual(["a-start", "a-middle", "a-notice", "a-final"]);
     for (const id of REPLY_IDS)
       expect(view.find((shown) => shown.id === id)?.text).toBe(turn.find((r) => r.id === id)!.text);
     // The line sits over the turn's first reply.
@@ -124,6 +125,8 @@ for (const family of FAMILIES)
   });
 
 test("no count reads a reply as a call: the fold's lines count calls, the header counts no reply", () => {
+  // The lines beside a closed fold draw only in the arms that keep them (the default keeps none).
+  globalThis.cmuxExperiments = { "turn-fold-replies": "groups" };
   for (const family of FAMILIES) {
     const view = closed(family);
     // A run folded with the notice beside it (messageRuns.ts) counts its calls as the run would.
@@ -148,7 +151,7 @@ test("a reply between two tool groups shows folded, and opening the fold keeps i
     row("s-0", "turnSummary", 41, { status: "completed", durationMs: 41_000, toolCount: 6 }),
   ];
   for (const family of FAMILIES) {
-    expect(outline(closed(family, between))).toEqual(["run:2", "a-middle", "run:4", "a-final"]);
+    expect(outline(closed(family, between))).toEqual(["a-middle", "a-final"]);
     const opened = turnView(between, new Set([`${WORKED}-u-0`]), { agentFamily: family, now: START + 60_000 });
     const order = outline(opened);
     expect(order.indexOf("a-middle")).toBeGreaterThan(0);

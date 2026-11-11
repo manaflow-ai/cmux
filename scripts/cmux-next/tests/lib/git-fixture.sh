@@ -22,9 +22,10 @@
 #
 # The folder is removed at exit by this file's EXIT trap, which also runs any
 # EXIT trap set before sourcing. A test that wants its own exit cleanup calls
-# `git_fixture_trap_exit 'CMD'` instead of `trap 'CMD' EXIT`: a direct trap
-# replaces this one and leaks the folder (check-test-determinism.py rule
-# git-fixture-exit-trap fails such a test).
+# `git_fixture_trap_exit 'CMD'` (check-test-determinism.py rule
+# git-fixture-exit-trap fails a direct `trap 'CMD' EXIT`). A direct one still
+# keeps the cleanup: this file's `trap` wrapper (cmux#41021) hands an EXIT
+# action to git_fixture_trap_exit, so both build the same chain.
 
 _git_fixture_opt_out=(maintenance.auto=false gc.auto=0 receive.autogc=false)
 
@@ -45,7 +46,9 @@ git_fixture_trap_exit() {
 
 # Removes the folder; the caller's cleanup then runs from the trap itself (not inside this function), so it sees the
 # script's own positional parameters, as a direct `trap CMD EXIT` would.
+# Only the shell that made the folder removes it: an EXIT trap a subshell sets must not delete it under us (cmux#41021).
 _git_fixture_remove_dir() {
+  [[ "$BASH_SUBSHELL" == "${_git_fixture_owner_depth-}" ]] || return 0
   [[ -z "$_git_fixture_cleanup_dir" ]] || rm -rf -- "$_git_fixture_cleanup_dir"
 }
 _git_fixture_exit_trap='_git_fixture_status=$?; _git_fixture_remove_dir; (exit "$_git_fixture_status"); eval "${_git_fixture_caller_exit:-:}"'
@@ -58,9 +61,47 @@ if [[ "$_git_fixture_previous_exit" != *_git_fixture_remove_dir* ]]; then
   eval "_git_fixture_caller_exit=${_git_fixture_caller_exit% EXIT}"
   _git_fixture_cleanup_dir=
   # shellcheck disable=SC2064  # expand the variable now: it holds the trap text, whose $? expands at exit
-  trap "$_git_fixture_exit_trap" EXIT
+  builtin trap -- "$_git_fixture_exit_trap" EXIT
 fi
 unset _git_fixture_previous_exit
+
+# Most tests used to set their own `trap ... EXIT` after sourcing this file, which replaced the cleanup above and
+# left one folder per run (cmux#41021). So `trap` keeps it: an EXIT action goes to git_fixture_trap_exit (it runs
+# right after the folder is removed), `trap - EXIT`, `trap '' EXIT` or `trap EXIT` clear only that action, and the
+# helper's trap is set again (a subshell starts without it). Every other use goes straight to the builtin.
+# shellcheck disable=SC2064  # "$@" is the caller's own trap text, passed through unchanged
+trap() {
+  local _git_fixture_action _git_fixture_signal _git_fixture_exit=0
+  local -a _git_fixture_other=()
+  case "${1-}" in
+    -p | -l | -lp | -pl) builtin trap "$@"; return ;;
+    --) shift ;;
+  esac
+  if (( $# == 1 )); then
+    case "$1" in
+      EXIT | 0 | SIGEXIT) git_fixture_trap_exit ''; builtin trap -- "$_git_fixture_exit_trap" EXIT; return ;;
+      *) builtin trap -- "$@"; return ;;
+    esac
+  fi
+  (( $# >= 2 )) || { builtin trap "$@"; return; }
+  _git_fixture_action=$1
+  shift
+  for _git_fixture_signal in "$@"; do
+    case "$_git_fixture_signal" in
+      EXIT | 0 | SIGEXIT) _git_fixture_exit=1 ;;
+      *) _git_fixture_other+=("$_git_fixture_signal") ;;
+    esac
+  done
+  if (( ${#_git_fixture_other[@]} > 0 )); then
+    builtin trap -- "$_git_fixture_action" "${_git_fixture_other[@]}" || return
+  fi
+  (( _git_fixture_exit )) || return 0
+  case "$_git_fixture_action" in
+    -) git_fixture_trap_exit '' ;;
+    *) git_fixture_trap_exit "$_git_fixture_action" ;;
+  esac
+  builtin trap -- "$_git_fixture_exit_trap" EXIT
+}
 
 # Only when unset: an empty GIT_CONFIG_GLOBAL means "no global config" and is kept (Codex F2 on cmux#40871).
 if [[ -z "${GIT_CONFIG_GLOBAL+x}" ]]; then
@@ -75,6 +116,7 @@ if [[ -z "${GIT_CONFIG_GLOBAL+x}" ]]; then
   if _git_fixture_cleanup_dir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-git-fixture.XXXXXXXX"); then
     printf '%s\n' "$_git_fixture_text" >"$_git_fixture_cleanup_dir/global.gitconfig"
     export GIT_CONFIG_GLOBAL="$_git_fixture_cleanup_dir/global.gitconfig"
+    _git_fixture_owner_depth=$BASH_SUBSHELL
   else
     _git_fixture_cleanup_dir=
     echo "git-fixture.sh: mktemp -d failed; no fixture GIT_CONFIG_GLOBAL (repo config and env still opt out)" >&2
