@@ -4552,7 +4552,9 @@ function TranscriptView({
         scrolledTo.current = { top: node.scrollTop, atLatest: false };
         follow(false);
       },
-      { explicit: true },
+      // A send's ride is the reader's newest input: it plays over the frames the page draws, never
+      // spent before its first one (WebKit runs a ride started in the send's commit a frame later).
+      { explicit: true, paced: send },
     );
   };
   /// The older-history check (below), which every scroll event runs too.
