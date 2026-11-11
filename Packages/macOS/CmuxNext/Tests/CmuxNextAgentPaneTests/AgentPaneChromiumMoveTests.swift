@@ -32,9 +32,9 @@ struct AgentPaneChromiumMoveTests {
         while !view.debugShowsChromium, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
         #expect(view.debugShowsChromium)
         // The page's place depends on its engine (#40286: a Chromium page's view is one point taller), and the layout
-        // above ran before Chromium showed. These tests are about a page that drew at its parked size as a Chromium
-        // page, so the rig lays it out again here; nothing in this file says the app does so for its parked spare.
-        view.needsLayout = true
+        // above ran before Chromium showed. The pane itself must ask for its layout when its page starts to show in
+        // Chromium: the rig marks nothing, it only runs the layout that is due, as the parking window does each turn.
+        // Without that, the app's parked spare stays one point short, and each take of it waits outside the window.
         view.layoutSubtreeIfNeeded()
         #expect(view.pageContent.frame == pagePlace(view, in: view.bounds), "the parked page is not laid out as a Chromium page")
         return (view, try #require(hosting.made.last))
