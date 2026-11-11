@@ -85,20 +85,24 @@ final class AllUIStatesWorkspacesCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "close-others-confirm", args: Self.list) { app in
                 C.steps([
                     { C.longPress(app.buttons["workspace.row.ws-cmux"], "ws-cmux row") },
+                    { C.scrollDown(app, times: 2) },
+                    { C.tap(app.buttons["Close"].firstMatch, "Close folder") },
                     { C.tap(C.label(app, contains: "Close Other"), "Close Other Workspaces") },
                 ])
             },
             Scene(group: g, id: "icon-picker", args: Self.list) { app in
-                C.steps([{ C.longPress(app.buttons["workspace.row.ws-cmux"], "ws-cmux row") }, { C.tap(C.label(app, contains: "Set Icon"), "Set Icon…") }])
+                C.steps([{ C.longPress(app.buttons["workspace.row.ws-cmux"], "ws-cmux row") }, { C.scrollDown(app) }, { C.tap(app.buttons["Appearance"].firstMatch, "Appearance") }, { C.tap(C.label(app, contains: "Set Icon"), "Set Icon…") }])
             },
             Scene(group: g, id: "move-to-new-group", args: Self.list) { app in
                 C.steps([
                     { C.longPress(app.buttons["workspace.row.ws-cmux"], "ws-cmux row") },
-                    { C.tap(C.label(app, contains: "Move to"), "Move to Group") },
+                    { C.scrollDown(app, times: 2) },
+                    { C.tap(app.buttons["Group"].firstMatch, "Group folder") },
+                    { C.tap(C.label(app, contains: "Move Workspace to Group"), "Move Workspace to Group…") },
                 ])
             },
             Scene(group: g, id: "appearance-submenu", args: Self.list) { app in
-                C.steps([{ C.longPress(app.buttons["workspace.row.ws-cmux"], "ws-cmux row") }, { C.tap(app.buttons["Appearance"].firstMatch, "Appearance") }])
+                C.steps([{ C.longPress(app.buttons["workspace.row.ws-cmux"], "ws-cmux row") }, { C.scrollDown(app) }, { C.tap(app.buttons["Appearance"].firstMatch, "Appearance") }])
             },
             // The filter and grouping persist across launches: these run last.
             Scene(group: g, id: "filtered-to-mac", args: Self.list) { app in
