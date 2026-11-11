@@ -277,7 +277,11 @@ async fn deny_all_and_deny_rules_still_deny_in_full_access() {
     // Deny-all, the person's explicit choice, on a chat in Full access whose harness has no mode
     // `policy_mode.rs` moves it to: its agent cannot keep the policy, so it is stopped and the
     // chat does not run again under it (lead, 2026-11-08: a policy that does not hold never
-    // runs). Nothing it asked was approved in Full access.
+    // runs). Nothing it asked was approved in Full access. The agent makes no asksBeforeTools
+    // claim (`FAKE_ASK_CLAIM=0`): a believed claim would keep deny-all (`claim_basis.rs`).
+    let (hub, mut c) =
+        hub_with(&[("FAKE_PICKER", "1"), ("FAKE_PICKER_MODES", "claude"), ("FAKE_ASK_CLAIM", "0")])
+            .await;
     let id = chat_in(&mut c, "bypassPermissions").await;
     c.request(method::MUX_SET_POLICY, json!({"sessionId": id, "policy": "deny-all"}))
         .await
