@@ -86,6 +86,11 @@ extension AgentPaneView {
         if let page { page.focusPage() } else { window.makeFirstResponder(webView) }
     }
 
+    /// Whether the app froze this hidden page (hibernation): it runs no script until work for it thaws
+    /// it, and ``callPageScript(_:arguments:)`` thaws it first (``AgentPaneTransport/beforePageWork``
+    /// is set only while the page is frozen).
+    var pageIsFrozen: Bool { model.transport.beforePageWork != nil }
+
     /// Runs `body` as an async function body in the chat's page, in whichever engine shows it
     /// (``PageWebView/callPageScript(_:arguments:)``).
     public func callPageScript(_ body: String, arguments: [String: Any] = [:]) async throws -> Any? {
