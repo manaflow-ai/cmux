@@ -51,6 +51,14 @@ public final class AgentTurnStateFeed {
     /// what a push changed meanwhile (newer than the pages, so kept: this Mac's sessions by id, a
     /// peer's rows by session id and peer) and the cursors asked.
     private var paging: (page: AgentWatchPage, changed: Set<String>, changedPeers: [String: Set<String>], cursors: Set<String>)?
+    /// The cursor of the later page asked last (nil: the watch's first page): a refused one is
+    /// asked again from there (``retryPage()``), never the whole list from its start.
+    private var pageAsked: String?
+    /// A refused page's wait before it is asked again (acpmux paces list reads, `list.paced`).
+    private var pageRetry: Task<Void, Never>?
+    private var pageBackoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
+    /// A list read again on the open connection after dropped lines (``resync()``) and not yet whole.
+    private var resyncing = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-turn-states")
 
     /// - Parameters:
@@ -94,6 +102,7 @@ public final class AgentTurnStateFeed {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             reconnect?.cancel()
+            pageRetry?.cancel()
             subscription?.cancel()
             directoryWatch?.cancel()
         }
@@ -112,16 +121,51 @@ public final class AgentTurnStateFeed {
         subscription = connection
         usageRead = ([:], false, 0)
         paging = nil
+        pageAsked = nil
+        resyncing = false
         // Lines decode on the socket queue; one main-actor batch at a time, never a Task per
-        // line (MainActorLineBatch). The main actor only sets the states that changed.
-        connection.start(send: Self.watchRequest, decode: Message.init(line:)) { [weak self, weak connection] drain in
+        // line (MainActorLineBatch), and a chat's pushes while one waits are its newest alone
+        // (`Message.key`). The main actor only sets the states that changed.
+        connection.start(send: Self.watchRequest, key: Message.key, decode: Message.init(line:)) { [weak self, weak connection] drain in
             guard let self, let connection, subscription === connection else { return }
             let started = ContinuousClock.now
             defer { Self.drained?(drain.values.count, ContinuousClock.now - started) }
             for message in drain.values { handle(message) }
-            // Dropped lines leave the states incomplete: reconnect for a fresh page.
-            if drain.overflowed, !drain.closed { connection.cancel() }
-            if drain.overflowed || drain.closed { lost(connection) }
+            if drain.closed { return lost(connection) }
+            // Dropped lines leave the states incomplete: the list again on this connection, once.
+            if drain.overflowed { resync() }
+        }
+    }
+
+    /// The list read again on the open watch after it dropped lines: the states stay on screen
+    /// meanwhile, and a read still out covers later drops too. It reconnected instead, which
+    /// cleared every state and read the whole list again on each overflow (the app sent 31 MB
+    /// list reads about seven times a minute on one Mac, 2026-11-11: "im at 100% cpu rn").
+    private func resync() {
+        guard let subscription, !resyncing else { return }
+        resyncing = true
+        paging = nil
+        pageAsked = nil
+        pageRetry?.cancel()
+        pageRetry = nil
+        logger.info("agent turn states: lines dropped; reading the list again")
+        subscription.send(Self.watchOnlyRequest)
+    }
+
+    /// A page acpmux refused (it paces list reads): asked again after a wait, from where the list
+    /// stopped. Without it a refused page left the list unread until the watch reconnected.
+    private func retryPage() {
+        guard let connection = subscription, pageRetry == nil else { return }
+        let cursor = pageAsked
+        // task-owner: AgentTurnStateFeed.pageRetry: one wait per refused page; cancelled with the watch.
+        pageRetry = Task { [weak self] in
+            guard var backoff = self?.pageBackoff else { return }
+            // concurrency-allow: Backoff.wait is an async sleep after a refused page, not a blocking wait.
+            do { try await backoff.wait(owner: "agent-turn-states.page-retry") } catch { return }
+            guard let self, subscription === connection else { return }
+            pageBackoff = backoff
+            pageRetry = nil
+            connection.send(cursor.map(Self.pageRequest(cursor:)) ?? Self.watchOnlyRequest)
         }
     }
 
@@ -139,6 +183,14 @@ public final class AgentTurnStateFeed {
             payload.append(0x0A)
         }
         return payload + usageRequest(cursor: nil)
+    }()
+
+    /// `_acpmux/watch` alone (id 2): the list read again on an open connection.
+    static let watchOnlyRequest: Data = {
+        let watch: [String: Any] = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/watch", "params": ["enabled": true]]
+        var line = (try? JSONSerialization.data(withJSONObject: watch)) ?? Data()
+        line.append(0x0A)
+        return line
     }()
 
     /// The most pages one usage read follows (`SESSION_PAGE`-sized byte pages: far past any real list).
@@ -179,12 +231,25 @@ public final class AgentTurnStateFeed {
         /// One `_acpmux/peer_state_changed`: peer `peer`'s link is now `state` (connected,
         /// connecting, degraded, reconnecting or offline; a removed peer's last is offline).
         case peerState(peer: String, state: String)
+        /// acpmux refused a list page (id 2 or 4): it paces list reads (`list.paced`).
+        case pageRefused
+
+        /// A pending push of a chat (or of a peer's row of it) is replaced by a newer one of the
+        /// same: each carries the chat's whole row. A purge is never replaced, nor anything else.
+        @Sendable static func key(_ message: Message) -> String? {
+            guard case .change(let session, _, _, _, _, _, _, _, _, let deleted, _, _, let peerRow) = message, !deleted else {
+                return nil
+            }
+            return session + "\u{0}" + (peerRow?.name ?? "")
+        }
 
         init?(line: Data) {
             guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
             let id = (message["id"] as? NSNumber)?.intValue
             if id == 2 || id == 4, let result = message["result"] as? [String: Any] {
                 self = .page(AgentWatchPage(result: result), continued: id == 4)
+            } else if id == 2 || id == 4, message["error"] != nil {
+                self = .pageRefused
             } else if (message["id"] as? NSNumber)?.intValue == 3, let result = message["result"] as? [String: Any] {
                 let next = (result["nextCursor"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 self = .usage(AgentChatDetail.details(result).filter(\.value.hasUsage), next: next)
@@ -255,10 +320,14 @@ public final class AgentTurnStateFeed {
             // given twice, or past the cap, ends it with what came).
             if let next = held.page.next, held.cursors.count < Self.watchPages, held.cursors.insert(next).inserted {
                 paging = held
+                pageAsked = next
                 subscription?.send(Self.pageRequest(cursor: next))
                 return
             }
             paging = nil
+            pageAsked = nil
+            resyncing = false
+            pageBackoff.reset()
             applyPage(held.page, keeping: held.changed, keepingPeers: held.changedPeers)
             if !self.lanes.live { self.lanes.live = true }
             // A fresh page (the first, or after a reconnect): the peer list is read again.
@@ -285,6 +354,8 @@ public final class AgentTurnStateFeed {
             if let next, usageRead.pages < Self.usagePages { subscription?.send(Self.usageRequest(cursor: next)) }
         case .peerState(let peer, let state):
             if !isMirror { peerStateChanged?(peer, state) }
+        case .pageRefused:
+            retryPage()
         }
     }
 
@@ -292,6 +363,10 @@ public final class AgentTurnStateFeed {
         guard subscription === connection else { return }
         subscription = nil
         paging = nil
+        pageAsked = nil
+        resyncing = false
+        pageRetry?.cancel()
+        pageRetry = nil
         // A closed watch knows nothing: no stale working dots until it reconnects.
         if !isMirror { turns.watching = false }
         // Titles stay: a tab keeps reading as its chat while the watch reconnects.

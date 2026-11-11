@@ -134,11 +134,11 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
     let unset = |k: &str| params.get(k).is_none_or(|v| v.is_null() || v.as_str() == Some(""));
     let by_bytes = unset("limit") && unset("orderBy");
     let tools = with_tools(params)?;
-    let (most, guard) = (page_bytes(conn), &hub.list_guard);
-    // A byte page costs its bytes' share of the list on a connection whose pages are small.
-    let by_size = |share: f64| if most < LIST_PAGE_BYTES { guard.share_bytes(most) } else { share };
+    let (most, guard) = (LIST_PAGE_BYTES, &hub.list_guard);
+    // A byte page costs its bytes' share of the list.
+    let by_size = guard.share_bytes(most);
     if tools || !whole(params) {
-        let share = if by_bytes { by_size(guard.share(None)) } else { guard.share(limit) };
+        let share = if by_bytes { by_size } else { guard.share(limit) };
         return reply(hub, conn, share, excludes_closed(params), |list| {
             if by_bytes {
                 return within_limit(raw, most, |budget| list.bounded(hub, params, tools, budget));
@@ -148,7 +148,7 @@ pub(super) async fn sessions(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
         })
         .await;
     }
-    reply(hub, conn, by_size(guard.share(None)), excludes_closed(params), |list| {
+    reply(hub, conn, by_size, excludes_closed(params), |list| {
         // The cached whole list, as the client reads it (masked for a peer, which may lengthen
         // it), when that fits in one message; else its pages.
         if list.whole.len() <= most {
@@ -214,7 +214,7 @@ pub(super) async fn watch(hub: &Hub, conn: &Conn, params: &Value) -> Result<Valu
             Some(Value::Object(known)) => Some(known),
             Some(_) => return Err(RpcError::invalid_params("known must be an object")),
         };
-        let most = page_bytes(conn);
+        let most = LIST_PAGE_BYTES;
         return reply(hub, conn, hub.list_guard.share_bytes(most), false, |list| {
             let name = match (tools, raw) {
                 (true, true) => "own tools",
@@ -291,7 +291,7 @@ pub(super) async fn acp_list(hub: &Hub, conn: &Conn, params: &Value) -> Result<V
     .await
 }
 
-/// The page `page` cuts to `most` bytes ([`page_bytes`]), as the client reads it: a peer reads
+/// The page `page` cuts to `most` bytes ([`LIST_PAGE_BYTES`]), as the client reads it: a peer reads
 /// it masked (`peer_text.rs`), which may make it longer than the budget it was cut to; then it
 /// is cut again, smaller. A raw page takes the same check.
 fn within_limit(
@@ -339,23 +339,16 @@ fn acp_row_within(s: &Value, budget: usize) -> Value {
 /// The longest id or `cwd` a stub row keeps.
 const STUB_TEXT_BYTES: usize = 4 << 10;
 
-/// The most a session list result may hold (`session/list`, `_acpmux/sessions` and
-/// `_acpmux/watch`): a megabyte under the message limit, for the reply's own frame and what
-/// masking a peer's text may add, the bound of every reply fitted whole (`hub/reply_fit.rs`).
-const LIST_PAGE_BYTES: usize = crate::hub::reply_fit::REPLY_BYTES;
-
-/// The most a list reply holds on a Web or peer connection (a phone, a browser, another
-/// acpmux): past it a whole list goes in pages with the `nextCursor` of the rest, which each of
-/// them follows (the phone's `AcpmuxConnection.wholeList`, the pane's `SessionPager.whole`,
-/// `peer.rs` `watch_pages`). One Mac sent a 24.8 MB watch list to such a connection, read again
-/// about every minute for hours (2026-11-06). The app's own connections (the Unix socket, the
-/// agent pane) keep [`LIST_PAGE_BYTES`]: its watch feeds read their list in one reply.
-pub(super) const WEB_LIST_PAGE_BYTES: usize = 4 << 20;
-
-/// The most one list reply holds on `conn`.
-fn page_bytes(conn: &Conn) -> usize {
-    if conn.origin.web_class() { WEB_LIST_PAGE_BYTES } else { LIST_PAGE_BYTES }
-}
+/// The most one session list reply holds (`session/list`, `_acpmux/sessions` and
+/// `_acpmux/watch`), on every connection: past it a whole list goes in pages with the
+/// `nextCursor` of the rest, which each client follows (the phone's
+/// `AcpmuxConnection.wholeList`, the pane's `SessionPager`, `peer.rs` `watch_pages`, the app's
+/// `AgentTurnStateFeed`, `client.rs` `whole_list`). One Mac sent a 24.8 MB watch list to a Web
+/// connection about every minute for hours (2026-11-06); on 2026-11-11 the same Mac's agent
+/// panes, still served lists up to the message limit, were sent 31 MB watch pages about seven
+/// times a minute while its app sat at 100% CPU ("im at 100% cpu rn"). `list_web_page_tests.rs`
+/// fails if any list reply, on any connection, passes it.
+pub(super) const LIST_PAGE_BYTES: usize = 4 << 20;
 
 fn acp_row(s: &Value) -> Value {
     let text = |k: &str| s.get(k).and_then(Value::as_str).map(str::to_owned);

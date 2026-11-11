@@ -1,9 +1,10 @@
-//! A whole session list goes to a Web or peer connection in pages of at most
-//! [`WEB_LIST_PAGE_BYTES`] (`list_reply.rs`'s bound), each with the `nextCursor` of
-//! the rest. On 2026-11-06 one Mac (about 500 chats) sent a 24.8 MB `_acpmux/watch` list to a
-//! local Web connection (the mobile host's push watcher, whose socket takes frames up to 16 MiB)
-//! about once a minute for hours: the client dropped each one and asked again, and the Mac's
-//! own chat panes waited behind those lists. The app's own connections still read it whole.
+//! A whole session list goes to every connection in pages of at most [`MOST_LIST_REPLY_BYTES`]
+//! (`list_reply.rs`'s `LIST_PAGE_BYTES`), each with the `nextCursor` of the rest. On 2026-11-06
+//! one Mac (about 500 chats) sent a 24.8 MB `_acpmux/watch` list to a local Web connection
+//! about once a minute for hours. On 2026-11-11 the same Mac's agent panes and app feeds, then
+//! still read their list in one reply up to the message limit, were sent 31 MB watch replies
+//! about seven times a minute while the app sat at 100% CPU ("im at 100% cpu rn"). The detector
+//! here fails if any list reply, on any connection, passes a few megabytes.
 
 use crate::config::{Config, StoreMode};
 use crate::peer::{Peer, PeerNotice};
@@ -16,8 +17,9 @@ use tokio::sync::mpsc;
 
 use super::Origin;
 
-/// `list_reply.rs`'s bound on one list reply to a Web or peer connection.
-const WEB_LIST_PAGE_BYTES: usize = 4 << 20;
+/// The most one list reply may hold, on any connection: a few megabytes, never the message
+/// limit. Fixed here rather than read from `list_reply.rs`, so raising that bound fails this.
+const MOST_LIST_REPLY_BYTES: usize = 4 << 20;
 
 /// This daemon's own chats: about 6 MB of summaries in all, past one Web page.
 const OWN: usize = 3_000;
@@ -143,7 +145,7 @@ async fn a_web_connection_reads_a_large_whole_list_in_bounded_pages() {
     let mut web = Client::on(&hub, Origin::Web).await;
     let (ids, sizes) = web.whole_watch().await;
     assert!(sizes.len() > 1, "a list past one page goes in pages: {sizes:?}");
-    assert!(sizes.iter().all(|s| *s <= WEB_LIST_PAGE_BYTES + FRAME), "{sizes:?}");
+    assert!(sizes.iter().all(|s| *s <= MOST_LIST_REPLY_BYTES + FRAME), "{sizes:?}");
     // Every row once: the pages neither skip nor repeat one.
     assert_eq!(sorted(ids), every_id());
 }
@@ -154,7 +156,7 @@ async fn a_peer_link_reads_its_own_rows_in_bounded_pages() {
     let mut link = Client::on(&hub, Origin::Peer).await;
     let (ids, sizes) = link.whole_watch().await;
     assert!(sizes.len() > 1, "{sizes:?}");
-    assert!(sizes.iter().all(|s| *s <= WEB_LIST_PAGE_BYTES + FRAME), "{sizes:?}");
+    assert!(sizes.iter().all(|s| *s <= MOST_LIST_REPLY_BYTES + FRAME), "{sizes:?}");
     // Every row once, the mirrored one too: each page has the same rows as the first
     // (the link drops the mirrored ones on each page itself, `watch_sessions`).
     assert_eq!(sorted(ids), every_id());
@@ -166,24 +168,49 @@ async fn a_peer_link_reads_a_whole_sessions_list_in_bounded_pages() {
     let mut link = Client::on(&hub, Origin::Peer).await;
     let (ids, sizes) = link.whole(method::MUX_SESSIONS, json!({})).await;
     assert!(sizes.len() > 1, "{sizes:?}");
-    assert!(sizes.iter().all(|s| *s <= WEB_LIST_PAGE_BYTES + FRAME), "{sizes:?}");
+    assert!(sizes.iter().all(|s| *s <= MOST_LIST_REPLY_BYTES + FRAME), "{sizes:?}");
     assert_eq!(sorted(ids), every_id());
 }
 
+/// The detector: every list method, on every connection, answers a list of about 30 MB (one
+/// Mac's on 2026-11-11) in replies of at most [`MOST_LIST_REPLY_BYTES`], none of them skipped or
+/// repeated. The app's own connections (the Unix socket's feeds, the agent pane's) included:
+/// they were the ones sent 31 MB.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_apps_own_connection_still_reads_the_list_in_one_reply() {
+async fn no_list_reply_passes_a_few_megabytes_on_any_connection() {
     let hub = hub().await;
-    // The app's watch feeds read their list in one reply (AgentTurnStateFeed).
-    let mut local = Client::on(&hub, Origin::Local).await;
-    let (page, size, _) = local.call(method::MUX_WATCH, json!({"enabled": true})).await;
-    assert!(page.get("nextCursor").is_none_or(Value::is_null), "no cursor");
-    assert_eq!(page["sessions"].as_array().unwrap().len(), OWN + 1);
-    assert!(size > WEB_LIST_PAGE_BYTES);
+    for origin in [Origin::Local, Origin::LocalApp, Origin::Web, Origin::Peer] {
+        let mut client = Client::on(&hub, origin).await;
+        let reads = [
+            (method::MUX_WATCH, json!({"enabled": true})),
+            (method::MUX_WATCH, json!({"enabled": true, "withTools": true})),
+            (method::MUX_SESSIONS, json!({})),
+        ];
+        for (m, params) in reads {
+            let (ids, sizes) = client.whole(m, params.clone()).await;
+            assert!(sizes.len() > 1, "{origin:?} {m} {params}: a list past one page goes in pages");
+            let most = sizes.iter().max().copied().unwrap_or_default();
+            assert!(most <= MOST_LIST_REPLY_BYTES + FRAME, "{origin:?} {m} {params}: {most} bytes");
+            assert_eq!(sorted(ids), every_id(), "{origin:?} {m} {params}");
+        }
+        // ACP's `session/list`, its cursor followed by `session/list` itself.
+        let (mut page, size, _) = client.call(method::SESSION_LIST, json!({})).await;
+        let mut sizes = vec![size];
+        while let Some(cursor) = page["nextCursor"].as_str().map(str::to_owned) {
+            assert!(sizes.len() < 1_000, "{origin:?} session/list never ends");
+            let (next, size, _) =
+                client.call(method::SESSION_LIST, json!({"cursor": cursor})).await;
+            (page, sizes) = (next, [sizes, vec![size]].concat());
+        }
+        let most = sizes.iter().max().copied().unwrap_or_default();
+        assert!(most <= MOST_LIST_REPLY_BYTES + FRAME, "{origin:?} session/list: {most} bytes");
+    }
 }
 
 /// Bench: bytes and time of the first watch reply, and of the whole list read in pages, on a Web
-/// connection against the app's own one (the reply every connection got before), on about 9,000
-/// closed chats (a whole list of about 15 MB; summaries cap their titles).
+/// connection against the app's own one (both paged now; the app's read its list in one reply
+/// up to the message limit before), on about 9,000 closed chats (a whole list of about 15 MB;
+/// summaries cap their titles).
 /// `cargo test -p acpmux list_web_page_bench -- --nocapture`.
 #[tokio::test(flavor = "multi_thread")]
 async fn list_web_page_bench() {

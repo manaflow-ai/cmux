@@ -135,7 +135,7 @@ final class AcpmuxPermissionFeedBridge {
         } else {
             logger.error("feed bridge: no person challenge or no key for this daemon; phone answers stay refused")
         }
-        line.send(Data(acpmuxRequest: 3, method: "_acpmux/watch", params: ["enabled": true]))
+        line.send(Data(acpmuxRequest: 3, method: "_acpmux/watch", params: ["enabled": true, "limit": 1]))
     }
 
     private func lost(_ line: AcpmuxCheckedLine) {
@@ -181,12 +181,12 @@ final class AcpmuxPermissionFeedBridge {
             } else if id == 2 {
                 let person = (message["result"] as? [String: Any])?["person"] as? Bool ?? false
                 if !person { logger.error("feed bridge: acpmux refused the person proof; phone answers stay refused") }
-            } else if id == 3, let result = message["result"] as? [String: Any] {
+            } else if id == 3, message["result"] != nil {
                 backoff.reset()
-                // Prompts that were pending before this connection.
-                for summary in result["sessions"] as? [[String: Any]] ?? []
-                    where (summary["pendingPermissions"] as? NSNumber)?.intValue ?? 0 > 0 {
-                    if let session = summary["sessionId"] as? String { Task { await self.postPending(of: session) } }
+                // Prompts pending before this connection: those chats alone (pendingOnly), never the whole list.
+                Task {
+                    let rows = await self.call("_acpmux/sessions", ["pendingOnly": true])?["sessions"] as? [[String: Any]] ?? []
+                    for session in rows.compactMap({ $0["sessionId"] as? String }) { await self.postPending(of: session) }
                 }
             } else if let waiter = replies.removeValue(forKey: id) {
                 let result = message["error"] == nil

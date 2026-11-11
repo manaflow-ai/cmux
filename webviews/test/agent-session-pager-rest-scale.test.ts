@@ -143,3 +143,35 @@ test("a whole-list read still out keeps the purges a newer, finished list stoppe
   const kept = pager as unknown as { purged: Set<string> };
   expect(kept.purged.size).toBe(0);
 });
+
+test("a page acpmux refuses as paced is asked again from its cursor, never as the whole list", async () => {
+  // acpmux refuses a list read past its pace (`list.paced`, `retryAfterMs`). Each refused page read
+  // the whole list instead: 31 MB a read on one Mac, about seven times a minute (2026-11-11).
+  let refusals = 2;
+  const calls: { method: string; params: Record<string, unknown> }[] = [];
+  const pager = new SessionPager<Session>(async (method, params) => {
+    calls.push({ method, params });
+    const from = typeof params.cursor === "string" ? Number(params.cursor) : 0;
+    if (from === PAGE * 2 && refusals-- > 0)
+      throw Object.assign(new Error("session lists are paced"), {
+        data: { reason: "list.paced", retryable: true, retryAfterMs: 5 },
+      });
+    const end = Math.min(from + PAGE, COUNT);
+    return { sessions: sessions.slice(from, end), ...(end < COUNT ? { nextCursor: String(end) } : {}) };
+  });
+  const first = await pager.first();
+  if (!first) throw new Error("no first page");
+  let held = first.sessions.slice();
+  const complete = await pager.rest(
+    first,
+    () => held,
+    (fresh) => {
+      held = [...held, ...fresh];
+    },
+  );
+  expect(complete).toBe(true);
+  expect(held).toHaveLength(COUNT);
+  // No whole-list read: every request after the first page names a cursor and a limit.
+  expect(calls.filter((call) => call.method === "_acpmux/watch" && call.params.limit === undefined)).toHaveLength(0);
+  expect(calls.filter((call) => call.params.cursor === String(PAGE * 2))).toHaveLength(3);
+});
