@@ -44,6 +44,11 @@ def jobs():
                 yield f"{path.name}#{name}", job
 
 
+def not_wrapped(key: str) -> bool:
+    """A workflow another guard pins (blacksmith_off.NOT_WRAPPED): it keeps its own selector."""
+    return key.split("#", 1)[0] in blacksmith_off.NOT_WRAPPED
+
+
 def skipped_when_off(condition) -> bool:
     return blacksmith_off.SKIP_WHEN_OFF in str(condition or "")
 
@@ -56,6 +61,12 @@ def labels(runs_on, **kwargs) -> set | None:
 
 
 class BlacksmithOffSwitch(unittest.TestCase):
+    def test_not_wrapped_workflows_name_their_guard(self):
+        for name, reason in blacksmith_off.NOT_WRAPPED.items():
+            with self.subTest(workflow=name):
+                self.assertTrue((ROOT / ".github/workflows" / name).is_file(), "a stale entry")
+                self.assertIn("scripts/", reason)
+
     def test_every_runs_on_that_can_reach_blacksmith_is_wrapped(self):
         result = subprocess.run([sys.executable, str(ROOT / "scripts/ci/blacksmith_off.py"), "--check"],
                                 capture_output=True, text=True, check=False)
@@ -73,7 +84,7 @@ class BlacksmithOffSwitch(unittest.TestCase):
     def test_set_no_job_can_take_blacksmith(self):
         for key, job in jobs():
             runs_on = job.get("runs-on")
-            if runs_on is None or skipped_when_off(job.get("if")):
+            if runs_on is None or skipped_when_off(job.get("if")) or not_wrapped(key):
                 continue
             found = labels(runs_on, blacksmith_off=True)
             if found is None:
