@@ -4,7 +4,7 @@
 # Its sources are TSX: the self-test reads each as a .tsx file.
 repo: manaflow-ai/cmux-platform
 pull: 1276
-commit: 041df38fb357262894f284949078713dc540e09b
+commit: d7d15168bd63237371d83526c3b581d9852e0460
 path: test/node/fixtures/regex-after-token.json
-blob: f122ca5f620670867fd2662d83e4492949fbdc30
-sha256: 7c854a7442138c01290fa95e4a2e1c43c6155c2e2c482c99887d3d3d078dad4f
+blob: bb7c486a9b970ffc9dc6fd8905a0208f27e8bc32
+sha256: 923041634cde8bf225348a21d3598ed4212825c9c527883c80d26fc4b6bb0409

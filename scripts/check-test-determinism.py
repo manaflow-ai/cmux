@@ -5798,7 +5798,8 @@ def _regex_after_token_self_test() -> tuple[list[str], int]:
             f"({pin.get('repo')}@{pin.get('commit')}:{pin.get('path')}); copy that file unchanged or re-pin it"
         )
     cases = 0
-    for path in (shared, REGEX_AFTER_TOKEN_DIR / "cmux-rows.json"):
+    # cmux-rows.json exists only while cmux has rows the pinned copy does not hold yet.
+    for path in (path for path in (shared, REGEX_AFTER_TOKEN_DIR / "cmux-rows.json") if path.exists()):
         for source, hit, forks in _regex_after_token_cases(json.loads(path.read_text(encoding="utf-8"))):
             cases += 1
             target = source.index("echo")

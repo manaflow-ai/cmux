@@ -242,6 +242,37 @@
       "hit": true,
       "unresolved": true,
       "why": "after a ) whose ( is unseen, < may be a comparison (then //x</a>; ... is a comment) or a JSX tag (then run(...) is code): the < is undecided, and the union of both readings is a hit"
+    },
+    {
+      "source": "return\n{} /[//]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "review of manaflow-ai/cmux#41357, F1: a line terminator after return inserts a semicolon, so the {} on the next line is a block and a / after it starts a regex (a terminator inside a comment counts too)"
+    },
+    {
+      "source": "const a = x‌if(y) / 2 // echo > /tmp/out.$$",
+      "hit": false,
+      "why": "F2: an ECMAScript identifier continues with U+200C (ZWNJ) and U+200D (ZWJ): x<ZWNJ>if is one name, not the keyword if; after the ) of its call, a / divides"
+    },
+    {
+      "source": "a <b\n{} />[//]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "unresolved": true,
+      "why": "F3: <b after a name is a comparison, not a JSX tag, so the / after the {} is no />; by ASI the {} is a block and the / starts a regex, but a tokenizer that does not apply ASI to a name cannot tell the block from an object: unresolved (the union reads it as a hit)"
+    },
+    {
+      "source": "return /* a\n */ {} /[//]/.test(s); run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "a line terminator inside a comment after return inserts the semicolon too: the {} is a block"
+    },
+    {
+      "source": "run(`echo ${{} / /[//]/.source} > /tmp/out.$$`)",
+      "hit": true,
+      "why": "review of manaflow-ai/cmux-platform#1275, F1: a { right after ${ starts an object literal (an expression), never a block, so the / after its } divides and the next / starts a regex whose // is no comment"
+    },
+    {
+      "source": "const f = <T = string>(x: T) => \"{http://x}\"; run(\"echo > /tmp/out.$$\")",
+      "hit": true,
+      "why": "review of manaflow-ai/cmux-platform#1275, F2: after defaulted type parameters no JSX tag is open, so the { in the string is text and its // no comment; run(...) is code"
     }
   ],
   "generate": {
