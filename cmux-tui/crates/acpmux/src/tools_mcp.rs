@@ -257,7 +257,8 @@ pub(crate) async fn serve(servers: Vec<Served>) -> Result<()> {
     // The agent closed the pipe: no one reads an answer still on its way, and
     // ending here drops the calls' daemon connection with it.
     drop(tx);
-    tasks.close(std::time::Duration::ZERO).await;
+    // Every task stops at the cancellation (`spawn_until_cancelled`): none is left to report.
+    let _ = tasks.close(std::time::Duration::ZERO).await;
     ended
 }
 
