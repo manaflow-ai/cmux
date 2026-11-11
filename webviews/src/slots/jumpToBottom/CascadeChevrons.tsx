@@ -1,6 +1,7 @@
-// `chat.jumpToBottom` / `cascade`: two small arrows stacked in the circle; while the agent works the
-// upper one fades and the lower one lights in turn, a cascade pointing down. Opacity beats on
-// `--cmux-spinner-period` (jumpToBottom.css); idle, both rest at full strength.
+// `chat.jumpToBottom` / `cascade`: two small arrows stacked in the circle; while the agent works they rest
+// dim and a lit arrow steps from the upper place to the lower one, a cascade pointing down. One stepped
+// transform loop on `--cmux-spinner-period` (jumpToBottom.css), never a fade; idle, both rest at full
+// strength and the lit arrow is hidden.
 import { ArrowDown } from "../../agent-session/acpmux/conversation/icons";
 import type { JumpToBottomProps } from "./slot";
 
@@ -19,6 +20,9 @@ export function CascadeChevrons({ working }: JumpToBottomProps) {
           <ArrowDown size={10} />
         </span>
       ))}
+      <span className="slot-jump__step slot-jump__lit">
+        <ArrowDown size={10} />
+      </span>
     </span>
   );
 }

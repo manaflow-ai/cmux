@@ -149,8 +149,8 @@ still writing below).
 ```
 
 cmux ships `default` (the static arrow), `nudge` (the arrow drops in on the spring as the button
-appears), `bob` (the arrow bobs once per breath while the agent works) and `cascade` (two arrows light
-upper then lower while the agent works). Every variant but the default dips toward the latest message
+appears), `bob` (the arrow bobs once per breath while the agent works) and `cascade` (two arrows rest
+dim and a lit arrow steps from the upper to the lower while the agent works). Every variant but the default dips toward the latest message
 while the button is pressed, the click you can see.
 
 The rules are the same as above, plus the slot's own:

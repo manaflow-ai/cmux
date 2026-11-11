@@ -15,7 +15,8 @@
   display: inline-flex;
 }
 
-/* cascade: two 10px arrows in one cell, a few px apart. Still frame: both at full strength. */
+/* cascade: two 10px arrows in one cell, a few px apart, and a lit arrow on top of them. Still frame:
+   both at full strength, the lit arrow hidden. */
 .slot-jump__cascade {
   display: inline-grid;
   place-items: center;
@@ -25,12 +26,13 @@
   display: inline-flex;
 }
 .slot-jump__step[data-step="0"] {
-  --slot-step: 0;
   transform: translateY(-3px);
 }
 .slot-jump__step[data-step="1"] {
-  --slot-step: 1;
   transform: translateY(3px);
+}
+.slot-jump__lit {
+  opacity: 0;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -55,10 +57,15 @@
   :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-jump-latest[data-shown] .slot-jump[data-working] .slot-jump__bob {
     animation: slot-jump-bob var(--cmux-breath-period) var(--cmux-ease-settle) infinite alternate;
   }
-  /* cascade: the upper arrow lights, then the lower, while the button shows and the agent works. */
-  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-jump-latest[data-shown] .slot-jump__cascade[data-working] .slot-jump__step {
-    animation: slot-jump-cascade var(--cmux-spinner-period) linear infinite;
-    animation-delay: calc(var(--cmux-spinner-period) * (var(--slot-step) / 2 - 1));
+  /* cascade: while the button shows and the agent works, both arrows rest dim (a still opacity, not a
+     loop) and the lit arrow steps from the upper place to the lower one, by place, never by fading
+     (slots.json `no-breathing`). */
+  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-jump-latest[data-shown] .slot-jump__cascade[data-working] .slot-jump__step:not(.slot-jump__lit) {
+    opacity: 0.35;
+  }
+  :root:not([data-status-indicators="static"], [data-agent-motion="off"], [data-cmux-motion="off"], [data-cmux-motion="reduced"]) .acpmux-jump-latest[data-shown] .slot-jump__cascade[data-working] .slot-jump__lit {
+    opacity: 1;
+    animation: slot-jump-cascade var(--cmux-spinner-period) steps(2, jump-none) infinite;
   }
 }
 
@@ -71,12 +78,10 @@
   }
 }
 @keyframes slot-jump-cascade {
-  0%,
-  60%,
-  100% {
-    opacity: 0.35;
+  from {
+    transform: translateY(-3px);
   }
-  25% {
-    opacity: 1;
+  to {
+    transform: translateY(3px);
   }
 }

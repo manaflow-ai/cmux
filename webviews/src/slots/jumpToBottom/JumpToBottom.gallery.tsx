@@ -90,7 +90,7 @@ export default componentEntry<Props>({
     },
     "cascade-working": {
       props: { variant: "cascade", working: true },
-      note: "Two arrows light upper then lower while the agent works.",
+      note: "Two arrows rest dim and a lit arrow steps from the upper to the lower while the agent works.",
     },
     "reduced-motion": {
       props: { variant: "cascade", working: true, still: true },

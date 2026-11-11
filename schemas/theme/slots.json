@@ -180,7 +180,7 @@
         {
           "id": "cascade",
           "label": "Cascade",
-          "docs": "Two small arrows stacked; while the agent works they light upper then lower, a cascade pointing down. Dips while pressed.",
+          "docs": "Two small arrows stacked; while the agent works they rest dim and a lit arrow steps from the upper one to the lower one, a cascade pointing down (by place, never a fade). Dips while pressed.",
           "source": "webviews/src/slots/jumpToBottom/CascadeChevrons.tsx",
           "styles": ["webviews/src/slots/jumpToBottom/jumpToBottom.css"]
         }
