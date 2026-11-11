@@ -7059,15 +7059,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       return true;
     },
     cloudStart: () => cloudStart ?? null,
-    // What holds Send now, said in the words the composer shows (a kept `compose_send` reports it).
+    // What holds Send now (a kept `compose_send` reports it): the sign-in notice's own words, else a code.
     blocked: () =>
       authBlock ??
       (pendingFolder || confirmingHere
-        ? "a folder question holds Send"
+        ? "folder_question"
         : cloudSendHeld
-          ? "a Cloud start is already out"
+          ? "cloud_start_out"
           : sandboxHoldsChat && !sandboxDraftMoved
-            ? "the Sandboxed run holds this chat"
+            ? "sandbox_holds_chat"
             : undefined),
   };
   useEffect(() => {

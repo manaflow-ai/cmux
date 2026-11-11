@@ -37,7 +37,8 @@ export type AutomationCompose = {
   setRunMode(mode: RunMode): boolean;
   /// The Cloud start this page sent (cloudStartProgress.ts), or null.
   cloudStart(): unknown;
-  /// Why Send is held now (a sign-in, a folder question, a start already out), or undefined.
+  /// Why Send is held now, or undefined: the sign-in notice's words, else `folder_question`,
+  /// `cloud_start_out` or `sandbox_holds_chat`.
   blocked?(): string | undefined;
 };
 
