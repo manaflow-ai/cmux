@@ -66,7 +66,18 @@ pub(super) fn serve_line_connection(
     // plugin as a client (orphan_shutdown.rs).
     let owner_plugin = orphan_shutdown::is_owner_plugin_peer(&mux, peer_key.as_deref());
     let client = mux.control_clients.register_classified(transport, writer.clone(), owner_plugin);
-    origin_gate::set_peer_identity_at_accept(&mux, client, peer_key, peer_token);
+    let peer_kind = origin_gate::set_peer_identity_at_accept(&mux, client, peer_key, peer_token);
+    // The connection is accepted: counted under what the daemon knows of its peer now
+    // (`server-stats` section `commands`); `set-client-info` can say more later.
+    writer.kind.registered(
+        mux.connection_stats().commands(),
+        match transport {
+            _ if owner_plugin => crate::diagnostics::ClientKind::Plugin,
+            ClientTransport::Remote => crate::diagnostics::ClientKind::Remote,
+            ClientTransport::WebSocket => crate::diagnostics::ClientKind::WebSocket,
+            ClientTransport::Unix => peer_kind,
+        },
+    );
     if !admission.registered(&mux, client) {
         // Refused before its first frame (the remote entry's revocation
         // limits): nothing is read or dispatched.
@@ -128,17 +139,38 @@ pub(super) fn serve_line_connection(
                         token: stream.peer_token(),
                     }
                 };
-                match hello.observe(&mux, client, &line, peer) {
-                    Some(reply) => writer.send_control(&reply).is_ok(),
-                    None => handle_connection_frame(
-                        &mux,
-                        client,
-                        transport,
-                        &line,
-                        &writer,
-                        &surface_scheduler,
-                    ),
-                }
+                // A handler that panics on this reader ends the connection
+                // through the normal close below (its registration, writer
+                // and queued requests go) instead of unwinding past it.
+                let handled =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        match hello.observe(&mux, client, &line, peer) {
+                            Some(reply) => writer.send_control(&reply).is_ok(),
+                            None => {
+                                #[cfg(test)]
+                                connection_scheduler::panic_seam::check(
+                                    &mux,
+                                    client,
+                                    connection_scheduler::panic_seam::Site::Reader,
+                                );
+                                handle_connection_frame(
+                                    &mux,
+                                    client,
+                                    transport,
+                                    &line,
+                                    &writer,
+                                    &surface_scheduler,
+                                )
+                            }
+                        }
+                    }));
+                handled.unwrap_or_else(|_| {
+                    eprintln!(
+                        "cmux-tui: a request on connection {client} panicked; closing the \
+                         connection"
+                    );
+                    false
+                })
             }
         };
         zeroize_string(&mut line);

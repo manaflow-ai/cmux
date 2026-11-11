@@ -3,6 +3,7 @@ public import CmuxNextAgentPane
 public import CmuxNextBridge
 public import CmuxNextDaemon
 public import CmuxNextDaemonService
+public import CmuxNextLayout
 public import CmuxNextSidebar
 import Foundation
 
@@ -71,6 +72,27 @@ public struct WorkspaceSpawn: Sendable {
             env = object.compactMapValues { $0 as? String }
         }
         opensNewTabPage = invocation.origin == .user && command == nil
+    }
+
+    /// One read of the placement `setting` for the create of `key` into `window`: tells the close-selection `rule` of
+    /// the relation the create starts (``closeRelation(setting:)``), before the window can show it, and returns
+    /// ``placement(setting:)``. A second read of the setting is a second walk of the sidebar's rows.
+    @MainActor
+    public func placement(setting: NewWorkspaceDefaultSlot, opening key: String, in window: String?,
+                          tells rule: WindowCloseSelection) -> (row: NewWorkspaceDefaultSlot?, rule: NewWorkspaceDefaultSlot?) {
+        if let window { rule.expect(key, in: window, relation: closeRelation(setting: setting)) }
+        return placement(setting: setting)
+    }
+
+    /// The close-selection relation this create into a window starts (plans/cmux-next/close-focus.md, "One
+    /// close-selection rule"). Rust decides (`WindowCloseSelection.relation`) from the facts given here: the
+    /// create opens the New Tab page (a duplicate, a template, a move, a session transfer, an import and a
+    /// command workspace never do), its run is the person's and may change the view, and the `setting` puts the
+    /// new row after the current one. Only a person's own New Workspace gets one: `.task` after the current row
+    /// (it lasts as a link tab's relation does), `.quick` at the top or the end (the quick look-up).
+    public func closeRelation(setting: NewWorkspaceDefaultSlot) -> WindowCloseSelection.Relation {
+        WindowCloseSelection.relation(opensNewTabPage: opensNewTabPage, personsAction: ActionRunScope.isPersonsAction(),
+                                      mayChangeView: ActionRunScope.viewChangeAllowed(), afterCurrent: setting.placesAfterCurrent)
     }
 
     /// A plain Cmd-N: the New Tab page with nothing of its own (no key, chat, session, command, browser profile or

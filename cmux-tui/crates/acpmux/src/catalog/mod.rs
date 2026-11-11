@@ -295,16 +295,17 @@ impl CatalogService {
             }
             Err(e) => Err(e),
         };
-        let mut state = self.state();
-        state.last_fetch = Some(std::time::Instant::now());
+        {
+            let mut state = self.state();
+            state.last_fetch = Some(std::time::Instant::now());
+            state.last_error = result.as_ref().err().cloned();
+        }
+        // Logged with the state unlocked: a log write can wait (stdout a full pipe), and every
+        // request that reads the catalog in use takes this lock (`log_lock_tests.rs`).
         match result {
-            Ok(changed) => {
-                state.last_error = None;
-                (changed, None)
-            }
+            Ok(changed) => (changed, None),
             Err(e) => {
                 tracing::warn!("model catalog refresh: {e}; keeping the current copy");
-                state.last_error = Some(e.clone());
                 (false, Some(e))
             }
         }
@@ -320,3 +321,7 @@ impl CatalogService {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "log_lock_tests.rs"]
+mod log_lock_tests;

@@ -49,6 +49,8 @@ mod prefill;
 #[cfg(any(unix, windows))]
 mod retry;
 mod supervisor;
+#[cfg(any(unix, windows))]
+mod worker;
 
 use std::time::{Duration, Instant};
 
@@ -81,11 +83,12 @@ const LAUNCH_FAILURES_ENV: &str = "CMUX_TUI_TEST_RESPAWN_LAUNCH_FAILURES";
 const LAUNCH_ERRORS_ENV: &str = "CMUX_TUI_TEST_RESPAWN_LAUNCH_ERRORS";
 
 /// The respawn gate: first respawn attempts take turns in the order they
-/// were scheduled, at most one per CPU at once. A respawn replays its seed
-/// (the previous screen, up to several MB) in the daemon's mirror and in
-/// its new host; after a kill of everything all of them used to start at
-/// once and the visible terminals waited behind the hidden ones for the
-/// CPU (STATUS 5931).
+/// were scheduled, at most one per CPU at once. A terminal the person sees
+/// or asked for does not wait for that line (`terminal_respawn/worker.rs`).
+/// A respawn replays its seed (the previous screen, up to several MB) in
+/// the daemon's mirror and in its new host; after a kill of everything all
+/// of them used to start at once and the visible terminals waited behind
+/// the hidden ones for the CPU (STATUS 5931).
 pub(in crate::mux) fn respawn_gate() -> startup_adoption_gate::StartupAdoptionGate {
     let slots = std::env::var(SLOTS_ENV)
         .ok()
@@ -294,6 +297,10 @@ pub(super) struct RespawnPlan {
     /// An explicit user restart (`restart-tab`, `manual.rs`): any end of
     /// the incarnation reopens, not only a host loss.
     pub(super) user_restart: bool,
+    /// A `restart-tab` that is not the restore of a session (`manual.rs`,
+    /// `Mux::restart_dead_tab`): the person asked for this terminal, so it
+    /// does not wait for the respawn gate's line, in a hidden workspace too.
+    pub(super) asked: bool,
     /// The keep-layout rows (`kept_tabs`, `tab-restart-kept-layout-v1`) of
     /// the terminal's tabs when a user restart reopens a kept tab, the
     /// restarted tab's first: the new shell starts in its directory, and once
@@ -348,84 +355,6 @@ impl Mux {
         match self.exit_settles.owner() {
             Some(mux) => Self::spawn_respawn_worker(mux, plan),
             None => self.abandon_terminal_respawn(terminal_id),
-        }
-    }
-
-    /// Start the worker of `plan`, with no lock held. Every respawn runs it:
-    /// the respawn of a lost host, a restart the person or a frontend asked
-    /// for (`restart-tab`, `manual.rs`: Restart Shell Here, and each kept
-    /// tab of a restored session), the shell of an `on_exit` shell terminal,
-    /// and the next try after a failed launch (`retry.rs`).
-    ///
-    /// A restart used to run at once on its own thread, outside the gate. A
-    /// frontend restarts every kept tab at its connect: 170 launches began in
-    /// the same 30 ms, competed with the person's terminal for the CPU, and
-    /// macOS refused some of their PTY opens.
-    #[cfg(any(unix, windows))]
-    pub(super) fn spawn_respawn_worker(mux: Arc<Self>, plan: RespawnPlan) {
-        let terminal_id = plan.terminal_id.clone();
-        // A first attempt takes its place in line here, on the scheduling
-        // thread, so the order is the order of scheduling (the visible
-        // workspace first at a start). A retry after a backoff takes none:
-        // it must not hold the line for its delay.
-        let ticket = plan.delay.is_zero().then(|| mux.respawn_gate.ticket());
-        // A respawn that starts at once is sized into the Kitty budget now:
-        // its reservation then never waits for another respawn's launch.
-        // One after a backoff is not: it would shrink running terminals for
-        // the length of the backoff.
-        let kitty_expectation = plan
-            .delay
-            .is_zero()
-            .then(|| mux.expect_kitty_image_respawn(plan.old_runtime.as_ref(), plan.slot));
-        let gate = mux.respawn_gate.clone();
-        let kind = if plan.user_restart { "restart" } else { "respawn" };
-        let name = format!("terminal-{kind}-{terminal_id}");
-        let worker = Arc::clone(&mux);
-        let spawned = std::thread::Builder::new().name(name).spawn(move || {
-            let mux = worker;
-            let stopping =
-                || mux.shutting_down.load(Ordering::Acquire) || mux.session_shutdown.began();
-            // A terminal the person sees (shown when it took its place,
-            // selected while it waits, or lost while hidden respawns still
-            // wait) takes the next free slot before the hidden ones. It still
-            // takes a slot: the cap bounds it too.
-            let shown_now = || mux.respawn_slot_shown(plan.slot);
-            let turn = match ticket {
-                Some(ticket) => match gate.turn_first_if(ticket, stopping, shown_now) {
-                    Some(turn) => Some(turn),
-                    None => {
-                        mux.abandon_terminal_respawn(&plan.terminal_id);
-                        return;
-                    }
-                },
-                None => None,
-            };
-            let delay = plan.delay.max(mux.terminal_respawns.delay.unwrap_or_default());
-            let after = if mux.wait_respawn_backoff(delay) {
-                mux.run_terminal_respawn(plan)
-            } else {
-                mux.abandon_terminal_respawn(&plan.terminal_id);
-                AfterTurn::Nothing
-            };
-            // The turn and the Kitty expectation are given back here, before
-            // what is left. The wait for the new shell's prompt (10 s and
-            // more, `prefill.rs`) held the turn: the terminals of a restored
-            // session came back a few at a time, each wave a prompt wait
-            // after the one before. The next try of a failed launch takes
-            // its own turn and expectation.
-            drop(turn);
-            drop(kitty_expectation);
-            match after {
-                AfterTurn::Nothing => {}
-                AfterTurn::Prefill(surface, prefill) => prefill.type_on_prompt(&surface),
-                AfterTurn::Again(again) => Self::spawn_respawn_worker(Arc::clone(&mux), *again),
-            }
-        });
-        if let Err(error) = spawned {
-            eprintln!("cmux-tui: no thread to respawn terminal {terminal_id}: {error}");
-            // The plan marked it respawning: take the mark back, so the tab
-            // shows its end and nothing waits on a respawn that never runs.
-            mux.abandon_terminal_respawn(&terminal_id);
         }
     }
 
@@ -556,6 +485,7 @@ impl Mux {
             delay,
             recorded: end.exit().clone(),
             user_restart: false,
+            asked: false,
             kept: Vec::new(),
             failed_launches: 0,
         })))
@@ -847,7 +777,7 @@ impl Mux {
     /// incarnation in one registry + state critical section. False when a
     /// close won.
     #[cfg(any(unix, windows))]
-    fn install_respawned_runtime(
+    pub(super) fn install_respawned_runtime(
         &self,
         plan: &RespawnPlan,
         surface: &Arc<Surface>,
@@ -910,6 +840,8 @@ impl Mux {
         match committed {
             Ok(Some((terminal_revision, resource_revision))) => {
                 state.resource_revision = resource_revision;
+                #[cfg(test)]
+                test_hooks::run_committed_before_route_publish_hook();
                 drop(state);
                 self.emit_terminal_registry_changed(&registry, terminal_revision);
                 Ok(true)
