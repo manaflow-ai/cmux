@@ -10288,6 +10288,43 @@ class BunRecapAndRetryCounts(unittest.TestCase):
 
 
 
+class BunCountsInAContinueOnErrorSection(unittest.TestCase):
+    """#41220's review follow-up (its SHIP at d8bf2ede): "check that its tests still cover these exact repros: `a > one`
+    twice vs once in a continue-on-error section". A failed swift step and a continue-on-error bun step (a success to
+    the jobs API with its runner's exit line: ERRORED), on the head and the base: the bun section is counted with the
+    base's continue-on-error section, as often."""
+
+    SWIFT_STEP, WEB_STEP = "Run swift tests", "Run web tests"
+
+    def job_and_log(self, job_id, run_id, sha, bun):
+        job = dict(failed_job(job_id, run_id, sha),
+                   steps=framed_steps([(self.SWIFT_STEP, "failure", 3, 5), (self.WEB_STEP, "success", 6, 9)]))
+        text = framed_log([(self.SWIFT_STEP, 3, f"##[group]{self.SWIFT_STEP}"), (self.SWIFT_STEP, 3, "##[endgroup]"),
+                           (self.SWIFT_STEP, 4, ISSUE), (self.SWIFT_STEP, 4, EXIT),
+                           (self.WEB_STEP, 6, f"##[group]{self.WEB_STEP}"), (self.WEB_STEP, 6, "##[endgroup]"),
+                           *((self.WEB_STEP, 7, line) for line in bun), (self.WEB_STEP, 8, EXIT)], SWIFT)
+        return job, text
+
+    def judge(self, head, base):
+        github = FakeGitHub()
+        (github.jobs[1], github.logs[1]), (github.jobs[2], github.logs[2]) = (
+            self.job_and_log(1, 10, HEAD, head), self.job_and_log(2, 20, BASE_SHA, base))
+        view = excuse.failed_view(copy.deepcopy(github.jobs[1]), github.logs[1], base=False, **UNKNOWN)
+        self.assertEqual([status for _, status, _ in view.sections], ["failed", "errored"])
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_a_one_twice_against_once_in_a_continue_on_error_section_is_refused(self):
+        twice, once = bun_lines(results=["a > one", "a > one"]), bun_lines(results=["a > one"])
+        with self.assertRaisesRegex(excuse.Refused, "a > one"):
+            self.judge(twice, once)
+
+    def test_a_one_once_against_once_in_a_continue_on_error_section_is_excused(self):
+        once = bun_lines(results=["a > one"])
+        self.assertIn("excused 'cmux-next swift test'", self.judge(once, once))
+        twice = bun_lines(results=["a > one", "a > one"])
+        self.assertIn("excused 'cmux-next swift test'", self.judge(twice, twice))
+
+
 class OneVerdictHoldsEachTestsWholeFailure(unittest.TestCase):
     """#41329's review F1: "the identity match and the count can come from different base verdicts. Reproduced: head
     recap-only `A x2`; newest base recap-only `A x1`; older base `A x2` but with a TypeError diagnostic. Neither base

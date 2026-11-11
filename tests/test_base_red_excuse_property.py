@@ -149,7 +149,7 @@ def block_lines(block: dict) -> list[str]:
         out.append("◇ Test run started.")
         for _, name, ok in failures:
             shown = f"{name}()" if ok else name  # a name the parser cannot read: no parentheses
-            out += [f"✘ Test {shown} recorded an issue at KitTests.swift:3:5: Expectation failed",
+            out += [f"✘ Test {shown} recorded an issue at {block.get('file', 'KitTests.swift')}:3:5: Expectation failed",
                     f"✘ Test {shown} failed after 0.010 seconds with 1 issue."]
         out.append(f"✘ Test run with {total} tests in 1 suite failed after 0.100 seconds with {len(failures)} "
                    f"issue{'s' if len(failures) != 1 else ''}.")
@@ -613,7 +613,7 @@ def evidence_mutate(rng: random.Random, steps: list, window: list) -> list:
     """A head made from a base verdict's STEPS by one of the shapes the review names, or by mutate()'s."""
     steps = copy.deepcopy(steps)
     failed = [step for step in steps if step["conclusion"] != "success"]
-    what = rng.randrange(6)
+    what = rng.randrange(7)
     if what == 0 and failed:
         # F1: the failed step's own words change to a new failure no parser names.
         rng.choice(failed)["blocks"] = [{"runner": "opaque", "failures": [("opaque", rng.choice(NAMES), False)],
@@ -639,6 +639,16 @@ def evidence_mutate(rng: random.Random, steps: list, window: list) -> list:
             steps.remove(rng.choice(noisy))
     elif what == 4:
         return mutate(rng, steps, window)
+    elif what == 5 and len(window) > 1:
+        # #41422's review F1: facts of two verdicts in one head. A step of another verdict (failed or
+        # continue-on-error), or a failing test of one with the file of another.
+        other = copy.deepcopy(rng.choice(window)["steps"])
+        mixed = [step for step in other if step["conclusion"] != "success" or step.get("errored")]
+        if mixed:
+            steps.insert(rng.randrange(len(steps) + 1), rng.choice(mixed))
+        swift = [block for step in steps for block in step["blocks"] if block["runner"] == "swift"]
+        if swift:
+            rng.choice(swift)["file"] = rng.choice(("Mine.swift", "Other.swift"))
     return steps
 
 
@@ -675,8 +685,13 @@ def section_truth(steps: list) -> tuple[Counter, Counter, Counter]:
 
 
 def evidence_violations(case: dict, said: str) -> list[str]:
-    """What an excuse SAID of CASE breaks: A (passing steps justified it) or B (a count no one verdict has)."""
+    """What an excuse SAID of CASE breaks: A (passing steps justified it), B (a count no one verdict has) or C (the
+    window excused what no one verdict of it excuses alone: #41422's review F1, "every fact an excuse uses (identity,
+    file, count) comes from one base verdict, never mixed across the window")."""
     found = []
+    reds = reachable(case["window"])
+    if len(reds) > 1 and not any(judged(dict(case, window=[entry])) is not None for entry in reds):
+        found.append(f"one verdict: excused by the window of {len(reds)} verdicts and by none of them alone")
     if judged(without_passing_output(case)) is None:
         found.append("passing steps: excused, but refused once every passing step's output is taken out")
     keys, failed, errored = section_truth(case["head"])
@@ -736,6 +751,25 @@ class AnExcuseKeepsTheBasesEvidence(unittest.TestCase):
         head = [noisy, step("package tests", "failure", block("opaque", "beta", named=False))]
         case = {"seed": -1, "placed": True, "window": [{"green": False, "steps": base}], "head": head}
         self.assertIsNone(judged(case))
+
+    def test_review_41422_f1_a_continue_on_error_tests_identity_and_count_come_from_one_verdict(self):
+        # #41422's review F1: "Head beta() x10 in Mine.swift, newest base x10 in Other.swift, older base with the
+        # identity but x1. Each verdict alone refuses this, the combined window excuses it".
+        def coe(count, file):
+            return step("ui tests", "success", dict(block("swift", *["beta"] * count), file=file), errored=True)
+        failed = step("package tests", "failure", block("swift", "alpha"))
+        head = [failed, coe(10, "Mine.swift")]
+        window = [{"green": False, "steps": [failed, coe(10, "Other.swift")]},
+                  {"green": False, "steps": [failed, coe(1, "Mine.swift")]}]
+        for entry in window:
+            with self.subTest(alone=entry["steps"][1]["blocks"][0]["file"]):
+                self.assertIsNone(judged({"seed": -1, "placed": True, "window": [entry], "head": head}))
+        case = {"seed": -1, "placed": True, "window": window, "head": head}
+        said = judged(case)
+        self.assertIsNone(said, evidence_violations(case, said) if said else None)
+        # The same failure on one verdict of the window, the older one, is excused by it alone.
+        window[1] = {"green": False, "steps": [failed, coe(10, "Mine.swift")]}
+        self.assertIsNotNone(judged(case))
 
     def test_f2_a_continue_on_error_steps_failures_are_counted(self):
         # The review's F2: alpha() x11 against at most x1, ten of them in a continue-on-error step.
