@@ -23,11 +23,13 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
-import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
-export const revealInPlace = (engine: "chromium" | "webkit") =>
-  requireBrowserLane(`agent-pane-reveal-in-place.${engine}.test.ts`, async () => {
+/// Registers the cases in one engine, against the pane's dev entry built from `viteConfig` (a path).
+/// Each engine's test file runs it under requireBrowserLane and names that config itself: the test
+/// runner sorts a file into the browser and dev-server pools by what the file's own text says
+/// (run-webviews-tests.sh), never by what it imports.
+export const revealInPlace = async (engine: "chromium" | "webkit", viteConfig: string) => {
     setDefaultTimeout(540_000);
     const engines: [string, BrowserType][] = [];
     for (const candidate of (
@@ -195,7 +197,7 @@ export const revealInPlace = (engine: "chromium" | "webkit") =>
         },
       });
       vite = await createServer({
-        configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+        configFile: viteConfig,
         server: { port: 0, host: "127.0.0.1", strictPort: false },
         logLevel: "error",
       });
@@ -699,4 +701,4 @@ export const revealInPlace = (engine: "chromium" | "webkit") =>
             expect(seen.firstOff).toBeLessThanOrEqual(FIRST_OFF_PX);
             expect(Math.abs(seen.gapFirst - seen.gapRest)).toBeLessThanOrEqual(FIRST_OFF_PX);
           });
-  });
+};
