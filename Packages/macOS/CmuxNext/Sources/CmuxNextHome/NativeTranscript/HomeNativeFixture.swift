@@ -24,6 +24,9 @@ public final class HomeNativeFixture {
     /// No latency; the Chief types for 1.5 s before it answers (the typing
     /// indicator shows, as in MessagesLab's script).
     private let source = MockHomeSource(options: .init(chiefHistory: 300, latency: .zero, replyDelay: .milliseconds(1500)))
+    /// The mock behind a gate (capture only): with ``TranscriptLoad`` the first transcript read is
+    /// held or fails, so the real view shows its load state (ui-state-fixes M1).
+    private let gate: GatedHomeSource
     private let store: HomeStore
     private var view: HomeNativeTranscriptView?
     /// Each transcript this fixture shows (the one shown now too), once its `onStartAgent` is set: the fixture page and
@@ -68,11 +71,24 @@ public final class HomeNativeFixture {
 
     /// With `compose`, the transcript sits in the Home split's chat column (`HomeChatColumnView`) under its
     /// round compose button, as in the real Home tab (captures of what floats over the chat's top-left).
-    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil, compose: Bool = false) {
+    /// The Chief's first transcript read for a capture of its load state: held (loading) or failing.
+    public enum TranscriptLoad: String, Sendable {
+        case loading, failed
+    }
+
+    /// With `transcriptLoad`, the Chief's transcript reads are held (`.loading`) or fail (`.failed`).
+    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil, compose: Bool = false,
+                transcriptLoad: TranscriptLoad? = nil) {
         column = compose ? HomeChatColumnView(content: NSView(), compose: HomeChatComposeButton(label: HomeConversationStrings.newMessage)) : nil
         self.attachments = attachments
         self.openPanel = openPanel
-        store = HomeStore(source: source)
+        gate = GatedHomeSource(source)
+        switch transcriptLoad {
+        case .loading: gate.hold()
+        case .failed: gate.failReads(true)
+        case nil: break
+        }
+        store = HomeStore(source: gate)
         if let column {
             column.autoresizingMask = [.width, .height]
             column.showsCompose = true
@@ -88,6 +104,7 @@ public final class HomeNativeFixture {
         approvalPost?.cancel()
         view?.stop()
         store.stop()
+        gate.release()
     }
 
     private func load() async {

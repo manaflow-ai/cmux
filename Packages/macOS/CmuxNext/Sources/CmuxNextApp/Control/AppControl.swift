@@ -387,12 +387,20 @@ final class AppControl {
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugAXFrame.run(call.params, services: services)
             },
+            // `debug.feed_loading_fixture.open {view: list | inbox | reports}`: the Feed's loading states (captures).
+            .mainActor("debug.feed_loading_fixture.open") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugFeedLoadingFixture.open(call.params, services: services))
+            },
             .mainActor("debug.home_native_fixture.open") { [weak services] call in
                 guard let services else { return .value(.null) }
                 let attachments = call.params["attachments"]?.boolValue ?? false
                 // `new`: one more fixture tab, also when the window lists one already; `compose`: under the chat column's compose button.
                 let fresh = call.params["new"]?.boolValue ?? false
-                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, compose: call.params["compose"]?.boolValue ?? false, fresh: fresh))
+                // `transcript`: "loading" or "failed", the Chief's first transcript read held or failing (its load state).
+                let load = call.params["transcript"]?.stringValue
+                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, compose: call.params["compose"]?.boolValue ?? false,
+                                                          fresh: fresh, transcriptLoad: load))
             },
             // `debug.home.attach` {paths: [..] | path, via: drop|paste|pick}:
             // files enter the shown Home composer through the same intake as
@@ -419,6 +427,7 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugLayers.dropHighlight(call.params, services: services))
             },
+            .mainActor("debug.sidebar_priority_loading") { [weak services] call in .value(services.map { DebugSidebarPriorityLoading.run(call.params, $0) } ?? .null) },
             .mainActor("debug.sidebar_filter") { [weak services] call in .value(services.map { DebugSidebarFilter.run(call.params, $0) } ?? .null) },
             .mainActor("debug.sidebar_rows") { [weak services] call in
                 guard let services else { return .value(.null) }

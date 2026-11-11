@@ -1,0 +1,19 @@
+{
+  "title": "Sidebar Priority view: Loading agent chats\u2026 before any chat list was read (ui-state-fixes M6)",
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 2,
+      "shot": false
+    },
+    {
+      "title": "The Priority view before its chat list arrives",
+      "rpc": {
+        "method": "debug.sidebar_priority_loading",
+        "params": {}
+      },
+      "wait": 2,
+      "record": true
+    }
+  ]
+}
