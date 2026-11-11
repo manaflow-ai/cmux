@@ -27,10 +27,10 @@ pub struct Holder {
     pub last_use: Option<i64>,
     /// A mint is in flight: one at a time.
     pub minting: bool,
-    /// The team the newest call or intent asked for while a mint was in flight (a team switch
-    /// mid-mint). Its mint goes as soon as the one in flight answers, when it is still due then;
-    /// a later ask replaces it, so only the newest team waits and it is minted once.
-    pub queued: Option<String>,
+    /// The team the newest call, intent or wake asked for (the install token's team then). A mint's
+    /// answer for another team is dropped, and when a mint answers, this team's mint goes next if it
+    /// is due: once every mint has answered, the capability held is this team's.
+    pub wanted: Option<String>,
     /// Bumped by a sign-out: a mint, an intent or a wake begun before it keeps nothing.
     pub generation: u64,
 }
@@ -99,57 +99,58 @@ pub fn step(mut state: Holder, event: Event, now: i64) -> Step {
     match event {
         Event::Call { team } => {
             state.last_use = Some(now);
+            want(&mut state, team.as_deref());
             let plan = ask(&state, Reason::Call, team.clone(), now);
             if plan.fetch {
                 start_mint(&mut state, team, &mut effects);
-            } else if state.minting {
-                // This call's team is held and fresh: nothing else waits behind the mint in flight.
-                state.queued = None;
             }
             send = plan.send;
         }
         Event::Use => state.last_use = Some(now),
         Event::Intent { team, generation } => {
             if generation == state.generation {
+                want(&mut state, team.as_deref());
                 if ask(&state, Reason::Intent, team.clone(), now).fetch {
                     start_mint(&mut state, team, &mut effects);
-                } else if state.minting {
-                    // The newest intent's team is held and fresh: drop an older team waiting.
-                    state.queued = None;
                 }
             }
         }
         Event::Minted { team, generation, status, body } => {
             if generation == state.generation {
                 state.minting = false;
-                let body = body
-                    .and_then(|body| serde_json::from_str::<Value>(&body).ok())
-                    .unwrap_or(Value::Null);
-                match status.and_then(|status| read_mint(status, &body, &team, now)) {
-                    Some(next) => {
-                        state.held = Some(next);
-                        state.failed_at = None;
-                        state.failed_team = None;
-                    }
-                    None => {
-                        state.failed_at = Some(now);
-                        state.failed_team = Some(team);
+                // An answer for a team the person has since left changes nothing: it would replace
+                // the newest team's capability (or its backoff) with one no call of theirs sends.
+                if state.wanted.as_ref().is_none_or(|wanted| *wanted == team) {
+                    let body = body
+                        .and_then(|body| serde_json::from_str::<Value>(&body).ok())
+                        .unwrap_or(Value::Null);
+                    match status.and_then(|status| read_mint(status, &body, &team, now)) {
+                        Some(next) => {
+                            state.held = Some(next);
+                            state.failed_at = None;
+                            state.failed_team = None;
+                        }
+                        None => {
+                            state.failed_at = Some(now);
+                            state.failed_team = Some(team);
+                        }
                     }
                 }
                 // A held one's refresh, or its retry when the backoff ends, while Cloud is in use.
                 schedule(&state, now, &mut effects);
-                // The team asked for while that mint was in flight goes now, not at the next timer.
-                if let Some(queued) = state.queued.take()
-                    && ask(&state, Reason::Intent, Some(queued.clone()), now).fetch
-                {
-                    start_mint(&mut state, Some(queued), &mut effects);
+                // The newest team asked for while that mint was in flight goes now, not at the timer.
+                let wanted = state.wanted.clone();
+                if ask(&state, Reason::Intent, wanted.clone(), now).fetch {
+                    start_mint(&mut state, wanted, &mut effects);
                 }
             }
         }
         Event::Wake { team, generation } => {
-            if generation == state.generation && ask(&state, Reason::Timer, team.clone(), now).fetch
-            {
-                start_mint(&mut state, team, &mut effects);
+            if generation == state.generation {
+                want(&mut state, team.as_deref());
+                if ask(&state, Reason::Timer, team.clone(), now).fetch {
+                    start_mint(&mut state, team, &mut effects);
+                }
             }
         }
         Event::Clear => {
@@ -175,12 +176,18 @@ fn ask(state: &Holder, reason: Reason, team: Option<String>, now: i64) -> Plan {
     )
 }
 
-/// Starts a mint for `team`, or, while one is in flight, keeps `team` as the one to mint when it
-/// answers (the newest ask wins; a later ask for the same team adds nothing).
+/// Records `team` as the newest one asked for (an ask with no team leaves it as it is).
+fn want(state: &mut Holder, team: Option<&str>) {
+    if let Some(team) = team.filter(|team| !team.is_empty()) {
+        state.wanted = Some(team.to_owned());
+    }
+}
+
+/// Starts a mint for `team`. While one is in flight it starts nothing: [`Holder::wanted`] holds the
+/// newest team, and the answer of the mint in flight starts its mint when it is still due.
 fn start_mint(state: &mut Holder, team: Option<String>, effects: &mut Vec<Effect>) {
     let Some(team) = team.filter(|team| !team.is_empty()) else { return };
     if state.minting {
-        state.queued = Some(team);
         return;
     }
     state.minting = true;
