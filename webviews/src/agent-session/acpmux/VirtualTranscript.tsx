@@ -1453,6 +1453,8 @@ function TranscriptView({
   const chasing = followArm !== "eased";
   const followChase = useRef<FollowChase>(undefined);
   followChase.current ??= createFollowChase(followArm);
+  /// Freezes the composer growth's rise of the rows where it is painted (the dock's effect sets it).
+  const freezeGrowthRise = useRef<() => void>(() => {});
   // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
@@ -1822,6 +1824,23 @@ function TranscriptView({
     // rows go home on the compositor with the field.
     let growth: { field: HTMLElement; to: number } | undefined;
     let rowsMove: Animation | undefined;
+    // The reader's input wins over the rise: the rows freeze where they are painted (the rise's part
+    // handed to the follow chase, held as it holds), and the card grows on over them, as `cardHold`
+    // does. Played on, the rise moved the rows while the reader scrolled up. Two style reads, on input
+    // only while a rise plays.
+    freezeGrowthRise.current = () => {
+      const rows = thread.current;
+      const move = rowsMove;
+      if (!rows || !move || move.playState === "finished" || move.playState === "idle") return;
+      const drawnY = () => {
+        const value = getComputedStyle(rows).translate;
+        return value && value !== "none" ? Number.parseFloat(value.split(" ")[1] ?? "") || 0 : 0;
+      };
+      const before = drawnY();
+      move.cancel();
+      rowsMove = undefined;
+      followChase.current?.carry(rows, before - drawnY());
+    };
     /// What the field has yet to grow (px), 0 once it rests (and the growth is over).
     const toGrow = () => {
       if (!growth) return 0;
@@ -1898,6 +1917,7 @@ function TranscriptView({
       dock.removeEventListener("click", toggled, { capture: true });
       dock.removeEventListener(FIELD_GROWTH_EVENT, grew);
       rowsMove?.cancel();
+      freezeGrowthRise.current = () => {};
     };
   }, [dock, noteQueue]);
   // And each time the queue changes, in the commit that draws it. A change that leaves the stack's
@@ -3066,19 +3086,21 @@ function TranscriptView({
   const sessionSwitched = previousSession.current !== sessionId;
   // Overlay (the default; composer/dockMotion.experiment.ts, Leo, 2026-11-11: "do we even want stuff
   // to push up vs just simple... covering stuff?"): the composer growing a line as the person types
-  // moves no row. Its growth lies over the transcript's foot as glass, held out of the room under the
-  // last row (`cardHold`) until the rows move anyway: the next pass whose rows grow (a reply's line,
-  // the sent prompt) gives the room all of it, in that pass's one move, and so do Jump to latest and
-  // the reader's wheel past the end (`takeRoom`, `giveTrayRoom`), so nothing stays out of reach. The
-  // card shrinking (a send clearing it) gives back only what it held: a send is one move. Push (the
-  // before): the rows are drawn up with the card (`lift`), on the field growth's curve.
+  // reflows no layout. While the view follows the latest row, the rows are drawn up with the card
+  // (`lift`) in the frame it grows, on its own curve, so the rest gap holds over the taller card and
+  // the line the reader is watching stays in sight: covering it while a reply streams hid what they
+  // were reading (agent-pane-composer-rest-gap, the composer grown two lines: 10.5 px). A rise on the
+  // card's clock is the fast version Leo asked about ("if we can get it fast, MAYBE"). Scrolled up,
+  // the card's growth lies over the transcript's foot as glass and moves no row: the room stays as it
+  // was (`heldRoom`). Where the view follows but cannot lift (`cardHold`: no rest height yet), the
+  // growth is held out of the room until the rows move anyway, and Jump to latest or the reader's
+  // wheel past the end gives it (`takeRoom`, `giveTrayRoom`). Push (the before) lifts the same way.
   const overlayDock = experimentArm(composerDockMotion) === "overlay";
   // What the last pass left (its layout effect writes them), read once for this pass.
   const openedAtLatest = didOpenAtLatest.current;
   const cardAtRest = cardRest.current;
   const cardHeldAt = cardBase.current;
-  const lifting =
-    !overlayDock && following && !sessionSwitched && openedAtLatest && dockSpace > 0 && dockCard > 0 && cardAtRest > 0;
+  const lifting = following && !sessionSwitched && openedAtLatest && dockSpace > 0 && dockCard > 0 && cardAtRest > 0;
   const grown = lifting ? Math.min(dockSpace, dockCard - cardAtRest) : 0;
   // The content's end with all the stack's height as room, as the view would hold it unlifted.
   // The last row's turn gap and the rest gap's share (`dockRoom`) make the rest gap over the
@@ -3108,7 +3130,8 @@ function TranscriptView({
   const lineLast = rows.length > 0 && isLiveLine(rows[rows.length - 1]!);
   const trayBase = lineLast ? Math.max(heldBase, dockTray - restExtra / 2) : heldBase;
   const trayHold = Math.min(dockSpace, dockTray - trayBase);
-  const cardHolds = overlayDock && following && !sessionSwitched && openedAtLatest && dockSpace > 0 && cardHeldAt > 0;
+  const cardHolds =
+    overlayDock && !lifting && following && !sessionSwitched && openedAtLatest && dockSpace > 0 && cardHeldAt > 0;
   const cardHold =
     cardHolds && rowsGrew <= 0.5 ? Math.max(0, Math.min(dockSpace - Math.max(0, trayHold), dockCard - cardHeldAt)) : 0;
   // Over a floating stack the newest line rests the rest gap over it (`dockRoom`, model.ts `restRoom`);
@@ -4864,6 +4887,7 @@ function TranscriptView({
       // The rows under a change gliding to their place hold where they are drawn too (tailGlide.ts),
       // and play on with the chase.
       tailGlide.current?.hold();
+      freezeGrowthRise.current();
       followChase.current?.hold(() => {
         const followed = followingRef.current && jumpTarget.current === undefined;
         if (followed) tailGlide.current?.resume();
