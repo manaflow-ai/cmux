@@ -145,12 +145,13 @@ import Testing
         // dim to stick, so a refused write never passes as "the dim paints nothing".
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(SidebarTunables.all)
-        try #require(TunableStore.shared.set(dimKeys.dark, .number(dim)) != nil, "the store refused \(dimKeys.dark)")
-        try #require(TunableStore.shared.set(dimKeys.light, .number(dim / 8)) != nil, "the store refused \(dimKeys.light)")
+        // Put back before either write, so a refused second write never leaves the first for later suites.
         defer {
             TunableStore.shared.set(dimKeys.dark, nil)
             TunableStore.shared.set(dimKeys.light, nil)
         }
+        try #require(TunableStore.shared.set(dimKeys.dark, .number(dim)) != nil, "the store refused \(dimKeys.dark)")
+        try #require(TunableStore.shared.set(dimKeys.light, .number(dim / 8)) != nil, "the store refused \(dimKeys.light)")
         return try await body()
     }
 
