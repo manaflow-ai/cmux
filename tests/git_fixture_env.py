@@ -45,3 +45,13 @@ def without_auto_maintenance(env: MutableMapping[str, str]) -> MutableMapping[st
 
 
 without_auto_maintenance(os.environ)
+
+# Every git fixture test passes through here: on a fleet host that runs no tests (a person's own Mac), refuse
+# and name the fleet command instead (tests/fleet_test_host.py; cosmic-gray, 2026-11-10).
+import sys as _sys  # noqa: E402
+from pathlib import Path as _Path  # noqa: E402
+
+_sys.path.insert(0, str(_Path(__file__).resolve().parent))
+import fleet_test_host as _fleet_test_host  # noqa: E402
+
+_fleet_test_host.refuse_here()

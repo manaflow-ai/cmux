@@ -57,7 +57,8 @@ done
 
 # A git shim logs every fetch; SLOW_FETCH makes each fetch hang.
 mkdir -p "$TMP/bin"
-real_git=$(command -v git)
+# The git binary, never a wrapper on PATH that would exec this shim again (tests/real_git.py).
+real_git=$(python3 "$ROOT/tests/real_git.py") || exit 2
 cat > "$TMP/bin/git" <<SHIM
 #!/usr/bin/env bash
 for arg; do

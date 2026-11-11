@@ -206,6 +206,10 @@ path = "tests/test_fetch_run_artifact.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_fleet_test_host.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_format_post_edit.py"
 lane = "linux-guard"
 

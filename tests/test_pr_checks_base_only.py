@@ -30,6 +30,7 @@ import unittest
 import yaml
 
 import git_fixture_env  # noqa: F401  (disables git auto maintenance)
+from real_git import real_git, run_bounded
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = ROOT / ".github/workflows/pr-checks.yml"
@@ -45,7 +46,7 @@ SAME = "x\n" * 30  # identical lines: one replacement reads the same wherever it
 
 
 def git(repo: Path, *args: str) -> str:
-    return subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True).stdout.strip()
+    return run_bounded(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True, timeout=60).stdout.strip()
 
 
 def write(repo: Path, path: str, text: str) -> None:
@@ -140,8 +141,10 @@ class BaseOnlyStepTests(unittest.TestCase):
                "GITHUB_STEP_SUMMARY": str(self.temp / "summary.md"), "ACTION": action, "REPOSITORY": "o/r",
                "BEFORE": self.before if before is None else before, "AFTER": after,
                "BASE_REF": "feat-cmux-next", "PR": "7", "REMOTE": remote or f"file://{self.src}", **extra}
-        subprocess.run(["rm", "-rf", str(self.temp / "base-only")], check=True)
-        result = subprocess.run(["bash", "-c", STEP["run"]], cwd=self.temp, env=env, capture_output=True, text=True)
+        subprocess.run(["rm", "-rf", str(self.temp / "base-only")], check=True, timeout=60)
+        # Its own process group with a deadline: a step that hangs or spins fails the test and leaves nothing behind.
+        result = run_bounded(["bash", "-c", STEP["run"]], cwd=self.temp, env=env, capture_output=True, text=True,
+                             timeout=120)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         outputs = dict(line.split("=", 1) for line in output.read_text().splitlines() if "=" in line)
         return outputs.get("base_only", ""), result.stdout
@@ -197,7 +200,9 @@ class BaseOnlyStepTests(unittest.TestCase):
     def test_a_failed_history_listing_runs_everything(self):
         after = self.merge_base()
         # A git whose `rev-list ... --not` fails (a SIGPIPE, say): the shallow check is not skipped.
-        real = subprocess.run(["bash", "-c", "command -v git"], capture_output=True, text=True).stdout.strip()
+        # The git binary, never the first git on PATH: a wrapper there (a host's git guard) would exec this fake
+        # again, and the two spun forever in one process (cosmic-gray, 2026-11-10; tests/real_git.py).
+        real = real_git()
         (self.bin / "git").write_text('#!/usr/bin/env bash\nfor a; do [ "$a" = --not ] && exit 141; done\n'
                                       f'exec {real} "$@"\n')
         (self.bin / "git").chmod(0o755)
@@ -250,8 +255,8 @@ class BaseOnlyStepTests(unittest.TestCase):
         write(self.src, "docs/side.md", "side\n")
         git(self.src, "add", "-A")
         old = "2000-01-01T00:00:00Z"
-        subprocess.run(["git", "-C", str(self.src), "commit", "-qm", "side"], check=True,
-                       env={**os.environ, "GIT_AUTHOR_DATE": old, "GIT_COMMITTER_DATE": old})
+        run_bounded(["git", "-C", str(self.src), "commit", "-qm", "side"], check=True, timeout=60,
+                    env={**os.environ, "GIT_AUTHOR_DATE": old, "GIT_COMMITTER_DATE": old})
         git(self.src, "checkout", "-q", "feat-cmux-next")
         git(self.src, "merge", "-q", "--no-ff", "-m", "Merge side", "side")
         git(self.src, "checkout", "-q", "pr")

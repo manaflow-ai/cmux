@@ -20,6 +20,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "tests"))
+from real_git import real_git, run_bounded  # noqa: E402
+
 SCRIPTS = Path(__file__).resolve().parents[1]
 HOOKS = SCRIPTS.parent / "git-hooks"
 REPO = SCRIPTS.parents[1]
@@ -37,13 +40,12 @@ READERS = {
 
 class GitStdinNeverPipedTest(unittest.TestCase):
     def setUp(self):
-        real_git = shutil.which("git")
-        self.assertIsNotNone(real_git)
+        real = real_git()  # the binary, never a wrapper on PATH that would exec this fake again
         self.tmp = tempfile.TemporaryDirectory()
         bin_dir = Path(self.tmp.name) / "bin"
         bin_dir.mkdir()
         git = bin_dir / "git"
-        git.write_text(f"#!/bin/sh\nif [ -p /dev/stdin ]; then exec sleep 600; fi\nexec {real_git} \"$@\"\n")
+        git.write_text(f"#!/bin/sh\nif [ -p /dev/stdin ]; then exec sleep 600; fi\nexec {real} \"$@\"\n")
         git.chmod(0o755)
         self.env = dict(os.environ, PATH=f"{bin_dir}:{os.environ.get('PATH', '')}")
 

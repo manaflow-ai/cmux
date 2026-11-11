@@ -36,6 +36,9 @@ import tempfile
 import time
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from real_git import real_git as resolve_real_git, run_bounded  # noqa: E402
+
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "verify-cmux-tui-hosted.sh"
 RUN_ID = "4242"
@@ -127,8 +130,8 @@ class Sandbox:
         (self.repo / "scripts").mkdir(parents=True)
         self.bin.mkdir()
         shutil.copy2(SCRIPT, self.repo / "scripts" / SCRIPT.name)
-        real_git = shutil.which("git")
-        assert real_git, "git is required"
+        # The git binary, never a wrapper on PATH that would exec GIT_STUB again (tests/real_git.py).
+        real_git = resolve_real_git()
         self.env = {
             "PATH": f"{self.bin}:{os.environ['PATH']}",
             "HOME": str(self.dir),
@@ -144,11 +147,11 @@ class Sandbox:
             path.write_text(body, encoding="utf-8")
             path.chmod(0o755)
         git = [real_git, "-C", str(self.repo)]
-        subprocess.run(git + ["init", "-q", "-b", "verify-test"], check=True, env=self.env)
-        subprocess.run(git + ["add", "-A"], check=True, env=self.env)
-        subprocess.run(git + ["commit", "-q", "-m", "fixture"], check=True, env=self.env)
-        subprocess.run(git + ["remote", "add", "origin", "https://github.com/manaflow-ai/cmux"], check=True, env=self.env)
-        head = subprocess.run(git + ["rev-parse", "HEAD"], check=True, env=self.env,
+        run_bounded(git + ["init", "-q", "-b", "verify-test"], check=True, env=self.env, timeout=60)
+        run_bounded(git + ["add", "-A"], check=True, env=self.env, timeout=60)
+        run_bounded(git + ["commit", "-q", "-m", "fixture"], check=True, env=self.env, timeout=60)
+        run_bounded(git + ["remote", "add", "origin", "https://github.com/manaflow-ai/cmux"], check=True, env=self.env, timeout=60)
+        head = run_bounded(git + ["rev-parse", "HEAD"], check=True, env=self.env,
                               capture_output=True, text=True).stdout.strip()
         (self.dir / "head").write_text(head, encoding="utf-8")
         (self.dir / "branch").write_text("verify-test", encoding="utf-8")
