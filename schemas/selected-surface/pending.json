@@ -1,0 +1,150 @@
+{
+  "$comment": "Selected styles still off the content surface (design/selected-is-foreground.md), a backlog that only shrinks: scripts/cmux-next/check-selected-surface.py fails a new one and a listed one that is fixed. Most are rows inside content (a list's cursor, a picked file), where the content's own surface would not show: each moves off this list when its page puts the row on a chrome layer, or takes a selected-surface-allow reason.",
+  "web": {
+    "webviews/src/agent-activity/styles.css": [
+      ".event[aria-current]",
+      ".segment[data-checked]"
+    ],
+    "webviews/src/agent-session/acpmux/changes/git.css": [
+      ".acpmux-git-scope-option[data-checked=true]"
+    ],
+    "webviews/src/agent-session/acpmux/composerAttachments.css": [
+      ".acpmux-attachments[data-selected] .acpmux-attachment::after"
+    ],
+    "webviews/src/agent-session/acpmux/modelPicker.css": [
+      ".acpmux-quick-fast[data-checked] .acpmux-quick-fast-toggle"
+    ],
+    "webviews/src/agent-session/acpmux/newtab/history.css": [
+      ".nt-all-row[data-selected]"
+    ],
+    "webviews/src/agent-session/acpmux/newtab/screen.css": [
+      ".nt-all .nt-chats-filter-button.is-selected,.nt-all .nt-chats-filter-button:hover,.nt-all .nt-chats-filter-button[aria-expanded=\"true\"]",
+      ".nt-create-strip-item.is-selected",
+      ".nt-row.is-selected",
+      ".nt-screen[data-template=\"cards\"] .nt-chats-tab.is-selected"
+    ],
+    "webviews/src/agent-session/acpmux/prototype/prototype.css": [
+      ".proto-history-row[aria-current]",
+      ".proto-rail-button.is-active",
+      ".proto-space-dot[aria-selected=\"true\"] i",
+      ".proto-tab.is-active",
+      ".proto-workspace.is-active, .proto-workspace-tab.is-active"
+    ],
+    "webviews/src/agent-session/acpmux/queue/queue.css": [
+      ".wq-list:focus-visible .wq-row[data-selected] .wq-row-inner",
+      ".wq-row[data-selected] .wq-row-inner"
+    ],
+    "webviews/src/agent-session/acpmux/run-board/variants/compare/styles.css": [
+      ".compare-candidate[data-selected]:not([data-selected=\"\"]) .compare-candidate-index"
+    ],
+    "webviews/src/agent-session/acpmux/session-info/sessionInfo.css": [
+      ".acpmux-session-info-row--button:hover:not(:disabled), .acpmux-session-info-pr:has(> .acpmux-session-info-pr__link:hover), .acpmux-session-info-source:has(> .acpmux-session-info-source__link:hover), .acpmux-session-info-task__open:hover:not(:disabled), .acpmux-session-info-icon-button:hover:not(:disabled), button.acpmux-session-info-port:hover, .acpmux-session-info .acpmux-summary-link:hover:not(:disabled), .acpmux-session-info .acpmux-summary-link:active:not(:disabled), .acpmux-session-info .acpmux-summary-more:hover, .acpmux-session-info .acpmux-summary-agent[aria-current=\"true\"], .acpmux-session-info .acpmux-summary-subagent-rows button.cv-subagent:hover"
+    ],
+    "webviews/src/agent-session/acpmux/steerQueue/steerQueue.css": [
+      ".acpmux-steer-row[aria-selected=\"true\"]"
+    ],
+    "webviews/src/agent-session/acpmux/styles.css": [
+      ".acpmux-chief-card[data-selected=true] .acpmux-chief-card-main",
+      ".acpmux-newtab-kind.is-selected",
+      ".acpmux-newtab-kind.is-selected:active",
+      ".acpmux-omni-row.is-selected",
+      ".acpmux-question-tab[aria-current=step]",
+      ".acpmux-slash-menu .ui-listbox-row[aria-selected=\"true\"]"
+    ],
+    "webviews/src/agent-session/acpmux/summary/summary.css": [
+      ".acpmux-summary-agent[aria-current=true]",
+      ".acpmux-summary-tab[data-selected]",
+      ".acpmux-workflow__agent[data-selected=true]"
+    ],
+    "webviews/src/apps/scene/scene.css": [
+      ".cmux-app-scene-row[data-selected]"
+    ],
+    "webviews/src/browser-chrome/page-info/pageInfo.css": [
+      ".pi-switch.ui-switch[data-checked]",
+      ".pi-switch.ui-switch[data-checked] .ui-switch-thumb"
+    ],
+    "webviews/src/icon-picker/styles.css": [
+      ".icon-cell[data-active]"
+    ],
+    "webviews/src/markdown-task-checkbox.css": [
+      ".cmux-markdown-checkbox[data-checked], .cmux-markdown-checkbox.is-checked"
+    ],
+    "webviews/src/pages/artifacts/styles.css": [
+      ".artifacts-commit.is-active .artifacts-commit-button",
+      ".artifacts-row.is-selected"
+    ],
+    "webviews/src/pages/bookmarks/styles.css": [
+      ".bm-tree-row.is-selected"
+    ],
+    "webviews/src/pages/changelog/styles.css": [
+      ".clr-version.is-selected"
+    ],
+    "webviews/src/pages/chief-usage/styles.css": [
+      ".cu-segment-button.is-selected"
+    ],
+    "webviews/src/pages/chief-views/styles.css": [
+      ".cv-dot[aria-current=\"page\"]"
+    ],
+    "webviews/src/pages/debug-settings/styles.css": [
+      ".ds-sidebar-row[aria-current=\"true\"]"
+    ],
+    "webviews/src/pages/feed/styles.css": [
+      ".feed-tab[data-active]"
+    ],
+    "webviews/src/pages/files/styles.css": [
+      ".files-row.is-selected"
+    ],
+    "webviews/src/pages/github/iconPass.css": [
+      ".icon-pass__button[data-active]",
+      ".icon-pass__tab[data-active]"
+    ],
+    "webviews/src/pages/home-messages/sheets/sheets.css": [
+      ".hm-to[data-token-style=\"outline\"] .hm-token[data-selected]",
+      ".hm-to[data-token-style=\"text\"] .hm-token[data-selected]",
+      ".hm-token[data-invalid][data-selected]",
+      ".hm-token[data-selected]"
+    ],
+    "webviews/src/pages/markdown/styles.css": [
+      ".md-link-suggestions li[aria-selected=\"true\"]",
+      ".md-reading-segment[data-checked]"
+    ],
+    "webviews/src/pages/settings/layout.css": [
+      ".accent-popover .theme-option[aria-selected=\"true\"]"
+    ],
+    "webviews/src/pages/settings/styles.css": [
+      ".density-item[data-selected]",
+      ".menus-list-item[aria-current]",
+      ".personalization-jump-link[aria-current]"
+    ],
+    "webviews/src/pages/stats/styles.css": [
+      ".stats-range.is-selected"
+    ],
+    "webviews/src/prototypes/subagents/subagents.css": [
+      ".sa-lane[data-selected]",
+      ".sa-row[data-selected]"
+    ],
+    "webviews/src/sidebar/TerminalTailPinDesigns.css": [
+      ".ttp-row[data-selected]"
+    ],
+    "webviews/src/styles.css": [
+      ".file-entry:hover, .file-entry[aria-current=\"true\"]"
+    ],
+    "webviews/src/ui/controls.css": [
+      ".ui-switch[data-checked]",
+      ".ui-switch[data-checked] .ui-switch-thumb",
+      ".ui-tabs-list[data-variant=\"pill\"] .ui-tabs-trigger:hover:not([data-disabled], [data-active])",
+      ".ui-tabs-list[data-variant=\"pill\"] .ui-tabs-trigger[data-active]"
+    ],
+    "webviews/src/ui/notice.css": [
+      ".ui-notice-check-box[data-checked]"
+    ],
+    "webviews/src/viewer-empty/styles.css": [
+      ".ve-picker-row[aria-selected=\"true\"]",
+      ".ve-recent-list:focus .ve-recent[aria-selected=\"true\"]",
+      ".ve-recent[aria-selected=\"true\"]",
+      ".ve-source[data-checked]",
+      ".ve-sources:focus-within .ve-source[data-checked]"
+    ]
+  },
+  "native": {}
+}

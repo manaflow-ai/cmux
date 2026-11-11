@@ -76,6 +76,9 @@ public final class ChromeHover {
     /// resting fill takes `raisedHoverFill`, so it still shows a change.
     public static func fillColor(_ state: State, rest: NSColor? = nil) -> NSColor? {
         if state.pressed { return Palette.pressedFill }
+        // A control lit in place, such as an Apps scene row inside content, where the content's own surface
+        // would not show; a selected row on the chrome takes Palette.selectedSurface itself.
+        // selected-surface-allow: a lit control inside content, not a foreground selection.
         if state.selected { return Palette.selectionFill }
         if state.lit { return rest == nil ? Palette.hoverFill : raisedHoverFill }
         // Calm mode (`ui.calm`): the pointer paints no hover fill.

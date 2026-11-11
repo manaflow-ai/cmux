@@ -44,6 +44,16 @@ export function contrast(a: ThemeRGB, b: ThemeRGB): number {
   return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
 }
 
+/** ThemeTokens.minimumSelectedContrast: a selected item in the content's surface must stand this far out of its chrome. */
+export const MINIMUM_SELECTED_CONTRAST = 1.04;
+
+/** ThemeTokens.selectedOnChrome: `content` when, opaque, it reads against black at `shade` over it; else null. */
+export function selectedOnChrome(content: ThemeRGB, shade: number): ThemeRGB | null {
+  if (content.alpha < 1) return null;
+  const chrome = composited(withAlpha(BLACK, clamp(shade)), content);
+  return contrast(content, chrome) >= MINIMUM_SELECTED_CONTRAST ? content : null;
+}
+
 export function mixed(color: ThemeRGB, other: ThemeRGB, fraction: number): ThemeRGB {
   const t = clamp(fraction);
   return rgb(
@@ -333,6 +343,10 @@ export function litGlyph(tokens: ThemeTokens): ThemeRGB {
   }
   return mixed(lit, primary, high);
 }
+
+/** The window chrome's shade over the content (ChromeTunables.mainPaneShadeLight/Dark defaults, the
+ * flush corner's frame): black at this alpha (design/selected-is-foreground.md). */
+export const chromeShade = (tokens: ThemeTokens): number => (tokens.isDark ? 0.28 : 0.045);
 
 /** `rgba(r, g, b, a)` with 0-255 channels, as WebTheme.css and AgentPaneTheme.css write it. */
 export function css(color: ThemeRGB): string {

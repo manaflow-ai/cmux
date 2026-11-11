@@ -18,6 +18,7 @@ The other specs, and what each one owns:
 - leo-workspace `design/glass.md`: glass levels, host glass, the lens.
 - `design/overlay-surfaces.md`: the roles and the never-opaque rule.
 - `design/menus.md`: menu rows and how menus open.
+- `design/selected-is-foreground.md`: the content and chrome layers, and the selected state as the content's surface.
 
 This page decides only which kind a surface is.
 

@@ -58,8 +58,12 @@ extension TabStripView {
             cell.isSelected = true
             cell.showsZoom = input.zoomsSelected // VoiceOver's zoomed state follows the selection
         }
-        // The flush corner (`chrome.cornerFlush`): a selection change runs no frame pass, so it reports here.
-        if selected != lastSelectedID, CornerFlush.current.isOn || leadsWithSelection { reportCornerLead() }
+        // The flush corner (`chrome.cornerFlush`): a selection change runs no frame pass, so it reports here,
+        // the folder first, so its hole fades with the tabs (`reportFolder`).
+        if selected != lastSelectedID, CornerFlush.current.isOn || leadsWithSelection {
+            reportFolder(animated: true)
+            reportCornerLead()
+        }
         let multiChanged = input.multiSelection != lastSyncedInput?.multiSelection
         if multiChanged { applyMultiSelection() }
         lastSyncedInput = input

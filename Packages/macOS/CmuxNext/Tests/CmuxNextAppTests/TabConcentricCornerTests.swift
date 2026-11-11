@@ -22,7 +22,7 @@ import Testing
 ///
 /// Every pill of the strip uses the same radius (one token, `Metrics.tabCornerRadius`), so the
 /// other tabs and the strip's + button match the first one.
-@MainActor @Suite(.serialized, .closesItsWindows) struct TabConcentricCornerTests {
+@MainActor @Suite(.serialized, .closesItsWindows, .cornerFlush(.off)) struct TabConcentricCornerTests {
     /// The macOS 26 titled-window corner radius (`NSWindow.frameCornerRadius` when AppKit reports none).
     static let windowCornerRadius: CGFloat = 16
 

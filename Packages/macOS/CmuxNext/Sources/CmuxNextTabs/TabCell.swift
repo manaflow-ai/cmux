@@ -16,12 +16,14 @@ final class TabCell {
     /// The strip's handler behind the element's Exit Zoom action, while the tab shows the zoom indicator.
     var accessibilityToggleZoom: (@MainActor () -> Void)? { didSet { updateAccessibility() } }
     private(set) var item: TabItem
-    /// Instant (L4): the content switches in one frame, so the highlight does too.
+    /// The content switches in one frame (L4); the folder tab that joins it fades over the same short
+    /// crossfade on both tabs (`updateFolder`), its shape already in place, so nothing moves.
     var isSelected = false {
         didSet {
             guard oldValue != isSelected else { return }
             updateStacking()
             stateChanged(animated: false)
+            updateFolder(animated: true)
         }
     }
     /// One of several selected tabs (Cmd- or Shift-click) that is not the active one: a lighter
@@ -42,8 +44,8 @@ final class TabCell {
         didSet {
             guard oldValue != isLifted else { return }
             updateLift()
-            // The flush corner's foot comes off while the tab is lifted, and back on the drop.
-            if cornerFoot > 0, isSelected { layoutLayers() }
+            // The folder comes off while the tab is lifted (a pill again), and back on the drop.
+            if cornerFoot > 0, isSelected { updateFolder(animated: false) }
         }
     }
     /// The strip's window is main (in front); off, the selected tab's fill is dimmer (never
@@ -65,11 +67,16 @@ final class TabCell {
     /// background window too (Lawrence 2026-10-20, a tab with no pill read as inactive).
     var fillsSelection: Bool { isSelected || isLifted }
     /// The flush corner (`chrome.cornerFlush`): how far below the pill the strip's bottom is. The selected
-    /// tab, at rest, draws in the content card's color down to there, into the card; 0 when off.
+    /// tab, at rest, is a folder tab in the content's surface down to there, into the content; 0 when off.
     var cornerFoot: CGFloat = 0 {
-        didSet { if cornerFoot != oldValue, isSelected { stateChanged(animated: false) } }
+        didSet {
+            guard cornerFoot != oldValue else { return }
+            if isSelected { stateChanged(animated: false) } else { layoutCornerFeet() }
+            updateFolder(animated: false)
+        }
     }
-    /// The flush corner's concave fillets at the foot (`flush-goo`, `TabCell+CornerFeet`), made on first use;
+    /// The folder tab (`TabCell+CornerFeet`): the selected tab's one shape, its body and its concave
+    /// fillets, made on the tab's first selection; shown while ``runsIntoCard``.
     /// `cornerFeetSkipsLeading`: the tab is on the card's edge, where no leading fillet fits.
     var cornerFeetLayer: CAShapeLayer?
     var cornerFeetSkipsLeading = false {
@@ -77,6 +84,12 @@ final class TabCell {
     }
     /// The selected tab runs into the card (``cornerFoot``); a lifted (dragged) tab is a pill again.
     var runsIntoCard: Bool { cornerFoot > 0 && isSelected && !isLifted }
+    /// The strip's verdict that this tab's folder is really seen (``TabStripView/folderShows``): its fill
+    /// painted, or the shade cut away under it, and standing out of what is around it. The pill's fill
+    /// goes only then; any other case keeps it, so a selected tab always has a selected look.
+    var folderShows = false {
+        didSet { if folderShows != oldValue, isSelected { updateColors(animated: false) } }
+    }
     /// The share of the selected fill's alpha a background window's active tab keeps.
     static let backgroundWindowSelectionShare: CGFloat = 0.55
     /// Hover may start the title marquee (off while a drag or rename runs).
@@ -345,9 +358,16 @@ final class TabCell {
                 : Palette.selectionFill.withAlphaComponent(Palette.selectionFill.alphaComponent * Self.backgroundWindowSelectionShare)
             let fill: NSColor? = fillsSelection ? selection : multi ? Palette.secondarySelectionFill : (isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
-            // The flush corner: the card's own surface, so the tab and the card read as one shape.
-            if runsIntoCard { backgroundLayer.backgroundColor = Palette.windowBackground.cgColor }
-            cornerFeetLayer?.fillColor = Palette.windowBackground.cgColor
+            // The folder tab draws the selected tab (the content's surface, one shape with the content); the
+            // pill draws nothing under it, so the selection is never a gray pill. Where the content's surface
+            // does not stand out of the chrome (no shade, a near-black theme), the pill keeps the selection fill.
+            if runsIntoCard, folderShows { backgroundLayer.backgroundColor = nil }
+            // A background window's folder dims as its pill did: it keeps the share of its step out of the
+            // chrome that the pill kept of its fill, so the key window's selected tab still reads first.
+            let surface = Palette.selectedFolderSurface
+            let dimmed = isWindowMain || isLifted ? surface
+                : surface.blended(withFraction: Palette.chromeShade * (1 - Self.backgroundWindowSelectionShare), of: .black)?.withAlphaComponent(surface.alphaComponent)
+            cornerFeetLayer?.fillColor = (dimmed ?? surface).cgColor
             if isLifted, let lift = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary) {
                 // Keeps the tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
                 backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope).dragLiftFill(lift).cgColor
@@ -449,10 +469,8 @@ final class TabCell {
         backgroundLayer.frame = bounds
         layoutSeparator(slot: slot, pill: bounds)
         backgroundLayer.cornerRadius = m.cornerRadius
-        // The flush corner: the selected tab runs down into the card, rounded only on top (no foot, no point).
-        backgroundLayer.maskedCorners = runsIntoCard ? [.layerMinXMinYCorner, .layerMaxXMinYCorner]
-            : [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-        if runsIntoCard { backgroundLayer.frame.size.height += cornerFoot }
+        // The pill keeps one shape in every state; the folder tab is its own layer (`TabCell+CornerFeet`),
+        // so a selection change lays nothing out.
         layoutCornerFeet()
 
         let midY = bounds.height / 2

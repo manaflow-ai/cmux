@@ -7,7 +7,7 @@ import Testing
 /// selected tab shows its fill (dimmer in back, never gone: Lawrence 2026-10-20). Every tab of every strip used to re-resolve its theme and recolor itself
 /// on each activation (where a DEV build's 10 s watchdog hang was sampled, cosmic-gray
 /// 2026-10-14), so activation repaints the selected tab only, however many tabs the strip holds.
-@MainActor @Suite(.serialized, .closesItsWindows) struct TabStripActivationRecolorTests {
+@MainActor @Suite(.serialized, .closesItsWindows, .cornerFlush(.off)) struct TabStripActivationRecolorTests {
     static let tabs = 300
 
     /// Marks every unselected tab's title with a color no theme draws: a tab that repaints

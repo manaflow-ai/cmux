@@ -9,7 +9,7 @@ import Testing
 /// always draws the selected fill: in a background window and in an unfocused pane it may be
 /// dimmer, never absent. Read from the strip as drawn (the pill layer's fill), and from the
 /// unfocused-pane tokens for every style and strength.
-@MainActor @Suite(.serialized) struct ActiveTabAlwaysFilledTests {
+@MainActor @Suite(.serialized, .cornerFlush(.off)) struct ActiveTabAlwaysFilledTests {
     /// The pill fill alpha of each tab, as drawn.
     static func fillAlphas(_ strip: TabStripView, tabs: Int) throws -> [CGFloat] {
         try (0..<tabs).map { index in

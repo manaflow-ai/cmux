@@ -115,6 +115,9 @@ extension TabStripView {
         }
         if newTabMenuButton.frame != menuFrame { newTabMenuButton.frame = menuFrame }
         edgeFade.update()
+        // The strip's chrome band and the selected folder's hole follow the width too (design/selected-is-foreground.md):
+        // one path compare when nothing moved.
+        reportFolder(animated: false, onlyIfMoved: true)
         // What is under a still pointer changed where something moved; a lit strip or a shown card also checks that the
         // pointer is still inside the strip, which a narrower strip may have left.
         if moved || buttonReveal.pointerInStrip || hoveredID != nil || groups.hoveredChip != nil || newTabButton.isHovered

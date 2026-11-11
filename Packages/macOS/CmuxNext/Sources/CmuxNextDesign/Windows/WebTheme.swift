@@ -115,7 +115,22 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         let cardMaterial = CardMaterial(tokens, lift: ChromeTunables.opaqueOverlayLift.value,
                                         minimumOpacity: ChromeTunables.cardOpacity.value)
         let tooltip = TooltipSurface(tokens, lift: ChromeTunables.opaqueOverlayLift.value)
+        // The foreground and background layers (design/selected-is-foreground.md): the page's own
+        // background is the content; its chrome is black at the window chrome's shade over it; a
+        // selected item on that chrome is the content's surface when the page paints it opaque. A
+        // see-through page shows the window's tint, which no fill over the shade can match (it would
+        // add the tint twice), so a selected item there keeps the selection fill.
+        let chromeShade = Double(Metrics.mainPaneChromeShade(isDark: tokens.isDark))
+        // No shade, or one too faint over a near-black page, would hide a content-coloured selection.
+        let selectedOnChrome = ThemeTokens.selectedOnChrome(page, chromeShade: chromeShade)
         variables = [
+            "--cmux-content-surface": Self.css(page),
+            // A style with no shade (bare, panes, flat-sidebar-line): a track or a nav on the chrome keeps the
+            // hover fill it had, rather than going clear.
+            "--cmux-chrome-shade": Self.css(chromeShade > 0 ? ThemeRGB.black.withAlpha(chromeShade) : tokens.hoverFill),
+            // With no shade the track is the hover fill: an opaque page's own surface stands out of it, as
+            // the segment did before the layers.
+            "--cmux-selected-surface": Self.css(selectedOnChrome ?? (chromeShade <= 0 && page.alpha >= 1 ? page : tokens.selectionFill)),
             "--cmux-surface-background": Self.css(page),
             "--cmux-surface-token": Self.css(surface),
             // The page color made opaque (its own background over the theme's, if it has one),

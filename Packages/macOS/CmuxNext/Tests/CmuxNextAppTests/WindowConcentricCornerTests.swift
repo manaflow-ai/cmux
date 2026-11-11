@@ -17,8 +17,11 @@ import Testing
 /// the card's radius is the window's less the inset, and the inset is the same on both sides of the
 /// corner. The 8 pt main pane 6 pt inside the 16 pt window (concentric: 10 pt) left a gap that widened
 /// toward the corner, and its top sat 4 pt down against 6 pt at the side.
-@MainActor @Suite(.serialized, .closesItsWindows) struct WindowConcentricCornerTests {
-    private func load(radius: Double? = nil) {
+@MainActor @Suite(.serialized, .closesItsWindows, .cornerFlush(.off)) struct WindowConcentricCornerTests {
+    /// The gutter geometry these tests pin is the one without the folder tab (the suite's
+    /// `.cornerFlush(.off)`); the folder tab's case sets `.goo` itself, and the trait puts it back.
+    private func load(radius: Double? = nil, flush: CornerFlush? = nil) {
+        if let flush { TunableStore.shared.set(CornerFlush.tunable.key, flush.tunableValue) }
         var layout: [String: JSONValue] = [:]
         if let radius { layout["paneCornerRadius"] = .number(radius) }
         // The curved main pane (the `card` style): the card a window corner holds.
@@ -78,6 +81,18 @@ import Testing
                 "a \(window) pt window, \(gutter) pt gutter")
         load(radius: 12)
         #expect(Metrics.mainPaneCornerRadius(windowCornerRadius: CGFloat(window)) == min(12, CGFloat(window)), "the setting wins")
+    }
+
+    /// The default, the folder tab (`flush-goo`): the card is 12 pt, concentric with the 16 pt window
+    /// across its 4 pt gap, and never rounder than the window.
+    @Test(arguments: [10.0, 16.0, 26.0])
+    func theFolderTabCardIsConcentricWithTheWindow(window: Double) {
+        defer { load() }
+        load(flush: .goo)
+        #expect(CornerFlush.current == .goo)
+        #expect(Metrics.mainPaneGutter == CornerFlush.current.gap)
+        #expect(Metrics.mainPaneCornerRadius(windowCornerRadius: CGFloat(window)) == min(CornerFlush.current.cardRadius, CGFloat(window)),
+                "a \(window) pt window under the folder tab")
     }
 
     /// The tabs nest in that card: its radius less their inset, so the first pill, the card and the

@@ -17,8 +17,13 @@ extension SidebarContainerView {
 
     /// The open sidebar covers the content, so it needs a surface of its own (the standard
     /// sidebar is clear over the window's backdrop).
+    /// It is chrome, as the standard sidebar over the window is: the surface with the chrome's shade over
+    /// it, so the selected row, in the content's surface, stands out of it (design/selected-is-foreground.md).
     var railOverlayFill: NSColor? {
-        model.style == .rail && (!isPanelCollapsed || isWidthAnimating) ? Palette.surfaceBackground : nil
+        guard model.style == .rail, !isPanelCollapsed || isWidthAnimating else { return nil }
+        let shade = Palette.chromeShade
+        let surface = Palette.surfaceBackground
+        return shade > 0 ? surface.blended(withFraction: shade, of: .black) ?? surface : surface // colour-allow: the chrome's shade, black at its alpha
     }
 
     /// Opens the rail's full sidebar now (a rename, a reveal), over the content. Toggle Sidebar

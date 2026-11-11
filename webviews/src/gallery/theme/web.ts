@@ -13,6 +13,8 @@ import type { GhosttyTheme } from "./ghostty";
 import { appThemeVariables, type AppAccent, type AppTheme } from "../../theme/appTheme";
 import { cardMaterial, OPAQUE_OVERLAY_LIFT, scrim, tooltipSurface } from "./overlays";
 import {
+  BLACK,
+  chromeShade,
   css,
   deriveTokens,
   GHOSTTY_DEFAULT,
@@ -21,6 +23,7 @@ import {
   opaqueOverlayFill,
   MINIMUM_TEXT_CONTRAST,
   parseHex,
+  selectedOnChrome,
   readable,
   withAlpha,
   type ThemeInput,
@@ -63,8 +66,19 @@ export function webThemePayload(
   const lines = (options.borders ?? "lines") === "lines";
   const tooltip = tooltipSurface(tokens);
   const card = cardMaterial(tokens);
+  // The foreground and background layers (WebTheme.swift, design/selected-is-foreground.md): a
+  // selected item on the chrome is the content's surface when the page paints it opaque and it stands
+  // out of the shade, else the selection fill (no fill over the shade shows a see-through page's tint;
+  // a near-black page under black shade would hide it).
+  const content = seeThrough ? withAlpha(page, 0) : page;
+  const shade = chromeShade(tokens);
   return {
     variables: {
+      "--cmux-content-surface": css(content),
+      "--cmux-chrome-shade": css(shade > 0 ? withAlpha(BLACK, shade) : tokens.hoverFill),
+      "--cmux-selected-surface": css(
+        selectedOnChrome(content, shade) ?? (shade <= 0 && content.alpha >= 1 ? content : tokens.selectionFill),
+      ),
       "--cmux-surface-background": css(seeThrough ? withAlpha(page, 0) : page),
       "--cmux-surface-token": css(tokens.surfaceBackground),
       "--cmux-surface-solid": css(page),

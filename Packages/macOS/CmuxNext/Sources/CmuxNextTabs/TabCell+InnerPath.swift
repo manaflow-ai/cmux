@@ -11,6 +11,9 @@ extension TabCell {
     struct InnerPath {
         var end: CFTimeInterval
         var layers: [CALayer]
+        /// The folder tab's outline at each sample (in the cell's coordinates), which the shade's hole
+        /// under it plays too (`TabStripView.selectedFolderMotion`).
+        var folder: FolderMotion? = nil
     }
 
     /// One part's geometry at one sample.
@@ -18,6 +21,8 @@ extension TabCell {
         var position: CGPoint
         var size: CGSize
         var opacity: Float
+        /// A shape part's outline (the folder tab, `TabCell+CornerFeet`), which follows the width too.
+        var path: CGPath? = nil
     }
 
     static let innerKeyPrefix = "tab.inner."
@@ -56,7 +61,7 @@ extension TabCell {
             for part in layer.sublayers ?? [] {
                 let id = ObjectIdentifier(part)
                 if known.insert(id).inserted { order.append(part) }
-                parts[id] = Part(position: part.position, size: part.bounds.size, opacity: part.opacity)
+                parts[id] = Part(position: part.position, size: part.bounds.size, opacity: part.opacity, path: (part as? CAShapeLayer)?.path)
             }
             return (parts, pathTitle, visibility)
         }
@@ -87,8 +92,8 @@ extension TabCell {
         for part in order where part !== titleLayer {
             let id = ObjectIdentifier(part)
             // A part made at a later sample shows nothing before it.
-            let first = samples.lazy.compactMap { $0.parts[id] }.first ?? Part(position: part.position, size: part.bounds.size, opacity: 0)
-            var values = samples.map { $0.parts[id] ?? Part(position: first.position, size: first.size, opacity: 0) }
+            let first = samples.lazy.compactMap { $0.parts[id] }.first ?? Part(position: part.position, size: part.bounds.size, opacity: 0, path: (part as? CAShapeLayer)?.path)
+            var values = samples.map { $0.parts[id] ?? Part(position: first.position, size: first.size, opacity: 0, path: first.path) }
             // A part hidden on screen now and at the end stays hidden: a form that fits only between
             // the ends (the x leaves before the width does) is a transient of the sampling.
             if !shownNow.contains(id), values.last?.opacity == 0 { for index in values.indices { values[index].opacity = 0 } }
@@ -103,7 +108,11 @@ extension TabCell {
             titleLayer.add(animation, forKey: Self.innerKeyPrefix + "opacity")
         }
         titleFade.follow(titles, times: times, steps: steps)
-        innerPath = InnerPath(end: end, layers: order)
+        let folderPaths = cornerFeetLayer.flatMap { folder -> [CGPath]? in
+            let paths = samples.compactMap { $0.parts[ObjectIdentifier(folder)]?.path }
+            return paths.count == times.count ? paths : nil
+        }
+        innerPath = InnerPath(end: end, layers: order, folder: folderPaths.map { FolderMotion(times: times, paths: $0) })
     }
 
     /// The form on screen now, from what the parts show (`shown`: the parts whose presentation is
@@ -148,6 +157,13 @@ extension TabCell {
         if varies({ $0.opacity }, { abs($0 - $1) > 0.001 }),
            let animation = MotionPath.keyframes("opacity", values: values.map { NSNumber(value: $0.opacity) }, times: times, on: part, discrete: true) {
             part.add(animation, forKey: Self.innerKeyPrefix + "opacity")
+        }
+        // The folder tab's outline moves with the tab's width, frame by frame, as the pill does (Leo's
+        // state-transition rule, design/selected-is-foreground.md): its path is keyframed on the same samples.
+        let paths = values.compactMap(\.path)
+        if paths.count == values.count, let first = paths.first, paths.contains(where: { $0 != first }),
+           let animation = MotionPath.keyframes("path", values: paths, times: times, on: part, steps: steps) {
+            part.add(animation, forKey: Self.innerKeyPrefix + "path")
         }
     }
 }

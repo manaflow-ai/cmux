@@ -127,6 +127,7 @@ th[aria-sort="descending"] .tm-sort {
 }
 
 .tm-row[aria-selected="true"] {
+  /* selected-surface-allow: a list's cursor row inside the content, the selection role, not a tab or nav item on the chrome */
   background: var(--page-selection);
 }
 

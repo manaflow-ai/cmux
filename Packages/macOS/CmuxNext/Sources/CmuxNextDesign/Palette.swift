@@ -100,6 +100,96 @@ public struct Palette {
     public static var hoverFill: NSColor { color(\.hoverFill, dynamic: PaletteDynamic.hoverFill) }
     /// Selected row or tab fill. Replaces the system blue selection.
     public static var selectionFill: NSColor { color(\.selectionFill, dynamic: PaletteDynamic.selectionFill) }
+    /// The foreground layer (design/selected-is-foreground.md): what the content actually paints
+    /// behind itself (``paneFill``): the surface, opaque, in an opaque window, and clear over a
+    /// see-through one, where the window's one tint is the content's surface.
+    public static var contentSurface: NSColor { paneFill }
+    /// The selected row on the chrome (design/selected-is-foreground.md): the content's own surface,
+    /// so the selected item reads as part of the foreground (Leo, 2026-11-10: "The selected tab
+    /// should be white as well"). In an opaque window that is the surface, opaque, which hides the
+    /// chrome's shade under the row exactly as the content does. Over a see-through window (a
+    /// translucent theme, an image) the content is the window's own tint and the shade sits on that
+    /// tint, so no fill over the shade can show what the content shows; only a hole in the shade can
+    /// (the folder tab, `ChromeShadeHoles`). A row there keeps `selectionFill`
+    /// (``ThemeTokens/selectedSurface(panesPaint:chromeShade:)``). `check-selected-surface.py` keeps every
+    /// selected tab and row on these tokens.
+    ///
+    /// The content's surface reads as the foreground only where it contrasts with the chrome around it
+    /// (``ThemeTokens/minimumSelectedContrast``). A chrome that shares the content's surface (no shade:
+    /// bare, panes, flat-sidebar-line, a shared sidebar surface), or a near-black theme whose shade
+    /// does not show (Builtin Dark), would lose the selection, so a row there keeps `selectionFill` too.
+    public static var selectedSurface: NSColor {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        let shade = Double(Metrics.mainPaneChromeShade(isDark: tokens.isDark))
+        let paints = WindowBackdrop.current(tokens).panesPaintBackground
+        return tokens.selectedSurface(panesPaint: paints, chromeShade: shade)?.nsColor ?? selectionFill
+    }
+    /// The selected folder tab (`TabCell+CornerFeet`): exactly what the content paints
+    /// (``contentSurface``), since the chrome's shade is cut away under it (`ChromeShadeHoles`). Over
+    /// a see-through window it is clear, and the hole shows the window's tint, as the content does.
+    /// ``selectedSurface`` for a row on a panel with its own fill (`surface`: the user's sidebar background,
+    /// `appearance.surfaces.sidebar`): the content's surface only where it stands out of that fill by
+    /// ``ThemeTokens/minimumSelectedContrast``, else `selectionFill`. nil `surface`: the row sits on the
+    /// chrome, ``selectedSurface``.
+    /// A translucent `surface` is composited over the chrome it lies on (the content's surface under the
+    /// chrome's shade) before the check, so the contrast is with what really shows; a colour that cannot
+    /// be read in sRGB keeps `selectionFill`, which always shows.
+    public static func selectedSurface(over surface: NSColor?) -> NSColor {
+        let selected = selectedSurface
+        guard var surface else { return selected }
+        if surface.alphaComponent < 1 {
+            // colour-allow: the chrome's shade, black at its alpha
+            let chrome = composited(NSColor.black.withAlphaComponent(chromeShade), over: contentSurface)
+            surface = composited(surface, over: chrome)
+        }
+        guard let a = selected.usingColorSpace(.sRGB), let b = surface.usingColorSpace(.sRGB) else { return selectionFill }
+        let row = ThemeRGB(red: Double(a.redComponent), green: Double(a.greenComponent), blue: Double(a.blueComponent))
+        let panel = ThemeRGB(red: Double(b.redComponent), green: Double(b.greenComponent), blue: Double(b.blueComponent))
+        return row.contrast(with: panel) >= ThemeTokens.minimumSelectedContrast ? selected : selectionFill
+    }
+    /// `top` painted over `bottom`, in sRGB: the opaque colour a row sees under it when a panel lays a
+    /// fill (a neutral group's pane, the chrome's shade) over another. `bottom` counts as opaque.
+    public static func composited(_ top: NSColor, over bottom: NSColor) -> NSColor {
+        guard let t = top.usingColorSpace(.sRGB), let b = bottom.usingColorSpace(.sRGB) else { return bottom }
+        let a = t.alphaComponent
+        func mix(_ x: CGFloat, _ y: CGFloat) -> CGFloat { x * a + y * (1 - a) }
+        return NSColor(srgbRed: mix(t.redComponent, b.redComponent), green: mix(t.greenComponent, b.greenComponent),
+                       blue: mix(t.blueComponent, b.blueComponent), alpha: 1)
+    }
+    public static var selectedFolderSurface: NSColor { contentSurface }
+    /// The chrome's shade in the active theme: black at this alpha over the content's surface is the
+    /// chrome (``Metrics/mainPaneChromeShade(isDark:)``). A list of tabs inside the content draws it
+    /// under its rows, as a strip inside the card does, so its selected row stands out of it.
+    public static var chromeShade: CGFloat {
+        Metrics.mainPaneChromeShade(isDark: (ThemeContext.active ?? ThemeScope.app.tokens).isDark)
+    }
+    /// The folder tab reads as the selection: the content's surface stands out of the chrome around it
+    /// by ``ThemeTokens/minimumSelectedContrast`` (``ThemeTokens/selectedOnChrome(_:chromeShade:)``, the
+    /// rows' rule). Over a see-through window the hole shows the content's own tint, so the theme's
+    /// content colour, made opaque, stands in for it. False on a chrome with no shade or a near-black
+    /// theme (Builtin Dark's #000000): the selected tab keeps `selectionFill` on its pill there, over the
+    /// folder, so it never disappears.
+    public static var selectedFolderReads: Bool { folderReads(over: nil, shade: chromeShade) }
+
+    /// The one rule for whether a folder tab is seen (design/selected-is-foreground.md): the folder,
+    /// cut out of black at `shade` over `fill` (a strip's own fill, `appearance.surfaces.tabBar`; nil:
+    /// the content), stands out of that shade by ``ThemeTokens/minimumSelectedContrast``. The folder
+    /// shows the content's surface where panes paint it, else what lies under the cut (the fill over
+    /// the window's tint, the theme's content colour made opaque standing in for that tint). False: the
+    /// tab keeps its pill (`TabCell.folderShows`).
+    public static func folderReads(over fill: NSColor?, shade: CGFloat) -> Bool {
+        guard shade > 0 else { return false }
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        let content = tokens.contentSurface.withAlpha(1).nsColor
+        let under = fill.map { composited($0, over: content) } ?? content
+        // colour-allow: the chrome's shade, black at its alpha
+        let around = composited(NSColor.black.withAlphaComponent(shade), over: under)
+        let folder = paneFill.alphaComponent >= 1 ? content : under
+        guard let a = folder.usingColorSpace(.sRGB), let b = around.usingColorSpace(.sRGB) else { return false }
+        let x = ThemeRGB(red: Double(a.redComponent), green: Double(a.greenComponent), blue: Double(a.blueComponent))
+        let y = ThemeRGB(red: Double(b.redComponent), green: Double(b.greenComponent), blue: Double(b.blueComponent))
+        return x.contrast(with: y) >= ThemeTokens.minimumSelectedContrast
+    }
     /// Multi-selected rows that are not the active one.
     public static var secondarySelectionFill: NSColor { color(\.secondarySelectionFill, dynamic: PaletteDynamic.secondarySelectionFill) }
     /// Pressed buttons.

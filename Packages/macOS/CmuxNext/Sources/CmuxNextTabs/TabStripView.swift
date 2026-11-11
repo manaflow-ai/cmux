@@ -84,6 +84,33 @@ public final class TabStripView: NSView {
     var leadsWithSelection = false
     /// The flush corner's state reached the window root since it was turned on.
     var reportedCornerFlush = false
+    /// The chrome band under the tabs of a strip inside the content card (`TabStripView+CornerFlush`), made on
+    /// first use; its shade, 0 for none.
+    var cornerBandLayer: CALayer?
+    var cornerBandShade: CGFloat = 0
+    /// The band's holes under the selected folder tab (`ChromeShadeHoles`), made with the band.
+    var cornerBandHoles: ChromeShadeHoles?
+    /// The window chrome the selected folder last reported to, and the folder as reported (in this
+    /// strip's layer, with the strip's frame in the window and its band), so a layout reports only a
+    /// folder that moved.
+    weak var cornerChrome: CornerFlushChrome?
+    var reportedFolder: (path: CGPath?, frame: CGRect, band: CGFloat)?
+    /// The strip's selected tab joins the content below it as a folder tab (design/selected-is-foreground.md).
+    /// False for a strip whose tabs open nothing under them, as the screen bar, which sits at the bottom
+    /// whatever the pane tabs' position: its selected tab keeps the pill.
+    public var joinsContent = true {
+        didSet { if joinsContent != oldValue { needsLayout = true } }
+    }
+    /// The pane paints its own backdrop under this strip (its own art, `appearance.paneBackgrounds`
+    /// perPane, or a cover over the window's), over the window's chrome shade: the strip draws the
+    /// chrome's band itself there, on the top row too, so its selected folder tab stands out.
+    public var sitsOnPaneBackdrop = false {
+        didSet { if sitsOnPaneBackdrop != oldValue { reportFolder(animated: false) } }
+    }
+    /// Something under the strip covers the window's chrome shade: the pane's own backdrop, or the
+    /// strip's own fill (`appearance.surfaces.tabBar`). The strip then draws the band itself, above
+    /// that fill, so its folder is cut out of a shade that shows (``TabStripCorner/coversWindowShade``).
+    public var coversWindowShade: Bool { sitsOnPaneBackdrop || (layer?.backgroundColor?.alpha ?? 0) > 0 }
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
@@ -375,6 +402,7 @@ public final class TabStripView: NSView {
         super.viewDidMoveToWindow()
         syncShown()
         if window != nil {
+            CornerFlushChrome.register(self) // the chrome's top row knows this strip before it lays out
             applyTokens(animated: false)
             startObserving()
             startObservingTokens()
@@ -428,6 +456,7 @@ public final class TabStripView: NSView {
         let shown = shown ?? (window != nil && !isHiddenOrHasHiddenAncestor)
         guard shown != isShownInWindow else { return }
         isShownInWindow = shown
+        reportFolder(animated: false)
         hoverCards.unregister(hoverCard)
         windowMain.observe(shown ? window : nil) { [weak self] isMain in self?.cells.values.forEach { $0.isWindowMain = isMain } }
         windowVisibility.observe(shown ? window : nil) { [weak self] visible in self?.cells.values.forEach { $0.isWindowVisible = visible } }

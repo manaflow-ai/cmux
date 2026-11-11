@@ -76,8 +76,9 @@
 .pcd-row:hover::before {
   background: color-mix(in srgb, var(--pcd-ink) 6%, transparent);
 }
+/* The selected row is the foreground, the content's surface, as the native sidebar's (design/selected-is-foreground.md). */
 .pcd-row[aria-selected="true"]::before {
-  background: color-mix(in srgb, var(--pcd-ink) 11%, transparent);
+  background: var(--ds-color-selected);
 }
 .pcd-lead {
   display: flex;

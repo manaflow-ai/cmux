@@ -1,0 +1,68 @@
+/* The folder tab review (FolderTabs.tsx, design/selected-is-foreground.md). Every colour is a layer
+   token: the content's surface, the chrome's shade over the window, the selected row's surface. */
+.folder-tabs {
+  --ft-content: var(--cmux-content-surface, var(--cmux-surface-solid, Canvas));
+  --ft-shade: var(--cmux-chrome-shade, light-dark(rgb(0 0 0 / 0.045), rgb(0 0 0 / 0.28)));
+  --ft-selected: var(--cmux-selected-surface, var(--ft-content));
+  --ft-ink: var(--cmux-text, CanvasText);
+  --ft-muted: var(--cmux-text-secondary, color-mix(in srgb, CanvasText 62%, transparent));
+  --ft-edge: var(--cmux-separator, color-mix(in srgb, CanvasText 10%, transparent));
+  --ft-pill: var(--cmux-selection, color-mix(in srgb, CanvasText 10%, transparent));
+  position: relative;
+  overflow: hidden;
+  border-radius: 16px;
+  color: var(--ft-ink);
+  font: 500 var(--text-detail) / var(--text-detail--line-height) var(--font-ui, system-ui);
+}
+.folder-tabs-layers { position: absolute; inset: 0; }
+.folder-tabs-chrome { fill: var(--ft-shade); }
+/* The user's tab bar colour under the strip (appearance.surfaces.tabBar): the band lies over it. */
+.folder-tabs-tabbar { fill: color-mix(in srgb, var(--ft-ink) 8%, Canvas); }
+.folder-tabs-content { fill: var(--ft-content); }
+.folder-tabs-edge { fill: none; stroke: var(--ft-edge); stroke-width: 1; vector-effect: non-scaling-stroke; }
+/* The look before: a gray pill on the strip, the content apart. */
+.folder-tabs-pill { fill: var(--ft-pill); }
+.folder-tabs-strip { position: absolute; margin: 0; padding: 0; list-style: none; }
+.folder-tabs-tab {
+  position: absolute;
+  top: 0;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  overflow: hidden;
+  color: var(--ft-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.folder-tabs-tab[aria-selected="true"] { color: var(--ft-ink); }
+.folder-tabs-sidebar { position: absolute; display: flex; flex-direction: column; gap: 0; margin: 0; padding: var(--ds-space-2) 0; list-style: none; }
+.folder-tabs-sidebar > li:first-child { padding: var(--ds-space-1) var(--ds-space-3); color: var(--ft-muted); font-size: var(--text-caption); }
+.folder-tabs-row { padding: var(--ds-space-2) var(--ds-space-3); border-radius: 8px; color: var(--ft-muted); }
+/* The current row is the foreground on the sidebar's chrome. */
+.folder-tabs-row[aria-current="true"] { background: var(--ft-selected); color: var(--ft-ink); }
+.folder-tabs-body { position: absolute; display: flex; flex-direction: column; gap: var(--ds-space-3); }
+.folder-tabs-body p { margin: 0; color: var(--ft-muted); }
+.folder-tabs-body i { display: block; width: 82%; height: var(--ds-space-1); border-radius: var(--ds-space-1); background: color-mix(in srgb, var(--ft-ink) 13%, transparent); }
+.folder-tabs-body i.short { width: 56%; }
+/* A pinned scene (the `scene` prop): the same layers without the gallery's theme axis. Light and dark
+   take the default shades (chrome.mainPane.shadeLight 0.045, shadeDark 0.28) over the system canvas. */
+.folder-tabs[data-scene] {
+  --ft-ink: CanvasText;
+  --ft-muted: color-mix(in srgb, CanvasText 62%, transparent);
+  --ft-edge: color-mix(in srgb, CanvasText 10%, transparent);
+  --ft-pill: color-mix(in srgb, CanvasText 10%, transparent);
+  background: Canvas;
+}
+.folder-tabs[data-scene="light"] { color-scheme: light; --ft-content: Canvas; --ft-selected: Canvas; --ft-shade: rgb(0 0 0 / 0.045); }
+.folder-tabs[data-scene="dark"] { color-scheme: dark; --ft-content: Canvas; --ft-selected: Canvas; --ft-shade: rgb(0 0 0 / 0.28); }
+/* A picture behind a see-through window: the window's one tint over the picture, the content clear on
+   it, the shade on the chrome only. A sidebar row cannot cut the shade, so it keeps the selection fill. */
+.folder-tabs[data-scene="image"] {
+  color-scheme: light;
+  --ft-content: transparent;
+  --ft-selected: var(--ft-pill);
+  --ft-shade: rgb(0 0 0 / 0.045);
+  background-image: linear-gradient(color-mix(in srgb, Canvas 72%, transparent), color-mix(in srgb, Canvas 72%, transparent)), url("./assets/liquid-glass-wallpaper.jpg");
+  background-size: cover;
+  background-position: center;
+}
