@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 #if DEBUG
 import CMUXDebugLog
@@ -72,7 +73,10 @@ public struct TerminalLinkRouter: Sendable {
             return .embeddedBrowser(webURL)
         }
 
-        if let parsed = URL(string: trimmed),
+        // Encode what the link can't carry first, so an existing `%2F` beside
+        // raw Unicode isn't encoded again to `%252F`.
+        let urlText = URLEscapePreservingEncoder().encode(trimmed)
+        if let parsed = URL(string: urlText),
            let scheme = parsed.scheme?.lowercased() {
             if scheme == "http" || scheme == "https" {
                 guard hostNormalizer.normalizedHost(parsed.host ?? "") != nil else {
@@ -105,7 +109,7 @@ public struct TerminalLinkRouter: Sendable {
             return .embeddedBrowser(webURL)
         }
 
-        guard let fallback = URL(string: trimmed) else {
+        guard let fallback = URL(string: urlText) else {
             #if DEBUG
             logDebugEvent("link.resolve result=nil (unparseable)")
             #endif

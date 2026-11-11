@@ -1,3 +1,4 @@
+import CmuxFoundation
 public import Foundation
 
 /// Resolves macOS browser omnibar text into a URL that can be loaded directly.
@@ -58,7 +59,7 @@ public struct BrowserURLResolver: Sendable {
             return schemeLessURL(scheme: "http", authorityText: trimmed)
         }
 
-        if let url = URL(string: trimmed), let scheme = url.scheme?.lowercased() {
+        if let url = parsedURL(trimmed), let scheme = url.scheme?.lowercased() {
             if scheme == "file", url.isFileURL, url.path.hasPrefix("/") {
                 return url
             }
@@ -80,7 +81,7 @@ public struct BrowserURLResolver: Sendable {
     /// schemes are handled by the browser's external-navigation paths rather
     /// than being loaded as typed omnibar destinations.
     private func explicitURL(from input: String) -> URL? {
-        guard let url = URL(string: input),
+        guard let url = parsedURL(input),
               let scheme = url.scheme?.lowercased() else {
             return nil
         }
@@ -164,7 +165,7 @@ public struct BrowserURLResolver: Sendable {
 
     private func webURL(from input: String) -> URL? {
         guard hasWhitespaceFreeAuthority(in: input),
-              let components = URLComponents(string: input),
+              let components = parsedComponents(input),
               let scheme = components.scheme?.lowercased(),
               scheme == "http" || scheme == "https",
               let host = components.host,
@@ -172,6 +173,21 @@ public struct BrowserURLResolver: Sendable {
             return nil
         }
         return components.url
+    }
+
+    /// Parses URL text without encoding its existing `%XX` escapes again.
+    ///
+    /// Foundation encodes a component holding raw Unicode as if none of it
+    /// were encoded, so `%2F` beside Japanese text became `%252F`.
+    /// ``URLEscapePreservingEncoder`` encodes what needs it first, the way a
+    /// browser does.
+    private func parsedURL(_ text: String) -> URL? {
+        URL(string: URLEscapePreservingEncoder().encode(text))
+    }
+
+    /// Parses URL components the way ``parsedURL(_:)`` parses a URL.
+    private func parsedComponents(_ text: String) -> URLComponents? {
+        URLComponents(string: URLEscapePreservingEncoder().encode(text))
     }
 
     /// Rejects whitespace that Foundation would otherwise encode inside URL userinfo.
@@ -220,7 +236,7 @@ public struct BrowserURLResolver: Sendable {
     /// no userinfo, and a host equal to the text's authority host. This keeps
     /// any parser disagreement from silently redirecting to another host.
     private func schemeLessURL(scheme: String, authorityText: String) -> URL? {
-        guard let components = URLComponents(string: "\(scheme)://\(authorityText)"),
+        guard let components = parsedComponents("\(scheme)://\(authorityText)"),
               components.percentEncodedUser == nil,
               components.percentEncodedPassword == nil,
               let host = components.percentEncodedHost,
@@ -233,7 +249,7 @@ public struct BrowserURLResolver: Sendable {
 
     private func isSchemeLessHostWithStructure(_ input: String) -> Bool {
         guard !input.contains("://"),
-              let components = URLComponents(string: "https://\(input)"),
+              let components = parsedComponents("https://\(input)"),
               let host = components.host,
               !host.isEmpty else {
             return false
