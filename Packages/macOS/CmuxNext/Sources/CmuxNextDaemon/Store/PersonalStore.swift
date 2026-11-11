@@ -176,6 +176,7 @@ extension DaemonStore {
     public var supportsPersonalMixedOrder: Bool { identity?.supports(DaemonCapability.personalMixedOrder.rawValue) ?? false }
 
     func applyPersonal(_ state: PersonalState?) {
+        if let state { print("store-debug: applyPersonal rev \(state.revision) rows \(state.workspaces.count) at \(ContinuousClock.now)") } else { print("store-debug: applyPersonal nil") }
         guard let state else {
             if personal.isLoaded { personal = PersonalStore() }
             if !profiles.isEmpty { profiles = [] }

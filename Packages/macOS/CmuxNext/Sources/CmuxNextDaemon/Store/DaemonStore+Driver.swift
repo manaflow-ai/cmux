@@ -280,6 +280,7 @@ extension DaemonStore {
     /// stayed stale until some later event needed another resync; without
     /// the budget a wedged daemon was asked for a snapshot every 2 s forever.
     func resync(seedAgents: Bool = false) {
+        print("store-debug: resync at \(ContinuousClock.now)")
         guard let driver, !isResyncing else { return }
         isResyncing = true
         // This snapshot is requested after every waiting `refresh()` call.
