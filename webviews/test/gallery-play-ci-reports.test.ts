@@ -5,6 +5,8 @@
 //
 // The reports are the ones CI printed for those failures, trimmed to the graded fields.
 import { describe, expect, test } from "bun:test";
+import { readdirSync, readFileSync } from "node:fs";
+import path from "node:path";
 import { playFailures, playNotice } from "./support/galleryPlay";
 
 /** Plays that did what they drive while the runner's timing failed or warned their grade. */
@@ -190,4 +192,25 @@ describe("a gallery play's notice", () => {
   test("is silent for a play that passed", () => {
     expect(playNotice("fine", JSON.stringify({ status: "pass", steps: [] }))).toBeUndefined();
   });
+});
+
+// The detector for this class: a behavior test that grades a gallery play by its status ("pass",
+// "fail") also grades the runner's frame timing, the status's long-frame and settle-latency part.
+// composer-emoji and secret-card did, and composer-emoji went red on base on a 52 ms frame after
+// one key press (run 42975891308); image-viewer-tab-row did until #41194. Such a test grades the
+// report with playFailures instead.
+test("no behavior test grades a gallery play by its status", () => {
+  const dir = import.meta.dir;
+  // A status compared to a word, or every step's problems taken whole (frame timing included).
+  const status = /(toBe|toEqual)\(\s*"(pass|fail|warn)"\s*\)|\bplay:\s*"(pass|fail|warn)"|step\.problems\)/;
+  const graders = readdirSync(dir, { recursive: true, encoding: "utf8" })
+    .filter((file) => /\.tsx?$/.test(file) && !file.startsWith(`support${path.sep}`))
+    .flatMap((file) => {
+      const source = readFileSync(path.join(dir, file), "utf8");
+      if (!source.includes("galleryPlay")) return [];
+      return source
+        .split("\n")
+        .flatMap((line, index) => (status.test(line) ? [`test/${file}:${index + 1}: ${line.trim()}`] : []));
+    });
+  expect(graders).toEqual([]);
 });

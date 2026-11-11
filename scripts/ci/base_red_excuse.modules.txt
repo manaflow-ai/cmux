@@ -7,10 +7,12 @@
 # broker's update_branch guard run) is re-archived from this list plus base_red_excuse.py itself.
 _vendor/yaml/
 app_ffi_pin.py
+base_red_guard_jobs.json
 base_red_rollups.json
 deadline_http.py
 gh_pages.py
 github_release_download.py
+glaeda_log.py
 main_fix_evidence.py
 risk_tier.py
 test_reds.py
