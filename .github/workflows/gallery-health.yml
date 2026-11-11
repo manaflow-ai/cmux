@@ -340,8 +340,14 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
+          # Each part in its own log group, so its time shows in the log and in the controller's
+          # /v1/github/job-groups: the step takes ~45 s a shard while bun install (~1.5 s) and touched.ts
+          # alone (~1.5 s on Linux) explain little of it (2026-11-11). Find the cost before cutting it.
           cd webviews
+          echo "::group::bun install"
           bun install --frozen-lockfile
+          echo "::endgroup::"
+          echo "::group::changed files"
           if [ "$EVENT" = pull_request ]; then
             # The merge's first parent is the base it was merged with: the diff is the pull request's change.
             git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed.txt"
@@ -354,8 +360,12 @@ jobs:
             # A new branch tip with no previous commit to compare: render everything.
             echo .github/workflows/gallery-health.yml > "$RUNNER_TEMP/changed.txt"
           fi
+          echo "$(wc -l < "$RUNNER_TEMP/changed.txt") changed files"
+          echo "::endgroup::"
           if [ -s "$RUNNER_TEMP/changed.txt" ]; then
+            echo "::group::touched entries"
             bun scripts/gallery/touched.ts --changed "$RUNNER_TEMP/changed.txt" --out "$RUNNER_TEMP/touched.json"
+            echo "::endgroup::"
             # The checker itself changed: render everything with it. So does a routed file no entry
             # imports (a theme, a font, a string catalog, a lockfile): it is global to every page, and
             # rendering nothing would pass with no verdict.
