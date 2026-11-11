@@ -62,9 +62,9 @@ async fn a_fork_onto_another_harness_carries_the_conversation_and_switches_back(
     assert_eq!(meta.harness, "other");
     assert_eq!(meta.family.as_deref(), Some("other"));
     assert_eq!(meta.parent_id.as_deref(), Some(parent.id.as_str()));
-    // Started before the reply, on its own agent session, not the parent's.
+    // Started before the reply, on its own agent session of the new harness.
     assert!(meta.agent_session_id.is_some());
-    assert_ne!(meta.agent_session_id, parent.meta().agent_session_id);
+    assert_eq!(meta.agent_session_family.as_deref(), Some("non-claude"));
     // The fork shows the chat's history.
     assert_eq!(prompts(&hub, &fork), vec!["PARENT-WORDS".to_owned()]);
     // Its first prompt gives the new agent the conversation.
