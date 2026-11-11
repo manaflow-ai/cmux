@@ -34,15 +34,17 @@ await requireBrowserLane("composer-hat-leave-fold.test.ts", async () => {
   }
 
   // How much of the leave's own length the stack must take from its full height to its final one.
-  // The copy folds on the house settle, cubic-bezier(0.16, 1, 0.3, 1), which is front-loaded: the 28 px
-  // hat is within 0.05 px (this file's tolerance) of its end 76.9% into the animation, 138.4 ms of the
-  // 180 ms, and the frame grid only adds to that (the last full frame is at or before the start, the
-  // first final frame at or after that point). So a fold that plays whole reads 138 ms or more at any
-  // refresh rate, and one cut short (the copy removed early, the jump this replaces) reads less. The
-  // bound was a literal 150 ms, which is what 60.0 Hz reads with no margin: 9 frames of 16.67 ms, as
-  // a sum of doubles 149.99999999999977 on Chromium, and 9 frames of 16.1 ms = 145 ms on the lane's
-  // WebKit, each a whole fold. A hat under 22 px would settle sooner than this share.
-  const FOLD_SHARE = 0.75;
+  // The copy folds on the house settle, cubic-bezier(0.16, 1, 0.3, 1), which is front-loaded: of the
+  // 28 px hat 0.121 px is left 70% into the animation (126 ms of the 180 ms) and 0.0625 px at 75.3%
+  // (135.5 ms). Layout heights are in 1/64 px steps, so a height reads "final" (within this file's
+  // 0.05 px) when less than 0.0625 px is left: a fold that plays whole reads 135.5 ms or more, and
+  // the frame grid only adds to that (the last full frame is at or before the start, the first final
+  // frame at or after that point). One cut short (the copy removed early, the jump this replaces)
+  // reads less. 70% leaves 9.5 ms for a frame time that the engine rounds. The bound was a literal
+  // 150 ms, which is what 60.0 Hz reads with no margin: 9 frames of 16.67 ms, as a sum of doubles
+  // 149.99999999999977 on Chromium, and 9 frames of 16.1 ms = 145 ms on the lane's WebKit, each a
+  // whole fold. A hat under 14.5 px would settle sooner than this share.
+  const FOLD_SHARE = 0.7;
   // Frame times are doubles: a span that equals the bound may read a few ulps under it.
   const CLOCK_SLACK_MS = 0.001;
 
