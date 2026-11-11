@@ -353,8 +353,15 @@ def crash_delta(base_tree: Path, head_tree: Path) -> list[str]:
     ratchet = _ratchet_module(head_tree)
     old, new = ratchet.scan_tree(str(base_tree), True), ratchet.scan_tree(str(head_tree), True)
     base_rows, head_rows = scan_rows(ratchet, old), scan_rows(ratchet, new)
+    # A counted row the candidate's own reviewed baseline allows is no new hit: the ratchet already
+    # passed it on feat-cmux-next. The stable build can sit under a row's baseline (a hit fixed, the
+    # baseline not lowered), and a reviewed hit added later brings it back to it: acpmux's
+    # parent-death exit(0), 4 -> 5 under a baseline of 5 (run 42918010143).
+    reviewed = ratchet.load_baseline(str(head_tree / "scripts/cmux-next/crash-safety-baseline.json"))
+    allowed = ratchet.baseline_rows(reviewed) if reviewed else {}
     found = []
-    risen = {row: n for row, n in head_rows.items() if row[0] != ratchet.WAIVED and n > base_rows.get(row, 0)}
+    risen = {row: n for row, n in head_rows.items()
+             if row[0] != ratchet.WAIVED and n > base_rows.get(row, 0) and n > allowed.get(row, 0)}
     if risen:
         allowance, _ = ratchet.carry_moves(base_rows, risen, ratchet.proven_moves(old, new))
         found += [f"{ratchet.row_label(row)}: {base_rows.get(row, 0)} -> {n}"
