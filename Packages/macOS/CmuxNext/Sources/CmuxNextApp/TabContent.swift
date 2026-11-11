@@ -44,11 +44,8 @@ enum TabContent {
         }
     }
 
-    /// Every kind of pane content; each follows its pane in every frame of a resize (`PaneContentFollowsPaneAllKindsTests`).
-    enum Kind: String, CaseIterable { case terminal, chromium, webkit, agent, page, placeholder, notice, conversation }
-
-    /// This content's kind (a timed tab switch reports its name, `debug.tab_switch`).
-    @MainActor var kind: Kind {
+    enum Kind: String, CaseIterable { case terminal, chromium, webkit, agent, page, placeholder, notice, conversation } // every kind of pane content
+    @MainActor var kind: Kind { // a timed tab switch reports its name (`debug.tab_switch`)
         switch self {
         case .terminal: .terminal
         case .browser(let entry): entry.tab.engineKind == .cef ? .chromium : .webkit
