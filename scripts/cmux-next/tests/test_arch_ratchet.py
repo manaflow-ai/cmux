@@ -1737,7 +1737,9 @@ class RatchetTests(Repo):
         orphan, recording, landed = self.orphaned_record()
         self.git("branch", "--force", "origin/feat-cmux-next", "upstream")
         result = ratchet.audit(self.repo)
+        self.assertTrue(result["orphaned"])
         self.assertEqual(result["anchored_at"], recording)
+        self.assertIn(f"--anchor {recording}", "\n".join(ratchet.audit_lines(result)))
         self.assertEqual([c["sha"] for c in result["over"]["stateful_singletons"]["raised_by"]], [landed[:11]])
 
     def test_an_exception_added_and_applied_in_one_push_passes_both_rules(self):

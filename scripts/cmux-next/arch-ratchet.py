@@ -1007,7 +1007,7 @@ def audit(repo: Path, rev: str = "HEAD") -> dict:
     counts = load_counts()
     sha, now, _ = counts.full_count(repo, rev)
     record = parse_record(counts.Git(repo).read([(sha, counts.RATCHET_JSON)])[(sha, counts.RATCHET_JSON)])
-    result = {"sha": sha, "recorded_sha": None, "anchored_at": None, "over": {}, "note": None,
+    result = {"sha": sha, "recorded_sha": None, "orphaned": False, "anchored_at": None, "over": {}, "note": None,
               "escapes": escape_audit(record, now.sites[ESCAPE_ROW], datetime.date.today().isoformat())}
     if record is None:
         result["note"] = f"no {counts.RATCHET_JSON} at {sha[:11]}"
@@ -1021,10 +1021,11 @@ def audit(repo: Path, rev: str = "HEAD") -> dict:
     over = {row.id: (record.get("totals", {}).get(row.id), totals[row.id]) for row in counts.ROWS if row.ratchet
             and isinstance(record.get("totals", {}).get(row.id), int) and totals[row.id] > record["totals"][row.id]}
     since = record.get("measured_sha")
-    if over and unreachable_record(repo, since, sha, UPSTREAM):
-        # An orphaned measured_sha names no commits: count from where --update would anchor (its first candidate).
-        since = next(iter(anchor_candidates(repo, since, UPSTREAM)), (None, ""))[0]
-        result["anchored_at"] = since
+    if unreachable_record(repo, since, sha, UPSTREAM):
+        # An orphaned measured_sha names no commits and refuses every --update: say so whether or not a row is over,
+        # and count from where --update would anchor (its first candidate).
+        result["orphaned"] = True
+        since = result["anchored_at"] = next(iter(anchor_candidates(repo, since, UPSTREAM)), (None, ""))[0]
     culprits = raised_by(repo, since, sha, set(over)) if over and since else {}
     for row_id, (was, n) in over.items():
         result["over"][row_id] = {"recorded": was, "now": n,
@@ -1036,6 +1037,11 @@ def audit_lines(result: dict) -> list[str]:
     escapes = [f"arch-ratchet audit at {result['sha'][:11]}: {ESCAPE_ROW} {line}" for line in result.get("escapes", [])]
     if result["note"]:
         return [f"arch-ratchet audit at {result['sha'][:11]}: {result['note']}"] + escapes
+    if result.get("orphaned"):
+        anchor = result.get("anchored_at")
+        escapes = [f"arch-ratchet audit at {result['sha'][:11]}: measured_sha {str(result['recorded_sha'])[:11]} is not "
+                   f"on {UPSTREAM} (a squash orphaned it), so --update refuses; rerun it with "
+                   + (f"--anchor {anchor}" if anchor else "an --anchor it names")] + escapes
     if not result["over"]:
         return [f"arch-ratchet audit at {result['sha'][:11]}: every ratcheted row is at or under arch-ratchet.json "
                 f"(recorded at {str(result['recorded_sha'])[:11]})"] + escapes
