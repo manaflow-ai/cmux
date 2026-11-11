@@ -53,7 +53,8 @@
 #           no other phone), the status bar overridden to 9:41 with full
 #           signal and battery (`simctl status_bar override`), and each shot
 #           checked to be the 6.9" display's portrait size (1320x2868 or
-#           1290x2796), or the step fails, e.g.
+#           1290x2796) and written without an alpha channel (png_opaque.py),
+#           or the step fails, e.g.
 #             --arg shots --arg appstore=iphone-6.9 --arg 01-home=-cmux-mobile-tab,home
 #   chief-live-perf / chief-live-perf-baseline
 #           Three Chief layout measurements on one simulator, reusing test
@@ -736,6 +737,9 @@ if [[ "$mode" == shots ]]; then
         size="$(sips -g pixelWidth -g pixelHeight "$out/screens/$name-$look.png" | awk '/pixelWidth/ { w = $2 } /pixelHeight/ { h = $2 } END { print w "x" h }')"
         [[ "$size" == 1320x2868 || "$size" == 1290x2796 ]] ||
           { note "- $name-$look: $size is not a 6.9\" iPhone portrait size (1320x2868 or 1290x2796)"; exit 1; }
+        # App Store Connect refuses an alpha channel; simctl writes RGBA even when every pixel is opaque.
+        python3 -I scripts/ci/png_opaque.py "$out/screens/$name-$look.png" ||
+          { note "- $name-$look: could not drop its alpha channel"; exit 1; }
       fi
     done
     note "- $name: screens/$name-dark.png, screens/$name-light.png"
