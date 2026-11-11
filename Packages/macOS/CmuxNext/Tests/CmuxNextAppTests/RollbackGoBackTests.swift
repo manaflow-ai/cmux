@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 @testable import CmuxNextUpdater
 import Testing
@@ -7,6 +8,9 @@ import Testing
 /// never forward; a kept build's record spares the click a whole-bundle signature check; a keep or
 /// swap cut short is tidied at launch.
 @Suite(.serialized) struct RollbackGoBackTests {
+    /// The Keychain key that signs records, in the app (``KeptRecordKey``).
+    static let key = SymmetricKey(size: .bits256)
+
     private static func scratch() throws -> URL {
         let root = FileManager.default.temporaryDirectory.appending(path: "RollbackGoBackTests-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -61,7 +65,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let full = Counter(), quick = Counter()
         let store = KeptVersionStore(root: root.appending(path: "versions"), teamID: { _ in full.add(); return "TEAM" },
-                                     quickTeamID: { _ in quick.add(); return "TEAM" })
+                                     quickTeamID: { _ in quick.add(); return "TEAM" }, recordKey: { Self.key })
         let app = root.appending(path: "a/cmux.app", directoryHint: .isDirectory)
         try Self.makeBundle(at: app, build: "100")
         try FileManager.default.createDirectory(at: app.appending(path: "Contents/Resources"), withIntermediateDirectories: true)
@@ -87,14 +91,14 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         let full = Counter()
         let store = KeptVersionStore(root: root.appending(path: "versions"), teamID: { _ in full.add(); return "TEAM" },
-                                     quickTeamID: { _ in "TEAM" })
+                                     quickTeamID: { _ in "TEAM" }, recordKey: { Self.key })
         let app = root.appending(path: "a/cmux.app", directoryHint: .isDirectory)
         try Self.makeBundle(at: app, build: "100")
         try store.keep(bundle: app, build: "100", limit: 2, record: KeptRecord(build: "100", teamID: "TEAM"), check: .later)
         #expect(full.value == 0)
         #expect(store.list(teams: false).first?.teamID == nil, "a team nobody checked is not recorded")
-        #expect(store.sealPending() == ["100"])
-        #expect(store.sealPending().isEmpty, "sealed once")
+        #expect(store.sealPending(runningBuild: "200") == ["100"])
+        #expect(store.sealPending(runningBuild: "200").isEmpty, "sealed once")
         let listed = try #require(store.list(teams: false).first)
         #expect(listed.teamID == "TEAM" && store.checkedTeam(of: listed) == "TEAM")
         #expect(full.value == 1)
@@ -105,7 +109,8 @@ import Testing
     @Test func aKeptBuildRunsOnceSoGoingBackIsNotItsFirstLaunch() async throws {
         let root = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: root) }
-        let store = KeptVersionStore(root: root.appending(path: "versions"), teamID: { _ in "TEAM" }, quickTeamID: { _ in "TEAM" })
+        let store = KeptVersionStore(root: root.appending(path: "versions"), teamID: { _ in "TEAM" }, quickTeamID: { _ in "TEAM" },
+                                     recordKey: { Self.key })
         let app = root.appending(path: "a/cmux.app", directoryHint: .isDirectory)
         try Self.makeBundle(at: app, build: "100")
         let cli = app.appending(path: "Contents/Resources/bin/cmux")
@@ -115,10 +120,10 @@ import Testing
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cli.path)
         try store.keep(bundle: app, build: "100", limit: 2, record: KeptRecord(build: "100", teamID: "TEAM"))
         let log = UpdateLogBuffer()
-        await KeptWarmup.warmPending(store: store, log: log, running: "OTHER")
-        #expect(!FileManager.default.fileExists(atPath: runs.path), "a build signed by another team never runs")
-        await KeptWarmup.warmPending(store: store, log: log, running: "TEAM")
-        await KeptWarmup.warmPending(store: store, log: log, running: "TEAM")
+        await KeptWarmup.warmPending(store: store, log: log, runningBuild: "199", running: "OTHER")
+        #expect(!FileManager.default.fileExists(atPath: runs.path), "a build signed by another team never runs (and the next build tries again)")
+        await KeptWarmup.warmPending(store: store, log: log, runningBuild: "200", running: "TEAM")
+        await KeptWarmup.warmPending(store: store, log: log, runningBuild: "200", running: "TEAM")
         let ran = try String(contentsOf: runs, encoding: .utf8).split(separator: "\n")
         #expect(ran.count == 1, "runs once, and the record says so")
         let listed = try #require(store.list(teams: false).first)

@@ -33,8 +33,10 @@ extension UpdaterService {
     public var keptVersions: KeptVersionStore {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         let root = support.appending(path: "cmux-next/\(identity.bundleIdentifier ?? "cmux")/versions", directoryHint: .isDirectory)
+        let bundleIdentifier = identity.bundleIdentifier ?? "cmux", keys = keptRecordKeys
         return KeptVersionStore(root: root, teamID: { UpdateDropBack.signingTeam(of: $0) },
-                                quickTeamID: { UpdateDropBack.quickSigningTeam(of: $0) })
+                                quickTeamID: { UpdateDropBack.quickSigningTeam(of: $0) },
+                                recordKey: { keys.key(bundleIdentifier: bundleIdentifier) })
     }
 
     /// What is known about the running build when it is kept: its team (the running code's own,
@@ -85,7 +87,7 @@ extension UpdaterService {
             // The kept copy's own CLI runs once now (KeptWarmup): macOS checks a new bundle's code on
             // its first launch (3.4 s for a NIGHTLY clone), so going back to it later does not; its
             // answer is the stores the copy reads when its Info.plist does not say.
-            if kept { await KeptWarmup.warm(store: store, build: build, log: log) }
+            if kept { await KeptWarmup.warm(store: store, build: build, log: log, runningBuild: build) }
             self?.keptRunningBuild = kept ? .kept : nil
         }
     }
@@ -183,16 +185,16 @@ extension UpdaterService {
         let picked = defaults.string(forKey: Self.pickedBuildKey)
         if picked != nil && picked != identity.build { defaults.removeObject(forKey: Self.pickedBuildKey) }
         controller?.asksBeforeInstalling = picked == identity.build
-        let store = keptVersions, bundle = Bundle.main.bundleURL, log = log, work = work
+        let store = keptVersions, bundle = Bundle.main.bundleURL, log = log, work = work, running = identity.build
         // task-owner: a launch tidy that ends by itself; nobody waits on it.
         Task(priority: WorkPriority.bestEffort.taskPriority) { [weak self] in
             let tidied = (try? await work.run(.bestEffort, mayBlock: .files) {
-                RollbackSwap.recover(current: bundle, store: store) + store.sweep() + store.sealPending().map { "sealed \($0)" }
+                RollbackSwap.recover(current: bundle, store: store) + store.sweep() + store.sealPending(runningBuild: running).map { "sealed \($0)" }
             }) ?? []
             if !tidied.isEmpty { log.append("rollback: tidied what a cut-short keep or swap left: \(tidied.joined(separator: ", "))") }
             // A keep made at a click, or one whose first run a quit cut short, runs once now.
             await self?.refreshRevertOffer()
-            await KeptWarmup.warmPending(store: store, log: log)
+            await KeptWarmup.warmPending(store: store, log: log, runningBuild: running)
         }
     }
 

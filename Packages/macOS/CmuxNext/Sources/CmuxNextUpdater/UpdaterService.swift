@@ -121,6 +121,8 @@ public final class UpdaterService {
     public internal(set) var buildSwitchProgress: BuildSwitchProgress?
     /// A switch or rollback runs (``UpdateDropBack``): a second one from any entry point is refused.
     @ObservationIgnored var switchRunning = false
+    /// The Keychain key that signs kept-build records (KeptRecordKey), read once.
+    @ObservationIgnored let keptRecordKeys = KeptRecordKey()
     /// The running bundle's keep for rollback (``keepRunningBuildForRollback()``).
     @ObservationIgnored var keptRunningBuild: KeepState?
     @ObservationIgnored var keepTask: Task<Void, Never>?

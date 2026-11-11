@@ -11,35 +11,47 @@ import Foundation
 /// answer is the stores the copy reads, kept in its record when its Info.plist does not say.
 nonisolated enum KeptWarmup {
     /// `@concurrent`: the list and the record are file I/O, off the caller's actor.
-    @concurrent static func warm(store: KeptVersionStore, build: String, log: UpdateLogBuffer,
+    /// A build whose code does not run (its team does not check, or its CLI fails) is recorded as
+    /// failed by `runningBuild`, and ``warmPending(store:log:runningBuild:running:)`` does not try it
+    /// again until another build runs.
+    @concurrent static func warm(store: KeptVersionStore, build: String, log: UpdateLogBuffer, runningBuild: String,
                                  running: String? = UpdateDropBack.runningTeam) async {
         guard let kept = store.list(teams: false).first(where: { $0.build == build }) else { return }
         // Its code runs only once its signature is this app's team (the seal makes that quick): a
         // kept bundle changed on disk never runs code as the app.
         guard let running, store.checkedTeam(of: kept) == running else {
             log.append("kept \(build): not run, its signature is not this app's")
-            return
+            return failed(kept, by: runningBuild, log: log)
         }
         let started = ContinuousClock.now
         let schemas = await StoreSchemaProbe(bundle: kept.bundle).readable()
         log.append("kept \(build): first run of its code took \(ContinuousClock.now - started)")
         // An answer means its code ran. Recorded beside the bundle, not in it: the seal is untouched
         // (the run changes no file's ctime either).
-        guard let schemas else { return }
+        guard let schemas else { return failed(kept, by: runningBuild, log: log) }
         let file = kept.bundle.deletingLastPathComponent().appending(path: KeptVersionStore.recordName)
         guard var record = KeptRecord.read(from: file) else { return }
         record.warmed = true
+        record.warmFailedBy = nil
         if record.storeSchemas == nil, kept.storeSchemas == nil { record.storeSchemas = schemas }
         do { try record.save(to: file) } catch { log.append("kept \(build): could not record its first run: \(error)") }
     }
 
     /// Runs each kept build whose code has not run since it was kept: a keep made at a click, or
     /// one whose run a quit cut short (Restart to Update right after the update staged). At launch.
-    @concurrent static func warmPending(store: KeptVersionStore, log: UpdateLogBuffer,
+    @concurrent static func warmPending(store: KeptVersionStore, log: UpdateLogBuffer, runningBuild: String,
                                         running: String? = UpdateDropBack.runningTeam) async {
         let pending = store.list(teams: false).filter { kept in
-            KeptRecord.read(from: kept.bundle.deletingLastPathComponent().appending(path: KeptVersionStore.recordName))?.warmed != true
+            let record = KeptRecord.read(from: kept.bundle.deletingLastPathComponent().appending(path: KeptVersionStore.recordName))
+            return record?.warmed != true && record?.warmFailedBy != runningBuild
         }
-        for kept in pending { await warm(store: store, build: kept.build, log: log, running: running) }
+        for kept in pending { await warm(store: store, build: kept.build, log: log, runningBuild: runningBuild, running: running) }
+    }
+
+    private static func failed(_ kept: KeptVersion, by runningBuild: String, log: UpdateLogBuffer) {
+        let file = kept.bundle.deletingLastPathComponent().appending(path: KeptVersionStore.recordName)
+        var record = KeptRecord.read(from: file) ?? KeptRecord(build: kept.build)
+        record.warmFailedBy = runningBuild
+        do { try record.save(to: file) } catch { log.append("kept \(kept.build): could not record its failed run: \(error)") }
     }
 }
