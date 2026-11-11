@@ -41,12 +41,48 @@ const JOURNAL_LSN_KEY: &str = "journalLsn";
 /// JSON reader may keep a number only to 2^53).
 const JOURNAL_ID_KEY: &str = "journalId";
 
-/// Tests: a `settle_meta` of the chat this names stops right after it read the chat's image,
-/// says so on the first channel and waits for the second.
 #[cfg(test)]
 type SettleHold = (String, std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>);
+
+/// Tests: a `settle_meta` of the chat this names stops right after it read the chat's image,
+/// says so on the first channel and waits for the second. Only [`on_settle_hold`] sets it.
+///
+/// One per process, not per thread: the settle it stops runs on another thread than the test's.
+/// So [`on_settle_hold`] holds [`SETTLE_HOLD_TEST`] until its guard drops, and a second test's
+/// hold waits for the first instead of replacing or clearing it before its settle ran.
+// test-hook-allow: serialized by SETTLE_HOLD_TEST, held by on_settle_hold until its guard drops
 #[cfg(test)]
-pub(crate) static SETTLE_HOLD: std::sync::Mutex<Option<SettleHold>> = std::sync::Mutex::new(None);
+static SETTLE_HOLD: std::sync::Mutex<Option<SettleHold>> = std::sync::Mutex::new(None);
+/// The tests that hold a settle run one at a time ([`SETTLE_HOLD`]).
+#[cfg(test)]
+static SETTLE_HOLD_TEST: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// The hold [`on_settle_hold`] set; dropping it takes the hold off and lets the next test's in.
+#[cfg(test)]
+pub(crate) struct SettleHoldGuard {
+    _serial: std::sync::MutexGuard<'static, ()>,
+}
+
+#[cfg(test)]
+impl Drop for SettleHoldGuard {
+    fn drop(&mut self) {
+        SETTLE_HOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
+    }
+}
+
+/// Stops the next settle of `chat` right after it read the chat's image: it sends on `arrived`
+/// and waits on `release`. Waits for another test's hold to end first.
+#[cfg(test)]
+pub(crate) fn on_settle_hold(
+    chat: &str,
+    arrived: std::sync::mpsc::Sender<()>,
+    release: std::sync::mpsc::Receiver<()>,
+) -> SettleHoldGuard {
+    let serial = SETTLE_HOLD_TEST.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    *SETTLE_HOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+        Some((chat.to_owned(), arrived, release));
+    SettleHoldGuard { _serial: serial }
+}
 
 /// Tests: the stop of [`SETTLE_HOLD`].
 #[cfg(test)]

@@ -498,8 +498,7 @@ fn a_late_settle_never_writes_an_older_image_over_a_checkpointed_one() {
     assert!(store.wait_durable(WAIT).unwrap_or_else(|e| panic!("{e:#}")), "never durable");
     let (arrived_tx, arrived) = std::sync::mpsc::channel();
     let (release, release_rx) = std::sync::mpsc::channel();
-    *super::journal_store::SETTLE_HOLD.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-        Some((SETTLED.to_owned(), arrived_tx, release_rx));
+    let hold = super::journal_store::on_settle_hold(SETTLED, arrived_tx, release_rx);
     let late = {
         let store = Arc::clone(&store);
         std::thread::spawn(move || store.session_dir(SETTLED))
@@ -515,6 +514,7 @@ fn a_late_settle_never_writes_an_older_image_over_a_checkpointed_one() {
     store.save(&meta(SETTLED, "three", 0)).unwrap_or_else(|e| panic!("{e:#}"));
     release.send(()).unwrap_or_else(|e| panic!("{e}"));
     let _dir = late.join().unwrap_or_else(|_| panic!("the late settle panicked"));
+    drop(hold);
     // A kill now: "three" is lost, "two" was acknowledged.
     let killed = journal.restart(Crash::Process);
     killed.set_sync_delay(Duration::ZERO);
