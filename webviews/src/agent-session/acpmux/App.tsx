@@ -162,6 +162,7 @@ import { useComposerKeyboard } from "./composerFocus";
 import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { type AutomationCompose, pageAction } from "./automation";
 import { acpWire } from "./wire";
+import { chatPerfCapture } from "./chatPerfCapture";
 import { acpmuxPerf } from "./perf";
 import { reconciledProject, startFromContext } from "./newtab/startHint";
 import { useSameValue } from "./session-info/sameValue";
@@ -850,6 +851,9 @@ declare global {
       /// A design mode highlight from a browser pane (CmuxNextAgentPane AgentPaneDesignSelection):
       /// its chips join the composer and go with the next message (designSelection.ts).
       designSelection?(selection: unknown): void;
+      /// `cmux app chat perf` (the app's `agent.chat.perf`, every build): frames, long tasks,
+      /// layout shift and each arriving record's time to paint for `seconds` (chatPerfCapture.ts).
+      perfCapture?(options: { seconds?: unknown }): Promise<Record<string, unknown>>;
     };
     cmuxAcpmuxRegistry?: {
       register(
@@ -7072,6 +7076,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     };
     window.cmuxAcpmuxBridge = {
       toggleInspector,
+      perfCapture: (options) => chatPerfCapture.capture(options),
       lastCodeBlock: () => lastCodeBlock(snapshotRef.current?.rows ?? []) ?? null,
       conversationMarkdown: async () => {
         const client = directClient.current;
