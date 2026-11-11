@@ -172,9 +172,11 @@ locked_version() { # package-dir name
 }
 # Temporary files and a held install lock go away however the hook ends.
 RUSTFMT_DEFAULTS=""
+BOOTSTRAP_LOG=""
+BUN_PIN=""
 HELD_LOCK=""
 cleanup() {
-    rm -f "${RUSTFMT_DEFAULTS:-}"
+    rm -f "${RUSTFMT_DEFAULTS:-}" "${BOOTSTRAP_LOG:-}"
     release_install_lock
 }
 # Removes the lock only while it is still ours: a hook that ran past the
@@ -237,6 +239,76 @@ web_packages_stale() { # package-dir
     return 1
 }
 
+# The bun and npm the install below runs, by absolute path. webviews/package.json
+# devEngines pins bun's version (scripts/check-webviews-bun-version.sh enforces
+# it): a bun at exactly that version, from mise, asdf, PATH or ~/.bun, comes
+# first; otherwise PATH's bun. Read as data, never run from the checkout.
+pinned_bun_version() {
+    sed -n '/"devEngines"/,/}/p' "$REPO_ROOT/webviews/package.json" 2>/dev/null \
+        | sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' | head -n 1
+}
+absolute_tool() { # name -> its absolute path on PATH, or nothing
+    local found
+    found="$(command -v "$1" 2>/dev/null)" || return 1
+    [[ "$found" == /* ]] || found="$(cd "$(dirname "$found")" && pwd -P)/${found##*/}"
+    [[ -x "$found" ]] && printf '%s\n' "$found"
+}
+# Every bun and npm call runs through tool_env: BUN_OPTIONS is the caller's,
+# and bun prepends it to every command line, so a `--preload PATH` there made
+# `bun install` fail with 'Script not found "install"' and no vp got installed.
+tool_env() {
+    env -u BUN_OPTIONS "$@"
+}
+resolve_bun() {
+    local want candidate path_bun
+    want="$(pinned_bun_version)"
+    path_bun="$(absolute_tool bun || true)"
+    if [[ -n "$want" ]]; then
+        for candidate in \
+            "${MISE_DATA_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/mise}/installs/bun/$want/bin/bun" \
+            "${ASDF_DATA_DIR:-$HOME/.asdf}/installs/bun/$want/bin/bun" \
+            "$path_bun" \
+            "${BUN_INSTALL:-$HOME/.bun}/bin/bun"; do
+            [[ -n "$candidate" && -x "$candidate" ]] || continue
+            if [[ "$(tool_env "$candidate" --version 2>/dev/null || true)" == "$want" ]]; then
+                printf '%s\n' "$candidate"
+                return 0
+            fi
+        done
+    fi
+    [[ -n "$path_bun" ]] && printf '%s\n' "$path_bun"
+}
+# Runs an install step in a package directory with its output kept. When it
+# fails, prints what ran and with which tool, so a broken bootstrap is never
+# just "vp is unavailable".
+bootstrap_run() { # package-dir tool args...
+    local dir="$1" status=0 version
+    shift
+    BOOTSTRAP_LOG="${BOOTSTRAP_LOG:-$(mktemp "${TMPDIR:-/tmp}/cmux-pre-commit-install.XXXXXX")}"
+    (cd "$dir" && tool_env "$@") >"$BOOTSTRAP_LOG" 2>&1 || status=$?
+    (( status != 0 )) || return 0
+    version="$(tool_env "$1" --version 2>&1 | head -n 1 || true)"
+    {
+        echo "pre-commit: install failed in $dir (exit $status)"
+        echo "pre-commit:   command: env -u BUN_OPTIONS $*"
+        echo "pre-commit:   argv[0]: $1"
+        echo "pre-commit:   $1 --version: ${version:-no output}${BUN_PIN:+ (webviews/package.json pins bun $BUN_PIN)}"
+        if [[ -n "${BUN_OPTIONS:-}" ]]; then
+            echo "pre-commit:   BUN_OPTIONS: set (removed for this command)"
+        else
+            echo "pre-commit:   BUN_OPTIONS: not set"
+        fi
+        if [[ -n "${NODE_OPTIONS:-}" ]]; then
+            echo "pre-commit:   NODE_OPTIONS: set"
+        else
+            echo "pre-commit:   NODE_OPTIONS: not set"
+        fi
+        echo "pre-commit:   last lines of its output:"
+        tail -n 20 "$BOOTSTRAP_LOG" | sed 's/^/pre-commit:     /'
+    } >&2
+    return "$status"
+}
+
 if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
     for package in "${WEB_PACKAGES[@]}"; do
         PACKAGE_PATHS=()
@@ -261,17 +333,18 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 && ! SKIP_FORMATTERS )); then
                     [[ ! -x "$PACKAGE_DIR/node_modules/.bin/vp" && -d "$INSTALL_LOCK" ]] || break
                     sleep 1
                 done
-            elif [[ -f "$PACKAGE_DIR/bun.lock" ]] && command -v bun >/dev/null 2>&1; then
-                echo "pre-commit: installing $package packages for vp (bun install --frozen-lockfile --ignore-scripts)" >&2
-                (cd "$PACKAGE_DIR" && bun install --frozen-lockfile --ignore-scripts >/dev/null 2>&1) || true
+            elif [[ -f "$PACKAGE_DIR/bun.lock" ]] && BUN_BIN="$(resolve_bun)" && [[ -n "$BUN_BIN" ]]; then
+                BUN_PIN="$(pinned_bun_version)"
+                echo "pre-commit: installing $package packages for vp ($BUN_BIN install --frozen-lockfile --ignore-scripts)" >&2
+                bootstrap_run "$PACKAGE_DIR" "$BUN_BIN" install --frozen-lockfile --ignore-scripts || true
                 if [[ "$package" == webviews ]]; then
                     # --ignore-scripts skips the postinstall that writes the pages' strings tables (build
                     # output since #21946); write them so a later typecheck in this checkout finds them.
-                    (cd "$PACKAGE_DIR" && bun scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1) || true
+                    (cd "$PACKAGE_DIR" && tool_env "$BUN_BIN" scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1) || true
                 fi
-            elif [[ -f "$PACKAGE_DIR/package-lock.json" ]] && command -v npm >/dev/null 2>&1; then
-                echo "pre-commit: installing $package packages for vp (npm ci --ignore-scripts)" >&2
-                (cd "$PACKAGE_DIR" && npm ci --ignore-scripts --no-audit --no-fund >/dev/null 2>&1) || true
+            elif [[ -f "$PACKAGE_DIR/package-lock.json" ]] && NPM_BIN="$(absolute_tool npm)"; then
+                echo "pre-commit: installing $package packages for vp ($NPM_BIN ci --ignore-scripts)" >&2
+                bootstrap_run "$PACKAGE_DIR" "$NPM_BIN" ci --ignore-scripts --no-audit --no-fund || true
             fi
             [[ "$HELD_LOCK" != "$INSTALL_LOCK" ]] || release_install_lock
         fi
