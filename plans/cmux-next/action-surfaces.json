@@ -61964,7 +61964,7 @@
     },
     {
       "name" : "bookmarkFolder",
-      "source" : "CmuxNextBookmarks\/Page\/BookmarksBarPage.swift"
+      "source" : "CmuxNextBookmarks\/UI\/BookmarkFolderMenu.swift"
     },
     {
       "name" : "titlebarHistory",

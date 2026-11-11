@@ -37,6 +37,7 @@ final class BookmarkService {
     @ObservationIgnored var fetching: [String: Task<Void, Never>] = [:]
     @ObservationIgnored var homeObservation: Task<Void, Never>?
     @ObservationIgnored var barObservation: Task<Void, Never>?
+    @ObservationIgnored var faviconObservation: Task<Void, Never>?
     /// Stored folder icons a bar drew the folder symbol for while they load (``followFolderIcons()``).
     var awaitedFolderIcons: Set<String> = []
     @ObservationIgnored var folderIconObservation: Task<Void, Never>?
@@ -52,15 +53,14 @@ final class BookmarkService {
 
     final class WeakChrome {
         weak var entry: BrowserEntry?
-        let bar: BookmarksBarHostView
-        init(entry: BrowserEntry, bar: BookmarksBarHostView) {
+        let bar: BookmarksBarView
+        let source: BookmarkBarSourceAdapter
+        init(entry: BrowserEntry, bar: BookmarksBarView, source: BookmarkBarSourceAdapter) {
             self.entry = entry
             self.bar = bar
+            self.source = source
         }
     }
-
-    /// The pages of the bookmarks bars on screen, lent to the tab whose bar is in a window.
-    @ObservationIgnored lazy var barPages = BookmarksBarPages { [weak self] in self?.services.bookmarksBarPage() }
 
     init(services: AppServices) {
         self.services = services
