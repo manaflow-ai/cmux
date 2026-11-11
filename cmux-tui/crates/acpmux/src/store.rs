@@ -20,6 +20,8 @@ mod compact;
 pub use compact::{CompactMode, Compaction, Staged};
 mod deferred;
 pub use deferred::{Deferral, Keep};
+mod cold;
+pub use cold::{COLD_FILE, ColdStats, RehydrateHook, StagedCold};
 mod superseded;
 pub use superseded::{Superseded, starts_prompt};
 mod kind_index;
@@ -29,6 +31,8 @@ pub use fork_view::{
     ForkView, HISTORY_KINDS, HistoryFence, HistoryRef, HistoryWriter, fence_history,
     folder_to_replace,
 };
+mod meta_parts;
+pub use meta_parts::PARTS_FILE;
 mod shared_value;
 mod text_index;
 pub use shared_value::SharedValue;
@@ -322,8 +326,9 @@ pub struct SessionMeta {
     pub usage_limits: Option<Value>,
     /// The agent's newest `available_commands_update` (its slash commands), so
     /// opening a chat names them without reading its log back to the start,
-    /// where an agent lists them once (perf100).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// where an agent lists them once (perf100). Kept in `session.parts.json`, not
+    /// `session.json` (`store/meta_parts.rs`): every other metadata save leaves it unwritten.
+    #[serde(default, skip_serializing_if = "meta_parts::skip_commands")]
     pub available_commands: Option<Value>,
     /// Last goal reported by the harness. Codex owns its persistence and continuation.
     #[serde(
@@ -455,8 +460,13 @@ pub struct SessionMeta {
     /// minimap; `hub/bookmarks.rs`). A fork renumbers its copies; a move keeps the log's seqs.
     #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
     pub bookmarks: BTreeSet<u64>,
-    /// The tools the chat has (`hub/tools.rs`).
-    #[serde(default, skip_serializing_if = "ToolInventory::is_empty")]
+    /// The tools the chat has (`hub/tools.rs`). Its rows are kept in `session.parts.json`, as
+    /// `available_commands` is (`store/meta_parts.rs`).
+    #[serde(
+        default,
+        skip_serializing_if = "meta_parts::skip_tools",
+        serialize_with = "meta_parts::tools_without_rows"
+    )]
     pub tools: ToolInventory,
     /// Initial branch (session/new or fork; git_state.rs), never updated: it joins the
     /// session to its PR (hq#1920). None outside a repository or on detached HEAD.
@@ -536,6 +546,37 @@ pub struct SessionMeta {
     /// parent's do. Never copied to a fork.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delegator: Option<String>,
+    /// The chat's log is in its cold archive (`hub/cold_archive.rs`, `store/cold.rs`): what the
+    /// chat list shows of it without opening the archive. Cleared when the log comes back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cold: Option<ColdPreview>,
+}
+
+/// A cold-archived chat's preview, kept in `session.json` (`SessionMeta::cold`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ColdPreview {
+    /// Unix milliseconds.
+    pub archived_at: u64,
+    /// The prompts and replies its log held.
+    pub messages: u64,
+    /// The log's bytes on the disk before, and the archive's.
+    pub bytes_before: u64,
+    pub bytes_after: u64,
+    /// Its last few messages, oldest first, each cut short.
+    #[serde(default)]
+    pub last: Vec<PreviewMessage>,
+}
+
+/// One message of a [`ColdPreview`].
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewMessage {
+    /// `user`, `assistant` or `tool`.
+    pub role: String,
+    pub text: String,
+    /// Unix milliseconds.
+    pub at: u64,
 }
 
 /// The turn whose auth evidence a credential replacement made obsolete. It proves a change,
@@ -875,10 +916,47 @@ pub struct Tag {
 pub const META_SCHEMA: &str = "acpmux.session.v1";
 
 pub fn now_ms() -> u64 {
-    std::time::SystemTime::now()
+    let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+        .unwrap_or(0);
+    #[cfg(test)]
+    let now = now + test_clock::ahead_ms();
+    now
+}
+
+/// Compressed time for tests (`stress/`): this thread's [`now_ms`] runs ahead of the wall clock
+/// by what it was moved, so a day of timestamps passes in a loop. Other threads see wall time.
+#[cfg(test)]
+pub(crate) mod test_clock {
+    use std::cell::Cell;
+
+    thread_local!(static AHEAD_MS: Cell<u64> = const { Cell::new(0) });
+    thread_local!(static FOLLOW: Cell<Option<tokio::time::Instant>> = const { Cell::new(None) });
+
+    pub(crate) fn ahead_ms() -> u64 {
+        let followed = FOLLOW.with(Cell::get).map_or(0, |origin| origin.elapsed().as_millis());
+        AHEAD_MS.with(Cell::get) + followed as u64
+    }
+
+    /// Moves this thread's clock `ms` ahead. With `follow_tokio` on, this is the computer
+    /// sleeping: the wall clock runs ahead of the monotonic one (`peer_link::SleepWatch`).
+    pub(crate) fn advance(ms: u64) {
+        AHEAD_MS.with(|a| a.set(a.get() + ms));
+    }
+
+    /// From now on this thread's wall clock moves with tokio's, so a test under
+    /// `start_paused` runs a day of wall-clock rules (a peer parked after a day down) in
+    /// milliseconds, with the wall and monotonic clocks in step as on an awake computer.
+    pub(crate) fn follow_tokio() {
+        FOLLOW.with(|f| f.set(Some(tokio::time::Instant::now())));
+    }
+
+    /// Back to the real wall clock.
+    pub(crate) fn reset() {
+        AHEAD_MS.with(|a| a.set(0));
+        FOLLOW.with(|f| f.set(None));
+    }
 }
 
 pub trait Store: Send + Sync {
@@ -1091,6 +1169,30 @@ pub trait Store: Send + Sync {
     fn commit_compaction(&self, _id: &str, _staged: Staged) -> Result<bool> {
         Ok(false)
     }
+    /// Writes a cold archive of `id`'s log beside it and checks it (`store/cold.rs`); None
+    /// without a log to archive, or for a store that keeps none.
+    fn stage_cold(&self, _id: &str) -> Result<Option<StagedCold>> {
+        Ok(None)
+    }
+    /// Puts `staged` in place of the log, unless the log changed since (false). The caller holds
+    /// the chat's append lock.
+    fn commit_cold(&self, _id: &str, _staged: StagedCold) -> Result<bool> {
+        Ok(false)
+    }
+    /// Puts a cold-archived chat's log back; false when it was not archived. Any read of the log
+    /// does this on its own; the hub calls it to open a chat on purpose.
+    fn rehydrate(&self, _id: &str) -> Result<bool> {
+        Ok(false)
+    }
+    /// The chat's log is in its cold archive. A few `lstat`s, no read.
+    fn is_cold(&self, _id: &str) -> bool {
+        false
+    }
+    /// Called with a chat's id each time its log comes back from its cold archive, on any path
+    /// (a read, an append, a fork's history): the hub drops the chat's preview
+    /// (`hub/cold_archive.rs`). Called inside the store's own locks: it must take none of its
+    /// own that a store caller may hold. Set once.
+    fn on_rehydrate(&self, _hook: RehydrateHook) {}
     fn delete(&self, id: &str) -> Result<()>;
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
@@ -1191,6 +1293,7 @@ mod journal_store;
 #[cfg(test)]
 pub(crate) use journal_store::open_with_journal;
 mod log_sync;
+pub mod open_logs;
 #[cfg(test)]
 pub(crate) use journal_store::pause_next_log_write_on_this_thread;
 pub(crate) use log_sync::SyncFailed;
@@ -1206,6 +1309,8 @@ pub struct LocalStore {
     root: PathBuf,
     segment_bytes: u64,
     writers: Mutex<Writers>,
+    /// The most logs held open ([`open_logs`]).
+    open_logs: usize,
     /// Read-held by every write, true once `seal` ran: a write either lands before the seal
     /// returns or not at all.
     sealed: std::sync::RwLock<bool>,
@@ -1214,20 +1319,23 @@ pub struct LocalStore {
     sync_failed: std::sync::atomic::AtomicBool,
     /// [`Store::unlisted`]: folders whose `session.json` is there and did not read.
     unlisted: Mutex<std::collections::BTreeSet<String>>,
+    /// Held by a cold archive's commit and by a rehydrate (`store/cold.rs`), always after the
+    /// writers' lock when both are taken: two reads of an archived chat rehydrate it once.
+    cold: Mutex<()>,
+    /// [`Store::on_rehydrate`].
+    rehydrate_hook: std::sync::OnceLock<RehydrateHook>,
+    /// The parts files written or read (`store/meta_parts.rs`).
+    parts: meta_parts::PartsMemo,
 }
 
-/// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
-/// is closed for a new one. A daemon held one descriptor per session it wrote
-/// since it started, closed ones too, and ran out (cmux16, 2026-10-22: 193 of
-/// its 256, every agent start failing with "Too many open files").
+/// The logs held open, at most `LocalStore::open_logs` (`store/open_logs.rs`): the least
+/// recently written one is closed for a new one.
 #[derive(Default)]
 struct Writers {
     open: HashMap<String, SegmentWriter>,
     /// Counts appends; a writer's `used` is the count at its last one.
     clock: u64,
 }
-
-const OPEN_LOGS: usize = 64;
 
 struct SegmentWriter {
     index: u32,
@@ -1238,7 +1346,7 @@ struct SegmentWriter {
 
 impl SegmentWriter {
     /// Closes the log, durable first as `flush` would have made it. Called under the
-    /// writers' lock, so the cache never holds more than [`OPEN_LOGS`] and a session's
+    /// writers' lock, so the cache never holds more than `open_logs` and a session's
     /// records stay in order. A failed sync is logged and noted in `failed`: its records were
     /// written (an append is never synced on its own), so only a machine crash before the kernel
     /// writes them back loses them, as it would any append since the last `flush`.
@@ -1260,9 +1368,13 @@ impl LocalStore {
             root,
             segment_bytes: segment_bytes.max(64 * 1024),
             writers: Mutex::new(Writers::default()),
+            open_logs: open_logs::now(),
             sealed: Default::default(),
             sync_failed: Default::default(),
             unlisted: Default::default(),
+            cold: Default::default(),
+            rehydrate_hook: Default::default(),
+            parts: Default::default(),
         })
     }
 
@@ -1279,7 +1391,22 @@ impl LocalStore {
         self.root.join(id)
     }
 
+    /// The log's segments, oldest first. A cold-archived chat's log is rehydrated first
+    /// (`store/cold.rs`): only a chat with no segment pays for the look, one `lstat` and a second
+    /// listing. The listing is taken again whatever `rehydrate` answers: another thread's
+    /// rehydrate may have put the log back since the first, and this one then answers false
+    /// (review of #39141: an append went on in `000001` of a log that ran on past it).
     fn segments(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
+        let segments = self.segment_files(id)?;
+        if segments.is_empty() {
+            self.rehydrate(id)?;
+            return self.segment_files(id);
+        }
+        Ok(segments)
+    }
+
+    /// The segments on the disk now, never rehydrated.
+    fn segment_files(&self, id: &str) -> Result<Vec<(u32, PathBuf)>> {
         let dir = self.dir(id).join("events");
         let mut out = Vec::new();
         let Ok(rd) = std::fs::read_dir(&dir) else {
@@ -1324,7 +1451,8 @@ impl LocalStore {
             return Ok(None);
         }
         match serde_json::from_str::<SessionMeta>(&text) {
-            Ok(meta) => {
+            Ok(mut meta) => {
+                self.parts.merge(&session, text.as_bytes(), &mut meta);
                 self.mark_unlisted(&id, false);
                 Ok(Some(meta))
             }
@@ -1367,11 +1495,14 @@ impl LocalStore {
     /// chat's log however little of it stays. Every session the hub creates logs `created`
     /// right after its first save, so a record without a log is a purged session's that a
     /// late save wrote back.
+    /// A cold archive (`store/cold.rs`) is a log too, and is not opened.
     fn has_records(&self, id: &str) -> Result<bool> {
-        if std::fs::symlink_metadata(self.marker(id)).is_ok() {
+        if std::fs::symlink_metadata(self.marker(id)).is_ok()
+            || std::fs::symlink_metadata(self.cold_path(id)).is_ok()
+        {
             return Ok(true);
         }
-        for (_, path) in self.segments(id)? {
+        for (_, path) in self.segment_files(id)? {
             // An unreadable segment counts as a log: the session is listed as before.
             match std::fs::symlink_metadata(&path) {
                 Ok(meta) if meta.len() == 0 => {}
@@ -1437,13 +1568,13 @@ impl LocalStore {
     /// (`store/journal_store.rs`). Refused once the store is sealed.
     pub(super) fn append_line(&self, id: &str, line: &[u8]) -> Result<()> {
         // One lock hold from the eviction to the write: the least recently written log is
-        // closed before this one opens, so no more than `OPEN_LOGS` are ever open, and no other
+        // closed before this one opens, so no more than `open_logs` are ever open, and no other
         // append comes between (a session's records stay in order). Its sync runs under the lock,
-        // once per eviction: only while more than `OPEN_LOGS` sessions are written.
+        // once per eviction: only while more than `open_logs` sessions are written.
         let _open = self.writable()?;
         let mut writers = self.writers.lock_or_recover();
         if !writers.open.contains_key(id)
-            && writers.open.len() >= OPEN_LOGS
+            && writers.open.len() >= self.open_logs
             && let Some(oldest) =
                 writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone())
             && let Some(w) = writers.open.remove(&oldest)
@@ -1599,7 +1730,9 @@ impl Store for LocalStore {
         }
         let mut text = String::new();
         BufReader::new(crate::config::private_state_file(&path)?).read_to_string(&mut text)?;
-        Ok(Some(serde_json::from_str(&text)?))
+        let mut meta: SessionMeta = serde_json::from_str(&text)?;
+        self.parts.merge(&session, text.as_bytes(), &mut meta);
+        Ok(Some(meta))
     }
 
     fn load_startup(&self, id: &str) -> Result<Option<SessionMeta>> {
@@ -1614,7 +1747,11 @@ impl Store for LocalStore {
         let _open = self.writable()?;
         let dir = self.dir(&meta.id);
         crate::config::private_state_dir(&dir)?;
-        write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())
+        // The large fields only when they changed (`store/meta_parts.rs`), then the rest.
+        let parts = self.parts.write(&dir, meta)?;
+        let text = meta_parts::to_string_pretty(meta, &parts)?;
+        meta_parts::note_written(text.len());
+        write_atomic(&dir.join("session.json"), text.as_bytes())
     }
 
     fn flush_session(&self, id: &str) -> Result<()> {
@@ -1642,6 +1779,10 @@ impl Store for LocalStore {
 
     /// Segment `000000`, written beside the log under a temporary name and renamed in whole.
     fn history_writer(&self, id: &str) -> Result<Option<Box<dyn HistoryWriter + '_>>> {
+        // An archived log comes back before a segment is written beside it.
+        self.rehydrate(id)?;
+        #[cfg(test)]
+        log_sync::hold(&cold::HOLD_AFTER_HISTORY_REHYDRATE);
         let _open = self.writable()?;
         let dir = self.dir(id).join("events");
         crate::config::private_state_dir(&self.dir(id))?;
@@ -1858,6 +1999,27 @@ impl Store for LocalStore {
         LocalStore::commit_compaction(self, id, staged)
     }
 
+    fn stage_cold(&self, id: &str) -> Result<Option<StagedCold>> {
+        LocalStore::stage_cold(self, id)
+    }
+
+    fn commit_cold(&self, id: &str, staged: StagedCold) -> Result<bool> {
+        let _open = self.writable()?;
+        LocalStore::commit_cold(self, id, staged)
+    }
+
+    fn rehydrate(&self, id: &str) -> Result<bool> {
+        LocalStore::rehydrate(self, id)
+    }
+
+    fn is_cold(&self, id: &str) -> bool {
+        LocalStore::is_cold(self, id)
+    }
+
+    fn on_rehydrate(&self, hook: RehydrateHook) {
+        let _ = self.rehydrate_hook.set(hook);
+    }
+
     fn seal(&self) {
         *self.sealed.write().unwrap_or_else(std::sync::PoisonError::into_inner) = true;
     }
@@ -1933,7 +2095,7 @@ fn sync_directory(_path: &Path) -> Result<()> {
 /// Open one event segment for append, owner-only from creation and after an
 /// older build left it with wider permissions.
 #[cfg(unix)]
-fn open_private_append(path: &Path) -> Result<File> {
+pub(crate) fn open_private_append(path: &Path) -> Result<File> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
     crate::config::refuse_lost_home(path)?;
 
@@ -1950,7 +2112,8 @@ fn open_private_append(path: &Path) -> Result<File> {
 }
 
 #[cfg(windows)]
-fn open_private_append(path: &Path) -> Result<File> {
+pub(crate) fn open_private_append(path: &Path) -> Result<File> {
+    crate::config::refuse_lost_home(path)?;
     Ok(crate::owner_only::open_append(path)?)
 }
 
@@ -1994,6 +2157,7 @@ impl LocalStore {
         // A strict read learns that the log's segments could not be listed (`segments` lists
         // none then).
         if strict {
+            self.rehydrate(id)?;
             std::fs::read_dir(self.dir(id).join("events"))?;
         }
         let segments = self.segments(id)?;

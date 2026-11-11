@@ -206,6 +206,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_classic_frozen_guard.py
 
+      - name: Validate the language-boundaries check
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_language_boundaries.py
+
       - name: Validate the PR capture check
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_capture_check.py
@@ -716,9 +720,17 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_actionlint_covers_every_workflow.py
 
+      - name: Check that every workflow file is under GitHub's 500 KB limit, with room
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_file_size.py
+
       - name: Check that push and pull_request path filters agree
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_path_filter_parity.py
+
+      - name: Check that path-filtered workflows start for their tests' inputs
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_workflow_paths_cover_inputs.py
 
       - name: Validate the backend migration flow (append-only plan, push-safe guards)
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -900,7 +912,10 @@ jobs:
 
       - name: Validate that no workflow polls the API with GITHUB_TOKEN
         if: ${{ !cancelled() && matrix.group == 'ci' }}
-        run: python3 tests/test_ci_no_github_token_polling.py
+        # And that every HTTP call in scripts/ci ends by its deadline (deadline_http.py, no bare urlopen).
+        run: |
+          python3 tests/test_ci_no_github_token_polling.py
+          python3 tests/test_ci_no_bare_urlopen.py
 
       - name: Validate CI queue janitor policy
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1851,6 +1866,7 @@ jobs:
           python3 tests/test_ci_runs_on_fallback.py
           python3 tests/test_ci_warm_sources.py
           python3 tests/test_ci_checkout_lean.py
+          python3 tests/test_ci_sparse_checkout_imports.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py
           python3 tests/test_ci_killpg_tolerates_eperm.py
 
@@ -2105,6 +2121,12 @@ jobs:
         run: |
           python3 tests/test_lint_errno_in_test_assertions.py
           python3 scripts/lint-errno-in-test-assertions.py
+
+      - name: Validate no short fixed gates on Cloud and daemon slow paths
+        if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}
+        run: |
+          python3 scripts/lint-short-gates.py --self-test
+          python3 scripts/lint-short-gates.py
 
       - name: Validate test determinism gate
         if: ${{ !cancelled() && matrix.group == 'quality-determinism' }}

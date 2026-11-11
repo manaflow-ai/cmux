@@ -10,11 +10,18 @@ import type { TrayHandleSide } from "../../agent-session/acpmux/chatDisplay";
 import { TrayPullTab } from "../../agent-session/acpmux/subagents/TrayPullTab";
 import "./composerHatArms.css";
 
+/** What the pill sits on: the card itself, queued prompts over it, or Codex's location strip (its
+ *  tray, 22 px in from the card's sides, composerLook.css). */
+export type ComposerHatSurface = "card" | "queue" | "codex-strip";
+
 export function ComposerHatStage({
   start = 0,
   waits = false,
   before = false,
   side = "middle",
+  surface = "card",
+  narrow = false,
+  tucked = true,
 }: {
   start?: number;
   waits?: boolean;
@@ -23,9 +30,16 @@ export function ComposerHatStage({
   before?: boolean;
   /** Where the handle sits on the card's top edge (agentPane.display.trayHandle). */
   side?: TrayHandleSide;
+  surface?: ComposerHatSurface;
+  /** A pane under the composer's narrow step (under 298 px of column, composerLocation.css): the
+   *  card and the queue reach 8 px past the column the tab sits in. */
+  narrow?: boolean;
+  /** Whether the hat starts tucked (the pull tab shown); the Tuck button tucks it while work runs. */
+  tucked?: boolean;
 }) {
   const [running, setRunning] = useState(start);
   const [waiting, setWaiting] = useState(waits ? 1 : 0);
+  const [isTucked, setTucked] = useState(tucked);
   const set = (next: number, wait = 0) => {
     setRunning(next);
     setWaiting(wait);
@@ -60,6 +74,9 @@ export function ComposerHatStage({
           <button type="button" data-stage="waiting" onClick={() => set(running, 1)}>
             One waits on you
           </button>
+          <button type="button" data-stage="tuck" onClick={() => setTucked(!isTucked)}>
+            Tuck the hat
+          </button>
         </div>
         <main
           className="acpmux-main"
@@ -67,12 +84,32 @@ export function ComposerHatStage({
           style={{ position: "relative", flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
         >
           <div style={{ flex: 1 }} />
-          <div className="acpmux-dock" style={{ "--cv-inset": "16px" } as CSSProperties}>
-            <TrayPullTab chat="gallery-chat" waiting={waiting} running={running} working={false} side={side} />
+          <div
+            className="acpmux-dock"
+            style={{ "--cv-inset": "16px", ...(narrow ? { width: 300 } : {}) } as CSSProperties}
+          >
+            {isTucked && (
+              <TrayPullTab chat="gallery-chat" waiting={waiting} running={running} working={false} side={side} />
+            )}
             {before && <span hidden />}
             {/* The real card's classes, so its ring and lit top rim (composerStates.css) are the
                 line the hat sits on (Leo, 2026-11-09: "theres a line behind the hat toggle"). */}
-            <div className="acpmux-composer">
+            <div className="acpmux-composer" data-composer-look={surface === "codex-strip" ? "codex" : undefined}>
+              {/* The part the pill sits on, when it is not the card (data-stage-top, for the test). */}
+              {surface === "queue" && (
+                <ol className="ui-glass ui-glass-floats acpmux-composer-queue" data-stage-top="">
+                  <li className="acpmux-queued">
+                    <button type="button" className="acpmux-queued-text">
+                      <span className="acpmux-queued-clamp">Then run the narrow pane tests</span>
+                    </button>
+                  </li>
+                </ol>
+              )}
+              {surface === "codex-strip" && (
+                <div className="acpmux-composer-strip" data-stage-top="">
+                  <span className="acpmux-composer-context">~/Projects/cmux</span>
+                </div>
+              )}
               <div
                 className="ui-glass ui-glass-floats ui-glass-material acpmux-composer-box"
                 data-stage-composer=""

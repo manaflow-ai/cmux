@@ -35,8 +35,6 @@ use crate::wireguard::Transport;
 
 /// The longest token the app may send (a Stack access token is far shorter).
 const MAX_TOKEN_BYTES: usize = 16 * 1024;
-/// The longest platform answer read.
-const MAX_REPLY_BYTES: usize = 64 * 1024;
 
 /// The one rekey this daemon runs at a time.
 pub(crate) static REKEYS: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -281,7 +279,7 @@ pub(crate) async fn rekey(
             return Err(error);
         }
     };
-    // A success that names no key (a body that is not JSON, cut short, too long, or without
+    // A success that names no key (a body that is not JSON, cut short, or without
     // `wgPublicKey`) is as unsettled as a lost answer: the platform said yes, so it may hold
     // this candidate now, and only the candidate's private half can match it.
     match answer.get("wgPublicKey").and_then(Value::as_str) {
@@ -409,11 +407,8 @@ async fn post(
     let response = request.send().await.map_err(|_| unreachable())?;
     let status = response.status().as_u16();
     let bytes = response.bytes().await.map_err(|_| unreachable())?;
-    let answer: Value = if bytes.len() <= MAX_REPLY_BYTES {
-        serde_json::from_slice(&bytes).unwrap_or(Value::Null)
-    } else {
-        Value::Null
-    };
+    // The whole answer is read: a long one that names the key still settles the rekey.
+    let answer: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
     if (200..300).contains(&status) {
         return Ok(answer);
     }

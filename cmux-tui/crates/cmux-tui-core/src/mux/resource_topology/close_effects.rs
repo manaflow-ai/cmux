@@ -1,5 +1,6 @@
 //! Resource close effects: surface and terminal close effects, legacy terminal closes, terminal exit detach projection, and the close plan and commit.
 
+use super::emptied_workspace::forget_closed_workspace_indexes;
 use super::*;
 
 impl Mux {
@@ -850,7 +851,10 @@ impl Mux {
             )?;
             workspace_close =
                 Some(self.workspace_close_record(&projected, workspace, &workspace_key, index));
-            split_index_changed = true;
+            // Every index change of this close is inside the closed workspace: drop its entries
+            // and no other. The rebuild of every index walked the whole session for one close.
+            forget_closed_workspace_indexes(&mut projected, &state.workspaces[index], index);
+            split_index_changed = false;
         } else if let Some(emptied) = self.close_emptied_workspaces_for_resource_close_locked(
             registry,
             state,
