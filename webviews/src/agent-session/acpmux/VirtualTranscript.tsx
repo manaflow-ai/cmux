@@ -3820,7 +3820,14 @@ function TranscriptView({
         }
         // A glide holding the rows back further than the room now under the last row (the live line
         // came into view to name a call) rests at once, so nothing stays under the bottom stack.
-        if (!chasing) followGlide.current?.fit(room);
+        if (!chasing) {
+          followGlide.current?.fit(room);
+          // The `eased` arm has no chase of its own, but what the reader froze of the composer
+          // growth's rise is held on it (`freezeGrowthRise`, followChase `carry`): a pass that finds
+          // the view followed again sends it home, as `chaseFollow` does in the other arms, so the
+          // rows never stay drawn off their layout at the latest row (review of #41478 F1).
+          if (followingRef.current && jumpTarget.current === undefined) resumeFollowMotion();
+        }
         // The reader just sent a prompt from the latest row (a send in this commit, or one a moment
         // ago whose rows land now): the rows that came lift the thread on the send's glide, the
         // prompt rising out from behind the composer, instead of the view jumping a row in a frame.
