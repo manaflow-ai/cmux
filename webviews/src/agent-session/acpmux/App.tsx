@@ -681,13 +681,13 @@ import {
   CMUX_PASS_THROUGH,
   CmuxCommandRefused,
   cdFolder,
-  continueTargets,
   cmuxCommandRefusal,
   mergedCommands,
   resolveHarnessTarget,
   type CmuxCommand,
   type CmuxCommandResult,
   PLACED_ACTIONS,
+  switchTargets,
 } from "./cmuxCommands";
 import { newChatRunsElsewhere } from "./customizeCommand";
 import {
@@ -697,7 +697,8 @@ import {
   handoffStore,
   receiveHandedCloudStart,
 } from "./commandPlace";
-import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
+import { reviewingHandoff } from "./handoff/continueIn";
+import { forkDividers, withForkDividers } from "./conversation/forkDivider";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
 import { askPermissionFocus } from "./permissions/focusRequest";
@@ -2437,7 +2438,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const confirmingHere = inThisVisit(folderConfirming, snapshot.sessionId, visitNow);
   const blockSend = Boolean(pendingFolder) || confirmingHere || Boolean(authBlock);
   // `snapshot.catalog` is `catalog` (the snapshot above carries the fetched one).
-  const continueAvailable = canContinueIn(snapshot);
+  // Continue In… (the chat menu, `/continue`, the app's command) forks the chat in place onto the
+  // picked harness, as a model pick does (`chat.switchModel`): offered wherever that fork is, a
+  // working chat's too (acpmux forks it as it is now), and never a review (Leo 2026-11-11: "An extra
+  // menu with a questionnaire is not seamless").
+  const continueAvailable =
+    switchForks(snapshot) && switchTargets(snapshot.catalog, snapshot.summary?.harness).length > 0;
   /// Takes acpmux's trust refusal of a prompt (useFolderTrustAsk.ts): the question shows for the
   /// folder it named, and `again` sends the held prompt after Trust.
   const peerTrustStarted = useRef<(() => void) | undefined>(undefined);
@@ -2778,6 +2784,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       [snapshot.rows, snapshot.permission, snapshot.permissionGroups],
     ),
   );
+  // Each fork cut's divider, newest first, from acpmux's record of the switch (`forkOrigin`): the
+  // same list while it says the same, so a session list update does not reshape the transcript.
+  const dividers = useSameValue(
+    useMemo(
+      () => forkDividers(snapshot.sessionId, snapshot.sessions, snapshot.catalog, t, hasNativeHost()),
+      [snapshot.sessionId, snapshot.sessions, snapshot.catalog, t],
+    ),
+  );
   // The chat's rows before turns fold their work, which Find searches (a closed fold included).
   const sourceRows = useMemo(() => {
     const groups = snapshot.permissionGroups;
@@ -2794,8 +2808,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         ? snapshot.rows.filter((row) => row.permission?.permissionId !== individualPermission.permissionId)
         : snapshot.rows;
     // Each step's consecutive thoughts as one, and none that says nothing (conversation/thoughts.ts).
-    return withoutQuietThoughts(rows, snapshot.isWorking);
-  }, [snapshot.rows, snapshot.permissionGroups, individualPermission, snapshot.isWorking]);
+    // A fork's cut draws as its divider ("Forked from Claude Opus 5.5", conversation/forkDivider.ts).
+    return withForkDividers(withoutQuietThoughts(rows, snapshot.isWorking), dividers);
+  }, [snapshot.rows, snapshot.permissionGroups, individualPermission, snapshot.isWorking, dividers]);
   // A call the permission panel asks about is drawn by the panel's row while it waits
   // (withoutAskedCalls).
   const panelAsks = useMemo(() => groupAskedCalls(snapshot.permissionGroups), [snapshot.permissionGroups]);
@@ -7286,12 +7301,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         ) {
           window.dispatchEvent(new CustomEvent(`cmux-acpmux-${name}`));
         }
+        // Continue In… from the app (its menu, the palette): the chat menu opens on the harnesses
+        // the chat can switch to; a pick forks in place (`chat.switchModel`).
+        const shown = snapshotRef.current;
         if (
           name === "continueIn" &&
-          snapshotRef.current?.canHandoff &&
-          snapshotRef.current.handoff?.ready &&
-          !snapshotRef.current.isWorking &&
-          !snapshotRef.current.queue.length
+          shown &&
+          switchForks(shown) &&
+          switchTargets(shown.catalog, shown.summary?.harness).length > 0
         )
           setContinuing(true);
       },
@@ -8806,12 +8823,19 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               }
             }
           },
-          // The review shows in this tab while the tab stays the chat's; Start opens the new chat in
-          // its own tab and brings this one back to the chat. Only where the chat cannot fork
-          // (`chat.switchModel` is the way otherwise).
-          "chat.handoff.prepare": async ({ harness }) => {
-            harnessSwitch.cancel();
-            return client.continueIn(String(harness));
+          // A model switch's divider, Open in new tab (conversation/forkDivider.ts; Leo 2026-11-11:
+          // "Or perhaps it, like, opens up a new thing, possibly"): the fork moves to a tab of its
+          // own, where its whole history still scrolls up, and this pane shows the chat it came from
+          // again. False when the fork is no longer shown here or the app opened no tab.
+          "chat.fork.openInTab": async ({ sessionId, parentId }) => {
+            const fork = String(sessionId ?? "");
+            const parent = String(parentId ?? "");
+            if (!fork || !parent || client.selectedSession !== fork) return false;
+            if (!(await openOwnTab(fork, "tab"))) return false;
+            if (client.selectedSession !== fork) return true;
+            const shown = await client.select(parent);
+            await persistSession(shown);
+            return true;
           },
           // A switch to another harness's model in a started chat (forkHold.ts, the composer's send
           // with a held pick; the chat menu's Continue In… and `/continue`). Leo 2026-11-11: "if i
@@ -9249,7 +9273,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // the composer is a failure.
   const header = paneHeader(composerSnapshot, t, { hostRecovering: !hostErrorShown });
   // The pane header never says where the chat runs (Leo 2026-10-26); Session Info's Environment does.
-  const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness, snapshot.summary?.family);
+  // The harnesses Continue In… and `/continue` switch the chat to: the model menu's (switchTargets),
+  // none where the chat cannot fork in place.
+  const handoffTargets = switchForks(snapshot)
+    ? switchTargets(composerSnapshot.catalog, snapshot.summary?.harness)
+    : [];
   const canContinue = continueAvailable;
   const ignoreFailure = (result: Promise<unknown>) => void result.catch(() => undefined);
   /// What a cmux-owned command's refusal rule reads (cmuxCommandRefusal), for the chat or New Tab.
@@ -9479,11 +9507,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       const target = resolveHarnessTarget(args, handoffTargets);
       if (!target) return t("composer.cmuxContinueUnknown");
       setContinuing(false);
-      // Forks in place where the chat can (`chat.switchModel`, Leo 2026-11-11: "stop asking so much
-      // bullshit"); Continue In…'s review only where it cannot.
-      ignoreFailure(
-        callNative(switchForks(snapshot) ? "chat.switchModel" : "chat.handoff.prepare", { harness: target.id }),
-      );
+      // Forks in place (`chat.switchModel`, Leo 2026-11-11: "stop asking so much bullshit"); a chat
+      // that cannot fork lists no target (`handoffTargets`), so there is no review to fall back to.
+      ignoreFailure(callNative("chat.switchModel", { harness: target.id }));
       return true;
     }
     return false;
@@ -10013,7 +10039,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // New side chat, New terminal and New browser: something new beside the chat, every time.
     const opensBeside = opensBesideRows({ sideChat, quick }, { terminal: newTerminal, browser: newBrowser }, t);
     const continueIn: ChatMenuItem[] =
-      snapshot.canHandoff && handoffTargets.length > 0
+      handoffTargets.length > 0
         ? [
             {
               key: "continue",
@@ -10023,14 +10049,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               children: handoffTargets.map((target) => ({
                 key: target.id,
                 label: target.name,
-                // In place where the chat can fork (`chat.switchModel`), no review; Continue In…'s
-                // review only where it cannot.
-                onSelect: () =>
-                  ignoreFailure(
-                    callNative(switchForks(snapshot) ? "chat.switchModel" : "chat.handoff.prepare", {
-                      harness: target.id,
-                    }),
-                  ),
+                // In place (`chat.switchModel`), no review and no question.
+                onSelect: () => ignoreFailure(callNative("chat.switchModel", { harness: target.id })),
               })),
             },
           ]

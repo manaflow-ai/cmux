@@ -1131,7 +1131,7 @@ impl Hub {
         {
             blocks.insert(
                     0,
-                    json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
+                    json!({"type": "text", "text": super::fork::restored_transcript_block(&session.meta(), &transcript)}),
                 );
         }
         // The forum rules this session was not told yet (`hub/forum.rs`).
@@ -1392,7 +1392,7 @@ impl Hub {
                         {
                             blocks.insert(
                                 0,
-                                json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
+                                json!({"type": "text", "text": super::fork::restored_transcript_block(&session.meta(), &transcript)}),
                             );
                             // The new agent session gets every rule again.
                             told = self.forum_retell(session, pushed.clone(), &mut blocks).await;
