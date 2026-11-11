@@ -3,7 +3,8 @@
 //! connections, and written to the new terminal once it is live; a creation that outlives the
 //! expiry gives each sending connection its own bytes back in one `terminal-input-unclaimed`
 //! notice; a refused creation never takes input; more than 64 KiB is refused with
-//! `input.overflow`.
+//! `input.overflow`; a creation whose creator cancelled its input (`cancel-creating-input`, the
+//! close of a pane that is still starting) writes none of it.
 
 use super::super::*;
 use std::sync::mpsc;
@@ -38,25 +39,44 @@ struct Connection {
     writer: Box<dyn transport::Stream>,
     reader: BufReader<Box<dyn transport::Stream>>,
     notices: Vec<serde_json::Value>,
+    /// Replies to requests sent with [`Connection::send`], read while another reply was awaited.
+    replies: Vec<serde_json::Value>,
 }
 
 impl Connection {
     fn open(path: &Path) -> Self {
         let stream = transport::connect(path).unwrap();
         let writer = stream.try_clone_box().unwrap();
-        Self { writer, reader: BufReader::new(stream), notices: Vec::new() }
+        Self { writer, reader: BufReader::new(stream), notices: Vec::new(), replies: Vec::new() }
     }
 
     fn call(&mut self, value: serde_json::Value) -> serde_json::Value {
         let id = value["id"].clone();
+        self.send(value);
+        self.reply(&id)
+    }
+
+    /// Writes a request and does not wait for its reply ([`Connection::reply`] reads it).
+    fn send(&mut self, value: serde_json::Value) {
         writeln!(self.writer, "{value}").unwrap();
+    }
+
+    /// The reply to request `id` of this connection; other replies and notices are kept.
+    fn reply(&mut self, id: &serde_json::Value) -> serde_json::Value {
+        if let Some(index) = self.replies.iter().position(|reply| reply["id"] == *id) {
+            return self.replies.remove(index);
+        }
         loop {
             let message = self.next();
-            if message["id"] == id {
+            if message["id"] == *id {
                 return message;
             }
-            assert!(message["event"].is_string(), "unexpected message: {message}");
-            self.notices.push(message);
+            if message["event"].is_string() {
+                self.notices.push(message);
+            } else {
+                assert!(!message["id"].is_null(), "unexpected message: {message}");
+                self.replies.push(message);
+            }
         }
     }
 
@@ -283,4 +303,94 @@ fn queued_input_precedes_input_sent_to_the_new_surface() {
     assert_eq!(live["ok"], true, "{live}");
     let screen = wait_for_screen(&harness.socket, surface, "QUEUED-LIVE");
     assert_eq!(screen.matches("QUEUED-LIVE").count(), 1, "queued input ran first, once: {screen}");
+}
+
+/// Waits until `path` exists; false when it does not within the test timeout.
+fn wait_for_file(path: &Path) -> bool {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while Instant::now() < deadline {
+        if path.exists() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    path.exists()
+}
+
+/// A harness whose terminals run a plain `/bin/sh` and whose hosts take `host_ready_delay_ms`
+/// to start: a split stays creating that long, and a typed line with Return runs as a command.
+fn slow_shell_harness(name: &str, host_ready_delay_ms: u64) -> RecoveryHarness {
+    let mut harness = RecoveryHarness::start_unstarted(name);
+    harness.host_ready_delay_ms = Some(host_ready_delay_ms);
+    harness.shell_integration = false;
+    harness.restart();
+    harness
+}
+
+/// The person splits while the daemon is slow, types a line with Return in the starting pane,
+/// then closes it (the app cancels the creation's input in the turn of the close). The split
+/// commits late. The shell of the closed pane must get none of the typed line: before
+/// `creating-input-cancel-v1` the commit wrote the queue to the new terminal and its shell ran
+/// the line before the app's close ended it.
+#[test]
+fn a_line_typed_in_a_starting_pane_the_person_closed_never_runs() {
+    let harness = slow_shell_harness("creating-input-cancel", 1_500);
+    let pane = first_pane(&harness, "creating-cancel");
+    let terminal_id = creating_terminal(6);
+    let typed_line_ran = harness.dir.join("typed-line-ran");
+    let later_line_ran = harness.dir.join("later-line-ran");
+
+    // The app: one connection creates, types and closes.
+    let mut app = Connection::open(&harness.socket);
+    app.send(serde_json::json!({
+        "id": 10, "cmd": "split", "pane": pane, "dir": "right", "terminal_id": terminal_id,
+    }));
+    let typed = format!("touch {}\r", typed_line_ran.display());
+    let queued = queue(&mut app, 20, &terminal_id, &typed);
+    assert_eq!(queued["data"]["queued"], true, "{queued}");
+    // The Close of the starting pane, before the daemon committed the split.
+    let cancelled = app.call(serde_json::json!({
+        "id": 21, "cmd": "cancel-creating-input", "terminal_id": terminal_id,
+    }));
+
+    // The late commit. The app learns the surface from the reply and closes it; before that
+    // close, a line sent by surface proves that the shell runs what it gets (the daemon writes
+    // a creation's queue before any later input).
+    let created = app.reply(&serde_json::json!(10));
+    assert_eq!(created["ok"], true, "{created}");
+    let surface = created["data"]["surface"].as_u64().unwrap();
+    let later = app.call(serde_json::json!({
+        "id": 22, "cmd": "send", "surface": surface,
+        "text": format!("touch {}\r", later_line_ran.display()),
+    }));
+    assert_eq!(later["ok"], true, "{later}");
+    assert!(wait_for_file(&later_line_ran), "the new terminal's shell ran nothing");
+    let screen = request(
+        &harness.socket,
+        serde_json::json!({"id": 30, "cmd": "read-screen", "surface": surface}),
+    );
+    assert!(
+        !typed_line_ran.exists(),
+        "the shell of the closed pane ran the typed line; its screen: {screen}"
+    );
+    assert!(
+        !screen["text"].as_str().unwrap().contains("typed-line-ran"),
+        "the closed pane's terminal got the typed line: {screen}"
+    );
+    assert_eq!(cancelled["ok"], true, "{cancelled}");
+    assert_eq!(cancelled["data"]["cancelled"], true, "{cancelled}");
+    // The cancelled bytes are the caller's own: dropped, never given back to it (the app would
+    // hand a give-back to the terminal that has focus).
+    assert!(
+        app.notices.iter().all(|n| n["event"] != "terminal-input-unclaimed"),
+        "{:?}",
+        app.notices
+    );
+
+    // The app's close of the cancelled creation, as today.
+    let closed = app.call(serde_json::json!({
+        "id": 23, "cmd": "close-tabs", "surfaces": [surface], "end_terminals": true,
+    }));
+    assert_eq!(closed["ok"], true, "{closed}");
+    assert!(!typed_line_ran.exists(), "the typed line ran after the close");
 }
