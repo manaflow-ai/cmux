@@ -6,7 +6,7 @@ import Testing
 
 /// https://github.com/manaflow-ai/cmux/issues/41529: in an agent chat a new text slid down slowly and landed late,
 /// drawing over the picture above it while it faded in. The chat has no entry motion: a received picture, the
-/// text after it and my own send show in their final place with their final opacity in the commit that adds them.
+/// text after it and my own sends (one line, and several: the field closes at once) show in their final place with their final opacity in the commit that adds them.
 /// Checked on the real pane (`MessagesLabHomeView` over a `HomeStore`): the transcript commits no row motion
 /// (MotionLedger), no container slide and no send flight.
 @MainActor @Suite(.serialized) struct HomeEntryMotionTests {
@@ -45,6 +45,14 @@ import Testing
         #expect(demo.collection.layer.animationKeys()?.isEmpty ?? true)
         // My send shows in its row: no bubble flies from the field.
         #expect(demo.morphs.isEmpty)
+
+        // A multi-line send shrinks the field at once: no spring on the field's glass and no send pulse,
+        // so the rows that jumped never show under a field still closing (and no row moves either).
+        #expect(await rig.send("\(HomeChatRig.tag) one\ntwo\nthree\nfour") == nil)
+        rig.frame()
+        #expect(demo.compose.glass.animationKeys()?.isEmpty ?? true, "field: \(demo.compose.glass.animationKeys() ?? [])")
+        #expect(demo.morphs.isEmpty && demo.containerMotionSprings.isEmpty)
+        #expect(demo.ledger.entries.values.reduce(0) { $0 + $1.count } == motionsBefore)
 
         // The text sits below the picture in its final layout, never over it. Row content bounds, not
         // `layout.frame(for:)`: a cell's frame adds the 24 pt shadow margin (RowDraw.margin) on both sides.

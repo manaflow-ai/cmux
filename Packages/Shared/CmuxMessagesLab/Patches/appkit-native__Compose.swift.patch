@@ -250,7 +250,7 @@
 +        }
 +        if let onPasteImage, pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }  // cmux
          super.paste(sender)
-     }
++    }
 +
 +    /// cmux: Paste and Match Style (Edit menu, Cmd+Shift+V): the clipboard's
 +    /// plain text only, at the caret (replacing the selection), as its own undo
@@ -310,7 +310,7 @@
 +        let takes = takesDrag(sender)  // cmux
 +        onDropTargetChange(takes)  // cmux: the host ignores a repeat
 +        return takes ? .copy : super.draggingUpdated(sender)  // cmux
-+    }
+     }
 +    override func draggingExited(_ sender: (any NSDraggingInfo)?) {
 +        dragAnswer = nil
 +        onDropTargetChange(false)  // cmux
@@ -576,7 +576,13 @@
      /// The attachment whose remove control is at p (window coordinates).
      func chip(at p: CGPoint) -> ID? {
          let f = fieldRect
-@@ -984,12 +1282,19 @@
+@@ -980,16 +1278,24 @@
+ 
+     /// Mirror the draft and animate the field to its new height in this
+     /// transaction (catalyst's `ComposeView.update`).
+-    func update(state: AppState, send: Bool, begin: CFTimeInterval) {
++    /// cmux: `motion` false (issue 41529, the chat pane): a send changes the field's height at once, as typing does, with no pulse.
++    func update(state: AppState, send: Bool, begin: CFTimeInterval, motion: Bool = true) {
          let d = state.ui.draft
          let hadDraft = !text.isEmpty || !chips.isEmpty
          let tv = textView.view
@@ -599,7 +605,7 @@
                  if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }
              }
          }
-@@ -1007,8 +1312,7 @@
+@@ -1007,8 +1313,7 @@
          CATransaction.begin(); CATransaction.setDisableActions(true)
          // With an attachment Messages shows neither the placeholder nor the audio glyph
          // (compose-attach-image stills).
@@ -609,7 +615,23 @@
          CATransaction.commit()
          let h = height(for: d.text, width: bounds.width)
          let old = fieldHeight
-@@ -1045,6 +1349,7 @@
+@@ -1016,7 +1321,7 @@
+         if attachmentsChanged || placed.map({ $0.0 != h || $0.1 != text.isEmpty || $0.2 != strip.height || $0.3 != bounds.size }) ?? true {
+             place(height: h)
+         }
+-        if h != old && !send {
++        if h != old && (!send || !motion) {
+             onFieldJump?()
+         } else if h != old {
+             let e = Springs.fieldTop
+@@ -1039,12 +1344,13 @@
+                 Animate.scalar(l, "bounds.size.height", from: Double(l.bounds.height) - dTop, to: Double(l.bounds.height), e, begin: begin)
+             }
+         }
+-        if send {
++        if send && motion {
+             Animate.sampledPulse(glass, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
+             Animate.sampledPulse(rim, "opacity", Springs.fieldOpacity, base: 1, depth: ComposeView.rimFadeDepth, begin: begin)
              Animate.sampledUntilMinimum(veil, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
              onSendPulse?(begin)
          }
@@ -617,7 +639,7 @@
      }
  
      /// The glass over a bubble still inside the field after the fill has
-@@ -1079,7 +1384,7 @@
+@@ -1079,7 +1385,7 @@
          guard size.width > 0, size.height > 0, var rep = tv.bitmapImageRepForCachingDisplay(in: shown) else { return }
          // AppKit sizes the cache for the main screen when the view has no window (1x on a Mac
          // whose main display is 1x); the snapshot is drawn at the scale of the tree it goes into.
@@ -626,7 +648,7 @@
          // no trap on a NaN or huge size (crash ratchet)
          let wide = CrashGuard.int((size.width * scale).rounded(.up), in: 0...1 << 16), high = CrashGuard.int((size.height * scale).rounded(.up), in: 0...1 << 16)
          if rep.pixelsWide != wide || rep.pixelsHigh != high,
-@@ -1126,7 +1431,7 @@
+@@ -1126,7 +1432,7 @@
          ctx.translateBy(x: 0, y: -(995 + dy))
          Glass.draw(ctx, rect: CGRect(x: 10.5, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button)
          Glass.draw(ctx, rect: CGRect(x: 586.5 + dx, y: 1000 + dy, width: 31, height: 30), radius: 15, fill: 49, rim: .button)

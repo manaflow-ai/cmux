@@ -1094,6 +1094,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         default: break
         }
         // cmux (issue 41529): without entry motion every row change lands at once, as a stream's text append does.
+        // `sameRows` below still skips an unchanged action's model and layout pass, as with motion.
+        let skipsSameRows = animate
         if !entryMotion { animate = false }
         RowCell.inPaging = paging
         defer { RowCell.inPaging = false }
@@ -1124,7 +1126,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 derivedRows += islandFresh ?? d.tail.count // cmux: the rows derived again, not the kept ones between islands
                 islandFresh = nil
                 phase("deriveRows")
-                if animate, sameRows(d) {
+                if skipsSameRows, sameRows(d) {
                     // Nothing to show (a status that moves no receipt, a typing change while the
                     // dots already show): no model change, no layout pass, no cell refresh.
                     rowsChange = false; rowsUnchanged = true
@@ -1144,7 +1146,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         if case .send = action { lastSend = t; lastEdit = t }
         if case .setDraft = action { lastEdit = t }
         phase("pre-compose")
-        compose.update(state: state, send: send, begin: begin)
+        compose.update(state: state, send: send, begin: begin, motion: entryMotion) // cmux: issue 41529, the field steps
         // A host sheet stays between the header and the field when the field grows or shrinks.
         if sheetFrame != nil { layoutSheet() }
         phase("compose")
@@ -1228,7 +1230,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         }
         phase("animateRows")
         let fieldEl = send ? Springs.fieldTop : Springs.fieldGrow
-        placeMask(animated: oldFieldTop != fieldTop, element: fieldEl, begin: begin, oldTop: oldFieldTop)
+        placeMask(animated: oldFieldTop != fieldTop && (entryMotion || !send), element: fieldEl, begin: begin, oldTop: oldFieldTop)
         // cmux: the thread view first, so a reply sent in it flies to its copy there (startMorph). A draft
         // changes no thread row (the view is centered, not placed on the field): no rebuild per key.
         if !draft { rebuildThread(state, at: t) }
@@ -2472,12 +2474,13 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             // cmux: a reply still flying to this copy keeps it hidden until the landing (startMorph, landMorphs).
             if morphs[spec.key] != nil { v.layer.opacity = 0; continue }
             // cmux: Reduce Motion: the thread view opens, grows and changes branch at once.
-            // cmux (issue 41529): without entry motion a new reply shows in place and the rows it moves jump there.
-            if still || !entryMotion { continue }
+            if still { continue }
             if drilled { ThreadBackdrop.fade(v.layer, from: 0, to: 1, duration: 0.18) }
             // cmux (scrawl 1792645422027): the view is centered, so a new reply moved every row up by half its height
             // in one frame. The rows that stay glide there (the open's flight); a new row fades in.
+            // cmux (issue 41529): without entry motion a new reply shows in place and the rows it moves jump there.
             if wasOpen && !drilled {
+                guard entryMotion else { continue }
                 if let was = oldFrames[spec.key] {
                     if abs(was.midY - v.frame.midY) > 0.25 {
                         ThreadBackdrop.fly(v.layer, fromY: was.midY, toY: v.frame.midY, tau: MessagesWindowView.threadOpenTau)

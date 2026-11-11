@@ -1278,7 +1278,8 @@ final class ComposeView: UIView {
 
     /// Mirror the draft and animate the field to its new height in this
     /// transaction (catalyst's `ComposeView.update`).
-    func update(state: AppState, send: Bool, begin: CFTimeInterval) {
+    /// cmux: `motion` false (issue 41529, the chat pane): a send changes the field's height at once, as typing does, with no pulse.
+    func update(state: AppState, send: Bool, begin: CFTimeInterval, motion: Bool = true) {
         let d = state.ui.draft
         let hadDraft = !text.isEmpty || !chips.isEmpty
         let tv = textView.view
@@ -1320,7 +1321,7 @@ final class ComposeView: UIView {
         if attachmentsChanged || placed.map({ $0.0 != h || $0.1 != text.isEmpty || $0.2 != strip.height || $0.3 != bounds.size }) ?? true {
             place(height: h)
         }
-        if h != old && !send {
+        if h != old && (!send || !motion) {
             onFieldJump?()
         } else if h != old {
             let e = Springs.fieldTop
@@ -1343,7 +1344,7 @@ final class ComposeView: UIView {
                 Animate.scalar(l, "bounds.size.height", from: Double(l.bounds.height) - dTop, to: Double(l.bounds.height), e, begin: begin)
             }
         }
-        if send {
+        if send && motion {
             Animate.sampledPulse(glass, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
             Animate.sampledPulse(rim, "opacity", Springs.fieldOpacity, base: 1, depth: ComposeView.rimFadeDepth, begin: begin)
             Animate.sampledUntilMinimum(veil, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
