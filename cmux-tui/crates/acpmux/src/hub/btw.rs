@@ -386,6 +386,8 @@ impl Hub {
                     adopt: None,
                     remote: meta.remote_origin,
                     vm_boundary: meta.vm_boundary,
+                    // A side chat is never lent GitHub (`github_owner.rs`).
+                    github_lendable: false,
                     env: Default::default(),
                     // The side chat works in its chat's workspace (agent_displays.rs).
                     workspace_id: meta.workspace_id.clone(),

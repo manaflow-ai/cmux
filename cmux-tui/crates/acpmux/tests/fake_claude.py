@@ -293,6 +293,32 @@ def agent_failed(said):
           "usage": {"input_tokens": 1, "output_tokens": 1}})
 
 
+SDK_MCP = []
+MCP_CALLS = [0]
+
+
+def mcp_call(params):
+    """One tools/call of the SDK MCP server acpmux-github: the answer acpmux sent back. Other
+    control requests meanwhile are answered empty; user lines wait for the turn after."""
+    MCP_CALLS[0] += 1
+    rid = "mcp-%d" % MCP_CALLS[0]
+    send({"type": "control_request", "request_id": rid, "request": {
+        "subtype": "mcp_message", "server_name": params.pop("server", "acpmux-github"),
+        "message": {"jsonrpc": "2.0", "id": MCP_CALLS[0], "method": "tools/call", "params": params}}})
+    while True:
+        got = LINES.get()
+        if got is None:
+            sys.exit(0)
+        msg = json.loads(got)
+        if msg.get("type") == "control_response" and (msg.get("response") or {}).get("request_id") == rid:
+            return msg["response"]
+        if msg.get("type") == "control_request":
+            send({"type": "control_response", "response": {"subtype": "success",
+                  "request_id": msg.get("request_id"), "response": {}}})
+        else:
+            AGAIN.append(got)
+
+
 def ask(rid, tool):
     """A Bash permission ask with the rule Claude Code suggests for it."""
     return {"type": "control_request", "request_id": rid, "request": {
@@ -768,6 +794,9 @@ while True:
             send({"type": "control_response", "response": {"subtype": "error", "request_id": msg.get("request_id"),
                   "error": refusal}})
             continue
+        # The SDK MCP servers acpmux named at initialize ("mcp-servers" reads them back).
+        if request.get("subtype") == "initialize":
+            SDK_MCP[:] = request.get("sdkMcpServers") or []
         # FAKE_CLAUDE_INIT_DELAY_MS: the initialize answer takes that long (a slow start).
         if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_INIT_DELAY_MS"):
             import time
@@ -1037,6 +1066,14 @@ while True:
         # Spawn-time and sandbox probes also come from remote callers, whose prompt starts
         # with acpmux's sender line: match the command after it.
         asked = without_sender_line(said)
+        # "mcp-servers": the SDK MCP servers acpmux named at initialize, as JSON.
+        if asked.strip() == "mcp-servers":
+            text = json.dumps(SDK_MCP)
+        # "mcp-call: {"name": TOOL, "arguments": ARGS}": calls TOOL of the SDK MCP server
+        # acpmux-github as Claude Code does (an mcp_message control request) and replies with
+        # the mcp_response acpmux answered, as JSON.
+        if asked.startswith("mcp-call: "):
+            text = json.dumps(mcp_call(json.loads(asked[len("mcp-call: "):])))
         # "env: NAME" replies with that environment variable, for spawn-time checks.
         if asked.startswith("env:"):
             name = asked[4:].strip()

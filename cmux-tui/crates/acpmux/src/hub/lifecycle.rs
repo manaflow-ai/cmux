@@ -99,6 +99,7 @@ impl Hub {
             adopt,
             remote,
             vm_boundary,
+            github_lendable,
             env: session_env,
             workspace_id,
             keep_harness_mode,
@@ -292,6 +293,7 @@ impl Hub {
         meta.additional_directories =
             super::additional_dirs::without_cwd(additional_directories, &meta.cwd);
         meta.vm_boundary = remote && vm_boundary;
+        meta.github_lendable = remote && github_lendable;
         meta.subsession = subsession;
         meta.lineage = lineage;
         meta.created_by = created_by;
@@ -1217,6 +1219,8 @@ impl Hub {
             let (plan, profile) = self.remote_chain_plan(session, profile, plan).await?;
             // A fresh process was given its id; a resumed one already has it.
             let known = if fork { None } else { fresh_id.clone().or_else(|| existing_sid.clone()) };
+            // A remote chain's own GitHub channel (`hub/github_owner.rs`).
+            let github_broker = self.offers_github_broker(&meta);
             if self.agent_hosts_enabled() {
                 let translator = crate::agent_host::TranslatorSpec {
                     acp_session_id: session.id.clone(),
@@ -1227,6 +1231,7 @@ impl Hub {
                     prompt_suggestions: suggestions,
                     recap: recap.clone(),
                     claude_session_id: known.clone(),
+                    github_broker,
                 };
                 self.spawn_hosted_child(
                     session,
@@ -1246,6 +1251,7 @@ impl Hub {
                 );
                 *tr.fast.lock().await = fast;
                 tr.prompt_suggestions.store(suggestions, std::sync::atomic::Ordering::SeqCst);
+                tr.github_broker.store(github_broker, std::sync::atomic::Ordering::SeqCst);
                 tr.set_recap(recap.as_deref());
                 if let Some(sid) = known {
                     *tr.session_id.lock().await = Some(sid);

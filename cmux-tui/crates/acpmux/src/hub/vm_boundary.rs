@@ -149,6 +149,12 @@ impl Hub {
         if !crate::no_panic::JsonExt::set(params, "sessionId", Value::String(session.id.clone())) {
             return Err(RpcError::invalid_params("params must be an object"));
         }
+        // Anything but a read from such a caller ends the chat's GitHub lending
+        // (`github_owner.rs`), at the boundary or not, for good: durably in its saved meta before
+        // the request runs, or the request is refused.
+        if !crate::pairing::read_only_allows(m) {
+            self.withhold_github(&session)?;
+        }
         if !session.meta().vm_boundary {
             return Ok(());
         }

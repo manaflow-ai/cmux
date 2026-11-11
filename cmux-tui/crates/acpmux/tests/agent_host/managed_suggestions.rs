@@ -20,6 +20,7 @@ fn claude_spec(dir: &Path, session: &str, managed: Option<bool>) -> SpawnSpec {
         prompt_suggestions: true,
         recap: None,
         claude_session_id: None,
+        github_broker: false,
     });
     spec.prompt_suggestions_managed = managed;
     spec

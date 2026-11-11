@@ -263,6 +263,12 @@ const ASK_TOOLS: &[&str] = &[
     "Agent",
     "Skill",
     "SlashCommand",
+    // The GitHub broker's actions that write or clone (`claude_stdio/github_mcp.rs`): the
+    // person sees each one; its reads do not ask.
+    "mcp__acpmux-github__issue_create",
+    "mcp__acpmux-github__issue_comment",
+    "mcp__acpmux-github__pr_create_draft",
+    "mcp__acpmux-github__repo_clone",
 ];
 
 /// Env names that give Claude Code its credential without the keychain.
