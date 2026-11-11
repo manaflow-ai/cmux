@@ -8,8 +8,10 @@ public import SwiftUI
 public struct ShellScreenSharingDemo: View {
     public init() {}
 
-    public static var isRequested: Bool { ScreenSharingDemoRoot.isRequested }
+    public static var isRequested: Bool { ScreenSharingDemoRoot.isRequested || ScreenSharingConnectDemoRoot.isRequested }
 
-    public var body: some View { ScreenSharingDemoRoot() }
+    public var body: some View {
+        if ScreenSharingConnectDemoRoot.isRequested { ScreenSharingConnectDemoRoot() } else { ScreenSharingDemoRoot() }
+    }
 }
 #endif
