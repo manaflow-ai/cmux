@@ -11,6 +11,7 @@ import { minutesAgo } from "../../../gallery/clock";
 import type { AcpmuxActivity } from "../model";
 import type { PlayContext } from "../../../gallery/play";
 import { toolErrorLook } from "./toolError.experiment";
+import { openEndedStretch } from "./endedStretchPlay";
 
 const times = (at: number) => ({ startedAt: minutesAgo(at), endedAt: minutesAgo(at - 0.02) });
 
@@ -279,6 +280,7 @@ const openRun = async (ctx: PlayContext) => {
 /// reads as what it would have done; it reads as the fixture's own description (commandActions.ts
 /// commandSaid), which no label rule rewrites.
 const openTraceback = async (ctx: PlayContext) => {
+  await openEndedStretch(ctx);
   await ctx.click({ role: "button", name: /Check the retry schedule/ });
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
 };

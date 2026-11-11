@@ -12,6 +12,7 @@ import { agentPaneEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { activity, chat, summary, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxActivity } from "../model";
+import { openEndedStretch } from "./endedStretchPlay";
 
 const command = (title: string, line: string) =>
   tool(title, "execute", "completed", { command: line, description: title });
@@ -46,6 +47,7 @@ const snapshot = chat(rows, { title: "Retry fix", isWorking: true });
 /// command's row, which opens that command's output instead.
 const openRun: Play = async (ctx) => {
   const run = '.acpmux-activity .cv-tool.is-run[aria-expanded="false"]';
+  await openEndedStretch(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(`${run}, .cv-tool-note`));
   if (ctx.document.querySelector(run)) await ctx.click({ selector: run });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-tool-note").length === 2);

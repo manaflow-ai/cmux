@@ -10,6 +10,7 @@ import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
+import { openEndedStretch } from "./endedStretchPlay";
 import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
@@ -277,6 +278,12 @@ const openFoldedRun = async (ctx: PlayContext) => {
   await ctx.waitFor(
     () => ctx.find({ selector: ".cv-tools > .cv-tool.is-toggle" }).getAttribute("aria-expanded") === "true",
   );
+};
+
+/// The collapsed-run scenes' play: the ended stretch's Worked for opened, then its first run's line.
+const openEndedRun = async (ctx: PlayContext) => {
+  await openEndedStretch(ctx);
+  await openFoldedRun(ctx);
 };
 
 const openGroupedShells = async (ctx: PlayContext) => {
@@ -1954,6 +1961,7 @@ export default agentPaneEntry({
       note: 'Play: a finished thought is one quiet row, for Codex parity: the brain glyph and its words on one line, cut with an ellipsis, with no tooltip. Opened, it reads Thought for 12s over its text. Debug Settings agentPane.debug.thoughtFoldThreshold "Taller than the transcript" brings back the short thought in full after Thought.',
       snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         const row = () => ctx.document.querySelector<HTMLElement>(".cv-thought");
         // Its words on one line, its paragraphs joined with spaces (ThoughtRow.tsx thoughtLine).
         const line = SHORT_THOUGHT.split("\n").filter(Boolean).join(" ");
@@ -1982,6 +1990,7 @@ export default agentPaneEntry({
       },
       snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         await ctx.click({ selector: "button.cv-thought" });
         const body = () => ctx.document.querySelector<HTMLElement>(".cv-thought__body");
         await ctx.waitFor(() => body()?.textContent?.includes("jittered backoff capped at three attempts") ?? false);
@@ -2007,6 +2016,7 @@ export default agentPaneEntry({
         }),
       ]),
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         const rows = () => [...ctx.document.querySelectorAll<HTMLElement>(".cv-thought")];
         await ctx.waitFor(() => rows()[0]?.textContent?.includes("parses errors first") ?? false);
         if (rows().length !== 1) throw new Error(`two thoughts side by side draw ${rows().length} rows, not one`);
@@ -2024,6 +2034,7 @@ export default agentPaneEntry({
         [thought("I am here", { startedAt: 0, endedAt: 300 })],
       ),
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         // The step draws its calls (a live run may show only its newest), and nothing else.
         await ctx.waitFor(() => ctx.document.querySelector(".cv-tools .cv-tool"));
         await ctx.hover({ selector: ".cv-tools .cv-tool" });
@@ -2046,6 +2057,7 @@ export default agentPaneEntry({
         ),
       ]),
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         await ctx.click({ selector: "button.cv-thought" });
         const titles = () => [...ctx.document.querySelectorAll(".cv-thought__title")].map((node) => node.textContent);
         await ctx.waitFor(() => titles().length === 2);
@@ -2433,24 +2445,24 @@ export default agentPaneEntry({
     "collapsed-run-open": {
       note: "The same line opened: the rows it holds, drawn as they are on their own.",
       snapshot: collapsedRunChat(),
-      play: openFoldedRun,
+      play: openEndedRun,
     },
     "collapsed-run-spacing-tight": {
       note: "Gallery comparison: the tool rows use a 20px line and 2px after the run.",
       snapshot: collapsedRunChat(),
       documentAttributes: { "transcript-tool-spacing": "tight" },
-      play: openFoldedRun,
+      play: openEndedRun,
     },
     "collapsed-run-spacing-selected": {
       note: "Selected gallery rhythm: compact 22px tool rows and a 4px gap before the reply, matching the Codex reference.",
       snapshot: collapsedRunChat(),
-      play: openFoldedRun,
+      play: openEndedRun,
     },
     "collapsed-run-spacing-roomy": {
       note: "Gallery comparison: the prior 26px tool rows and 8px after-run gap.",
       snapshot: collapsedRunChat(),
       documentAttributes: { "transcript-tool-spacing": "roomy" },
-      play: openFoldedRun,
+      play: openEndedRun,
     },
     "collapsed-run-failed": {
       note: "A failed call in the collapsed run is counted on its line.",
@@ -2512,6 +2524,7 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
       play: async (ctx: PlayContext) => {
+        await openEndedStretch(ctx);
         // The run of sends and the shell call folds into one line ("Sent 3 messages, ran a command",
         // MessageRunLine.tsx, #31398): open it, then the shell call under it.
         const run = () => ctx.document.querySelector("button[data-message-run]");
@@ -2825,8 +2838,9 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
       play: async (ctx) => {
-        // The ended stretch keeps its calls in sight while the chat works; a run folded to its line
-        // opens to them. Each call is then opened in turn.
+        // The ended stretch folds under its Worked for; opened, a run folded to its line opens to
+        // its calls. Each call is then opened in turn.
+        await openEndedStretch(ctx);
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-tool.is-toggle")));
         const closed = '.cv-tool.is-toggle[aria-expanded="false"]';
         if (ctx.document.querySelectorAll(closed).length < ENVELOPE_TOOLS.length) await openFoldedRun(ctx);

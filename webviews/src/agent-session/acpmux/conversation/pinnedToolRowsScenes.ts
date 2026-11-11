@@ -166,7 +166,10 @@ function scene(which: Scene): Play {
         fail("the next call under the view moved the text the reader was reading", seen);
     } else if (!(Math.abs(seen.after - seen.before) <= 1)) fail("the next call moved the reply in view", seen);
     if (!which.ends) return;
-    // The turn ends: its work folds once (turnEndFold.ts), and the reply the reader reads stays where it was.
+    // The turn ends: its work folds once (turnEndFold.ts). The view's offset holds and the reply stays
+    // drawn. Its top is recorded, not held: under `line` the end draws work that was not on screen
+    // above the reply (its Worked for, and the run turnEndHold.ts keeps open for the reply), so the
+    // reply moves down by it.
     view.cmuxAcpmuxBridge?.receive(structuredClone(snapshot(which.after, 3, false)));
     await settle(ctx, () => !liveLine(ctx) && !ctx.document.querySelector(".acpmux-thread[data-turn-end-folding]"));
     seen.ended = {
@@ -174,7 +177,8 @@ function scene(which: Scene): Play {
       scrollAfter: scroller(ctx).scrollTop,
     };
     view.cmuxPinnedToolRows = seen;
-    if (!(Math.abs(seen.ended.after - seen.before) <= 1)) fail("the turn's end moved the reply in view", seen);
+    if (!(Math.abs(seen.ended.scrollAfter - seen.scrollAfter) <= 1)) fail("the turn's end moved the view", seen);
+    if (!Number.isFinite(seen.ended.after)) fail("the reply is gone after the turn's end", seen);
   };
 }
 
@@ -190,7 +194,7 @@ export const pinnedVariants = {
     play: scene({ ...lone, below: true }),
   },
   "pinned-group": {
-    note: "Play: two reads, then a command joins the running turn and the turn ends. While it runs the reply and the live line show and no finished run; through the next call and the turn's end the reply stays where it was.",
+    note: "Play: two reads, then a command joins the running turn and the turn ends. While it runs the reply and the live line show and no finished run; the next call moves nothing in view; at the turn's end the view's offset holds and the reply moves down by the work drawn above it.",
     snapshot: snapshot(group.before, 1),
     play: scene(group),
   },

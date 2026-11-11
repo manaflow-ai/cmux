@@ -8,6 +8,7 @@ import { avatarsChanged, UPLOADED_AVATAR } from "../../../gallery/fixtures/agent
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, session, summary, tool, user, SESSION_ID } from "../../../gallery/fixtures/acpmux";
 import type { AcpmuxSessionEntry } from "../sessionList";
+import { openEndedStretch } from "./endedStretchPlay";
 
 /// Claude Code's shape for a call to the server: `mcp__cmux-subsessions__<tool>`, the arguments as
 /// its input and the result's text as its output.
@@ -317,6 +318,7 @@ export default agentPaneEntry({
       ),
       native: { "agent.avatar": { src: UPLOADED_AVATAR } },
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         await ctx.click({ selector: ".cv-disclosure__toggle" });
         avatarsChanged(ctx.document, ["sub-tests", "sub-docs", "sub-lint"]);
         await ctx.waitFor(() => {
