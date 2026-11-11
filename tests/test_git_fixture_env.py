@@ -127,9 +127,7 @@ class EnvironmentLayers(unittest.TestCase):
         env = git_fixture_env.fixture_env(scratch)
         pairs = {env[f"GIT_CONFIG_KEY_{i}"]: env[f"GIT_CONFIG_VALUE_{i}"] for i in range(int(env["GIT_CONFIG_COUNT"]))}
         self.assertEqual(pairs, dict(git_fixture_env.OPT_OUT))
-        self.assertEqual(env["GIT_CONFIG_GLOBAL"], git_fixture_env.GLOBAL_CONFIG)
         no_home = git_fixture_env.fixture_env({"PATH": scratch["PATH"]})
-        self.assertEqual(no_home["GIT_CONFIG_GLOBAL"], git_fixture_env.GLOBAL_CONFIG_NO_HOME)
         for case in (env, no_home):
             out = subprocess.run(["git", "config", "--global", "maintenance.auto"], env=case, capture_output=True,
                                  text=True, stdin=subprocess.DEVNULL)

@@ -517,6 +517,55 @@ fn a_snapshot_read_answers_when_an_in_process_terminal_closes_under_it() {
     public_session_snapshot(&mux).expect("the next snapshot read answers too");
 }
 
+/// Two in-process terminals close under ONE snapshot read, each right after the read took its live surface. The
+/// builder of the terminals read the durable identity of a live surface a second time: the first close failed
+/// the first pass of the terminals, the second close failed the second pass, and the read failed with "runtime
+/// omitted its durable identity", which every client shows as "machine unreachable".
+#[test]
+fn a_snapshot_read_answers_when_two_in_process_terminals_close_under_it() {
+    // A child that writes nothing.
+    let quiet = vec!["/bin/sh".into(), "-c".into(), "IFS= read -r line".into()];
+    let options = SurfaceOptions { command: Some(quiet), ..SurfaceOptions::default() };
+    let name = format!(
+        "snapshot-two-closes-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    );
+    let mux = Mux::new(name, options);
+    mux.new_workspace(Some("kept".into()), Some((80, 24))).unwrap();
+    let mut closing_under_the_read = Vec::new();
+    for workspace in ["first", "second"] {
+        let surface = mux.new_workspace(Some(workspace.into()), Some((80, 24))).unwrap();
+        let host =
+            mux.resource_terminal_host_identity(&surface).expect("setup: a reserved identity");
+        closing_under_the_read.push((surface.id, host));
+    }
+    public_session_snapshot(&mux).expect("setup: the snapshot read answers before the closes");
+
+    let closes = Arc::new(AtomicU64::new(0));
+    let (closing, closed) = (mux.clone(), closes.clone());
+    let close_it = move |surface: &Surface| {
+        let at = closing_under_the_read.iter().position(|(id, _)| *id == surface.id);
+        let Some(at) = at else { return };
+        let (_, host) = closing_under_the_read.remove(at);
+        closing.close_terminal(&host.terminal_id, &host.incarnation).unwrap();
+        assert!(
+            closing.resource_terminal_host_identity(surface).is_none(),
+            "setup: the close purged the identity of the runtime"
+        );
+        closed.fetch_add(1, Ordering::SeqCst);
+    };
+    crate::resource_api::set_live_terminal_hook_on_this_thread(Some(Box::new(close_it)));
+    let snapshot = public_session_snapshot(&mux);
+    crate::resource_api::set_live_terminal_hook_on_this_thread(None);
+    assert_eq!(closes.load(Ordering::SeqCst), 2, "setup: both terminals closed under the read");
+    let snapshot = snapshot.unwrap_or_else(|error| {
+        panic!("the snapshot read failed when two terminals closed under it: {error:?}")
+    });
+    assert!(snapshot["terminals"].is_array(), "the snapshot read answered: {snapshot}");
+    public_session_snapshot(&mux).expect("the next snapshot read answers too");
+}
+
 /// The answer of an indeterminate registry commit that arrives late owes a
 /// state update (cx-g1fa.3). The old snapshot read settled it, because it
 /// pinned the state. A session that only reads snapshots must still settle
