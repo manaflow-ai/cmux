@@ -194,7 +194,7 @@ final class QuitCoordinator {
                     cloud: { await services.cloud.prepareForTermination() }
                 ).run(steps)
                 // Restart to Update: acpmux goes to the new build with the relaunch, after the saves (AcpmuxUpdateHandoff).
-                if services.updater.relaunchesIntoUpdate, !choice.ends { _ = await steps.run("acpmux_update_handoff", limit: AcpmuxUpdateHandoff.quitLimit) { await AcpmuxUpdateHandoff.handOffForQuit(QuitAgents.environment(services)) } }
+                if services.updater.relaunchesIntoUpdate, !choice.ends { _ = await steps.run("acpmux_update_handoff", limit: AcpmuxUpdateHandoff.quitLimit) { await AcpmuxUpdateHandoff(QuitAgents.environment(services)).handOffForQuit() } }
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop(choice) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },

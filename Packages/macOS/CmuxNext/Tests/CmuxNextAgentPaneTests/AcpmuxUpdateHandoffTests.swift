@@ -31,6 +31,6 @@ struct AcpmuxUpdateHandoffTests {
     }
 
     @Test func noSocketIsNoDaemon() async {
-        #expect(await AcpmuxUpdateHandoff.handOff(nil, within: .milliseconds(10)) == .noDaemon)
+        #expect(await AcpmuxUpdateHandoff(nil).handOff(within: .milliseconds(10)) == .noDaemon)
     }
 }
