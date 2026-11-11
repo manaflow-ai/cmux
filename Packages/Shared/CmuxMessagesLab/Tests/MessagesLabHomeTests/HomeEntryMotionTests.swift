@@ -46,11 +46,15 @@ import Testing
         // My send shows in its row: no bubble flies from the field.
         #expect(demo.morphs.isEmpty)
 
-        // The text sits below the picture in its final layout, never over it.
-        let pictureFrames = pictureRows.compactMap { demo.model.index[$0] }.map { demo.layout.frame(for: $0) }
-        let textFrames = textRows.compactMap { demo.model.index[$0] }.map { demo.layout.frame(for: $0) }
-        let pictureBottom = try #require(pictureFrames.map(\.maxY).max())
-        let textTop = try #require(textFrames.map(\.minY).min())
+        // The text sits below the picture in its final layout, never over it. Row content bounds, not
+        // `layout.frame(for:)`: a cell's frame adds the 24 pt shadow margin (RowDraw.margin) on both sides.
+        func span(_ key: String) -> (top: CGFloat, bottom: CGFloat)? {
+            guard let i = demo.model.index[key], let spec = demo.model.rows[checked: i]?.spec else { return nil }
+            let top = demo.layout.contentTop(i)
+            return (top, top + spec.height)
+        }
+        let pictureBottom = try #require(pictureRows.compactMap(span).map(\.bottom).max())
+        let textTop = try #require(textRows.compactMap(span).map(\.top).min())
         #expect(textTop >= pictureBottom - 0.5, "text top \(textTop) over picture bottom \(pictureBottom)")
     }
 }
