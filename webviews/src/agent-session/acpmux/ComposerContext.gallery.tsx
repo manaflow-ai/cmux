@@ -1213,6 +1213,59 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         runMode: { mode: "cloud", onMode: () => undefined },
       },
     },
+    "environment-picker-cloud-long-team-closed": {
+      note: "Cloud picked in a long team: the location word reads Cloud in full; the team name gives up its width first.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "Austin Wang's Team", personal: false },
+        runMode: { mode: "cloud", onMode: () => undefined },
+      },
+    },
+    "environment-picker-cloud-long-team-row": {
+      note: "The Cloud row with a long team: label left, the team at the trailing edge in the shortcut's caption style (as This Mac's ⌥⌘1), the check in its own column.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudTeam: { name: "Austin Wang's Team", personal: false },
+        runMode: { mode: "cloud", onMode: () => undefined },
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [data-mode="cloud"] .acpmux-team-tag'));
+      },
+    },
+    "folder-cloud-start-out": {
+      note: "A Cloud start is out (the composer takes typing as a draft): the folder chip is a plain label of what the start carries, never this Mac's folder menu.",
+      props: {
+        ...baseProps,
+        environments: true,
+        cloudSignedIn: true,
+        cloudStartOut: true,
+        runMode: { mode: "cloud", onMode: () => undefined },
+      },
+    },
+    "folder-cloud-chat-on-machine": {
+      note: "A Cloud chat whose machine runs it: the chip names the folder it works in there (api), and its menu lists only that machine's folders, with no Add folder….",
+      props: {
+        ...baseProps,
+        environments: true,
+        peers: ["cloud-box"],
+        peerKinds: { "cloud-box": "cloud" as const },
+        peerConnected: { "cloud-box": true },
+        summary: { sessionId: "", harness: "claude", cwd: "/home/cmux/work/api", host: "cloud-box", peer: "cloud-box" },
+        machineFolders: [
+          { cwd: "/home/cmux/work/api", label: "api" },
+          { cwd: "/home/cmux/work/web", label: "web" },
+        ],
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Folder/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-location-menu, [role='listbox']"));
+      },
+    },
     "environment-picker-cloud-personal-closed": {
       note: "Active team: the person's own team. Cloud reads Personal with a person icon, never the people icon of a shared team.",
       props: {
