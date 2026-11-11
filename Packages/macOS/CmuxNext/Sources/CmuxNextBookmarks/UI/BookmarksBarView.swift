@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextIcons
 
@@ -11,7 +12,8 @@ public final class BookmarksBarView: NSView {
     public static var height: CGFloat { Metrics.controlHeight + Metrics.space2 }
     static let dragType = NSPasteboard.PasteboardType("com.cmuxterm.bookmark-id")
 
-    public weak var source: (any BookmarksBarSource)? { didSet { reload() } }
+    /// What the bar shows and does. The bar keeps it; a source holds the app weakly.
+    public var source: (any BookmarksBarSource)? { didSet { reload() } }
     private var items: [BookmarkBarItemView] = []
     private var visibleCount = 0
     private let overflow = NSButton()
@@ -20,10 +22,21 @@ public final class BookmarksBarView: NSView {
     private let dropIndicator = CALayer()
     private var menus: [BookmarkFolderMenu] = []
     private var isStale = true
+    private var iconObservation: Task<Void, Never>?
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil, isStale { reload() }
+        iconObservation?.cancel()
+        iconObservation = nil
+        guard window != nil else { return }
+        if isStale { reload() }
+        // task-owner: lives while the bar is in a window (cancelled above); event-driven (Observation)
+        iconObservation = Task { [weak self] in
+            for await landed in ObservationStream({ [weak self] in self?.source?.awaitedIconsLanded ?? false }) {
+                guard let self else { return }
+                if landed { reload() }
+            }
+        }
     }
 
     public override init(frame: NSRect) {

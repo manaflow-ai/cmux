@@ -202,7 +202,7 @@ not a banner).
 The strip under the toolbar that shows the Bookmarks Bar folder's items. It is native AppKit
 (`CmuxNextBookmarks/UI/BookmarksBarView.swift`, `BookmarkBarItemView.swift`, `BookmarkFolderMenu.swift`,
 `BookmarksBarView+Drag.swift`), filled by the app through `BookmarksBarSource`
-(`BookmarkBarSourceAdapter` over `BookmarkService`, the same model path as the star and the manager page).
+(`BookmarksBarHostSource` over the app's `BookmarksBarHost`, the same model path as the star and the manager page).
 
 - **Hosting.** Each browser tab's chrome holds one bar view as its accessory bar (height
   `controlHeight + space2`). The bar paints no fill: the chrome gives the accessory band the toolbar's

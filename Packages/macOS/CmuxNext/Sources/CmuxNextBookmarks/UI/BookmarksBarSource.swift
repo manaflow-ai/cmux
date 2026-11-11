@@ -8,6 +8,9 @@ public protocol BookmarksBarSource: AnyObject {
     func bookmarkChildren(of parent: String) -> [BookmarkNode]
     /// The favicon for a node (a folder icon for folders), or nil.
     func favicon(for node: BookmarkNode) -> NSImage?
+    /// Read under observation: true when an icon the last bar build drew a stand-in for is here
+    /// now, so the bar rebuilds (no polling).
+    var awaitedIconsLanded: Bool { get }
     func open(_ node: BookmarkNode, disposition: BookmarkOpenDisposition)
     /// Opens every bookmark directly in `folder` in new tabs.
     func openAll(in folder: String)

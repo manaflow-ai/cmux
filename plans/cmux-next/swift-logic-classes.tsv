@@ -1337,7 +1337,6 @@ CmuxNextApp	class	BookmarkPageService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sou
 CmuxNextApp	class	BookmarkPageTab	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkPageTab.swift	from class BookmarkPageTab:12: Bookmark manager native tab view
 CmuxNextApp	enum	BookmarkPalettePages	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkPalettePages.swift	from enum BookmarkPalettePages:11: Palette page over bookmarks (uses palette matcher)
 CmuxNextApp	struct	BookmarkResolver	0	LOGIC	100	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkResolver.swift	from struct BookmarkResolver:10: Invocation to profile/bookmark/folder resolution
-CmuxNextApp	class	BookmarkBarSourceAdapter	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkService+Chrome.swift	from extension BookmarkService:14: Fan-out to omnibar stars and bars (AppKit chromes)
 CmuxNextApp	extension	BookmarkService	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkService+Chrome.swift	Fan-out to omnibar stars and bars (AppKit chromes)
 CmuxNextApp	extension	BookmarkService	1	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkService+Chrome.swift	Fan-out to omnibar stars and bars (AppKit chromes)
 CmuxNextApp	extension	BookmarkService	0	MIRROR	0	100	Packages/macOS/CmuxNext/Sources/CmuxNextApp/Bookmarks/BookmarkService+Daemon.swift	Fetch/refetch/copy daemon bookmark trees and write ops
@@ -3321,6 +3320,8 @@ CmuxNextBookmarks	struct	BookmarkEditorSheet	0	PLATFORM	0	0	Packages/macOS/CmuxN
 CmuxNextBookmarks	enum	BookmarkPageAddress	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditorState.swift	from struct BookmarkEditorState:4: AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	struct	BookmarkEditorState	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkEditorState.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	class	BookmarkFolderMenu	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkFolderMenu.swift	from class BookmarkFolderMenu:7: AppKit/SwiftUI view, panel, menu or style code
+CmuxNextBookmarks	protocol	BookmarksBarHost	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarksBarHost.swift	AppKit/SwiftUI view, panel, menu or style code
+CmuxNextBookmarks	class	BookmarksBarHostSource	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarksBarHostSource.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	class	BookmarkManagerHostView	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkManagerHostView.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	struct	BookmarkManagerList	0	PLATFORM	0	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkManagerList.swift	AppKit/SwiftUI view, panel, menu or style code
 CmuxNextBookmarks	class	BookmarkManagerModel	0	MIXED	47	0	Packages/macOS/CmuxNext/Sources/CmuxNextBookmarks/UI/BookmarkManagerModel.swift	from protocol BookmarkManagerSource:9: BookmarkManagerSource protocol + view-local selection/editor PLATFORM; folder/query/rows filter and folderChoices LOGIC (:51-110)
