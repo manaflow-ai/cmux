@@ -58,7 +58,8 @@ permissions:
 
 concurrency:
   group: cloud-composer-journey-${{ github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: false
+  # A new push cancels the pull request's older run; the harness's SIGTERM path still deletes its machines.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   resolve:
@@ -272,7 +273,7 @@ jobs:
           name: cloud-composer-journey-${{ env.BACKEND }}
           path: ${{ runner.temp }}/composer-journey/out/
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 3
 
       - name: Open, update or close the red-journey issue
         # Dispatched runs only (the scheduled check's and on-demand ones); a pull request's red is its own check.
