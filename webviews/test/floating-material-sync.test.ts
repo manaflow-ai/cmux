@@ -32,7 +32,7 @@ test("the native menu radius is the popup radius, and the native default outer r
 });
 
 test("the native menu row is the row control", () => {
-  expect(swift).toContain("static let rowHeight: CGFloat = DesignTokens.controlRow");
+  expect(swift).toContain("public static let rowHeight: CGFloat = DesignTokens.controlRow");
   const tokens = repo("Packages/macOS/CmuxNext/Sources/CmuxNextDesignTokens/DesignTokens.swift");
   expect(tokens).toContain(`static let controlRow: CGFloat = ${control("row").px}`);
 });

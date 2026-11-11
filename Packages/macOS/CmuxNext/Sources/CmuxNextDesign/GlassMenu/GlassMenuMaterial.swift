@@ -21,7 +21,7 @@ public nonisolated enum GlassMenuMaterial {
     /// namedRadii `popup`; the native default outer radius, `MetricTunables.densityPaneCornerRadius`).
     public static let defaultCornerRadius: CGFloat = 8
     /// A menu row (design-scale.json controls `row`, `DesignTokens.controlRow`).
-    public static let rowHeight: CGFloat = DesignTokens.controlRow
+    @MainActor public static let rowHeight: CGFloat = DesignTokens.controlRow
     /// The glass level every menu and popover is.
     public static let level: GlassLevel = .menu
 
