@@ -539,5 +539,113 @@ class TagGate(unittest.TestCase):
         self.assertTrue(problems("coderouter-release.yml", document, POLICY, documents))
 
 
+RELEASES = "repos/o/r/releases"
+# cmux#41121 F1: every gh api write form gh reads, direct and wrapped. Implicit POST is any field flag or --input
+# without an explicit GET.
+GH_API_WRITE_ESCAPES = {
+    "implicit POST -f": f"gh api {RELEASES} -f tag_name=v1",
+    "implicit POST -F": f"gh api {RELEASES} -F draft=true",
+    "implicit POST --field": f"gh api {RELEASES} --field tag_name=v1",
+    "implicit POST --raw-field": f"gh api {RELEASES} --raw-field tag_name=v1",
+    "implicit POST --input": f"gh api {RELEASES} --input body.json",
+    "implicit POST -ftag_name=v1": f"gh api {RELEASES} -ftag_name=v1",
+    "implicit POST --field=": f"gh api {RELEASES} --field=tag_name=v1",
+    "implicit POST --input=": f"gh api {RELEASES} --input=body.json",
+    "implicit POST, field first": f"gh api -f tag_name=v1 {RELEASES}",
+    "implicit POST after -H": f"gh api {RELEASES} -H 'Accept: x' -f tag_name=v1",
+    "-XPOST": f"gh api {RELEASES} -XPOST",
+    "-X POST": f"gh api {RELEASES} -X POST",
+    "--method POST": f"gh api {RELEASES} --method POST",
+    "--method=POST": f"gh api {RELEASES} --method=POST",
+    "--method=post": f"gh api --method=post {RELEASES}",
+    "-iXPOST": f"gh api -iXPOST {RELEASES}",
+    "-X $METHOD": f"gh api -X \"$METHOD\" {RELEASES}",
+    "bash -c implicit POST": f"bash -c 'gh api {RELEASES} -f tag_name=v1'",
+    "bash -c -XPOST": f"bash -c 'gh api {RELEASES} -XPOST'",
+    "bash -lc --method=POST": f"bash -lc 'gh api {RELEASES} --method=POST'",
+    "sh -c --method POST": f"sh -c \"gh api {RELEASES} --method POST\"",
+    "eval implicit POST": f"eval \"gh api {RELEASES} --input body.json\"",
+    "eval unquoted -X POST": f"eval gh api {RELEASES} -X POST",
+    "eval of bash -c": f"eval \"bash -c 'gh api {RELEASES} -XPOST'\"",
+    "xargs implicit POST": f"xargs -n1 gh api {RELEASES} -f tag_name=v1 < tags",
+    "xargs -I --input": f"ls *.json | xargs -I{{}} gh api {RELEASES} --input {{}}",
+    "xargs sh -c": f"xargs -I{{}} sh -c 'gh api {RELEASES} -XPOST' < tags",
+    "sudo -XPOST": f"sudo gh api {RELEASES} -XPOST",
+    "sudo -E bash -c": f"sudo -E bash -c 'gh api {RELEASES} -f tag_name=v1'",
+    "env --method=POST": f"env GH_TOKEN=x gh api {RELEASES} --method=POST",
+    "env -S text": f"env -S 'gh api {RELEASES} -f tag_name=v1'",
+    "timeout implicit POST": f"timeout 60 gh api {RELEASES} -F draft=true",
+    "nice -X POST": f"nice -n 5 gh api {RELEASES} -X POST",
+    "nohup implicit POST": f"nohup gh api {RELEASES} -f tag_name=v1",
+    "command --input": f"command gh api {RELEASES} --input body.json",
+    "exec -XPOST": f"exec gh api {RELEASES} -XPOST",
+    "time --method=POST": f"time gh api {RELEASES} --method=POST",
+    "find -exec --input": f"find dist -name '*.json' -exec gh api {RELEASES} --input {{}} \\;",
+    "flock implicit POST": f"flock /tmp/l gh api {RELEASES} -f tag_name=v1",
+    "su -c -XPOST": f"su runner -c 'gh api {RELEASES} -XPOST'",
+    "substitution implicit POST": f"id=$(gh api {RELEASES} -f tag_name=v1 --jq .id)",
+}
+# #41133 F2: executable content the detector cannot read may publish, so it needs the gate.
+UNRESOLVED_ESCAPES = {
+    "a heredoc into bash": "bash <<'EOF'\ngh release create v1 dist/x\nEOF",
+    "a heredoc into sh -s": "sh -s <<EOF\ngh release create v1 dist/x\nEOF",
+    "eval of a variable": "cmd=\"gh release create v1 dist/x\"\neval \"$cmd\"",
+    "bash -c of a variable": "cmd=\"gh release create v1 dist/x\"\nbash -c \"$cmd\"",
+    "source of a generated file": "printf 'gh release create v1 dist/x\\n' > publish.sh\nsource ./publish.sh",
+    "dot of a generated file": "printf 'gh release create v1 dist/x\\n' > publish.sh\n. ./publish.sh",
+}
+STILL_READS = {
+    "-X GET with a field": f"gh api {RELEASES} -X GET -f per_page=1",
+    "--method=GET with a field": f"gh api {RELEASES} --method=GET -F per_page=1",
+    "-XGET with a field": f"gh api {RELEASES} -XGET -f per_page=1",
+    "bash -c read": f"bash -c 'gh api {RELEASES}/latest'",
+    "sudo read": f"sudo gh api {RELEASES}",
+    "xargs read": f"xargs -n1 gh api {RELEASES}/tags < tags",
+    "a write elsewhere": "gh api repos/o/r/pulls -f title=x",
+    "a function call": "f() { echo hi; }\nf",
+    "a variable program": "\"$wheel_python\" -m wheel unpack \"$wheel\" --dest out",
+    "xargs with a variable argument": "xargs rm -f \"$scratch\" < files",
+}
+
+
+class RealGateMutations(unittest.TestCase):
+    """Strip the release gate from a real signing step of coderouter-release.yml and give it an escape form: the
+    detector must name it, and the same step with its real gate restored must pass."""
+
+    STEP = "Sign and verify macOS CodeRouter binary"
+
+    def mutate(self, run: str, keep_gate: bool) -> list[str]:
+        documents = load_real()
+        document = documents["coderouter-release.yml"]
+        steps = document["jobs"]["build"]["steps"]
+        index = next(i for i, item in enumerate(steps) if isinstance(item, Mapping) and item.get("name") == self.STEP)
+        real = steps[index]
+        self.assertTrue(gated(real.get("if"), POLICY), "the real step lost its gate")
+        mutant = {key: value for key, value in real.items() if key not in ("env", "run", "if")}
+        mutant["if"] = real["if"] if keep_gate else "runner.os == 'macOS'"
+        mutant["run"] = run + "\n"
+        steps[index] = mutant
+        return problems("coderouter-release.yml", document, POLICY, documents)
+
+    def assert_escape_caught(self, cases: Mapping[str, str]) -> None:
+        for label, run in cases.items():
+            with self.subTest(label):
+                found = self.mutate(run, keep_gate=False)
+                self.assertEqual(len(found), 1, f"{label}: {run!r} escaped the detector: {found}")
+                self.assertIn(self.STEP, found[0])
+                self.assertEqual(self.mutate(run, keep_gate=True), [], label)
+
+    def test_every_gh_api_write_form_without_the_real_gate_is_named(self) -> None:
+        self.assert_escape_caught(GH_API_WRITE_ESCAPES)
+
+    def test_unresolved_executable_content_without_the_real_gate_is_named(self) -> None:
+        self.assert_escape_caught(UNRESOLVED_ESCAPES)
+
+    def test_reads_and_harmless_wrappers_stay_unnamed_without_the_gate(self) -> None:
+        for label, run in STILL_READS.items():
+            with self.subTest(label):
+                self.assertEqual(self.mutate(run, keep_gate=False), [], f"{label}: {run!r}")
+
+
 if __name__ == "__main__":
     unittest.main()

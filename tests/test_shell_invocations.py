@@ -252,6 +252,50 @@ class AgainstBash(unittest.TestCase):
         self.assertTrue(may_run_program("a\necho $(b", "sign"))
         self.assertFalse(may_run_program("a\necho b", "sign"))
 
+    def test_gh_api_request_reads_the_method_the_way_gh_does(self) -> None:
+        from shell_invocations import gh_api_request
+        writes = {
+            "-f": ["x", "-f", "a=1"], "-F": ["x", "-F", "a=1"], "--field": ["x", "--field", "a=1"],
+            "--raw-field": ["x", "--raw-field", "a=1"], "--input": ["x", "--input", "f"], "-fa=1": ["x", "-fa=1"],
+            "--field=": ["x", "--field=a=1"], "--input=": ["x", "--input=f"], "-XPOST": ["x", "-XPOST"],
+            "-X POST": ["x", "-X", "POST"], "--method POST": ["x", "--method", "POST"],
+            "--method=post": ["--method=post", "x"], "-iXPOST": ["-iXPOST", "x"], "-X PATCH": ["x", "-X", "PATCH"],
+            "-X $M": ["x", "-X", "$M"], "an unknown flag": ["x", "--frobnicate"],
+        }
+        for label, args in writes.items():
+            with self.subTest(write=label):
+                self.assertTrue(gh_api_request(args).writes, args)
+        reads = {"bare": ["x"], "-X GET -f": ["x", "-X", "GET", "-f", "a=1"], "--method=GET -F": ["x", "--method=GET", "-F", "a=1"],
+                 "-XGET -f": ["-XGET", "x", "-f", "a=1"], "-H -q": ["x", "-H", "Accept: y", "-q", ".id"],
+                 "--paginate -i": ["--paginate", "-i", "x"], "-X HEAD": ["x", "-X", "HEAD"]}
+        for label, args in reads.items():
+            with self.subTest(read=label):
+                self.assertFalse(gh_api_request(args).writes, args)
+        self.assertEqual(gh_api_request(["-H", "Accept: y", "repos/o/r/releases", "-f", "a=1"]).endpoint, "repos/o/r/releases")
+        self.assertIsNone(gh_api_request(["-f", "a=1"]).endpoint)  # no endpoint: xargs feeds it
+        self.assertIsNone(gh_api_request(["$URL", "-f", "a=1"]).endpoint)  # an endpoint it cannot read
+
+    def test_may_run_nested_reads_wrapped_commands_and_marks_what_it_cannot_read(self) -> None:
+        from shell_invocations import may_run_nested
+        inner = ["gh", "release", "create", "v1"]
+        for script in ("bash -c 'gh release create v1'", "eval gh release create v1", "eval \"sh -c 'gh release create v1'\"",
+                       "sudo -E bash -c 'gh release create v1'", "xargs gh release create v1 < f",
+                       "env -S 'gh release create v1'", "su u -c 'gh release create v1'",
+                       "find . -exec gh release create v1 \\;", "x=$(gh release create v1)"):
+            with self.subTest(wrapped=script):
+                # find -exec keeps its `;` terminator as a last word: the command is what the words start with.
+                self.assertTrue(any(words[:len(inner)] == inner for words in may_run_nested(script)), script)
+        for script in ("bash <<'EOF'\ngh release create v1\nEOF", "eval \"$cmd\"", "bash -c \"$cmd\"", "source ./gen.sh",
+                       ". ./gen.sh", "sh -s < f", "bash -c 'unterminated", "eval \"$(cat gen.sh)\""):
+            with self.subTest(unreadable=script):
+                self.assertIn([], may_run_nested(script))
+        for script in ("echo hi", "f() { echo hi; }\nf", "xargs rm -f \"$x\" < f", "sudo apt-get install -y gh",
+                       "bash -c 'echo gh release create'", "cat <<'EOF'\ngh release create v1\nEOF",
+                       "\"$python\" -m venv \"$dir\"", "python3 - <<'PY'\nprint(1)\nPY"):
+            with self.subTest(readable=script):
+                self.assertNotIn([], may_run_nested(script))
+                self.assertFalse(any(words[:len(inner)] == inner for words in may_run_nested(script)), script)
+
     def test_there_is_no_default_reading(self) -> None:
         import shell_invocations
         self.assertFalse(hasattr(shell_invocations, "invocations"))
