@@ -4825,6 +4825,10 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
         raise Refused(f"{where}: run {link[1]} has no WS_CHECK_RESULT line listing its failed steps")
     if result.get("head") != sha:
         # Through cmux-ci the run tests a snapshot commit of the head: its own receipt must name that snapshot and run.
+        # The run's title is fast-checks.yml's run-name, "Fast checks SNAPSHOT" and then whatever its callers add
+        # (" tests REPO@SHA", the lane-gh broker's " job ID"): the snapshot it names is the identity, never the
+        # suffix. A copy of the suffix grammar refused every broker run as "from another checkout" (leo-workspace#4352
+        # at 6ee67e15, run 43039410812 "Fast checks 7a6b39ce... job 642043a9...", 2026-11-11).
         receipt = next((text for text in reversed(lines) if text.startswith("FAST_CHECKS_RECEIPT=")), "")
         try:
             receipt = json.loads(receipt.split("=", 1)[1]) if receipt else {}
@@ -4832,8 +4836,8 @@ def ws_check_verdict(repo: str, sha: str, github) -> tuple[str, dict]:
             receipt = {}
         if not (isinstance(receipt, dict) and result.get("head") and receipt.get("source_sha") == result.get("head")
                 and str(receipt.get("run_id")) == link[1]
-                and re.fullmatch(r"Fast checks " + re.escape(str(result.get("head"))) + r"(?: tests \S+)?",
-                                 run.get("display_title") or "")):
+                and re.fullmatch(r"Fast checks " + re.escape(str(result.get("head"))) + r"(?: \S.*)?",
+                                 run.get("display_title") or "", re.S)):
             raise Refused(f"{where}: the WS_CHECK_RESULT of run {link[1]} is from another checkout")
     if (int(named[1]), int(named[2])) != (len(failed), result.get("steps")) or not failed[0].startswith(named[3]):
         raise Refused(f"{where}: its status (\"{description}\") does not match run {link[1]}'s WS_CHECK_RESULT")

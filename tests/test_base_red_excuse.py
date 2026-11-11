@@ -6082,9 +6082,14 @@ class WsCheckPerTest(unittest.TestCase):
         # A title that also names the tested repo and commit (`Fast checks SOURCE tests REPO@TESTED`) is the same run.
         self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} tests teamleaderleo/leo-workspace@{HEAD}"
         self.assertIn("every failure", self.judge()[0])
-        self.gh.runs[1]["display_title"] = "Fast checks " + "8" * 40
-        with self.assertRaisesRegex(excuse.Refused, "is from another checkout"):
-            self.judge()
+        # The lane-gh broker's run-name adds its cmux-ci job (leo-workspace#4352, run 43039410812, 2026-11-11).
+        self.gh.runs[1]["display_title"] = f"Fast checks {snapshot} job 642043a9c88143b8a7feff7b5056e819"
+        self.assertIn("every failure", self.judge()[0])
+        for title in ("Fast checks " + "8" * 40, f"Fast checks {snapshot}0", f"Fast checks {snapshot[:-1]}",
+                      f"Fast checks {'8' * 40} job {snapshot}"):
+            self.gh.runs[1]["display_title"] = title
+            with self.subTest(title=title), self.assertRaisesRegex(excuse.Refused, "is from another checkout"):
+                self.judge()
 
     def merge_base_case(self, merge_base_red, *, tip=None):
         """LW#3538 at 5e80abcb: main's newest verdict is red on another step, a pass ends the window before the
