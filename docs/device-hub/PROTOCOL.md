@@ -136,7 +136,13 @@ v1 does not rate-limit yet), `internal` (500).
 device (a new one replaces the old, which is closed with code 4000; a removed
 device's socket is closed with 4001, a signed-out one's with 4003). `online`
 counts only open sockets: one the server has closed counts as offline at once,
-before the client answers the close frame.
+before the client answers the close frame. A socket the device has sent
+nothing on for 75 s (two missed pings plus 15 s; neither a ping nor any other
+frame) also counts as offline: a device that dropped without closing its
+socket (sleep, lost network, a killed app) is closed with code 4004 and a
+reason saying how long it was silent, `devices.changed` goes to the other
+devices, and its offline grace (Session flow, 8) counts from when it was last
+heard. 4004 is not terminal: the app reconnects.
 Connecting pushes `devices.changed` to every device, the connecting one
 included (its own entry is now `online`); disconnecting pushes it to the
 others. Server → device messages:
@@ -151,9 +157,10 @@ others. Server → device messages:
 {type:'session.revoked', sessionId, reason}    // to both; end at once
 {type:'session.ended', sessionId, reason}
 ```
-Device → server: `{type:'ping'}` (auto-response `{type:'pong'}`). The
-auto-response matches bytes exactly: send the text frame `{"type":"ping"}`, no
-spaces; the reply is `{"type":"pong"}`. Other device frames are ignored.
+Device → server: `{type:'ping'}` (auto-response `{type:'pong'}`), every 30 s.
+The auto-response matches bytes exactly: send the text frame `{"type":"ping"}`, no
+spaces; the reply is `{"type":"pong"}`. Other device frames are ignored, but
+count as a sign of life.
 `viewerKeyFingerprint` is the lowercase hex SHA-256 of the viewer's 65-byte
 signing key. Pushes reach only connected devices; there is no backlog, so a
 device refetches state after it reconnects: its devices, relays, its own
@@ -208,7 +215,11 @@ to each host), so a change made while it was away never leaves an old value.
 6. When both are connected the Session DO marks the session `live` (audit
    `started`). A signaling socket that closes or fails ends signaling for that
    side only, never the session: the peer connection may still be up, and the
-   other side's socket stays open. A session ends on `bye`, `/end`,
+   other side's socket stays open and gets
+   `{type:'peer-left', role, reason}` (`role` is the side that left; `reason`
+   is `closed <code>[: <reason>]` or `error: <why>`), so a side still setting
+   up can stop waiting. It is sent once per socket, never relayed from a
+   device, and not sent once the session has ended. A session ends on `bye`, `/end`,
    revocation (7) or the offline grace (8); then the Session DO closes both
    sockets and deletes its storage. A `bye` is provisional for 3 s: if an
    authoritative end follows (a client often sends `bye` and then `/end`), its
@@ -220,8 +231,10 @@ to each host), so a change made while it was away never leaves an old value.
    with the same reason; the
    host closes the peer connection at once; `/ice` stops renewing. Pending
    requests are ended the same way.
-8. Offline devices: when a device's last User DO socket closes or errors while
-   it has open sessions, the server waits 30 s. If it has not reconnected by
+8. Offline devices: when a device's last User DO socket closes, errors or
+   goes silent (75 s with no frame) while it has open sessions, the server
+   waits 30 s from when it was last heard (so a silent device's sessions end
+   when it is found silent). If it has not reconnected by
    then, every session where it is viewer or host ends: audit `ended` with
    reason `peer_offline`, push `session.ended` (reason `peer_offline`) to both
    devices, and the Session DO closes its sockets. A socket replaced by a new
@@ -243,7 +256,7 @@ authoritative end does not replace its reason. The same string is pushed in `ses
 | `viewer_disconnected` | the viewer called `/end` without a reason | `session.revoked` |
 | any other string | the `reason` given to `/end` (≤100 chars) | `session.revoked` |
 | `expired` | a pending request was not decided within 5 min | `session.revoked` |
-| `peer_offline` | a device stayed disconnected for 30 s | `session.ended` |
+| `peer_offline` | a device stayed disconnected for 30 s, or was silent for 75 s | `session.ended` |
 | `bye` | a device sent `bye` and no authoritative reason followed within 3 s | `session.ended` |
 | `approve_failed` | the server could not set up the approved session | `session.revoked` |
 

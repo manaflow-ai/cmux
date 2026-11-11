@@ -36394,6 +36394,11 @@
           "kind" : "string",
           "name" : "login",
           "required" : false
+        },
+        {
+          "kind" : "string",
+          "name" : "model",
+          "required" : false
         }
       ],
       "cli" : "offered",
@@ -39151,6 +39156,107 @@
       "palette_suggested" : null,
       "title" : "Reset Main-Thread Blocking Counts",
       "title_key" : "action.debug.blockingCalls.reset",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+
+      ],
+      "cli" : "devOnly",
+      "cli_name" : "action debug-blocking-calls-copy",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.blockingCalls.copy",
+      "main_menu" : null,
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Copy Main-Thread Blocking Sites",
+      "title_key" : "action.debug.blockingCalls.copy",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "icon",
+          "required" : true
+        }
+      ],
+      "cli" : "devOnly",
+      "cli_name" : "action debug-sidebar-toggle-icon",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.sidebarToggleIcon",
+      "main_menu" : null,
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Sidebar Toggle Icon…",
+      "title_key" : "action.debug.sidebarToggleIcon",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "args" : [
+        {
+          "kind" : "string",
+          "name" : "set",
+          "required" : true
+        }
+      ],
+      "cli" : "devOnly",
+      "cli_name" : "action debug-status-icon-set",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.statusIconSet",
+      "main_menu" : null,
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Status Icons…",
+      "title_key" : "action.debug.statusIconSet",
       "title_table" : "ActionCatalog"
     },
     {
