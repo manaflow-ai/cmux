@@ -38,6 +38,7 @@
 import { clipMessagePreview as clip } from "./clipMessagePreview";
 import { inboxNotice, type InboxNotice } from "./inboxNotice";
 import { bareSender, provenanceAuthenticated, relayAddress, senderRecord, senderUnverified } from "./senderIdentity";
+import { identifiedOf, verifiedByProgram, type IdentifiedSender } from "./unverifiedSender";
 import { relayEnvelope, withoutRelayEnvelope, withoutRelayLabel, withoutRelayLabelOfMessage } from "./relayEnvelope";
 import {
   legacyNotice,
@@ -96,6 +97,12 @@ export type IncomingMessage = {
   /// senderIdentity.ts, or provenance kind `unverified`, which names an unverified sender when the
   /// message names no one): the line draws a subtle marker by the name, never words in it.
   unverified?: true;
+  /// What acpmux itself found running an unverified send (`identified`, acpmux sender_program.rs: a
+  /// script such as `outbox_relay.py`, an app whose own code it is), and the machine its CLI named
+  /// (`claimed.cliHost`, a notice's `host`): the unverified mark says them, and a line that names no
+  /// sender is named by the find (unverifiedSender.ts), never by a claim.
+  identified?: IdentifiedSender;
+  host?: string;
   /// The sender's model and thinking effort when the message names them (`fromModel`,
   /// `fromEffort`), for its line's hover; a listed chat's own come first.
   model?: string;
@@ -417,10 +424,13 @@ function withSender(
   const record = senderRecord(provenance?.sender ?? (msg as { sender?: unknown } | undefined)?.sender);
   const sender = bareSender(prompt.message.name);
   // With no sender record, acpmux's own proof in the provenance (a relay's record, a session it
-  // stamped) verifies the sender, as acpmux's record would have (review of cmux#37653).
+  // stamped) verifies the sender, as acpmux's record would have (review of cmux#37653), and so does
+  // its check of the program behind a named sender against the host's registry (`verifiedBy:
+  // "program"`, acpmux sender_program.rs): a first-party sender, drawn by its name with no mark.
   const unverified =
-    !(record === undefined && provenanceAuthenticated(provenance)) &&
+    !(record === undefined && (provenanceAuthenticated(provenance) || verifiedByProgram(provenance))) &&
     senderUnverified(record, sender.declared || declared || provenance?.from === NAMED_SENDER);
+  const found = unverified ? whatWasFound(provenance) : {};
   const harness = prompt.message.harness ?? record?.harness;
   // A relayed sender's chat is asked for by its whole relay address: the name acpmux gave it is cut
   // to `fromAgent`'s length, which two sessions can share (cmux#38642 review). Only a relay record
@@ -437,8 +447,20 @@ function withSender(
       ...(lookup && { lookup }),
       ...(harness && { harness }),
       ...(unverified && { unverified: true as const }),
+      ...found,
     },
   };
+}
+
+/// What acpmux identified behind an unverified send, and the machine it names (unverifiedSender.ts).
+function whatWasFound(
+  provenance: Record<string, unknown> | undefined,
+): Pick<IncomingMessage, "identified" | "host"> {
+  const identified = identifiedOf(provenance);
+  const claimed = provenance?.claimed as Record<string, unknown> | undefined;
+  const notice = provenance?.notice as Record<string, unknown> | undefined;
+  const host = trimmed(claimed?.cliHost) ?? trimmed(notice?.host);
+  return { ...(identified && { identified }), ...(host && { host }) };
 }
 
 function promptOf(
@@ -662,6 +684,7 @@ function promptOf(
       message: {
         ...(named ?? { name: "", text: text.trim() }),
         unverified: true,
+        ...whatWasFound(provenance),
         ...remote,
         ...harness,
         raw: text,

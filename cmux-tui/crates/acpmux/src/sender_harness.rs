@@ -301,13 +301,18 @@ pub fn sanitized(claim: &Value) -> Option<Value> {
 }
 
 /// What the daemon found walking from the socket peer's pid, as recorded beside a claim:
-/// `{harness?, harnessPid?, app?, signedBy?, peerPid}`. `None` when the chain shows neither.
+/// `{harness?, harnessPid?, app?, signedBy?, program?, programPath?, interpreter?, registered?,
+/// peerPid}` (`sender_program.rs` names the program and the registry names its chain runs).
+/// `None` when the chain shows nothing.
 pub fn checked(
     chain: &Chain,
+    programs: &crate::sender_program::Programs,
+    registered: &[String],
     peer_pid: u32,
     signer: impl Fn(&str) -> Option<String>,
 ) -> Option<Value> {
-    if chain.harness.is_none() && chain.app.is_none() {
+    let program = crate::sender_program::checked_fields(programs, registered);
+    if chain.harness.is_none() && chain.app.is_none() && program.is_empty() {
         return None;
     }
     let mut found = json!({"peerPid": peer_pid});
@@ -320,6 +325,9 @@ pub fn checked(
         if let Some(signer) = signer(path) {
             put(&mut found, "signedBy", json!(signer));
         }
+    }
+    if let Some(map) = found.as_object_mut() {
+        map.extend(program);
     }
     Some(found)
 }
@@ -396,11 +404,15 @@ pub fn check_trust(peer: SocketPeer, local: bool, peer_token: bool) -> (Option<u
 /// [`stamp_checked`].
 pub const CHECKED_KEY: &str = "senderHarnessChecked";
 
-/// The daemon's first look at a send carrying a claim, before the outbox keeps it or a peer gets
-/// it: what the unix socket peer's process chain shows goes in [`CHECKED_KEY`]. `carried` is a
-/// connection whose [`CHECKED_KEY`] is the daemon's own ([`check_trust`]); from any other, one it
-/// sent is dropped. Reads the chain (and runs
-/// `codesign` on macOS) only for a send carrying a claim, off the async workers.
+/// The daemon's first look at a local send, before the outbox keeps it or a peer gets it: what
+/// the unix socket peer's process chain shows (its harness and app, the program that ran it and
+/// the registry names that program is, `sender_program.rs`) goes in [`CHECKED_KEY`]. Every local
+/// send the caller passes a pid for is looked at, a send naming no sender or harness too, so an
+/// unnamed one is still identified (Leo, 2026-11-11: "generally the "unverified sender" things
+/// should be more verified"); `server/requests.rs` passes none for a caller-proven session or
+/// the proven person. `carried` is a connection whose [`CHECKED_KEY`] is the daemon's own
+/// ([`check_trust`]); from any other, one it sent is dropped. The walk reads one pid at a time,
+/// off the async workers; `codesign` runs only for an app bundle found, once per path.
 pub async fn stamp_checked(prompt: &mut Value, peer_pid: Option<u32>, carried: bool) {
     let Some(mux) = prompt.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) else {
         return;
@@ -408,11 +420,16 @@ pub async fn stamp_checked(prompt: &mut Value, peer_pid: Option<u32>, carried: b
     if !carried {
         mux.remove(CHECKED_KEY);
     }
-    let (Some(pid), true) = (peer_pid, mux.contains_key(META_KEY)) else { return };
-    let found = tokio::task::spawn_blocking(move || checked(&chain(lookup, pid), pid, signer))
-        .await
-        .ok()
-        .flatten();
+    let Some(pid) = peer_pid else { return };
+    let registry = crate::config::home().join(crate::sender_program::REGISTRY_FILE);
+    let found = tokio::task::spawn_blocking(move || {
+        let programs = crate::sender_program::programs_of(pid);
+        let registered = crate::sender_program::load(&registry).names_for(&programs.paths);
+        checked(&chain(lookup, pid), &programs, &registered, pid, signer)
+    })
+    .await
+    .ok()
+    .flatten();
     if let (Some(found), Some(mux)) =
         (found, prompt.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut))
     {
@@ -445,6 +462,7 @@ fn checked_fields(found: &Value) -> Value {
             kept.insert(field.into(), json!(pid));
         }
     }
+    crate::sender_program::kept_fields(found, &mut kept);
     Value::Object(kept)
 }
 
@@ -497,12 +515,29 @@ fn ancestors_in(lookup: impl Fn(u32) -> Option<Proc>, pid: u32) -> Vec<u32> {
     found
 }
 
-/// The outermost `.app` bundle in an executable path: its name and its path.
+/// Where an app bundle keeps its own code: its main executable, its frameworks and helper apps
+/// (Claude.app's `Contents/Frameworks/Claude Helper.app`), its helpers, XPC services and login
+/// items.
+const OWN_CODE: &[&str] = &[
+    "Contents/MacOS/",
+    "Contents/Frameworks/",
+    "Contents/Helpers/",
+    "Contents/XPCServices/",
+    "Contents/Library/LoginItems/",
+];
+
+/// The app bundle an executable is the code of: the outermost `.app` in its path, when the
+/// executable is that app's own code ([`OWN_CODE`]), with its name and path. A tool an app only
+/// ships is not that app, nor is any bundle inside it: Xcode's
+/// `Contents/Developer/.../Python.app/Contents/MacOS/Python` (which ran our outbox relay and drew as
+/// "Xcode", Leo, 2026-11-11: "what's up with this?"), its git and clang, anything under
+/// `Contents/Resources/` or `Contents/SharedSupport/`; the walk goes on past it.
 fn app_bundle(exe: &str) -> Option<(String, String)> {
     let end = exe.find(".app/")? + ".app".len();
-    let path = exe.get(..end)?;
+    let (path, inside) = (exe.get(..end)?, exe.get(end + 1..)?);
     let name = path.rsplit('/').next()?;
-    (name.len() > ".app".len()).then(|| (name.to_owned(), path.to_owned()))
+    (name.len() > ".app".len() && OWN_CODE.iter().any(|dir| inside.starts_with(dir)))
+        .then(|| (name.to_owned(), path.to_owned()))
 }
 
 fn is_terminal(app: &str) -> bool {
@@ -519,7 +554,7 @@ fn lookup(pid: u32) -> Option<Proc> {
 
 /// `pid (comm) state ppid ...`; comm may hold spaces and parens.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn stat_proc(pid: u32, stat: &str) -> Option<Proc> {
+pub(crate) fn stat_proc(pid: u32, stat: &str) -> Option<Proc> {
     let (head, rest) = stat.rsplit_once(')')?;
     let comm = head.split_once('(')?.1;
     let ppid = rest.split_whitespace().nth(1)?.parse().ok()?;
@@ -529,7 +564,7 @@ fn stat_proc(pid: u32, stat: &str) -> Option<Proc> {
 /// One process, read for its pid alone (macOS `proc_pidinfo` for its parent, `proc_pidpath` for
 /// its executable).
 #[cfg(target_os = "macos")]
-fn lookup(pid: u32) -> Option<Proc> {
+pub(crate) fn lookup(pid: u32) -> Option<Proc> {
     let id = libc::c_int::try_from(pid).ok()?;
     let mut info = std::mem::MaybeUninit::<libc::proc_bsdinfo>::zeroed();
     let size = libc::c_int::try_from(std::mem::size_of::<libc::proc_bsdinfo>()).ok()?;
@@ -555,14 +590,33 @@ fn lookup(_pid: u32) -> Option<Proc> {
     None
 }
 
-/// Who signed an app bundle (`codesign`'s first `Authority=`), macOS only.
+/// Who signed an app bundle (`codesign`'s first `Authority=`), macOS only. Run once per bundle
+/// path: the person's terminal app is found on every send of theirs, and `codesign` is a process.
 fn signer(path: &str) -> Option<String> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    /// Bundles remembered at most; past it the memory starts over.
+    const MAX_BUNDLES: usize = 64;
+    static SIGNERS: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
     if !cfg!(target_os = "macos") {
         return None;
     }
-    let out =
-        std::process::Command::new("codesign").args(["-dv", "--verbose=2", path]).output().ok()?;
-    parse_signer(&String::from_utf8_lossy(&out.stderr))
+    let signers = SIGNERS.get_or_init(Default::default);
+    if let Some(known) = signers.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(path)
+    {
+        return known.clone();
+    }
+    let found = std::process::Command::new("codesign")
+        .args(["-dv", "--verbose=2", path])
+        .output()
+        .ok()
+        .and_then(|out| parse_signer(&String::from_utf8_lossy(&out.stderr)));
+    let mut signers = signers.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    if signers.len() >= MAX_BUNDLES {
+        signers.clear();
+    }
+    signers.insert(path.to_owned(), found.clone());
+    found
 }
 
 fn parse_signer(codesign: &str) -> Option<String> {

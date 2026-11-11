@@ -178,13 +178,14 @@ fn the_daemon_records_what_the_peer_pids_chain_shows_beside_the_claim() {
         (path == "/Applications/Claude.app")
             .then(|| "Developer ID Application: Anthropic".to_owned())
     };
-    let found = checked(&walked, 50, signer).unwrap();
+    let none = crate::sender_program::Programs::default();
+    let found = checked(&walked, &none, &[], 50, signer).unwrap();
     assert_eq!(
         found,
         json!({"peerPid": 50, "harness": "claude-code", "harnessPid": 30, "app": "Claude.app",
                "signedBy": "Developer ID Application: Anthropic"})
     );
-    assert_eq!(checked(&Chain::default(), 50, |_| None), None);
+    assert_eq!(checked(&Chain::default(), &none, &[], 50, |_| None), None);
     let claimed = sanitized(&json!({"harness": "claude-code"}));
     let rec = record("p1", claimed, Some(found)).unwrap();
     assert_eq!(rec["promptId"], "p1");
@@ -211,11 +212,21 @@ async fn a_client_cannot_name_what_the_daemon_checked() {
 }
 
 #[tokio::test]
-async fn a_send_with_no_claim_walks_nothing_and_records_nothing() {
+async fn a_send_with_no_claim_is_still_identified_but_records_no_claim() {
+    // Leo, 2026-11-11: "generally the "unverified sender" things should be more verified". An
+    // unnamed local send is looked at too: the program above this process (the test runner).
     let mut plain = json!({"_meta": {"acpmux": {"promptId": "p"}}});
     stamp_checked(&mut plain, Some(std::process::id()), false).await;
-    assert!(plain.pointer("/_meta/acpmux/senderHarnessChecked").is_none());
+    if cfg!(any(target_os = "linux", target_os = "macos")) {
+        let found = plain.pointer("/_meta/acpmux/senderHarnessChecked").expect("checked");
+        assert!(found.get("program").and_then(Value::as_str).is_some(), "{found}");
+    }
+    // The `sender_claim` record is a claim's: none without one.
     assert_eq!(recorded(&plain, Some("p")), None);
+    // No pid (a caller-proven session, the person, a Web client): nothing walked.
+    let mut proven = json!({"_meta": {"acpmux": {"promptId": "p"}}});
+    stamp_checked(&mut proven, None, false).await;
+    assert!(proven.pointer("/_meta/acpmux/senderHarnessChecked").is_none());
     let claimed = json!({"_meta": {"acpmux": {"senderHarness": {"harness": "codex"}}}});
     assert_eq!(recorded(&claimed, None), None, "no prompt id to key it by");
 }
@@ -345,4 +356,64 @@ fn ancestors_walk_every_parent_to_the_root_and_stop_at_a_loop() {
     assert_eq!(ancestors_in(of(&[proc(9, 9, "x")]), 9), vec![9]);
     // An unreadable pid reads as nothing.
     assert!(ancestors_in(of(&table), 77).is_empty());
+}
+
+#[test]
+fn a_tool_an_app_ships_is_not_that_app() {
+    // Our outbox relay, run by the python3 Xcode ships: no "Xcode" (Leo, 2026-11-11: "what's up
+    // with this?").
+    let xcode_python = "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python";
+    assert_eq!(app_bundle(xcode_python), None);
+    for shipped in [
+        "/Applications/Xcode.app/Contents/Developer/usr/bin/git",
+        "/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang",
+        "/Applications/Foo.app/Contents/Resources/bin/tool",
+        "/Applications/Foo.app/Contents/SharedSupport/bin/tool",
+    ] {
+        assert_eq!(app_bundle(shipped), None, "{shipped}");
+    }
+    // Xcode's own executable is Xcode.
+    assert_eq!(
+        app_bundle("/Applications/Xcode.app/Contents/MacOS/Xcode"),
+        Some(("Xcode.app".into(), "/Applications/Xcode.app".into()))
+    );
+    // A Claude helper bundle in Claude.app's frameworks is still Claude.app's code.
+    assert_eq!(
+        app_bundle(
+            "/Applications/Claude.app/Contents/Frameworks/Claude Helper.app/Contents/MacOS/Claude Helper"
+        ),
+        Some(("Claude.app".into(), "/Applications/Claude.app".into()))
+    );
+    for own in [
+        "/Applications/A.app/Contents/Helpers/h",
+        "/Applications/A.app/Contents/XPCServices/x.xpc/Contents/MacOS/x",
+        "/Applications/A.app/Contents/Library/LoginItems/L.app/Contents/MacOS/L",
+    ] {
+        assert_eq!(app_bundle(own).map(|(n, _)| n), Some("A.app".into()), "{own}");
+    }
+    assert_eq!(app_bundle("/usr/bin/python3"), None);
+    assert_eq!(app_bundle("/Applications/.app/Contents/MacOS/x"), None);
+}
+
+#[test]
+fn the_relay_under_xcodes_python_claims_no_app_and_the_walk_goes_on() {
+    let table = [
+        proc(50, 40, "/usr/local/bin/acpmux"),
+        proc(
+            40,
+            1,
+            "/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/Resources/Python.app/Contents/MacOS/Python",
+        ),
+    ];
+    let walked = chain(of(&table), 50);
+    assert_eq!(walked, Chain::default());
+    assert_eq!(from_chain(&walked), None, "no app, no harness: no claim");
+    // The same python under Claude desktop's shell still finds Claude.app above it.
+    let under_claude = [
+        proc(50, 40, "/usr/local/bin/acpmux"),
+        proc(40, 30, "/Applications/Xcode.app/Contents/Developer/usr/bin/python3"),
+        proc(30, 20, "/bin/zsh"),
+        proc(20, 1, "/Applications/Claude.app/Contents/MacOS/Claude"),
+    ];
+    assert_eq!(chain(of(&under_claude), 50).app.unwrap().0, "Claude.app");
 }

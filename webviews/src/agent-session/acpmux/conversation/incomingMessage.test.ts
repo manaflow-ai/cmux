@@ -1018,6 +1018,81 @@ test("a prompt acpmux could not attribute is an unverified sender's card, never 
   });
 });
 
+// Leo, 2026-11-11, on our outbox relay's notice drawn as "Unverified sender" with an "Xcode" chip:
+// "generally the "unverified sender" things should be more verified". acpmux now says what it found
+// running the send (sender_program.rs `identified`) and verifies a registered first-party sender by
+// its program (`verifiedBy: "program"`).
+test("an unverified send carries what acpmux identified and the machine it ran on", () => {
+  const unverified = {
+    kind: "unverified",
+    to: "s-1",
+    transport: "unix",
+    verified: false,
+    claimed: { cliHost: "cosmic-gray" },
+    identified: { program: "outbox_relay.py" },
+  };
+  const text = "#40611 conflicts with feat-cmux-next";
+  expect(incomingPrompt(text, { _meta: { provenance: unverified } })).toEqual({
+    kind: "message",
+    message: {
+      name: "",
+      unverified: true,
+      identified: { program: "outbox_relay.py" },
+      host: "cosmic-gray",
+      text,
+      raw: text,
+    },
+  });
+  // An app only when the daemon found the app's own code; an odd field draws nothing.
+  const app = { ...unverified, identified: { app: "Xcode.app", program: "a\u0007b" } };
+  const fromApp = incomingPrompt(text, { _meta: { provenance: app } });
+  expect(fromApp?.kind === "message" && fromApp.message.identified).toEqual({ app: "Xcode.app" });
+});
+
+test("a named sender acpmux verified by its program is drawn by its name, unmarked", () => {
+  const sent = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "outbox-relay",
+    to: "s-1",
+    transport: "unix",
+    verified: true,
+    verifiedBy: "program",
+    program: "outbox_relay.py",
+  };
+  const text = "#40611 conflicts with feat-cmux-next";
+  expect(incomingPrompt(text, { _meta: { provenance: sent } })).toEqual({
+    kind: "message",
+    message: { name: "outbox-relay", text, raw: text },
+  });
+  // A `--from` name its program does not match stays its claim: marked, with what was found.
+  const claimed = {
+    kind: "agent_message",
+    from: "fromAgent",
+    fromName: "glaeda-gh",
+    to: "s-1",
+    transport: "unix",
+    verified: false,
+    claimed: { cliHost: "cosmic-gray" },
+    identified: { program: "stranger.py" },
+  };
+  expect(incomingPrompt(text, { _meta: { provenance: claimed } })).toEqual({
+    kind: "message",
+    message: {
+      name: "glaeda-gh",
+      unverified: true,
+      identified: { program: "stranger.py" },
+      host: "cosmic-gray",
+      text,
+      raw: text,
+    },
+  });
+  // `verified` alone, without the daemon's `verifiedBy`, proves nothing here.
+  const bare = { ...claimed, verified: true, identified: undefined, claimed: undefined };
+  const marked = incomingPrompt(text, { _meta: { provenance: bare } });
+  expect(marked?.kind === "message" && marked.message.unverified).toBe(true);
+});
+
 test("an edited agent's message stays the agent's and says it was edited", () => {
   const sent = {
     kind: "agent_message",
