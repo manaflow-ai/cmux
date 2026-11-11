@@ -107,7 +107,7 @@ async function catalog(): Promise<Snapshot["catalog"]> {
 }
 
 /// A new chat on this Mac in FOLDER, before its first send; `startsOnCloud`: Cloud is picked.
-async function newChat(startsOnCloud: boolean, harness = "claude"): Promise<Snapshot> {
+async function newChat(startsOnCloud: boolean, harness = "claude", cloudStartMode?: string): Promise<Snapshot> {
   return {
     type: "snapshot",
     protocolVersion: 1,
@@ -121,6 +121,7 @@ async function newChat(startsOnCloud: boolean, harness = "claude"): Promise<Snap
     catalog: await catalog(),
     summary: { sessionId: "", harness, turnCount: 0, cwd: FOLDER } as Summary,
     ...(startsOnCloud ? { startsOnCloud: true } : {}),
+    ...(cloudStartMode ? { cloudStartMode } : {}),
   } as Snapshot;
 }
 
@@ -157,4 +158,42 @@ test("with Cloud picked, the chip names the mode the Cloud machine starts a Clau
 test("with Cloud picked, a Codex chat's chip names the bridge's asking mode", async () => {
   await render(await newChat(true, "codex"));
   expect(chipText()).toBe("Ask");
+});
+
+// Leo, 2026-11-10: "but shouldnt the user be allowed to just go through with stuff?" A mode picked
+// for the Cloud start is what the chip names, and what the send carries to the machine.
+test("with Cloud picked, a Bypass permissions pick is what the chip names", async () => {
+  await render(await newChat(true, "claude", "bypassPermissions"));
+  expect(chipText()).toBe("Bypass permissions");
+});
+
+test("with Cloud picked, a Codex full access pick is what the chip names", async () => {
+  await render(await newChat(true, "codex", "agent-full-access"));
+  expect(chipText()).toBe("Full access");
+});
+
+test("a pick for another harness is not this start's: the chip keeps the asking mode", async () => {
+  const { holdCloudModePick, takeCloudModePick } = await import("../src/agent-session/acpmux/cloudModePick");
+  holdCloudModePick("codex", "agent-full-access");
+  expect(takeCloudModePick("claude")).toEqual({});
+  holdCloudModePick("claude", "bypassPermissions");
+  expect(takeCloudModePick("claude")).toEqual({ mode: "bypassPermissions" });
+  expect(takeCloudModePick("claude")).toEqual({});
+});
+
+test("with Cloud picked, the menu offers only the modes a Cloud start can run in", async () => {
+  await render(await newChat(true));
+  const button = host.querySelector<HTMLElement>(".acpmux-mode .acpmux-access-trigger");
+  expect(button).not.toBeNull();
+  await act(async () => {
+    button!.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+    button!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    button!.click();
+  });
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  const rows = [...dom.window.document.querySelectorAll("[role=menuitemradio]")].map((row) => row.textContent ?? "");
+  expect(rows.some((row) => row.includes("Manual"))).toBe(true);
+  expect(rows.some((row) => row.includes("Bypass permissions"))).toBe(true);
+  expect(rows.some((row) => row.includes("Accept edits"))).toBe(false);
+  expect(rows.some((row) => row.includes("Auto"))).toBe(false);
 });

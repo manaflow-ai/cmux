@@ -20,6 +20,8 @@ export type CloudStart = {
   home?: boolean;
   harness?: string;
   model?: string;
+  /** The permission mode picked before the first send (cloudModePick.ts); none: the machine's own start mode. */
+  mode?: string;
   environment?: string;
   reservationKey?: string;
   /** A native gesture ticket reserved before waiting for a Cloud machine lease. */

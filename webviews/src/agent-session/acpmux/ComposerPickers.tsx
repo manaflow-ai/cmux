@@ -978,13 +978,29 @@ export function ComposerPickers({
   // harness's asking mode there (Claude's Manual, the Codex bridge's Ask: acpmux sets no start mode
   // on a remote start and holds the `ask` policy, web_modes.rs). The chip names that mode, as the
   // model chip names its model, never the bare word "Mode" (Leo 2026-11-10: "the "mode" is weird").
-  const cloudStart =
+  // A mode the person picked for that start (`cloudStartMode`, cloudModePick.ts) is what the
+  // machine starts it in, Bypass permissions included (Leo 2026-11-10: "but shouldnt the user be
+  // allowed to just go through with stuff?"); with no pick, the asking mode above.
+  const chipFamily = summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family;
+  const cloudAsking =
     awaiting && fresh && snapshot.startsOnCloud && modes.length === 0
-      ? remoteStartMode(
-          summary?.family ?? snapshot.catalog.find((entry) => entry.id === chipHarness)?.family,
-          chipHarness,
-        )
+      ? remoteStartMode(chipFamily, chipHarness)
       : undefined;
+  const cloudPick = cloudAsking && snapshot.cloudStartMode;
+  const cloudStart = cloudPick
+    ? {
+        id: cloudPick,
+        name:
+          harnessFamilyMenu(chipFamily, chipHarness)?.rows.find((row) => row.id === cloudPick)?.name ??
+          (cloudPick === cloudAsking.id ? cloudAsking.name : cloudPick),
+      }
+    : cloudAsking;
+  // The modes a Cloud start can be picked into: the asking mode it starts in and the harness's
+  // highest level. acpmux starts a chat in another mode that does not ask (Auto, Accept edits) only
+  // on the person's own proof, which the Cloud start does not carry, so the menu lists neither.
+  const cloudPickable = cloudAsking
+    ? [cloudAsking.id, highestMode(chipFamily, chipHarness)?.id].filter((id): id is string => id !== undefined)
+    : undefined;
   const startMode: KeptStartMode | undefined =
     (cloudStart ? { modeId: cloudStart.id, name: cloudStart.name } : undefined) ??
     startAnswer ??
@@ -1040,7 +1056,7 @@ export function ComposerPickers({
     const known = shownModes(
       menu,
       rows
-        .filter((choice) => !isPlan(choice.id))
+        .filter((choice) => !isPlan(choice.id) && (cloudPickable === undefined || cloudPickable.includes(choice.id)))
         .map((choice) => ({
           id: choice.id,
           name: (choice.id === namedStart?.modeId ? namedStart.name : undefined) || choice.name || choice.id,

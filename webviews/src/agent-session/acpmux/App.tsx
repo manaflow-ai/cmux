@@ -95,6 +95,7 @@ import {
 } from "./newtab/adoption";
 import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
+import { cloudModePickFor as cloudModeFor, holdCloudModePick, takeCloudModePick, useCloudModePick } from "./cloudModePick";
 import { configurationSessionMatches, pickEffort } from "./configurationActions";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { rememberStartedProject } from "./newtab/startedProject";
@@ -1392,6 +1393,12 @@ function DefaultComposerChips({
   // A pick before the connect is the page's (heldModePick.ts), so a first send that unmounts these
   // chips never loses it; the connect flushes it. The run reads the page's actions when it runs.
   const onMode = (modeId: string): Promise<unknown> => {
+    // Cloud picked: the pick waits for the Cloud send, which starts the chat in it on the machine;
+    // this Mac starts nothing for it.
+    if (snapshot.startsOnCloud) {
+      holdCloudModePick(snapshot.summary?.harness, modeId);
+      return Promise.resolve();
+    }
     if (!startsChat || window.cmuxAcpmuxActions?.["chat.mode"] !== undefined) return pickMode(modeId);
     return holdModePick(modeId, pickMode);
   };
@@ -1426,7 +1433,9 @@ function DefaultComposerChips({
       // A Cloud or other remote machine's chat starts with its first send: until then its mode pick
       // is held for that start (Leo 2026-11-01: "i couldn't even pick a mode for this kind aqua
       // sandpaper one"), and once its agent reports its modes, their menu replaces this one.
-      holdsStartMode={!startsChat && snapshot.origin === "remote" && !snapshot.summary?.sessionId}
+      holdsStartMode={
+        (!startsChat && snapshot.origin === "remote" && !snapshot.summary?.sessionId) || snapshot.startsOnCloud === true
+      }
       onModel={(modelId) => {
         start();
         void callNative("chat.model", { modelId });
@@ -4563,6 +4572,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The host says its own progress and failures (toasts), and the chat shows the start under the
   /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
   const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
+  // The permission mode picked for that Cloud start (cloudModePick.ts).
+  const cloudModePick = useCloudModePick();
   cloudComposeEligible.current = cloudPicked && sandboxOfferable;
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
   const [startCloud] = useState(() =>
@@ -6766,6 +6777,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(quick && { canHandoff: false }),
       // Cloud picked: the first send starts the chat on a Cloud machine, which decides its mode.
       ...(cloudPicked && { startsOnCloud: true as const }),
+      // Its permission mode pick, for the harness the chat starts on (cloudModePick.ts).
+      ...(cloudPicked &&
+        cloudModeFor(cloudModePick, snapshot.summary?.harness) !== undefined && {
+          cloudStartMode: cloudModeFor(cloudModePick, snapshot.summary?.harness),
+        }),
     };
     // Prompts still waiting for a new chat to take them follow acpmux's queue, then the prompts the
     // folder's trust holds (trustHeld.ts).
@@ -6789,6 +6805,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     quick,
     keptStopping,
     cloudPicked,
+    cloudModePick,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
@@ -11511,6 +11528,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   {
                     ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
                     ...heldPick(composerSnapshot),
+                    ...takeCloudModePick(composerSnapshot.summary?.harness),
                   },
                 );
                 if (typeof started === "string") {
