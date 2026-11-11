@@ -7097,6 +7097,20 @@ class FailingStepLogOnly(unittest.TestCase):
                 self.assertIn("settings: # strings missing", str(raised.exception))
                 self.assertNotIn("digest changed", str(raised.exception))
 
+    def test_review_41220_a_passing_steps_diagnostics_never_excuse_a_failed_step_that_names_nothing(self):
+        # #41220's review (Codex P1 at c7b757f0): the strings step fails with different, unrecognized lines on head
+        # and base, so the failed section names nothing to compare; the passing license step prints the same digest
+        # error on both sides. The whole-log fallback for a placed red that names nothing excused it on that digest
+        # line. A placed red is compared only on its failed sections' own lines: here there is nothing, so refused.
+        for fmt in (self.raw, self.columns):
+            with self.subTest(log=fmt.__name__):
+                github = self.github(fmt(self.sections(["settings.title has no ja"])),
+                                     fmt(self.sections(["home.footer has no de"])))
+                with self.assertRaises(excuse.Refused) as raised:
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+                self.assertNotIn("excused", str(raised.exception))
+                self.assertNotIn("digest changed", str(raised.exception))
+
     def test_the_failing_steps_errors_are_matched_with_the_bases_same_step(self):
         # The head's strings error printed by the base only in a passing step is not the base failing that way.
         line = "settings: 42 strings missing"
@@ -7546,7 +7560,10 @@ class StepOwnership(unittest.TestCase):
         # block after it), and hq#8962's F2: 10,000 named steps took 0.62 s (each header rescanned every step's times).
         # Placing is one pass: 10,000 unnamed steps and 10,000 named steps, each with its header in its own second,
         # and one step printing 10,000 headers (not one to one, so nothing is placed), each in well under half a
-        # second.
+        # second of this process's CPU time (about 0.04 s; the quadratic versions took 21.6 s). CPU time, not the wall
+        # clock: #41220's review saw two of these fail at 0.5 s in a full run on a loaded host, where the wall clock
+        # counts other processes' turns (0.04 s each here in the same full run). No _aligned_starts cost is in it:
+        # with no workflow headers (UNKNOWN) that reading returns at once.
         import time
 
         def shape(named):
@@ -7563,13 +7580,13 @@ class StepOwnership(unittest.TestCase):
                                            ("10,000 named steps", shape(True), (excuse.FAILED, excuse.PASSED)),
                                            ("one step's 10,000 headers", (one, flood), (excuse.AMBIGUOUS,) * 2)):
             job, log_text = {"steps": framed_steps(steps)}, framed_log(text)
-            started = time.perf_counter()
+            started = time.process_time()
             owned = excuse.step_owners(job, log_text, **UNKNOWN)
-            took = time.perf_counter() - started
+            took = time.process_time() - started
             said = {excuse.lines_of(line)[0]: status for line, _, status in owned}
             with self.subTest(shape=label):
                 self.assertEqual((said[NEW_RED], said[NEGATIVE_CASE]), want)
-                self.assertLess(took, 0.5, f"step_owners took {took:.2f} s for {label}")
+                self.assertLess(took, 0.5, f"step_owners took {took:.2f} CPU s for {label}")
 
     def test_every_case_has_its_test(self):
         self.assertEqual({name[5:] for name in dir(self) if name.startswith("test_")} & STEP_OWNERSHIP.keys(),
@@ -8452,7 +8469,8 @@ RAW_LOG_READERS = {
 }
 # The functions that read a log from GitHub: they hand it to failed_view, a gate or a per-test verdict above, and
 # return no raw log to a comparator.
-LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence", "guard_routes_view", "guard_group_report",
+LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unplaced_base_evidence",
+                          "failed_section_base_evidence", "guard_routes_view", "guard_group_report",
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
@@ -8544,6 +8562,7 @@ ROLES = {
     ("base_red_excuse", "read_head"): (False,),  # the head's red job
     ("base_red_excuse", "guard_routes_view"): (False,),  # validate_guard_routes: the head's routed rollup guard
     ("base_red_excuse", "base_evidence"): (True,),  # a compared base run's job
+    ("base_red_excuse", "failed_section_base_evidence"): (True,),  # a base run's job, compared by identity
     ("next_batch", "probe_base"): (True, True),  # the base probe's run, then its rerun
     ("next_batch", "failing_on_base"): (True,),  # the base's newest push run
     ("next_batch", "base_tier_failures"): (True,),  # the base tier's runs
@@ -10044,8 +10063,8 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
     def test_hq_9191_the_bases_failure_is_excused(self):
         # Its failed step says only `FAIL: plist content`: placed, nothing names the failure, so it is compared whole.
         said = self.judge(self.github("hq-9191", self.fixture("hq-9191", "head"), self.fixture("hq-9191", "base")))
-        self.assertIn("excused 'Skill policy tests': its failed steps name no failing test or error line, so it was "
-                      "compared whole", said)
+        self.assertIn("excused 'Skill policy tests': its failed steps name no failing test or error line, so their "
+                      "own lines were compared by identity", said)
         self.assertIn("FAIL: plist content", said)
 
     def test_hq_9191_a_failure_the_head_adds_is_refused(self):
