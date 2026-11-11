@@ -132,7 +132,7 @@ export type StepReport = {
   boxMoves?: BoxMove[];
   /** Durations in ms of the frames over 16.7 ms. */
   longFrames: number[];
-  /** Where each long frame's time went (`longFramePart`), where the engine says; never judged. */
+  /** Where the first `LONG_FRAME_PARTS` long frames' time went (`longFramePart`), where the engine says; never judged. */
   longFrameParts?: string[];
   frameSource: "long-animation-frame" | "raf";
   status: "pass" | "warn" | "fail";
@@ -203,12 +203,33 @@ export type LongFrameEntry = {
 
 const ms = (value: number) => `${value.toFixed(1)} ms`;
 
+/** The most long frames of one step that the report says the parts of (`StepReport.longFrameParts`). */
+export const LONG_FRAME_PARTS = 5;
+
+/** The most characters of a script's caller in a long frame's line. */
+const CALLER_CHARS = 80;
+
 /**
- * Where a long frame's time went, for the person who reads a red: the time before its render (the
- * step's own handlers, and the wait for the display's next refresh), its frame callbacks, and its
- * style and layout; when it began against the step's start (a frame that began before the step
- * carries work that is not the step's); and its three longest scripts by who called them. A
- * diagnosis only: `judgeStep` reads `longFrames`.
+ * A script's caller for a log line. The engine names a whole script by its URL, and a listener on an
+ * element by the element's `src`: a URL keeps its file name only (no path of the machine, no query),
+ * a `data:` URL keeps its scheme only, and the text has a bound.
+ */
+function caller(invoker: string): string {
+  const text = invoker
+    .replace(/data:[^\]\s]*/g, "data:…")
+    .replace(/[a-z][a-z0-9+.-]*:\/\/[^\]\s]*/gi, (url) => url.replace(/[?#].*$/, "").replace(/^.*\//, "") || url);
+  return text.length > CALLER_CHARS ? `${text.slice(0, CALLER_CHARS)}…` : text;
+}
+
+/**
+ * Where a long frame's time went, for the person who reads a red: the time before its render (tasks:
+ * the handlers of real input, timers, a scheduler's work, and the wait for the display's next
+ * refresh), its frame callbacks, and the time from its style and layout to its end (observers and
+ * paint are in it); when it began against the step's start; and its three longest scripts by who
+ * called them. A step with no driver starts inside the frame callback that ended the last settle, so
+ * its own handlers read as frame callbacks and its frame begins a little before the step. A frame
+ * that began one frame or more before the step carries work that is not the step's: read the
+ * scripts. A diagnosis only: `judgeStep` reads `longFrames`.
  */
 export function longFramePart(entry: LongFrameEntry, stepStart: number): string {
   const end = entry.startTime + entry.duration;
@@ -223,10 +244,10 @@ export function longFramePart(entry: LongFrameEntry, stepStart: number): string 
     const forced = script.forcedStyleAndLayoutDuration
       ? `, ${ms(script.forcedStyleAndLayoutDuration)} of it forced style and layout`
       : "";
-    return `${script.invoker || "a script"}${source ? ` (${source})` : ""} ${ms(script.duration)}${forced}`;
+    return `${script.invoker ? caller(script.invoker) : "a script"}${source ? ` (${source})` : ""} ${ms(script.duration)}${forced}`;
   });
   return [
-    `${ms(entry.duration)}: ${ms(render - entry.startTime)} before its render, ${ms(layout - render)} frame callbacks, ${ms(end - layout)} style and layout`,
+    `${ms(entry.duration)}: ${ms(render - entry.startTime)} before its render, ${ms(layout - render)} frame callbacks, ${ms(end - layout)} from style and layout on`,
     `began ${ms(Math.abs(began))} ${began < 0 ? "before" : "after"} the step's start`,
     scripts.length
       ? `scripts ${ms(scripts.reduce((sum, script) => sum + script.duration, 0))}: ${named.join(", ")}`

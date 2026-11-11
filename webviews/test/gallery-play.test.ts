@@ -218,7 +218,7 @@ describe("where a long frame's time went", () => {
       1000,
     );
     expect(part).toBe(
-      "62.0 ms: 40.0 ms before its render, 3.0 ms frame callbacks, 19.0 ms style and layout; " +
+      "62.0 ms: 40.0 ms before its render, 3.0 ms frame callbacks, 19.0 ms from style and layout on; " +
         "began 2.0 ms after the step's start; " +
         "scripts 40.0 ms: BUTTON.onclick (stop in Composer-abc.js) 37.0 ms, 12.0 ms of it forced style and layout, " +
         "DOMWindow.requestAnimationFrame 3.0 ms",
@@ -228,16 +228,48 @@ describe("where a long frame's time went", () => {
   test("a frame that began before the step, with no script, says both", () => {
     // Nothing of the page ran: the time is the wait for the frame, which is not the step's work.
     expect(longFramePart({ startTime: 990, duration: 55, renderStart: 1044, styleAndLayoutStart: 1044.5 }, 1000)).toBe(
-      "55.0 ms: 54.0 ms before its render, 0.5 ms frame callbacks, 0.5 ms style and layout; " +
+      "55.0 ms: 54.0 ms before its render, 0.5 ms frame callbacks, 0.5 ms from style and layout on; " +
         "began 10.0 ms before the step's start; no script of 5 ms or more",
     );
   });
 
   test("a frame that rendered nothing gives all its time to the part before a render", () => {
     expect(longFramePart({ startTime: 0, duration: 51, renderStart: 0, styleAndLayoutStart: 0 }, 0)).toBe(
-      "51.0 ms: 51.0 ms before its render, 0.0 ms frame callbacks, 0.0 ms style and layout; " +
+      "51.0 ms: 51.0 ms before its render, 0.0 ms frame callbacks, 0.0 ms from style and layout on; " +
         "began 0.0 ms after the step's start; no script of 5 ms or more",
     );
+  });
+
+  test("names the three longest scripts of many, sums them all, and keeps a caller short", () => {
+    // The engine names a whole script by its URL and a listener by its element's `src`: no path of
+    // the machine and no image's bytes go into a CI line.
+    const part = longFramePart(
+      {
+        startTime: 100,
+        duration: 80,
+        renderStart: 178,
+        styleAndLayoutStart: 179,
+        scripts: [
+          { duration: 6 },
+          { invoker: "http://127.0.0.1:5173/@fs/home/runner/work/cmux/webviews/src/main.tsx?t=17", duration: 30 },
+          { invoker: `IMG[src=data:image/png;base64,${"iVBOR/w0+".repeat(4000)}].onload`, duration: 20 },
+          { invoker: "IMG[src=https://example.test/shots/one.png?size=2].onload", duration: 10 },
+          { invoker: `${"Deep.".repeat(40)}then`, duration: 5 },
+        ],
+      },
+      100,
+    );
+    expect(part).toBe(
+      "80.0 ms: 78.0 ms before its render, 1.0 ms frame callbacks, 1.0 ms from style and layout on; " +
+        "began 0.0 ms after the step's start; " +
+        "scripts 71.0 ms: main.tsx 30.0 ms, IMG[src=data:…].onload 20.0 ms, IMG[src=one.png].onload 10.0 ms",
+    );
+    // A caller with no URL in it is cut at its bound.
+    const long = longFramePart(
+      { startTime: 0, duration: 60, scripts: [{ invoker: "x".repeat(200), duration: 60 }] },
+      0,
+    );
+    expect(long).toContain(`scripts 60.0 ms: ${"x".repeat(80)}… 60.0 ms`);
   });
 });
 

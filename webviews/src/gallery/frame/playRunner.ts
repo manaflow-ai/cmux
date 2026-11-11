@@ -4,6 +4,7 @@ import {
   isSubpixelLayoutShift,
   judgePopups,
   judgeStep,
+  LONG_FRAME_PARTS,
   longFramePart,
   overall,
   rectDelta,
@@ -451,7 +452,8 @@ async function measured(
       for (const entry of list.getEntries()) {
         if (entry.duration <= 16.7) continue;
         longFrames.push(entry.duration);
-        longFrameParts.push(longFramePart(entry as LongFrameEntry, stepStart));
+        if (longFrameParts.length < LONG_FRAME_PARTS)
+          longFrameParts.push(longFramePart(entry as LongFrameEntry, stepStart));
       }
     });
     observer.observe({ type: "long-animation-frame", buffered: false });
