@@ -24,7 +24,16 @@ import { authLoginText, authText, canSessionLogin } from "./sessionAuth";
 import { useChatAccounts, type ChatAccount } from "./chatAccounts";
 import { QuickModelMenu, StarIcon, UsedMark } from "./QuickModelMenu";
 import { CHAT_COLUMN } from "./modelPickerLayout";
-import { MODEL_MENU_MIN_WIDTH, naturalMenuWidth, setModelMenuWidth, useModelMenuWidth } from "./modelMenuWidth";
+import {
+  effortColumnWidth,
+  type EffortLabel,
+  MODEL_MENU_MIN_WIDTH,
+  menuNameFont,
+  nameLineWidth,
+  naturalMenuWidth,
+  setModelMenuWidth,
+  useModelMenuWidth,
+} from "./modelMenuWidth";
 import {
   familyTabs,
   heldTab,
@@ -286,6 +295,8 @@ function Columns({
   };
   // The last level picked here, on any model: the next model clicked carries it.
   const [chosenLevel, setChosenLevel] = useState<string>();
+  // The query a level or Fast was picked by hand under: that pick, not the query's named level, shows.
+  const [handPickedUnder, setHandPickedUnder] = useState<string>();
   const [seen, setSeen] = useState({ effort: effort?.current, fast: fast?.checked });
   if (seen.effort !== effort?.current || seen.fast !== fast?.checked) {
     setSeen({ effort: effort?.current, fast: fast?.checked });
@@ -356,30 +367,41 @@ function Columns({
     sizeHold.current = observer;
   }, []);
   const modelsList = useRef<HTMLDivElement | null>(null);
+  // The list as state too: the popup draws it after `open` turns true, so an effect keyed on `open`
+  // alone ran before it existed and never watched its width (the star sat on the check in a narrowed
+  // menu, Lucas 2026-11-11).
+  const [modelsListElement, setModelsListElement] = useState<HTMLDivElement | null>(null);
+  const holdModelsList = useCallback((element: HTMLDivElement | null) => {
+    modelsList.current = element;
+    setModelsListElement(element);
+  }, []);
   const railList = useRef<HTMLDivElement | null>(null);
   // The menu's width: the person's own (a drag on its edge), else as wide as the longest model name
   // of every tab, so it never changes width from tab to tab; a narrower menu wraps a longer name.
   const ownWidth = useModelMenuWidth();
-  const [natural, setNatural] = useState<{ key: string; width: number }>();
+  const [natural, setNatural] = useState<{ key: string; width: number; effort?: number }>();
   // A drag in progress owns the width: a render meanwhile (a streaming reply) never resets it.
   const dragging = useRef(false);
-  const widthOf = (popup: HTMLElement | null | undefined) => {
-    if (!popup || dragging.current) return;
-    const room = "var(--available-width, calc(100vw - 24px))";
-    if (ownWidth) {
-      // A width the person dragged to is theirs, from the drag's floor up to the window.
-      popup.style.width = `min(${ownWidth}px, ${room})`;
-      popup.style.minWidth = `min(${MODEL_MENU_MIN_WIDTH}px, ${room})`;
-      popup.style.maxWidth = room;
-      return;
-    }
-    // The default: the longest name's width in em of the menu's type, so it grows with interface
-    // scale and chrome text size as the names do. The stylesheet's floor (28.5em) and cap (40em)
-    // still hold; a name longer than the cap wraps under it.
-    popup.style.width = natural ? `min(${natural.width}em, ${room})` : "";
-    popup.style.minWidth = "";
-    popup.style.maxWidth = "";
-  };
+  const widthOf = useCallback(
+    (popup: HTMLElement | null | undefined) => {
+      if (!popup || dragging.current) return;
+      const room = "var(--available-width, calc(100vw - 24px))";
+      if (ownWidth) {
+        // A width the person dragged to is theirs, from the drag's floor up to the window.
+        popup.style.width = `min(${ownWidth}px, ${room})`;
+        popup.style.minWidth = `min(${MODEL_MENU_MIN_WIDTH}px, ${room})`;
+        popup.style.maxWidth = room;
+        return;
+      }
+      // The default: the longest name's width in em of the menu's type, so it grows with interface
+      // scale and chrome text size as the names do. The stylesheet's floor (28.5em) and cap (40em)
+      // still hold; a name longer than the cap wraps under it.
+      popup.style.width = natural ? `min(${natural.width}em, ${room})` : "";
+      popup.style.minWidth = "";
+      popup.style.maxWidth = "";
+    },
+    [ownWidth, natural],
+  );
 
   // The Starred tab is always the rail's first, also before anything is starred.
   const starredText = t("picker.starred");
@@ -390,17 +412,15 @@ function Columns({
         : [{ id: STARRED_TAB, name: starredText, starred: true, models: [], more: [] }, ...families.list],
     [families.list, starredText],
   );
-  // Every name the menu can list (each tab's models and their providers): the default width fits
-  // the longest, measured once per list as the menu opens.
+  // Every model name the models column can show the person (each tab's models and its Legacy ones; not
+  // the providers, which the effort column lists): the default width fits the widest (Lucas 2026-11-11:
+  // "the size of the widest model name available to the user"), measured as the menu opens.
   const names = useMemo(
     () => [
       ...new Set(
         list.flatMap((family) =>
-          [...family.models, ...family.more].flatMap((model) => [
-            // A tag ("New") draws after the name, a gap away: it is measured with it.
-            model.tag ? `${model.name}  ${model.tag}` : model.name,
-            ...(model.offers?.map((offer) => offer.provider ?? offer.name) ?? []),
-          ]),
+          // A tag ("New") draws after the name, a gap away: it is measured with it.
+          [...family.models, ...family.more].map((model) => (model.tag ? `${model.name}  ${model.tag}` : model.name)),
         ),
       ),
     ],
@@ -423,15 +443,35 @@ function Columns({
     };
   }, [open, popupNode]);
   const namesKey = `${names.join("\u0000")}\u0001${fontLoads}`;
-  useLayoutEffect(() => {
-    if (!open || natural?.key === namesKey) return;
-    const width = naturalMenuWidth(names, modelsList.current);
-    const menu = modelsList.current?.closest<HTMLElement>(".acpmux-cols");
-    const em = menu ? Number.parseFloat(getComputedStyle(menu).fontSize) : NaN;
-    // Kept in em of the menu's type (widthOf), not px.
-    if (width && em > 0) setNatural({ key: namesKey, width: width / em });
-  }, [open, names, namesKey, natural?.key, popupNode]);
-  useLayoutEffect(() => widthOf(popupRef.current));
+  // Every row the effort column can show, for every model of every tab (its catalog levels, Ultracode
+  // where its harness offers it, the running chat's levels, its providers, Fast): the column takes the
+  // widest once, so it never moves as the highlight goes from model to model (effortColumnWidth).
+  const effortLabels = useMemo<EffortLabel[]>(() => {
+    const texts = new Set<string>();
+    for (const choice of effort?.levels ?? []) if (!isDefaultChoice(choice)) texts.add(choice.name);
+    let anyFast = !!fast;
+    for (const family of list)
+      for (const model of [...family.models, ...family.more]) {
+        if (model.canFast) anyFast = true;
+        if (model.efforts?.length) {
+          const levels = reasoningChoices(
+            model.efforts.map((value) => ({ value })),
+            { efforts: model.efforts, ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}) },
+            t,
+          );
+          for (const choice of levels) texts.add(choice.name);
+          if (family.ultracode && model.efforts.includes("xhigh")) texts.add(t("effort.level.ultracode"));
+        }
+        if ((model.offers?.length ?? 0) > 1)
+          for (const offer of model.offers ?? []) texts.add(offer.provider ?? offer.name);
+      }
+    return [
+      ...[...texts].map((text) => ({ text, mark: "check" as const })),
+      ...(anyFast ? [{ text: t("picker.chipFast"), mark: "switch" as const }] : []),
+    ];
+  }, [list, effort?.levels, fast, t]);
+  const effortKey = effortLabels.map((label) => label.text).join("\u0000");
+  useLayoutEffect(() => widthOf(popupRef.current), [widthOf, popupNode]);
   const shown = list.find((family) => family.id === tab);
   const tabs = useMemo(() => familyTabs(list), [list]);
   const shownTab = tabs.find((entry) => entry.routes.some((route) => route.id === tab));
@@ -483,6 +523,7 @@ function Columns({
       setHeld(undefined);
       setPending(undefined);
       setChosenLevel(undefined);
+      setHandPickedUnder(undefined);
     }
   }
 
@@ -505,17 +546,26 @@ function Columns({
       : undefined;
   const focus = hl >= 0 ? rows[hl] : sessionRow;
   const focusRuns = !!focus && isRunning(focus);
-  // The running model's levels are the session's (Ultracode included); another model's are its catalog's.
+  // The running model's levels are the session's (Ultracode included); another model's are its catalog's,
+  // with Ultracode last where its harness offers it on Extra High (QuickFamily.ultracode), so a model shown
+  // but not yet picked lists it too (Lucas 2026-11-11: it showed only once Opus was picked).
   const sessionLevels = effort?.levels.filter((choice) => !isDefaultChoice(choice)) ?? [];
+  const ultracodeFamilies = useMemo(
+    () => new Set(families.list.filter((family) => family.ultracode).map((family) => family.id)),
+    [families.list],
+  );
   const levelsOf = (model: QuickModel): Choice[] => {
     if (model.efforts?.length === 0) return [];
     if (isRunning(model)) return sessionLevels;
     if (!model.efforts) return [];
-    return reasoningChoices(
+    const levels = reasoningChoices(
       model.efforts.map((value) => ({ value })),
       { efforts: model.efforts, ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}) },
       t,
     );
+    return ultracodeFamilies.has(model.family) && levels.some((choice) => choice.id === "xhigh")
+      ? [...levels, { id: "ultracode", name: t("effort.level.ultracode") }]
+      : levels;
   };
   /// The level another model carries (Opus 5.5 on Extra High to Sonnet 5.5 on Extra High): the
   /// last one picked here, else the chat's, when that model has it, else the model's recommended
@@ -525,12 +575,36 @@ function Columns({
     if (!choices.length) return undefined;
     const has = (id: string | undefined) => !!id && choices.some((choice) => choice.id === id);
     const now = chosenLevel ?? held?.effort ?? effort?.current;
-    if (has(now)) return now;
-    if (now === "ultracode" && has("xhigh")) return "xhigh";
+    if (now === "ultracode") {
+      if (has("xhigh")) return "xhigh";
+    } else if (has(now)) return now;
     return model.defaultEffort ?? choices.find((choice) => choice.recommended)?.id;
   };
   // Highest first, as a ladder.
   const ladder = focus ? [...levelsOf(focus)].reverse() : [];
+  // The key holds the names' font too, so a density, Text Size or font change measures again on the
+  // next open; a web font still loading measures again once it is in (a fallback font's width stuck).
+  // The effort column is measured from one of its level rows: until one shows (a menu that opens on a
+  // model with no levels), the width is kept without it and measured again once a level row draws.
+  const tuneHasLevels = ladder.length > 0;
+  useLayoutEffect(() => {
+    if (!open) return;
+    const key = `${namesKey}\u0001${effortKey}\u0001${menuNameFont(modelsList.current)}`;
+    if (natural?.key === key) return;
+    const tune = modelsList.current?.parentElement?.querySelector<HTMLElement>(":scope > .acpmux-cols-tune");
+    const effortWidth = effortColumnWidth(effortLabels, tune);
+    const width = naturalMenuWidth(names, modelsList.current, effortWidth);
+    const settled = effortWidth !== undefined || effortLabels.length === 0;
+    const menu = modelsList.current?.closest<HTMLElement>(".acpmux-cols");
+    const em = menu ? Number.parseFloat(getComputedStyle(menu).fontSize) : NaN;
+    // Kept in em of the menu's type (widthOf), not px; the effort column's fit stays in px.
+    if (width && em > 0)
+      setNatural({
+        key: settled ? key : `${key}\u0002`,
+        width: width / em,
+        ...(effortWidth ? { effort: effortWidth } : {}),
+      });
+  }, [open, names, namesKey, effortLabels, effortKey, natural?.key, popupNode, tuneHasLevels]);
   const keyOf = (model: QuickModel) => `${model.family}\u0000${model.id}`;
   const focusKey = focus ? keyOf(focus) : "";
   const mine = focusRuns && held?.key === focusKey ? held : undefined;
@@ -548,12 +622,18 @@ function Columns({
             ...(heldFor.fast ? { fast: true } : {}),
           }
         : undefined;
+  // A search that names a level or Fast ("opus 5.5 medium fast", Lawrence 2026-11-10: "we should communicate
+  // this better (that medium is selected)"; "codex sol high", Leo: "it should highlight the path"): the
+  // highlighted row's settings column shows what Enter lands, the level checked and lit, Fast on.
+  const named =
+    query && focus && !picked && handPickedUnder !== query && (focus.effort || focus.fast) ? focus : undefined;
   const level =
     picked?.effort ??
+    named?.effort ??
     mine?.effort ??
     (focus ? (focusRuns ? effort?.current : (focus.effort ?? carriedLevel(focus))) : undefined);
   // A level shows a check when it is really chosen: the session's, or one picked here.
-  const levelChosen = focusRuns || !!picked?.effort;
+  const levelChosen = focusRuns || !!picked?.effort || !!named?.effort;
   const canLandEffort = focusRuns ? !!effort : menu.inlineEffort === true;
   const offers = focus?.offers && focus.offers.length > 1 ? focus.offers : [];
   const runningOffer = picked
@@ -562,7 +642,9 @@ function Columns({
   const fastShown = focus ? (focusRuns ? !!fast : !!focus.canFast) : false;
   const fastOn = picked
     ? !!picked.fast
-    : (mine?.fast ?? (focus ? (focusRuns ? !!fast?.checked : !!focus.fast) : false));
+    : named?.fast
+      ? true
+      : (mine?.fast ?? (focus ? (focusRuns ? !!fast?.checked : !!focus.fast) : false));
   // A model the harness cannot start takes no level, provider or Fast.
   const focusOff = !!focus?.disabled;
   /// The row that shows the check: the pick made here, else another harness's held model, else the
@@ -583,6 +665,64 @@ function Columns({
   useRowInView(railList, tab);
 
   const close = () => finish(false, true);
+  /// A model row's star takes no room: under the pointer it shows at the row's end when the name and check leave
+  /// room for it, else it takes the check's place (or, on a row with no check, draws over the name's end) (Lucas
+  /// 2026-11-11: "instead of reserving space for the star ... replace the checkmark with the star on hover"). A name
+  /// the star would cover shows its tooltip at once, also when it is not cut ("instantly show the hidden name if the
+  /// star hides it"). Every row is measured as the rows or the column's width change, reads then writes, so the
+  /// marks are set before the pointer arrives.
+  const markStarRooms = useCallback((list: HTMLElement | null) => {
+    if (!list) return;
+    const marks = [...list.querySelectorAll<HTMLElement>(".acpmux-cols-row")].flatMap((row) => {
+      const star = row.querySelector<HTMLElement>(":scope > .acpmux-cols-star");
+      if (!star) return [];
+      const check = row.querySelector<HTMLElement>(":scope > .acpmux-cols-check");
+      const text = row.querySelector<HTMLElement>(":scope > :is(.acpmux-cols-name, .acpmux-cols-text)");
+      const name = text?.matches(".acpmux-cols-name") ? text : text?.querySelector<HTMLElement>(".acpmux-cols-name");
+      if (!text) return [{ row, name, cover: undefined }];
+      // From the name's own width, not where the row draws it: a check moved to the row's end
+      // (data-star-cover="check") must not change the answer, or a widened menu never brings it back.
+      const style = row.ownerDocument.defaultView?.getComputedStyle(row);
+      const end = row.getBoundingClientRect().right - Number.parseFloat(style?.paddingRight ?? "0");
+      const gap = Number.parseFloat(style?.columnGap ?? "0") || 0;
+      const mark = check?.firstElementChild?.getBoundingClientRect().width ?? 0;
+      // Every other mark in the row's flow between the name and the check (a "New" tag, the used mark).
+      const view = row.ownerDocument.defaultView;
+      let between = 0;
+      for (const child of row.children) {
+        if (child === text || child === check || child === star || !(child instanceof HTMLElement)) continue;
+        const childStyle = view?.getComputedStyle(child);
+        if (childStyle?.position === "absolute" || childStyle?.display === "none") continue;
+        between += gap + child.getBoundingClientRect().width;
+      }
+      // A check after the name keeps two gaps clear of the star, or the two read as one mark (Lucas
+      // 2026-11-11, a check touching the star: "we do not want to allow this"); short of that the check
+      // moves to the star's place and the star replaces it on hover.
+      const need =
+        text.getBoundingClientRect().left +
+        nameLineWidth(name ?? text) +
+        between +
+        (mark ? gap + mark + gap * 2 : 0) +
+        star.getBoundingClientRect().width;
+      const cover = need <= end ? undefined : mark ? "check" : "name";
+      return [{ row, name, cover }];
+    });
+    for (const { row, name, cover } of marks) {
+      if (cover) row.dataset.starCover = cover;
+      else delete row.dataset.starCover;
+      if (name) name.toggleAttribute("data-tooltip-force", cover === "name");
+    }
+  }, []);
+  const rowsKey = rows.map((model) => `${model.family}\u0000${model.id}`).join("\u0001");
+  useLayoutEffect(() => {
+    const list = modelsListElement;
+    if (!open || !list) return;
+    markStarRooms(list);
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => markStarRooms(list));
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [open, modelsListElement, rowsKey, pending, current, markStarRooms]);
   /// A drag on the menu's outer edge: the width follows the pointer and is kept on release. The other
   /// edge, the one lined up with the chip, stays where it is, and the menu never grows past the room
   /// it has (the chat column, else the window). Base UI places the popup a frame or more after a
@@ -623,15 +763,31 @@ function Columns({
     grip.setPointerCapture?.(event.pointerId);
     grip.dataset.dragging = "";
     dragging.current = true;
-    const move = (next: PointerEvent) => {
-      const delta = (next.clientX - startX) * (fromEnd ? -1 : 1);
-      width = Math.round(Math.min(most, Math.max(MODEL_MENU_MIN_WIDTH, start.width + delta)));
+    // Pointer moves come faster than frames: each frame takes the last one and does one width write
+    // and one layout read (pin), never a forced layout per move (Lawrence 2026-11-11: "can you
+    // resize the model picker very fast?").
+    let frame = 0;
+    let pointerX = startX;
+    const view = doc.defaultView;
+    const apply = () => {
+      frame = 0;
+      const delta = (pointerX - startX) * (fromEnd ? -1 : 1);
+      const next = Math.round(Math.min(most, Math.max(MODEL_MENU_MIN_WIDTH, start.width + delta)));
+      if (next === width && popup.style.width === `${width}px`) return;
+      width = next;
       popup.style.width = `${width}px`;
       popup.style.minWidth = `${MODEL_MENU_MIN_WIDTH}px`;
       popup.style.maxWidth = `${most}px`;
       pin();
     };
+    const move = (next: PointerEvent) => {
+      pointerX = next.clientX;
+      if (!frame) frame = view?.requestAnimationFrame(apply) ?? 0;
+      if (!frame) apply();
+    };
     const end = () => {
+      if (frame) view?.cancelAnimationFrame(frame);
+      apply();
       grip.removeEventListener("pointermove", move);
       grip.removeEventListener("pointerup", end);
       grip.removeEventListener("pointercancel", end);
@@ -639,8 +795,10 @@ function Columns({
       dragging.current = false;
       // The edge is held until Base UI has placed the final width, then the translate goes.
       if (pin() === 0) placed.disconnect();
+      // A drag back to the width already kept changes nothing in the store: the popup still goes back to
+      // its width within the room, not the px the drag held.
       if (Math.abs(width - start.width) >= 1) setModelMenuWidth(width);
-      else widthOf(popup);
+      widthOf(popup);
     };
     grip.addEventListener("pointermove", move);
     grip.addEventListener("pointerup", end);
@@ -677,6 +835,7 @@ function Columns({
   const pickLevel = (value: string) => {
     if (!focus || focusOff || !canLandEffort) return;
     setChosenLevel(value);
+    setHandPickedUnder(query);
     if (focusRuns && effort && !picked) {
       setHeld({ ...mine, key: focusKey, effort: value });
       effort.onPick(value);
@@ -684,6 +843,7 @@ function Columns({
   };
   const toggleFast = () => {
     if (!focus || focusOff) return;
+    setHandPickedUnder(query);
     const on = !fastOn;
     // A pick lands Fast only on (a combo never turns it off): off on a model that runs goes through
     // the session, also right after it was picked here.
@@ -1020,27 +1180,28 @@ function Columns({
         aria-disabled={model.disabled ? true : undefined}
         className="acpmux-cols-row"
         data-hl={index === hl ? "" : undefined}
-        // tooltip-allow: shows a clipped name in full, alongside its provider and harness.
-        title={[
-          model.name,
-          query ? model.harness : undefined,
-          model.hint ?? model.provider,
-          model.id !== model.name ? model.id : undefined,
-        ]
-          .filter(Boolean)
-          .join(" · ")}
+        // The provider the row lands, for assistive tech: the tooltip names the model alone (Lucas 2026-11-11).
+        aria-description={model.hint ?? model.provider}
         onPick={() => {
           setCol(1);
           pickModel(index);
         }}
       >
+        {/* The name's tooltip is the name alone, only while the row cuts it off (titleTooltips repeatsLabel), at
+            once (Lucas 2026-11-11: no provider or model id, and no wait). */}
         {twins.has(model) ? (
           <span className="acpmux-cols-text">
-            <span className="acpmux-cols-name">{model.name}</span>
+            {/* tooltip-allow: a cut model name in full. */}
+            <span className="acpmux-cols-name" title={model.name} data-tooltip-instant="">
+              {model.name}
+            </span>
             <span className="acpmux-cols-id">{model.id}</span>
           </span>
         ) : (
-          <span className="acpmux-cols-name">{model.name}</span>
+          // tooltip-allow: a cut model name in full.
+          <span className="acpmux-cols-name" title={model.name} data-tooltip-instant="">
+            {model.name}
+          </span>
         )}
         {model.tag && <span className="acpmux-cols-tag">{model.tag}</span>}
         {used && isRunning(model) && <UsedMark look={used} />}
@@ -1104,6 +1265,7 @@ function Columns({
     body: React.ReactNode,
     kind: "radio" | "switch" = "radio",
     title?: string,
+    lit = false,
   ) => {
     tuneIndex += 1;
     const index = tuneIndex;
@@ -1115,6 +1277,8 @@ function Columns({
         aria-disabled={disabled ? true : undefined}
         className="acpmux-cols-row"
         data-hl={col === 2 && index === tuneHl ? "" : undefined}
+        // The level or Fast a search named: Enter lands it (`named`).
+        data-named={lit ? "" : undefined}
         // tooltip-allow: names the provider's route (its model id), which tells same-named models apart.
         title={title}
         onPick={() => {
@@ -1305,7 +1469,13 @@ function Columns({
               <hr className="acpmux-cols-sep" />
             </>
           )}
-          <div ref={bodyRef} className="acpmux-cols-body">
+          <div
+            ref={bodyRef}
+            className="acpmux-cols-body"
+            style={
+              natural?.effort ? ({ "--acpmux-cols-tune-fit": `${natural.effort}px` } as React.CSSProperties) : undefined
+            }
+          >
             <DrivenList
               ref={railList}
               kind="tablist"
@@ -1372,7 +1542,7 @@ function Columns({
             </DrivenList>
 
             <DrivenList
-              ref={modelsList}
+              ref={holdModelsList}
               kind="listbox"
               label={t("picker.model")}
               className="acpmux-cols-list"
@@ -1453,6 +1623,9 @@ function Columns({
                         <span className="acpmux-cols-name">{choice.name}</span>
                         <span className="acpmux-cols-check">{levelChosen && choice.id === level && <CheckIcon />}</span>
                       </>,
+                      "radio",
+                      undefined,
+                      !!named?.effort && choice.id === named.effort,
                     ),
                   )}
                   {offers.length > 0 && <div className="acpmux-cols-caption">{t("picker.provider")}</div>}
@@ -1484,6 +1657,8 @@ function Columns({
                           <span className="acpmux-cols-switch" data-on={fastOn ? "" : undefined} aria-hidden="true" />
                         </>,
                         "switch",
+                        undefined,
+                        !!named?.fast,
                       )}
                     </>
                   )}
