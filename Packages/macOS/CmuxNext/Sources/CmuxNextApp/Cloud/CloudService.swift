@@ -109,7 +109,7 @@ final class CloudService {
     private(set) var creating = 0
     @ObservationIgnored let changes = CloudMachineChanges()
     /// The names app server creates in flight asked for, typed or default: a default picked meanwhile skips them.
-    @ObservationIgnored private var machineNamesInFlight: [String] = []
+    @ObservationIgnored var machineNamesInFlight: [String] = []
     /// New Cloud Workspace runs from the click to the open terminal: each
     /// window's progress view and sidebar row (cx-lu8f).
     let creations = CloudCreations()
@@ -725,9 +725,8 @@ final class CloudService {
         if let pinned = creation?.pinnedMachineName {
             name = pinned
         } else if name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true {
-            name = CloudMachine.defaultName(
-                taken: machines.cloud.map(\.machine.title) + creations.all.compactMap(\.pinnedMachineName) + machineNamesInFlight,
-                base: CloudStrings.defaultMachineName, numbered: CloudStrings.defaultMachineName(numbered:))
+            name = request.namedFor.map(chiefComputerName(for:)) ?? CloudMachine.defaultName(
+                taken: machineNamesTaken, base: CloudStrings.defaultMachineName, numbered: CloudStrings.defaultMachineName(numbered:))
         }
         creation?.pinnedMachineName = name
         // Held until this create ends, typed names included, so a default picked meanwhile is another one.

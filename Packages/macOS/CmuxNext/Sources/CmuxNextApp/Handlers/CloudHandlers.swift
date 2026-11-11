@@ -53,8 +53,10 @@ enum CloudHandlers {
         let cloud = context.services.cloud
         let signedOutCreation = cloud.signedOutCreation
         let bound = registry.bindEffect("newCloudMachine", requires: nil, unavailable: reason) { invocation in
-            let request = try CloudHandlers.newMachineRequest(invocation)
+            var request = try CloudHandlers.newMachineRequest(invocation)
             let actionOrigin = CloudHandlers.origin(of: invocation)
+            // A Chief's New Cloud Computer… names the machine after it, past the create card.
+            request.namedFor = invocation["chief"]?.stringValue
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
             // The chat the person asked from, read now: sign-in may finish after focus moved.
             let chat = CloudChatPick.chatTab(invocation, context.services)
@@ -68,7 +70,7 @@ enum CloudHandlers {
                     "isDefault": request.takesPlainPath, "byUser": actionOrigin == .user, "hasWindow": window != nil,
                 ])?["start"] as? String
                 if start == "setup" {
-                    CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat, environment: invocation["environment"]?.stringValue)
+                    CloudHandlers.beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession, chat: chat, environment: invocation["environment"]?.stringValue, namedFor: request.namedFor)
                     return nil
                 }
                 let flow = CloudHandlers.creationFlow(context, startedByPerson: actionOrigin == .user, capCard: invocation.isPersonsOwnRun,
@@ -77,7 +79,7 @@ enum CloudHandlers {
                     CloudHandlers.createRequested(request, flow: flow, window: window, context)
                     return nil
                 }
-                CloudHandlers.reportCreatedMachine(flow.start(in: window, existing: nil), context)
+                CloudHandlers.reportCreatedMachine(flow.start(in: window, existing: nil, request: request), context)
                 return nil
             }
             guard !cloud.isSignedIn else {

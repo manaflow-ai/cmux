@@ -59,6 +59,12 @@ extension CloudMachine {
                                              as: DefaultNameReply.self)
         return reply?.name ?? base
     }
+
+    /// Whether `title` is a name ``defaultName(taken:base:numbered:)`` gives (`base`, or `numbered(n)`),
+    /// so nobody chose it.
+    public static func isDefaultName(_ title: String, base: String, numbered: (Int) -> String) -> Bool {
+        title == base || Int(title.filter(\.isNumber)).map { numbered($0) == title } ?? false
+    }
 }
 
 extension Collection<CloudMachine> {

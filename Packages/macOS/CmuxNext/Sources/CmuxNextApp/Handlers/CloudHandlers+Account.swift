@@ -73,7 +73,7 @@ extension CloudHandlers {
         return folder.cwd
     }
 
-    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil, environment: String? = nil) {
+    static func beginWorkspaceSetup(_ context: AppActionContext, window: WindowState?, askedBy: String?, chat: TabModel? = nil, environment: String? = nil, namedFor: String? = nil) {
         runTracked("new Cloud workspace", context) {
             let cloud = context.services.cloud, services = context.services
             let userID = cloud.auth.user?.id, teamID = cloud.auth.teamID
@@ -96,6 +96,7 @@ extension CloudHandlers {
                 environments: environments, supportsEnvironments: true, selectedEnvironment: environment,
                 sizes: [], autosized: pick?.autosize != nil && pick?.repo != nil, present: present) else { return }
             var request = CloudChatPick.request(plan, sizedFor: pick)
+            request.namedFor = namedFor
             if let new = plan.newEnvironment {
                 // Saved first, then booted: the first machine starts cold and runs the setup itself.
                 guard cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }

@@ -368,8 +368,9 @@ extension HomeChiefSurface {
         }
         view.connections.source = .init(services.accounts.chiefConnections)
         view.bindCloudComputers(services.registry) { [weak services] in
-            services?.machines.cloud.compactMap { $0.effectiveStatus == .destroyed ? nil : .init(id: $0.machineID, title: $0.machine.title) } ?? []
+            services?.machines.cloud.compactMap { $0.effectiveStatus == .destroyed ? nil : HomeChiefCloudComputer($0.machine, id: $0.machineID) } ?? []
         }
+        view.onNameComputer = { [weak services] machine, chief in await services?.cloud.nameForChief(machine, chief: chief) }
         // The chat's popup hides while the popover shows the computer, and comes back as it goes.
         profile.onTab = { [weak self] in self?.computerPopup?.update() }
         popover.onClose = { [weak self] in self?.computerPopup?.update() }

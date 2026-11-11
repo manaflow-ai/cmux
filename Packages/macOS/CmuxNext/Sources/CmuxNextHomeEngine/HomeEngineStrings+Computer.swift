@@ -6,6 +6,14 @@ extension HomeEngineStrings {
     static func computerTitle(_ chief: String) -> String {
         String(localized: "home.engine.computer.caption", defaultValue: "\(chief)’s screen", table: "Home", bundle: .module)
     }
+    /// A Cloud computer made for a Chief: "Ada’s Computer". With another of that name: "Ada 2’s Computer".
+    public static func computerName(_ chief: String) -> String {
+        String(localized: "home.engine.computer.name", defaultValue: "\(chief)’s Computer", table: "Home", bundle: .module)
+    }
+    /// The picker's heading over the account's other Cloud machines.
+    static var computerOthers: String {
+        String(localized: "home.engine.computer.others", defaultValue: "Other Computers", table: "Home", bundle: .module)
+    }
     static var tabDetails: String {
         String(localized: "home.engine.tab.details", defaultValue: "Details", table: "Home", bundle: .module)
     }

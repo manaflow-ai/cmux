@@ -21,7 +21,7 @@ import Testing
         #expect(view.computerPicker.titleOfSelectedItem == HomeEngineStrings.computerThisMac)
         #expect(view.computerDesktop.isHidden)
         let titles = view.computerPicker.itemArray.filter { !$0.isSeparatorItem }.map(\.title)
-        #expect(titles == [HomeEngineStrings.computerThisMac, "Lab VM", "Browser box", HomeEngineStrings.computerNew])
+        #expect(titles == [HomeEngineStrings.computerThisMac, HomeEngineStrings.computerOthers, "Browser box", "Lab VM", HomeEngineStrings.computerNew])
         var received = writes.makeAsyncIterator()
 
         let lab = try #require(view.computerPicker.itemArray.firstIndex { $0.title == "Lab VM" })
@@ -70,6 +70,38 @@ import Testing
         view.cloudComputers = { Self.machines }
         await view.refresh().value
         #expect(view.computerPicker.titleOfSelectedItem == "machine:gone")
+    }
+
+    @Test func aGenericMachineTheChiefUsesIsNamedAfterItOnce() async {
+        let (_, continuation) = AsyncStream.makeStream(of: [String: String?].self)
+        let source = ComputerChief(writes: continuation)
+        source.computer = "machine:vm-5"
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: source)
+        view.cloudComputers = { [.init(id: "vm-5", title: "Cloud Machine 5", isGenericName: true)] }
+        var named: [[String]] = []
+        view.onNameComputer = { named.append([$0, $1]) }
+        view.setName("Ada")
+        await view.refresh().value
+        for _ in 0..<50 { await Task.yield() }
+        #expect(view.computerPicker.titleOfSelectedItem == "Ada’s Computer")
+        await view.refresh().value
+        for _ in 0..<50 { await Task.yield() }
+        #expect(named == [["vm-5", "Ada"]])
+    }
+
+    @Test func aMachineThePersonNamedKeepsItsName() async {
+        let (_, continuation) = AsyncStream.makeStream(of: [String: String?].self)
+        let source = ComputerChief(writes: continuation)
+        source.computer = "machine:vm-1"
+        let view = HomeChiefSettingsView(muxHome: FileManager.default.temporaryDirectory, source: source)
+        view.cloudComputers = { Self.machines }
+        var named = 0
+        view.onNameComputer = { _, _ in named += 1 }
+        view.setName("Ada")
+        await view.refresh().value
+        for _ in 0..<50 { await Task.yield() }
+        #expect(view.computerPicker.titleOfSelectedItem == "Lab VM")
+        #expect(named == 0)
     }
 
     @Test func aChiefThatRunsElsewhereHasNoComputerRow() async {

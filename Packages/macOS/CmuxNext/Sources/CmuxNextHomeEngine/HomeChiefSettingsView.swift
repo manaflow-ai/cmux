@@ -134,6 +134,10 @@ public final class HomeChiefSettingsView: NSView {
     public var onNewCloudComputer: () -> Void = {}
     /// Show Desktop: the attached Cloud machine's (its id) screen in a cmux browser.
     public var onShowComputerDesktop: (String) -> Void = { _ in }
+    /// The attached machine (its id) still has a generic name: the app names it after this Chief (its name).
+    public var onNameComputer: @MainActor (String, String) async -> Void = { _, _ in }
+    /// The machines this card has asked ``onNameComputer`` to name, each once.
+    var namedComputers: Set<String> = []
     /// Follows the shown Chief's default flag (``bindPrimary(directory:conversation:)``).
     var primaryWatch: Task<Void, Never>?
     /// Where Choose Picture… and Use Default Picture write, and for which Chief: the daemon's
@@ -337,8 +341,11 @@ public final class HomeChiefSettingsView: NSView {
 
     /// The conversation's title, shown in the name field.
     public func setName(_ name: String) {
+        let changed = shownName != name
         shownName = name
         if nameField.currentEditor() == nil { show(name) }
+        // The picker names this Chief's computer after it.
+        if changed { showComputer(shownComputer) }
     }
 
     /// Puts `name` in the field as the card's own text (``fieldName``).

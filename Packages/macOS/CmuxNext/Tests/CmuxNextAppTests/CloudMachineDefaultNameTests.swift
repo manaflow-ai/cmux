@@ -7,6 +7,24 @@ import Testing
         CloudMachine.defaultName(taken: taken, base: "Cloud Machine", numbered: { "Cloud Machine \($0)" })
     }
 
+    @Test func aChiefsComputerNameIsNumberedInsideThePossessive() {
+        let name = { (taken: [String]) in
+            CloudMachine.defaultName(taken: taken, base: "Chief’s Computer", numbered: { "Chief \($0)’s Computer" })
+        }
+        #expect(name([]) == "Chief’s Computer")
+        #expect(name(["Chief’s Computer"]) == "Chief 2’s Computer")
+        #expect(name(["Chief’s Computer", "Chief 2’s Computer"]) == "Chief 3’s Computer")
+    }
+
+    @Test func onlyAGeneratedNameIsADefaultName() {
+        let isDefault = { (title: String) in
+            CloudMachine.isDefaultName(title, base: "Cloud Machine", numbered: { "Cloud Machine \($0)" })
+        }
+        #expect(isDefault("Cloud Machine"))
+        #expect(isDefault("Cloud Machine 5"))
+        for typed in ["Cloud Machine 5 old", "My Cloud Machine", "cloud-chats", "lab2", ""] { #expect(!isDefault(typed), "\(typed)") }
+    }
+
     @Test func theFirstMachineIsCloudMachine() {
         #expect(pick([]) == "Cloud Machine")
         #expect(pick(["vm_8f2c1a", "build-box"]) == "Cloud Machine")
