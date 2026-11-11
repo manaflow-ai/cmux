@@ -1647,6 +1647,12 @@ impl Hub {
         Some(child.pending_requests().await)
     }
 
+    /// How many client requests this hub's connections serve now, each holding its work slot
+    /// on its connection (`server/in_flight.rs`): a cancelled one leaves at once.
+    pub fn requests_in_flight(&self) -> usize {
+        self.requests_in_flight.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub(super) async fn child_for(
         self: &Arc<Self>,
         session: &Arc<Session>,

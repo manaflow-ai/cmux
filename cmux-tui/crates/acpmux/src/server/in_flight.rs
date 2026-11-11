@@ -8,8 +8,8 @@
 
 use crate::rpc::Id;
 use std::collections::HashMap;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use tokio::sync::{OwnedSemaphorePermit, oneshot};
 
 struct Entry {
@@ -23,6 +23,8 @@ struct Entry {
 pub(crate) struct InFlight {
     next: AtomicU64,
     by_id: Mutex<HashMap<String, Entry>>,
+    /// Entries of every connection of the hub together (`Hub::requests_in_flight`).
+    gauge: Arc<AtomicUsize>,
 }
 
 /// One request's part in [`InFlight`]: what its task finishes with.
@@ -35,8 +37,19 @@ pub(crate) struct Ticket {
 }
 
 impl InFlight {
+    /// A connection's table, counted in the hub's `gauge`.
+    pub(crate) fn counted(gauge: Arc<AtomicUsize>) -> Self {
+        Self { next: AtomicU64::new(0), by_id: Mutex::default(), gauge }
+    }
+
     fn map(&self) -> std::sync::MutexGuard<'_, HashMap<String, Entry>> {
         self.by_id.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn remove(&self, map: &mut HashMap<String, Entry>, key: &str) -> Option<Entry> {
+        let entry = map.remove(key)?;
+        self.gauge.fetch_sub(1, Ordering::Relaxed);
+        Some(entry)
     }
 
     /// Request `id` of `method` starts, holding `slot`.
@@ -57,13 +70,16 @@ impl InFlight {
             key.clone(),
             Entry { generation, method: method.to_owned(), cancel: tx, _slot: slot },
         );
+        self.gauge.fetch_add(1, Ordering::Relaxed);
         Ticket { key: Some((key, generation)), cancel: rx, _slot: None }
     }
 
     /// The client cancelled request `id`: its method when it was in flight. Its slot is free
     /// and its task told to stop; the caller answers it.
     pub(crate) fn cancel(&self, id: &Id) -> Option<String> {
-        let entry = self.map().remove(&id.to_string())?;
+        let mut map = self.map();
+        let entry = self.remove(&mut map, &id.to_string())?;
+        drop(map);
         let _ = entry.cancel.send(());
         Some(entry.method)
     }
@@ -75,7 +91,7 @@ impl InFlight {
         let mut map = self.map();
         match map.get(key) {
             Some(entry) if entry.generation == *generation => {
-                map.remove(key);
+                self.remove(&mut map, key);
                 true
             }
             _ => false,
@@ -89,27 +105,39 @@ impl InFlight {
     }
 }
 
+impl Drop for InFlight {
+    /// The connection ended: its requests still in flight leave the hub's count with it.
+    fn drop(&mut self) {
+        let left = self.map().len();
+        self.gauge.fetch_sub(left, Ordering::Relaxed);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
-    use std::sync::Arc;
     use tokio::sync::Semaphore;
 
     #[test]
     fn a_cancel_frees_the_slot_at_once_and_the_late_answer_is_not_sent() {
         let slots = Arc::new(Semaphore::new(2));
-        let flights = InFlight::default();
+        let gauge = Arc::new(AtomicUsize::new(0));
+        let flights = InFlight::counted(gauge.clone());
         let first = flights.begin(&json!(1), "m", Some(slots.clone().try_acquire_owned().unwrap()));
         let second =
             flights.begin(&json!(2), "m", Some(slots.clone().try_acquire_owned().unwrap()));
-        assert_eq!(slots.available_permits(), 0);
+        assert_eq!((slots.available_permits(), gauge.load(Ordering::Relaxed)), (0, 2));
         assert_eq!(flights.cancel(&json!(1)).as_deref(), Some("m"));
         assert_eq!(slots.available_permits(), 1, "freed by the cancel");
         assert!(!flights.finish(&first), "its answer is not sent");
         assert!(flights.finish(&second));
         assert_eq!((flights.len(), slots.available_permits()), (0, 2));
         assert_eq!(flights.cancel(&json!(2)), None, "nothing left to cancel");
+        let _left = flights.begin(&json!(3), "m", None);
+        assert_eq!(gauge.load(Ordering::Relaxed), 1);
+        drop(flights);
+        assert_eq!(gauge.load(Ordering::Relaxed), 0, "a closed connection leaves the count");
     }
 
     #[test]

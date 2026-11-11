@@ -10,7 +10,7 @@
 //! changes nothing in a list reply.
 
 use super::{Conn, Hub, Message, RpcError, Value, json, peer_text};
-use crate::hub::list_guard::Snapshot;
+use crate::hub::list_guard::{RequestStage, Snapshot};
 use cmux_json::JsonSet as _;
 use std::cell::RefCell;
 use std::future::Future;
@@ -97,8 +97,10 @@ async fn reply(
         }) else {
             return Ok(serde_json::from_str(&text).unwrap_or(Value::Null));
         };
+        hub.request_hold(RequestStage::ListBuilt, method.unwrap_or_default(), &id).await;
         if let Some(whole) = conn.send_serialized(&id, method, &text, seen, reads == REBUILDS) {
             REPLY.with(|r| r.borrow_mut().2 = Some(whole));
+            hub.request_hold(RequestStage::ListQueued, method.unwrap_or_default(), &id).await;
             break;
         }
     }

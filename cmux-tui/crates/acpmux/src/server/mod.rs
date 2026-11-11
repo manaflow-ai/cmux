@@ -1665,7 +1665,7 @@ async fn serve_connection_from(
         },
         remote_media: media_forward::RemoteMedia::default(),
         client_requests: Default::default(),
-        in_flight: Default::default(),
+        in_flight: in_flight::InFlight::counted(hub.requests_in_flight.clone()),
         chat_windows: Default::default(),
         cancel_refusals: Default::default(),
         wire,
@@ -1771,6 +1771,8 @@ async fn serve_connection_from(
                 // Registered in order, before the request is spawned: a `$/cancel_request` read
                 // after it finds it, and taking it frees its slot (`in_flight.rs`).
                 let mut ticket = conn.in_flight.begin(&id, &m, slot);
+                #[cfg(test)]
+                cancel_classes_tests::after_begin(&conn);
                 let owner = conn.clone();
                 let hub = hub.clone();
                 let conn = conn.clone();
@@ -1793,11 +1795,12 @@ async fn serve_connection_from(
                     };
                     let cancel =
                         std::mem::replace(&mut ticket.cancel, tokio::sync::oneshot::channel().1);
-                    let served = crate::request_cancel::until_cancelled(
-                        cancel,
-                        list_reply::scope(id.clone(), &m, route),
-                    )
-                    .await;
+                    let serve = async {
+                        let stage = crate::hub::RequestStage::Dispatch;
+                        hub.request_hold(stage, &m, &id).await;
+                        list_reply::scope(id.clone(), &m, route).await
+                    };
+                    let served = crate::request_cancel::until_cancelled(cancel, serve).await;
                     // Cancelled: the cancel answered it, and a copy sent on another path gets
                     // that answer too (`dual_requests.rs`).
                     let Some((result, sent)) = served.filter(|_| conn.in_flight.finish(&ticket))
@@ -2209,6 +2212,9 @@ fn mux_meta(params: &Value) -> Option<&Value> {
 mod agent_login;
 mod agent_messages;
 mod app_reply;
+#[cfg(test)]
+#[path = "cancel_classes_tests.rs"]
+mod cancel_classes_tests;
 mod client_request;
 mod clock_text;
 mod in_flight;

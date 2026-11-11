@@ -190,6 +190,7 @@ async fn cancelled_requests_free_their_slots_reach_the_agent_and_drop_late_answe
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     let before = hub.agent_pending_requests(&session).await;
+    assert_eq!(before, Some(2 * PER_CONN as usize), "every request waits on the agent");
 
     // Cancel all but 1000.
     let cancel = |id: i64| Message::notification("$/cancel_request", json!({"requestId": id}));
