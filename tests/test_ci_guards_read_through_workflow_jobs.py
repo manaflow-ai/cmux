@@ -357,6 +357,28 @@ class GuardsReadThroughWorkflowJobs(unittest.TestCase):
                 with self.assertRaises(workflow_jobs.UnresolvedRunsOn):
                     workflow_jobs.single_runs_on(job)
 
+    def test_deciding_mac_jobs_reads_a_matrix_route_per_cell(self) -> None:
+        # scripts/ci/deciding_mac_jobs.py has no suite of its own; its runs-on reads moved with this lint. Read as one
+        # string, `${{ matrix.os }}` is one unknown label, so a matrix with a Mac cell was "other" and its checks were
+        # not counted as Mac checks (coderouter-release.yml's build, relay-publish-npm.yml's smoke).
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+        import deciding_mac_jobs  # noqa: PLC0415
+
+        def matrix(*values: str) -> dict:
+            return {"runs-on": "${{ matrix.os }}", "strategy": {"matrix": {"os": list(values)}}}
+        self.assertEqual(deciding_mac_jobs.job_runner_class(matrix("ubuntu-24.04", "macos-15")), "mac")
+        self.assertEqual(deciding_mac_jobs.job_runner_class(matrix("blacksmith-4vcpu-ubuntu-2404")), "linux")
+        self.assertEqual(deciding_mac_jobs.job_runner_class(
+            {"runs-on": "${{ matrix.os }}", "strategy": {"matrix": "${{ fromJSON(needs.a.outputs.m) }}"}}), "other")
+        self.assertEqual(deciding_mac_jobs.job_runner_class({"uses": "./.github/workflows/x.yml"}), "other")
+        self.assertEqual(deciding_mac_jobs.job_runner_class({"runs-on": "macos-15"}), "mac")
+
+    def test_runs_on_label_cells_keep_a_list_route_a_list(self) -> None:
+        job = {"runs-on": ["self-hosted", "${{ matrix.arch }}"], "strategy": {"matrix": {"arch": ["x64", "arm64"]}}}
+        self.assertEqual(workflow_jobs.runs_on_label_cells(job), [("self-hosted", "x64"), ("self-hosted", "arm64")])
+        self.assertEqual(workflow_jobs.runs_on_cells(job), ["self-hosted, x64", "self-hosted, arm64"])
+        self.assertEqual(workflow_jobs.runs_on_items({"runs-on": {"group": "g", "labels": "l"}}), ["l", "g"])
+
     def test_writes_steps_and_resolved_reads_are_not_named(self) -> None:
         source = (
             "job['runs-on'] = 'x'\n"
