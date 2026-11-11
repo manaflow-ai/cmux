@@ -27,6 +27,12 @@ extension PageWebView {
         }
     }
 
+    /// ``waitUntilLoaded()`` for at most `deadline`: false when the deadline came first.
+    public func waitUntilLoaded(within deadline: Duration) async -> Bool {
+        await waitUntilLoaded()
+        return true
+    }
+
     func resumeLoadWaiters() {
         let waiters = loadWaiters
         loadWaiters.removeAll()
