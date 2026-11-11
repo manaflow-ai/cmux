@@ -75,7 +75,7 @@ final class AgentChatGUICaptureUITests: XCTestCase {
                 self.openComposer(app)
                 app.typeText("/")
             }
-            scene("select-text", look, Self.history, dock: false) { app in
+            scene("select-text-pasted", look, Self.history, dock: false) { app in
                 // The newest answer's first paragraph (a table, links and code follow it),
                 // brought fully under the navigation bar with small drags (ChatSelectTextUITests).
                 let paragraph = app.descendants(matching: .any)
@@ -102,6 +102,38 @@ final class AgentChatGUICaptureUITests: XCTestCase {
                 for mark in ["](", "| ---", "|---", "`", "**"] {
                     XCTAssertFalse(text.contains(mark), "Select Text shows raw Markdown \"\(mark)\" (\(look))")
                 }
+                // The sheet opens on its first line, right under its bar: a double tap there
+                // selects "transport" (the first line's second word), which a paste into the
+                // composer then shows. Under the bar it picked a later line's word.
+                let bar = app.navigationBars["Select text"]
+                self.waitFor(bar, "the sheet's bar")
+                var lastBottom = -1.0
+                for _ in 0..<20 where abs(bar.frame.maxY - lastBottom) > 0.5 {
+                    lastBottom = bar.frame.maxY
+                    _ = app.buttons["Done"].waitForExistence(timeout: 0.25)
+                }
+                self.attach(app, "agentgui~select-text~\(look.rawValue)")
+                app.coordinate(withNormalizedOffset: .zero)
+                    .withOffset(CGVector(dx: field.frame.minX + 16 + 50, dy: bar.frame.maxY + 20 + 11)).doubleTap()
+                let copy = app.descendants(matching: .any).matching(NSPredicate(
+                    format: "label == 'Copy' AND (elementType == %d OR elementType == %d)",
+                    XCUIElement.ElementType.menuItem.rawValue, XCUIElement.ElementType.button.rawValue)).firstMatch
+                self.waitFor(copy, "Copy for the selected word")
+                guard copy.exists else { return }
+                copy.tap()
+                app.buttons["Done"].firstMatch.tap()
+                self.openComposer(app)
+                let composer = app.textViews["chat.composer.field"].firstMatch
+                composer.tap()
+                let paste = app.descendants(matching: .any).matching(NSPredicate(
+                    format: "label == 'Paste' AND (elementType == %d OR elementType == %d)",
+                    XCUIElement.ElementType.menuItem.rawValue, XCUIElement.ElementType.button.rawValue)).firstMatch
+                self.waitFor(paste, "Paste in the composer")
+                guard paste.exists else { return }
+                paste.tap()
+                let pasted = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value CONTAINS 'transport'"), object: composer)
+                XCTAssertEqual(XCTWaiter().wait(for: [pasted], timeout: 5), .completed,
+                               "the sheet's first line is \"\((composer.value as? String) ?? "")\", not the answer's first line (\(look))")
             }
             scene("composer-dismissed", look, Self.history) { app in
                 // Expanded (96 pt) with the keyboard, then the keyboard goes down with no draft:
