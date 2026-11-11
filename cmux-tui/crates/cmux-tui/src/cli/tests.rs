@@ -275,6 +275,21 @@ mod remote_cli_docs {
         assert_eq!(missing, vec!["cmux cloud deliberately-stale-action"]);
     }
 
+    /// `cmux vm` lines resolve as the Cloud verbs they run: a short verb with the VM's name,
+    /// `exec`'s command after `--`, and a Cloud verb that has no short form. A stale one is
+    /// still rejected, in the document's own spelling.
+    #[test]
+    fn documented_vm_lines_resolve_as_the_cloud_verbs_they_run() {
+        let names = action_names();
+        let missing = missing_commands(
+            "`cmux vm status dev`, `cmux vm exec dev -- uname -a`, \
+             `cmux vm file-read --target vm:VM_ID --path /workspace/README.md`, \
+             `cmux vm deliberately-stale-action`",
+            &names,
+        );
+        assert_eq!(missing, vec!["cmux vm deliberately-stale-action"]);
+    }
+
     #[test]
     fn cloud_help_lists_every_offered_cloud_action() {
         let missing = action_names()
