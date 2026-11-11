@@ -9181,6 +9181,52 @@ class FailedStepIdentity(unittest.TestCase):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
 
 
+class GuardCrashIsNotItsFinding(unittest.TestCase):
+    """hq#9218: the test-integrity guard (`deleted-or-weakened-tests`) prints each `--strict` finding as an `::error`
+    naming its kind and path, and its workflow says "the guard itself failed" when it crashed. A crash and a finding,
+    or findings on two files, are different reds and never excuse each other; the same crash on both sides is the
+    base's broken guard. The reviewer's four cases, and a fifth: findings on two files whose names differ only in a
+    digit, which normalise_error masked into one."""
+
+    JOB, STEP = "deleted-or-weakened-tests", "Flag deleted or weakened tests"
+    CRASH = ["Traceback (most recent call last):", '  File "test_integrity.py", line 3, in <module>', "OSError: boom",
+             "##[error]the guard itself failed (exit 2) and judged nothing; this is not a finding, its traceback is "
+             "above", "##[error]Process completed with exit code 2."]
+
+    @staticmethod
+    def finding(path):
+        return [f"##[error]deleted-test-file: {path}: the file was deleted",
+                "##[error]this change deletes or weakens tests (findings above)",
+                "##[error]Process completed with exit code 1."]
+
+    def judge(self, head, base):
+        github = FakeGitHub()
+        github.jobs = {1: failed_job(1, 10, HEAD, name=self.JOB, step=self.STEP),
+                       2: failed_job(2, 20, BASE_SHA, name=self.JOB, step=self.STEP)}
+        github.logs = {1: log(self.JOB, self.STEP, *head), 2: log(self.JOB, self.STEP, *base)}
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_1_a_crash_on_head_is_not_excused_by_a_finding_on_base(self):
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20: the guard itself failed"):
+            self.judge(self.CRASH, self.finding("tests/test_a.py"))
+
+    def test_2_a_finding_on_head_is_not_excused_by_a_crash_on_base(self):
+        with self.assertRaisesRegex(excuse.Refused, "errors not on feat-cmux-next run 20: .*deleted-test-file: "
+                                                    "tests/test_a.py"):
+            self.judge(self.finding("tests/test_a.py"), self.CRASH)
+
+    def test_3_a_finding_on_one_file_is_not_excused_by_one_on_another(self):
+        for head, base in (("tests/test_a.py", "tests/test_b.py"), ("tests/test_1.py", "tests/test_2.py")):
+            with self.subTest(head=head, base=base), self.assertRaisesRegex(
+                    excuse.Refused, f"errors not on feat-cmux-next run 20: deleted-test-file: {re.escape(head)}"):
+                self.judge(self.finding(head), self.finding(base))
+
+    def test_4_the_same_crash_on_head_and_base_is_the_bases(self):
+        said = self.judge(self.CRASH, self.CRASH)
+        self.assertTrue(said[0].startswith(f"excused '{self.JOB}': feat-cmux-next run 20"), said)
+        self.assertIn("the guard itself failed", said[0])
+
+
 class StepFixture:
     """FixedOnBaseByStep's fixture, shared with DerivedStatusByParts (a mixin, so neither runs the other's tests)."""
     JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"

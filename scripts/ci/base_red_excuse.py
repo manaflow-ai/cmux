@@ -949,6 +949,12 @@ def mask_shas(text: str) -> str:
     return _sub_shas(text)
 
 
+# A file's name in an error line, after its directories: a name with an extension that starts with a letter (so a time
+# or a version is never one). Only the name keeps its digits; a directory may be a run's own (DerivedData's hashed
+# folder), so its digits are masked as before.
+FILE_NAME = re.compile(r"(?:(?<=/)|(?<![\w/.+-]))[\w+-][\w.+-]*\.[A-Za-z][A-Za-z0-9]*(?![\w/])")
+
+
 def normalise_error(text: str) -> str:
     """An error line as compared with the base's: the annotation prefix dropped, commit shas, run-to-run tokens
     (test_reds.volatile: run-named temp dirs, the runner's checkout root, times) and then
@@ -956,7 +962,16 @@ def normalise_error(text: str) -> str:
     preserves keeps its digits: they are the whole of what tells two digests apart (cmux#35941 F2)."""
     kept: list = []
     said = _sub_shas(text.replace("##[error]", "").strip(), keep=kept)
-    said = re.sub(r"\d+", "#", test_reds.volatile(said))
+    said = test_reds.volatile(said)
+
+    def keep_path(match: re.Match[str]) -> str:
+        kept.append(match[0])
+        return _marker(len(kept) - 1)
+    # A file's name keeps its digits: tests/test_1.py is not tests/test_2.py, nor Sources/A1.swift Sources/A2.swift
+    # (an excuse key that drops identity: a finding on one file matched a finding on another). Its line number,
+    # after the colon, is still masked.
+    said = FILE_NAME.sub(keep_path, said)
+    said = re.sub(r"\d+", "#", said)
     for index, id_ in enumerate(kept):
         said = said.replace(_marker(index), id_)
     return said
