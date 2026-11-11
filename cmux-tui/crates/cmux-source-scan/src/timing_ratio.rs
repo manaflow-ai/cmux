@@ -474,6 +474,10 @@ impl Scope<'_> {
             Expr::Array(a) => self.join_all(a.elems.iter()),
             Expr::Repeat(r) => self.join_all([&*r.expr, &*r.len]),
             Expr::Index(i) => self.kind_of(&i.expr),
+            Expr::Block(b) => match b.block.stmts.last() {
+                Some(syn::Stmt::Expr(tail, None)) => self.kind_of(tail),
+                _ => Kind::of(Base::Other),
+            },
             Expr::Field(f) => self.field_kind(f),
             Expr::MethodCall(m) => self.method_kind(m),
             Expr::Call(c) => self.call_kind(c),
@@ -482,7 +486,8 @@ impl Scope<'_> {
                     return Kind::of(Base::ClockFn);
                 }
                 // A closure over a measurement (`|busy| run(busy).p99.min(..)`, cmux#41346's
-                // shape) holds what its body is; each call measures anew.
+                // shape) holds what its body is. Its calls share its sources, so two calls
+                // compare as one sample set's order (`at(a) < at(b)`) unless one is scaled.
                 let body = self.kind_of(&c.body);
                 if body.measured() || body.base == Base::Ratio {
                     Kind { scaled: false, ..body }
@@ -613,7 +618,6 @@ impl Scope<'_> {
             return match v.base {
                 Base::ClockFn => Kind::from(Base::Timing, here(c)),
                 Base::Other => Kind::of(Base::Other),
-                Base::Timing | Base::Pct | Base::Ratio => Kind::from(v.base, here(c)),
                 _ => v.clone(),
             };
         }
