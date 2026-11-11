@@ -45,17 +45,23 @@ impl SessionListFilter {
     /// `params` with each of these filters `capabilities` serves; the rest are left for
     /// [`GatedList::narrow`].
     pub(crate) fn gate(self, mut params: Value, capabilities: &[String]) -> GatedList {
-        let serves = |capability: &str| capabilities.iter().any(|c| c == capability);
+        // The capability each field needs comes from [`GATED_FIELDS`] alone.
+        let serves = |field: &str| {
+            GATED_FIELDS
+                .iter()
+                .filter(|(gated, _)| *gated == field)
+                .all(|(_, capability)| capabilities.iter().any(|c| c == capability))
+        };
         let mut unserved = Self::default();
         if self.local_only {
-            if serves(SESSION_LIST_FILTERS) {
+            if serves("localOnly") {
                 set(&mut params, "localOnly");
             } else {
                 unserved.local_only = true;
             }
         }
         if self.pending_only {
-            if serves(SESSION_LIST_PENDING) {
+            if serves("pendingOnly") {
                 set(&mut params, "pendingOnly");
             } else {
                 unserved.pending_only = true;
