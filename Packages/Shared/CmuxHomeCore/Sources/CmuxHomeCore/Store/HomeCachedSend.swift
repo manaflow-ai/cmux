@@ -44,7 +44,9 @@ public struct HomeCachedSend: Hashable, Sendable, Codable {
     /// with a part other than text, attachments and link previews. A text send is kept as it is,
     /// a link send whose previews are still loading too (its plain text, sent under its key at the
     /// next launch). A send with attachments or link previews is kept in every state with its
-    /// upload job's files (`upload`), as Not Delivered.
+    /// upload job's files (`upload`), as Not Delivered, until the owner acknowledges it or the
+    /// person discards it: one without a job (its files are gone, or it has none) still keeps its
+    /// row, and Retry resends it under its key.
     init?(_ entry: PendingIntent, upload: HomeStore.UploadJob? = nil) {
         guard case .sendMessage(let conversation, let parts, let threadRoot, let parent) = entry.intent.op else { return nil }
         if case .acknowledged = entry.state { return nil }
@@ -61,9 +63,7 @@ public struct HomeCachedSend: Hashable, Sendable, Codable {
             default: false
             }
         }
-        // Without its files (no job: a restored send whose files the blob cache lost) it is kept
-        // only when it reached the owner, which holds its uploads until they are swept.
-        guard textAndFiles, upload != nil || entry.mayHaveBeenDelivered else { return nil }
+        guard textAndFiles else { return nil }
         self.init(key: entry.intent.key, conversation: conversation, parts: parts, issuedAt: entry.intent.issuedAt, failed: true,
                   threadRoot: threadRoot, parent: parent,
                   files: upload.map { $0.attachments.map(HomeCachedDraftAttachment.init) },

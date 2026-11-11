@@ -186,7 +186,7 @@ import CmuxHomeCoreTestSupport
 
     /// A send with a file is cached in every state its upload job is in (uploading, sent and
     /// unanswered, failed), with the job's files, as Not Delivered (Codex review of #40611 at
-    /// d35406d, F1). Without a job it is kept only when it may have reached the owner.
+    /// d35406d, F1). Without a job it is kept too, until acknowledged or discarded (at e141ba5, F1).
     @Test func aSendWithAFileIsCachedWithItsJobInEveryState() {
         let ref = AttachmentRef(hash: Self.sent, name: "log.txt", mimeType: "text/plain", byteCount: 9)
         let op = HomeOp.sendMessage(conversation: Self.austin, parts: [.text("hi"), .attachment(ref)], threadRoot: nil, parent: nil)
@@ -203,7 +203,7 @@ import CmuxHomeCoreTestSupport
         delivered.mayHaveBeenDelivered = true
         #expect(HomeCachedSend(delivered)?.parts == [.text("hi"), .attachment(ref)])
         let lost = PendingIntent(intent: HomeIntent(key: IdempotencyKey("u"), op: op), state: .failed(.ownerUnreachable))
-        #expect(HomeCachedSend(lost) == nil, "no files and never sent: nothing to resend")
+        #expect(HomeCachedSend(lost)?.reachedOwner == true, "no job: kept, and Retry resends it under its key")
     }
 
     /// Quitting while a send with a file waits for its answer keeps the whole message: the next
@@ -410,5 +410,40 @@ import CmuxHomeCoreTestSupport
         #expect(parts == filledParts)
         if case .failed = back.state {} else { Issue.record("it comes back Not Delivered") }
         #expect(next.uploads[filled]?.attachments.map(\.ref.hash) == [pictureRef.hash])
+    }
+
+    /// A restored send with no upload job (the page kept none of its bytes) whose Retry gets no
+    /// answer before a quit is still there at the next launch (Codex review of #40611 at e141ba5,
+    /// F1): Retry's revive clears `mayHaveBeenDelivered`, and the cache keeps it anyway.
+    @Test func aRestoredSendWithoutFilesSurvivesARetryThatGetsNoAnswerAndAQuit() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("home-web-migration-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        var snapshot = HomeCacheSnapshot()
+        snapshot.pendingWebSends = [Self.austin: [
+            "k8": try Self.json(["key": "k8", "text": "",
+                                 "attachments": [["hash": Self.gone, "name": "gone.txt", "mimeType": "text/plain", "byteCount": 4]],
+                                 "createdAt": 1_700_000_800_000, "failed": true]),
+        ]]
+        let cacheURL = root.appendingPathComponent("home.json")
+        try JSONEncoder().encode(snapshot).write(to: cacheURL)
+        let key = IdempotencyKey("k8")
+        let source = MockHomeSource(options: .immediate)
+        await source.failNextSubmits(of: key, times: 1_000, with: .ownerUnreachable)
+        let store = HomeStore(source: source, blobCacheDirectory: root.appendingPathComponent("blobs"), clock: ManualClock(),
+                              cache: HomeCache(url: cacheURL), cacheWriteDelay: .zero)
+        store.start()
+        await waitUntil { store.isOnline && !store.rows.isEmpty }
+        #expect(store.uploads[key] == nil, "no bytes, no job")
+        _ = try? await store.retry(key)
+        await store.flushCache()
+        store.stop()
+
+        let next = HomeStore(source: source, blobCacheDirectory: root.appendingPathComponent("blobs"),
+                             cache: HomeCache(url: cacheURL), cacheWriteDelay: .zero)
+        next.primeFromCache()
+        defer { next.stop() }
+        let back = try #require(next.log.entries.first { $0.intent.key == key }, "the send is still there")
+        if case .failed = back.state {} else { Issue.record("it comes back Not Delivered") }
     }
 }
