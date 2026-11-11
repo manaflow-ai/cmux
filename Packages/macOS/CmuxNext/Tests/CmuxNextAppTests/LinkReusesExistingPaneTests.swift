@@ -17,15 +17,16 @@ import Testing
 
     /// What the faked `new-frontend-browser-tab` was asked.
     @MainActor private final class Creates {
-        var made: [(pane: CmuxNextDaemon.PaneID, url: String, split: ConversationTabSplit?)] = []
+        var made: [(pane: CmuxNextDaemon.PaneID, url: String, activate: Bool, split: ConversationTabSplit?)] = []
     }
 
-    /// A window with a terminal on the left and a terminal on its right, on a daemon that makes a link's tab in its
-    /// split (`frontend-browser-tab-split-v1`); browser tab creates are faked (recorded, then refused).
+    /// An agent chat docked left and, on its right, one terminal (a dev server's), on a daemon that makes a link's tab
+    /// in its split (`frontend-browser-tab-split-v1`); browser tab creates are faked (recorded, then refused). The
+    /// same window as ChatDockToolPlacementTests, whose right column the default main pane layout measures.
     private struct Shown {
         let services: AppServices
         let window: NSWindow
-        let left: PaneController
+        let chat: PaneController
         let right: PaneController
         let creates: Creates
 
@@ -33,25 +34,25 @@ import Testing
             _ = NSApplication.shared
             let services = AppServices(environment: AppEnvironment.current([:]))
             let store = services.daemon.store
-            let served: [DaemonCapability] = [.frontendBrowserTabs, .frontendBrowserTabSplit, .splitClientKeys, .splitClientSplitID]
+            let served: [DaemonCapability] = [.dockColumnRole, .frontendBrowserTabs, .frontendBrowserTabSplit, .splitClientKeys, .splitClientSplitID]
             let list = served.map { "\"\($0.rawValue)\"" }.joined(separator: ",")
             let json = #"{"app":"cmux-tui","protocol":1,"session":"link-reuse","generation":"g1","capabilities":["# + list + "]}"
             let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
             store.noteHandshake(identity)
             store.connectionState = .connected(identity)
-            // Two terminals side by side (Cmd-D), as the person has them: a split, not a strip of columns.
-            let layout = LayoutNode.split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(1), b: .leaf(2))
-            let panes = [PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, title: "Shell")]),
+            let dock = DockSnapshot(edge: .left, mode: .docked, role: .agentChat)
+            let columns = [ColumnSnapshot(id: 10, width: 0.5, layout: .leaf(1), dock: dock), ColumnSnapshot(id: 11, width: 1, layout: .leaf(2))]
+            let panes = [PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, title: "Chat")]),
                          PaneSnapshot(id: 2, tabs: [TabSnapshot(surface: 2, title: "Server")])]
-            let screen = ScreenSnapshot(id: 1, layout: layout, panes: panes)
+            let screen = ScreenSnapshot(id: 1, layout: .leaf(1), columns: columns, panes: panes)
             store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "Links", screens: [screen])]))
             let creates = Creates()
             self.creates = creates
             let browserTabs = services.cache.browserTabs
             browserTabs.serves = { _ in true }
             browserTabs.cefUnavailable = { nil }
-            browserTabs.create = { _, pane, url, _, _, _, _, split in
-                creates.made.append((pane, url, split))
+            browserTabs.create = { _, pane, url, _, _, activate, _, split in
+                creates.made.append((pane, url, activate, split))
                 throw CancellationError()
             }
             let workspace = try #require(store.workspaces.first)
@@ -68,7 +69,7 @@ import Testing
             content.contentView.layoutSubtreeIfNeeded()
             self.services = services
             self.window = window
-            left = try #require(content.panes.values.first { $0.pane.handle == 1 })
+            chat = try #require(content.panes.values.first { $0.pane.handle == 1 })
             right = try #require(content.panes.values.first { $0.pane.handle == 2 })
             services.linkOpener.placement = { .splitRight }
         }
@@ -76,8 +77,8 @@ import Testing
         func close() { window.closeAfterTest() }
     }
 
-    /// A link Cmd-clicked in the left terminal (`openWeb`, as `TerminalHostDelegate` opens it) with a terminal on the
-    /// right: a tab in that terminal's pane, no new pane below it.
+    /// A link clicked in the chat (`openWeb`, as `AgentTabContent` and a terminal's Cmd-click open it) with a terminal
+    /// on the right: a tab made, shown, in that terminal's pane; no new pane below it.
     @Test(.enabled("needs a display for pane geometry") { await Self.hasDisplay() }, .timeLimit(.minutes(1)))
     func aLinkBesideATerminalOpensAsATabInThePaneOnTheRight() async throws {
         let shown = try Shown()
@@ -85,7 +86,7 @@ import Testing
         let store = shown.services.daemon.store
         let url = try #require(URL(string: "https://example.com/"))
 
-        #expect(shown.services.linkOpener.openWeb(url, from: shown.left, background: false))
+        #expect(shown.services.linkOpener.openWeb(url, from: shown.chat, background: false))
 
         #expect(!store.pendingIntents.contains { if case .splitPane = $0 { true } else { false } },
                 "the link split a new pane below the terminal already on the right")
@@ -94,6 +95,7 @@ import Testing
         let made = try #require(shown.creates.made.first, "no browser tab was asked of the daemon")
         #expect(made.pane == shown.right.pane.handle, "the link's tab was not made in the pane on the right")
         #expect(made.split == nil, "the link's tab was made in a new split: \(String(describing: made.split))")
+        #expect(made.activate, "the link's tab was made in the background, to be moved into a new pane")
     }
 
     /// A browser the person asks for that is not a link (a dock's Browser button, a New Tab page pick) keeps Leo's
@@ -103,6 +105,6 @@ import Testing
     func aBrowserThatIsNoLinkStillSplitsBelowATerminal() throws {
         let shown = try Shown()
         defer { shown.close() }
-        #expect(shown.services.linkOpener.target(from: shown.left, kind: .browser) == .splitBelow(of: shown.right.layoutPaneID))
+        #expect(shown.services.linkOpener.target(from: shown.chat, kind: .browser) == .splitBelow(of: shown.right.layoutPaneID))
     }
 }
