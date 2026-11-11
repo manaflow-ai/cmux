@@ -2762,14 +2762,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #endif
         // A hide a newer show interrupted: the keyboard is on its way up, and
         // settling the stack now would lay it out against the hide.
-        guard !isStale(note) else { return }
+        guard !isStale(note), !endsOnScreen(note, onScreen: true) else { return }
         dock.keyboardDidHide()
         keyboardDidChange()
     }
 
     @objc private func keyboardDidShow(_ note: Notification) {
         // A show a newer hide interrupted (the keyboard key pressed twice).
-        guard !isStale(note) else { return }
+        guard !isStale(note), !endsOnScreen(note, onScreen: false) else { return }
         keyboardDidChange()
     }
 
@@ -2778,6 +2778,22 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func isStale(_ note: Notification) -> Bool {
         guard let end = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return false }
         return keyboardTracker.isStale(didChangeTo: end)
+    }
+
+    /// A did-show whose end frame is off screen (or a did-hide whose end frame
+    /// is on screen) belongs to a transition being reversed. A hide that lands
+    /// just after a show's animation, but before UIKit posted its did-show,
+    /// gets that did-show with the hide's frame, ahead of the hide's will
+    /// (measured: did-show 24 ms past the show's duration, so `isStale` lets it
+    /// through). Laying out on it put the composer at the bottom in one frame
+    /// while the keyboard was still up; the will that follows moves it inside
+    /// the keyboard's animation instead.
+    private func endsOnScreen(_ note: Notification, onScreen: Bool) -> Bool {
+        guard let notified = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return false }
+        let frame = keyboardDock.keyboardFrame(notified: notified)
+        let screen = view.window?.screen.bounds ?? UIScreen.main.bounds
+        let visible = screen.intersection(frame).height > 0.5
+        return visible == onScreen
     }
 
     @objc private func keyboardDidChange() {
