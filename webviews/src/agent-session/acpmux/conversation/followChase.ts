@@ -34,6 +34,7 @@
 import { MOTION_MS } from "../../../motion/scale.generated";
 import { motionMode } from "../../../ui/motion/motionMode";
 import { currentChatMetrics } from "../chatDisplay";
+import { MAX_FRAME_STEP_MS } from "../threadMinimap/scrollMotion";
 import { cssTimeMs } from "./fold";
 import { FOLLOW_GLIDE_OFF } from "./followGlide";
 import type { FollowMotionArm } from "./followMotion.experiment";
@@ -103,8 +104,9 @@ const CATCH_UP_S = 0.15;
 /// At rest: drawn within this of its layout and moving slower than REST_SPEED px/s.
 const REST_PX = 0.25;
 const REST_SPEED = 4;
-/// A frame gap longer than this (a hidden page, a long task) integrates as this long.
-const MAX_STEP_S = 1 / 30;
+/// A frame gap longer than this (a hidden page, a long task) integrates as this long: the shared
+/// scroll clock's paced rides use the same bound (scrollMotion.ts).
+const MAX_STEP_S = MAX_FRAME_STEP_MS / 1000;
 /// A frame asked for this long ago (ms) and still not run: the page draws no frames (its workspace
 /// switched away covers or parks its view while it still reads visible). What lands meanwhile moves
 /// at once, so the first frame back draws the rows where they rest instead of a chase held back the
