@@ -56,7 +56,11 @@ public struct CloudChangeRequest {
     /// `window` answers when it runs (``allowed(_:in:shown:)``, `shown` told the dialog's id; without it ``allowed(_:in:)``).
     public func asking(_ title: String, person: Bool, in window: @escaping @MainActor () -> NSWindow?,
                        shown: (@MainActor (Int) -> Void)? = nil) -> @MainActor () async -> Bool {
-        { person ? true : await shown.map { allowed(title, in: window(), shown: $0) } ?? allowed(title, in: window()) }
+        {
+            guard !person else { return true }
+            guard let shown else { return await allowed(title, in: window()) }
+            return await allowed(title, in: window(), shown: shown)
+        }
     }
 
     /// What an agent's or a script's run answers when the person chose Don't Allow.
