@@ -260,7 +260,7 @@
     "setting.agentPane.display.transcriptView": "normal",
     "setting.agentPane.display.trayHandle": "middle",
     "setting.agentPane.display.trayTucked": false,
-    "setting.agentPane.display.unreadBanner": "expanded",
+    "setting.agentPane.display.unreadBanner": "off",
     "setting.agentPane.display.vscodeMinimap": false,
     "setting.agentPane.display.width": 800,
     "setting.agentPane.editedFiles.maxRows": 5,

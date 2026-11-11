@@ -2,14 +2,13 @@
 // A run of tool calls reads as Claude Code desktop summarizes one (Leo, 2026-11-03: "claude code
 // desktop's summarization of tool calls/parsing of them seem kinda good?"): a header that counts what
 // happened, "Finished 2 background tasks and ran 3 commands (1 failed)"; one row per call titled by its
-// description, a failed one with "Failed" right after its words and before its chevron; opened, the
-// command, then "Exit code N", then the output; a background command's end noted as "Background
+// description, a failed one with no failure tag (Lawrence and Lucas, 2026-11-11 standup: Codex marks
+// no command as passed or failed); opened, the command, then "Exit code N", then the output; a background command's end noted as "Background
 // command completed <command>".
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import { BackgroundTaskNote } from "../src/agent-session/acpmux/conversation/BackgroundTaskNote";
-import { readFileSync } from "node:fs";
 import { CommandRow } from "../src/agent-session/acpmux/conversation/CommandRow";
 import { InStep } from "../src/agent-session/acpmux/conversation/toolFailureCauseModel";
 import { ToolGroupRow } from "../src/agent-session/acpmux/conversation/ToolGroupRow";
@@ -19,7 +18,6 @@ import { toolRunSummary } from "../src/agent-session/acpmux/conversation/toolRun
 import { translate } from "../src/agent-session/acpmux/i18n";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
-const css = readFileSync(new URL("../src/agent-session/acpmux/conversation/conversation.css", import.meta.url), "utf8");
 let ids = 0;
 const shell = (description: string | undefined, extra: Partial<Tool> = {}): AcpmuxActivity => {
   const tool: Tool = {
@@ -94,31 +92,27 @@ test("while a background command runs, an opened run lists it as a step, with no
   expect(group.match(/class="cv-step"/g)).toHaveLength(3);
 });
 
-test("a failed call's row is its command, then its failure tag, then its chevron", () => {
+test("a failed call's row is its command, then its chevron, with no failure tag", () => {
   const failing = shell(undefined, { status: "failed", output: "Exit code 1\nls: nope" });
-  // A step of an opened run is tagged "failed" (drawn "Failed"); its Shell block names the exit.
+  // A step of an opened run draws no "failed" tag; its Shell block names the exit.
   const step = renderToStaticMarkup(
     <InStep.Provider value>
       <CommandRow item={failing} />
     </InStep.Provider>,
   );
-  // Command, the tag (clipped on screen, read aloud), the chevron, in that order; the tag is not in
-  // the trailing column.
-  expect(step).toMatch(/make check<\/code><\/span>.*class="cv-command__failed"[^>]*>failed<.*cv-tool__chevron/s);
-  expect(step).not.toMatch(/cv-command__meta[^>]*>[^]*cv-command__failed/);
-  // A lone command keeps its exit word, in the same place.
-  expect(renderToStaticMarkup(<CommandRow item={failing} />)).toMatch(
-    /make check<\/code><\/span>.*class="cv-command__failed"[^>]*>Exit 1<.*cv-tool__chevron/s,
-  );
-  // A background command that failed says so the same way.
+  expect(step).toMatch(/make check<\/code><\/span>.*cv-tool__chevron/s);
+  expect(step).not.toContain("cv-command__failed");
+  // A lone command draws no "Exit 1" either.
+  const lone = renderToStaticMarkup(<CommandRow item={failing} />);
+  expect(lone).toMatch(/make check<\/code><\/span>.*cv-tool__chevron/s);
+  expect(lone).not.toContain("cv-command__failed");
+  expect(words(lone)).not.toContain("Exit 1");
+  // Nor does a background command that failed.
   const background = renderToStaticMarkup(
     <CommandRow item={shell("Check both workers", { background: { state: "failed", endedAt: 3 } })} />,
   );
-  expect(background).toMatch(/class="cv-command__failed"[^>]*>failed</);
-  // The tag reads "Failed" on screen.
-  expect(css).toMatch(
-    /\.cv-command > \.cv-command__failed::first-letter,\s*\.cv-tool > \.cv-tool__failed:not\(\.cv-tool__icon\)::first-letter \{\s*text-transform: uppercase;/,
-  );
+  expect(background).not.toContain("cv-command__failed");
+  expect(background).not.toContain('data-state="failed"');
   // Without a description the row keeps its command.
   expect(words(renderToStaticMarkup(<CommandRow item={shell(undefined)} />))).toContain("make check");
 });

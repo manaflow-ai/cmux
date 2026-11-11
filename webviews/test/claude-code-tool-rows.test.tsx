@@ -137,8 +137,9 @@ test("the split arm keeps out and in on the live line", () => {
 });
 
 // A verb says what a command did (commandActions.ts), so a merge a hook blocked never reads "Merged
-// PR #101": the row reads as its line, and its failure stays on the row as its status word.
-test("a hook-blocked merge row draws no success verb and keeps its failure", async () => {
+// PR #101": the row reads as its line. It draws no status word either: Codex marks no command as
+// passed or failed (Lawrence and Lucas, 2026-11-11 standup); a rejected push keeps its cause line.
+test("a hook-blocked merge row draws no success verb and no failure word", async () => {
   const { CommandRow } = await import("../src/agent-session/acpmux/conversation/CommandRow");
   const tool: Tool = {
     id: "blocked-merge",
@@ -151,7 +152,8 @@ test("a hook-blocked merge row draws no success verb and keeps its failure", asy
   const html = renderToStaticMarkup(<CommandRow item={{ kind: "tool", text: "Bash", tool }} />);
   expect(html).not.toContain("Merged");
   expect(html).toContain("gh pr merge 101");
-  expect(html).toContain(t("tools.blockedByHook"));
+  expect(html).not.toContain(t("tools.blockedByHook"));
+  expect(html).not.toContain("cv-command__failed");
   const rejected = renderToStaticMarkup(
     <CommandRow
       item={{
@@ -163,5 +165,7 @@ test("a hook-blocked merge row draws no success verb and keeps its failure", asy
   );
   expect(rejected).not.toContain("Pushed");
   expect(rejected).toContain("git push origin main");
-  expect(rejected).toContain("Exit 1");
+  expect(rejected).not.toContain("Exit 1");
+  expect(rejected).not.toContain("cv-command__failed");
+  expect(rejected).toContain("[rejected]");
 });

@@ -126,7 +126,7 @@ test("the footer's version changes when Continue comes or goes, so memoized rows
   expect(offered.version).not.toBe(gone.version);
 });
 
-test("the footer draws Continue only with the action, and shows at rest", () => {
+test("the footer draws Continue only with the action, shows at rest, and says no Stopped by default", () => {
   const row = footers(stoppedTurn)[0]!;
   const withResume = renderToStaticMarkup(
     <TurnActionsContext.Provider value={{ resume: async () => undefined }}>
@@ -136,7 +136,23 @@ test("the footer draws Continue only with the action, and shows at rest", () => 
   // In whatever language the table is in (another test file may have switched it).
   expect(withResume).toContain(translate("turn.continue"));
   expect(withResume).toContain("cv-turn-actions--resumable");
-  expect(withResume).toContain(translate("turn.stopped", { time: "40s" }));
+  // By default the footer says nothing of the stop: no muted Stopped and no time with its tooltip
+  // (Lawrence and Lucas, 2026-11-11 standup: Codex shows no "Stopped" and no time on hover).
+  expect(withResume).not.toContain("cv-turn-stopped");
+  expect(withResume).not.toContain(translate("turn.stopped", { time: "40s" }));
+  // The "word" arm still draws Stopped, with how long it ran in its tooltip.
+  globalThis.cmuxExperiments = { "stopped-turn-look": "word" };
+  try {
+    const word = renderToStaticMarkup(
+      <TurnActionsContext.Provider value={{ resume: async () => undefined }}>
+        <TurnFooter row={row} />
+      </TurnActionsContext.Provider>,
+    );
+    expect(word).toContain("cv-turn-stopped");
+    expect(word).toContain(translate("turn.stopped", { time: "40s" }));
+  } finally {
+    delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
+  }
   // No action (a View Only chat, or not connected): no button.
   expect(renderToStaticMarkup(<TurnFooter row={row} />)).not.toContain("cv-turn-continue");
   // There a folded stopped turn with nothing else to show (no answer and nothing it said to copy)

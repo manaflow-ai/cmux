@@ -261,7 +261,6 @@ function key(finding: Omit<Finding, "line">): string {
 export const TOKEN_ONLY_FILES: readonly string[] = [
   "agent-session/acpmux/conversation/unread.css",
   "agent-session/acpmux/conversation/SinceDivider.tsx",
-  "agent-session/acpmux/jumpPair.css",
 ];
 const ANY_DURATION = /(?<![\w.-])\d*\.?\d+m?s\b/i;
 const ANY_EASING = /\bcubic-bezier\(|\bsteps\(|\blinear\(|(?<![\w-])ease(?:-in|-out|-in-out)?(?![\w-])/i;

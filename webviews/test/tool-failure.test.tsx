@@ -1,6 +1,7 @@
 // l10n-allow-file: test fixtures (tool results in the harnesses' words), not shipped UI.
-// A failed tool call says what happened in a word and why in one line (Leo 2026-10-22: "we need to
-// have prettier errors"): toolFailure.ts reads the harness's raw result, the rows draw it.
+// A failed tool call says why in one line (Leo 2026-10-22: "we need to have prettier errors"):
+// toolFailure.ts reads the harness's raw result, the rows draw it. The row draws no failure word
+// (Lawrence and Lucas, 2026-11-11 standup: Codex marks no command as passed or failed).
 import { afterEach, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
@@ -121,23 +122,27 @@ test("a long result is read only at its ends, and a long cause is cut", () => {
   expect(failure?.cause?.startsWith("x")).toBe(true);
 });
 
-test("a command row says the word in the error tone and the cause on a quiet line under it", () => {
-  // A hook's block reads "blocked by hook" alone, as Claude Code desktop draws it: no "PreToolUse"
-  // and no line of its words until it is opened (Leo, 2026-10-31: "WHY IS THERE PRETOOLUSE").
+test("a command row draws no failure word, only the cause on a quiet line under it", () => {
+  // Codex marks no command as passed or failed (Lawrence and Lucas, 2026-11-11 standup): no
+  // "blocked by hook" or "Exit 1" tag. A hook's block draws no "PreToolUse" and no line of its words
+  // until it is opened (Leo, 2026-10-31: "WHY IS THERE PRETOOLUSE").
   const html = renderToStaticMarkup(
     <CommandRow item={item(call("PreToolUse:Bash hook error: Blocked: needs a review.", { description: "Merge" }))} />,
   );
-  expect(html).toMatch(/class="cv-command__failed"[^>]*>blocked by hook</);
+  expect(html).not.toContain("cv-command__failed");
+  expect(words(html)).not.toContain("blocked by hook");
   expect(html).not.toContain('class="cv-tool-error"');
   expect(words(html)).not.toContain("PreToolUse");
   expect(words(html)).not.toContain("needs a review.");
-  // Claude Code's exit line reads as the row's "Exit 1".
+  // Claude Code's exit line draws no "Exit 1" on the row; its cause still does.
   const exited = renderToStaticMarkup(<CommandRow item={item(call("Exit code 1\nmake: *** [all] Error 2"))} />);
-  expect(exited).toMatch(/class="cv-command__failed"[^>]*>Exit 1</);
+  expect(exited).not.toContain("cv-command__failed");
+  expect(words(exited)).not.toContain("Exit 1");
   expect(words(exited)).toContain("make: *** [all] Error 2");
 });
 
-test("a lone call says denied in red, and a declined call with no words adds no line", () => {
+test("a lone declined call draws no denied tag, and with no words adds no line", () => {
+  // Codex marks no call as passed or failed (Lawrence and Lucas, 2026-11-11 standup).
   const html = renderToStaticMarkup(
     <ToolRow
       item={item(
@@ -149,7 +154,8 @@ test("a lone call says denied in red, and a declined call with no words adds no 
       )}
     />,
   );
-  expect(html).toMatch(/class="cv-tool__failed"[^>]*> denied</);
+  expect(html).not.toContain("cv-tool__failed");
+  expect(words(html)).not.toContain("denied");
   expect(html).not.toContain("cv-tool-error");
 });
 
@@ -223,9 +229,10 @@ test("a failed step of an opened group is one plain line, its error output behin
       disclosureKey="steps"
     />,
   );
-  // The group's head counts it; the step says "failed", never the shell's words.
+  // The group's head counts it; the step draws no "failed" tag (Codex marks no command as passed or
+  // failed: Lawrence and Lucas, 2026-11-11 standup), and never the shell's words.
   expect(words(html)).toContain("1 failed");
-  expect(html).toMatch(/class="cv-command__failed"[^>]*>failed</);
+  expect(html).not.toContain("cv-command__failed");
   expect(words(html)).not.toContain("Exit 1");
   expect(words(html)).not.toContain("(eval):1");
   expect(html).not.toContain('class="cv-tool-error"');
@@ -235,11 +242,12 @@ test("a failed step of an opened group is one plain line, its error output behin
       <CommandRow item={failing} />
     </InStep.Provider>,
   );
-  expect(step).toMatch(/class="cv-command__failed"[^>]*>failed</);
+  expect(step).not.toContain("cv-command__failed");
   expect(words(step)).not.toContain("(eval):1");
-  // A lone command, not in a group, still says its exit and why.
+  // A lone command, not in a group, still says why, but draws no "Exit 1".
   const lone = renderToStaticMarkup(<CommandRow item={failing} />);
-  expect(lone).toMatch(/class="cv-command__failed"[^>]*>Exit 1</);
+  expect(lone).not.toContain("cv-command__failed");
+  expect(words(lone)).not.toContain("Exit 1");
   expect(words(lone)).toContain("(eval):1: ==== not found");
 });
 
@@ -370,14 +378,15 @@ test("a long result whose last line outgrows the tail window still reads that li
   expect(failure?.cause).toBe(`${"q".repeat(299)}…`);
 });
 
-test("a lone shell that ended in the background keeps its background mark, not a failure", () => {
+test("a lone shell that ended in the background draws no mark and no failure", () => {
+  // BackgroundMark draws nothing once the shell ends (Lawrence and Lucas, 2026-11-11 standup).
   const tool = call("error: port in use", {
     status: "completed",
     exitCode: 1,
     background: { state: "failed", endedAt: 0 },
   });
   const html = renderToStaticMarkup(<ToolRow item={item(tool)} />);
-  expect(html).toContain('data-state="failed"');
+  expect(html).not.toContain("data-state=");
   expect(html).not.toContain("cv-tool__failed");
   expect(html).not.toContain("cv-tool-error");
 });

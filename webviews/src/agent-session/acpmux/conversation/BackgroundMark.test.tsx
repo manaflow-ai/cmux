@@ -1,7 +1,8 @@
 // l10n-allow-file: test fixture commands, not shipped UI.
 // A shell call that went on in the background shows how it stands on its own "Ran" row, in a "Ran
-// N commands" group (CommandRow) or alone (ToolRow): the running mark while it runs there, then a
-// check with its time, "Failed" or "Stopped". A background task's end whose call is not in the
+// N commands" group (CommandRow) or alone (ToolRow): the running mark while it runs there, then
+// nothing once it ends, no check, time, "Failed" or "Stopped" (Lawrence and Lucas, 2026-11-11
+// standup: Codex marks no command as passed or failed, no time on hover). A background task's end whose call is not in the
 // transcript is one line naming the command in a few words, never the raw `export PATH=…` text
 // (Leo 2026-10-20). A click opens that line in place, never a terminal (Leo 2026-10-21: it
 // replaced the whole window with an empty terminal); only its Open in terminal opens one.
@@ -113,26 +114,27 @@ for (const [name, Row] of [
     expect(container.querySelector(".cv-command__time")).toBeNull();
   });
 
-  test(`${name}: finished in the background is a check with the shell's whole run time`, async () => {
+  test(`${name}: finished in the background draws no check and no time`, async () => {
     const container = await render(<Row item={call({ state: "completed", endedAt: STARTED + 6_100 })} />);
     expect(container.querySelector(".cv-command__bg-state")).toBeNull();
     expect(container.querySelector(".cv-row-shimmer")).toBeNull();
-    expect(container.querySelector(".cv-command__ok")).not.toBeNull();
-    // Its time runs to the shell's end, not the launch's 200ms.
-    expect(container.querySelector(".cv-command__time")!.textContent).toBe(translate("duration.s", { n: "6.1" }));
+    expect(container.querySelector(".cv-command__ok")).toBeNull();
+    expect(container.querySelector(".cv-command__time")).toBeNull();
   });
 
-  test(`${name}: failed and stopped say so, a stop with the agent's reason on hover`, async () => {
+  test(`${name}: failed and stopped draw no Failed or Stopped mark`, async () => {
     const failed = await render(<Row item={call({ state: "failed", endedAt: STARTED + 1_000 })} />);
-    expect(failed.querySelector(".cv-command__failed")!.textContent).toBe(translate("tools.failed"));
+    expect(failed.querySelector(".cv-command__failed")).toBeNull();
+    expect(failed.querySelector("[data-state]")).toBeNull();
+    expect(failed.textContent).not.toContain(translate("tools.failed"));
     await act(async () => root!.unmount());
     root = undefined;
     const stopped = await render(
       <Row item={call({ state: "stopped", reason: "Stopped by the agent", endedAt: STARTED + 1_000 })} />,
     );
-    const label = stopped.querySelector(".cv-command__stopped")!;
-    expect(label.textContent).toBe(translate("bgTask.state.stopped"));
-    expect(label.getAttribute("title")).toBe("Stopped by the agent");
+    expect(stopped.querySelector(".cv-command__stopped")).toBeNull();
+    expect(stopped.querySelector('[title="Stopped by the agent"]')).toBeNull();
+    expect(stopped.textContent).not.toContain(translate("bgTask.state.stopped"));
   });
 }
 

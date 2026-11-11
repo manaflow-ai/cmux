@@ -45,8 +45,7 @@ import { ToolLabel } from "./ToolVerb";
 import { callOutput, rowFailed, toolFailure } from "./toolFailure";
 import { RepoRecoveryCard } from "./RepoRecoveryCard";
 import { InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
-import { failureWord, useInStep } from "./toolFailureCauseModel";
-import { Check, ChevronRight } from "./icons";
+import { ChevronRight } from "./icons";
 import { toolIcon } from "./toolRowModel";
 import { repoRecoveryFor } from "./repoRecoveryCardModel";
 
@@ -65,7 +64,6 @@ export const ToolRow = memo(function ToolRow({
   asRun?: boolean;
 }) {
   const t = useT();
-  const step = useInStep();
   // Closed, or open in the Verbose transcript view.
   const [open, setOpen] = useRowDisclosure(item.tool?.id);
   // Find in Chat counts matches in the whole output, so a call it reveals shows all of it.
@@ -183,14 +181,6 @@ export const ToolRow = memo(function ToolRow({
         {running && <RowShimmer>{words}</RowShimmer>}
         <InlineFailureCause failure={failure} />
       </span>
-      {/* The failure word is a tag after the words, outside their ellipsis, so a long label never
-          hides it (as CommandRow's "Failed"; conversation.css `.cv-tool > .cv-tool__failed`). */}
-      {failure && (
-        <span className="cv-tool__failed" data-find-skip>
-          {" "}
-          {failureWord(t, failure, step)}
-        </span>
-      )}
       {background ? (
         <span className="cv-command__meta cv-tool__meta">
           {background.state === "running" && <PreviewChip toolCallId={tool.id} />}
@@ -207,7 +197,7 @@ export const ToolRow = memo(function ToolRow({
           <ReactionMark reaction={tool.reaction} />
           {tool.approved && <ApprovedMark />}
           <BackgroundMark background={background} />
-          {duration && <span className="cv-command__time">{duration}</span>}
+          {running && duration && <span className="cv-command__time">{duration}</span>}
         </span>
       ) : foreground && shell && !tool.approved ? (
         // A running shell's edge holds only the offer of another machine, from 20 s on (RunElsewhere.tsx).
@@ -236,8 +226,8 @@ export const ToolRow = memo(function ToolRow({
             )}
             <ReactionMark reaction={tool.reaction} />
             {tool.approved && <ApprovedMark />}
-            {!foreground && !failed && <Check size={14} className="cv-command__ok" />}
-            {duration && <span className="cv-command__time">{duration}</span>}
+            {/* Codex marks no call as passed or failed, and shows no time once it ends (2026-11-11). */}
+            {running && duration && <span className="cv-command__time">{duration}</span>}
           </span>
         )
       )}

@@ -330,8 +330,11 @@ test("a failed step of an opened command group opens to its command, Exit code 1
     <ToolGroupRow kind="commands" items={items} disclosureKey="failed-step-open" folded />,
   );
   await act(async () => container.querySelector<HTMLButtonElement>("button")!.click());
-  const failed = container.querySelector<HTMLButtonElement>(".cv-step > .cv-command:has(> .cv-command__failed)")!;
-  expect(failed.getAttribute("data-tool-id")).toBe("failed");
+  // The step draws no "Failed" tag (Lawrence and Lucas, 2026-11-11 standup: Codex marks no command
+  // as passed or failed); only its opened Shell block says how it ended.
+  expect(container.querySelector(".cv-step > .cv-command > .cv-command__failed")).toBeNull();
+  const failed = container.querySelector<HTMLButtonElement>('.cv-step > .cv-command[data-tool-id="failed"]')!;
+  expect(failed).not.toBeNull();
   await act(async () => failed.click());
   expect(failed.getAttribute("aria-expanded")).toBe("true");
   const shellBlock = container.querySelector(".cv-shell")!;

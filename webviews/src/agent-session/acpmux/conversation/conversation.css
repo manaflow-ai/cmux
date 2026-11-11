@@ -538,33 +538,11 @@
   line-clamp: 6;
   overflow: hidden;
 }
-/* Show all, then the action row (time, copy, retry), on one line under the bubble's right edge.
-   The toggle stays visible while the actions fade in on hover. */
-.cv-user__chief-footer {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-  height: var(--cv-meta-row);
-  margin-top: var(--cv-meta-gap);
-}
-.cv-user__chief-footer > .cv-user__actions {
-  margin-top: 0;
-}
-.cv-user__expand {
-  flex: none;
-  padding: 0 4px;
-  border: 0;
-  background: none;
-  font-family: var(--cv-font);
-  font-size: var(--text-detail);
-  line-height: 18px;
-  color: var(--cv-text-muted);
-  cursor: default;
-  letter-spacing: var(--text-detail--letter-spacing);
-}
-.cv-user__expand:hover {
-  color: var(--agent-text);
+/* The collapsed task's last line fades out under a mask into Show all, the bubble's own bottom row
+   (ChiefPromptBubble.tsx), as a long prompt's does (.cv-user__text.is-faded). */
+.cv-user__bubble--collapsed > .cv-user__clamp {
+  -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
+  mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-line-height)), transparent);
 }
 
 /* A long prompt (PromptText.tsx, promptCollapse.ts): its first twenty lines, the last one fading out
@@ -3048,11 +3026,13 @@ button.cv-tool:not(.cv-sent, :disabled):is(:hover, :focus-visible):not(:has(.cv-
   color: var(--cv-text);
 }
 /* An opened call's line that is no shell's reads whole (ToolRow.tsx `is-whole-open`): its label
-   wraps instead of being cut at the row's edge. */
+   wraps instead of being cut at the row's edge. It breaks only where a word no longer fits, never
+   anywhere: `anywhere` let the label's box shrink to one character, so a file name stood as a column
+   of short lines (Lawrence, 2026-11-11 standup: "a file becomes multi-line"). */
 .cv-tool.is-whole-open[aria-expanded="true"] > .cv-tool__text {
   overflow: visible;
   white-space: normal;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 /* The rows' verb column (ToolVerb.tsx), as the Codex app lines its tool rows up (Leo 2026-10-29:
    "having stuff aligned is nice"): each verb ("Ran", "Read", "Edited") is a box as wide as the
@@ -4157,9 +4137,6 @@ button.cv-video-frames__frame:focus-visible {
   overflow: hidden;
   clip-path: inset(50%);
   white-space: nowrap;
-}
-.cv-command__stopped {
-  color: var(--cv-text-dim);
 }
 /* "⌃B to run in background" while a command runs (BackgroundHint.tsx), at the right of the running
    turn's live line; never on the command's own row. Its live-line hover rule controls visibility. */

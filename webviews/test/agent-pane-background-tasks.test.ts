@@ -209,9 +209,8 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     await page.locator("button.cv-tool", { hasText: "Ran 2 commands" }).click();
     const row = (command: string) => page.locator(".cv-tool", { hasText: command }).first();
     await row("npm run dev").waitFor({ timeout: 5_000 });
-    const stopped = row("npm run dev").locator(".cv-command__stopped");
-    expect(await stopped.textContent()).toBe("Stopped");
-    expect(await stopped.getAttribute("title")).toBe("Stopped by the agent");
+    // How a background command ended draws no mark at its edge, as Codex (2026-11-11 standup).
+    expect(await row("npm run dev").locator(".cv-command__meta [data-state]").count()).toBe(0);
     expect(await row("cargo watch -x test").locator(".cv-command__bg-state").getAttribute("title")).toBe(
       "Running in background",
     );

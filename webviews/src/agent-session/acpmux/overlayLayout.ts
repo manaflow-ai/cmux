@@ -36,7 +36,6 @@ export const TRANSCRIPT_OVERLAYS = {
   unreadBanner: { zone: "top-start", className: "acpmux-since-jump" },
   subagentOf: { zone: "top-center", className: "acpmux-pinned-top" },
   jumpToLatest: { zone: "bottom-center", className: "acpmux-jump-latest", stack: 0 },
-  jumpUp: { zone: "bottom-center", className: "acpmux-jump-up", stack: 1 },
   sessionInfo: { zone: "end", className: "acpmux-session-info" },
 } as const satisfies Record<string, TranscriptOverlay>;
 

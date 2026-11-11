@@ -102,7 +102,8 @@ export const TRAY_TUCKED_KEY = "agentPane.display.trayTucked";
 /// or the right…"). Not part of ChatDisplay: switching it measures no transcript row again.
 export const TRAY_HANDLE_KEY = "agentPane.display.trayHandle";
 export type TrayHandleSide = "left" | "middle" | "right";
-/// Settings > Agent Chat > Unread Banner, expanded by default: the floating "3 new turns since 3:42"
+/// Settings > Agent Chat > Unread Banner, off by default (Lawrence, 2026-11-11 standup: the "where
+/// you left off" arrow "I don't think that's good", match Codex): the floating "3 new turns since 3:42"
 /// banner at the transcript's top start while the "New" line is off screen
 /// (conversation/SinceDivider.tsx UnreadBanner; Leo, 2026-11-10: "you can have the collapsed view.
 /// You can have the expanded view. You can have, like, right click to just hide it completely").
@@ -315,7 +316,7 @@ let minimapOn = false;
 let pinnedPlanOn = false;
 let trayTuckedOn = false;
 let trayHandle: TrayHandleSide = "middle";
-let unreadBanner: UnreadBannerMode = "expanded";
+let unreadBanner: UnreadBannerMode = "off";
 let threadMinimapArm: ThreadMinimapArm | null = null;
 let transcriptView: TranscriptView = "normal";
 let presentation: Presentation = "transcript";
@@ -342,7 +343,7 @@ export function setChatDisplay(value: unknown): void {
   const pinnedPlan = raw[PINNED_PLAN_KEY] === true;
   const trayTucked = raw[TRAY_TUCKED_KEY] === true;
   const storedBanner = raw[UNREAD_BANNER_KEY];
-  const banner: UnreadBannerMode = isUnreadBannerMode(storedBanner) ? storedBanner : "expanded";
+  const banner: UnreadBannerMode = isUnreadBannerMode(storedBanner) ? storedBanner : "off";
   const handle = raw[TRAY_HANDLE_KEY] === "left" || raw[TRAY_HANDLE_KEY] === "right" ? raw[TRAY_HANDLE_KEY] : "middle";
   const threadMinimap = resolveThreadMinimapArm(raw);
   const stored = raw[TRANSCRIPT_VIEW_KEY];
@@ -478,9 +479,9 @@ const unreadBannerSnapshot = () => unreadBanner;
 export const useUnreadBannerMode = (): UnreadBannerMode =>
   useSyncExternalStore(subscribe, unreadBannerSnapshot, unreadBannerSnapshot);
 /// Expands, collapses or turns off the unread banner, at once in the page; the host writes the
-/// setting. Expanded, the default, removes the key.
+/// setting. Off, the default, removes the key.
 export const setUnreadBannerMode = (mode: UnreadBannerMode): void =>
-  changeChatDisplay(UNREAD_BANNER_KEY, mode === "expanded" ? null : mode);
+  changeChatDisplay(UNREAD_BANNER_KEY, mode === "off" ? null : mode);
 const trayHandleSnapshot = () => trayHandle;
 /// Where the hat's tuck chevron and pull tab sit along the composer's top edge (TRAY_HANDLE_KEY).
 export const useTrayHandle = (): TrayHandleSide =>

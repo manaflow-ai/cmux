@@ -1,8 +1,9 @@
 // l10n-allow-file: test fixture commands and descriptions, not shipped UI.
 // The agent turn as the ChatGPT/Codex app draws it (Leo and Lawrence, 2026-10-20): a finished run
 // that is one group folds to its closed line ("Ran 3 commands") between the paragraphs; a finished
-// call's check and time show only on hover, a failure keeps its red mark; a command reads as what
-// it does (Claude Code's Bash description) and never as the bare tool name "Bash".
+// call draws no check, no failure mark and no time (Lawrence and Lucas, 2026-11-11 standup: Codex
+// marks no command as passed or failed, no time on hover); a command reads as what it does (Claude
+// Code's Bash description) and never as the bare tool name "Bash".
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -94,18 +95,20 @@ test("Claude Code's Bash description is read from the call's raw input", () => {
   expect(callDescription({ description: 42 })).toBeUndefined();
 });
 
-test("a finished call draws its check and time; a failure its red mark", () => {
+// Codex marks no command as passed or failed, and shows no time on hover (Lawrence and Lucas,
+// 2026-11-11 standup).
+test("a finished call draws no check and no time; a failure no red mark", () => {
   const ok = renderToStaticMarkup(<CommandRow item={shell("ok")} />);
-  expect(ok).toContain("cv-command__ok");
-  expect(ok).toContain('class="cv-command__time">2.5s');
+  expect(ok).not.toContain("cv-command__ok");
+  expect(ok).not.toContain("cv-command__time");
   const failed = renderToStaticMarkup(<CommandRow item={shell("bad", { status: "failed", exitCode: 1 })} />);
-  expect(failed).toContain("cv-command__failed");
+  expect(failed).not.toContain("cv-command__failed");
   expect(failed).not.toContain("cv-command__ok");
   const lone = renderToStaticMarkup(
     <ToolRow item={shell("lone", { command: undefined, title: "Fetch docs", kind: "fetch" })} />,
   );
-  expect(lone).toContain("cv-command__ok");
-  expect(lone).toContain('class="cv-command__time">2.5s');
+  expect(lone).not.toContain("cv-command__ok");
+  expect(lone).not.toContain("cv-command__time");
 });
 
 test("the check and time show only on hover or focus; the failure mark always", async () => {
@@ -120,14 +123,14 @@ test("the check and time show only on hover or focus; the failure mark always", 
   expect(css).not.toMatch(/cv-tool__failed[^{]*\{[^}]*opacity: 0/);
 });
 
-// Leo (2026-10-21): "let's only show the green/red checkmark + time on hover for ours". A failed
-// call that is not a shell still says so in red at rest. A running one shows no spinner (Leo,
+// A failed call that is not a shell draws no red mark either (Lawrence and Lucas, 2026-11-11
+// standup: Codex marks no command as passed or failed). A running one shows no spinner (Leo,
 // 2026-10-31: "I FUCKING HATE THESE SPINNERS FOR TOOL CALLS AND SHIT").
-test("a failed tool call keeps its red mark at rest; a running one no spinner", () => {
+test("a failed tool call draws no red mark at rest; a running one no spinner", () => {
   const failed = renderToStaticMarkup(
     <ToolRow item={shell("bad", { command: undefined, title: "Fetch docs", kind: "fetch", status: "failed" })} />,
   );
-  expect(failed).toContain('class="cv-tool__failed"');
+  expect(failed).not.toContain('class="cv-tool__failed"');
   expect(failed).not.toContain("cv-command__ok");
   const running = renderToStaticMarkup(
     <CommandRow item={shell("live", { status: "in_progress", endedAt: undefined })} />,

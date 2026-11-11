@@ -50,17 +50,17 @@ test("a short Chief prompt shows whole, marked as sent from the Chief", () => {
   expect(host.querySelector(".cv-user__from")?.textContent).toBe("Sent from Chief");
   expect(host.querySelector(".cv-user__bubble")?.textContent).toBe("Fix the prompt bubble");
   expect(host.querySelector(".cv-user__bubble--collapsed")).toBeNull();
-  expect(host.querySelector(".cv-user__expand")).toBeNull();
+  expect(host.querySelector(".cv-user__more")).toBeNull();
 });
 
 test("a long Chief task opens collapsed and Show all opens it", () => {
   const task = Array.from({ length: 20 }, (_, index) => `Step ${index + 1}: do the thing.`).join("\n");
   const host = render(task);
   const bubble = () => host.querySelector(".cv-user__bubble")!;
-  const toggle = () => host.querySelector<HTMLButtonElement>(".cv-user__expand")!;
+  const toggle = () => host.querySelector<HTMLButtonElement>(".cv-user__more")!;
   expect(bubble().classList.contains("cv-user__bubble--collapsed")).toBe(true);
   // The whole text stays in the bubble (select and copy take all of it); only its height is clamped.
-  expect(bubble().textContent).toBe(task);
+  expect(bubble().querySelector(".cv-user__clamp")?.textContent).toBe(task);
   expect(toggle().textContent).toBe("Show all");
   expect(toggle().getAttribute("aria-expanded")).toBe("false");
   act(() => {
@@ -71,20 +71,19 @@ test("a long Chief task opens collapsed and Show all opens it", () => {
   expect(toggle().getAttribute("aria-expanded")).toBe("true");
 });
 
-// Leo 2026-10-31: Show all sat on its own row at the right and pushed the time/copy/retry row down.
-// It leads that row on the left instead, so a collapsed task adds no extra row.
-test("Show all leads the action row instead of taking a row of its own", () => {
+// Lawrence and Lucas, 2026-11-11 standup: Show all under the bubble was ugly; it goes inside the
+// bubble, as its whole bottom row, as a long prompt's Show more does. The action row stays under it.
+test("Show all is the bubble's own bottom row; the action row stays under the bubble", () => {
   const task = Array.from({ length: 20 }, (_, index) => `Step ${index + 1}.`).join("\n");
   const host = render(task, <div className="cv-user__actions">actions</div>);
-  const toggle = host.querySelector<HTMLButtonElement>(".cv-user__expand")!;
-  const row = toggle.parentElement!;
-  expect(row.classList.contains("cv-user__chief-footer")).toBe(true);
-  expect(row.firstElementChild).toBe(toggle);
-  expect(row.querySelector(".cv-user__actions")).not.toBeNull();
+  const toggle = host.querySelector<HTMLButtonElement>(".cv-user__more")!;
+  const bubble = host.querySelector<HTMLElement>(".cv-user__bubble")!;
+  expect(toggle.parentElement).toBe(bubble);
+  expect(bubble.lastElementChild).toBe(toggle);
+  expect(bubble.nextElementSibling?.classList.contains("cv-user__actions")).toBe(true);
   // A short prompt has no toggle, and its action row stays where it was.
   act(() => root?.render(<ChiefPromptBubble text="Short" actions={<div className="cv-user__actions">a</div>} />));
-  expect(host.querySelector(".cv-user__expand")).toBeNull();
-  expect(host.querySelector(".cv-user__chief-footer")).toBeNull();
+  expect(host.querySelector(".cv-user__more")).toBeNull();
   expect(host.querySelector(".cv-user__actions")).not.toBeNull();
 });
 

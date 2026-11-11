@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixtures (tool results in the harnesses' words), not shipped UI.
 // Find in Chat counts what a failed command draws (Codex review of #24339): its output without
-// Claude Code's leading "Exit code N" line, never the row's red word or the Shell block's own exit
-// line, so the count it shows and the matches it paints agree.
+// Claude Code's leading "Exit code N" line, never the Shell block's own exit line, so the count it
+// shows and the matches it paints agree. The row draws no failure word (2026-11-11 standup).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -74,11 +74,9 @@ for (const grouped of [false, true])
   test(`an exit code read from Claude Code's first line is counted once, as drawn (${grouped ? "command row" : "lone call"})`, async () => {
     const item = command(`a${grouped}`, "Exit code 1\nbuild failed");
     const painted = await paintedText(item, grouped);
-    // A step of an opened group says "failed" and leaves the exit code to its Shell block; a lone
-    // call keeps "Exit 1" (ToolFailureCause.tsx `InStep`).
-    expect(host.querySelector(grouped ? ".cv-command__failed" : ".cv-tool__failed")?.textContent?.trim()).toBe(
-      grouped ? "failed" : "Exit 1",
-    );
+    // The row draws no failure word, a step's "failed" or a lone call's "Exit 1" (Lawrence and Lucas,
+    // 2026-11-11 standup: Codex marks no command as passed or failed); only the Shell block says it.
+    expect(host.querySelector(".cv-command__failed, .cv-tool > .cv-tool__failed")).toBeNull();
     expect(host.querySelector(".cv-shell__exit")?.textContent).toBe("Exit code 1");
     for (const query of ["Exit", "1", "build failed"])
       expect([query, count(painted, query)]).toEqual([query, count(indexed(item, grouped), query)]);

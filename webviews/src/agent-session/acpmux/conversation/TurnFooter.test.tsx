@@ -2,7 +2,8 @@
 // A turn's footer under its answer (TurnRows.tsx TurnFooter). Leo, 2026-10-21, on a footer reading
 // "Worked for 0s · pin · now" that took a full line: "IF WE 0 SECONDS THEN IT DOESNT NEED TO TAKE
 // UP SPACE". A turn under a second says no "Worked for", and a footer left with only its hover
-// controls (Pin, Fork, its age) takes no line: the row is its turn gap alone.
+// controls (Pin, Fork) takes no line: the row is its turn gap alone. The row draws no time at its
+// end, so no "Worked for" tooltip (Lawrence and Lucas, 2026-11-11 standup: no time on hover).
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AcpmuxRow } from "../model";
@@ -39,9 +40,10 @@ test("a turn under a second says no Worked for", () => {
   }
 });
 
-test("a 5 s turn says Worked for 5s in its time's tooltip, never in front of the buttons", () => {
+test("a 5 s turn draws no Worked for and no time in its footer row, never in front of the buttons", () => {
   // Leo, 2026-11-02: "this should not be placed in front of the copy/whatever buttons. those buttons
-  // should always just be there left aligned".
+  // should always just be there left aligned". Lawrence, 2026-11-11 standup: "when I hover, the time
+  // shows up on the right, which I don't think is good".
   const row = footer({
     durationMs: 5_000,
     text: "Done.",
@@ -51,22 +53,22 @@ test("a 5 s turn says Worked for 5s in its time's tooltip, never in front of the
   const markup = renderToStaticMarkup(<TurnFooter row={row} />);
   expect(markup).not.toContain("cv-turn-summary");
   expect(markup).toMatch(/<span class="cv-message-footer-row cv-turn-footer-row"><span class="cv-turn-action-group">/);
-  // The time's tooltip is its exact date and time, as a prompt's is; Worked for and the token rows
-  // under it (turnTokensModel.ts `replyTimeDetail`).
-  expect(markup).toMatch(/<time class="cv-turn-time"[^>]*title="[A-Z][a-z]{2} \d{1,2}, \d{4}, /);
-  expect(markup).toMatch(
-    /<time class="cv-turn-time"[^>]*data-tooltip-detail="Worked for 5s\nOutput 359\nInput 1K\u00a0uncached · 327.8K\u00a0cached"/,
-  );
+  // No time at the row's end, so no tooltip with Worked for and the token rows.
+  expect(markup).not.toContain("cv-turn-time");
+  expect(markup).not.toContain("data-tooltip-detail");
+  expect(markup).not.toContain("Worked for");
 });
 
 // Leo, 2026-11-02, on "Worked for" drawn in front of Copy: "this should not be placed in front of
-// the copy/whatever buttons. those buttons should always just be there left aligned".
-test("the buttons lead the footer row; Worked for comes after them, in the time's tooltip", () => {
+// the copy/whatever buttons. those buttons should always just be there left aligned". The time and
+// its Worked for tooltip are gone (Lawrence and Lucas, 2026-11-11 standup: no time on hover).
+test("the buttons lead the footer row, with no time or Worked for after them", () => {
   const markup = renderToStaticMarkup(<TurnFooter row={footer({ durationMs: 5_000, text: "Done." })} />);
   const group = markup.indexOf("cv-turn-action-group");
   expect(group).toBeGreaterThan(-1);
   expect(markup.indexOf("Copy")).toBeGreaterThan(group);
-  expect(markup.indexOf('data-tooltip-detail="Worked for 5s"')).toBeGreaterThan(markup.indexOf("Copy"));
+  expect(markup).not.toContain("cv-turn-time");
+  expect(markup).not.toContain("Worked for");
 });
 
 test("a turn stopped within a second still says it stopped", () => {

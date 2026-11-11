@@ -28,7 +28,6 @@ import { RowReplyButton } from "./SelectionReply";
 import { RetryTargetContext, TurnActionsContext } from "./turnActions";
 import { errorRecovery, signInRetry, type ErrorRecovery } from "./errorRecovery";
 import {
-  footerLabel,
   isEmptyFooter,
   isStopped,
   NO_RETRY_TARGET,
@@ -41,22 +40,13 @@ import {
 import { stoppedTurnLook } from "./stoppedTurn.experiment";
 import { turnCopyText } from "./turnCopy";
 import { TimedLabel } from "./TurnTokens";
-import { replyTimeDetail } from "./turnTokensModel";
 import { AlertCircle, ArrowRight, ChevronRight, Retry } from "./icons";
-import {
-  ForkButton,
-  MessageCopy,
-  MessageFooterRow,
-  MessageMore,
-  PinButton,
-  ReadAloudButton,
-  ReplyTime,
-} from "./MessageActions";
+import { ForkButton, MessageCopy, MessageFooterRow, MessageMore, PinButton, ReadAloudButton } from "./MessageActions";
 import { forkWithFeedback, ROW_ICON } from "./messageActionsModel";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { CloudSignIn } from "./CloudSignIn";
 import { offersGateway, type CloudSignIn as CloudSignInActions } from "../cloudAgentLogin";
-import { usePaneLanguage, useT } from "../i18n";
+import { useT } from "../i18n";
 import {
   failureCopy,
   failureKind,
@@ -341,7 +331,6 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
 /// reply's Copy and Retry are in sight.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const language = usePaneLanguage();
   const messages = useContext(PresentationContext) === "messages";
   const readOnly = useTranscriptReadOnly();
   const {
@@ -377,13 +366,13 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // A team Cloud machine refuses a personal login transfer: no Set up credentials, and no automatic one.
   const teamMachine = route?.hostKind === "cloud" && route.teamMachine === true;
   const authenticationFailed = (kind === "subscription-login" || kind === "auth") && !teamMachine;
-  const label = footerLabel(t, row);
   // The turn's time and tokens, for the time's tooltip: "Worked for 13s", then one token count per
   // row (turnTokensModel.ts `replyTimeDetail`). A Stop acpmux had to force (the agent never answered it)
   // says so here only, never in the transcript's text (Leo, 2026-11-03: "idk if it should be showing
   // things like that").
   const forced = row.stopForced ? t("stop.forced") : undefined;
-  const detail = replyTimeDetail(t, language, [label, forced], row.tokens);
+  // No time at the row's end: the Codex app shows none (Lawrence, 2026-11-11 standup: "when I hover,
+  // the time shows up on the right, which I don't think is good").
   // A stopped turn says so in one muted word, whoever ended it (stoppedTurn.experiment.ts).
   const stoppedLook = isStopped(row) ? experimentArm(stoppedTurnLook) : "none";
   const stoppedWord = stoppedLook !== "none" && (
@@ -609,7 +598,6 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
             </button>
           )}
           {stoppedLook === "trailing" && stoppedWord}
-          {!messages && <ReplyTime at={row.at} detail={detail} />}
         </MessageFooterRow>
       </div>
       {!messages && timeline.panel}
