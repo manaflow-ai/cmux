@@ -88,7 +88,7 @@ fn a_named_sender_with_the_token_is_verified_and_nothing_else_is() {
     // A wrong token, or none: as it was.
     assert_eq!(label(named(), false), named());
     // No name: an unverified send stays as it is.
-    let unnamed = crate::prompt_provenance::unverified("s", "unix", Map::new());
+    let unnamed = crate::prompt_provenance::unverified("s", "unix", serde_json::Map::new());
     assert_eq!(label(unnamed.clone(), true), unnamed);
     // A session the daemon proved stays as it was.
     let mut proven = crate::prompt_provenance::session_message("a", "lane", "s");
