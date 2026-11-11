@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42960652108",
+  "recorded_at": "2026-11-11T04:47:38Z",
+  "reason": "cmux-tui 6c65fcbe3aa4 changes the image's cmux-tui (pinned 8c3e3883dace)",
+  "dry_run": false,
+  "cmux_tui": "6c65fcbe3aa4361176988557e8abb271be76a887",
+  "fixes": [
+    {
+      "sha": "6c65fcbe3aa4361176988557e8abb271be76a887",
+      "mergedAt": "2026-11-10T20:28:05-08:00",
+      "subject": "Settings file: the client makes a relative CMUX_NEXT_CONFIG_FILE absolute before it spawns the owner; test the client-wins restart (#41038)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T04:47:38Z",
+    "snapshot_id": "sh-f8fbb9b94f5c49b287f2c23c40418cd7",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42960652108): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "d76a4cfec19aa9fd143c788430fd05705f57d6b2",
+    "image": "cloud-native-auto-6c65fcbe-42960652108-1",
+    "revision": "ci-42960652108-1",
+    "at": "2026-11-11T04:47:38Z"
+  },
+  "rolled_back": false
+}
