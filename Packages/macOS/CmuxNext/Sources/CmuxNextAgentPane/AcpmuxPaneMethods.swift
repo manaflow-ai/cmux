@@ -111,6 +111,10 @@ nonisolated enum AcpmuxPaneMethods {
         // adds the accepted facts to the offer's CLAUDE.md or AGENTS.md and records the answer. Only
         // for a chat in scope, and only on a gesture (``gestureRules``).
         "_acpmux/memory_resolve",
+        // Save or Not now on a chat's skill offer card (direct.ts resolveSkill): acpmux writes the
+        // skill's SKILL.md into the person's skills folder or drops the pattern, and records the
+        // answer. Only for a chat in scope, and only on a gesture (``gestureRules``).
+        "_acpmux/skill_resolve",
         // Session Info's View Prompt (context/ContextScreen.tsx; acpmux server/requests/context.rs):
         // `_acpmux/context` reads the chat's prompt inventory, `_acpmux/context_override` saves the
         // guidance new chats get, for every chat or the chat's own folder (no `cwd`: acpmux takes the
@@ -298,7 +302,7 @@ nonisolated enum AcpmuxPaneMethods {
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/inbox_thread", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/queue_approve", "_acpmux/queue_decline", "_acpmux/queue_get",
         "_acpmux/secret_submit", "_acpmux/presets", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/side_chat", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
+        "_acpmux/side_chat", "_acpmux/offer_respond", "_acpmux/memory_resolve", "_acpmux/skill_resolve", "_acpmux/subagent_stop", "_acpmux/subagent_transcript", "_acpmux/native_history", "_acpmux/agent_pair_resume", "_acpmux/agent_hold", "_acpmux/app_reply",
         "_acpmux/watch_take_over",
         "_acpmux/process/kill", "_acpmux/process/background", "_acpmux/chat/route.set", "_acpmux/set_tools",
         "_acpmux/mcp/reconnect", "_acpmux/subsession/limits", "_acpmux/context", "_acpmux/context_override",
@@ -400,6 +404,8 @@ nonisolated enum AcpmuxPaneMethods {
         // match the facts against its offer, so Accept and Dismiss go only on the person's click
         // (direct.ts resolveMemory sends with no await before it).
         "_acpmux/memory_resolve": .always,
+        // A saved skill reaches every later chat cmux starts, so Save goes only on the person's click.
+        "_acpmux/skill_resolve": .always,
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
         "session/set_mode": .always,
         "session/set_config_option": .always,

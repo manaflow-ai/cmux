@@ -185,6 +185,7 @@ pub mod shadow_admission;
 pub mod shell_words;
 #[cfg(feature = "sim")]
 pub mod sim_agent;
+pub mod skill_distill;
 pub mod sr2_cost_labels;
 pub(crate) mod ssh_forward;
 pub mod stats;

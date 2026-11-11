@@ -41,6 +41,10 @@ type MockAuthGlobals = {
   cmuxAcpmuxMockSessionAuth?: MockSessionAuth;
   /** `_acpmux/memory_resolve` fails with this message, as acpmux does when it cannot write the file. */
   cmuxAcpmuxMockMemoryError?: string;
+  /** `_acpmux/skill_resolve` fails with this message, as acpmux does when a skill of that name exists or the write fails. */
+  cmuxAcpmuxMockSkillError?: string;
+  /** `initialize` leaves out `skill-distill-v1`, as a daemon from before the skill distiller. */
+  cmuxAcpmuxMockNoSkillDistill?: boolean;
   /** `_acpmux/presets` with `approveMode` fails with this message, as acpmux does when the host or the person check refuses it. */
   cmuxAcpmuxMockPresetError?: string;
   /** Capability ids `initialize` names (`_meta.acpmux.capabilities`); absent names none, as an older daemon. */
@@ -573,9 +577,16 @@ export class MockAcpmuxSocket {
             acpmux: {
               origin: "local",
               operations: [FORK_OP, ...Object.values(HANDOFF_OPS)],
-              // The memory inbox (`memory_offer` records, `_acpmux/memory_resolve`).
-              // The prompt coach (`coach_offer` and `coach` records, `_acpmux/prompt_coach`).
-              features: ["queueApproval", "queueGet", "memory-inbox-v1", "prompt-coach-v1"],
+              // The memory inbox (`memory_offer` records, `_acpmux/memory_resolve`), the skill
+              // distiller (`skill_offer` records, `_acpmux/skill_resolve`) and the prompt coach
+              // (`coach_offer` and `coach` records, `_acpmux/prompt_coach`).
+              features: [
+                "queueApproval",
+                "queueGet",
+                "memory-inbox-v1",
+                "prompt-coach-v1",
+                ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockNoSkillDistill ? [] : ["skill-distill-v1"]),
+              ],
               handoff: { maxCapsuleBytes: 65536 },
               ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockSessionAuth ? { features: ["sessionAuth"] } : {}),
               ...((globalThis as MockAuthGlobals).cmuxAcpmuxMockCapabilities
@@ -754,6 +765,25 @@ export class MockAcpmuxSocket {
         if (accepted.length || dismissed.length)
           this.emit(target, { mux: "memory_resolved", msg: { offerId, file, accepted, dismissed } });
         return { file, accepted, dismissed, wrote: accepted.length > 0 };
+      }
+      // The skill distiller's Save and Not now: writes nothing here, and logs the `skill_resolved`
+      // record the daemon would, once per offer.
+      case "_acpmux/skill_resolve": {
+        const failure = (globalThis as MockAuthGlobals).cmuxAcpmuxMockSkillError;
+        if (failure) throw Object.assign(new Error(failure), { code: -32000 });
+        const offerId = String(params.offerId ?? "");
+        const offer = this.events.find(
+          (event) => event.sessionId === target && event.kind === "skill_offer" && event.msg?.offerId === offerId,
+        );
+        if (!offer) throw Object.assign(new Error(`no skill offer ${offerId}`), { code: -32001 });
+        const earlier = this.events.find((event) => event.kind === "skill_resolved" && event.msg?.offerId === offerId);
+        if (earlier) return earlier.msg;
+        const action = params.action === "save" ? "save" : "dismiss";
+        const name = String(params.name ?? offer.msg?.name ?? "");
+        const msg =
+          action === "save" ? { offerId, action, name, path: `.claude/skills/${name}/SKILL.md` } : { offerId, action };
+        this.emit(target, { mux: "skill_resolved", msg });
+        return msg;
       }
       // The prompt coach's rewrite (acpmux prompt_coach.rs): no model call here; it logs the `coach`
       // record the daemon would, the chat's first prompt with what the person said later, once.

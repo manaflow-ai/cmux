@@ -1,0 +1,28 @@
+/* The skill card's checklist look (SkillOfferCard.gallery.tsx), compared in the gallery only: the
+   draft's numbered steps as a list, and a chip per chat it was drafted from. */
+.cv-skill[data-look="checklist"] .cv-skill__steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-1, 4px);
+  margin: 0;
+  padding-left: var(--ds-space-4, 16px);
+  font-size: var(--text-detail);
+}
+.cv-skill[data-look="checklist"] .cv-skill__chats {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--ds-space-1, 4px);
+  min-width: 0;
+}
+.cv-skill[data-look="checklist"] .cv-skill__chip {
+  max-width: 220px;
+  padding: 0 var(--ds-space-1, 4px);
+  overflow: hidden;
+  border: var(--cmux-hairline, 0.5px) solid var(--acpmux-question-edge);
+  border-radius: 4px;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

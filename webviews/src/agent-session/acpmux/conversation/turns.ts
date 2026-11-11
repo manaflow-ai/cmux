@@ -79,6 +79,7 @@ import { currentLanguage, translatorFor } from "../i18n";
 import { writeCall } from "./writeLabelModel";
 import { oneRowPerCall } from "./oneRowPerCall.experiment";
 import { MEMORY_OFFER } from "./memoryInbox";
+import { SKILL_OFFER } from "./skillOffer";
 import { PROMPT_COACH } from "./promptCoach";
 import { PRESET_APPROVAL } from "./presetApproval";
 
@@ -1911,6 +1912,8 @@ const staysOut = (row: AcpmuxRow) =>
   row.kind === SINCE_DIVIDER ||
   // A memory offer waits for the person's Accept or Dismiss (MemoryOfferCard.tsx).
   row.kind === MEMORY_OFFER ||
+  // So does a skill offer, for Save, Edit or Not now (SkillOfferCard.tsx).
+  row.kind === SKILL_OFFER ||
   // A prompt coach card is about the whole chat's first prompt (PromptCoachCard.tsx).
   row.kind === PROMPT_COACH ||
   // A preset approval waits for the person's Approve or Not now (PresetApprovalCard.tsx).

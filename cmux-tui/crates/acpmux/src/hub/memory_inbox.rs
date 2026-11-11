@@ -13,7 +13,7 @@ fn dismissed() -> crate::memory_inbox::Dismissed {
 }
 
 /// Whether `cwd` is a project folder: not the home folder and not a private agent-home folder.
-fn is_project(cwd: &Path) -> bool {
+pub(super) fn is_project(cwd: &Path) -> bool {
     let home = dirs::home_dir();
     cwd.is_absolute()
         && cwd.parent().is_some()

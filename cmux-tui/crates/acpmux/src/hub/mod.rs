@@ -22,6 +22,8 @@ mod memory_inbox;
 mod prompt_coach;
 pub use prompt_coach::CoachRewriter;
 mod message_events;
+// A task done three times offered as a skill (`skill_distill.rs`).
+mod skill_distill;
 pub use agent_pairs::PairGuard;
 mod aside;
 mod asks_below;
