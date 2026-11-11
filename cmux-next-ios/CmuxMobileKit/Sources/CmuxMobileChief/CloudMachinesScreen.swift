@@ -281,7 +281,7 @@ struct NewCloudMachineSheet: View {
         .presentationDetents([.medium])
     }
 
-    private var choices: [Int] { model.plan?.memoryChoicesMB ?? [CloudMachinesModel.defaultSize.memoryMB ?? 4096] }
+    private var choices: [Int] { model.plan?.memoryChoicesMB ?? [CloudMachine.Size.newMachine.memoryMB ?? 4096] }
 }
 
 /// One machine's page: its state and cost, then every action the Mac has for it.
