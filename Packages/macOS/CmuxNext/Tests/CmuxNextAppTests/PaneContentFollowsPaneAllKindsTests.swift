@@ -184,7 +184,7 @@ struct PaneContentFollowsPaneAllKindsTests {
         // The page inside an internal page tab (the file viewer's web view) is what the person sees: it fills its tab's view.
         let inner: NSView? = if case .page(let page) = shown.content { page.content } else { nil }
 
-        // One press on p2 toward p1: the divider moves left, p2's left edge moves, p2 grows.
+        // One press on p2: the divider between p1 and p2 moves, so p2's left edge moves and its width changes.
         #expect(PaneResize.press("p2", .left, model: model, view: root))
         var off: [String] = []
         var areas: [CGRect] = []
