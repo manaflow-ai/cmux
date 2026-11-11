@@ -437,3 +437,56 @@ fn a_permission_policy_from_a_newer_build_loads_as_ask() {
     // A value that is not a string is still an error: that is a damaged file, not a newer one.
     assert!(serde_json::from_value::<PermissionPolicy>(serde_json::json!(3)).is_err());
 }
+
+/// A harness's family comes from the program its launch runs, never from a setting word: a test
+/// agent's `FAKE_RESET_CANCEL_ON_PROMPT` ("omp" of PROMPT), `FAKE_CODEX_STEER=1` after `env`, or a
+/// model name `claude-opus`, or a later word `claude` (a setting value, a wrapper's argument)
+/// keeps the profile's own family (W5-L, lead decision on #40158).
+#[test]
+fn a_setting_word_never_names_the_family() {
+    let fake = "/opt/tests/fake_agent.py";
+    let cases: &[(&str, &[&str])] = &[
+        ("fake", &["python3", fake, "--fake", "FAKE_RESET_CANCEL_ON_PROMPT", "1"]),
+        ("fake", &["/usr/bin/env", "FAKE_CODEX_STEER=1", "python3", fake]),
+        ("fake", &["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", fake]),
+        ("agent", &["/opt/bin/agent", "--model", "claude-opus"]),
+        ("mytool", &["/opt/bin/mytool", "--prompt", "hello"]),
+        ("lane", &["/opt/bin/lane", "--gemini-key-file", "/k"]),
+        // A later free word that names an agent: a setting value, a wrapper script's argument.
+        ("fake", &["python3", fake, "--fake", "FAKE_PICKER_MODES", "claude"]),
+        ("wrapper", &["node", "/opt/wrapper.js", "claude"]),
+        ("wrapper", &["/opt/bin/wrapper", "codex", "--then", "opencode"]),
+    ];
+    for (name, argv) in cases {
+        let profile = prof(HarnessKind::Acp, argv);
+        assert_eq!(derive_family(name, &profile), *name, "{argv:?}");
+    }
+}
+
+/// The program a launch runs names its family: the program itself, the one `env` runs, the
+/// script an interpreter runs, or the package `npx -y` runs.
+#[test]
+fn the_program_a_launch_runs_names_its_family() {
+    let cases: &[(&[&str], &str)] = &[
+        (&["/opt/bin/codex-acp"], "codex"),
+        (&["/usr/bin/env", "X=1", "/opt/bin/opencode", "acp"], "opencode"),
+        (&["/usr/bin/env", "-u", "HOME", "gemini", "--experimental-acp"], "gemini"),
+        (&["npx", "-y", "@agentclientprotocol/codex-acp@1.10.0"], "codex"),
+        (&["python3", "-u", "/opt/tests/fake_codex_app_server.py"], "codex"),
+        (&["/opt/bin/pi-acp"], "pi"),
+    ];
+    for (argv, family) in cases {
+        assert_eq!(derive_family("lane", &prof(HarnessKind::Acp, argv)), *family, "{argv:?}");
+    }
+}
+
+/// The Web's refusal of Codex and OpenCode still reads every word of a launch (fail closed): a
+/// profile that runs Codex by a script path under a family of its own stays refused.
+#[test]
+fn a_refused_agent_under_another_family_stays_refused() {
+    let mut cfg = Config::default();
+    let mut mine = prof(HarnessKind::Acp, &["node", "/opt/codex-acp/dist/index.js"]);
+    mine.family = Some("mine".into());
+    cfg.harnesses.insert("mine".into(), mine);
+    assert!(crate::web_modes::refused_families(&cfg).contains("mine"));
+}
