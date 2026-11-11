@@ -119,10 +119,16 @@ impl Watches {
                 for w in saved.watches.values_mut() {
                     if crate::hub::cap_match(&mut w.match_text) {
                         tracing::warn!(
-                            "watch {}: saved match past {} bytes, cut to that",
+                            "watch {}: saved match past {} bytes, cut to that; its cursors start the turn's match over",
                             w.id,
                             crate::hub::MAX_MATCH_BYTES
                         );
+                        // The tail and `matched` were kept for the old pattern: the cut one
+                        // searched across the old tail would wake on text already passed.
+                        for c in w.cursors.values_mut() {
+                            c.tail = String::new();
+                            c.matched = false;
+                        }
                     }
                 }
                 saved
