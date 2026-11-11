@@ -44,7 +44,14 @@ public struct UpdateDropBack {
             updater.log.append("rollback: checked \(build ?? "the newest kept build") in \(started.duration(to: .now))")
             let target = try updater.rollbackDecision(to: build, inputs: inputs).get()
             updater.buildSwitchProgress = BuildSwitchProgress(build: target.build, stage: .restart)
-            return try await updater.rollback(to: build, inputs: inputs, relaunch: Self.relaunchAfterExit)
+            // A helper that never starts leaves the bundles swapped and this build running: the card stops
+            // saying Restarting and its buttons come back (the next launch starts the picked build).
+            return try await updater.rollback(to: build, inputs: inputs, relaunch: { [updater] app in
+                Self.relaunchAfterExit(app) {
+                    updater.log.append("rollback: the relaunch helper did not start; quit cmux to finish the switch")
+                    updater.buildSwitchProgress = nil
+                }
+            })
         } catch {
             updater.buildSwitchProgress = nil
             throw error
@@ -72,8 +79,9 @@ public struct UpdateDropBack {
     }
 
     /// Starts the helper that reopens `app` once this process exits, then quits (the relaunch
-    /// hook already recorded "keep sessions").
-    public static func relaunchAfterExit(_ app: URL) {
+    /// hook already recorded "keep sessions"). `failed` runs, on the main actor, when the helper
+    /// could not start and the app stays up.
+    public static func relaunchAfterExit(_ app: URL, failed: @escaping @MainActor () -> Void = {}) {
         let command = RollbackSwap.relaunchCommand(pid: ProcessInfo.processInfo.processIdentifier, app: app)
         let helper = Process()
         helper.executableURL = URL(fileURLWithPath: command[0])
@@ -86,6 +94,7 @@ public struct UpdateDropBack {
             } catch {
                 // The bundles already swapped: the next launch starts the picked build. Said, not silent.
                 NSLog("cmux: could not start the relaunch helper (%@); quit cmux to finish the switch", String(describing: error))
+                failed()
                 return
             }
             NSApplication.terminateFromRunLoop()
