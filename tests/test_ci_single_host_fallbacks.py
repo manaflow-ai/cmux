@@ -35,6 +35,7 @@ import io
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -203,13 +204,19 @@ class SingleHostFallbacks(unittest.TestCase):
             self.assertEqual(strict, 1, "GITHUB_ACTIONS alone must not make the scan advisory")
 
     def test_advisory_mode_exits_zero_when_the_scan_cannot_run(self) -> None:
+        with unittest.mock.patch.object(checker, "check", side_effect=RuntimeError("boom")):
+            code, out = self.run_cli("--advisory")
+        self.assertEqual(code, 0)
+        self.assertIn("could not run: RuntimeError: boom", out)
+        # An unreadable declaration is a finding now, not a crash: a warning in CI, a refusal in strict mode.
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             (root / ".github").mkdir()
             (root / ".github" / "single-host-fallbacks.json").write_text("{not json", encoding="utf-8")
             code, out = self.run_cli("--root", str(root), "--advisory")
-        self.assertEqual(code, 0)
-        self.assertIn("could not run", out)
+            self.assertEqual(code, 0)
+            self.assertIn("is not readable JSON", out)
+            self.assertEqual(self.run_cli("--root", str(root))[0], 1)
 
     def test_json_mode_keys_each_finding(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -222,8 +229,133 @@ class SingleHostFallbacks(unittest.TestCase):
         code, out = self.run_cli()
         self.assertEqual(code, 0, out)
 
+    def declaration_root(self, tmp: str, declaration_text: str) -> Path:
+        root = Path(tmp) / "repo"
+        (root / ".github" / "workflows").mkdir(parents=True)
+        (root / ".github" / "workflows" / "x.yml").write_text(
+            "jobs:\n  a:\n    runs-on: ${{ vars.RUNNER_POOLS }}\n", encoding="utf-8")
+        (root / ".github" / "single-host-fallbacks.json").write_text(declaration_text, encoding="utf-8")
+        return root
+
+    def test_a_null_or_wrong_type_section_gives_schema_findings_not_a_traceback(self) -> None:
+        """Codex on #40799: `"variables": null` recorded a schema fault, then crashed findings(), so --json printed
+        nothing and the pre-push layer passed. Every shape now gives findings and a verdict."""
+        broken: list[object] = [None, [], "x"]
+        for section, value in (("variables", None), ("variables", []), ("labels", None), ("labels", []),
+                               ("controller_labels", None), ("controller_labels", [["x"]]),
+                               ("single_host_prefixes", None), ("single_host_prefixes", [1]),
+                               ("nightly_terminal_labels", None), ("nightly_job_outputs", []),
+                               ("nightly_job_outputs", {"a.yml:b.c": {"labels": [None, ["x"]]}})):
+            policy = load_declaration()
+            policy[section] = value
+            broken.append(policy)
+        for declaration in broken:
+            text = json.dumps(declaration)
+            with self.subTest(declaration=text[:80]), tempfile.TemporaryDirectory() as tmp:
+                root = self.declaration_root(tmp, text)
+                code, out = self.run_cli("--root", str(root), "--json")
+                self.assertEqual(code, 0)
+                found = json.loads(out)
+                self.assertTrue(found and all(f["key"].startswith("declaration:") for f in found), found)
+                self.assertEqual(self.run_cli("--root", str(root))[0], 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            code, out = self.run_cli("--root", str(self.declaration_root(tmp, "{not json")), "--json")
+            self.assertEqual([f["key"] for f in json.loads(out)], ["declaration:unreadable"])
+
     def test_a_missing_workflow_directory_is_reported(self) -> None:
         self.assertTrue(undeclared([ROOT / "no-such-dir" / "workflows"], load_declaration()))
+
+
+def load_gate():
+    spec = importlib.util.spec_from_file_location("prepush_gate_single_host", ROOT / "scripts" / "cmux-next" / "prepush-gate.py")
+    gate = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = gate
+    spec.loader.exec_module(gate)
+    return gate
+
+
+class PrepushGateLayer(unittest.TestCase):
+    """The pre-push layer refuses whenever the checker gives no verdict; only a missing install warns."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.gate = load_gate()
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name) / "repo"
+        (self.repo / ".github" / "workflows").mkdir(parents=True)
+        self.git("init", "-q")
+        shutil.copy(DECLARATION, self.repo / ".github" / "single-host-fallbacks.json")
+        self.workflow("a.yml", "${{ vars.RUNNER_POOLS }}")
+        self.base = self.commit("base")
+        self.installed = Path(self.tmp.name) / "installed"
+        self.installed.mkdir()
+
+    def git(self, *args: str) -> str:
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        return subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=fixture",
+                               "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", *args],
+                              check=True, capture_output=True, text=True, env=env).stdout.strip()
+
+    def workflow(self, name: str, runs_on: str) -> None:
+        (self.repo / ".github" / "workflows" / name).write_text(f"jobs:\n  a:\n    runs-on: {runs_on}\n",
+                                                                 encoding="utf-8")
+
+    def commit(self, message: str) -> str:
+        self.git("add", "-A")
+        self.git("commit", "-q", "--no-gpg-sign", "-m", message)
+        return self.git("rev-parse", "HEAD")
+
+    def checker(self, source: str | None) -> None:
+        path = self.installed / "check-single-host-fallbacks.py"
+        if source is None:
+            shutil.copy(SCRIPT, path)
+        else:
+            path.write_text(source, encoding="utf-8")
+
+    def layer(self) -> list[str]:
+        with contextlib.redirect_stderr(io.StringIO()):
+            return self.gate.single_host_fallback_problems(self.repo, self.base, self.git("rev-parse", "HEAD"),
+                                                           self.installed)
+
+    def test_a_checker_that_gives_no_verdict_refuses(self) -> None:
+        self.workflow("b.yml", "${{ vars.RUNNER_POOLS }}")
+        self.commit("head")
+        for source in ("raise RuntimeError('boom')\n", "print('garbage')\n", "print('[]')\nraise SystemExit(2)\n",
+                       "print('{\"key\": 1}')\n", "print('[{\"no\": \"key\"}]')\n", ""):
+            with self.subTest(source=source):
+                self.checker(source)
+                refused = self.layer()
+                self.assertEqual(len(refused), 1, refused)
+                self.assertIn("did not give a verdict", refused[0])
+
+    def test_a_missing_install_only_warns(self) -> None:
+        self.workflow("b.yml", "${{ vars.NEW_X }}")
+        self.commit("head")
+        self.assertEqual(self.layer(), [])
+
+    def test_the_real_checker_refuses_a_new_name_and_passes_a_declared_one(self) -> None:
+        self.checker(None)
+        self.workflow("b.yml", "${{ vars.RUNNER_POOLS }}")
+        self.commit("declared")
+        self.assertEqual(self.layer(), [])
+        self.workflow("c.yml", "${{ vars.NEW_X }}")
+        self.commit("undeclared")
+        refused = self.layer()
+        self.assertEqual(len(refused), 1, refused)
+        self.assertTrue(refused[0].startswith("vars.NEW_X "), refused)
+
+    def test_a_null_variables_section_refuses_instead_of_passing(self) -> None:
+        self.checker(None)
+        policy = load_declaration()
+        policy["variables"] = None
+        (self.repo / ".github" / "single-host-fallbacks.json").write_text(json.dumps(policy), encoding="utf-8")
+        self.commit("null variables")
+        refused = self.layer()
+        self.assertTrue(refused, "a null variables section passed the layer")
+        self.assertTrue(any("variables must be an object" in line for line in refused), refused)
 
 
 if __name__ == "__main__":
