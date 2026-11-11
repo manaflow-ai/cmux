@@ -37,6 +37,17 @@ import Testing
         }
     }
 
+    /// Round 2 (verifier M-3): a registration that never answered is past its deadline
+    /// (`DeviceHub.devicesListTimedOut`, read as `listFailed`): the error with Try Again, not loading.
+    @Test func aStartPastItsDeadlineIsAnErrorNotLoading() {
+        let shown = MacScreenHomeSnapshot.noDevicesShown(status: .starting, listed: false, listFailed: true)
+        guard case .failed = shown else {
+            Issue.record("a start past its deadline showed \(shown)")
+            return
+        }
+        #expect(MacScreenHomeSnapshot.noDevicesShown(status: .idle, listed: false, listFailed: true) == .note(loading))
+    }
+
     /// Round 2 (verifier M-1): Try Again sat flush at the card's bottom-left, a bare stack member
     /// beside the padded note. It shares the note's padded column: the same leading edge as the
     /// note's text, and the card's 14 pt inset below it.

@@ -94,7 +94,7 @@ struct MacScreenHomeSnapshot: Equatable {
                 let shared = hub.otherDevices.filter(\.macScreenShared)
                 if shared.isEmpty {
                     devices = Self.noDevicesShown(status: hub.status, listed: hub.devicesListed,
-                                                  listFailed: hub.devicesListError != nil)
+                                                  listFailed: hub.devicesListError != nil || hub.devicesListTimedOut)
                 } else {
                     devices = .list(shared.map { device in
                         Device(id: device.id, name: device.name, isPhone: device.platform == .ios, online: device.online,
@@ -120,14 +120,16 @@ struct MacScreenHomeSnapshot: Equatable {
     /// What Your Devices says with no shared device to list (ui-state-fixes M5): "None of your
     /// other devices share Mac Screen" only once the hub is registered and the list was read; a
     /// hub not started yet (`idle`) or starting is loading; a hub that failed to start, or a list
-    /// read that failed with nothing read, is an error with Try Again, never loading forever.
+    /// read that failed with nothing read, is an error with Try Again, never loading forever. So is
+    /// a start or a list read past its deadline (`DeviceHub.devicesListTimedOut`): a registration
+    /// that never answered, or a socket that never connected.
     static func noDevicesShown(status: DeviceHub.Status, listed: Bool, listFailed: Bool) -> Devices {
         switch status {
         case .failed:
             return .failed(L.t("macScreen.home.devicesFailed", "Couldn’t reach the device hub to load your devices."))
         case .ready where listed:
             return .note(L.t("macScreen.home.noSharedDevices", "None of your other devices share Mac Screen. On the Mac you want to see, turn on Allow Mac Screen on this Mac."))
-        case .ready where listFailed:
+        case .starting where listFailed, .ready where listFailed:
             return .failed(L.t("macScreen.home.devicesFailed", "Couldn’t reach the device hub to load your devices."))
         case .idle, .starting, .ready:
             return .note(L.t("macScreen.home.devicesLoading", "Loading your devices…"))
@@ -190,14 +192,13 @@ extension MacScreenHomeView {
         return MacScreenHomeParts.section(L.t("macScreen.home.yourDevices", "Your Devices"), content: content)
     }
 
-    /// Try Again under a failed Your Devices: a hub that failed to start starts again; one that
-    /// is registered reads its device list again. The page redraws from the hub's state.
+    /// Try Again under a failed Your Devices (`DeviceHub.retryDevices`): a hub that is not
+    /// registered starts again; one that is reads its device list again, loading under a fresh
+    /// deadline. The page redraws from the hub's state.
     func retryDevices() {
         guard let hub = devices?.box.hub else { return }
         // task-owner: one hub start or list read; ends with it (the hub drops a stale generation's answer)
-        Task {
-            if case .failed = hub.status { await hub.start() } else { await hub.refreshDevices() }
-        }
+        Task { await hub.retryDevices() }
     }
 
     private func deviceRow(_ device: MacScreenHomeSnapshot.Device) -> NSView {

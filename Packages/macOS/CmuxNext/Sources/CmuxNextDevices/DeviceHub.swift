@@ -1,6 +1,7 @@
 public import CmuxNextCompat
 public import Foundation
 public import Observation
+import CmuxNextWakeups
 
 /// The signed-in user's devices as this app sees them: who is online, who
 /// shares Mac Screen, permissions, relays, requests waiting for an answer,
@@ -28,6 +29,12 @@ public final class DeviceHub {
     public private(set) var devicesListed = false
     /// Why the last device-list read failed; nil once a read succeeds.
     public private(set) var devicesListError: DeviceHubError?
+    /// No device list was read within ``devicesListDeadline`` of a start or a retry (a hub that
+    /// never answered registration, or a socket that never connected, which is when the list is
+    /// read): Your Devices shows its error with Try Again, never loading forever. A read clears it.
+    public private(set) var devicesListTimedOut = false
+    /// How long a start or a retry waits for the device list before ``devicesListTimedOut``.
+    public static let devicesListDeadline: Duration = .seconds(10)
     /// Permissions by host id (`GET /v1/permissions?host=`); this device's are fetched on every refresh.
     public private(set) var permissions: [String: [HubPermission]] = [:]
     public private(set) var relays: [HubRelay] = []
@@ -66,10 +73,13 @@ public final class DeviceHub {
     @ObservationIgnored var savedNotListed: Set<String> = []
     /// Bumped by start and stop: an answer from an older run is dropped.
     @ObservationIgnored private var generation = 0
+    /// The device list's deadline (``devicesListTimedOut``), on the injected clock.
+    @ObservationIgnored private let listDeadline: DemandTimer
 
     public init(client: DeviceHubClient, socket: DeviceHubSocket? = nil, secrets: any RelaySecretStore, deviceName: String,
                 platform: DevicePlatform = .macos, renewIdentity: (@Sendable () throws -> DeviceIdentity)? = nil,
-                now: @escaping @Sendable () -> Date = { Date() }) {
+                now: @escaping @Sendable () -> Date = { Date() }, clock: any Clock<Duration> = ContinuousClock()) {
+        listDeadline = DemandTimer(owner: "device-hub.devices-list-deadline", clock: clock)
         self.client = client
         self.socket = socket ?? DeviceHubSocket(connector: URLSessionDeviceHubConnector(client: client))
         vault = RelaySecretVault(store: secrets)
@@ -116,6 +126,7 @@ public final class DeviceHub {
         let run = generation
         status = .starting
         devicesListError = nil
+        armListDeadline(run)
         do {
             do {
                 _ = try await client.registerDevice(name: deviceName, platform: platform)
@@ -134,6 +145,7 @@ public final class DeviceHub {
             guard run == generation else { return }
             fail(error)
             status = .failed(lastError?.description ?? "\(error)")
+            listDeadline.cancel()
             return
         }
         let socket = self.socket, hub = WeakHub(hub: self)
@@ -148,6 +160,8 @@ public final class DeviceHub {
     public func stop() {
         generation += 1
         stopSocket()
+        listDeadline.cancel()
+        devicesListTimedOut = false
         status = .idle
         connection = .disconnected
         me = nil
@@ -243,11 +257,33 @@ public final class DeviceHub {
             devices = value
             devicesListed = true
             devicesListError = nil
+            devicesListTimedOut = false
+            listDeadline.cancel()
             forgetPermissions(notListedIn: Set(value.map(\.id)))
         } catch {
             guard run == generation else { return }
             fail(error)
             devicesListError = lastError
+        }
+    }
+
+    /// Try Again under a failed Your Devices: a hub that is not registered starts again; a
+    /// registered one reads its device list again. Either way it is loading again (the error
+    /// clears) under a fresh deadline, so a read that hangs ends in the error once more.
+    public func retryDevices() async {
+        guard status == .ready else { return await start() }
+        devicesListError = nil
+        devicesListTimedOut = false
+        armListDeadline(generation)
+        await refreshDevices()
+    }
+
+    /// Arms the device list's deadline for run `run`; a later run, a stop or a read ends it.
+    private func armListDeadline(_ run: Int) {
+        devicesListTimedOut = false
+        listDeadline.schedule(after: Self.devicesListDeadline) { @MainActor [weak self] in
+            guard let self, run == self.generation, !self.devicesListed else { return }
+            self.devicesListTimedOut = true
         }
     }
 
