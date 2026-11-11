@@ -348,6 +348,48 @@ fn snapshot_mode_restores_the_screen_after_a_crash_and_reboot() {
     assert_eq!(journal_output_rows(&restored.state), 0, "the journal holds terminal output");
 }
 
+/// The screen after a quit and a reboot: the daemon prints a line (its
+/// generation's first snapshot), then a marker the snapshot interval (600
+/// s) leaves to the tail, and stops on SIGTERM (an update, a logout). The
+/// shell and its host die (the reboot) and a new daemon starts: the
+/// respawned terminal shows the marker only if the quit stored it. Returns
+/// (the screen, whether a tail file outlived the quit). Other builds as the
+/// reader: kill_all_restore.rs, `quit_then_reboot_matrix`.
+fn screen_after_quit_then_reboot(name: &str) -> (String, bool) {
+    let mut harness = RecoveryHarness::start_unstarted(name);
+    harness.extra_env.push(("CMUX_TUI_TERMINAL_PERSISTENCE".into(), "snapshot".into()));
+    harness.extra_env.push(("CMUX_TUI_TEST_OUTPUT_SNAPSHOT_INTERVAL_MS".into(), "600000".into()));
+    harness.restart();
+    let (terminal_id, incarnation, surface) = start_shell(&harness, "quit-reboot");
+    send_line(&harness.socket, surface, "printf 'first-%s\\n' line");
+    wait_for_screen(&harness.socket, surface, "first-line\n");
+    // The generation's first snapshot is written at once; the tail
+    // continues it from the next output.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    while files_named(&harness.state, "snap").is_empty() {
+        assert!(Instant::now() < deadline, "no snapshot of the new terminal");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    send_line(&harness.socket, surface, "printf 'quit-%s\\n' marker");
+    wait_for_screen(&harness.socket, surface, "quit-marker\n");
+    let (record_path, record) = wait_for_host_records(&harness.host_root(), 1).remove(0);
+    harness.terminate();
+    let tail_kept = !files_named(&harness.state, "tail").is_empty();
+    kill_shell_then_host(&record_path, &record);
+    harness.restart();
+    let surface = respawned_surface(&harness, &terminal_id, &incarnation);
+    (wait_for_screen(&harness.socket, surface, RESPAWN_MARKER), tail_kept)
+}
+
+#[test]
+fn the_screen_a_quit_stores_survives_a_reboot() {
+    let _exclusive = exclusive_process_test();
+    let (screen, tail_kept) = screen_after_quit_then_reboot("quit-reboot-same");
+    assert!(screen.contains("quit-marker"), "the quit lost the last output: {screen}");
+    assert!(screen.contains("first-line"), "the quit lost the snapshot's screen: {screen}");
+    assert!(tail_kept, "the quit rewrote the snapshot instead of keeping the tail");
+}
+
 #[test]
 fn full_mode_keeps_every_byte_and_restores_the_screen_after_a_crash_and_reboot() {
     let _exclusive = exclusive_process_test();
