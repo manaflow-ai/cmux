@@ -79,6 +79,34 @@ await requireBrowserLane("new-tab-wrapped-prompt-arrows.test.ts", async () => {
         newline: text.value.includes("\n"),
       };
     });
+  // A key, then the field's state once the browser's selectionchange reached the editor: ProseMirror
+  // reads a caret the browser moved from that event, which can land after the key resolves. The
+  // caret's top on screen goes to the log, so a failure says which line the browser drew it on.
+  const press = async (page: Page, key: string, before: number) => {
+    await page.keyboard.press(key);
+    await page.evaluate(() => window.cmuxPaintFrame());
+    await page
+      .waitForFunction(
+        (prev) => {
+          const handle = (
+            document.querySelector(".nt-field") as HTMLElement & {
+              acpmuxMarkdownField?: { text(): { selectionStart: number } };
+            }
+          ).acpmuxMarkdownField!;
+          return handle.text().selectionStart !== prev;
+        },
+        before,
+        { timeout: 2_000 },
+      )
+      .catch(() => undefined);
+    const top = await page.evaluate(() => {
+      const range = getSelection()?.rangeCount ? getSelection()!.getRangeAt(0) : undefined;
+      return range ? Math.round(range.getClientRects()[0]?.top ?? range.getBoundingClientRect().top) : undefined;
+    });
+    const after = await state(page);
+    console.log(`new-tab-wrapped-prompt-arrows: ${key} caret ${before} -> ${after.caret}, top ${top}, row ${after.highlighted}`);
+    return after;
+  };
   const lineCount = (page: Page) =>
     page.evaluate((selector) => {
       const node = document.querySelector<HTMLElement>(selector)!;
@@ -111,16 +139,16 @@ await requireBrowserLane("new-tab-wrapped-prompt-arrows.test.ts", async () => {
       // ↑ from the last line moves the caret up a line each time; the top row typing lit stays.
       const carets = [typed.caret];
       for (let line = 1; line < lines; line++) {
-        await page.keyboard.press("ArrowUp");
-        const after = await state(page);
+        const after = await press(page, "ArrowUp", carets.at(-1)!);
         expect({ line, highlighted: after.highlighted }).toEqual({ line, highlighted: 0 });
         expect(after.caret).toBeLessThan(carets.at(-1)!);
         carets.push(after.caret);
       }
       // ↓ walks back down to the last line, still in the text.
+      let caret = carets.at(-1)!;
       for (let line = 1; line < lines; line++) {
-        await page.keyboard.press("ArrowDown");
-        const after = await state(page);
+        const after = await press(page, "ArrowDown", caret);
+        caret = after.caret;
         expect({ line, highlighted: after.highlighted }).toEqual({ line, highlighted: 0 });
         expect(after.caret).toBeGreaterThan(carets[lines - line]!);
       }
