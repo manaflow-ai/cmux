@@ -87,7 +87,7 @@ def test_journal_sentinels_are_focused_only_and_full_uses_isolated_core_runner()
     assert sorted(focused_only) == sorted(FOCUSED_SENTINEL_STEPS)
 
     final_sentinels = steps[FOCUSED_SENTINEL_STEPS[2]]["run"]
-    assert "cargo test -p cmux-tui-core --test browser_runtime" in final_sentinels
+    assert "cargo-test-deadline.sh -p cmux-tui-core --test browser_runtime" in final_sentinels
     assert "socket_browser_attach_streams_frames_input_and_cell_pixels" in final_sentinels
 
     cargo_test = steps["cargo test"]["run"]
@@ -192,12 +192,16 @@ def _run_cargo_test_step(host_os: str, listing: str, ignored: str) -> tuple[int,
         cargo.chmod(0o755)
         script = root / "step.sh"
         script.write_text(_cargo_test_step()["run"], encoding="utf-8")
+        # The step runs in cmux-tui/ and calls ../scripts/ci/cargo-test-deadline.sh, as in the checkout.
+        work = root / "cmux-tui"
+        work.mkdir()
+        (root / "scripts").symlink_to(ROOT / "scripts", target_is_directory=True)
         result = subprocess.run(
             ["bash", "-e", "-o", "pipefail", str(script)],
             check=False,
             capture_output=True,
             text=True,
-            cwd=root,
+            cwd=work,
             env={
                 "PATH": f"{root}:/usr/bin:/bin",
                 "RUNNER_TEMP": str(root),

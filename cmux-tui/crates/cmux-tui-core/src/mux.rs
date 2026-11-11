@@ -18,8 +18,8 @@ pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_te
 pub(crate) use resource_content::ResourceEffectProjection;
 pub(crate) use resource_topology::SCREEN_CREATE_FOCUS_FIELD;
 pub use terminal_reap::{
-    DEFAULT_TERMINAL_REAP_GRACE, MAX_TERMINAL_REAP_GRACE, TerminalReaper, start_terminal_reaper,
-    validate_terminal_reap_grace,
+    DEFAULT_TERMINAL_REAP_GRACE, HeldTerminalReaper, MAX_TERMINAL_REAP_GRACE, TerminalReaper,
+    prepare_terminal_reaper, start_terminal_reaper, validate_terminal_reap_grace,
 };
 
 use public_projections::{RestoredPublicProjections, restore_public_projections};
@@ -284,6 +284,8 @@ type TerminalEventPublishHook = Arc<dyn Fn(TerminalEventPublication, SurfaceId) 
 enum TerminalEventPublication {
     Title,
     Bell,
+    /// `SurfaceOutput`; for a local terminal only the frame producer sends it.
+    Output,
 }
 type RestoredViewport = (std::collections::BTreeMap<SplitId, f32>, Option<f32>, Vec<LayoutColumn>);
 
@@ -1651,10 +1653,11 @@ pub struct TerminalCloseResult {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TerminalCloseGuard {
     None,
-    /// The terminal has no tab placement and no client holds an attach
-    /// stream on it (the unplaced-terminal reaper). The close checks both
-    /// once it holds its locks, so an attach that lands before then keeps
-    /// the terminal (feat `UnplacedNotKeptAndDetached`).
+    /// The terminal has no tab placement, no client holds an attach stream
+    /// on it, and the daemon is not in a shutdown handoff (the
+    /// unplaced-terminal reaper). The close checks these once it holds its
+    /// locks, so an attach or a handoff that lands before then keeps the
+    /// terminal (feat `UnplacedNotKeptAndDetached`).
     UnplacedAndDetached,
 }
 
@@ -1664,7 +1667,8 @@ impl TerminalCloseGuard {
         !matches!(self, Self::None)
     }
 
-    /// The close needs no attach stream on the terminal.
+    /// The close needs no attach stream on the terminal and no daemon
+    /// shutdown handoff in progress (the reaper's guard gates both checks).
     pub(crate) fn requires_detached(self) -> bool {
         matches!(self, Self::UnplacedAndDetached)
     }
@@ -1677,6 +1681,8 @@ pub(crate) enum TerminalCloseGuardFailed {
     Placed,
     /// A client holds an attach stream on the terminal.
     Attached,
+    /// The daemon is in a shutdown handoff: the next owner gets the terminal.
+    HandingOff,
 }
 
 impl fmt::Display for TerminalCloseGuardFailed {
@@ -2791,13 +2797,9 @@ pub struct Mux {
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,
     /// The unplaced-terminal reap grace in milliseconds (`terminal_reap.rs`).
     terminal_reap_grace_ms: AtomicU64,
-    /// The running unplaced-terminal reaper's event receiver; `Some` while it
-    /// runs (`terminal-reaper-active-v1`).
+    /// The unplaced-terminal reaper's event receiver; `Some` while its thread
+    /// runs, held or released (`terminal-reaper-active-v1`).
     terminal_reaper_events: Mutex<Option<MuxEventReceiver>>,
-    /// The owner will start the unplaced-terminal reaper once its socket is
-    /// bound (`announce_terminal_reaper`); cleared when the reaper stops or
-    /// its start fails.
-    terminal_reaper_announced: AtomicBool,
     #[cfg(unix)]
     pub(crate) image_pastes: crate::image_paste::ImagePasteStore,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
@@ -3220,7 +3222,6 @@ impl Mux {
                 u64::try_from(DEFAULT_TERMINAL_REAP_GRACE.as_millis()).unwrap_or(u64::MAX),
             ),
             terminal_reaper_events: Mutex::new(None),
-            terminal_reaper_announced: AtomicBool::new(false),
             #[cfg(unix)]
             image_pastes: crate::image_paste::ImagePasteStore::default(),
             surface_operation_admission: Arc::new(
@@ -7663,6 +7664,8 @@ impl Mux {
     }
 
     pub(crate) fn emit_terminal_output(&self, runtime_id: SurfaceId) {
+        #[cfg(test)]
+        self.run_terminal_event_publish_hook(TerminalEventPublication::Output, runtime_id);
         for placement in self.terminal_event_placements(runtime_id) {
             self.emit(MuxEvent::SurfaceOutput(placement));
         }
@@ -10807,7 +10810,7 @@ impl Mux {
         let (commit, terminal_incarnation, public_id, notify_public_id) = {
             let mut registry = self.workspace_registry.lock().unwrap();
             if guard.requires_unplaced() {
-                let (placed, attached) = {
+                let (placed, attached, handing_off) = {
                     let state = self.state.lock().unwrap();
                     let hosts = |surface: &Arc<Surface>| {
                         self.resource_terminal_host_identity(surface)
@@ -10818,13 +10821,18 @@ impl Mux {
                         && state.terminal_catalog.values().any(|runtime| {
                             hosts(runtime) && self.terminal_view_attached(runtime.id)
                         });
-                    (placed, attached)
+                    let handing_off =
+                        guard.requires_detached() && self.daemon_handoff_in_progress();
+                    (placed, attached, handing_off)
                 };
                 if placed {
                     return Err(TerminalCloseGuardFailed::Placed.into());
                 }
                 if attached {
                     return Err(TerminalCloseGuardFailed::Attached.into());
+                }
+                if handing_off {
+                    return Err(TerminalCloseGuardFailed::HandingOff.into());
                 }
             }
             let public_id = registry.terminal_resource_id(terminal_id)?;

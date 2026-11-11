@@ -30,7 +30,10 @@ When the --timeout budget runs out it prints `waited=<seconds>` and a
 `waiting=<name> (<state>)` line for each lane not done, so the caller's summary
 names them (2026-10-20: a wait that ran out with a lane still QUEUED read
 "nothing reported; waited 0m00s"). A rate-limited read refuses at once with the
-reset time instead of polling on.
+reset time instead of polling on. A read that timed out, or failed with a 5xx or network
+error, is retried with backoff (from --interval but at least 1s, doubling to 5 minutes) inside the --timeout
+budget; when the budget ends that way, the refusal says the reads kept failing (#40271,
+2026-11-10: one slow read refused a merge after 90 minutes of waiting).
 Exit 0: pass (maybe with reds to excuse); 1: refused (the reason on stderr);
 3: GitHub rate-limited the read (the reset time on stderr).
 """
@@ -89,6 +92,17 @@ class RateLimited(Refused):
     pass
 
 
+class ReadFailed(Refused):
+    """A pull request read that timed out or hit a transient GitHub or network error: run() retries it."""
+
+
+# gh's stderr for a GitHub 5xx or a dropped connection: the next read can succeed.
+TRANSIENT = re.compile(r"HTTP 5\d\d|bad gateway|service unavailable|gateway time-?out|timed? ?out|"
+                       r"connection (reset|refused|closed)|error connecting|unexpected EOF|TLS handshake|"
+                       r"temporary failure|something went wrong", re.I)
+MIN_BACKOFF, MAX_BACKOFF = 1, 300
+
+
 def _load_rate_limit():
     spec = importlib.util.spec_from_file_location("_merge_fast_gate_rate_limit", Path(__file__).with_name("gh_rate_limit.py"))
     module = importlib.util.module_from_spec(spec)
@@ -125,14 +139,19 @@ def gh_json(*args: str) -> dict:
     try:
         out = subprocess.run(["gh", *args], capture_output=True, text=True, timeout=60)
     except subprocess.TimeoutExpired:
-        raise Refused("reading the pull request took over 60s") from None
+        raise ReadFailed("reading the pull request took over 60s") from None
     if out.returncode != 0:
         if _rate.is_rate_limited(out.stderr):
             # Every later poll would fail the same way: refuse now and say when the quota resets.
             raise RateLimited(f"GitHub rate-limited the pull request read ({out.stderr.strip()[:200]}); "
                               + _rate.describe(read_limits(), after_limit=True))
+        if TRANSIENT.search(out.stderr):
+            raise ReadFailed(f"cannot read the pull request ({out.stderr.strip()[:200]})")
         raise Refused(f"cannot read the pull request ({out.stderr.strip()[:200]})")
-    return json.loads(out.stdout)
+    try:
+        return json.loads(out.stdout)
+    except json.JSONDecodeError:
+        raise ReadFailed(f"the pull request read returned no JSON ({out.stdout.strip()[:100]!r})") from None
 
 
 def canonical(name: str) -> str:
@@ -331,8 +350,21 @@ def run(repo: str, number: str, sha: str, timeout: float, interval: float, touch
     """files: the caller's full changed-file list; `gh pr view --json files` stops at 100."""
     read = read or gh_json
     start = clock()
+    failed, backoff = 0, max(interval, MIN_BACKOFF)
     while True:
-        pr = read("pr", "view", number, "--repo", repo, "--json", "headRefOid,baseRefName,statusCheckRollup,files")
+        try:
+            pr = read("pr", "view", number, "--repo", repo, "--json", "headRefOid,baseRefName,statusCheckRollup,files")
+        except ReadFailed as error:
+            failed += 1
+            waited = clock() - start
+            if waited >= timeout:
+                reads = "read" if failed == 1 else "reads"
+                raise WaitRanOut(f"the --wait budget of {int(timeout)}s ran out after {int(waited)}s: {failed} "
+                                 f"{reads} timed out or failed, the last: {error}", waited, []) from None
+            sleep(min(backoff, timeout - waited))
+            backoff = min(backoff * 2, MAX_BACKOFF)
+            continue
+        backoff = max(interval, MIN_BACKOFF)
         if pr.get("headRefOid") != sha:
             raise Refused(f"the head moved to {pr.get('headRefOid')} while waiting on {sha}")
         if base is not None and pr.get("baseRefName") != base:

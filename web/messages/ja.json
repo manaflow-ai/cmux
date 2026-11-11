@@ -832,7 +832,18 @@
         "grantedBody": "{team} には cmux チームから Team へのアクセスが付与されています。管理するサブスクリプションはありません。",
         "seatsUsed": "{seats} シート中 {members} 使用",
         "overSeat": "{team} にはメンバーが {members} 人いますが、有料シートは {seats} です。シート数はメンバー数に追従し、サブスクリプションは自動的に更新されます。",
-        "addSeats": "シートを追加"
+        "addSeats": "シートを追加",
+        "enterprise": {
+          "current": "現在のプラン",
+          "body": "{team} は cmux チームと合意したカスタムプランを利用しています。変更するには cmux チームにお問い合わせください。",
+          "price": "料金",
+          "perMonth": "{amount}/月",
+          "machines": "クラウドマシン",
+          "pool": "共有 vCPU / メモリ",
+          "largest": "最大マシン",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "制限なし"
+        }
       },
       "teamList": {
         "heading": "請求の対象",
