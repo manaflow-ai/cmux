@@ -44,7 +44,7 @@ public struct WorkspaceSpawn: Sendable {
     /// workspace while it is still empty and releases its window's claim.
     public var onFirstTerminal: (@Sendable (DaemonConnection, CreateTerminalResult) async throws -> Void)?
     /// The workspace's only tab is this browser tab, made by the create itself on a daemon that serves
-    /// `workspace-first-tab-v1` (one request, no terminal at any point); ``onFirstBrowser`` then works on
+    /// `workspace-first-tab-v1` (one request, no terminal at any point); ``onBrowserTab`` then works on
     /// the tab. An older daemon gets the terminal and ``onFirstTerminal``.
     public var firstBrowser: WorkspaceFirstBrowserTab?
     /// The browser tabs after ``firstBrowser``, in order, each sent to the new workspace itself (no terminal hosts them).

@@ -87,23 +87,22 @@ struct WorkspaceSpawner {
         }
     }
 
-    /// Cmd-N's New Tab page workspace on this Mac, or a chat's, shown in this turn (instant-new-surfaces): the
-    /// store shows it with its page or chat (`AgentTabStore.showWorkspace`) and its window selects it
-    /// now; the returned work pins its room, then creates it and its first tab in the window's
-    /// create lane, and places it at its slot once the daemon has it. Nil: the create waits for
-    /// the daemon (a terminal, a command, another machine).
+    /// Cmd-N's New Tab page workspace on this Mac, a chat's, or a browser workspace (`showFirstBrowser`), shown in this turn: the
+    /// store shows it with its page or chat (`AgentTabStore.showWorkspace`) and its window selects it now; the returned work pins its
+    /// room, then creates it and its first tab in the window's create lane, and places it at its slot once the daemon has it. Nil: the create waits for the daemon.
     private func shown(_ key: WorkspaceKey, name: String, window windowID: String,
                        rule: NewWorkspaceDefaultSlot?) -> (() async throws -> String)? {
         let services = windows.services, daemon = daemon, windows = windows
-        guard spawn.showsBeforeDaemon(local: daemon.isLocal), services.agentTabs.showsWorkspaceAtOnce(on: daemon) else { return nil }
         let repair: EmptyWorkspaceRepair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
+        let browser = spawn.showFirstBrowser(key, name: name, on: daemon, create: { try await repair.createBrowserWorkspace(key, name: name, tab: $0, on: $1) }, handOver: { _ = services.cache.moveBrowser($0, to: $1) })
+        guard browser != nil || (spawn.showsBeforeDaemon(local: daemon.isLocal) && services.agentTabs.showsWorkspaceAtOnce(on: daemon)) else { return nil }
         let room = services.machines.local.store.profile(spawn.profile ?? profile)
         let cwd = spawn.startFolder(roomFolder: room?.defaults?.cwd, local: daemon.isLocal, daemonDefault: daemon.defaultCwd)
         // Claimed at the press (`start`): the intent's reconcile selects it in this window in this turn, and the window swaps to it in this turn's
         // frame, before its commit (not in the key's handler: SWITCH STALL 6, nor a hop later: SWITCH STALL 4); its slot is placed once the daemon has it.
         NewWorkspacePlacements.expect(key.rawValue, in: windowID, slot: spawn.slot, byDefault: rule, then: spawn.onListed, windows: windows)
-        guard let shown = services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken, chat: spawn.firstChat,
-                                                           session: spawn.firstSession.map { ($0, nil, false) }, on: daemon, repair: repair) else { return nil }
+        guard let shown = browser ?? services.agentTabs.showWorkspace(key, name: name, index: nil, cwd: cwd, token: spawn.inputToken, chat: spawn.firstChat,
+                                                                      session: spawn.firstSession.map { ($0, nil, false) }, on: daemon, repair: repair).map({ ShownWorkspaceCreate(confirm: $0.confirm, abandon: $0.abandon) }) else { return nil }
         if let controller = windows.controller(for: windowID), controller.state.workspaceID == key.rawValue { MainRunLoopBlock.perform { [weak controller] in controller.map { $0.showWorkspace(requested: $0.state.workspaceID) } } }
         // The keys held since the press may go to its page's field once that reports ready.
         services.keyRouter.newTabInputCoordinator.flushAll()
