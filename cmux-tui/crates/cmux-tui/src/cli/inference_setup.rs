@@ -490,17 +490,9 @@ async fn gateway(machine: &Machine<'_>) -> Result<(), String> {
     // The machine's own call: the edge steers it to the gateway, which answers from the person's proxy or login.
     // Its status comes first; then the answer's header lines (every hop's, and trailers after the body), its first
     // bytes and curl's own error, so a refusal names the hop that made it (the machine's proxy, the edge, cmux or the
-    // gateway). Headers and body are written apart (`-D`, `-o`) and printed after a marker line holding a nonce the
-    // answer cannot know, so no body line or trailer passes for the other.
+    // gateway).
     let mark = probe_mark();
-    let probe = format!(
-        "f=$(mktemp); code=$(curl -sS -D \"$f.h\" -o \"$f\" -w '%{{http_code}}' --max-time 60 \
-         -H 'authorization: Bearer {PLACEHOLDER}' \
-         'https://coderouter.cmux.internal/v1/models?client_version=0.0.0' 2>\"$f.err\"); \
-         echo \"$code\"; echo '{mark}headers'; head -c {PROBE_EXCERPT} \"$f.h\"; echo; echo '{mark}body'; \
-         head -c {PROBE_EXCERPT} \"$f\"; echo; echo '{mark}error'; head -c 300 \"$f.err\"; \
-         rm -f \"$f\" \"$f.h\" \"$f.err\""
-    );
+    let probe = probe_command(&mark);
     let (_, out) = machine.exec(&probe, 90_000).await?;
     let status = out.lines().next().unwrap_or("").trim();
     if status != "200" {
@@ -520,6 +512,21 @@ async fn gateway(machine: &Machine<'_>) -> Result<(), String> {
         "This machine holds no Codex login."
     });
     Ok(())
+}
+
+/// The gateway probe run on the machine; `mark` starts its marker lines (probe_mark). Headers and body are written
+/// apart (`-D`, `-o`) and printed after a marker line holding a nonce the answer cannot know, so no body line or
+/// trailer passes for the other. The raw headers hold credentials until shown_answer filters them, so all three files
+/// live in a private directory (mktemp -d, umask 077) that a trap removes however the shell ends.
+fn probe_command(mark: &str) -> String {
+    format!(
+        "umask 077; d=$(mktemp -d) || exit 1; trap 'rm -rf \"$d\"' 0; trap 'exit 1' 1 2 13 15; \
+         code=$(curl -sS -D \"$d/headers\" -o \"$d/body\" -w '%{{http_code}}' --max-time 60 \
+         -H 'authorization: Bearer {PLACEHOLDER}' \
+         'https://coderouter.cmux.internal/v1/models?client_version=0.0.0' 2>\"$d/error\"); \
+         echo \"$code\"; echo '{mark}headers'; head -c {PROBE_EXCERPT} \"$d/headers\"; echo; echo '{mark}body'; \
+         head -c {PROBE_EXCERPT} \"$d/body\"; echo; echo '{mark}error'; head -c 300 \"$d/error\""
+    )
 }
 
 /// How much of the probe's answer (headers, then body) comes back to name a refusal.
@@ -783,6 +790,51 @@ mod tests {
         );
         assert!(
             shown.contains("Set-Cookie: kept-as-body") && !shown.contains("stray-before-marker"),
+            "{shown}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_raw_headers_stay_private_and_are_removed() {
+        // A stand-in curl, first on PATH: it writes a credential header and records, while the request runs, who may
+        // read the probe's directory and its header file. After the probe, the directory is gone.
+        use std::os::unix::fs::PermissionsExt;
+        let bin = std::env::temp_dir().join(format!("probe-test-{}", std::process::id()));
+        std::fs::create_dir_all(&bin).unwrap();
+        let log = bin.join("log");
+        let curl = bin.join("curl");
+        std::fs::write(
+            &curl,
+            "#!/bin/sh\nwhile [ $# -gt 0 ]; do case \"$1\" in -D) h=$2; shift;; -o) b=$2; shift;; esac; shift; done\n\
+             printf 'HTTP/1.1 403 Forbidden\\r\\nSet-Cookie: sid=raw-secret\\r\\nserver: edge\\r\\n\\r\\n' > \"$h\"\n\
+             printf 'refused' > \"$b\"\n\
+             { dirname \"$h\"; ls -ld \"$(dirname \"$h\")\" \"$h\"; } > \"$PROBE_LOG\"\nprintf 403\n",
+        )
+        .unwrap();
+        std::fs::set_permissions(&curl, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let mark = probe_mark();
+        let out = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(probe_command(&mark))
+            .env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default()))
+            .env("PROBE_LOG", &log)
+            .output()
+            .unwrap();
+        let out = String::from_utf8_lossy(&out.stdout).into_owned();
+        let seen = std::fs::read_to_string(&log).unwrap();
+        std::fs::remove_dir_all(&bin).unwrap();
+        let mut lines = seen.lines();
+        let dir = lines.next().unwrap();
+        let modes: Vec<&str> = lines.map(|l| l.split_whitespace().next().unwrap_or("")).collect();
+        assert_eq!(modes, ["drwx------", "-rw-------"], "{seen}");
+        assert!(!std::path::Path::new(dir).exists(), "{dir} was left behind");
+        assert!(out.starts_with("403\n"), "{out}");
+        let shown = shown_answer(&out, &mark);
+        assert!(
+            !shown.contains("raw-secret")
+                && shown.contains("server: edge")
+                && shown.contains("refused"),
             "{shown}"
         );
     }
