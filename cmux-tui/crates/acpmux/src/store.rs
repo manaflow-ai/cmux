@@ -1585,7 +1585,7 @@ impl LocalStore {
             Some(kept) => w
                 .file
                 .write_all(&line[..kept.min(line.len())])
-                .and(Err(std::io::Error::from_raw_os_error(libc::ENOSPC))),
+                .and(Err(std::io::Error::new(std::io::ErrorKind::StorageFull, "no space left (a test)"))),
             None => w.file.write_all(line),
         };
         #[cfg(not(test))]
@@ -1597,7 +1597,8 @@ impl LocalStore {
             // If the cut fails too, the writer is closed, not dropped: its earlier appends are
             // synced as at any close (a checkpoint's `sync_log` takes a log with no open writer
             // as synced), and the next open cuts the tail.
-            if cut_back(&w.file, w.written).is_err()
+            let segment = self.dir(id).join("events").join(format!("{:06}.ndjson", w.index));
+            if cut_back(&segment, w.written).is_err()
                 && let Some(w) = writers.open.remove(id)
             {
                 w.close(id, &self.sync_failed);
@@ -1609,15 +1610,19 @@ impl LocalStore {
     }
 }
 
-/// Cuts a log segment to `len` bytes.
-fn cut_back(file: &File, len: u64) -> std::io::Result<()> {
+/// Cuts the log segment at `path` to `len` bytes, through its own handle opened to write: the
+/// writer's handle may only append (Windows grants it `FILE_APPEND_DATA` alone, and a truncate
+/// needs `FILE_WRITE_DATA`). The handle gets the same owner-only, no-link checks as every other
+/// open of a segment (`journal_store::repair::open_segment_to_write`).
+fn cut_back(path: &Path, len: u64) -> Result<()> {
     #[cfg(test)]
     if test_write_fault::take_cut_failure() {
-        return Err(std::io::Error::other("a failed cut (a test)"));
+        anyhow::bail!("a failed cut (a test)");
     }
+    let file = journal_store::repair::open_segment_to_write(path)?;
     file.set_len(len)?;
     #[cfg(all(test, unix))]
-    sync_model::cut(file, len);
+    sync_model::cut(&file, len);
     Ok(())
 }
 
@@ -1651,7 +1656,7 @@ fn cut_torn_tail(file: &File, path: &Path) -> Result<u64> {
             torn = len - end,
             "cutting a torn append from the end of an event log"
         );
-        cut_back(file, end)?;
+        cut_back(path, end)?;
     }
     Ok(end)
 }
@@ -2192,7 +2197,7 @@ mod journal_sync_tests;
 #[cfg(all(test, unix))]
 mod journal_write_back_tests;
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod torn_append_tests;
 
 impl LocalStore {
