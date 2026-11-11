@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/42936562888",
+  "recorded_at": "2026-11-11T01:16:23Z",
+  "reason": "cmux-tui cf8ecdeca051 changes the image's cmux-tui (pinned 3c74ebca0cdc)",
+  "dry_run": false,
+  "cmux_tui": "cf8ecdeca0511f79a817121389e30c52a4702f2a",
+  "fixes": [
+    {
+      "sha": "a220c829872df81fa6c2919b396bcf3e6e2637bc",
+      "mergedAt": "2026-11-10T16:51:33-08:00",
+      "subject": "base red: the app FFI and layout reducer FFI locks drop hashlink again (rusqlite cache revert) (#40898)"
+    },
+    {
+      "sha": "acddf5a5a77a95f0409f0a27dcb78d5f20be9bfa",
+      "mergedAt": "2026-11-11T00:47:11Z",
+      "subject": "cmux-next: debug actions only in the Command Palette, behind Internal Developer Mode (#39980)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T01:16:23Z",
+    "snapshot_id": "sh-8ead4545a07546d7830affea10cc00f5",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 42936562888): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "885b02f9622d6fd58d550f8c7a90e5a25f5f54f8",
+    "image": "cloud-native-auto-cf8ecdec-42936562888-1",
+    "revision": "ci-42936562888-1",
+    "at": "2026-11-11T01:16:23Z"
+  },
+  "rolled_back": false
+}
