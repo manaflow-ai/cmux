@@ -598,6 +598,21 @@ def crash_report_launch_time(path: Path) -> float | None:
 
 NO_PROCESS = "it names no process"
 NO_PROCESS_REREAD_SECONDS = 3.0
+# How long after a launch's app ENDED its crash report is looked for as evidence, the verdict's wait included. A
+# build's first report took macOS more than the verdict's 10 s in 4 of 5 crashes on fleet hosts (2026-11-11).
+EVIDENCE_REPORT_WAIT = 30.0
+
+
+def hidden_path_in(where: str, app: Path) -> bool:
+    """WHERE is a path as macOS writes it in a crash report for a program under /tmp, with the folders above the
+    app copy as one `*` (`/tmp/*/NAME.app/Contents/MacOS/NAME`: the real report in
+    tests/fixtures/launch-smoke), and what follows the `*` is a file of the app copy APP: the copy's own name,
+    then a path inside it. The hidden folders can be those of another run's copy with the same name."""
+    parts = where.split("/")
+    if "*" not in parts:
+        return False
+    rest = parts[len(parts) - parts[::-1].index("*"):]
+    return len(rest) > 1 and rest[0] == app.name and ".." not in rest and app.joinpath(*rest[1:]).is_file()
 
 
 def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], started: float | None = None,
@@ -610,7 +625,11 @@ def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], star
     and before which this launch had no process: a report of a process that died before it is never this
     launch's. That time is the only thing that tells an earlier launch's orphaned helper (its parent is pid 1,
     its path is in the same app copy) from this launch's. After it, a report counts when it names this launch or
-    a child of it, or another process of this run's app copy that is not of an earlier launch. One that names no
+    a child of it, or another process of this run's app copy that is not of an earlier launch. macOS hides the
+    folders of a path under /tmp (hidden_path_in), so for such a process the full path never matches a real
+    report: what is left of the path must be a file of this run's copy, and the report must say that its process
+    was started after STARTED (the same name of another run's copy on this host is then the one thing that this
+    cannot tell apart; a copy of another build has another name). One that names no
     process (a format this tool does not know, or a report read while macOS writes it) says nothing of whose it
     is: it counts only when this launch's app ENDED in the watched time, as evidence beside that end, and is no
     crash alone. OWN is a folder that only this launch writes
@@ -639,6 +658,12 @@ def not_of_launch(path: Path, pid: int, app: Path, earlier: frozenset[int], star
     real = os.path.realpath(who["path"])
     if any(real.startswith(os.path.realpath(tree) + os.sep) for tree in (app, own) if tree is not None):
         return None
+    if hidden_path_in(who["path"], app):
+        if born is not None:  # and not before STARTED: that report was refused above
+            return None
+        return (f"it is of pid {who['pid']} at {who['path']}: the folder of that path is hidden, and "
+                + ("the report does not say when its process was started" if started is not None
+                   else "no start time of this launch was given"))
     return (f"it is of pid {who['pid']} at {who['path']}, not this run's copy of the app"
             + ("" if own is None else " and not this launch's files"))
 
@@ -871,6 +896,21 @@ def launch_crash_reports(diagnostics: Path, executable: str, since: float, exite
     return crashes, {found: not_counted[found] for found in sorted(not_counted) if found not in crashes}
 
 
+def late_crash_reports(diagnostics: Path, executable: str, since: float, pid: int, app: Path, earlier: frozenset[int],
+                       started: float, own: Path, asked: float) -> list[Path]:
+    """EVIDENCE ONLY, for a launch that failed because its app ENDED and that had no crash report in the verdict's
+    wait: the launch's reports (not_of_launch), looked for until EVIDENCE_REPORT_WAIT seconds after ASKED (the
+    monotonic time at which the verdict's wait began). The verdict was the app's end and stands; what is found
+    here is kept and shown beside it, and is in no field that a caller reads for a verdict."""
+    deadline = asked + float(os.environ.get("CMUX_FRESH_SMOKE_CRASH_EVIDENCE_WAIT_SECONDS", EVIDENCE_REPORT_WAIT))
+    while True:
+        found = [path for path in crash_reports(diagnostics, executable, since)
+                 if not_of_launch(path, pid, app, earlier, started, own, ended=True) is None]
+        if found or time.monotonic() >= deadline:
+            return found
+        time.sleep(1)
+
+
 def keep_not_counted(out: Path, others: list[Path]) -> None:
     """Reports that were found and not counted, kept under OUT/not-counted: not beside the counted ones, where a
     caller shows each report as this run's crash. The folder gets OUT's mode, so the account that made OUT (a CI
@@ -924,6 +964,7 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
 
     # Only this launch's crash reports count here: the first arm's processes were stopped a moment ago, and a
     # report of one (a crash while it quit) would otherwise make this arm a crash of a healthy app.
+    asked = time.monotonic()
     crashes, not_counted = launch_crash_reports(launch["diagnostics"], executable, launched_wall, status is not None,
                                                 process.pid, app, launch["earlier"], launch["earlier_stopped"], sub)
     others = list(not_counted)
@@ -963,12 +1004,17 @@ def launch_seeded(args: argparse.Namespace, root: Path, launch: dict, arm: dict,
         arm["verdict"] = "pass"
     # The verdict stands before the evidence is kept: a copy or a log read that fails must not undo a crash.
     try:
+        late = []
+        if status is not None and not crashes:
+            late = late_crash_reports(launch["diagnostics"], executable, launched_wall, process.pid, app,
+                                      launch["earlier"], launch["earlier_stopped"], sub, asked)
+        arm["crash_reports_late"] = seen["crash_reports_late"] = [str(path) for path in late]
         if launch["out"] is not None:
-            for found in [*crashes, *exceptions]:
+            for found in [*crashes, *late, *exceptions]:
                 shutil.copyfile(found, launch["out"] / found.name)
             keep_not_counted(launch["out"], others)
         if failures:
-            explain(process.pid, launched_wall, sub / "app.log", crashes, exceptions, seen["failures"], seen)
+            explain(process.pid, launched_wall, sub / "app.log", [*crashes, *late], exceptions, seen["failures"], seen)
     except Exception as error:  # noqa: BLE001 - evidence only
         log(f"warning: the seeded launch's evidence is not complete: {type(error).__name__}: {error}")
         for failure in seen.get("failures", []):
@@ -1004,7 +1050,7 @@ def run_seeded(args: argparse.Namespace, root: Path, report: dict, launch: dict,
             "the first arm's verdict stands")
         return status
     for key in ("exit", "seconds_up", "rendered_at", "snapshot", "marks", "home_tab", "crash_reports",
-                "run_exceptions", "failures", "system_log_errors", "cookie_sync"):
+                "crash_reports_late", "run_exceptions", "failures", "system_log_errors", "cookie_sync"):
         report.pop(key, None)
         if key in seen:
             report[key] = seen[key]
@@ -1067,6 +1113,7 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
     # on this host in the same seconds: every fleet build's executable has one name, so another tagged build that
     # crashed there made a healthy launch a crash. The report says whose it is (not_of_launch).
     # ROOT: while this arm runs, all that is under the run's private root is this launch's.
+    asked = time.monotonic()
     crashes, not_counted = launch_crash_reports(diagnostics, executable, launched_wall, seen["exit"] is not None,
                                                 process.pid, app, frozenset(), launched_wall, root)
     for found, why in not_counted.items():
@@ -1100,8 +1147,20 @@ def run(args: argparse.Namespace, root: Path, report: dict, launch: dict | None 
         report["verdict"] = "pass"
         log(f"==> fresh-home launch smoke OK: up {elapsed:.0f}s, Home at {seen['rendered_at']:.1f}s, no crash")
         return PASS
-    explain(report["pid"], launched_wall, root / "app.log", crashes, exceptions, failures, report)
+    # The verdict stands before the evidence is kept: a run that is cut in the wait or the log read below keeps it.
     report["verdict"], report["failures"] = "fail", failures
+    late = []
+    try:
+        if status is not None and not crashes:
+            late = late_crash_reports(diagnostics, executable, launched_wall, process.pid, app, frozenset(),
+                                      launched_wall, root, asked)
+            if out is not None:
+                for path in late:
+                    shutil.copyfile(path, out / path.name)
+    except OSError as error:  # evidence only: never the verdict
+        log(f"warning: a late crash report could not be kept: {error}")
+    report["crash_reports_late"] = [str(path) for path in late]
+    explain(report["pid"], launched_wall, root / "app.log", [*crashes, *late], exceptions, failures, report)
     return FAIL
 
 

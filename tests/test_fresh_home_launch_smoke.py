@@ -145,11 +145,16 @@ if mode in ("own-report", "quit-report", "helper-report", "first-report", "other
         # Another tagged build's launch from /tmp on this host, in these seconds: another name of the app copy.
         open(name, "w").write(ips(4190004, 1, time.time(), hidden % "Stub capfeedface00.app", born=time.time()))
     if mode == "late-report" or (mode == "late-seeded-report" and seeded):
-        # The app crashes; macOS writes its report 1.5 s later, after the verdict's wait (0 s in these tests).
-        subprocess.Popen([sys.executable, "-c", "import os, time\ntime.sleep(1.5)\n"
-                          "open(os.environ['STUB_REPORT'], 'w').write(os.environ['STUB_REPORT_TEXT'])\n"],
-                         cwd="/", start_new_session=True,
-                         env={"STUB_REPORT": name, "STUB_REPORT_TEXT": ips(os.getpid(), os.getppid(), time.time())})
+        # The app crashes; macOS writes its report only after the verdict looked for it (the test's caller makes
+        # a file then, named by this launch's pid).
+        writer = ("import os, time\n"
+                  "deadline = time.time() + 60\n"
+                  "while time.time() < deadline and not os.path.exists(os.environ['STUB_WAIT_FOR']):\n"
+                  "    time.sleep(0.05)\n"
+                  "open(os.environ['STUB_REPORT'], 'w').write(os.environ['STUB_REPORT_TEXT'])\n")
+        subprocess.Popen([sys.executable, "-c", writer], cwd="/", start_new_session=True, env={
+            "STUB_WAIT_FOR": os.path.join(os.path.dirname(folder), "verdict-looked-%d" % os.getpid()),
+            "STUB_REPORT": name, "STUB_REPORT_TEXT": ips(os.getpid(), os.getppid(), time.time())})
         time.sleep(0.5)
         os.abort()
     if mode in ("blank-report", "blank-crash"):
@@ -666,7 +671,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
                       self.real_app_copy("hollow/cmux DEV cap2616865988.app", whole=False)):
             self.assertIn("not this run's copy of the app", why(other, born - 1), other)
         # The hidden path says less than a full one: without the time of the process's start it is not enough.
-        self.assertIn("does not say when its process was started", why(app, None))
+        self.assertIn("no start time of this launch was given", why(app, None))
         timeless = self.dir / "timeless.ips"
         timeless.write_text("".join(line for line in REAL_REPORT.read_text().splitlines(keepends=True)
                                     if '"procLaunch"' not in line))
@@ -696,9 +701,16 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         # macOS can take longer than the verdict waits to write a build's first report. The verdict is the app's
         # end and does not wait for it; after a FAIL the evidence does, and never changes the verdict's fields.
         late = {**self.env, "CMUX_FRESH_SMOKE_CRASH_EVIDENCE_WAIT_SECONDS": "20"}
+        looked = ("verdict_look = smoke.launch_crash_reports\n"
+                  "def look_and_say(*args):\n"
+                  "    found = verdict_look(*args)\n"
+                  f"    open({str(self.dir)!r} + '/verdict-looked-%d' % args[4], 'w').close()\n"
+                  "    return found\n"
+                  "smoke.launch_crash_reports = look_and_say")
         for mode, arms in (("late-report", ()), ("late-seeded-report", ("--arms", "empty,seeded", "--seeded-seconds", "2"))):
             with self.subTest(mode=mode):
-                status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "10", *arms, env=late)
+                status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "10", *arms,
+                                                        env=late, setup=looked)
                 self.assertEqual(status, smoke.FAIL, output)
                 self.assertEqual((report["verdict"], report["exit"], report["crash_reports"]), ("fail", -6, []))
                 self.assertEqual(len(report["failures"]), 1, report["failures"])
