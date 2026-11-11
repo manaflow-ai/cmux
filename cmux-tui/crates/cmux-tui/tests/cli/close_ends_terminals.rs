@@ -304,3 +304,206 @@ fn w7c_agent_rows_end_with_their_terminals() {
         );
     }
 }
+
+/// Whether `client list` shows a client attached to `terminal` alone.
+fn attached(server: &HeadlessServer, terminal: &str) -> bool {
+    run(server, &["client", "list"]).as_array().is_some_and(|clients| {
+        clients.iter().any(|client| {
+            client["attached_terminal_ids"]
+                .as_array()
+                .is_some_and(|ids| ids.len() == 1 && ids[0].as_str() == Some(terminal))
+        })
+    })
+}
+
+/// A close does not end a terminal a viewer is attached to (`terminal
+/// attach`), as the reaper and `terminal close --if-unplaced` do not: it
+/// leaves it running and names it.
+#[test]
+fn w7c_a_close_leaves_a_terminal_with_an_attached_viewer_running() {
+    let server = HeadlessServer::start("w7c-viewer");
+    let made = run(&server, &["workspace", "create", "--name", "w7c-viewer"]);
+    let pane = field(&made, "pane_id");
+    let split = run(&server, &["pane", &pane, "split", "--right"]);
+    let (tab, viewed) = (field(&split, "tab_id"), field(&split, "terminal_id"));
+    let marker = "w7c_viewer_marker";
+    run(&server, &["terminal", &viewed, "write", "--text", &format!("printf '{marker}\\n'\n")]);
+    wait_for_screen(&server, &viewed, marker);
+
+    let socket = server.socket.to_str().unwrap();
+    let viewer = CapturingPtyChild::start(&["attach", "--socket", socket, "--terminal", &viewed]);
+    viewer.wait_for_output(marker, Duration::from_secs(10));
+    let deadline = Instant::now() + SETTLE;
+    while !attached(&server, &viewed) {
+        assert!(Instant::now() < deadline, "the viewer did not attach to {viewed}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let closed = run(&server, &["tab", &tab, "close"]);
+    assert_eq!(listed(&closed, "running_terminal_ids"), [viewed.as_str()], "{closed}");
+    assert_eq!(listed(&closed, "ended_terminal_ids"), Vec::<String>::new(), "{closed}");
+    assert_runs_tabless(&server, &viewed, "tab close of a terminal with a viewer");
+    drop(viewer);
+}
+
+/// A bulk close (`--others`, `--all`) names the terminals it leaves
+/// running, as a plain close does; and a `layout.bulk` caller that does not
+/// say `end_terminals` (an SDK, MCP or app caller) gets the CLI's default:
+/// the terminals end.
+#[test]
+fn w7c_a_bulk_close_names_the_terminals_it_leaves_running() {
+    let server = HeadlessServer::start("w7c-bulk");
+    let made = run(&server, &["workspace", "create", "--name", "w7c-bulk"]);
+    let (workspace, pane, first) =
+        (field(&made, "workspace_id"), field(&made, "pane_id"), field(&made, "terminal_id"));
+    let tab = |server: &HeadlessServer| {
+        let made = run(server, &["tab", "create", "terminal", "--pane", &pane]);
+        (field(&made, "tab_id"), field(&made, "terminal_id"))
+    };
+    let (anchor_tab, _) = tab(&server);
+    let (_, kept) = tab(&server);
+    run(&server, &["terminal", &kept, "keep", "on"]);
+    let (_, ends) = tab(&server);
+
+    let closed = run(&server, &["tab", &anchor_tab, "close", "--others"]);
+    assert_eq!(listed(&closed, "running_terminal_ids"), [kept.as_str()], "{closed}");
+    let mut ended = listed(&closed, "ended_terminal_ids");
+    ended.sort();
+    let mut expected = vec![first.clone(), ends.clone()];
+    expected.sort();
+    assert_eq!(ended, expected, "{closed}");
+    assert_ended(&server, &ends, "tab close --others");
+    assert_runs_tabless(&server, &kept, "tab close --others of a kept terminal");
+
+    let (_, kept_too) = tab(&server);
+    run(&server, &["terminal", &kept_too, "keep", "on"]);
+    let shown = run_human(&server, &["tab", &anchor_tab, "close", "--others"]);
+    assert!(
+        shown.contains(&kept_too) && shown.contains("terminal list"),
+        "the bulk close did not name the kept terminal {kept_too} and `terminal list`:\n{shown}"
+    );
+
+    // A `layout.bulk` that does not say `end_terminals` ends them too.
+    let (_, unsaid) = tab(&server);
+    let request = serde_json::json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": "w7c-bulk",
+        "operation": "layout.bulk",
+        "idempotency_key": "w7c-bulk-default",
+        "params": {
+            "machine": "current",
+            "session": "current",
+            "workspace": workspace,
+            "verb": "close",
+            "level": "tab",
+            "selector": "others",
+            "anchor": anchor_tab,
+        },
+    });
+    let stream = transport::connect(&server.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let mut reader = BufReader::new(stream);
+    writeln!(writer, "{request}").unwrap();
+    let mut line = String::new();
+    reader.read_line(&mut line).unwrap();
+    let response: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(response["ok"], true, "{response}");
+    assert_ended(&server, &unsaid, "layout.bulk with no end_terminals");
+}
+
+/// A `session.events` subscription; its lines arrive on the receiver. The
+/// returned writer keeps the stream's connection open.
+fn session_events(server: &HeadlessServer) -> (impl Sized + use<>, mpsc::Receiver<String>) {
+    let stream = transport::connect(&server.socket).unwrap();
+    let mut writer = stream.try_clone_box().unwrap();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stream).lines() {
+            let Ok(line) = line else { break };
+            if tx.send(line).is_err() {
+                break;
+            }
+        }
+    });
+    let request = serde_json::json!({
+        "protocol": "cmux.protocol/2",
+        "type": "request",
+        "id": "w7c-events",
+        "operation": "session.events",
+        "params": {
+            "machine": "current",
+            "session": "current",
+            "stream_id": "stream_77777777777777778777777777777777",
+        },
+    });
+    writeln!(writer, "{request}").unwrap();
+    writer.flush().unwrap();
+    let deadline = Instant::now() + SETTLE;
+    loop {
+        let remaining =
+            deadline.checked_duration_since(Instant::now()).expect("no session.events reply");
+        let line = rx.recv_timeout(remaining).expect("no session.events reply");
+        let message: Value = serde_json::from_str(&line).unwrap();
+        if message["id"] == "w7c-events" {
+            assert_eq!(message["ok"], true, "session.events failed: {message}");
+            return (writer, rx);
+        }
+    }
+}
+
+/// Waits for a `session.events` change that ends agent `agent` (a delete, or
+/// an upsert with state `done`); panics after `SETTLE` with what came.
+fn assert_agent_end_event(rx: &mpsc::Receiver<String>, agent: &str, step: &str) {
+    let deadline = Instant::now() + SETTLE;
+    let mut seen = Vec::new();
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        let Ok(line) = rx.recv_timeout(remaining) else { break };
+        let message: Value = serde_json::from_str(&line).unwrap();
+        let item = &message["item"];
+        if message["type"] != "stream_item" || item["kind"] != "delta" {
+            continue;
+        }
+        for change in item["changes"].as_array().into_iter().flatten() {
+            if change["resource"] != "agent" {
+                continue;
+            }
+            if change["id"] == agent
+                && (change["kind"] == "delete" || change["value"]["state"] == "done")
+            {
+                return;
+            }
+            seen.push(change.clone());
+        }
+    }
+    panic!("{step}: no session.events change ended agent {agent}; agent changes seen: {seen:?}");
+}
+
+/// An open `session.events` subscriber sees an agent end when its terminal
+/// ends, at that moment, by `terminal close` or by the close of its tab.
+#[test]
+fn w7c_a_subscriber_sees_the_agent_end_with_its_terminal() {
+    let server = HeadlessServer::start("w7c-agent-events");
+    let made = run(&server, &["workspace", "create", "--name", "w7c-agent-events"]);
+    let pane = field(&made, "pane_id");
+    let by_terminal_close =
+        field(&run(&server, &["pane", &pane, "split", "--right"]), "terminal_id");
+    let split = run(&server, &["pane", &pane, "split", "--down"]);
+    let (tab, by_tab_close) = (field(&split, "tab_id"), field(&split, "terminal_id"));
+    let mut agents = Vec::new();
+    for terminal in [&by_terminal_close, &by_tab_close] {
+        run(
+            &server,
+            &["agent", "report", "--terminal", terminal, "--state", "idle", "--source", "socket"],
+        );
+        let rows = agent_rows(&server, terminal);
+        assert_eq!(rows.len(), 1, "agent report made no row for {terminal}: {rows:?}");
+        agents.push(rows[0]["id"].as_str().expect("an agent id").to_owned());
+    }
+
+    let (_stream, rx) = session_events(&server);
+    run(&server, &["terminal", &by_terminal_close, "close"]);
+    assert_agent_end_event(&rx, &agents[0], "terminal close");
+    run(&server, &["tab", &tab, "close"]);
+    assert_agent_end_event(&rx, &agents[1], "tab close");
+}
