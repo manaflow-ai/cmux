@@ -281,11 +281,17 @@ def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
             row["agent_rc"] = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else f"ssh {r.returncode}"
             if row["agent_rc"] == "setup":
                 raise RuntimeError("the arm's computer-use service did not start in the guest")
-            # The agent never ran: ssh itself failed (the guest dropped the
-            # connection) and run-agent.sh printed nothing. An infrastructure
-            # failure, not a task failure.
+            # ssh failed and run-agent.sh printed nothing: ask the guest
+            # whether the agent ran (its rc file or any event). An agent that
+            # ran and then lost the session (it logged the guest out, say) is
+            # graded like any attempt; only one that never started is an
+            # infrastructure failure, counted for neither arm.
             if not r.stdout.strip() and r.returncode != 0:
-                raise RuntimeError(f"ssh to the guest failed (exit {r.returncode}) before the agent ran")
+                probe = vm.ssh("cat ~/cub/out/rc 2>/dev/null; test -s ~/cub/out/events.jsonl && echo ran")
+                said = probe.stdout.split() if probe.returncode == 0 else []
+                if "ran" not in said:
+                    raise RuntimeError(f"ssh to the guest failed (exit {r.returncode}) before the agent ran")
+                row["agent_rc"] = next((w for w in said if w != "ran"), f"ssh {r.returncode} after the agent ran")
             vm.get("~/cub/out/events.jsonl", adir)
             vm.get("~/cub/out/stderr.txt", adir)
             if args.screenshot:
@@ -380,14 +386,29 @@ def cmd_report(args):
     by = {}
     for r in rows:
         by.setdefault(r["arm"], []).append(r)
-    print(f"{'arm':10} {'scored':>6} {'success':>8} {'mean':>6} {'infra':>6} {'p50 s':>6} {'calls':>6}")
+    print(f"{'arm':10} {'scored':>6} {'success':>8} {'mean':>6} {'infra':>6} {'infra%':>6} {'p50 s':>6} {'calls':>6}")
     for arm, rs in sorted(by.items()):
         scored = [r for r in rs if r.get("score") is not None]
         succ = sum(1 for r in scored if r.get("success"))
         secs = sorted(r["agent_seconds"] for r in scored if r.get("agent_seconds"))
         calls = sorted(r["tool_calls"] for r in scored)
+        infra = len(rs) - len(scored)
         print(f"{arm:10} {len(scored):6} {succ:8} {sum(r['score'] for r in scored)/max(1,len(scored)):6.3f} "
-              f"{len(rs)-len(scored):6} {secs[len(secs)//2] if secs else 0:6} {calls[len(calls)//2] if calls else 0:6}")
+              f"{infra:6} {100*infra/max(1,len(rs)):5.1f}% {secs[len(secs)//2] if secs else 0:6} {calls[len(calls)//2] if calls else 0:6}")
+    # Paired: only tasks every arm scored, so infrastructure losses (which
+    # drop an attempt from one arm's denominator) cannot favour either arm.
+    best = {}
+    for r in rows:
+        if r.get("score") is not None:
+            key = (r["task"], r["arm"])
+            best[key] = max(best.get(key, 0.0), r["score"])
+    arms = sorted(by)
+    tasks = {t for (t, _) in best}
+    paired = sorted(t for t in tasks if all((t, a) in best for a in arms))
+    print(f"paired over {len(paired)} tasks every arm scored:")
+    for arm in arms:
+        ok = sum(1 for t in paired if best[(t, arm)] >= 1.0)
+        print(f"  {arm:10} {ok:4} / {len(paired)}")
 
 
 def main():
