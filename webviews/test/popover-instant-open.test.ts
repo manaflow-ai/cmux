@@ -232,8 +232,8 @@ const WEB_ANIMATIONS: Record<string, { count: number; what: string }> = {
     what: "a turn's end folds its work in one motion: the rows that stay slide to their place, copies of the rows it took away fade where they were",
   },
   "src/agent-session/acpmux/conversation/tailGlide.ts": {
-    count: 1,
-    what: "the rows under a change in a running turn (the live line, a steer, the footer) glide to their new place; transcript rows, never a menu",
+    count: 2,
+    what: "the rows under a change in a running turn (the live line, a steer, the footer) glide to their new place, and the row above is uncovered as they glide off it; transcript rows, never a menu",
   },
   "src/agent-session/acpmux/conversation/turnFold.ts": { count: 1, what: "a turn folds" },
   "src/agent-session/acpmux/session-info/SessionInfoGroup.tsx": { count: 1, what: "Session Info sections slide" },
