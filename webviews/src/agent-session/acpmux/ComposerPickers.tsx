@@ -92,6 +92,7 @@ import {
   type ModeIconName,
   RECOMMENDED_BADGE,
   type ShownMode,
+  cloudStartAgent,
   harnessFamilyMenu,
   harnessModeMenu,
   highestMode,
@@ -985,9 +986,10 @@ export function ComposerPickers({
   // The Cloud send names a harness only after a switch, so the machine starts its default agent:
   // Claude first (acpmux default_harness.rs). A harness whose Cloud start mode cmux does not know
   // (a Mac with no agent CLI shows another one) names the agent the machine starts, Claude.
-  const cloudKnown = remoteStartMode(chipFamily, chipHarness) !== undefined;
-  const cloudFamily = cloudKnown ? chipFamily : CLOUD_DEFAULT_AGENT;
-  const cloudHarness = cloudKnown ? chipHarness : CLOUD_DEFAULT_AGENT;
+  const cloudAgent = cloudStartAgent(chipFamily, chipHarness);
+  const cloudKnown = cloudAgent.named;
+  const cloudFamily = cloudAgent.family;
+  const cloudHarness = cloudAgent.harness;
   const cloudAsking =
     awaiting && fresh && snapshot.startsOnCloud && modes.length === 0
       ? remoteStartMode(cloudFamily, cloudHarness)
@@ -1353,8 +1355,6 @@ export function ComposerPickers({
 
 /// No start mode to name: the access chip holds its place as "Mode" (a borrowed answer's face).
 const MODE_PLACEHOLDER: KeptStartMode = { modeId: "", borrowed: true };
-/** The agent a Cloud machine starts when the send names none (acpmux default_harness.rs). */
-const CLOUD_DEFAULT_AGENT = "claude";
 
 /// The mode a chat will start in, before it reports its modes: the access chip's face (AccessMenu),
 /// inert until the session's own replaces it in place. `modeId` is read from storage: only a

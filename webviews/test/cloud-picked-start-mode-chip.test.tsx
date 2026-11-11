@@ -230,6 +230,64 @@ test("with Cloud picked and such a harness, the menu offers Claude's Cloud modes
   expect(rows.some((row) => row.includes("Accept edits"))).toBe(false);
 });
 
+async function openModeMenu(): Promise<string[]> {
+  const button = host.querySelector<HTMLElement>(".acpmux-mode .acpmux-access-trigger");
+  expect(button).not.toBeNull();
+  await act(async () => {
+    button!.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true, button: 0 }));
+    button!.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    button!.click();
+  });
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  return [...dom.window.document.querySelectorAll("[role=menuitemradio]")].map((row) => row.textContent ?? "");
+}
+
+// The chip names the agent and mode the Cloud machine starts; both sends (the chat composer's, which
+// names a harness only after a switch, and New Tab's `onCloud`) start exactly that. A face harness
+// with no Cloud start mode (unii on a Mac with no agent CLI) is left out of the send, so the machine
+// starts its default agent, Claude, in the mode the chip names.
+test("both Cloud sends start the agent and mode the chip names, for every face harness", async () => {
+  const { cloudStartAgent, CLOUD_DEFAULT_AGENT, harnessFamilyMenu } =
+    await import("../src/agent-session/acpmux/harnessModes");
+  const { cloudSendAgent, clearCloudModePick } = await import("../src/agent-session/acpmux/cloudModePick");
+  const cases = [
+    { face: "claude", family: "claude", runs: "claude", asking: "Manual" },
+    { face: "codex", family: "codex", runs: "codex", asking: "Ask" },
+    { face: "unii", family: "unii", runs: CLOUD_DEFAULT_AGENT, asking: "Manual" },
+  ];
+  for (const { face, family, runs, asking } of cases) {
+    // Each face is its own new chat: a fresh page, no pick or menu left from the last.
+    clearCloudModePick();
+    act(() => root?.unmount());
+    root = undefined;
+    host.replaceChildren();
+    await render(await newChat(true, face));
+    expect(chipText()).toBe(asking);
+    // Pick the widest mode through the chip's own menu, as a click does.
+    const rows = await openModeMenu();
+    const widest = rows.find((row) => /Bypass permissions|Full access/.test(row));
+    expect(widest).toBeDefined();
+    const row = [...dom.window.document.querySelectorAll<HTMLElement>("[role=menuitemradio]")].find(
+      (item) => item.textContent === widest,
+    )!;
+    await act(async () => row.click());
+    // New Tab's send: the harness and model only when the machine runs that agent.
+    const newTab = cloudSendAgent(family, face, "some-model");
+    const started = newTab.harness ?? CLOUD_DEFAULT_AGENT;
+    expect(started).toBe(runs);
+    expect(newTab.model).toBe(started === face ? "some-model" : undefined);
+    // The chat composer's send names no harness (no switch): the machine starts its default unless
+    // the face is an agent it runs, which acpmux also starts first for that face (cloudStartAgent).
+    expect(cloudStartAgent(family, face).harness).toBe(runs);
+    // Both carry the picked mode, a mode of the agent that starts, named as the chip named it.
+    expect(newTab.mode).toBeDefined();
+    const menu = harnessFamilyMenu(runs, runs)!;
+    const sentRow = menu.rows.find((r) => r.id === newTab.mode);
+    expect(sentRow).toBeDefined();
+    expect(widest).toContain(sentRow!.name);
+  }
+});
+
 test("the Cloud start request carries the picked mode to the host, and only a pick", async () => {
   const { startCloudChat } = await import("../src/agent-session/acpmux/cloudRun");
   const calls: Record<string, unknown>[] = [];

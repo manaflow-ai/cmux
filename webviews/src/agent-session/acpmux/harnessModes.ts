@@ -121,6 +121,22 @@ export function remoteStartMode(
   return { id, name: menu.rows.find((row) => row.id === id)?.name ?? name ?? id };
 }
 
+/** The agent a Cloud machine starts when its send names none: acpmux's default, Claude first
+ * (default_harness.rs). */
+export const CLOUD_DEFAULT_AGENT = "claude";
+
+/** The agent a Cloud start runs for a chat the composer shows on HARNESS, and whether the send names
+ * it. A harness whose Cloud start mode this table knows (Claude, Codex) is sent and run; any other
+ * (a Mac with no agent CLI shows unii) is left out of the send, so the machine starts its default,
+ * Claude, which the Mode chip names. The chip and every Cloud send read this one answer. */
+export function cloudStartAgent(
+  family: string | undefined,
+  harness: string | undefined,
+): { family: string | undefined; harness: string | undefined; named: boolean } {
+  if (familyMenu(family, harness)) return { family, harness, named: true };
+  return { family: CLOUD_DEFAULT_AGENT, harness: CLOUD_DEFAULT_AGENT, named: false };
+}
+
 /** The family's own menu whatever the harness reported (none yet: a New Tab before its chat
  * starts), for a pick made before the chat reports its modes. None for a harness this table does
  * not list. */
