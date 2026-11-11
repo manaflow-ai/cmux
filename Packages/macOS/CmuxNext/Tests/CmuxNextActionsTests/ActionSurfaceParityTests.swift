@@ -98,19 +98,31 @@ import Testing
     /// folders ("Move ▸"), and each folder holds at least two rows.
     /// Reachability inside folders is checked by the tests above, which
     /// walk submenus.
+    ///
+    /// The cap is for the rows a person sees at one time. A menu whose builder always hides
+    /// some of its catalog rows is counted where it is built (``countedAtItsBuilder``), with
+    /// the rows that builder hides; its catalog list here is longer than any menu it shows.
     @Test func everyMenuKeepsAShortTopLevel() {
         for context in ActionMenuContext.allCases {
             let entries = ContextMenuCatalog.shared.entries(for: context)
             let rows = entries.filter { if case .separator = $0 { false } else { true } }
             // A workspace row's and a tab's menu also have Copy ▸ (ContextMenuEssentials.copyFolder, Leo 2026-10-29).
-            let cap = [.agentChat, .terminalSelection, .workspaceRow, .tab].contains(context) ? 13 : 12
-            #expect(rows.count <= cap, "\(context) has \(rows.count) top-level rows")
+            let cap = [.terminalSelection, .workspaceRow, .tab].contains(context) ? 13 : 12
+            if !Self.countedAtItsBuilder.contains(context) {
+                #expect(rows.count <= cap, "\(context) has \(rows.count) top-level rows")
+            }
             for case .folder(let folder, let children) in entries {
                 let count = ContextMenuCatalog.shared.referencedIDs(children).count
                 #expect(count >= 2, "\(context) folder \(folder) has \(count) rows")
             }
         }
     }
+
+    /// The menus whose top level is counted in the App's tests, from the same code that builds
+    /// them. The chat menu: its three Cloud rows are never shown together (the builder takes
+    /// `CloudMove.hiddenMenuItems` away, `AgentTabs+Header`), so `ChatMenuLengthTests`
+    /// (CmuxNextAppTests) holds it to its 13 rows (12 and the fork commands) for each kind of chat.
+    static let countedAtItsBuilder: Set<ActionMenuContext> = [.agentChat]
 
     @Test func cliNamesAndShortcutsAreUnique() {
         var byName: [String: ActionID] = [:]
@@ -206,7 +218,7 @@ import Testing
         #expect(String(text[start.lowerBound..<end.upperBound]) == current, "actions.md is stale; rerun with CMUX_UPDATE_ACTION_SURFACES=1")
     }
 
-    /// What the exports list: the Rust catalog's descriptors in its order, debug rows untitled by the palette.
+    /// What the exports list: the Rust catalog's descriptors in its order, with their plain titles, not the palette's "Debug: <name>" ones.
     nonisolated static var exportedCatalog: [ActionDescriptor] { RustActionCatalog.shared.descriptors }
 
     /// Every string catalog of CmuxNextActions, from the source tree.
@@ -224,13 +236,16 @@ import Testing
     /// the title the app shows.
     @Test func exportNamesTitleKeys() throws {
         let titles = try Self.titleCatalog()
+        // The exported titles (plain, as Rust declares them): `ActionCatalog.all` titles debug rows
+        // "Debug: <name>", which name no string, so the check would skip every debug row.
+        let exported = Self.exportedCatalog
         var named = 0
-        for descriptor in catalog {
+        for descriptor in exported {
             guard let entry = titles.entry(for: descriptor) else { continue }
             named += 1
             #expect(entry.english == descriptor.title, "\(descriptor.id)")
         }
-        #expect(named * 10 >= catalog.count * 9, "only \(named) of \(catalog.count) titles name a key")
+        #expect(named * 10 >= exported.count * 9, "only \(named) of \(exported.count) titles name a key")
         for category in ActionCategory.allCases {
             let entry = titles.entry(key: category.titleKey, table: category.titleTable)
             #expect(entry?.english == category.title, "palette section \(category.rawValue) names no string")

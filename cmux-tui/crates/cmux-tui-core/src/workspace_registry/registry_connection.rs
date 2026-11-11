@@ -79,12 +79,22 @@ pub(crate) struct RegistryConnection {
     /// Flushes the WAL to disk off every request path (`wal_durability`);
     /// `None` for an in-memory registry.
     durability: Option<super::wal_durability::WalDurability>,
-    /// A read-only connection to the same file for reads of committed data
+    /// Read-only connections to the same file for reads of committed data
     /// that need neither the workspace registry lock nor this connection's
     /// lock ([`Self::read_committed`]). In WAL mode a reader sees the last
-    /// committed state and never waits for a writer. `None` for an
-    /// in-memory registry or when it could not open.
-    reader: Option<std::sync::Mutex<Connection>>,
+    /// committed state and never waits for a writer, nor for another reader.
+    /// `None` for an in-memory registry or when the first could not open.
+    readers: Option<CommittedReaders>,
+    /// One more read-only connection, for the O(1) point reads of frequent
+    /// cheap requests only ([`Self::committed_terminal_revision`],
+    /// [`Self::committed_resource_revision`]): `identify`, every
+    /// `list-workspaces` reply and `session.ping`. A heavy read (a list, a
+    /// snapshot) never takes it, so a point read waits only for another
+    /// point read (one indexed row), however many heavy reads hold the pool.
+    /// It reads the file, as the pool does, so it sees every commit, from any
+    /// connection or process. `None` when it did not open: point reads then
+    /// use the pool.
+    point_reader: Option<std::sync::Mutex<Connection>>,
     #[cfg(test)]
     pub(super) journal_hooks: std::sync::Mutex<JournalCommitHooks>,
 }
@@ -179,6 +189,103 @@ pub(crate) fn in_journal_writer_commit() -> bool {
     IN_JOURNAL_WRITER_COMMIT.with(Cell::get)
 }
 
+/// The most read-only connections a registry opens. Committed reads (a
+/// `tab.list`, a `workspace.list`, the terminal revision of `identify`) ran
+/// one at a time on a single connection, so each waited for every read
+/// before it: with nine clients listing tabs, an `identify` waited 27 ms for
+/// a 0.08 ms read. WAL readers on their own connections never wait for one
+/// another; a few cover the request threads that read at once, and each
+/// costs only its page cache.
+pub(crate) const COMMITTED_READERS: usize = 4;
+
+/// A bounded pool of read-only connections to the registry file. The first
+/// opens with the registry; the others open when a read finds every open
+/// one in use, up to [`COMMITTED_READERS`]. A read past that waits for one.
+struct CommittedReaders {
+    path: std::path::PathBuf,
+    pool: std::sync::Mutex<ReaderPool>,
+    returned: std::sync::Condvar,
+}
+
+struct ReaderPool {
+    idle: Vec<Connection>,
+    /// Connections open: idle ones plus those leased to a read.
+    open: usize,
+    /// False once a new connection failed to open: the pool keeps the ones
+    /// it has and stops trying (and logging) on every busy read.
+    can_grow: bool,
+}
+
+/// One read's connection; it goes back to the pool when the read ends. A
+/// read that panics drops it instead (it may hold an open transaction), and
+/// its slot is free for a new one.
+struct ReaderLease<'a> {
+    readers: &'a CommittedReaders,
+    connection: Option<Connection>,
+}
+
+impl CommittedReaders {
+    fn new(path: &std::path::Path, first: Connection) -> Self {
+        Self {
+            path: path.to_path_buf(),
+            pool: std::sync::Mutex::new(ReaderPool { idle: vec![first], open: 1, can_grow: true }),
+            returned: std::sync::Condvar::new(),
+        }
+    }
+
+    fn pool(&self) -> std::sync::MutexGuard<'_, ReaderPool> {
+        self.pool.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// An idle connection, a new one while fewer than the limit are open,
+    /// else the next one given back. `None` only when none is open and no
+    /// new one can open (the caller reads under the registry).
+    fn lease(&self) -> Option<ReaderLease<'_>> {
+        let mut pool = self.pool();
+        loop {
+            if let Some(connection) = pool.idle.pop() {
+                return Some(ReaderLease { readers: self, connection: Some(connection) });
+            }
+            if pool.open == 0 && !pool.can_grow {
+                return None;
+            }
+            if pool.can_grow && pool.open < COMMITTED_READERS {
+                pool.open += 1;
+                drop(pool);
+                match super::open_registry_database_read_only(&self.path) {
+                    Ok(connection) => {
+                        return Some(ReaderLease { readers: self, connection: Some(connection) });
+                    }
+                    Err(error) => {
+                        eprintln!("cmux-tui: another registry reader did not open: {error:#}");
+                        pool = self.pool();
+                        pool.open -= 1;
+                        pool.can_grow = false;
+                        if pool.open == 0 {
+                            return None;
+                        }
+                        // Use one of the open connections instead.
+                        continue;
+                    }
+                }
+            }
+            pool = self.returned.wait(pool).unwrap_or_else(std::sync::PoisonError::into_inner);
+        }
+    }
+}
+
+impl Drop for ReaderLease<'_> {
+    fn drop(&mut self) {
+        let mut pool = self.readers.pool();
+        match self.connection.take() {
+            Some(connection) if !std::thread::panicking() => pool.idle.push(connection),
+            _ => pool.open -= 1,
+        }
+        drop(pool);
+        self.readers.returned.notify_one();
+    }
+}
+
 impl RegistryConnection {
     /// The connection of the registry stored at `database_path` (`None`:
     /// in memory). Its commits run `synchronous=NORMAL`; a file registry's
@@ -196,17 +303,27 @@ impl RegistryConnection {
                 registry_commit_delay(),
             )
         });
-        let reader =
+        let readers =
             database_path.and_then(|path| match super::open_registry_database_read_only(path) {
-                Ok(reader) => Some(std::sync::Mutex::new(reader)),
+                Ok(reader) => Some(CommittedReaders::new(path, reader)),
                 Err(error) => {
                     eprintln!("cmux-tui: registry reader connection unavailable: {error:#}");
                     None
                 }
             });
+        let point_reader = readers.as_ref().and_then(|readers| {
+            match super::open_registry_database_read_only(&readers.path) {
+                Ok(reader) => Some(std::sync::Mutex::new(reader)),
+                Err(error) => {
+                    eprintln!("cmux-tui: registry point reader unavailable: {error:#}");
+                    None
+                }
+            }
+        });
         Arc::new(Self {
             connection: Arc::new(ReentrantMutex::new(connection)),
-            reader,
+            readers,
+            point_reader,
             write_path_stats: crate::diagnostics::WritePathStats::default(),
             intent_sink: std::sync::OnceLock::new(),
             unsettled: std::sync::Mutex::default(),
@@ -217,17 +334,53 @@ impl RegistryConnection {
         })
     }
 
-    /// Run `read` on the registry's read-only connection: committed data,
-    /// with no workspace registry lock and no wait for a writer (WAL). Its
-    /// own mutex is a leaf held only for `read`. `None` when there is no
-    /// reader (an in-memory registry): the caller reads under the registry.
+    /// Run `read` on one of the registry's read-only connections: committed
+    /// data, with no workspace registry lock and no wait for a writer (WAL)
+    /// or for another reader, unless [`COMMITTED_READERS`] reads already run.
+    /// The pool's mutex is a leaf, held only to take or give back a
+    /// connection, never during `read`. `None` when there is no reader (an
+    /// in-memory registry): the caller reads under the registry.
     pub(crate) fn read_committed<T>(
         &self,
         read: impl FnOnce(&Connection) -> anyhow::Result<T>,
     ) -> Option<anyhow::Result<T>> {
-        let reader = self.reader.as_ref()?;
-        let connection = reader.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        Some(read(&connection))
+        let lease = self.readers.as_ref()?.lease()?;
+        Some(read(lease.connection.as_ref()?))
+    }
+
+    /// The committed terminal registry revision (one meta row), on the point
+    /// reader. `None` when there is no reader (an in-memory registry).
+    pub(crate) fn committed_terminal_revision(&self) -> Option<anyhow::Result<u64>> {
+        self.read_point(super::current_terminal_revision)
+    }
+
+    /// The committed resource revision (one meta row), on the point reader.
+    /// `None` when there is no reader (an in-memory registry).
+    pub(crate) fn committed_resource_revision(&self) -> Option<anyhow::Result<u64>> {
+        self.read_point(super::current_resource_revision)
+    }
+
+    /// Run an O(1) `read` on the point reader; on the pool when it did not
+    /// open. Private: only the bounded reads above run here, so no heavy read
+    /// can hold it. Its mutex is held only for `read`, which runs no
+    /// transaction of its own, so a read that panicked leaves the connection
+    /// usable.
+    fn read_point<T>(
+        &self,
+        read: impl FnOnce(&Connection) -> anyhow::Result<T>,
+    ) -> Option<anyhow::Result<T>> {
+        match &self.point_reader {
+            Some(reader) => {
+                Some(read(&reader.lock().unwrap_or_else(std::sync::PoisonError::into_inner)))
+            }
+            None => self.read_committed(read),
+        }
+    }
+
+    /// The read-only connections open now (idle or in a read).
+    #[cfg(test)]
+    pub(crate) fn committed_readers_open(&self) -> usize {
+        self.readers.as_ref().map_or(0, |readers| readers.pool().open)
     }
 
     /// Flush every registry commit made so far, soon, off this thread

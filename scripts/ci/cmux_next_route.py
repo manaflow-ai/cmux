@@ -288,6 +288,12 @@ CHECKED_WEB_BUNDLES = (
 NO_APP_INPUT = (
     "images/*", "services/*", "vault/*", "coderouter/*", "agent-chat/*", "markdown-obsidian-parity/*",
     "tests_v2/*", ".agents/*", ".claude/*", ".codex/*", ".greptile/*", ".coderabbit.yaml",
+    # Script directories under scripts/cmux-next/ that only a workflow or a person runs, and that
+    # import nothing of the app's and nothing of the app's imports: the classic -> NEXT migration CLI
+    # (classic-migration-staging.yml runs it with bun), the proxy demo, the team VM spike and the Mac
+    # screen remote-desktop rig. #40575 (classic-migrate and its workflow) waited on cmux-next/compile.
+    "scripts/cmux-next/classic-migrate/*", "scripts/cmux-next/proxy-demo/*",
+    "scripts/cmux-next/team-vm-spike/*", "scripts/cmux-next/mac-screen-rd-rig/*",
 )
 
 

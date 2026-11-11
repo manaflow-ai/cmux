@@ -155,6 +155,17 @@ pub(crate) fn relaunch_value(connection: &Connection, tab_id: &str) -> anyhow::R
     Ok(row.map_or(Value::Null, |(cwd, on_show)| relaunch_json(cwd.as_deref(), on_show)))
 }
 
+/// [`relaunch_value`] of each kept tab, by tab id, for a list of the
+/// session's tabs: the table is read one time, not one time for each tab.
+pub(crate) fn relaunch_values(connection: &Connection) -> anyhow::Result<HashMap<String, Value>> {
+    let mut statement = connection.prepare("SELECT tab_id, cwd, on_show FROM kept_tabs")?;
+    let rows = statement.query_map([], |row| {
+        let (cwd, on_show) = (row.get::<_, Option<String>>(1)?, row.get::<_, i64>(2)? != 0);
+        Ok((row.get::<_, String>(0)?, relaunch_json(cwd.as_deref(), on_show)))
+    })?;
+    Ok(rows.collect::<Result<HashMap<_, _>, _>>()?)
+}
+
 /// `{cwd}`, with `on_show: true` for a tab parked by `park-tabs`.
 pub(crate) fn relaunch_json(cwd: Option<&str>, on_show: bool) -> Value {
     if on_show { json!({"cwd": cwd, "on_show": true}) } else { json!({"cwd": cwd}) }
