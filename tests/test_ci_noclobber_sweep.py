@@ -152,6 +152,8 @@ def missing(capability: str) -> str | None:
     return None if ok else why
 
 SHELL_TREE_PIN = Path(__file__).resolve().parent / "shell_tree.pin"
+BOUNDED_RUN = Path(__file__).resolve().parent / "bounded_run.py"
+BOUNDED_RUN_PIN = Path(__file__).resolve().parent / "bounded_run.pin"
 
 
 def without_templates(line: str) -> str:
@@ -682,6 +684,13 @@ class NoclobberSweep(unittest.TestCase):
         digest = hashlib.sha256(Path(shell_tree.__file__).read_bytes()).hexdigest()
         self.assertEqual(digest, pin.get("sha256"), "shell_tree.py was edited here: change leo-workspace "
                          "tools/shell_tree.py, then copy it here and its commit and sha256 into shell_tree.pin")
+        # bounded_run.py beside it, which shell_tree loads by its path to run bash (manaflow-ai/cmux-platform#1286
+        # review, F1): vendored from the same commit, pinned the same way.
+        run_pin = dict(kv.split("=", 1) for kv in BOUNDED_RUN_PIN.read_text().split())
+        self.assertEqual(run_pin.get("leo-workspace"), pin.get("leo-workspace"), "bounded_run.pin and shell_tree.pin "
+                         "name different leo-workspace commits")
+        self.assertEqual(hashlib.sha256(BOUNDED_RUN.read_bytes()).hexdigest(), run_pin.get("sha256"),
+                         "bounded_run.py was edited here: change leo-workspace tools/bounded_run.py, then copy it here")
 
     def test_an_app_name_excuses_only_app_names(self):
         self.assertTrue(app_named('sock="/tmp/cmux-debug-$tag.sock"'))

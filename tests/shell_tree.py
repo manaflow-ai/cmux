@@ -22,6 +22,7 @@ The source is teamleaderleo/leo-workspace tools/shell_tree.py: change it there, 
 manaflow-ai/cmux-platform test/node/ and manaflow-ai/cmuxterm-hq tests/ vendor it byte for byte, each with a
 shell_tree.pin beside it naming the leo-workspace commit it was copied from and its SHA-256; each repo's sweep checks
 its copy against that pin, and leo-workspace's VendoredCopies test checks each copy against this file at that commit.
+Each copy has tools/bounded_run.py's copy beside it too (bounded_run.pin), which bash_writes() loads by its path.
 
 Run as a script it reads a JSON list of strings on stdin and prints the list of their scan_text(code(...))
 (cmux-platform's TypeScript sweep runs it so); --corpus, --file-corpus, --files, --unparsed, --bash, --no-oracle
@@ -35,8 +36,6 @@ import os
 import re
 import shutil
 import shlex
-import signal
-import subprocess
 import sys
 import tempfile
 import threading
@@ -1991,118 +1990,9 @@ MAX_BASH_PROCESSES = 48
 PROCESS_BUDGET = 64
 
 
-# Runs bash (argv[3:]) in a session of its own, writes its pid to argv[2], and waits for it and every process it
-# leaves: as the child subreaper (Linux), every orphan of the run is its child, a setsid one included, so it waits
-# until none is left. Past argv[1] seconds it kills every process below it, and exits 124. Elsewhere it kills bash's
-# process group and what /proc or ps shows below it.
-REAPER = r"""
-import ctypes, os, signal, subprocess, sys, time
-deadline = time.monotonic() + float(sys.argv[1])
-try:
-    ctypes.CDLL(None, use_errno=True).prctl(36, 1, 0, 0, 0)  # PR_SET_CHILD_SUBREAPER
-except (AttributeError, OSError):
-    pass
-signal.pthread_sigmask(signal.SIG_BLOCK, [signal.SIGCHLD])
-bash = subprocess.Popen(sys.argv[3:], start_new_session=True, env=dict(os.environ, SHELL_TREE_ROOT=str(os.getpid())))
-with open(sys.argv[2], "w") as f:
-    f.write(str(bash.pid))
-
-
-def below():
-    kids = {}
-    if os.path.isdir("/proc/self"):
-        for d in os.listdir("/proc"):
-            try:
-                with open("/proc/" + d + "/stat") as f:
-                    kids.setdefault(int(f.read().rsplit(")", 1)[1].split()[1]), []).append(int(d))
-            except (OSError, ValueError, IndexError):
-                continue
-    else:
-        ps = subprocess.run(["ps", "-Ao", "pid=,ppid="], stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                            timeout=10)
-        for line in ps.stdout.split("\n"):
-            if len(line.split()) == 2:
-                kids.setdefault(int(line.split()[1]), []).append(int(line.split()[0]))
-    out, todo = [], [os.getpid()]
-    while todo:
-        for pid in kids.get(todo.pop(), []):
-            out.append(pid)
-            todo.append(pid)
-    return out
-
-
-def reap(block):
-    try:
-        while os.waitpid(-1, 0 if block else os.WNOHANG)[0]:
-            block = False
-        return True
-    except ChildProcessError:
-        return False
-
-
-while reap(False):
-    left = deadline - time.monotonic()
-    if left <= 0:
-        try:
-            os.killpg(bash.pid, signal.SIGKILL)
-        except OSError:
-            pass
-        while True:
-            for pid in below():
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
-            if not reap(True):
-                os._exit(124)
-    signal.sigtimedwait([signal.SIGCHLD], min(left, 0.05))
-os._exit(0)
-"""
-# How long past its own deadline the reaper may take to stop before its own group is killed.
-REAPER_GRACE = 5
-
-
-def below(root: int) -> list[tuple[int, str]]:
-    """(pid, state) of every process below ROOT, from /proc (Linux) or ps: as the reaper reads them."""
-    kids: dict[int, list] = {}
-    if os.path.isdir("/proc/self"):
-        for d in os.listdir("/proc"):
-            try:
-                with open("/proc/" + d + "/stat") as f:
-                    fields = f.read().rsplit(")", 1)[1].split()
-                kids.setdefault(int(fields[1]), []).append((int(d), fields[0]))
-            except (OSError, ValueError, IndexError):
-                continue
-    else:
-        ps = subprocess.run(["ps", "-Ao", "pid=,ppid=,state="], stdin=subprocess.DEVNULL, capture_output=True,
-                            text=True, timeout=10)
-        for line in ps.stdout.split("\n"):
-            if len(line.split()) == 3:
-                pid, ppid, state = line.split()
-                kids.setdefault(int(ppid), []).append((int(pid), state[0]))
-    out, todo = [], [root]
-    while todo:
-        for pid, state in kids.get(todo.pop(), []):
-            out.append((pid, state))
-            todo.append(pid)
-    return out
-
-
-def kill_below(root: int, seconds: float = REAPER_GRACE) -> list[int]:
-    """SIGKILL every process below ROOT, again as long as one is left (a fork between reads), for at most SECONDS; the
-    pids of those still alive then (none, unless one cannot die). A zombie is dead: ROOT reaps it, or init once ROOT
-    is gone."""
-    end = time.monotonic() + seconds
-    while True:
-        live = [pid for pid, state in below(root) if state != "Z"]
-        if not live or time.monotonic() >= end:
-            return live
-        for pid in live:
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except OSError:
-                pass
-        time.sleep(0.01)
+# bash_writes() runs bash under tools/bounded_run.py, beside this file: it waits for bash and every process bash
+# leaves, a setsid one included, kills them all past the time, and says unknown when it cannot prove them gone. A copy
+# of this file that calls bash_writes() needs bounded_run.py beside it; the rest of this file never imports it.
 
 
 class OracleUnavailable(RuntimeError):
@@ -2127,6 +2017,41 @@ class BashTimeout(OracleUnavailable):
                               f"killed: {text}")
         self.reason, self.text, self.skipped = f"bash ran past its {timeout:g} s budget (ORACLE_SECONDS)", text, False
         self.pgid = pgid
+
+
+class BashUnknown(OracleUnavailable):
+    """A bash run bounded_run could not prove over (a process that would not die, a process list it could not read):
+    never a verdict, so the fixture fails closed."""
+
+    def __init__(self, text: str, reason: str):
+        RuntimeError.__init__(self, f"bash's run could not be proven over ({reason}): {text}")
+        self.reason, self.text, self.skipped = f"bash's run could not be proven over ({reason})", text, False
+
+
+def _bounded_run():
+    """bounded_run.py beside this file, loaded by its path: `python3 -I shell_tree.py` (cmux-platform's sweep) puts no
+    script folder on sys.path, and a bounded_run found anywhere else would not be the pinned copy."""
+    import importlib.util
+    mod = sys.modules.get("bounded_run")
+    here = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bounded_run.py")
+    if mod is not None and os.path.realpath(getattr(mod, "__file__", "")) == os.path.realpath(here):
+        return mod
+    spec = importlib.util.spec_from_file_location("bounded_run", here)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["bounded_run"] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def bounded(argv: list[str], text: str, timeout: float, **kw):
+    """bounded_run.run(ARGV, TIMEOUT, **KW) for bash on fixture TEXT: BashTimeout past TIMEOUT, BashUnknown when the
+    run cannot be proven over."""
+    got = _bounded_run().run(argv, timeout, capture=False, **kw)
+    if got.timed_out:
+        raise BashTimeout(text, timeout, got.pid)
+    if not got.ok:
+        raise BashUnknown(text, got.reason)
+    return got
 
 
 # The wrappers that stay as a process of their own around the command they run (timeout and GNU time wait for it;
@@ -2230,21 +2155,18 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
     no mktemp made; None when bash -n refuses TEXT or it would hold more than MAX_BASH_PROCESSES at once. Bash reads
     no stdin (it is /dev/null). TMPDIR is the scratch temp folder, the script's own included, so a mktemp that is not
     the fake makes its name there and "$TMPDIR/x" is a scratch path, never / (manaflow-ai/cmux-platform#1286 review,
-    F1); a ${TMPDIR:-...} default does not run. Bash runs under REAPER,
-    which waits for every process the run leaves; past TIMEOUT it kills each one, a setsid one included
-    (manaflow-ai/cmuxterm-hq#9393 review at 52412c22, F3), and BashTimeout names TEXT. STATS, when given, gets "runs"
-    (0 or 1) and "peak": the most processes bash's session held when a mktemp ran (on Linux)."""
+    F1); a ${TMPDIR:-...} default does not run. Bash runs under bounded_run, which waits for every process the run
+    leaves; past TIMEOUT it kills each one, a setsid one included (manaflow-ai/cmuxterm-hq#9393 review at 52412c22,
+    F3), and BashTimeout names TEXT. A run it cannot prove over (its reaper killed, a process it cannot account for:
+    manaflow-ai/cmux-platform#1286 review, F1) raises BashUnknown, never a verdict. STATS, when given, gets "runs"
+    (0 or 1) and "peak": the most processes the run held when a mktemp ran (on Linux)."""
     if stats is not None:
         stats.update(runs=0, peak=0)
     if bash_processes(text) > MAX_BASH_PROCESSES:
         return None
     bash = shutil.which("bash")
-    try:
-        if subprocess.run([bash, "-O", "extglob", "-n"], input=text, text=True, capture_output=True,
-                          timeout=timeout).returncode:
-            return None
-    except subprocess.TimeoutExpired:
-        raise BashTimeout(text, timeout, 0) from None
+    if bounded([bash, "-O", "extglob", "-n"], text, timeout, input=text).code:
+        return None
     root = tempfile.mkdtemp(prefix="shell-tree-")
     try:
         tmp, bindir, work = (os.path.join(root, d) for d in ("t", "bin", "work"))
@@ -2282,35 +2204,19 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
         errors = os.path.join(root, "errors")
         with open(os.path.join(root, "script"), "w") as f:
             # bash's own messages go to a file, so a fork that failed is told from an answer (cmux#41336 review)
-            f.write(f"exec 2>>'{errors}'\n" + script)
+            # The peak counter counts the processes below bash's parent, bounded_run's reaper: every orphan of the run,
+            # a setsid one included, is below it (a subreaper).
+            f.write(f"exec 2>>'{errors}'\nSHELL_TREE_ROOT=$PPID; export SHELL_TREE_ROOT\n" + script)
         env = {"PATH": bindir, "HOME": root, "USER": "u", "LC_ALL": "C", "TMPDIR": tmp}
         peak_log = os.path.join(root, "peak")
         if stats is not None:
             env["SHELL_TREE_PEAK"] = peak_log
-        # The reaper waits for every process the run leaves, process substitutions and setsid ones included, and
-        # past TIMEOUT kills them all. Its own group is killed if it outlives that by REAPER_GRACE.
-        pidfile = os.path.join(root, "pid")
-        run = subprocess.Popen([sys.executable, "-I", "-S", "-c", REAPER, str(timeout), pidfile, bash, "--noprofile",
-                                "--norc", os.path.join(root, "script")], cwd=work, env=env,
-                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                               start_new_session=True, umask=0o022)
+        # bounded_run waits for every process the run leaves, process substitutions and setsid ones included, and
+        # past TIMEOUT kills them all.
         if stats is not None:
             stats["runs"] = 1
-        try:
-            code = run.wait(timeout=timeout + REAPER_GRACE)
-        except subprocess.TimeoutExpired:
-            # The reaper outlived its own deadline. What it holds is killed first: once it is gone, its children (a
-            # setsid one included, in a session of its own) would be init's and out of reach (#4441 review, F6).
-            kill_below(run.pid)
-            os.killpg(run.pid, signal.SIGKILL)
-            try:
-                run.wait(timeout=REAPER_GRACE)
-            except subprocess.TimeoutExpired:
-                pass  # it cannot die (uninterruptible): BashTimeout names the fixture all the same
-            code = 124
-        if code == 124:
-            with open(pidfile) as f:
-                raise BashTimeout(text, timeout, int(f.read() or 0)) from None
+        bounded([bash, "--noprofile", "--norc", os.path.join(root, "script")], text, timeout, cwd=work, env=env,
+                umask=0o022)
         if os.path.exists(errors):
             with open(errors, errors="replace") as f:
                 if re.search(r"\bfork: ", f.read()):
