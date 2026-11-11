@@ -1329,7 +1329,8 @@ class Controller:
         failed: set[str] = set()
         for job in jobs:
             if (job.get("conclusion") or "") in reds:
-                failed |= self.expand_job(job["name"], job["id"], job if detail else None)
+                failed |= (self.expand_job(job["name"], job["id"], job) if detail
+                           else self.listed_job(job["name"], job["id"]))
         return sorted(failed)
 
     def job_log(self, job_id: int | str) -> str | None:
@@ -1341,12 +1342,42 @@ class Controller:
             got = self.gh.gh("api", route, check=False)
         return got.stdout if got.returncode == 0 else None
 
-    def expand_job(self, name: str, job_id: int | str, job: dict | None = None) -> set[str]:
+    def step_names(self, job: dict):
+        """base_red_excuse.step_owners' STEP_NAMES for JOB, read as judge reads them (workflow_step_names): its
+        workflow at its head_sha, by git alone (no API quota), at the path its run's record names (read once per
+        run). STEP_NAMES_UNKNOWN when no step's name starts with "Run " (the answer changes nothing) or the run or
+        workflow cannot be read. Both sides of a batch read their own (#40542's Codex F1 at 221c7e4d: without it, a
+        named "Run package tests (...)" step's red, the same on the base and the stack, was keyed as new)."""
+        unknown = base_red_excuse.STEP_NAMES_UNKNOWN
+        if not any(str(step.get("name") or "").startswith("Run ")  # step-name: validate
+                   for step in job.get("steps") or []) or not isinstance(job.get("run_id"), int):
+            return unknown
+        paths = self.__dict__.setdefault("run_paths", {})
+        if job["run_id"] not in paths:
+            try:
+                record = self.gh.api(f"repos/{self.args.repo}/actions/runs/{job['run_id']}")
+            except (RuntimeError, OSError, ValueError):
+                record = None
+            paths[job["run_id"]] = record.get("path") if isinstance(record, dict) else None
+        reads = self.__dict__.setdefault("workflow_reads", {})
+        return base_red_excuse.workflow_step_names(self.args.repo, job, paths[job["run_id"]], None, reads)
+
+    def listed_job(self, name: str, job_id: int | str) -> set[str]:
+        """A red job as a list names it, with no comparison (no job record to place its log by): CHECKS_JOB as each
+        red check its log lists, any other by its name."""
         if name.endswith(CHECKS_JOB):
             log = self.job_log(job_id) or ""
             return {f"{name}: {check}" for check in red_subchecks(log)} or {name}
+        return {name}
+
+    def expand_job(self, name: str, job_id: int | str, job: dict | None = None) -> set[str]:
+        """The keys a red job is compared with the base by, stack and base alike: each read from the failed_view of
+        its log (base_red_excuse.failed_view, the one reader of a log for every comparator), never from the raw log,
+        so a line a passing step printed is never a failure of the stack's or a red the base shares (#40542's seventh
+        Codex BLOCK, F1). The raw log is read only to key a red as this job's own: unreadable, no compile verdict, a
+        crash or a run cut short. A log failed_view does not place is keyed as this job's own too."""
         if job is None:
-            return {name}
+            return self.listed_job(name, job_id)
         if why := base_red_excuse.test_reds.lost_runner(job):
             # A lost runner is infra, not a verdict (test_reds.lost_runner): keyed by this job's id, never a base red,
             # and named so, since a re-run decides it.
@@ -1362,13 +1393,22 @@ class Controller:
         if base_red_excuse.no_verdict(log) is not None:
             # A compile check with no verdict compiled nothing: keyed by this job's id, it is never the base's.
             return {f"{name}: no compile verdict (job {job_id}, never a base red)"}
-        steps, tests, errors = base_red_excuse.signature(job, log)
         # A crash or a run cut short is never the base's (scripts/ci/test_reds.py): keyed by
         # this job's id, no base failure can match it, whatever the base shows.
         own = base_red_excuse.test_reds.read(log)
         if own.crashes or own.truncated:
             return {f"{name}: {why} (job {job_id}, never a base red)" for why in own.crashes + own.truncated[:1]}
-        crashes = base_red_excuse.crash_signals(log)  # test_reds covers cut-short evidence; this adds step signals.
+        view = base_red_excuse.failed_view(job, log, step_names=self.step_names(job))
+        if view is base_red_excuse.UNPLACED:
+            # No line of a log step_owners does not place is proven its failed step's, so its signature is not
+            # read: keyed by this job's id, a head's red is its own and a base's inherits nothing (#40542's Codex
+            # F1 at 76dc160c: a passing composite's Sources/New.swift on both sides hid a head's new failure).
+            return {f"{name}: log not placed by step (job {job_id}, never a base red)"}
+        if name.endswith(CHECKS_JOB):
+            checks = red_subchecks(base_red_excuse.view_text(view))
+            return {f"{name}: {check}" for check in checks} or {name}
+        steps, tests, errors = base_red_excuse.signature(view)
+        crashes = base_red_excuse.crash_signals(view)  # test_reds covers cut-short evidence; this adds step signals.
         if not tests and not errors and not crashes:
             # Only failed steps (a timeout, unparsed output): nothing to compare, as
             # base_red_excuse.judge refuses. The bare name matches only a base job just as opaque.

@@ -18,8 +18,10 @@ beforeAll(() => {
   scope.document = dom.window.document;
 });
 afterAll(() => {
-  scope.window = saved.window;
-  scope.document = saved.document;
+  for (const [key, value] of Object.entries(saved)) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
 });
 
 const backed: ClaimCheck = {
