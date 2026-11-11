@@ -213,6 +213,8 @@ fn the_action_and_trace_id_follow_the_message() {
             message: Some("It failed.".into()),
             action: Some("Run `cmux vm ls`.".into()),
             trace_id: Some("t-1".into()),
+            retryable: None,
+            retry_after_s: None,
         }
     );
     // A blank action is none; the ui block's message and trace id win or fill in.
@@ -1838,5 +1840,52 @@ mod turn_checkpoints {
             Some("machine.turn_capture_not_found".into()),
             None
         )));
+    }
+
+    /// Every code of cmux-platform's refusal table (cmux-platform#1192) as a turn's step
+    /// handles it: the body's `retryable` decides (a busy machine's 409 and an outage's 503 are
+    /// sent again, a cap's 403 and a final 503 are not), and a rate limit's 429 is retried too.
+    #[test]
+    fn every_platform_refusal_is_retried_as_its_body_says() {
+        use cmux_cloud_machine::refusals::{Handling, PLATFORM};
+        for row in PLATFORM {
+            let body = json!({
+                "_tag": "MachineRefusal", "code": row.code, "message": "m",
+                "retryable": row.retryable,
+            });
+            assert_eq!(
+                retryable(&refusal(row.status, Some(&body))),
+                row.handling() != Handling::Final,
+                "{} {}",
+                row.status,
+                row.code
+            );
+        }
+        // An outage on a workspace machine route: #1192's MachineUnavailable says retry.
+        let outage = json!({
+            "_tag": "MachineUnavailable", "code": "machine.placement_unavailable",
+            "message": "Placement could not finish. Retry with the same client key.",
+            "retryable": true, "cause": "cloud.provider.unavailable: down",
+        });
+        assert!(retryable(&refusal(503, Some(&outage))));
+        // A rate limit waits its own window, not the pace's pause.
+        let limited = refusal(
+            429,
+            Some(&json!({
+                "_tag": "MachineRateLimited", "code": "cloud.rate_limited", "message": "m",
+                "retryable": true, "retryAfterSeconds": 3,
+            })),
+        );
+        assert_eq!(turns::wait(&limited, fast()), Duration::from_secs(3));
+        assert_eq!(turns::wait(&Failure::http(503, None, None), fast()), fast().pause);
+        // A 429 whose window is only in its Retry-After header waits that window, not the default.
+        let header_only = turns::refusal_with(
+            429,
+            Some(
+                &json!({ "_tag": "MachineRateLimited", "code": "cloud.rate_limited", "retryable": true }),
+            ),
+            Some("120"),
+        );
+        assert_eq!(turns::wait(&header_only, fast()), Duration::from_secs(120));
     }
 }
