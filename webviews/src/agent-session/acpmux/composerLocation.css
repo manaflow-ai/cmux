@@ -486,15 +486,16 @@
 :is(.acpmux-composer, .nt-composer) .acpmux-access-trigger > .acpmux-icon:first-child {
   margin-inline: var(--acpmux-shield-room);
 }
-/* New Tab's folder icon drew 14 px. On the default strip it centers on + and the shield (the icon
-   column, test/newtab-icon-column.test.ts): it keeps the 14 px box's center, and the project badge
-   centers there too. On a top strip variant its ink starts on the + glyph's edge
-   (composer-top-strip-variants.test.ts), and New Tab's + went from 18 px to 16, so that edge moved
-   1 px in: the icon moves with it. The chat's + kept 16 px, so the chat's folder keeps its place. */
-:root:not([data-top-strip]) .nt-composer :is(.acpmux-location-button, .acpmux-location-readonly) > .ui-ghost-icon:first-child {
+/* A location icon (the folder first) drew 14 px. On the default strip it centers on + and the
+   shield (the icon column: test/newtab-icon-column.test.ts, composer-plus-geometry.test.ts), so it
+   keeps the 14 px box's center, and the project badge centers there too. On a top strip variant its
+   ink starts on the + glyph's edge (composer-top-strip-variants.test.ts): the chat's + kept 16 px,
+   so the chat's icon keeps its place; New Tab's + went from 18 px to 16, so that edge moved 1 px in
+   and the icon moves with it. */
+:root:not([data-top-strip]) :is(.acpmux-composer, .nt-composer) :is(.acpmux-location-button, .acpmux-location-readonly) > .ui-ghost-icon:first-child {
   margin-inline: var(--acpmux-location-room);
 }
-:root:not([data-top-strip]) .nt-composer .acpmux-location-button {
+:root:not([data-top-strip]) :is(.acpmux-composer, .nt-composer) .acpmux-location-button {
   --acpmux-location-icon-center: calc(var(--ui-ghost-inset) - var(--ui-ghost-bearing) + var(--acpmux-location-box) / 2);
 }
 :root[data-top-strip] .nt-composer :is(.acpmux-location-button, .acpmux-location-readonly) > .ui-ghost-icon:first-child {
