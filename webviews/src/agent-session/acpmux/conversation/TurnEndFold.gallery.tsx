@@ -1,15 +1,15 @@
 // l10n-allow-file: gallery fixtures (sample prompts, commands and replies), not shipped UI.
-// A turn's work stays in sight while the turn runs and folds once, in one motion, when it ends (Leo,
-// 2026-11-08: "while you're working on stuff, you expose it. You show it ... and you only do the
-// overarching fold at the very end"). Run the turn: its calls arrive one by one, each in sight, a
-// short note between two runs on its own row; then the answer lands and the work folds under
-// "Worked for" on the house settle (turnEndFold.ts). The arms compare how the rows that fold go
-// (`data-turn-end-fold`): `fade`, shipped, fades each where it was while the answer and the rows
-// above slide to the folded line; `tuck` slides them up under the line as they fade; `stagger` fades
-// them from the last up. `live` stops before the end: the work in sight, nothing folded. The `-long`
-// states run a longer turn (a third run of calls) whose fold moves the answer far enough that the
-// fold's clock grows past the settle's 180 ms (turnEndFold.ts `turnEndFoldTiming`): each frame keeps
-// under 0.6 of a line, and nothing is drawn back as the clock grows.
+// A turn's work stays in sight while the turn runs and folds once, in place, when it ends (Leo,
+// 2026-11-08: "you only do the overarching fold at the very end"; 2026-11-11: "It should just be
+// there, because it already was there. Now all you're doing is just moving [stuff] around. So, like,
+// it should not be slow. It should not look like a PowerPoint transition slide fade-in."). Run the
+// turn: its calls arrive one by one, each in sight, a short note between two runs on its own row;
+// then the answer lands and each run folds under its own "Worked for" where it ran (turnEndFold.ts).
+// The arms compare how the fold moves (`data-turn-end-fold`), each on the fold's 120 ms clock:
+// `collapse`, shipped, the rows that go leave at once and the answer and the rows above close the gap;
+// `clip`, the rows that go are clipped shut from their bottom where they were; `snap`, no motion.
+// `live` stops before the end: the work in sight, nothing folded. The `-long` states run a longer
+// turn (a third run of calls) whose fold moves the rows above far.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -181,7 +181,7 @@ function TurnEndFoldGallery({ variant, long = false }: { variant: Variant; long?
       timers.current.push(window.setTimeout(() => setSteps(step), (step - done) * 140));
     if (variant === "live") return;
     timers.current.push(window.setTimeout(() => setEnded(true), (played + 2) * 140));
-    // The fold plays on the house settle (180 ms, longer for a long move); the line reads done once it has.
+    // The fold plays on its 120 ms clock; the line reads done once it has.
     timers.current.push(window.setTimeout(() => setState("folded"), (played + 2) * 140 + 800));
   };
   return (
@@ -248,12 +248,12 @@ export default componentEntry<{ variant: Variant; long?: boolean }>({
       import("../composerControls.css"),
     ]),
   variants: {
-    fade: { props: { variant: "fade" }, play: runToFold },
-    tuck: { props: { variant: "tuck" }, play: runToFold },
-    stagger: { props: { variant: "stagger" }, play: runToFold },
+    collapse: { props: { variant: "collapse" }, play: runToFold },
+    clip: { props: { variant: "clip" }, play: runToFold },
+    snap: { props: { variant: "snap" }, play: runToFold },
     live: { props: { variant: "live" }, play: runLive },
-    "fade-long": { props: { variant: "fade", long: true }, play: runToFold },
-    "tuck-long": { props: { variant: "tuck", long: true }, play: runToFold },
-    "stagger-long": { props: { variant: "stagger", long: true }, play: runToFold },
+    "collapse-long": { props: { variant: "collapse", long: true }, play: runToFold },
+    "clip-long": { props: { variant: "clip", long: true }, play: runToFold },
+    "snap-long": { props: { variant: "snap", long: true }, play: runToFold },
   },
 });
