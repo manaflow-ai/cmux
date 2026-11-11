@@ -139,7 +139,8 @@ class DecoyEnvironment(unittest.TestCase):
         self.assertFixtureRepo(self.work / "clone", 1)
 
     def test_each_config_redirect_alone(self):
-        """GIT_CONFIG, GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM and a -c pair, one at a time: none takes the write."""
+        """GIT_CONFIG, GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM and a -c pair, one at a time: init and clone write the opt-out
+        into the fixture repository's own config, and the file the variable names stays untouched."""
         base = {key: value for key, value in self.env.items()
                 if key in ("PATH", "HOME", "TMPDIR", "LANG", "LC_ALL")}
         single = {
@@ -159,18 +160,24 @@ class DecoyEnvironment(unittest.TestCase):
                         script = ("import importlib.util, sys\n"
                                   "spec = importlib.util.spec_from_file_location('g', sys.argv[1])\n"
                                   "m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)\n"
-                                  "m.init_repo(sys.argv[2] + '/repo')\n")
+                                  "m.init_repo(sys.argv[2] + '/repo')\n"
+                                  "m.clone_repo(sys.argv[2] + '/repo', sys.argv[2] + '/clone')\n")
                         argv = [sys.executable, "-I", "-c", script, str(MODULE), str(work)]
                     else:
-                        argv = ["bash", "-c", 'set -euo pipefail; source "$1"; git_fixture_init "$2/repo"', "_",
+                        argv = ["bash", "-c", 'set -euo pipefail; source "$1"; git_fixture_init "$2/repo"; '
+                                'git_fixture_clone "$2/repo" "$2/clone"', "_",
                                 str(LIB), str(work)]
+                    # Each case starts from the decoys as they are now, so one case's write does not fail the next.
+                    self.before = {"decoy repository": digest(self.decoy)}
+                    self.before.update({key: digest(path) for key, path in self.files.items()})
                     done = subprocess.run(argv, env=env, cwd=self.tmp, capture_output=True, text=True,
                                           timeout=120, stdin=subprocess.DEVNULL)
                     self.assertDecoysUntouched(done)
                     self.assertEqual(done.returncode, 0, done.stderr)
-                    local = (work / "repo" / ".git" / "config").read_text()
-                    self.assertIn("auto = false", local, "the opt-out did not reach the fixture's own config")
-                    self.assertNotIn("decoy", local)
+                    for made in ("repo", "clone"):
+                        local = (work / made / ".git" / "config").read_text()
+                        self.assertIn("auto = false", local, f"the opt-out did not reach the {made}'s own config")
+                        self.assertNotIn("decoy", local)
 
     def test_write_env_drops_every_redirect_and_pair(self):
         script = ("import importlib.util, json, os, sys\n"
