@@ -431,9 +431,19 @@ await requireBrowserLane("agent-pane-composer-dock-motion.test.ts", async () => 
 
   // (a'') The reader's input wins over the rise: a wheel up while a line's growth still raises the rows
   // at the latest row freezes them where they are painted, from the first frame after the wheel, with no
-  // jump at the cancel, and the card grows on over them. Every frame after the wheel the rows move only
-  // by the reader's own scroll (their screen step is the scroll's), or not at all (the lift handed over
-  // to scrollTop moves nothing on screen).
+  // jump at the cancel, and the card grows on over them. After the wheel the thread's drawn offset (the
+  // rise, or the follow chase holding what the rise drew) never moves: every row's step on screen is the
+  // reader's scroll. The lift is handed to the offset as room in the frame following stops (an offset
+  // write of the page's that moves nothing on screen); a write clipped short at the content's end would
+  // move the rows by what it lost, which stays within a pixel (layout rounds the room's fraction).
+  type Interrupt = {
+    dDrawn: number;
+    dLayout: number;
+    written: number;
+    clipped: number;
+    rowDy: number;
+    dScroll: number;
+  };
   for (const [name] of engines)
     for (const lagging of [false, true])
       test(`${name}, overlay${lagging ? ", lagging" : ""}: a wheel up mid-growth freezes the rising rows`, async () => {
@@ -450,7 +460,7 @@ await requireBrowserLane("agent-pane-composer-dock-motion.test.ts", async () => 
         await page.evaluate(() => {
           const w = window as unknown as {
             __wheel: { at: number; midGrowth: boolean } | undefined;
-            __after: { rowDy: number; dScroll: number }[];
+            __after: Interrupt[];
             __stop: () => void;
           };
           w.__wheel = undefined;
@@ -467,54 +477,89 @@ await requireBrowserLane("agent-pane-composer-dock-motion.test.ts", async () => 
             },
             { capture: true },
           );
-          let last: { scroll: number; rows: Map<Element, number> } | undefined;
+          // The page's own writes to the offset: what they moved it, and what of each was clipped.
+          let written = 0;
+          let clipped = 0;
+          const own = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
+          Object.defineProperty(scroller, "scrollTop", {
+            configurable: true,
+            get: () => own.get!.call(scroller) as number,
+            set: (value: number) => {
+              const before = own.get!.call(scroller) as number;
+              own.set!.call(scroller, value);
+              const moved = (own.get!.call(scroller) as number) - before;
+              written += moved;
+              clipped = Math.max(clipped, Math.abs(Math.round(value) - before - moved));
+            },
+          });
+          // The thread's drawn offset over its layout (an inline translate, a rise's composite one).
+          const drawnY = () => {
+            const value = getComputedStyle(thread).translate;
+            return value && value !== "none" ? Number.parseFloat(value.split(" ")[1] ?? "") || 0 : 0;
+          };
+          let last: { scroll: number; drawn: number; rows: Map<Element, number> } | undefined;
           w.__stop = window.cmuxAfterPaint(() => {
             const view = scroller.getBoundingClientRect();
+            const scroll = own.get!.call(scroller) as number;
+            const drawn = drawnY();
             const rows = new Map<Element, number>();
             for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-thread > .acpmux-row")) {
               const rect = row.getBoundingClientRect();
               if (rect.height > 0.5 && rect.bottom > view.top && rect.top < view.bottom) rows.set(row, rect.top);
             }
-            const scroll = scroller.scrollTop;
             if (last && w.__wheel) {
               let rowDy = 0;
               for (const [row, top] of rows) {
                 const before = last.rows.get(row);
                 if (before !== undefined && Math.abs(top - before) > Math.abs(rowDy)) rowDy = top - before;
               }
-              w.__after.push({ rowDy, dScroll: scroll - last.scroll });
+              const dScroll = scroll - last.scroll;
+              const dDrawn = drawn - last.drawn;
+              // The rows' move in the content, apart from what is drawn over it.
+              const dLayout = rowDy + dScroll - dDrawn;
+              w.__after.push({ dDrawn, dLayout, written, clipped, rowDy, dScroll });
             }
-            last = { scroll, rows };
+            last = { scroll, drawn, rows };
+            written = 0;
+            clipped = 0;
           });
         });
         // A new line starts a growth that raises the rows; the wheel comes while it plays.
         await page.keyboard.press("Shift+Enter");
+        await page.waitForFunction(
+          () =>
+            document
+              .querySelector(".acpmux-thread")
+              ?.getAnimations()
+              .some((animation) => animation.playState === "running") === true,
+          undefined,
+          { polling: "raf", timeout: 2_000 },
+        );
         await page.mouse.wheel(0, -320);
         // fixed-wait: the growth's curve and the wheel's scroll come to rest.
         await page.waitForTimeout(900);
         const result = await page.evaluate(() => {
           const w = window as unknown as {
             __wheel: { at: number; midGrowth: boolean } | undefined;
-            __after: { rowDy: number; dScroll: number }[];
+            __after: Interrupt[];
             __stop: () => void;
           };
           w.__stop();
-          // A frame the rows moved on screen by other than the reader's scroll: a rise played on, or a
-          // jump at the cancel.
-          let rowMovedFrames = 0;
-          let maxOwnStep = 0;
-          for (const { rowDy, dScroll } of w.__after) {
-            const own = Math.abs(rowDy + dScroll);
-            if (Math.abs(rowDy) > 0.5 && own > 0.5) {
-              rowMovedFrames += 1;
-              maxOwnStep = Math.max(maxOwnStep, own);
-            }
-          }
+          const round = (value: number) => Math.round(value * 100) / 100;
+          // A frame a row moved by other than the reader's scroll: the drawn offset moved (a rise played
+          // on, a jump at its cancel), or the handover's write was clipped by more than layout rounding.
+          const moved = w.__after.filter(({ dDrawn, clipped }) => Math.abs(dDrawn) > 0.5 || clipped > 1);
           return {
             midGrowth: w.__wheel?.midGrowth ?? false,
             frames: w.__after.length,
-            rowMovedFrames,
-            maxOwnStep: Math.round(maxOwnStep * 10) / 10,
+            rowMovedFrames: moved.length,
+            maxClipped: Math.max(0, ...w.__after.map(({ clipped }) => clipped)),
+            moved: moved
+              .slice(0, 4)
+              .map((frame) => Object.fromEntries(Object.entries(frame).map(([key, value]) => [key, round(value)]))),
+            first: w.__after
+              .slice(0, 4)
+              .map((frame) => Object.fromEntries(Object.entries(frame).map(([key, value]) => [key, round(value)]))),
           };
         });
         const scrolled = await scroller.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop);
