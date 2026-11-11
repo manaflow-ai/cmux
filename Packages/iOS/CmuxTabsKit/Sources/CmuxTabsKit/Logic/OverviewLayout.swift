@@ -144,13 +144,20 @@ struct OverviewLayout: Equatable, Sendable {
 
     /// The scroll offset in `resized` (this grid at a new width: a foldable
     /// folding or unfolding under a settled grid) that keeps the grid's
-    /// place: the first card still on screen below the top controls at
-    /// `offset` sits as far below the screen's top as it did, clamped to the
-    /// content. A grid at its top stays at its top.
+    /// place: the first card, pinned or not, still showing below the first
+    /// row's line at `offset` sits as far from that line as it did, clamped
+    /// to the content. A grid at its top stays at its top. Card positions are
+    /// read from the first row's line (`pinnedTop`), so a safe area that
+    /// changes with the fold moves nothing: every card sits a fixed distance
+    /// below it.
     func offset(keepingPlace offset: CGFloat, in resized: OverviewLayout) -> CGFloat {
-        guard offset > 0, let first = (0..<count).first(where: { card($0).maxY > offset + top }) else { return 0 }
-        let below = card(first).minY - offset
-        return min(resized.maxOffset, max(0, resized.card(first).minY - below))
+        guard offset > 0 else { return 0 }
+        let height = { (i: Int) in i < self.pinned ? Self.pinnedHeight : self.card(i).height + Self.titleRow }
+        guard let first = (0..<count).first(where: { card($0).minY + height($0) - pinnedTop > offset }) else {
+            return resized.maxOffset
+        }
+        let below = card(first).minY - pinnedTop - offset
+        return min(resized.maxOffset, max(0, resized.card(first).minY - resized.pinnedTop - below))
     }
 }
 

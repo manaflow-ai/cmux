@@ -159,7 +159,8 @@ struct OverviewLayoutTests {
         // Folded, scrolled so card 20 (row 10) leads the screen.
         let atTwenty = folded.card(20).minY - folded.top
         let wide = folded.offset(keepingPlace: atTwenty, in: unfolded)
-        #expect(abs(unfolded.card(20).minY - wide - (folded.card(20).minY - atTwenty)) < 1e-9)
+        // Card 20 is on the first row's line again (the safe area changes with the fold).
+        #expect(abs(unfolded.card(20).minY - unfolded.pinnedTop - wide) < 1e-9)
         #expect(wide > 0 && wide <= unfolded.maxOffset)
         // And back: card 20 leads the folded screen again.
         let back = unfolded.offset(keepingPlace: wide, in: folded)
@@ -167,5 +168,19 @@ struct OverviewLayoutTests {
         // At the top it stays at the top; past the end it clamps to the content.
         #expect(folded.offset(keepingPlace: 0, in: unfolded) == 0)
         #expect(folded.offset(keepingPlace: folded.maxOffset, in: unfolded) == unfolded.maxOffset)
+    }
+
+    /// A grid scrolled into its pinned section keeps its place too: the
+    /// leading pinned capsule leads again, instead of the grid jumping to the top.
+    @Test func resizeKeepsThePinnedSectionsPlace() {
+        let unfolded = OverviewLayout(size: CGSize(width: 800, height: 700), safeTop: 24, safeBottom: 20, count: 110, pinned: 100)
+        let folded = OverviewLayout(size: CGSize(width: 402, height: 874), safeTop: 62, safeBottom: 34, count: 110, pinned: 100)
+        // Unfolded (4 columns), scrolled so pinned capsule 20 (row 5) is on the first row's line.
+        let at = unfolded.card(20).minY - unfolded.pinnedTop
+        let narrow = unfolded.offset(keepingPlace: at, in: folded)
+        // Folded (2 columns): capsule 20 (row 10) is on that line again, though the safe area changed.
+        #expect(abs(folded.card(20).minY - folded.pinnedTop - narrow) < 1e-9)
+        #expect(narrow > at)
+        #expect(abs(folded.offset(keepingPlace: narrow, in: unfolded) - at) < 1e-9)
     }
 }
