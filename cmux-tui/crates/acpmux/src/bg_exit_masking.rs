@@ -752,6 +752,37 @@ mod tests {
         assert_eq!(warns("bash -c 'cargo test' || true"), "|| true hides a failure");
     }
 
+    /// An ANSI-C quoted payload (`$'...'`) is decoded and read like any literal; one with an
+    /// escape it does not decode (`\x`, `\u`, octal, `\c`) is not read.
+    #[test]
+    fn an_ansi_c_payload_is_decoded_and_read() {
+        assert_eq!(warns("bash -c $'false; echo done'"), "last stage is echo");
+        assert_eq!(warns("bash -c $'cargo test\\necho \\'done\\''"), "last stage is echo");
+        assert_eq!(
+            warns("bash -c $'cargo test\\t| tee log'"),
+            "pipeline without pipefail, so the exit is tee's"
+        );
+        quiet("bash -c $'cargo test'");
+        quiet("bash -c $'cargo test \\x7c tee log'");
+        quiet("bash -o pipefail -c $'cargo test | tee log'");
+        quiet("printf $'%s\\n' a; cargo test");
+    }
+
+    /// `set -e` does not exit on a failure left of `&&` or `||` (bash's errexit exceptions), so a
+    /// failing command there is still hidden by a last-stage echo.
+    #[test]
+    fn errexit_does_not_cover_the_left_of_an_and_or() {
+        assert_eq!(warns("set -e; false && echo skipped; echo done"), "last stage is echo");
+        assert_eq!(
+            warns("set -euo pipefail\ncargo build || cargo clean\necho done"),
+            "last stage is echo"
+        );
+        quiet("set -e; false; echo done");
+        quiet("set -e; cargo test || exit 1; echo done");
+        quiet("set -e; cd x && cargo test; echo done");
+        quiet("set -e; echo a && cargo test; echo done");
+    }
+
     /// A heredoc's body is skipped: its `|` and `;` are text.
     #[test]
     fn heredoc_bodies_are_skipped() {
