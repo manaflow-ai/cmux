@@ -237,11 +237,19 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSButton get:needsLayout/0": {
+   "27.0.1": true,
+   "26.7": true
+  },
   "NSButton get:title/0": {
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
    "27.0.1": true
+  },
+  "NSButton set:needsLayout/1": {
+   "27.0.1": true,
+   "26.7": true
   },
   "NSButton set:title/1": {
    "26.5.2": true,
@@ -625,7 +633,8 @@
    "27.0.1": true
   },
   "NSSwitch call:performClick/1": {
-   "27.0.1": true
+   "27.0.1": true,
+   "26.7": true
   },
   "NSTableCellView call:layout/0": {
    "26.5.2": true,
@@ -1226,6 +1235,10 @@
    "27.0": true,
    "27.0.1": true
   },
+  "NSWindow call:constrainFrameRect/2:to": {
+   "27.0": true,
+   "26.5.2": true
+  },
   "NSWindow call:endEditing/1": {
    "26.5.2": true,
    "26.7": true,
@@ -1376,6 +1389,9 @@
    "27.0": true,
    "27.0.1": true
   },
+  "WKWebView call:otherMouseUp/1": {
+   "26.7": true
+  },
   "WKWebView call:performDragOperation/1": {
    "26.5.2": true,
    "26.7": true,
@@ -1386,6 +1402,9 @@
    "26.5.2": true,
    "26.7": true,
    "27.0": true,
+   "27.0.1": true
+  },
+  "WKWebView call:scrollWheel/1": {
    "27.0.1": true
   },
   "WKWebView call:willOpenMenu/2:with": {

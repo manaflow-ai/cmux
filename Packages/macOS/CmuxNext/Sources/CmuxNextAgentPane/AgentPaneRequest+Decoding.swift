@@ -12,6 +12,13 @@ extension AgentPaneRequest {
             && id.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "_" || $0 == "-") }
     }
 
+    /// A page's one-time hand-off token (webviews commandPlace.ts: a UUID): 16 to 64 ASCII letters,
+    /// digits and dashes, so it names a stored entry and carries nothing itself.
+    static func isHandoffToken(_ token: String) -> Bool {
+        (16...64).contains(token.count)
+            && token.unicodeScalars.allSatisfy { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || $0 == "-") }
+    }
+
     private static func uploadStage(_ method: String, _ params: [String: Any]?) -> AgentPaneRequest {
         guard let params else { return .unsupported(method) }
         switch method {
@@ -561,6 +568,8 @@ extension AgentPaneRequest {
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
         case AgentPaneTryAnotherApproach.method:
             self = AgentPaneTryAnotherApproach(params: params).map(AgentPaneRequest.tryAnotherApproach) ?? .unsupported(method)
+        case AgentPaneCloudTurnRewind.checkpointMethod, AgentPaneCloudTurnRewind.rewindMethod:
+            self = AgentPaneCloudTurnRewind(method: method, params: params).map(AgentPaneRequest.cloudTurnRewind) ?? .unsupported(method)
         case "chat.openTab":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id, AgentForkDestination(placement: params?["placement"] as? String)) } else { self = .unsupported(method) }
         case "chat.asks.open":
@@ -592,10 +601,13 @@ extension AgentPaneRequest {
             // An `environment` is New Cloud Machine's only, and a Cloud environment id (`env_…`);
             // any other is refused, never dropped (which would make a machine in another one).
             let environment = params?["environment"].map { $0 as? String }
+            // A `handoff` is New Cloud Chat's only, and a token; any other is refused, never dropped.
+            let handoff = params?["handoff"].map { $0 as? String }
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128,
                session.map({ $0.map { !$0.isEmpty && $0.count <= 256 } ?? false }) ?? true,
-               environment.map({ $0.map { id == "newCloudMachine" && AgentPaneRequest.isCloudEnvironmentID($0) } ?? false }) ?? true {
-                self = .runAction(id, session: session ?? nil, environment: environment ?? nil)
+               environment.map({ $0.map { id == "newCloudMachine" && AgentPaneRequest.isCloudEnvironmentID($0) } ?? false }) ?? true,
+               handoff.map({ $0.map { id == "palette.newCloudChat" && AgentPaneRequest.isHandoffToken($0) } ?? false }) ?? true {
+                self = .runAction(id, session: session ?? nil, environment: environment ?? nil, handoff: handoff ?? nil)
             } else {
                 self = .unsupported(method)
             }

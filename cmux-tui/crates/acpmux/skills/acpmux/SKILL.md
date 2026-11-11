@@ -228,6 +228,23 @@ the person's prompt. What the receiver gets depends on who you are to it:
 - `wait` right after `send --no-wait` waits for the turn the message brings;
   it never answers with the idle state from before the message.
 
+A Claude Code session acpmux did not start (the Claude desktop app's Code tab,
+a terminal `claude`) takes a stable name from its own shell (a Codex thread gets
+one by being started with acpmux):
+
+```bash
+acpmux register desktop-zoe            # in its Bash tool; then run the --code line it receives
+acpmux send --no-wait desktop-zoe "…"  # from any machine that peers this one: queued, retried, --status
+```
+
+The daemon checks who runs the shell by the kernel's process tree, never by
+what you type. A Claude Code session's message opens with its own
+`CLAUDE_CODE_MESSAGING_TOKEN` (the inbox Claude Code documents for a script or
+hook) and arrives as another session's message, under its inbound rules. While
+the app is closed the message waits as `bridge.not_running`; register again
+after the session restarts. Which harness can send, receive, steer and wake:
+`cmux-tui/crates/acpmux/docs/address-book.md`.
+
 Start an agent for a task (its own worktree and brief) with one command; running
 it again reuses the session and worktree and sends nothing:
 

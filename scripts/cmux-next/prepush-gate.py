@@ -162,6 +162,7 @@ CONTEXT = (
     PKG + "/Sources/CmuxNextIcons/Resources/icon-catalog.json",
     "cmux.xcodeproj/project.pbxproj",
     "cmux-next-ios/project.yml",
+    "schemas/motion-scale/motion-scale.json",  # check-motion-tokens.py reads the scale's steps
 )
 # Check code outside scripts/cmux-next: check-package-dependency-lists.py imports the masker from scripts/ (an installed
 # copy reads its own, beside it). Like the check code, it is the head's on both sides.
@@ -193,6 +194,9 @@ SCANNERS = (
     ("Type scale", ["python3", "-I", "{s}/check-swift-type-scale.py", "--root", "{root}",
                     "--baseline", "{s}/swift-type-scale-baseline.tsv"], (PKG + "/",)),
     ("Motion tokens", ["/bin/bash", "{s}/check-motion.sh", "{pkg}"], (PKG + "/",)),
+    ("Motion and colour tokens", ["python3", "-I", "{s}/check-motion-tokens.py", "--root", "{root}"],
+     # Only paths the gate diffs (SCOPES); CI's step reads the whole tree, the first-party apps and the Rust tokens.
+     (PKG + "/", "webviews/src/", "cmux-tui/crates/acpmux/web/")),
     ("Overlays are glass, never solid", ["python3", "-I", "{s}/check-overlay-glass.py", "{root}"], (PKG + "/",)),
     (SURFACE_MATERIALS_CHECK,
      ["python3", "-I", "{s}/check-surface-materials.py", "{root}"],
@@ -502,7 +506,13 @@ def release_download():
             return None
         spec = importlib.util.spec_from_file_location(name, script)
         module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        try:
+            spec.loader.exec_module(module)
+        except ImportError:
+            # The helper imports deadline_http.py from beside itself. A hook installed before that has an older
+            # refresh_checks.py, which rewrites the helper from feat-cmux-next but not deadline_http.py: download
+            # directly, as with no helper, until scripts/install-git-hooks.sh runs again.
+            return None
         sys.modules[name] = module
     return sys.modules[name]
 

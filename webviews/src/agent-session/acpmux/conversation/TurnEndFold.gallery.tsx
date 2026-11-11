@@ -6,7 +6,10 @@
 // "Worked for" on the house settle (turnEndFold.ts). The arms compare how the rows that fold go
 // (`data-turn-end-fold`): `fade`, shipped, fades each where it was while the answer and the rows
 // above slide to the folded line; `tuck` slides them up under the line as they fade; `stagger` fades
-// them from the last up. `live` stops before the end: the work in sight, nothing folded.
+// them from the last up. `live` stops before the end: the work in sight, nothing folded. The `-long`
+// states run a longer turn (a third run of calls) whose fold moves the answer far enough that the
+// fold's clock grows past the settle's 180 ms (turnEndFold.ts `turnEndFoldTiming`): each frame keeps
+// under 0.6 of a line, and nothing is drawn back as the clock grows.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -52,6 +55,16 @@ const SECOND: AcpmuxActivity[] = [
   command("fold-c5", "Checked the types", "bunx tsc --noEmit -p ."),
 ];
 
+/// The long turn's third run: enough work that its fold moves the answer far.
+const THIRD: AcpmuxActivity[] = [
+  read("fold-r3", "src/net/jitter.ts"),
+  command("fold-c6", "Ran the jitter case again", "bun test test/retry.test.ts -t jitter"),
+  read("fold-r4", "test/retry.test.ts"),
+  command("fold-c7", "Ran the retry tests again", "bun test test/retry.test.ts"),
+  command("fold-c8", "Ran the whole suite again", "bun test test/net"),
+  command("fold-c9", "Checked the types again", "bunx tsc --noEmit -p ."),
+];
+
 /// The chat's earlier turns, so the folded turn sits low in a view that scrolls.
 const HISTORY: AcpmuxRow[] = Array.from({ length: 4 }, (_, index) => [
   {
@@ -72,7 +85,7 @@ const HISTORY: AcpmuxRow[] = Array.from({ length: 4 }, (_, index) => [
 ]).flat();
 
 /// The turn after `steps` of its calls, and whether it ended.
-function turnRows(steps: number, ended: boolean): AcpmuxRow[] {
+function turnRows(steps: number, ended: boolean, long = false): AcpmuxRow[] {
   const rows: AcpmuxRow[] = [
     ...HISTORY,
     { id: "fold-user", kind: "user", version: 1, at: at(60), text: "Fix the flaky retry test" },
@@ -105,6 +118,16 @@ function turnRows(steps: number, ended: boolean): AcpmuxRow[] {
       items: second,
       toolCount: second.length,
     });
+  const third = long ? THIRD.slice(0, Math.max(0, steps - FIRST.length - SECOND.length)) : [];
+  if (third.length)
+    rows.push({
+      id: "fold-run-3",
+      kind: "activity",
+      version: third.length,
+      at: at(80),
+      items: third,
+      toolCount: third.length,
+    });
   if (ended)
     rows.push(
       {
@@ -121,7 +144,7 @@ function turnRows(steps: number, ended: boolean): AcpmuxRow[] {
         at: at(91),
         status: "completed",
         durationMs: 31_000,
-        toolCount: 7,
+        toolCount: long ? 7 + THIRD.length : 7,
       },
     );
   return rows;
@@ -129,7 +152,8 @@ function turnRows(steps: number, ended: boolean): AcpmuxRow[] {
 
 const STEPS = FIRST.length + SECOND.length;
 
-function TurnEndFoldGallery({ variant }: { variant: Variant }) {
+function TurnEndFoldGallery({ variant, long = false }: { variant: Variant; long?: boolean }) {
+  const turnSteps = long ? STEPS + THIRD.length : STEPS;
   const [steps, setSteps] = useState(0);
   const [ended, setEnded] = useState(false);
   const [state, setState] = useState<"ready" | "running" | "folded">("ready");
@@ -137,24 +161,28 @@ function TurnEndFoldGallery({ variant }: { variant: Variant }) {
   useEffect(() => () => timers.current.forEach((timer) => window.clearTimeout(timer)), []);
   const rows = useMemo(
     () =>
-      turnView(turnRows(steps, ended), new Set(), {
+      turnView(turnRows(steps, ended, long), new Set(), {
         working: state === "running" && !ended,
         agentFamily: "claude",
         now: at(95),
       }),
-    [steps, ended, state],
+    [steps, ended, state, long],
   );
   const start = () => {
     timers.current.forEach((timer) => window.clearTimeout(timer));
+    // The long turn starts with its first two runs done and plays only the third, so it ends as soon as
+    // the short one (gallery health's ready-time budget) and folds the whole turn's work: the long move.
+    const done = long ? STEPS : 0;
+    const played = turnSteps - done;
     setEnded(false);
-    setSteps(0);
+    setSteps(done);
     setState("running");
-    for (let step = 1; step <= STEPS; step += 1)
-      timers.current.push(window.setTimeout(() => setSteps(step), step * 140));
+    for (let step = done + 1; step <= turnSteps; step += 1)
+      timers.current.push(window.setTimeout(() => setSteps(step), (step - done) * 140));
     if (variant === "live") return;
-    timers.current.push(window.setTimeout(() => setEnded(true), (STEPS + 2) * 140));
-    // The fold plays on the house settle (180 ms); the line reads done once it has.
-    timers.current.push(window.setTimeout(() => setState("folded"), (STEPS + 2) * 140 + 600));
+    timers.current.push(window.setTimeout(() => setEnded(true), (played + 2) * 140));
+    // The fold plays on the house settle (180 ms, longer for a long move); the line reads done once it has.
+    timers.current.push(window.setTimeout(() => setState("folded"), (played + 2) * 140 + 800));
   };
   return (
     <div
@@ -188,7 +216,7 @@ function TurnEndFoldGallery({ variant }: { variant: Variant }) {
 /// Runs the turn to its end and waits for the fold.
 const runToFold: Play = async (ctx) => {
   await ctx.click({ testId: "turn-end-start" });
-  await ctx.waitFor(() => ctx.find({ testId: "turn-end-state" }).textContent === "Turn folded", { capMs: 4_000 });
+  await ctx.waitFor(() => ctx.find({ testId: "turn-end-state" }).textContent === "Turn folded", { capMs: 5_000 });
 };
 
 /// Runs the turn's calls and stops before its end: each one in sight.
@@ -197,7 +225,7 @@ const runLive: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.find({ testId: "turn-end-state" }).textContent === `Step ${STEPS}`, { capMs: 4_000 });
 };
 
-export default componentEntry<{ variant: Variant }>({
+export default componentEntry<{ variant: Variant; long?: boolean }>({
   id: "agent-pane.turn-end-fold",
   title: "Turn end fold",
   area: "Agent pane",
@@ -205,7 +233,7 @@ export default componentEntry<{ variant: Variant }>({
   anchors: [{ selector: "[data-testid=turn-end-start]" }],
   checks: {
     anchorMovePx: { value: 0, reason: "The turn's rows must not move the fixed control." },
-    settleMaxMs: { value: 4_000, reason: "The deterministic turn runs for about two seconds." },
+    settleMaxMs: { value: 5_000, reason: "The deterministic turn runs for about two seconds." },
   },
   covers: [
     "agent-session/acpmux/conversation/turnEndFold.ts#playTurnEnd",
@@ -224,5 +252,8 @@ export default componentEntry<{ variant: Variant }>({
     tuck: { props: { variant: "tuck" }, play: runToFold },
     stagger: { props: { variant: "stagger" }, play: runToFold },
     live: { props: { variant: "live" }, play: runLive },
+    "fade-long": { props: { variant: "fade", long: true }, play: runToFold },
+    "tuck-long": { props: { variant: "tuck", long: true }, play: runToFold },
+    "stagger-long": { props: { variant: "stagger", long: true }, play: runToFold },
   },
 });

@@ -34,6 +34,22 @@ impl Mux {
         *self.tab_changed_after_decorations.lock().unwrap_or_else(|e| e.into_inner()) = hook;
     }
 
+    /// The next `count` hosted readers' frame demultiplexers fail to start,
+    /// as a failed socket clone or thread spawn does.
+    #[cfg(test)]
+    pub(crate) fn fail_host_frames_spawns_for_test(&self, count: u64) {
+        self.host_frames_spawn_failures.store(count, Ordering::Release);
+    }
+
+    /// Whether this frame demultiplexer start fails
+    /// ([`Self::fail_host_frames_spawns_for_test`]).
+    #[cfg(test)]
+    pub(crate) fn take_host_frames_spawn_failure_for_test(&self) -> bool {
+        self.host_frames_spawn_failures
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |left| left.checked_sub(1))
+            .is_ok()
+    }
+
     #[cfg(test)]
     pub(super) fn last_resource_mutation_metrics(&self) -> ResourceMutationMetrics {
         self.resource_mutation_metrics
@@ -89,6 +105,51 @@ impl Mux {
         workspace_key: &str,
         on_exit: TerminalOnExit,
     ) -> anyhow::Result<SurfaceId> {
+        let surface =
+            self.place_running_terminal_for_test(terminal_id, incarnation, workspace_key, on_exit)?;
+        self.commit_ordinary_full_resource_projection(
+            &Actor::Daemon,
+            "test.terminal.seed",
+            serde_json::json!({}),
+        )?;
+        Ok(surface)
+    }
+
+    /// [`Self::seed_running_terminal_for_test`] for many terminals
+    /// (`(terminal_id, incarnation, workspace_key)`) with one projection at
+    /// the end, so a test can make a session of hundreds of terminals.
+    #[cfg(all(test, unix))]
+    pub(crate) fn seed_running_terminals_for_test(
+        self: &Arc<Self>,
+        terminals: &[(String, String, String)],
+    ) -> anyhow::Result<Vec<SurfaceId>> {
+        let mut surfaces = Vec::with_capacity(terminals.len());
+        for (terminal_id, incarnation, workspace_key) in terminals {
+            surfaces.push(self.place_running_terminal_for_test(
+                terminal_id,
+                incarnation,
+                workspace_key,
+                TerminalOnExit::Close,
+            )?);
+        }
+        self.commit_ordinary_full_resource_projection(
+            &Actor::Daemon,
+            "test.terminal.seed",
+            serde_json::json!({}),
+        )?;
+        Ok(surfaces)
+    }
+
+    /// The durable receipt, the placeholder runtime and the placement of one
+    /// seeded terminal; the caller commits the projection.
+    #[cfg(all(test, unix))]
+    fn place_running_terminal_for_test(
+        self: &Arc<Self>,
+        terminal_id: &str,
+        incarnation: &str,
+        workspace_key: &str,
+        on_exit: TerminalOnExit,
+    ) -> anyhow::Result<SurfaceId> {
         let mut registry = self.workspace_registry.lock().unwrap();
         commit_terminal_transition(
             &mut registry,
@@ -133,11 +194,6 @@ impl Mux {
         );
         drop(state);
         drop(registry);
-        self.commit_ordinary_full_resource_projection(
-            &Actor::Daemon,
-            "test.terminal.seed",
-            serde_json::json!({}),
-        )?;
         Ok(surface.id)
     }
 

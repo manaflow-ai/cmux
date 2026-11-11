@@ -1,4 +1,5 @@
 #if DEBUG && os(iOS)
+import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileTerminal
 import CmuxSpinner
@@ -12,9 +13,15 @@ import SwiftUI
 ///   whose action is the shared Retry, as the chats, checkpoints and command pages use;
 /// - `card`: the failure card, the connection banner with Retry, and the waiting card
 ///   a streamed simulator page shows;
+/// - `home`: Home's "Couldn't load" note with its capsule Retry, twice: one whose
+///   read answers at once (Home's retry before it waited for the read) and one
+///   whose read takes about a second (a real network answer);
 /// - `cloud`: a Cloud machine's connect wait (A, the screen's, with the two
 ///   variants it was picked from), its failure with the cause, and Cloud chats
-///   with no Mac to reach them through.
+///   with no Mac to reach them through;
+/// - `chiefoff`: Home's "Chief Is Off" card (the Cloud Chief's brain is off, as every new
+///   account's is): A, the one Home shows, in its four states (off, turning on, failed,
+///   unavailable on this account), then the variants it was picked from, B and C.
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
@@ -37,6 +44,12 @@ public struct RecoveryGalleryRoot: View {
                 cards
             case "cloud":
                 cloud
+            case "home":
+                home
+            case "chiefoff":
+                chiefOff
+            case "signedout":
+                signedOut
             default:
                 states
             }
@@ -59,6 +72,25 @@ public struct RecoveryGalleryRoot: View {
             }
         }
         .background(CmuxMobileTheme.standard.colors.bg.color)
+    }
+
+    private var home: some View {
+        VStack(spacing: 48) {
+            homeNote(id: "instant") {}
+            homeNote(id: "slow") { try? await ContinuousClock().sleep(for: .milliseconds(1200)) }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(CmuxMobileTheme.standard.colors.bg.color)
+    }
+
+    /// The Home list's problem row as ConversationsHome draws it.
+    private func homeNote(id: String, read: @escaping @MainActor () async -> Void) -> some View {
+        VStack(spacing: 6) {
+            Text(RecoveryMessage.home.text)
+                .font(.footnote)
+                .foregroundStyle(CmuxMobileTheme.standard.colors.label2.color)
+            RetryButton(action: read).accessibilityIdentifier("recoveryGallery.home.retry.\(id)")
+        }
     }
 
     /// A (picked): spinner, what it waits on, and the bound, counted up past 5 s.
@@ -97,14 +129,49 @@ public struct RecoveryGalleryRoot: View {
         .background(CmuxMobileTheme.standard.colors.bg.color)
     }
 
+    /// A (picked): SPEC 7.3's inline failure card, the shape every failure card in the
+    /// app has, so the state reads as something to act on, with its one button.
+    /// B: a centered note as Home's other notes (reads as fine print; easy to miss).
+    /// C: the Chief's row with the button trailing (reads as a chat, and a tap on the row
+    /// would open a Chief that does not answer).
+    private var chiefOff: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                galleryLabel("A · picked · off")
+                ChiefOffCardView(.off) {}.padding(.horizontal, 16)
+                galleryLabel("A · turning on")
+                ChiefOffCardView(.turningOn) {}.padding(.horizontal, 16)
+                galleryLabel("A · failed")
+                ChiefOffCardView(.failed) {}.padding(.horizontal, 16)
+                galleryLabel("A · unavailable on this account")
+                ChiefOffCardView(.unavailable) {}.padding(.horizontal, 16)
+                galleryLabel("B · note")
+                ChiefOffCardView(.off, style: .note) {}.padding(.horizontal, 16)
+                galleryLabel("C · row")
+                ChiefOffCardView(.off, style: .row) {}.padding(.horizontal, 16)
+            }
+            .padding(.vertical, 60)
+        }
+        .background(CmuxMobileTheme.standard.colors.bg.color)
+    }
+
     private func galleryLabel(_ text: String) -> some View {
         Text(text).font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20)
     }
 
+    /// The signed-out banner where the Workspaces list shows it (`-cmux-mobile-recovery-gallery signedout`).
+    private var signedOut: some View {
+        List {
+            ForEach(["cmux", "api", "web"], id: \.self) { Text($0) }
+        }
+        .cmuxMobileBanner(.signedOut, retry: {})
+    }
+
     private var cards: some View {
         VStack(spacing: 24) {
             ConnectionBanner(.offline, retry: {})
+            ConnectionBanner(.signedOut, retry: {})
             FailureCard(title: "Couldn't load your teams", message: "Check your connection, then retry.") {}
                 .padding(.horizontal, 20)
             VStack(spacing: 10) {

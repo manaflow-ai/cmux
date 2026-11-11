@@ -376,16 +376,14 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
 
     // MARK: Chief's questions
 
-    /// The bar under the header while Chief asks (``ChiefQuestionBar``).
+    /// The bar under the header: a failed turn, Chief unavailable, the Mac away (``ChiefQuestionBar``).
     lazy var questionBar: UIHostingController<ChiefQuestionBar> = {
-        var bar = ChiefQuestionBar(session: session) { [weak self] question in
-            self?.presentQuestion(question.id)
-        }
+        var bar = ChiefQuestionBar(session: session)
         bar.resized = { [weak self] in self?.view.setNeedsLayout() }
         bar.askCloudChief = { [weak self] in self?.askCloudChief() }
         bar.fading = { [weak self] out, duration in
             guard let self else { return }
-            UIView.animate(withDuration: duration) { self.topBand.alpha = out ? 0 : 1 }
+            Self.fadeBand(self.topBand, out: out, duration: duration, reduceMotion: UIAccessibility.isReduceMotionEnabled)
         }
         let host = UIHostingController(rootView: bar)
         host.view.backgroundColor = .clear
@@ -403,6 +401,18 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         band.alpha = 0
         return band
     }()
+
+    /// Fades the band behind the question bar with it; at once under Reduce Motion or with no
+    /// duration, so the system setting holds even when the bar's own reading of it lags.
+    static func fadeBand(_ band: UIView, out: Bool, duration: Double, reduceMotion: Bool) {
+        let alpha: CGFloat = out ? 0 : 1
+        guard duration > 0, !reduceMotion else {
+            band.layer.removeAllAnimations()
+            band.alpha = alpha
+            return
+        }
+        UIView.animate(withDuration: duration) { band.alpha = alpha }
+    }
 
     private func installQuestionBar() {
         view.addSubview(topBand)
@@ -497,20 +507,6 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         liveBubbleBottom?.isActive = false
         bottom.isActive = true
         liveBubbleBottom = bottom
-    }
-
-    public func presentQuestion(_ id: String) {
-        guard presentedViewController == nil, conversation.presentedViewController == nil else { return }
-        view.endEditing(true)
-        let host = UIHostingController(rootView: ChiefQuestionSheet(session: session, questionID: id))
-        host.modalPresentationStyle = .pageSheet
-        host.sheetPresentationController?.detents = [.medium(), .large()]
-        host.sheetPresentationController?.prefersGrabberVisible = true
-        // At accessibility sizes the card does not fit half a screen.
-        if traitCollection.preferredContentSizeCategory.isAccessibilityCategory {
-            host.sheetPresentationController?.selectedDetentIdentifier = .large
-        }
-        present(host, animated: true)
     }
 
     private var headerAvatar: String?
