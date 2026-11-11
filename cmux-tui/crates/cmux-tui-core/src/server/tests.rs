@@ -559,6 +559,7 @@ mod send_expect_agent_replay;
 mod session_streams;
 mod sizing;
 mod socket_and_render;
+mod subscribe_cap;
 mod subscribe_scroll_on_attach;
 mod terminal_close_if_unplaced;
 mod test_socket_path;
