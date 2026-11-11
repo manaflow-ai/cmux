@@ -8,6 +8,7 @@ import type { KeyboardEvent, MouseEvent } from "react";
 import { useContext, useEffect, useRef, useState } from "react";
 import { DialogButton } from "../../../ui/DialogButton";
 import { useT } from "../i18n";
+import { isHostRefusal } from "../transportErrors";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import {
@@ -61,7 +62,11 @@ function openPanel(runs: Runs, toolCallId: string, command: string) {
     },
     (error: unknown) => {
       if (runs.store.get(toolCallId)?.phase !== "loading") return;
-      const plan: RunPlan = { eligible: false, why: String((error as Error)?.message ?? error), machines: [] };
+      // A host that does not pass the plan on (its relay allowlist) is said as such, never its
+      // transport error ("Refused by the cmux host" read as a reason the command stays).
+      const plan: RunPlan = isHostRefusal(error)
+        ? { eligible: false, unavailable: true, machines: [] }
+        : { eligible: false, why: String((error as Error)?.message ?? error), machines: [] };
       runs.store.set(toolCallId, { phase: "choosing", plan, send: [] });
     },
   );
@@ -202,7 +207,9 @@ function RunElsewherePanel({
         )}
       </div>
       {!plan.eligible ? (
-        <p className="cv-run-elsewhere__note">{t("runElsewhere.stays", { why: plan.why ?? "" })}</p>
+        <p className="cv-run-elsewhere__note">
+          {plan.unavailable ? t("runElsewhere.unavailable") : t("runElsewhere.stays", { why: plan.why ?? "" })}
+        </p>
       ) : plan.machines.length === 0 ? (
         <p className="cv-run-elsewhere__note">{t("runElsewhere.noMachine")}</p>
       ) : (
@@ -284,11 +291,27 @@ function RunElsewherePanel({
       )}
       {run.error && <p className="cv-run-elsewhere__error">{run.error}</p>}
       <div className="cv-run-elsewhere__actions">
-        <DialogButton dialogKey="escape" className="cv-run-elsewhere__cancel" onClick={close}>
+        {/* The shared button (ui/controls.css, which the pane loads): a raw button here drew the
+            browser's grey bezel with its key glyph jammed against the label (Leo, 2026-11-11). */}
+        <DialogButton
+          dialogKey="escape"
+          className="ui-button ui-btn cv-run-elsewhere__cancel"
+          data-variant="subtle"
+          data-size="sm"
+          onClick={close}
+        >
           {t("runElsewhere.cancel")}
         </DialogButton>
         {plan.eligible && machine && (
-          <DialogButton dialogKey="return" type="submit" className="cv-run-elsewhere__run" disabled={!ready}>
+          <DialogButton
+            dialogKey="return"
+            type="submit"
+            className="ui-button ui-btn cv-run-elsewhere__run"
+            data-variant="solid"
+            data-size="sm"
+            data-disabled={!ready || undefined}
+            disabled={!ready}
+          >
             {t("runElsewhere.run", { machine })}
           </DialogButton>
         )}
