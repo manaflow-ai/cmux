@@ -1318,18 +1318,20 @@ class Controller:
         return sorted({job["name"] for job in jobs
                        if job.get("conclusion") == "success" and any(job["name"].endswith(name) for name in HEAVY_CHECKS)})
 
-    def failed_jobs(self, run_id: int, reds: frozenset[str] = RED, detail: bool = False) -> list[str]:
+    def failed_jobs(self, run_id: int, reds: frozenset[str] = RED, *, detail: bool = False, base: bool) -> list[str]:
         """Red jobs, with CHECKS_JOB as `CHECKS_JOB: <check>` for each red check in it.
 
         `detail` (comparing with the base) splits every other red job too, into
         `<job>: step <name>`, `<job>: test <name>` and, when no test failed,
         `<job>: error <line>`: a job red on the base then excuses only the same
-        failures, never a stack that breaks another test in it."""
+        failures, never a stack that breaks another test in it. `base`, with no
+        default, is RUN_ID's role (expand_job): True for a base run's reds, the
+        evidence a stack's are compared with, False for a stack's own."""
         jobs = self.gh.api(f"repos/{self.args.repo}/actions/runs/{run_id}/jobs?per_page=100&filter=latest")["jobs"]
         failed: set[str] = set()
         for job in jobs:
             if (job.get("conclusion") or "") in reds:
-                failed |= (self.expand_job(job["name"], job["id"], job) if detail
+                failed |= (self.expand_job(job["name"], job["id"], job, base=base) if detail
                            else self.listed_job(job["name"], job["id"]))
         return sorted(failed)
 
@@ -1370,12 +1372,15 @@ class Controller:
             return {f"{name}: {check}" for check in red_subchecks(log)} or {name}
         return {name}
 
-    def expand_job(self, name: str, job_id: int | str, job: dict | None = None) -> set[str]:
+    def expand_job(self, name: str, job_id: int | str, job: dict | None = None, *, base: bool) -> set[str]:
         """The keys a red job is compared with the base by, stack and base alike: each read from the failed_view of
         its log (base_red_excuse.failed_view, the one reader of a log for every comparator), never from the raw log,
         so a line a passing step printed is never a failure of the stack's or a red the base shares (#40542's seventh
         Codex BLOCK, F1). The raw log is read only to key a red as this job's own: unreadable, no compile verdict, a
-        crash or a run cut short. A log failed_view does not place is keyed as this job's own too."""
+        crash or a run cut short. A log failed_view does not place is keyed as this job's own too. BASE (no default)
+        is the log's role, handed to failed_view: True for a base run's job, whose ERRORED continue-on-error section
+        is never evidence (judge() reads a base so), False for a stack's (#40542's Codex F1 at 8dc7e0dc: the base
+        read with the head's role said "no new failures" for a red judge() refuses)."""
         if job is None:
             return self.listed_job(name, job_id)
         if why := base_red_excuse.test_reds.lost_runner(job):
@@ -1398,7 +1403,7 @@ class Controller:
         own = base_red_excuse.test_reds.read(log)
         if own.crashes or own.truncated:
             return {f"{name}: {why} (job {job_id}, never a base red)" for why in own.crashes + own.truncated[:1]}
-        view = base_red_excuse.failed_view(job, log, step_names=self.step_names(job))
+        view = base_red_excuse.failed_view(job, log, step_names=self.step_names(job), base=base)
         if view is base_red_excuse.UNPLACED:
             # No line of a log step_owners does not place is proven its failed step's, so its signature is not
             # read: keyed by this job's id, a head's red is its own and a base's inherits nothing (#40542's Codex
@@ -1482,7 +1487,7 @@ class Controller:
             run = self.wait_run(heavy["id"], timeout=180 * 60)
             if run["status"] != "completed":
                 raise RuntimeError("the base probe did not finish")
-            failed = self.failed_jobs(heavy["id"], detail=True)
+            failed = self.failed_jobs(heavy["id"], detail=True, base=True)
             if stop.is_set() or run.get("conclusion") == "cancelled":
                 return  # the batch ended and cancelled it: no rerun, no result
             if failed:
@@ -1492,7 +1497,7 @@ class Controller:
                     # The first attempt's list still holds its flakes: record nothing (push-run fallback).
                     log("base probe: its rerun did not finish; no result")
                     return
-                failed = self.failed_jobs(heavy["id"], detail=True)
+                failed = self.failed_jobs(heavy["id"], detail=True, base=True)
             if stop.is_set():
                 return  # the base was dropped meanwhile: its reds are no one's now
             result["failed"] = set(failed)
@@ -1518,7 +1523,8 @@ class Controller:
         log("base probe gave no result; falling back to the base's push run")
         runs = self.gh.runs(HEAVY_WORKFLOW, f"head_sha={base_sha}&event=push&per_page=10")
         done = [run for run in runs if run["status"] == "completed" and run["head_branch"] == BASE]
-        self.base_failures = set(self.failed_jobs(done[0]["id"], OUTRIGHT_RED, detail=True)) if done else set()
+        self.base_failures = (set(self.failed_jobs(done[0]["id"], OUTRIGHT_RED, detail=True, base=True)) if done
+                              else set())
         # The base tier's jobs fall back to its newest run only where the base's own push run gave them no
         # verdict: with coalescing off, or a push that kept its scheme compile, the exact base decides.
         judged = self.judged_jobs(done[0]["id"]) if done else set()
@@ -1555,7 +1561,7 @@ class Controller:
                 if name not in pending or conclusion not in OUTRIGHT_RED | {"success"}:
                     continue
                 pending.discard(name)
-                reds = self.expand_job(name, job["id"], job) if conclusion in OUTRIGHT_RED else set()
+                reds = self.expand_job(name, job["id"], job, base=True) if conclusion in OUTRIGHT_RED else set()
                 failed |= reds
                 log(f"base tier verdict for {name} from {tier.get('html_url') or tier['id']} at {tested[:12]} "
                     f"(created {tier.get('created_at', '?')}; the newest for it, not necessarily the base head): "
@@ -1737,14 +1743,15 @@ class Controller:
         validation.build = self.fleet_build(branch, sha, f"nb-{self.batch_id}-{len(self.validations)}")
         log(f"{name}: fleet build " + ("ok" if validation.build.get("ok") else f"failed: {validation.build.get('error')}"))
         run = self.wait_run(heavy["id"], timeout=180 * 60)
-        failed = self.failed_jobs(heavy["id"], detail=True) if run["status"] == "completed" else ["(timed out waiting)"]
+        failed = (self.failed_jobs(heavy["id"], detail=True, base=False) if run["status"] == "completed"
+                  else ["(timed out waiting)"])
         if failed and run["status"] == "completed" and not validation.rerun:
             # One rerun of the failed jobs before blaming a PR: flakes are not culprits.
             validation.rerun = True
             self.gh.gh("run", "rerun", str(heavy["id"]), "--failed", "-R", self.args.repo, check=False)
             time.sleep(30)
             run = self.wait_run(heavy["id"], timeout=120 * 60)
-            failed = self.failed_jobs(heavy["id"], detail=True)
+            failed = self.failed_jobs(heavy["id"], detail=True, base=False)
         inherited = self.failing_on_base(base_sha) if failed else set()
         validation.inherited = sorted(set(failed) & inherited)
         validation.heavy_failed = sorted(set(failed) - inherited)
@@ -1805,7 +1812,7 @@ class Controller:
         failed with no failed job (cancelled, startup failure) blames nobody."""
         if run.get("conclusion") == "success":
             return "passed"
-        failed = set(self.failed_jobs(run["id"], detail=True))
+        failed = set(self.failed_jobs(run["id"], detail=True, base=False))
         if not failed:
             return f"did not run: web run {run.get('conclusion')}"
 
@@ -1829,7 +1836,7 @@ class Controller:
         if not base:
             base = next(([item] for item in finished(self.gh.runs(WEB_WORKFLOW, f"branch={BASE}&per_page=100"))
                          if self.is_ancestor(item["head_sha"], base_sha) and not coalesced(item)), [])
-        inherited = set(self.failed_jobs(base[0]["id"], detail=True)) if base else set()
+        inherited = set(self.failed_jobs(base[0]["id"], detail=True, base=True)) if base else set()
         new = sorted(failed - inherited)
         return "passed" if not new else "failed: " + ", ".join(new)
 

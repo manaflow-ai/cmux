@@ -10,8 +10,8 @@
   (the primary text 12% toward the ground, 4.5:1 on every fill), detail lines tertiary, section and list headings at the
   row size, regular, secondary ink (`SidebarStyle.headerFont`, was 12 pt semibold); the neutral hover, selection and
   pressed fills are Codex's 5/8/12% dark and 4/6/10% light (`ThemeTokens`). Two take back earlier calls and each has a
-  Debug toggle: a dim layer over the sidebar (`sidebar.surfaceDim.dark` 0.2, `.light` 0.025; Lawrence 2026-10-19 had one
-  surface; skipped under `appearance.surfaces.sidebar` or a separate chrome shade) and a quiet "Workspaces" heading over
+  Debug toggle: a dim layer over the sidebar (`sidebar.surfaceDim.dark`, `.light`; off since 2026-11-11, see below;
+  Lawrence 2026-10-19 had one surface; skipped under `appearance.surfaces.sidebar` or a separate chrome shade) and a quiet "Workspaces" heading over
   the one list (`sidebar.listHeading`; cx-mdo0 had none). What paints the sidebar's own color (badge cutout rings, the
   Needs-You tray backing, favicon grounds) reads `SidebarStyle.ground`, the background under the dim. The softer fills
   also move every theme's secondary and tertiary inks (theme-ink-vectors.json regenerated). Regression:
@@ -2016,3 +2016,8 @@ Vertical-tabs commits `fa51dcbb9d6` and `7a076d729ac` were reviewed as Sidebar-L
   `digest` (one line per area, opens in place), `chips` (area filter chips), `headline` (top three at full size, then
   See all changes) and `ledger` (one line per change, area label once). `sections` stays the default until Lawrence
   picks. Tests: updated-notes-looks. Sidebar-Look: Lawrence 2026-11-09, "make and show me more versions of this ui".
+- 2026-11-11: the sidebar is one surface with the chrome again. The 0.2 dark / 0.025 light dim (#39984) shipped in nightly
+  4294166855401 and Leo, verbatim: "bro why is the sidebar now a different color?" (the list read dimmer than the
+  footer, the update card and the titlebar). `sidebar.surfaceDim.dark` and `.light` default to 0 and stay as Debug
+  toggles; the Codex fills, inks, rows and headings stay. The sidebar's ground is a chrome-layer color: a change to it
+  needs Leo's words (`Chrome-Look-OK:`), see the chrome pixel check.

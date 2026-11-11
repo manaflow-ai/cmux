@@ -51,6 +51,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// Leaving the app ends a waiting chord (the overlay hides with it); the token removes itself when released.
     private var resignObserver: MainActorObservation?
     let heldKeyReplay: HeldKeyReplay // where a creation hold's keys run again (``CreationInputCoordinator``)
+    var pageKeys = BrowserPageKeySequence() // `gg` among the letters pages leave alone (``routePageKey(_:from:)``)
     init(registry: ActionRegistry, inputDispatch: InputDispatchContext = InputDispatchContext(),
          heldKeyReplay: @escaping HeldKeyReplay = { event, _, _ in NSApp.sendEvent(event) }) {
         (self.registry, self.inputDispatch, self.heldKeyReplay) = (registry, inputDispatch, heldKeyReplay)

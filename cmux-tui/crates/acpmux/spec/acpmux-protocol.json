@@ -2239,6 +2239,7 @@
         "route": true,
         "senderHarness": true,
         "senderHarnessChecked": true,
+        "senderToken": true,
         "spawnToolCallId": true,
         "startLater": true,
         "steer": true,

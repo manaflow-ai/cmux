@@ -101,6 +101,7 @@ on:
       - Resources/markdown-viewer/marked.min.js
       - scripts/build-webviews-app.sh
       - scripts/check-webviews-bun-version.sh
+      - scripts/webviews_bun_version.py
       - scripts/cmux-next/build-agent-pane-web.sh
       - scripts/cmux-next/build-pages-web.sh
       - scripts/cmux-next/build-agent-activity-web.sh
@@ -365,6 +366,16 @@ on:
       - cmux.xcodeproj/**
       # An app resource the Xcode project copies (cmux_next_route.py NATIVE_SCRIPT_INPUTS).
       - THIRD_PARTY_LICENSES.md
+      # The rest of NATIVE_SCRIPT_INPUTS: files the app build or its packaging reads, which the pull request
+      # paths above already name.
+      - scripts/ghosttykit-checksums.txt
+      - scripts/cmux-next/cmux-tui-tree-inputs.txt
+      - scripts/cmux-next/cef-license/LICENSE.txt
+      - scripts/ci/macho_minos.py
+      - scripts/ci/cmux_tui_tree_key.py
+      - scripts/ci/lib/signing-runtime-guard.sh
+      - scripts/ci/swift_incremental_diagnostics.py
+      - scripts/ci/fleet-rust-cache.sh
       # Base pushes still run the full side workflow for every package input;
       # only pull requests use the focused package routing below.
       - Packages/macOS/**
@@ -420,6 +431,7 @@ on:
       - Resources/markdown-viewer/marked.min.js
       - scripts/build-webviews-app.sh
       - scripts/check-webviews-bun-version.sh
+      - scripts/webviews_bun_version.py
       - scripts/cmux-next/build-agent-pane-web.sh
       - scripts/cmux-next/build-pages-web.sh
       - scripts/cmux-next/build-agent-activity-web.sh
@@ -2266,7 +2278,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" != pull_request ]]; then
-            exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release
+            exec scripts/cmux-next/check-app-ffi-pin.sh --verify-release --stale-grace 7200
           fi
           work="$(/usr/bin/mktemp -d "${RUNNER_TEMP:-/tmp}/app-ffi-pin.XXXXXX")"
           /bin/mkdir "$work/home" "$work/code"

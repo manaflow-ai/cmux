@@ -107,7 +107,7 @@ final class HomeHostView: PaneMotionFollowingView {
                                            invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user))
         }
         loadAvatar()
-        // The header's top-right toggles (Memory, Right Sidebar): each runs its panel's action.
+        // The header's top-right toggles (Share Screen, Memory): each runs its panel's action.
         transcript.onHeaderPanel = { [weak self] id in
             if let self { HomeHeaderPanels.toggle(id, headerPanelContext) }
         }

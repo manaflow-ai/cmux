@@ -26,6 +26,13 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts/ci"))
 import next_batch as nb  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 # The suite also runs on Actions. Start every test from a host environment, so the
 # "never land from Actions" refusal (landing_refusal) applies only where a test sets
@@ -655,14 +662,14 @@ class BaseReds(unittest.TestCase):
             {"id": 9, "name": "cmux-next daemon tests", "conclusion": "success"},
         ]}
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, CHECKS_LOG, "")
-        self.assertEqual(controller.failed_jobs(1), [
+        self.assertEqual(controller.failed_jobs(1, base=False), [
             f"{nb.CHECKS_JOB}: Tier routing", f"{nb.CHECKS_JOB}: Type scale", "cmux-next swift test"])
         self.assertIn("actions/jobs/7/logs", " ".join(controller.gh.gh.call_args.args))
 
     def test_an_unreadable_log_keeps_the_job(self):
         controller = self.controller()
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "not found")
-        self.assertEqual(controller.expand_job(nb.CHECKS_JOB, 7), {nb.CHECKS_JOB})
+        self.assertEqual(controller.expand_job(nb.CHECKS_JOB, 7, base=False), {nb.CHECKS_JOB})
 
     def test_job_log_uses_the_flag_with_old_gh_fallback(self):
         controller = self.controller()
@@ -787,7 +794,7 @@ class BaseReds(unittest.TestCase):
         controller.push = lambda sha, ref: None
         controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
         controller.wait_run = lambda run_id, timeout: {"status": "completed", "conclusion": "cancelled"}
-        controller.failed_jobs = lambda run_id, detail=False: ["cmux-next swift test"]
+        controller.failed_jobs = lambda run_id, *, detail, base: ["cmux-next swift test"]
         controller.probe_base()
         self.assertNotIn("rerun", [call.args[0] for call in controller.gh.gh.call_args_list])
         self.assertNotIn("failed", controller.base_probe_result)
@@ -805,7 +812,7 @@ class BaseReds(unittest.TestCase):
         controller.push = lambda sha, ref: pushed.append((sha, ref))
         controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
         controller.wait_run = lambda run_id, timeout: {"status": "completed"}
-        controller.failed_jobs = lambda run_id, detail=False: [f"{nb.CHECKS_JOB}: Type scale"]
+        controller.failed_jobs = lambda run_id, *, detail, base: [f"{nb.CHECKS_JOB}: Type scale"]
         with mock.patch.object(nb.time, "sleep"):
             controller.probe_base()
         self.assertEqual(pushed, [("b" * 40, "next-batch/local-1-base")])
@@ -825,14 +832,14 @@ class BaseReds(unittest.TestCase):
             return log_of(framed(*(f"\u2718 Test {name} recorded an issue at A.swift:1:2: x" for name in tests))[1])
 
         controller.gh.gh.return_value = failing("alpha()")
-        base = set(controller.failed_jobs(1, detail=True))
+        base = set(controller.failed_jobs(1, detail=True, base=True))
         controller.gh.gh.return_value = failing("alpha()", "beta()")
-        stack = set(controller.failed_jobs(2, detail=True))
+        stack = set(controller.failed_jobs(2, detail=True, base=False))
         self.assertIn("cmux-next swift test: test beta()", stack - base)
         controller.gh.gh.return_value = failing("alpha()")
-        self.assertEqual(set(controller.failed_jobs(3, detail=True)) - base, set())
+        self.assertEqual(set(controller.failed_jobs(3, detail=True, base=False)) - base, set())
         # Job-level names stay for the base-red comparison's lanes.
-        self.assertEqual(controller.failed_jobs(1), ["cmux-next swift test"])
+        self.assertEqual(controller.failed_jobs(1, base=False), ["cmux-next swift test"])
 
     def test_a_failure_in_a_log_that_is_not_placed_is_never_the_bases(self):
         """#40542's Codex F1 at 76dc160c: a passing composite prints Sources/New.swift, then the failed step prints
@@ -863,11 +870,11 @@ class BaseReds(unittest.TestCase):
         controller.gh.api.return_value = {"jobs": [
             {"id": 9, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
         controller.gh.gh.return_value = run("Old")
-        base = set(controller.failed_jobs(1, detail=True))
+        base = set(controller.failed_jobs(1, detail=True, base=True))
         controller.gh.api.return_value = {"jobs": [
             {"id": 8, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
         controller.gh.gh.return_value = run("New")
-        stack = set(controller.failed_jobs(2, detail=True))
+        stack = set(controller.failed_jobs(2, detail=True, base=False))
         self.assertTrue(stack - base, f"a new failure read as inherited: head {stack}, base {base}")
 
     def test_a_step_its_workflow_names_run_something_is_inherited_the_same_on_both_sides(self):
@@ -925,8 +932,8 @@ class BaseReds(unittest.TestCase):
                 text = "\n".join((f"cmux-next swift test\t{step}\t" if columns else "")
                                   + f"{at(second)[:-1]}.5Z {line}" for step, second, line in lines) + "\n"
                 controller.gh.gh.return_value = log_of(text)
-                base = set(controller.failed_jobs(1, detail=True))
-                stack = set(controller.failed_jobs(2, detail=True))
+                base = set(controller.failed_jobs(1, detail=True, base=True))
+                stack = set(controller.failed_jobs(2, detail=True, base=False))
                 self.assertIn("cmux-next swift test: test alpha()", stack)
                 self.assertEqual(stack - base, set(), f"an inherited failure read as new: {stack - base}")
         self.assertIn(("b" * 40, ".github/workflows/cmux-next.yml"), read)
@@ -939,17 +946,17 @@ class BaseReds(unittest.TestCase):
         controller.gh.api.return_value = {"jobs": [
             {"id": 8, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
         controller.gh.gh.return_value = log_of(framed("\u2718 Test alpha() recorded an issue at A.swift:1:2: x")[1])
-        base = set(controller.failed_jobs(1, detail=True))
+        base = set(controller.failed_jobs(1, detail=True, base=True))
         controller.gh.gh.return_value = log_of(framed("still running")[1])
-        self.assertEqual(set(controller.failed_jobs(2, detail=True)) - base, {"cmux-next swift test"})
+        self.assertEqual(set(controller.failed_jobs(2, detail=True, base=False)) - base, {"cmux-next swift test"})
         crash = "2026-10-19T03:02:59.1Z error: Exited with unexpected signal code 5\n".replace("Exited", "exited")
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, crash, "")
-        stack = set(controller.failed_jobs(3, detail=True))
+        stack = set(controller.failed_jobs(3, detail=True, base=False))
         self.assertIn("cmux-next swift test: the test process crashed (signal 5) (job 8, never a base red)", stack - base)
         # The same crash on the base excuses nothing: each crash is keyed by its own job.
         controller.gh.api.return_value = {"jobs": [
             {"id": 9, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
-        self.assertEqual(stack - set(controller.failed_jobs(4, detail=True)), stack)
+        self.assertEqual(stack - set(controller.failed_jobs(4, detail=True, base=True)), stack)
 
     def test_a_non_test_jobs_crash_signal_still_keys_its_failure(self):
         controller = self.controller()
@@ -957,7 +964,7 @@ class BaseReds(unittest.TestCase):
         controller.gh.gh.return_value = subprocess.CompletedProcess(
             [], 0, "2026-10-19T03:02:59.1Z the test helper died on signal 11\n", "")
         self.assertIn("cmux app scheme compile (Debug): the test process crashed (signal 11) (job 5, never a base red)",
-                      controller.expand_job("cmux app scheme compile (Debug)", 5, {"steps": steps}))
+                      controller.expand_job("cmux app scheme compile (Debug)", 5, {"steps": steps}, base=False))
 
     def test_a_non_test_job_cut_short_or_crash_never_matches_a_base_red(self):
         controller = self.controller()
@@ -967,12 +974,12 @@ class BaseReds(unittest.TestCase):
         cut_short = ("2026-10-19T03:02:59.1Z ##[error]no \"Test run with\" summary line "
                      "(crash, kill or truncation); 0 tests started\n")
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, cut_short, "")
-        result = controller.expand_job("cmux-next generated files", 5, {"steps": steps})
+        result = controller.expand_job("cmux-next generated files", 5, {"steps": steps}, base=False)
         self.assertTrue(any("never a base red" in item for item in result), result)
 
         crashed = "2026-10-19T03:02:59.1Z ##[error]Process completed with exit code 139.\n"
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, crashed, "")
-        result = controller.expand_job("cmux app scheme compile (Debug)", 6, {"steps": steps})
+        result = controller.expand_job("cmux app scheme compile (Debug)", 6, {"steps": steps}, base=False)
         self.assertTrue(any("never a base red" in item for item in result), result)
 
     def test_a_lost_runner_is_infra_keyed_by_its_own_job_with_no_log_read(self):
@@ -982,7 +989,7 @@ class BaseReds(unittest.TestCase):
                  {"name": "Run base reds and compare", "status": "in_progress", "conclusion": None}]
         controller.gh.gh.side_effect = AssertionError("a lost runner's log is never read")
         name = "web / react-apps-base-check (3)"
-        (only,) = controller.expand_job(name, 8, {"conclusion": "failure", "steps": steps})
+        (only,) = controller.expand_job(name, 8, {"conclusion": "failure", "steps": steps}, base=False)
         self.assertTrue(only.startswith(f"{name}: infra, not a verdict (job 8: "), only)
         self.assertIn("re-run it", only)
 
@@ -992,7 +999,7 @@ class BaseReds(unittest.TestCase):
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "boom")
         for name in ("cmux-next fleet Release compile", "cmux-next app compile (build fleet)"):
             with self.subTest(name=name):
-                self.assertEqual(controller.expand_job(name, 7, {"steps": steps}),
+                self.assertEqual(controller.expand_job(name, 7, {"steps": steps}, base=False),
                                  {f"{name}: log unreadable (job 7, never a base red)"})
 
     def test_a_compile_with_no_verdict_is_keyed_by_its_own_job(self):
@@ -1007,9 +1014,9 @@ class BaseReds(unittest.TestCase):
                 [], 0, f"2026-10-28T08:40:00.1Z ##[error]cmux-next/compile is not a pass for {sha} (no result)\n", "")
 
         controller.gh.gh.return_value = no_result("7ea21d1ce82ffaecc58599ae3f6bbf95afd92c51")
-        base = controller.expand_job(name, 4, {"steps": steps})
+        base = controller.expand_job(name, 4, {"steps": steps}, base=True)
         controller.gh.gh.return_value = no_result("df40f81342c8bb1eb135ced40728a4e7a090ed49")
-        stack = controller.expand_job(name, 5, {"steps": steps})
+        stack = controller.expand_job(name, 5, {"steps": steps}, base=False)
         self.assertEqual(stack, {f"{name}: no compile verdict (job 5, never a base red)"})
         self.assertEqual(stack - base, stack)
 
@@ -1017,9 +1024,9 @@ class BaseReds(unittest.TestCase):
         controller = self.controller()
         steps = [{"name": "Build", "conclusion": "failure"}]
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "boom")
-        self.assertEqual(controller.expand_job("cmux app scheme compile (Debug)", 5, {"steps": steps}),
+        self.assertEqual(controller.expand_job("cmux app scheme compile (Debug)", 5, {"steps": steps}, base=False),
                          {"cmux app scheme compile (Debug)"})
-        self.assertEqual(controller.expand_job("cmux-next swift test", 6, {"steps": steps}),
+        self.assertEqual(controller.expand_job("cmux-next swift test", 6, {"steps": steps}, base=False),
                          {"cmux-next swift test: log unreadable (job 6, never a base red)"})
 
     def test_a_probe_stopped_before_its_run_is_found_cancels_it(self):
@@ -1046,7 +1053,7 @@ class BaseReds(unittest.TestCase):
         controller.find_run = lambda workflow, branch, match, since: {"id": 5, "html_url": "https://probe"}
         states = iter([{"status": "completed", "conclusion": "failure"}, {"status": "in_progress"}])
         controller.wait_run = lambda run_id, timeout: next(states)
-        controller.failed_jobs = lambda run_id, detail=False: ["cmux-next swift test: test flaky()"]
+        controller.failed_jobs = lambda run_id, *, detail, base: ["cmux-next swift test: test flaky()"]
         with mock.patch.object(nb.time, "sleep"):
             controller.probe_base()
         self.assertNotIn("failed", controller.base_probe_result)

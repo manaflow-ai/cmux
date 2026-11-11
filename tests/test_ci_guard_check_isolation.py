@@ -23,9 +23,12 @@ RUNNER_GUARD = ROOT / "tests/test_ci_self_hosted_guard.sh"
 STEP = "Validate macOS runner guards"
 JOB = "workflow-guard-tests / preflight"
 
-spec = importlib.util.spec_from_file_location("base_red_excuse", ROOT / "scripts/ci/base_red_excuse.py")
-excuse = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(excuse)
+# Imported by name, never loaded by path: one module object per file, so a test that patches it
+# patches what every other test reads (tests/test_script_module_loads.py).
+import sys  # noqa: E402
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import base_red_excuse as excuse  # noqa: E402
 
 
 def fixture_env() -> dict[str, str]:
@@ -122,9 +125,9 @@ class ABaseRedCannotExcuseAnother(unittest.TestCase):
         """What base_red_excuse.py finds on the head and not the base: failing test names, always compared,
         or error lines when no test name failed."""
         head_steps, head_tests, head_errors = excuse.signature(excuse.failed_view(
-            *job_and_log(head_failing, other_test), step_names=excuse.STEP_NAMES_UNKNOWN))
+            *job_and_log(head_failing, other_test), step_names=excuse.STEP_NAMES_UNKNOWN, base=False))
         base_steps, base_tests, base_errors = excuse.signature(excuse.failed_view(
-            *job_and_log(base_failing, other_test), step_names=excuse.STEP_NAMES_UNKNOWN))
+            *job_and_log(base_failing, other_test), step_names=excuse.STEP_NAMES_UNKNOWN, base=True))
         self.assertEqual(head_steps, base_steps)
         if head_tests:
             return head_tests - base_tests
