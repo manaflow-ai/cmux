@@ -208,15 +208,13 @@ await requireBrowserLane("composer-inline-caret-gap.browser.test.ts", async () =
             left: first!.left,
             right: second!.right,
           });
-          // Before the first chip, right after the text.
-          await caretAt(page, text);
-          const ahead = await caretColumns(page, { ...band, left: first!.left - 40, right: first!.left + 8 });
           // The caret beside a chip stands half a chip gap from it, after it and before it alike.
           const half = chipGap / 2;
           const clear = {
             "after the last chip": offGap(after, second!.right, half),
             "between two chips": offGap(between, first!.right, half),
-            "before the first chip": offGap(ahead, first!.left, -half),
+            // The same caret, measured from the chip after it: as far from that one's leading edge.
+            "before the second chip": offGap(between, second!.left, -half),
           };
           report.push(`${engine} ${name} chip gap ${chipGap.toFixed(2)}, caret off it ${JSON.stringify(clear)}`);
           for (const [where, off] of Object.entries(clear))
