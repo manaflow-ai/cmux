@@ -40,6 +40,7 @@ import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
 import { experimentArm } from "../../../experiments/experiment";
 import { finishedTaskLook } from "./taskLine.experiment";
+import { liveTurnWork } from "./liveTurnWork.experiment";
 import { turnFoldReplies } from "./turnFoldReplies.experiment";
 import { liveTurnClock } from "./liveTurnClock.experiment";
 import { turnFoldSteered } from "./turnFoldSteered.experiment";
@@ -2177,11 +2178,16 @@ function shapeLiveTurn(
   // The Codex-style live line names the call in flight; a command still running in an earlier run
   // (a parallel `cp` while the agent messages others) leaves its run for the line too.
   const named = last ? lineCall(drawn, last) : undefined;
-  // As the Codex app draws a running turn, each finished run folds into its summary line and a short
-  // note between two runs joins them (Lucas, 2026-11-11: "we should not auto expand commands etc when
-  // the turn is live"); a click opens a run. The turn's end still folds the whole turn under Worked
-  // for in one motion (turnEndFold.ts). A reply before a steer never joins a run (steerDialogueIn).
-  const rows = codexRuns(mergeShortNotes(drawn, steerDialogueIn(drawn)), named?.tool.id);
+  // While the turn streams, by default (liveTurnWork.experiment.ts `line`) its finished runs draw no
+  // row at all, as chatgpt.com draws a running turn: the replies stay in sight and the one live line
+  // below says what it does now, replacing itself at each step. Its `runs` arm draws them as the Codex
+  // app does: each finished run folds into its summary line and a short note between two runs joins
+  // them (Lucas, 2026-11-11: "we should not auto expand commands etc when the turn is live"); a click
+  // opens a run. The turn's end folds the whole turn under Worked for in one motion (turnEndFold.ts).
+  // A reply before a steer never joins a run (steerDialogueIn). Under `line` no note joins a run:
+  // the run draws no row, and the note to the person must stay in sight (Leo, 2026-11-06).
+  const lineOnly = experimentArm(liveTurnWork) === "line";
+  const rows = codexRuns(lineOnly ? drawn : mergeShortNotes(drawn, steerDialogueIn(drawn)), named?.tool.id, lineOnly);
   // The status ticks on this computer's clock, from the live turn's start moved onto it. A resumed
   // turn can still open with an older prompt, so the prompt's time (`user.at`) is only the fallback.
   const start = turnStartedAtMs ?? user.at;
@@ -2194,6 +2200,8 @@ function shapeLiveTurn(
   // reply up. Work the agent started on its own after an ended stretch (its summary in the turn) or
   // in the background has no prompt of its own to stand under.
   if (experimentArm(liveTurnClock) !== "top") return shaped;
+  // The activity line (Debug Settings `agent.sessionStatus`) is the turn's clock in this place.
+  if (shaped.at(-1)?.kind === ACTIVITY_LINE) return shaped;
   if (drawn.some((row) => row.kind === "turnSummary" || row.kind === BACKGROUND_TURN)) return shaped;
   if (!drawn.some((row) => row.kind === "activity" && row.inBackground === undefined)) return shaped;
   // As the Codex app and T3 Code draw a running turn: "Working for 32s" over its work, under the
@@ -2528,10 +2536,16 @@ const OPEN_RUN_STATES = 2;
 /// `doing`, "Thinking") and each step replaces it in place. A call still running in an earlier run
 /// (a background shell) stays in its run, except the command the live line names (`named`,
 /// `lineCall`), which reads once, on the line. Each derived row's version moves with its drawn state.
-function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
+/// With `lineOnly` a finished run of the stretch still running draws no row: the live line is its
+/// work (liveTurnWork). A stretch that already ended with its summary keeps its runs, as it draws
+/// once the chat stops working, so that end moves nothing (liveLineTakesFooterSlot.test.ts).
+function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false): AcpmuxRow[] {
   // A started chats' card after the run is not a step: the run before it is still in flight.
   let latest = rows.length - 1;
   while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
+  let ended = -1;
+  if (lineOnly)
+    for (let at = rows.length - 1; at >= 0 && ended < 0; at -= 1) if (rows[at]!.kind === "turnSummary") ended = at;
   return rows.flatMap((row, index) => {
     if (row.kind !== "activity") return [row];
     // A run that edited is shaped as the others; the turn's edited-files card lists its edits when
@@ -2542,6 +2556,7 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
       (row.items ?? []).some((item) => awaitsPermission(item.tool) || (keepsOwnRow(item.tool) && isRunning(item.tool!)))
     )
       return [{ ...row, foldRun: false, version: row.version * RUN_STATES }];
+    if (lineOnly && index > ended) return [];
     // An earlier run draws no call that has nothing to show yet; its row comes with its input.
     if (index !== latest)
       return withoutDrafts(row).flatMap((kept) => {

@@ -426,3 +426,76 @@ fn the_relay_under_xcodes_python_claims_no_app_but_stays_a_programs_send() {
     ];
     assert_eq!(chain(of(&under_claude), 50).app.unwrap().0, "Claude.app");
 }
+
+/// A bundle on disk with the files `codesign` reads: the executable and the signature's
+/// resource list.
+fn bundle(root: &std::path::Path) -> String {
+    let app = root.join("Tool.app");
+    std::fs::create_dir_all(app.join("Contents/MacOS")).unwrap();
+    std::fs::create_dir_all(app.join("Contents/_CodeSignature")).unwrap();
+    std::fs::write(app.join("Contents/Info.plist"), "<plist/>").unwrap();
+    std::fs::write(app.join("Contents/MacOS/Tool"), "v1").unwrap();
+    std::fs::write(app.join("Contents/_CodeSignature/CodeResources"), "r1").unwrap();
+    app.to_str().unwrap().to_owned()
+}
+
+#[test]
+fn a_bundle_that_has_not_changed_is_not_signed_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = bundle(dir.path());
+    let signers = Signers::default();
+    let runs = std::cell::Cell::new(0);
+    let run = |_: &str| {
+        runs.set(runs.get() + 1);
+        "Authority=Developer ID Application: Tool\n".to_owned()
+    };
+    for _ in 0..3 {
+        assert_eq!(signers.signer(&app, run).as_deref(), Some("Developer ID Application: Tool"));
+    }
+    assert_eq!(runs.get(), 1, "codesign runs once for a bundle whose files are the same");
+}
+
+#[test]
+fn a_bundle_whose_files_change_is_signed_again() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = bundle(dir.path());
+    let app_path = std::path::Path::new(&app);
+    let signers = Signers::default();
+    let runs = std::cell::Cell::new(0);
+    let run = |_: &str| {
+        runs.set(runs.get() + 1);
+        format!("Authority=Signer {}\n", runs.get())
+    };
+    assert_eq!(signers.signer(&app, run).as_deref(), Some("Signer 1"));
+    // An update writes a new executable in place (same inode, new size).
+    std::fs::write(app_path.join("Contents/MacOS/Tool"), "version 2").unwrap();
+    assert_eq!(signers.signer(&app, run).as_deref(), Some("Signer 2"));
+    // A re-sign replaces the resource list.
+    std::fs::remove_file(app_path.join("Contents/_CodeSignature/CodeResources")).unwrap();
+    std::fs::write(app_path.join("Contents/_CodeSignature/CodeResources"), "resources 2").unwrap();
+    assert_eq!(signers.signer(&app, run).as_deref(), Some("Signer 3"));
+    // A new helper executable in Contents/MacOS.
+    std::fs::write(app_path.join("Contents/MacOS/Helper"), "h").unwrap();
+    assert_eq!(signers.signer(&app, run).as_deref(), Some("Signer 4"));
+    // The whole bundle replaced by another one at the same path.
+    std::fs::rename(app_path, dir.path().join("Old.app")).unwrap();
+    bundle(dir.path());
+    assert_eq!(signers.signer(&app, run).as_deref(), Some("Signer 5"));
+    assert_eq!(signers.signer(&app, run).as_deref(), Some("Signer 5"));
+    assert_eq!(runs.get(), 5);
+}
+
+#[test]
+fn a_path_that_is_not_a_bundle_is_never_kept() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("Gone.app");
+    let signers = Signers::default();
+    let runs = std::cell::Cell::new(0);
+    let run = |_: &str| {
+        runs.set(runs.get() + 1);
+        String::new()
+    };
+    assert_eq!(signers.signer(missing.to_str().unwrap(), run), None);
+    assert_eq!(signers.signer(missing.to_str().unwrap(), run), None);
+    assert_eq!(runs.get(), 2, "nothing on disk to compare, so codesign answers each time");
+}

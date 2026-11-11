@@ -2,10 +2,21 @@
 // Leo, 2026-11-03: "sometimes when an agent completes a message while im scrolled up the entire chat
 // kinda hitches/shifts a bit?"), except the turn's own Worked for, which always closes (Lucas,
 // 2026-11-11).
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { foldsToHold, withHeldFolds } from "../src/agent-session/acpmux/conversation/turnEndHold";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps each finished
+// run in sight as its folded summary line. The shipped `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -38,14 +49,15 @@ const ended = [
 const ids = (rows: AcpmuxRow[]) => rows.filter((each) => each.kind !== "date").map((each) => each.id);
 
 // The view while the turn ran: every row drawn.
-const running = turnView(ended.slice(0, -1), new Set(), { working: true });
+// Shaped on use, after beforeAll picks the `runs` arm.
+const runningView = () => turnView(ended.slice(0, -1), new Set(), { working: true });
 const hold = (inView: string[], open: ReadonlySet<string> = new Set()) =>
-  foldsToHold(ended, turnView(ended, open), running, undefined, inView, open);
+  foldsToHold(ended, turnView(ended, open), runningView(), undefined, inView, open);
 
 test("the turn's Worked for closes at its end, even over work in view (Lucas, 2026-11-11)", () => {
   const folded = turnView(ended, new Set());
   expect(ids(folded)).not.toContain("t1");
-  expect(ids(running)).toContain("t1");
+  expect(ids(runningView())).toContain("t1");
   // The reader saw the run "t1" and the reply while the turn ran; at its end the Worked for still
   // closes ("the Worked for should ALWAYS collapse when the turn has ended"), the reply in sight.
   const held = hold(["t1", "answer"]);
