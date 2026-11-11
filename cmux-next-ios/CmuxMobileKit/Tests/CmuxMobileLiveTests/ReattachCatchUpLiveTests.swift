@@ -8,7 +8,7 @@ import Testing
 /// it goes: a page that fails, a lag that lands while the catch-up runs, and a session state
 /// that is older than the pages read after it.
 @MainActor
-@Suite struct ReattachCatchUpLiveTests {
+@Suite(.timeLimit(.minutes(2))) struct ReattachCatchUpLiveTests {
     typealias Chat = ChatOpenSnapshotLiveTests
 
     /// How many times each method was called, and the `afterSeq` of every attach.
@@ -144,11 +144,13 @@ import Testing
         func close(code: String, reason: String) async { continuation.finish() }
     }
 
-    /// Waits (on the clock: a retry sleeps) until `done`, for at most 10 s.
+    /// Waits until `done` (a retry sleeps, so on the clock, not a count of yields). No deadline
+    /// of its own: one counted on the wall clock ended while a busy run's main actor had not
+    /// yet applied the catch-up, and the test read the chat unsettled. The suite's time limit
+    /// bounds a hang.
     static func waitUntil(_ done: () -> Bool) async {
-        let deadline = ContinuousClock.now + .seconds(10)
-        while !done(), ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(5))
+        while !done(), !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(5)) // test: polls the condition; the suite's time limit bounds it
         }
     }
 

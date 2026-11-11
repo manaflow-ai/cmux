@@ -85,7 +85,7 @@ final class ServiceStub: URLProtocol, @unchecked Sendable {
 // The coordinator is iOS-only: these run in the iOS simulator test pass.
 #if os(iOS)
 @MainActor
-@Suite struct MacRemovalTests {
+@Suite(.timeLimit(.minutes(2))) struct MacRemovalTests {
     let host = "svc-\(UUID().uuidString.prefix(8).lowercased()).cmuxMobile.test"
     let userID = "user-\(UUID().uuidString)"
 
@@ -127,9 +127,11 @@ final class ServiceStub: URLProtocol, @unchecked Sendable {
         AppStore(teams: [], activeTeamID: "", workspaces: [], feed: [], tabMemory: .inMemory())
     }
 
-    /// Waits (at most 3 s) for the link, its dialer and the observation hops to land.
+    /// Waits for the link, its dialer and the observation hops to land.
     func settle(_ done: () -> Bool) async {
-        for _ in 0..<3000 where !done() { try? await Task.sleep(for: .milliseconds(1)) }
+        // No deadline of its own: 3000 sleeps ended before a busy kit run's main actor had
+        // applied the state waited for (cmux#40635). The suite's time limit bounds a hang.
+        while !done(), !Task.isCancelled { try? await Task.sleep(for: .milliseconds(1)) } // test: polls the condition
     }
 
     /// Lets every pending hop run, for checks that nothing comes back.
