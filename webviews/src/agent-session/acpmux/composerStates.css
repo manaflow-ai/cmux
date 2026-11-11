@@ -263,8 +263,11 @@
    lens's rim. Reduce Transparency (the system's or the host's) keeps the solid card exactly as it was:
    no material rim, no frost and its old shadow (none in a dark theme). */
 @media not (prefers-reduced-transparency: reduce) {
+  /* The composer's depth is the material's quieter step (glass.css --glass-material-depth-composer;
+     Leo 2026-11-06: "maybe less shadow? ... Probably just a little bit more subtle."): the card rests
+     on the pane, so it casts about half the floating glass's reach and dark. */
   :root:not([data-reduce-transparency]) .acpmux-composer > .acpmux-composer-box.ui-glass-material {
-    --acpmux-composer-shadow: var(--glass-material-depth);
+    --acpmux-composer-shadow: var(--glass-material-depth-composer);
   }
   :root:not([data-reduce-transparency]):not([data-cmux-see-through]:is([data-glass="lens"], [data-glass="spectrum"]))
     .acpmux-composer
@@ -556,6 +559,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   outline: 0;
   background: transparent;
   resize: none;
+  /* As tall as its lines, up to the cap: the browser sizes it, no script reads its scrollHeight. */
+  field-sizing: content;
   overflow-y: auto;
   overscroll-behavior: contain;
   font: var(--text-content)/var(--text-content--line-height) ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -698,6 +703,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-queued-edit {
   grid-column: 1 / -1;
   min-width: 0;
+  /* As tall as its lines, up to the cap: the browser sizes it, no script reads its scrollHeight. */
+  field-sizing: content;
   max-height: calc(var(--text-content--line-height) * 4);
   /* Its text stays where the row's text was. */
   margin: 2px 0 2px -6px;

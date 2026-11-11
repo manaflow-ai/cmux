@@ -112,8 +112,26 @@ function startTop(fold: TurnFold, id: string): number | undefined {
 }
 
 /// A copy of `row` that can sit in the thread for a moment: no ids, nothing focusable or found.
+/// How many px of `node`'s bottom its clip-path hides now (tailGlide.ts clips the row above a row
+/// gliding down under it), or 0. One style read, only while something plays on the row.
+export function clippedBottom(node: HTMLElement): number {
+  if (!node.getAnimations?.().length) return 0;
+  const clip = (node.ownerDocument.defaultView ?? window).getComputedStyle(node).clipPath;
+  const inset = clip && clip !== "none" ? /^inset\(([^)]*)\)/.exec(clip) : null;
+  if (!inset) return 0;
+  const sides = inset[1]!.split(/\s+/).map((side) => Number.parseFloat(side) || 0);
+  const bottom = sides[2] ?? sides[0] ?? 0;
+  return bottom > 0.5 ? bottom : 0;
+}
+
+/// A drawn copy of `row`, inert, for a fold to move while the row itself goes. A row clipped as its
+/// copy is taken (tailGlide.ts, over the row gliding under it) keeps that clip on the copy: a clone
+/// takes none of the row's animations, so the copy drew its whole box at once, its last lines over
+/// the row under it (the turn-end fold's ghost of the reply over the live line).
 export function ghostOf(row: HTMLElement): HTMLElement {
+  const clip = clippedBottom(row);
   const copy = row.cloneNode(true) as HTMLElement;
+  if (clip > 0) copy.style.clipPath = `inset(-4096px -4096px ${Math.ceil(clip)}px -4096px)`;
   for (const node of [copy, ...copy.querySelectorAll<HTMLElement>("[id], [data-row-id], [tabindex]")]) {
     node.removeAttribute("id");
     node.removeAttribute("data-row-id");

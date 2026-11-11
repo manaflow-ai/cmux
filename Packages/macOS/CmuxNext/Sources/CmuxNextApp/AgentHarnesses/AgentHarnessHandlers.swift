@@ -94,7 +94,7 @@ enum AgentHarnessHandlers {
 nonisolated enum AgentHarnessStrings {
     static var noDaemon: String { text("handlers.agent.harness.noDaemon", "The agent daemon is not running. Open an agent chat to start it, then try again.") }
     static var unsupported: String {
-        text("handlers.agent.harness.unsupported", "This acpmux cannot add or remove agents from the app. Use cmux harness add or cmux harness doctor in a terminal.")
+        text("handlers.agent.harness.unsupported", "This cmux cannot add or remove agents from the app. Use cmux harness add or cmux harness doctor in a terminal.")
     }
     static var needsAgent: String { text("handlers.agent.harness.needsAgent", "Name the agent with --arg id=<agent>.") }
     static var needsCommand: String {

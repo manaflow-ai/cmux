@@ -1764,8 +1764,16 @@ impl Drop for SegmentZero {
 
 impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
-        let Ok(rd) = std::fs::read_dir(&self.root) else {
-            return Ok(Vec::new());
+        // No sessions folder yet: no chat. One that is there and does not read is a failed list,
+        // never an empty one: an empty list proves every chat gone (`hub/hosts.rs`).
+        let rd = match std::fs::read_dir(&self.root) {
+            Ok(rd) => rd,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => {
+                return Err(
+                    anyhow::Error::new(error).context(format!("list {}", self.root.display()))
+                );
+            }
         };
         let entries = rd.collect::<std::io::Result<Vec<_>>>()?;
         if entries.is_empty() {
@@ -1781,8 +1789,16 @@ impl Store for LocalStore {
                     scope.spawn(move || {
                         let mut metas = Vec::new();
                         for entry in chunk {
-                            if let Some(meta) = self.list_entry(entry)? {
-                                metas.push(meta);
+                            // One chat that is refused or does not read is left out (and
+                            // counted unread), never the reason no chat is listed.
+                            match self.list_entry(entry) {
+                                Ok(Some(meta)) => metas.push(meta),
+                                Ok(None) => {}
+                                Err(e) => {
+                                    tracing::warn!("skip {}: {e:#}", entry.path().display());
+                                    let id = entry.file_name().to_string_lossy().into_owned();
+                                    self.mark_unlisted(&id, true);
+                                }
                             }
                         }
                         Ok::<_, anyhow::Error>(metas)
@@ -2185,6 +2201,9 @@ mod permission_tests;
 
 #[cfg(test)]
 mod torn_tail_tests;
+
+#[cfg(all(test, unix))]
+mod list_entry_tests;
 
 #[cfg(all(test, unix))]
 mod line_rev_tests;
