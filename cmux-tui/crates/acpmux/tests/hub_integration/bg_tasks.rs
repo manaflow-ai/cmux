@@ -452,7 +452,7 @@ async fn a_task_started_during_the_daemons_startup_waits_for_it() {
     r.hub.begin_startup(false);
     let (hub, early) = (r.hub.clone(), session.clone());
     let start = tokio::spawn(async move {
-        hub.bg_start(&early, "echo started", None, None, false, false, None).await
+        hub.bg_start(&early, "echo started", None, None, false, false, None, None).await
     });
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert!(!start.is_finished(), "a task started before the daemon's startup ended");
@@ -463,6 +463,54 @@ async fn a_task_started_during_the_daemons_startup_waits_for_it() {
     let task = task["id"].as_str().unwrap().to_owned();
     r.until("the task never ended", || state(&r, &id, &task) == "exited").await;
     assert_eq!(text(&r, &id, &task), "started\n");
+}
+
+/// A start behind a startup slower than its caller's deadline (Codex's MCP tool timeout, 60 s)
+/// answers a retryable "still starting" error before that deadline and launches nothing, so the
+/// caller never gave up on a task that then ran. Its retries with the same idempotencyKey, by the
+/// hub or the RPC the MCP server sends, are one task that ran once; the key with another command
+/// is refused.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_start_behind_a_slow_startup_fails_retryably_and_a_keyed_retry_is_one_task() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(crate::daemon_env::bg_runner(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "keyed").await;
+    let session = r.hub.resolve(&id).unwrap();
+    let start = |command: &'static str| {
+        let (hub, session) = (r.hub.clone(), session.clone());
+        async move {
+            hub.bg_start(&session, command, None, None, false, false, None, Some("retry-1")).await
+        }
+    };
+    // A startup that does not end within the caller's deadline.
+    r.hub.begin_startup(false);
+    tokio::time::pause();
+    let asked = tokio::time::Instant::now();
+    let error = start("echo once").await.expect_err("a start behind the startup launched");
+    let waited = asked.elapsed();
+    tokio::time::resume();
+    assert!(waited < Duration::from_secs(50), "it answered after the caller gave up: {waited:?}");
+    let data = error.data.clone().unwrap_or_default();
+    assert_eq!(data["retryable"], true, "{error:?}");
+    assert!(error.message.contains("still starting"), "{}", error.message);
+    let list = r.hub.bg_list(&session);
+    assert_eq!(list["tasks"].as_array().map(Vec::len), Some(0), "{list}");
+    r.hub.finish_startup().await;
+    let first = start("echo once").await.unwrap();
+    let again = start("echo once").await.unwrap();
+    assert_eq!(first["id"], again["id"], "a retry started a second task");
+    let by_rpc = json!({"sessionId": id, "command": "echo once", "idempotencyKey": "retry-1"});
+    let by_rpc = r.c.request(method::MUX_BG_START, by_rpc).await.unwrap();
+    assert_eq!(by_rpc["id"], first["id"], "the RPC's retry started a second task");
+    let task = first["id"].as_str().unwrap().to_owned();
+    r.until("the task never ended", || state(&r, &id, &task) == "exited").await;
+    assert_eq!(text(&r, &id, &task), "once\n", "the keyed task ran more than once");
+    let list = r.hub.bg_list(&session);
+    assert_eq!(list["tasks"].as_array().map(Vec::len), Some(1), "{list}");
+    let other = json!({"sessionId": id, "command": "echo twice", "idempotencyKey": "retry-1"});
+    let other = r.c.request(method::MUX_BG_START, other).await;
+    assert!(other.unwrap_err().contains("another command"), "a key started two commands");
 }
 
 /// A command the shell does not find (exit 127) ends saying so, naming it from its "command

@@ -37,12 +37,31 @@ const LIST_TAIL: u64 = 1 << 10;
 const NOT_FOUND_TAIL: u64 = 4 << 10;
 /// How long a start waits for its runner's answer.
 const START_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long a start waits for the daemon's startup ([`Hub::bg_start`]): with [`START_WAIT`] and
+/// the env's build, under the shortest MCP tool timeout of the harnesses (Codex: 60 s,
+/// `acpmux_mcp.rs`). A wait past the caller's deadline launched the task after the caller had
+/// given up, and its retry launched it again; past this one the start answers a retryable
+/// error and launches nothing.
+// timeout: the caller's own deadline is shorter; it retries, with the same idempotencyKey
+pub(crate) const BG_STARTUP_WAIT: std::time::Duration = std::time::Duration::from_secs(40);
+/// The longest `idempotencyKey` a start takes.
+const KEY_MAX: usize = 256;
 
 /// Who a background task starts as: a workflow's stable id, or the Claude Code subagent
-/// (`{id, type}`, plain words) whose MCP call starts it.
+/// (`{id, type}`, plain words) whose MCP call starts it; and the caller's `idempotencyKey`, so
+/// a retry after its call timed out finds the task the first call started.
 struct BgSpawn<'a> {
     fixed_id: Option<&'a str>,
     subagent: Option<Value>,
+    key: Option<&'a str>,
+}
+
+/// The task id an `idempotencyKey` names in its chat: the same key, the same id.
+fn keyed_id(key: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let hex: String =
+        Sha256::digest(key.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
+    format!("bg-k{hex}")
 }
 
 impl Hub {
@@ -61,7 +80,10 @@ impl Hub {
     /// one message when it ends ([`Hub::bg_notify`]). With `subagent` (`{id, type}`, plain words:
     /// the Claude Code subagent whose MCP call starts it, `subagent_call.rs`), it runs as that
     /// subagent's Bash would (`cli::sender::SUBAGENT_ENV`), so an `acpmux send` in it names that
-    /// subagent, and its end goes to that subagent while it runs (`bg_notify.rs`).
+    /// subagent, and its end goes to that subagent while it runs (`bg_notify.rs`). With `key` (the
+    /// caller's `idempotencyKey`), a start whose key already started a task in this chat answers
+    /// that task and starts none.
+    #[allow(clippy::too_many_arguments)]
     pub async fn bg_start(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -71,8 +93,9 @@ impl Hub {
         notify: bool,
         result_line: bool,
         subagent: Option<Value>,
+        key: Option<&str>,
     ) -> Result<Value, RpcError> {
-        let spawn = BgSpawn { fixed_id: None, subagent };
+        let spawn = BgSpawn { fixed_id: None, subagent, key };
         self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
     }
 
@@ -91,7 +114,7 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        let spawn = BgSpawn { fixed_id, subagent };
+        let spawn = BgSpawn { fixed_id, subagent, key: None };
         self.bg_start_as(session, command, cwd, spawn, description, notify, result_line).await
     }
 
@@ -105,17 +128,27 @@ impl Hub {
         notify: bool,
         result_line: bool,
     ) -> Result<Value, RpcError> {
-        let BgSpawn { fixed_id, subagent } = spawn;
+        let BgSpawn { fixed_id, subagent, key } = spawn;
         if command.trim().is_empty() {
             return Err(RpcError::invalid_params("command is empty"));
+        }
+        if key.is_some_and(|k| k.is_empty() || k.len() > KEY_MAX) {
+            return Err(RpcError::invalid_params(format!(
+                "idempotencyKey must be 1 to {KEY_MAX} bytes"
+            )));
         }
         // The agent's environment is the one a spawn builds, and a spawn waits for the daemon's
         // startup: its login environment (`login_env`: the login PATH, `~/.local/bin` with
         // `cmux-ci`, `glaeda-gh`, `lane-gh`), and its vault. An agent that outlived a restart
         // (an adopted host) asks before that: built then, its task got the daemon's own bare
-        // PATH (systemd's, launchd's) and every tool there exited 127 (2026-11-11).
-        self.wait_startup_within(super::startup::NEW_SESSION_STARTUP_WAIT, "no task was started")
-            .await?;
+        // PATH (systemd's, launchd's) and every tool there exited 127 (2026-11-11). Bounded under
+        // the caller's deadline ([`BG_STARTUP_WAIT`]): past it nothing starts, and it says so.
+        self.wait_startup_within(
+            BG_STARTUP_WAIT,
+            "the daemon is still starting and no task was started; retry with the same \
+             idempotencyKey",
+        )
+        .await?;
         // One start at a time: the running count and a purge's stop see every task.
         let _one = self.bg_starts.lock().await;
         // A chat stopped before a restart is Closed with no closing flag: both count.
@@ -136,6 +169,20 @@ impl Hub {
             return Err(RpcError::invalid_params(format!("{} is not a folder", cwd.display())));
         }
         let dir = self.bg_dir(session);
+        // A retry of a start that went through (its caller timed out first) is that task. Starts
+        // hold `bg_starts`, and a runner writes its record before it answers, so a key's first
+        // start is recorded or never ran.
+        let keyed = key.map(keyed_id);
+        if let Some(id) = &keyed
+            && let Some(record) = bg_run::read_record(&dir, id)
+        {
+            if record.command != command || record.cwd != cwd.to_string_lossy() {
+                return Err(RpcError::invalid_params(
+                    "this idempotencyKey already started another command in this chat",
+                ));
+            }
+            return Ok(bg_view(&dir, &record, LIST_TAIL));
+        }
         if let Some(id) = fixed_id {
             if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
                 return Err(RpcError::invalid_params("invalid stable task id"));
@@ -164,6 +211,7 @@ impl Hub {
         let uuid = uuid::Uuid::now_v7().simple().to_string();
         let id = fixed_id
             .map(str::to_owned)
+            .or(keyed)
             .unwrap_or_else(|| format!("bg-{}", uuid.get(20..).unwrap_or(&uuid)));
         if fixed_id.is_some() {
             use std::io::Write as _;
