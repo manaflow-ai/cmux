@@ -687,6 +687,8 @@ pub struct ChordFacts<'a> {
     pub background: bool,
     /// The chord has Command.
     pub command: bool,
+    /// The chord has Shift.
+    pub shift: bool,
     pub denies_any: bool,
     /// The layout's keys are the ANSI codes posted.
     pub ansi_layout: bool,
@@ -709,8 +711,10 @@ pub const REFUSE_BLOCKED: &str = "the menu item for this shortcut would reach an
 ///   revalidated at key time, so a disabled item may run then. This holds
 ///   with nothing denied too (protected apps: sign-in, security prompts,
 ///   cmux Remote).
-/// - Only disabled matches, in the background with Command: report it
-///   (posted, the chord would lose its Shift and reach another item).
+/// - Only disabled matches, in the background with Command and Shift: report
+///   it (posted there, the chord loses its Shift and could reach the item
+///   without it). Without Shift it is posted like any key; the app ignores it
+///   as it would the person's.
 /// - Otherwise the key is posted: as typed with nothing denied; while
 ///   something is denied only after a complete walk, on a layout whose keys
 ///   are known, and when it is no Services shortcut (read).
@@ -723,7 +727,7 @@ pub fn decide_chord(f: &ChordFacts) -> ChordAction {
     if f.matches.iter().any(|m| m.blocked) {
         return ChordAction::Refuse(REFUSE_BLOCKED);
     }
-    if f.background && f.command && !f.matches.is_empty() {
+    if f.background && f.command && f.shift && !f.matches.is_empty() {
         return ChordAction::Refuse(REFUSE_DISABLED);
     }
     if !needs_key_checks(f.matches, f.denies_any) {

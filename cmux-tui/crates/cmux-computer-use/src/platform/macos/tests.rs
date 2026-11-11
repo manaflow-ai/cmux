@@ -566,6 +566,7 @@ fn chords_are_held_to_the_deny_list_in_both_deliveries() {
             complete: true,
             background: false,
             command: false,
+            shift: false,
             denies_any: true,
             ansi_layout: true,
             is_service: S::NoMatch,
@@ -606,10 +607,14 @@ fn chords_are_held_to_the_deny_list_in_both_deliveries() {
     // time, so it is refused.
     let off_blocked = [m("Undo", false, false), m("Open in Simulator", false, true)];
     assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, ..base(&off_blocked) }), A::Refuse(roles::REFUSE_BLOCKED));
-    // Only disabled matches, background with Command: reported as disabled.
+    // Only disabled matches, background with Command and Shift: reported as
+    // disabled (posted there, the Shift would be lost). Without Shift, posted
+    // (cmd+c with nothing selected), as Codex does.
     for denies_any in [false, true] {
-        let f = ChordFacts { denies_any, background: true, command: true, ..base(&off) };
+        let f = ChordFacts { denies_any, background: true, command: true, shift: true, ..base(&off) };
         assert_eq!(roles::decide_chord(&f), A::Refuse(roles::REFUSE_DISABLED));
+        let f = ChordFacts { denies_any, background: true, command: true, ..base(&off) };
+        assert_eq!(roles::decide_chord(&f), A::Post);
     }
     // Posted: nothing denied, as typed.
     assert_eq!(roles::decide_chord(&ChordFacts { denies_any: false, complete: false, ansi_layout: false, is_service: S::Unread, ..base(&off) }), A::Post);

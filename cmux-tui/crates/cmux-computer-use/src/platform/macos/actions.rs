@@ -454,6 +454,7 @@ pub(super) fn press_keys(
             complete,
             background: delivery == Delivery::Background,
             command: combo.modifiers.contains(&Modifier::Meta),
+            shift: flags & keymap::FLAG_SHIFT != 0,
             denies_any,
             ansi_layout,
             is_service,
