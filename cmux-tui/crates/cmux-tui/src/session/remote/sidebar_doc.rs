@@ -76,6 +76,10 @@ pub(crate) struct RemoteSidebarDoc {
     /// path. A timeout or a closed transport does not set it.
     unavailable: AtomicBool,
     next_id: AtomicU64,
+    /// Runs once in `protocol2_request` right before its answer slot is
+    /// inserted (the window a shutdown may land in).
+    #[cfg(test)]
+    before_pending_insert: Mutex<Option<Box<dyn FnOnce() + Send>>>,
 }
 
 /// A poisoned lock still holds a usable read model: a panic elsewhere must
@@ -400,6 +404,10 @@ impl RemoteSession {
         }
         let message = serde_json::to_string(&request)?;
         let (tx, rx) = channel();
+        #[cfg(test)]
+        if let Some(hook) = lock(&self.sidebar_doc.before_pending_insert).take() {
+            hook();
+        }
         self.sidebar_doc.pending().insert(id.clone(), tx);
         let forget = || {
             self.sidebar_doc.pending().remove(&id);
@@ -521,3 +529,7 @@ impl RemoteSession {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "sidebar_doc_tests.rs"]
+mod tests;
