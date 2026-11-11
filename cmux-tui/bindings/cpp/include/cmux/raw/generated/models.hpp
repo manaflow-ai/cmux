@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "ba1ea0eac628452e4d44bf36bdbb7b20b34766dbdbbb531f7bbbe07db8d60c67";
+inline constexpr std::string_view kProtocolIrSha256 = "4b39427cb0e68bc89adb3ff736d9f5e4cca9c101fa1d4b2f9ec419dd4778fbf2";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -166,6 +166,9 @@ struct Screen;
 struct SelectionPane;
 struct SelectionScreen;
 struct SendExpectAgent;
+struct ServerStatsCommandConnections;
+struct ServerStatsCommandRow;
+struct ServerStatsCommands;
 struct ServerStatsConnections;
 struct ServerStatsDisk;
 struct ServerStatsDiskFile;
@@ -176,6 +179,8 @@ struct ServerStatsDiskSegmentKind;
 struct ServerStatsDiskSegments;
 struct ServerStatsHistogram;
 struct ServerStatsHookQueue;
+struct ServerStatsJournalFollower;
+struct ServerStatsJournalFollowers;
 struct ServerStatsJournalWriter;
 struct ServerStatsLockDetail;
 struct ServerStatsLockHolder;
@@ -5058,6 +5063,32 @@ struct SendResult {
     friend bool operator==(const SendResult&, const SendResult&) = default;
 };
 
+struct ServerStatsCommandConnections {
+    std::uint64_t accepted{};
+    std::string kind{};
+    std::uint64_t refused{};
+    friend bool operator==(const ServerStatsCommandConnections&, const ServerStatsCommandConnections&) = default;
+};
+
+struct ServerStatsCommandRow {
+    std::uint64_t count{};
+    std::vector<std::uint64_t> hist{};
+    std::string kind{};
+    std::uint64_t max_ns{};
+    std::string name{};
+    std::uint64_t total_ns{};
+    friend bool operator==(const ServerStatsCommandRow&, const ServerStatsCommandRow&) = default;
+};
+
+struct ServerStatsCommands {
+    std::vector<ServerStatsCommandConnections> connections{};
+    std::vector<std::uint64_t> hist_bounds_ns{};
+    std::uint64_t name_limit{};
+    std::uint64_t names{};
+    std::vector<ServerStatsCommandRow> rows{};
+    friend bool operator==(const ServerStatsCommands&, const ServerStatsCommands&) = default;
+};
+
 struct ServerStatsConnections {
     std::uint64_t accepted{};
     std::uint64_t active{};
@@ -5152,6 +5183,29 @@ struct ServerStatsHookQueue {
     std::uint64_t reset_dropped_events{};
     std::uint64_t undeliverable_events{};
     friend bool operator==(const ServerStatsHookQueue&, const ServerStatsHookQueue&) = default;
+};
+
+struct ServerStatsJournalFollower {
+    std::uint64_t client{};
+    std::uint64_t connected_ms{};
+    bool keeps_hook_rows{};
+    bool keeps_report_rows{};
+    std::vector<std::string> kinds{};
+    std::optional<std::uint64_t> left_ms{};
+    std::optional<std::string> max_sensitivity{};
+    bool remote{};
+    std::string stream_id{};
+    friend bool operator==(const ServerStatsJournalFollower&, const ServerStatsJournalFollower&) = default;
+};
+
+struct ServerStatsJournalFollowers {
+    std::vector<ServerStatsJournalFollower> followers{};
+    std::uint64_t grace_ms{};
+    bool hook_rows_kept{};
+    std::optional<bool> journal_hook_keeps_rows{};
+    std::uint64_t keep_all_ms{};
+    bool report_rows_kept{};
+    friend bool operator==(const ServerStatsJournalFollowers&, const ServerStatsJournalFollowers&) = default;
 };
 
 enum class ServerStatsWriterPhase {
@@ -5281,9 +5335,11 @@ struct ServerStatsWritePath {
 };
 
 struct ServerStatsResult {
+    std::optional<ServerStatsCommands> commands{};
     ServerStatsConnections connections{};
     std::optional<ServerStatsDisk> disk{};
     std::optional<ServerStatsHookQueue> hook_queue{};
+    std::optional<ServerStatsJournalFollowers> journal_followers{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     std::optional<ServerStatsLocks> locks{};
     ServerStatsRegistryLock registry_lock{};
@@ -7365,6 +7421,24 @@ struct Codec<SendExpectAgent> {
 };
 
 template <>
+struct Codec<ServerStatsCommandConnections> {
+    static Result<Json> encode(const ServerStatsCommandConnections& value);
+    static Result<ServerStatsCommandConnections> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsCommandRow> {
+    static Result<Json> encode(const ServerStatsCommandRow& value);
+    static Result<ServerStatsCommandRow> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsCommands> {
+    static Result<Json> encode(const ServerStatsCommands& value);
+    static Result<ServerStatsCommands> decode(const Json& value);
+};
+
+template <>
 struct Codec<ServerStatsConnections> {
     static Result<Json> encode(const ServerStatsConnections& value);
     static Result<ServerStatsConnections> decode(const Json& value);
@@ -7422,6 +7496,18 @@ template <>
 struct Codec<ServerStatsHookQueue> {
     static Result<Json> encode(const ServerStatsHookQueue& value);
     static Result<ServerStatsHookQueue> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsJournalFollower> {
+    static Result<Json> encode(const ServerStatsJournalFollower& value);
+    static Result<ServerStatsJournalFollower> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsJournalFollowers> {
+    static Result<Json> encode(const ServerStatsJournalFollowers& value);
+    static Result<ServerStatsJournalFollowers> decode(const Json& value);
 };
 
 template <>

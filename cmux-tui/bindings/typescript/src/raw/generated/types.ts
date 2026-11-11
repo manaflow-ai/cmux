@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ba1ea0eac628452e4d44bf36bdbb7b20b34766dbdbbb531f7bbbe07db8d60c67. */
+/* cmux-tui mux protocol 12, IR 4b39427cb0e68bc89adb3ff736d9f5e4cca9c101fa1d4b2f9ec419dd4778fbf2. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1096,6 +1096,29 @@ export type SendExpectAgent = {
   "session"?: (string) | null;
 };
 
+export type ServerStatsCommandConnections = {
+  "accepted": bigint;
+  "kind": string;
+  "refused": bigint;
+};
+
+export type ServerStatsCommandRow = {
+  "count": bigint;
+  "hist": Array<bigint>;
+  "kind": string;
+  "max_ns": bigint;
+  "name": string;
+  "total_ns": bigint;
+};
+
+export type ServerStatsCommands = {
+  "connections": Array<ServerStatsCommandConnections>;
+  "hist_bounds_ns": Array<bigint>;
+  "name_limit": bigint;
+  "names": bigint;
+  "rows": Array<ServerStatsCommandRow>;
+};
+
 export type ServerStatsConnections = {
   "accepted": bigint;
   "active": bigint;
@@ -1180,6 +1203,27 @@ export type ServerStatsHookQueue = {
   "queued_events": bigint;
   "reset_dropped_events": bigint;
   "undeliverable_events": bigint;
+};
+
+export type ServerStatsJournalFollower = {
+  "client": bigint;
+  "connected_ms": bigint;
+  "keeps_hook_rows": boolean;
+  "keeps_report_rows": boolean;
+  "kinds": Array<string>;
+  "left_ms": (bigint) | null;
+  "max_sensitivity": (string) | null;
+  "remote": boolean;
+  "stream_id": string;
+};
+
+export type ServerStatsJournalFollowers = {
+  "followers": Array<ServerStatsJournalFollower>;
+  "grace_ms": bigint;
+  "hook_rows_kept": boolean;
+  "journal_hook_keeps_rows": (boolean) | null;
+  "keep_all_ms": bigint;
+  "report_rows_kept": boolean;
 };
 
 export type ServerStatsJournalWriter = {
@@ -1275,9 +1319,11 @@ export type ServerStatsResourceProjection = {
 };
 
 export type ServerStatsResult = {
+  "commands"?: ServerStatsCommands;
   "connections": ServerStatsConnections;
   "disk"?: ServerStatsDisk;
   "hook_queue"?: ServerStatsHookQueue;
+  "journal_followers"?: ServerStatsJournalFollowers;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "locks"?: ServerStatsLocks;
   "registry_lock": ServerStatsRegistryLock;
