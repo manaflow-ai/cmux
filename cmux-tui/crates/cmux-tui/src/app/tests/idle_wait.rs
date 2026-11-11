@@ -77,8 +77,13 @@ fn the_idle_event_loop_does_not_wake_on_a_timer() {
     });
     let mut terminal = Terminal::new(TestBackend::new(100, 12)).unwrap();
 
+    let started = Instant::now();
     app.event_loop(&mut terminal, receiver).unwrap();
+    let ran = started.elapsed();
     sender.join().unwrap();
+
+    // The loop must have waited for its channel to end, or it proved nothing.
+    assert!(ran >= IDLE_RETRY_FLOOR * 3, "the loop ended before its channel did: {ran:?}");
 
     assert!(!timed_out.load(Ordering::Acquire), "the idle loop woke on a timer with nothing due");
 }
