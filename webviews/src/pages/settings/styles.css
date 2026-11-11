@@ -2320,7 +2320,7 @@ button.menu-disclosure {
 .part-read-bar {
   display: block;
   height: var(--ds-space-3);
-  background: color-mix(in srgb, currentColor 9%, transparent);
+  background: var(--input-bg);
   border-radius: var(--ds-radius-control);
 }
 

@@ -260,7 +260,7 @@
 .acpmux-emoji-menu.is-strip .acpmux-emoji-glyph{width:auto;font-size:var(--text-heading)}
 .acpmux-emoji-strip-code{height:var(--ds-control-compact);padding:0 var(--ds-space-2);display:flex;align-items:center;color:var(--acpmux-composer-dim);font-size:var(--text-caption);white-space:nowrap}
 .acpmux-slash-empty{padding:0 14px;height:40px;display:flex;align-items:center;color:var(--acpmux-composer-dim);border-radius:8px}
-.acpmux-slash-retry{margin-left:8px;padding:0;border:0;background:none;color:var(--agent-accent);font:inherit;cursor:pointer}
+.acpmux-slash-retry{margin-left:8px;padding:0;border:0;background:none;color:var(--agent-accent);font:inherit}
 .acpmux-slash-retry:hover{text-decoration:underline}
 .acpmux-import-input{display:none}
 /* New tab page (NewTabPage.tsx, #16620): one field with a Terminal | Browser | Agent switch
