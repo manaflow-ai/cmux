@@ -160,6 +160,7 @@ mod input_qos;
 pub(crate) use input_qos::current_thread_qos as current_input_thread_qos;
 pub(crate) use input_qos::raise_this_thread as raise_input_thread_qos;
 mod line_connection;
+pub(crate) mod tree_reply_flight;
 use command_args::{
     parse_direction, parse_split_dir, parse_zoom_mode, present_nullable, workspace_mutation,
 };
@@ -3044,6 +3045,11 @@ use command_dispatch::handle_command_with_cancellation;
 /// The `list-workspaces` reply: the tree plus the registry identity it
 /// belongs to. The launch snapshot stores the same value.
 fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
+    // Concurrent readers share one build that starts after each arrived.
+    mux.tree_reply_flight.read(|| list_workspaces_tree(mux))
+}
+
+fn list_workspaces_tree(mux: &Mux) -> anyhow::Result<Value> {
     let notifications = mux.tree_decorations();
     let mut workspaces = mux.with_state(|state| workspaces_json(state, &notifications));
     let (registry_id, generation) = mux.registry_identity();
