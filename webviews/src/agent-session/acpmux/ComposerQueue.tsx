@@ -102,6 +102,22 @@ function fitList(list: HTMLElement) {
   if (list.style.maxHeight !== height) list.style.maxHeight = height;
 }
 
+/// The queue's fit-ready marker is a paint boundary, but a gallery/test DOM may expose a window
+/// without requestAnimationFrame. Keep the marker and its cleanup deterministic there too.
+function requestFitFrame(document: Document, callback: FrameRequestCallback): number {
+  const view = document.defaultView;
+  if (typeof view?.requestAnimationFrame === "function") return view.requestAnimationFrame(callback);
+  if (typeof globalThis.requestAnimationFrame === "function") return globalThis.requestAnimationFrame(callback);
+  return setTimeout(() => callback(Date.now()), 0) as unknown as number;
+}
+
+function cancelFitFrame(document: Document, handle: number): void {
+  const view = document.defaultView;
+  if (typeof view?.cancelAnimationFrame === "function") view.cancelAnimationFrame(handle);
+  else if (typeof globalThis.cancelAnimationFrame === "function") globalThis.cancelAnimationFrame(handle);
+  else clearTimeout(handle);
+}
+
 /** Scrolls the list so `row` shows whole, starting at a row's top (the paused note's, for the first). */
 function reveal(list: HTMLElement, row: HTMLElement) {
   const { top, bottom } = offsets(list, row);
@@ -292,9 +308,13 @@ export function ComposerQueue({
     holding.current?.disconnect();
     holding.current = undefined;
     if (!current) return;
-    // The list shrinks at once, never over a blank band (closing takes effect on the click).
+    // Fit while [data-held] still turns the max-height transition off, and have the browser take
+    // the new height (a style read) before the transition comes back: the list shrinks at once,
+    // never animating down over a blank band (closing takes effect on the click).
     current.style.removeProperty("min-height");
     fitList(current);
+    void current.ownerDocument.defaultView?.getComputedStyle(current).maxHeight;
+    current.removeAttribute("data-held");
   };
   const toggle = (id: string, hovered: boolean) => {
     // Only a hovering pointer's click holds it: a key or a touch has no pointer on the list to
@@ -307,7 +327,10 @@ export function ComposerQueue({
       hovered && current && row
         ? { id, row: row.getBoundingClientRect().height, list: current.getBoundingClientRect().height }
         : undefined;
-    if (!hovered) current?.style.removeProperty("min-height");
+    if (!hovered) {
+      current?.style.removeProperty("min-height");
+      current?.removeAttribute("data-held");
+    }
     setOpen((current) => {
       const next = new Set(current);
       if (!next.delete(id)) next.add(id);
@@ -327,6 +350,8 @@ export function ComposerQueue({
     // Never past the list's own cap, nor past the room the pane leaves the stack: a very long prompt
     // in a short pane would otherwise push the composer off the pane. Past it, the list scrolls.
     const height = Math.min(want, Math.max(was.list, heldCap(current, was.list)));
+    // No max-height transition for this change (composerStates.css [data-held]).
+    current.setAttribute("data-held", "");
     current.style.maxHeight = `${height}px`;
     current.style.minHeight = `${height}px`;
     // Capped, the opened row's end (its error, its last lines) scrolls into view inside the list.
@@ -500,7 +525,12 @@ export function ComposerQueue({
   // Whole rows only: the list's height, after every draw, when its width changes, and when a row's
   // height does (a prompt opened to its whole text, its images read).
   const watched = useRef<{ list: HTMLElement; observer: ResizeObserver; rows: ResizeObserver }>(undefined);
+  const fitReadyFrame = useRef<number | undefined>(undefined);
   const wasOpen = useRef(unfolded);
+  // The prompts the list drew last: a prompt that arrives or leaves (a send behind the turn, acpmux
+  // taking the next one) changes the list's height in that frame, never eased (composerStates.css
+  // [data-rows-changed]); the reader's own fold, edit and keyboard toggles keep the move token.
+  const drawnIds = useRef<string>(undefined);
   useLayoutEffect(() => {
     const current = list.current;
     // A hold belongs to the list the pointer was on: once that list leaves (the queue emptied) no
@@ -512,11 +542,30 @@ export function ComposerQueue({
     if (current) {
       // Clear the collapsed list's scroll offset before measuring the opened rows. A pointer click
       // can leave focus on a row that the browser keeps anchored while the list grows; measuring
-      // first then resetting lets that stale offset survive the new max-height and puts a
+      // first then resetting lets that stale offset survive the max-height transition and puts a
       // row above the list's own top edge (the short-pane queue stack regression).
       const opening = unfolded && !wasOpen.current;
       if (opening) current.scrollTop = 0;
-      fit(current);
+      const firstFit = !current.hasAttribute("data-fit-ready");
+      const ids = [...current.querySelectorAll<HTMLElement>(":scope > .acpmux-queued")]
+        .map((row) => row.dataset.promptId)
+        .join("\n");
+      const rowsChanged = drawnIds.current !== undefined && drawnIds.current !== ids && unfolded === wasOpen.current;
+      drawnIds.current = ids;
+      if (rowsChanged) {
+        // Fit with the transition off, and have the browser take the height (a style read) before it
+        // comes back, as `release` does.
+        current.setAttribute("data-rows-changed", "");
+        fit(current);
+        void current.ownerDocument.defaultView?.getComputedStyle(current).maxHeight;
+        current.removeAttribute("data-rows-changed");
+      } else fit(current);
+      if (firstFit) {
+        fitReadyFrame.current = requestFitFrame(current.ownerDocument, () => {
+          fitReadyFrame.current = undefined;
+          if (current.isConnected) current.setAttribute("data-fit-ready", "");
+        });
+      }
     }
     wasOpen.current = unfolded;
     if (watched.current?.list !== current) {
@@ -544,6 +593,9 @@ export function ComposerQueue({
   });
   useEffect(
     () => () => {
+      const document = list.current?.ownerDocument;
+      if (fitReadyFrame.current !== undefined && document) cancelFitFrame(document, fitReadyFrame.current);
+      fitReadyFrame.current = undefined;
       watched.current?.observer.disconnect();
       watched.current?.rows.disconnect();
     },

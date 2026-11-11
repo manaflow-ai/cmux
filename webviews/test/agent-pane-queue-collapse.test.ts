@@ -357,9 +357,8 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       const before = await page.evaluate(() => {
         (window as { cmuxDevPersistMs?: number }).cmuxDevPersistMs = 400;
         const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
-        return { height: list.getBoundingClientRect().height, transition: getComputedStyle(list).transitionProperty };
+        return { height: list.getBoundingClientRect().height };
       });
-      expect(before.transition).not.toContain("max-height");
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("two");
       // Each painted frame from the press: the field's text, the rows drawn and the list's height.
@@ -395,6 +394,35 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       expect(rest).toBeGreaterThan(before.height + 1);
       expect(frames.slice(cleared).map((frame) => frame.height)).toEqual(frames.slice(cleared).map(() => rest));
       expect(frames.some((frame) => frame.cut)).toBe(false);
+      await page.close();
+    });
+
+    test("the reader opening the fold eases the list on the structural motion token", async () => {
+      const page = await openChat(PROMPTS);
+      const before = await page.evaluate(() => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        const style = getComputedStyle(list);
+        return {
+          height: list.getBoundingClientRect().height,
+          transition: style.transition,
+          ready: list.hasAttribute("data-fit-ready"),
+          animations: list.getAnimations().length,
+        };
+      });
+      expect(before.transition).toContain("max-height");
+      expect(before.ready).toBe(true);
+      expect(before.animations).toBe(0);
+      await page.locator(".acpmux-queue-fold").click();
+      await page.waitForFunction(
+        (height) =>
+          document.querySelector<HTMLElement>(".acpmux-composer-queue")!.getBoundingClientRect().height > height + 1,
+        before.height,
+      );
+      const after = await page.evaluate(() => {
+        const list = document.querySelector<HTMLElement>(".acpmux-composer-queue")!;
+        return list.getBoundingClientRect().height;
+      });
+      expect(after).toBeGreaterThan(before.height);
       await page.close();
     });
 
