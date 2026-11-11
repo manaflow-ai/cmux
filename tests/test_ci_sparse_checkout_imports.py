@@ -1078,7 +1078,14 @@ class SparseCheckoutImportTests(unittest.TestCase):
         self.assertEqual(misses, [], "\n" + "\n".join(misses))
 
     def _fixture(
-        self, tmp: Path, sparse: str, job_env: str = "", run: str = "true", wf_env: str = "", run_env: str = ""
+        self,
+        tmp: Path,
+        sparse: str,
+        job_env: str = "",
+        run: str = "true",
+        wf_env: str = "",
+        run_env: str = "",
+        more: dict[str, str] | None = None,
     ) -> Path:
         files = {
             "scripts/ci/runner.py": "import sys\nsys.path.insert(0, '.')\nfrom helper import go\n",
@@ -1169,6 +1176,7 @@ class SparseCheckoutImportTests(unittest.TestCase):
             "scripts/ci/oschelper.py": "import sys\nsys.path.insert(0, 'scripts/alternate')\n",
             "scripts/alternate/oschelper.py": "",
         }
+        files.update(more or {})
         for rel, body in files.items():
             (tmp / rel).parent.mkdir(parents=True, exist_ok=True)
             (tmp / rel).write_text(body, encoding="utf-8")
@@ -1207,10 +1215,17 @@ class SparseCheckoutImportTests(unittest.TestCase):
         return tmp
 
     def _misses(
-        self, sparse: str, job_env: str = "", run: str = "true", audit=None, wf_env: str = "", run_env: str = ""
+        self,
+        sparse: str,
+        job_env: str = "",
+        run: str = "true",
+        audit=None,
+        wf_env: str = "",
+        run_env: str = "",
+        more: dict[str, str] | None = None,
     ) -> list[str]:
         with tempfile.TemporaryDirectory() as tmp:
-            return find_misses(self._fixture(Path(tmp), sparse, job_env, run, wf_env, run_env), audit)
+            return find_misses(self._fixture(Path(tmp), sparse, job_env, run, wf_env, run_env, more), audit)
 
     def block(self, *lines: str) -> str:
         return "|\n" + "\n".join(" " * 12 + line for line in lines)
@@ -1539,6 +1554,58 @@ class SparseCheckoutImportTests(unittest.TestCase):
                 f"w.yml run Check out: scripts/ci/xside.py calls sys.path.insert(0, 'scripts/b') (line 2), {unverifiable} "
                 "(via scripts/ci/xfile.py)",
             ],
+        )
+
+    # disj.py inserts scripts/p1 and scripts/p2 from two functions, so their order is not provable;
+    # it is learned only while no folder on the path offers a name another one (or the stdlib, or an
+    # installed package) offers too.
+    DISJ = {
+        "scripts/ci/disj.py": (
+            "import sys\n"
+            "def b():\n    sys.path.insert(0, 'scripts/p2')\n"
+            "def a():\n    sys.path.insert(0, 'scripts/p1')\n"
+            "a()\nb()\nimport p1only\n"
+        ),
+        "scripts/p1/p1only.py": "",
+        "scripts/p2/p2only.py": "",
+    }
+    DISJ_UNVERIFIABLE = [
+        "w.yml run Check out: scripts/ci/disj.py calls sys.path.insert(0, 'scripts/p1') (line 5), which this check "
+        "cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT",
+        "w.yml run Check out: scripts/ci/disj.py calls sys.path.insert(0, 'scripts/p2') (line 3), which this check "
+        "cannot follow; make the import static or audit it in DYNAMIC_IMPORT_AUDIT",
+    ]
+
+    def _disj(self, *extra_listed: str, **more: str) -> list[str]:
+        listed = self.block("scripts/ci/disj.py", "scripts/p1/p1only.py", *extra_listed)
+        return self._misses(listed, more={**self.DISJ, **more})
+
+    def test_fixture_disjoint_folders_are_learned_in_any_order(self) -> None:
+        self.assertEqual(self._disj(), [])
+
+    def test_fixture_disjoint_proof_two_folders_gain_a_shared_name(self) -> None:
+        self.assertEqual(self._disj(**{"scripts/p2/p1only.py": ""}), self.DISJ_UNVERIFIABLE)
+
+    def test_fixture_disjoint_proof_package_dir_against_py_file(self) -> None:
+        self.assertEqual(
+            self._disj(**{"scripts/p1/shared.py": "", "scripts/p2/shared/__init__.py": ""}), self.DISJ_UNVERIFIABLE
+        )
+
+    def test_fixture_disjoint_proof_stdlib_name(self) -> None:
+        # A local json.py inserted at sys.path[0] shadows the stdlib's json.
+        self.assertEqual(self._disj(**{"scripts/p1/json.py": ""}), self.DISJ_UNVERIFIABLE)
+
+    def test_fixture_disjoint_proof_namespace_dir(self) -> None:
+        # nsdir/ has no __init__.py in p1 (a namespace portion) and is a module in p2.
+        self.assertEqual(
+            self._disj(**{"scripts/p1/nsdir/deep/x.py": "", "scripts/p2/nsdir.py": ""}), self.DISJ_UNVERIFIABLE
+        )
+
+    def test_fixture_disjoint_proof_extension_module(self) -> None:
+        # fastmod.cpython-312-x86_64-linux-gnu.so is the module fastmod, like fastmod.py.
+        self.assertEqual(
+            self._disj(**{"scripts/p1/fastmod.cpython-312-x86_64-linux-gnu.so": "", "scripts/p2/fastmod.py": ""}),
+            self.DISJ_UNVERIFIABLE,
         )
 
     def test_fixture_codex_a_star_import_makes_module_names_unprovable(self) -> None:
