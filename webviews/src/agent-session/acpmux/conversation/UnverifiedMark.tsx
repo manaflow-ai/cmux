@@ -5,7 +5,7 @@
 // status mark and sits in the sentence's flow, or on the icon's corner in the `corner` look.
 // A sender acpmux saw as a program (incomingMessage.ts `senderProgram`: a fleet tool's `acpmux
 // send`) draws a terminal prompt instead, and says what acpmux checked: "Program checked by
-// acpmux: next-autoland on build-box", that no agent was proven, and the program's path (Leo,
+// cmux: next-autoland on build-box", that no agent was proven, and the program's path (Leo,
 // 2026-11-11: "generally the "unverified sender" things should be more verified").
 // A sender that only named itself (`--from`, a notice's sender) says that name is its claim:
 // "Claimed to be ci-watch, not proven". One of our own tools proves its name with the host's
