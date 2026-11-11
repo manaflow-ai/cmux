@@ -50,13 +50,31 @@ class Bindings:
                     (g if isinstance(child, ast.Global) else n).update(child.names)
                 declare(child, child if isinstance(child, SCOPES) else scope)
 
+        skip = set()  # id() of a def's or class's outer parts, already walked in the scope around it
+
         def walk(node, scope):
             for child in ast.iter_child_nodes(node):
+                if id(child) in skip:
+                    continue
                 self.scope[id(child)] = scope
                 inner = scope
                 if isinstance(child, SCOPES):
                     inner = child
                     self.parent[child] = scope
+                elif isinstance(scope, ast.ClassDef) and isinstance(child, (ast.Lambda,) + COMPREHENSIONS):
+                    # A lambda or comprehension in a class body does not see the class's names either (#4468 F1):
+                    # it is a scope of its own here, past which chain() skips the class. Its first iterable, or a
+                    # lambda's defaults, run in the class body.
+                    inner = child
+                    self.parent[child] = scope
+                    if isinstance(child, ast.Lambda):
+                        outer = child.args.defaults + [d for d in child.args.kw_defaults if d is not None]
+                    else:
+                        outer = [child.generators[0].iter]
+                    for o in outer:
+                        self.scope[id(o)] = scope
+                        walk(_Holder(o), scope)
+                    skip.update(id(o) for o in outer)
                 if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     a = child.args
                     positional = a.posonlyargs + a.args
@@ -66,6 +84,14 @@ class Bindings:
                         self.defaults.add(id(default))
                         assigns.append((ast.Assign(targets=[ast.Name(id=arg.arg, ctx=ast.Store())], value=default),
                                         child))
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    # Decorators, defaults, annotations and a class's bases run in the scope around the def or
+                    # class (a method's `send=os.kill` sees the class body's `import os`); only the body is inside.
+                    outer = outer_parts(child)
+                    for o in outer:
+                        self.scope[id(o)] = scope
+                        walk(_Holder(o), scope)
+                    skip.update(id(o) for o in outer)
                 if isinstance(child, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
                     assigns.append((child, scope))
                 elif isinstance(child, ast.Import):
@@ -224,6 +250,11 @@ class _Holder(ast.AST):
         self.node = node
 
 
+NONLOCAL = "<nonlocal>"  # where a binding through `nonlocal` lands, for bindings_of: never the binding scope's own
+# match statements are 3.10+; macOS's /usr/bin/python3 is 3.9, whose ast has none of these (LW#4428 F4)
+MATCH_CAPTURES = tuple(getattr(ast, n) for n in ("MatchAs", "MatchStar") if hasattr(ast, n))
+MATCH_MAPPING = tuple(getattr(ast, n) for n in ("MatchMapping",) if hasattr(ast, n))
+MATCH = getattr(ast, "Match", ())
 FUNCTION_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
 COMPREHENSIONS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
 ALL_SCOPES = (ast.Module, ast.ClassDef) + FUNCTION_SCOPES + COMPREHENSIONS
@@ -250,6 +281,9 @@ class Scopes:
         self._declare(tree, tree)  # before any binding: a declaration covers its whole scope
         self.star = {}
         self.walrus = set()  # id() of a walrus target
+        self.walrus_expr = {}  # id() of a walrus target -> its NamedExpr
+        self.annotation_only = set()  # id() of the target of `x: T` with no value: local to its scope, bound by nothing
+        self.sites = {}  # id() of a node that binds -> [(name, the scope the binding lands in, or NONLOCAL)]
         self._outside = []  # (scope, name) bound through nonlocal: counted where it lands, once all scopes are known
         self._walk(tree, tree)
         for scope, name in self._outside:
@@ -277,19 +311,24 @@ class Scopes:
         self.parent[node] = outer
         self.binds[node] = collections.Counter()
 
-    def _bind(self, scope, name):
+    def _bind(self, scope, name, site=None):
         if name in self.globals.get(scope, ()):
             self.binds[self.root][name] += 1
+            land = self.root
         elif name in self.nonlocals.get(scope, ()):
             self._outside.append((scope, name))
+            land = NONLOCAL
         else:
             self.binds[scope][name] += 1
+            land = scope
+        if site is not None:
+            self.sites.setdefault(id(site), []).append((name, land))
 
     def _walk(self, node, scope):
         for child in ast.iter_child_nodes(node):
             self.scope[id(child)] = scope
             if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                self._bind(scope, child.name)
+                self._bind(scope, child.name, child)
                 outer = list(child.decorator_list)
                 if isinstance(child, ast.ClassDef):
                     outer += child.bases + [k.value for k in child.keywords]
@@ -325,6 +364,8 @@ class Scopes:
                     self.scope[id(part)] = child
                     self._walk_one(part, child)
             else:
+                if isinstance(child, ast.AnnAssign) and child.value is None:
+                    self.annotation_only.add(id(child.target))
                 self._note(child, scope)
                 self._walk(child, scope)
 
@@ -352,20 +393,55 @@ class Scopes:
             if isinstance(scope, COMPREHENSIONS) and id(node) in self.walrus:
                 while isinstance(target, COMPREHENSIONS):
                     target = self.parent[target]  # PEP 572: a walrus in a comprehension binds outside it
-            self._bind(target, node.id)
+            # `fd: object` makes fd local, as Python's compiler does, but runs no binding: no site for bindings_of
+            self._bind(target, node.id, None if id(node) in self.annotation_only else node)
         elif isinstance(node, ast.NamedExpr):
             self.walrus.add(id(node.target))
+            self.walrus_expr[id(node.target)] = node
         elif isinstance(node, ast.ExceptHandler) and node.name:
-            self._bind(scope, node.name)
+            self._bind(scope, node.name, node)
         elif isinstance(node, ast.alias):
             if node.name == "*":
                 self.star[scope] = True
             else:
-                self._bind(scope, (node.asname or node.name).split(".")[0])
-        elif isinstance(node, (ast.MatchAs, ast.MatchStar)) and node.name:
-            self._bind(scope, node.name)
-        elif isinstance(node, ast.MatchMapping) and node.rest:
-            self._bind(scope, node.rest)
+                self._bind(scope, (node.asname or node.name).split(".")[0], node)
+        elif isinstance(node, MATCH_CAPTURES) and node.name:
+            self._bind(scope, node.name, node)
+        elif isinstance(node, MATCH_MAPPING) and node.rest:
+            self._bind(scope, node.rest, node)
+
+    def bindings_of(self, node, parts=None):
+        """(name, site) for every name NODE binds in the scope NODE is evaluated in, read from PARTS (default: NODE
+        itself). A compound statement is read by its header only (header(): an if's test, a for's target and
+        iter, a with's items, a match's subject, a handler's name and type); its body's statements bind on their
+        own. A binding is a Name target (an assignment's, an unpacking's, an augmented one's, a for's, a with's,
+        a del's), a walrus (one in a comprehension binds in the enclosing scope, PEP 572), an except handler's
+        name, an import, a match capture, or a def's or class's own name. An attribute or subscript target
+        (f.attr = 1, d[k] = v) binds nothing. Never looks into a nested def, class or lambda body, whose names
+        are its own; a def's decorators and defaults, a lambda's defaults and a class's bases are read, as they
+        run in the enclosing scope. An annotation with no value (`fd: object`) binds nothing at runtime. A name
+        declared global lands in the module and one declared nonlocal in an enclosing def, so neither is a
+        binding of a function's own. SITE is the NamedExpr for a walrus, else the node that binds (the Name
+        target, the handler, the alias, the def)."""
+        scope = self.scope_of(node)
+        out = []
+        stack = list(parts if parts is not None else [node])
+        while stack:
+            n = stack.pop()
+            for name, land in self.sites.get(id(n), ()):
+                if land is scope:
+                    out.append((name, self.walrus_expr.get(id(n), n)))
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                stack += n.decorator_list + self._outer_of_args(n.args) + ([n.returns] if n.returns else [])
+            elif isinstance(n, ast.ClassDef):
+                stack += n.decorator_list + n.bases + [k.value for k in n.keywords]
+            elif isinstance(n, ast.Lambda):
+                stack += self._outer_of_args(n.args)
+            else:
+                stack += header(n)
+        out.reverse()  # source order, as the stack was walked from the back
+        return out
+
 
     def scope_of(self, node):
         return self.scope.get(id(node), self.root)
@@ -385,3 +461,35 @@ class Scopes:
                 return scope
             scope, first = self.parent.get(scope), False
         return None
+
+
+def header(node):
+    """What a statement runs before its body: an if's or while's test, a for's target and iter, a with's items, a
+    match's subject, an except handler's type; nothing for a try. Any other node: all its children."""
+    if isinstance(node, (ast.If, ast.While)):
+        return [node.test]
+    if isinstance(node, (ast.For, ast.AsyncFor)):
+        return [node.target, node.iter]
+    if isinstance(node, (ast.With, ast.AsyncWith)):
+        return list(node.items)
+    if isinstance(node, MATCH):
+        return [node.subject]
+    if isinstance(node, ast.ExceptHandler):
+        return [node.type] if node.type is not None else []
+    if isinstance(node, ast.Try) or type(node).__name__ == "TryStar":
+        return []
+    return list(ast.iter_child_nodes(node))
+
+
+def outer_parts(node):
+    """The parts of a def or class that run in the scope around it: decorators, parameter defaults and annotations,
+    the return annotation, a class's bases and keywords."""
+    out = list(node.decorator_list)
+    if isinstance(node, ast.ClassDef):
+        return out + node.bases + list(node.keywords)
+    a = node.args
+    out += a.defaults + [d for d in a.kw_defaults if d is not None]
+    for arg in a.posonlyargs + a.args + a.kwonlyargs + [a.vararg, a.kwarg]:
+        if arg is not None and arg.annotation is not None:
+            out.append(arg.annotation)
+    return out + ([node.returns] if node.returns is not None else [])
