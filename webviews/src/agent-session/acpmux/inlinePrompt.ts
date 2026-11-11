@@ -205,10 +205,12 @@ export function recordedPromptParts(msg: any, known?: readonly PromptContentPart
 function plainRuns(input: string, attachments: readonly ComposerAttachment[]) {
   let plain = "";
   const marks: { at: number; token: string }[] = [];
+  // A chip left in the strip goes after the words as its own paragraph, as an unedited send puts it.
+  const apart = (id: string) => (!input.includes(inlineToken(id)) && plain && !plain.endsWith("\n\n") ? "\n\n" : "");
   for (const run of orderedDraftParts(input, [...attachments])) {
     if (run.type === "text") plain += run.text;
-    else if (run.attachment.kind === "pasted") plain += run.attachment.text ?? "";
-    else if (run.attachment.kind === "text") plain += promptText("", [run.attachment]);
+    else if (run.attachment.kind === "pasted") plain += apart(run.attachment.id) + (run.attachment.text ?? "");
+    else if (run.attachment.kind === "text") plain += apart(run.attachment.id) + promptText("", [run.attachment]);
     else marks.push({ at: plain.length, token: inlineToken(run.attachment.id) });
   }
   return { plain, marks };

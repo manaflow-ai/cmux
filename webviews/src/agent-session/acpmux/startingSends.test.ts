@@ -197,3 +197,22 @@ test("an edited waiting row keeps its picture in place and sends a pasted chip's
   const parts = inlinePrompt(text, attachments);
   expect(JSON.stringify(parts).split("HELLO").length - 1).toBe(1);
 });
+
+test("an edited waiting row keeps a text file left in the strip apart from its words", async () => {
+  const notes = { id: "5191ce85-b54c-4acd-9a1e-1f2e3d4c5b6a", kind: "text", name: "notes.txt", text: "BODY" } as unknown as ComposerAttachment;
+  const h = harness();
+  const sent: string[] = [];
+  h.sends.add("first", [], h.go);
+  h.sends.add("look", [notes], async (text) => void sent.push(text));
+  await h.settle();
+  const waiting = h.sends.rows[1]!;
+  const shown = startingQueueEntry(waiting).prompt;
+  expect(shown.startsWith("look\n\n")).toBe(true);
+  expect(h.sends.edit(waiting.id, `${shown}!`)).toBe(true);
+  await h.settle();
+  h.gates.get("first")!.take();
+  await h.settle();
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.startsWith("look\n\n")).toBe(true);
+  expect(sent[0]!.split("BODY").length - 1).toBe(1);
+});
