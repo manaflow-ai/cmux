@@ -29,11 +29,13 @@ A prompt "peer-hold: <JSON>" writes Claude Code's `system/peer_message_hold` lin
 fields (`state`, `message_uuid`, `from`, `from_name`, `cause`, `outcome`, `lane`) and ends the turn.
 """
 import atexit
+import errno
 import json
 import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 SESSION = "auto-claude-session"
 for flag in ("--session-id", "--resume"):
@@ -55,47 +57,70 @@ if MESSAGING and REGISTRY:
     atexit.register(lambda: os.path.exists(ENTRY) and os.remove(ENTRY))
 
 
-# A copy of _state() and _exited() from tests/process_gone.py, the canonical helper: this stand-in runs
-# from a scratch copy (cpu_class.rs) where that file cannot be loaded by path. Signal 0 alone is wrong here,
-# since a dead peer that is not reaped yet (a zombie) still answers it.
-# tests/test_lint_process_gone_checks.py fails when the two copies differ; change both together.
-def _state(pid):
-    """PID's one-letter process state ("Z" for a zombie), or "" when no process has it, or None when unknown.
-
-    Linux reads /proc; macOS has no /proc, so `ps -o stat= -p PID` answers there (and on Linux without /proc)."""
-    try:
-        with open("/proc/%d/stat" % pid) as f:
-            stat = f.read()
-        return stat[stat.rindex(")") + 2:][:1]
-    except FileNotFoundError:
-        if os.path.isdir("/proc/self"):
-            return ""  # /proc works and has no entry: the pid is gone
-    except (OSError, ValueError):
-        pass
-    try:
-        out = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, timeout=5)
-    except (OSError, subprocess.SubprocessError):
-        return None
-    return out.stdout.strip()[:1]  # ps prints nothing (and exits 1) for a pid it does not know
+# A copy of exists(), _proc_ticks() and status() from tests/process_identity.py, which tests/process_gone.py answers
+# with: this stand-in runs from a scratch copy (cpu_class.rs) where that file cannot be loaded by path. Signal 0 alone
+# is wrong here, since a dead peer that is not reaped yet (a zombie) still answers it, and a ps that fails proves
+# nothing (UNKNOWN), so only DEAD counts. tests/test_lint_process_gone_checks.py fails when the copies differ; change
+# both together.
+ALIVE, DEAD, UNKNOWN = "alive", "dead", "unknown"
+PS_TIMEOUT_S = 10
 
 
-def _exited(pid):
-    """True when PID is gone or a zombie, False when it runs, None when it cannot be told."""
+def exists(pid):
+    """True or False when the kernel says, None when it cannot tell."""
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
-        return True
+        return False
     except PermissionError:
-        pass  # another user's process: its state still answers below
-    state = _state(pid)
-    if state is None:
+        return True
+    except OSError:
         return None
-    return state in ("", "Z", "X")
+    return True
+
+
+def _proc_ticks(pid):
+    """("ticks:<start>", zombie) from /proc, DEAD when there is no such process, UNKNOWN when it cannot be read."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError as error:
+        if error.errno in (errno.ENOENT, errno.ESRCH):
+            return DEAD
+        return UNKNOWN
+    try:
+        rest = stat[stat.rindex(")") + 2:].split()
+        return "ticks:" + rest[19], rest[0] in ("Z", "X")
+    except (IndexError, ValueError):
+        return UNKNOWN
+
+
+def status(pid, timeout=None):
+    """ALIVE while PID runs (not a zombie), DEAD once it has exited (a zombie counts: it has exited, only its parent
+    has not reaped it), UNKNOWN when neither /proc nor `ps` could say. No start time: for a pid this caller started
+    itself and has not reaped, which no one else can have. TIMEOUT bounds the ps call (PS_TIMEOUT_S by default), so
+    a wait with a deadline is not held past it by a ps that hangs."""
+    if exists(pid) is False:
+        return DEAD
+    if Path("/proc/self/stat").exists():
+        got = _proc_ticks(pid)
+        return (DEAD if got[1] else ALIVE) if isinstance(got, tuple) else got
+    try:
+        got = subprocess.run(["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True,
+                             timeout=PS_TIMEOUT_S if timeout is None else timeout)
+    except (OSError, subprocess.SubprocessError):
+        return UNKNOWN
+    letter = got.stdout.strip()[:1]
+    if letter:
+        return DEAD if letter in ("Z", "X") else ALIVE
+    # ps prints nothing both for a pid it does not know (exit 1) and when it failed: only the kernel's own "no such
+    # process" makes the empty answer a DEAD.
+    return DEAD if got.returncode == 1 and exists(pid) is False else UNKNOWN
+
 
 
 def died(pid):
     """True when PID has exited (gone, or a zombie) now: tests/process_gone.py's died(), without the wait."""
-    return _exited(pid) is True
+    return status(pid) == DEAD
 
 
 def peers():
