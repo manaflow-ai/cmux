@@ -387,6 +387,53 @@ class WebLintPrePushTests(unittest.TestCase):
         self.assertIn(f"{self.SWIFT_SOURCE}:3", result.stderr, "must name the pushed field")
         self.assertEqual(trees(), [])
 
+    # 2026-11-11: pushes from sparse worktrees (RATCHET's, W7-A's, W5-L's) linted the checkout as if it were the
+    # commit. One without the CmuxNext sources failed check:text-focus with "no Packages/macOS/CmuxNext/Sources", one
+    # without webviews/ crashed in spawn with FileNotFoundError. A sparse checkout never holds the whole commit.
+    def test_a_swift_only_push_from_a_sparse_worktree_lints_the_pushed_sources(self):
+        self.text_focus_fixture()
+        self.write(self.SWIFT_SOURCE, 'struct Field {\n    var body: some View {\n'
+                   '        SecureField("Key", text: $key)\n            .focusEffectDisabled()\n    }\n}\n')
+        self.commit("a field without a ring")
+        clean = self.git("rev-parse", "HEAD").stdout.strip()
+        self.git("sparse-checkout", "set", "webviews", "scripts", "web")
+        self.assertFalse((self.repo / "Packages").exists(), "the sparse worktree holds no Swift sources")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("no Packages/macOS/CmuxNext/Sources", result.stderr)
+        self.assertIn("sparse checkout", result.stderr, "the note says where the checks ran")
+        self.assertEqual(self.remote_head(), clean)
+
+        self.git("sparse-checkout", "disable")
+        self.write(self.SWIFT_SOURCE, self.RINGED_FIELD)
+        self.commit("a field with a focus ring")
+        self.git("sparse-checkout", "set", "webviews", "scripts", "web")
+
+        result = self.push()
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"{self.SWIFT_SOURCE}:3", result.stderr, "must name the pushed field")
+        self.assertEqual(self.remote_head(), clean, "the field with a ring must not reach origin")
+
+    def test_a_web_push_from_a_sparse_worktree_is_refused_with_what_to_do(self):
+        before = self.remote_head()
+        self.write("webviews/src/app.ts", "export const app = 2;\n")
+        self.commit("a web change")
+        self.git("sparse-checkout", "set", "scripts", "web")
+        self.assertFalse((self.repo / "webviews").exists(), "the sparse worktree holds no webviews/")
+
+        result = self.push()
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("sparse checkout", result.stderr)
+        self.assertIn("webviews/", result.stderr)
+        self.assertIn("git sparse-checkout disable", result.stderr)
+        self.assertIn("scripts/cmux-next/push-from-host.sh", result.stderr)
+        self.assertEqual(self.remote_head(), before, "nothing reaches origin unlinted")
+
     def test_a_lone_piece_tree_holds_what_the_piece_reads_and_no_more(self):
         self.text_focus_fixture()
         self.write(self.SWIFT_SOURCE, 'struct Field {}\n')
