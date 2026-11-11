@@ -75,6 +75,15 @@
  * Either way the team is put in gateway mode before the chat machine is made (its edge route is picked when it is
  * made) and set back to its earlier mode at the end.
  *
+ * Clean room: after the chat, the journey runs cloud-key-probe.py on the chat machine (as root when sudo asks no
+ * password): every process's environment and command line, and the files under the homes, /etc, /opt, /srv and the
+ * temp folders, searched for a model provider's key. The step names each finding by place and kind, never a value;
+ * a run that could not read everything (not root, an unreadable file or process, the walk past its budget) is unknown.
+ * With --gateway, --gateway-local or --keys-clean a finding or an unknown fails the step; otherwise it is report-only,
+ * a skip that lists the findings (the login copy puts the person's login on the machine by design).
+ * --keys-probe-out FILE appends the probe's whole answer with the run's tag and mode, one JSON line a run (back-to-back
+ * runs keep every record); --skip keys leaves it out.
+ *
  * --machines lists the agent test account's machines (one JSON line each, with `eligible` by the leaked journey
  * machine rule; --also-team T lists a second team too), and --delete-ids vm_a@JOB,vm_b@JOB deletes exactly those (at
  * most 5), each only when JOB is a trusted cmux-vm.yml deploy-staging job whose log shows it made the machine and its cleanup delete failed
@@ -97,7 +106,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -149,11 +158,17 @@ export type Status = "pass" | "fail" | "skip";
 export type Step = { step: string; status: Status; ms: number; detail: string };
 
 /** Words that may never reach the log, the JSON or a PR comment, whatever an answer holds. */
-const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /\b(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+\S+/g];
+// No word boundaries: a token glued to other characters (`prefix_<key>` in a path) is still a token.
+const SECRET_SHAPES = [/eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+/g, /(cmvm|cmk|cmuxvm_sk|cmm|pck|ssk)_[A-Za-z0-9_-]{8,}/g, /[Bb]earer\s+\S+/g,
+  // Every shape in cloud-key-probe.py SHAPES, whatever text carries one: a probe answer, an error, a path. A test
+  // holds one example of each probe shape and checks this list removes it, so a new shape cannot miss it.
+  /sk-ant-[a-z]{3}\d\d-[A-Za-z0-9_-]{20,}/g, /sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}/g, /sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}/g,
+  /sk-or-v1-[0-9a-f]{32,}/g, /AIza[0-9A-Za-z_-]{35}/g, /xai-[A-Za-z0-9]{40,}/g, /gsk_[A-Za-z0-9]{40,}/g, /hf_[A-Za-z0-9]{30,}/g,
+  /(?:AKIA|ASIA)[0-9A-Z]{16}/g, /("refresh_token"\s*:\s*")[^"\s]{20,}"/g];
 export function scrub(text: string, secrets: string[] = []): string {
   let out = text;
   for (const s of secrets) if (s && s.length >= 6) out = out.split(s).join("[secret]");
-  for (const re of SECRET_SHAPES) out = out.replace(re, "[secret]");
+  for (const re of SECRET_SHAPES) out = out.replace(re, (whole, field?: string) => (typeof field === "string" ? `${field}[secret]"` : "[secret]"));
   return out;
 }
 
@@ -319,12 +334,14 @@ type ExecResult = { code: number; stdout: string; stderr: string };
 type Exec = (command: string, timeoutMs?: number) => Promise<ExecResult>;
 
 /** The CLI's exec (cloud_client_session.rs): mint a client session, then the provider's exec-await. */
-function directExec(api: Api, machine: string, journey: Journey): Exec {
+export function directExec(api: Api, machine: string, journey: Journey): Exec {
   let session: { token: string; vm_id: string; linux_user: string; api_base_url: string; expires_at: number } | null = null;
   let guestRoute = false;
   const guestExec: Exec = async (command, timeoutMs = 60_000) => {
     // A VM API machine has no client sessions: the machine exec route (MachineGuest.ts) runs it instead.
-    const g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, { command, timeoutMs: Math.min(timeoutMs, 300_000) });
+    // The HTTP request waits as long as the command may run, plus room for the answer to travel.
+    const runMs = Math.min(timeoutMs, 300_000);
+    const g = await api.raw("POST", `/v1/cloud/machines/${machine}/exec`, { command, timeoutMs: runMs }, runMs + 15_000);
     const v: any = g.body?.value ?? g.body;
     if (g.status < 200 || g.status >= 300 || v?.ok === false) throw new Error(`exec: HTTP ${g.status} ${short(v?.error?.code ?? v?.error ?? v)}`);
     return { code: Number(v.exitCode ?? v.exit_code ?? 1), stdout: String(v.stdout ?? ""), stderr: String(v.stderr ?? "") };
@@ -865,6 +882,49 @@ export function swiftRawString(source: string, name: string): string {
   if (!m) throw new Error(`no ${name} in the installer source`);
   const indent = m[2];
   return m[1].split("\n").map((line) => (line.startsWith(indent) ? line.slice(indent.length) : line.trimStart())).join("\n");
+}
+
+/** The clean-room provider key probe the journey runs on the chat machine after the chat. */
+export const KEY_PROBE_PY = fileURLToPath(new URL("./cloud-key-probe.py", import.meta.url));
+export const KEY_PROBE_STEP = "clean room: no provider key on the machine";
+export type KeyFinding = { place: "env" | "cmdline" | "file"; where: string; what: string };
+export type KeyProbe = { as_root: boolean; complete: boolean; gaps: string[]; findings: KeyFinding[]; shipped?: KeyFinding[]; scanned: Record<string, number>; unreadable: string[]; truncated: boolean; ms: number };
+
+/** The probe sent as one exec: as root when sudo asks no password, so it reads every process and home. */
+export function keyProbeCommand(source: string, args: string[] = []): string {
+  if (source.includes("CMUX_KEY_PROBE")) throw new Error("the probe's source holds its own heredoc delimiter");
+  const rest = args.map((a) => ` ${shq(a)}`).join("");
+  return `if sudo -n true 2>/dev/null; then p="sudo -n python3"; else p=python3; fi; $p -I -${rest} <<'CMUX_KEY_PROBE'\n${source}\nCMUX_KEY_PROBE`;
+}
+
+/** The probe's answer from its `@@keyprobe ` line; throws when the probe printed none. */
+export function parseKeyProbe(stdout: string): KeyProbe {
+  const line = stdout.split("\n").find((l) => l.startsWith("@@keyprobe "));
+  if (!line) throw new Error(`the probe printed no answer: ${stdout.slice(-300)}`);
+  const p = JSON.parse(line.slice("@@keyprobe ".length));
+  if (!Array.isArray(p?.findings) || typeof p?.complete !== "boolean" || !Array.isArray(p?.gaps)) throw new Error(`the probe's answer has no findings list or coverage: ${line.slice(0, 300)}`);
+  return p as KeyProbe;
+}
+
+/**
+ * The step's result: a finding fails a clean check and is reported otherwise; no finding passes only when the probe
+ * read everything (`complete`), since a gap in what it read is "unknown", never "no key".
+ */
+export function keyProbeStatus(p: KeyProbe, clean: boolean): Status {
+  if (p.findings.length || !p.complete) return clean ? "fail" : "skip";
+  return "pass";
+}
+
+/** The findings, one `place where: what` each, then what the probe could read. Names and places only. */
+export function keyProbeDetail(p: KeyProbe): string {
+  const s = p.scanned ?? {};
+  const cover =
+    `${p.as_root ? "as root" : "not as root"}, ${s.processes ?? 0} processes, ${s.files ?? 0} files in ${p.ms} ms; ` +
+    (p.complete ? "everything read" : `incomplete: ${p.gaps.join(", ")}`) +
+    (p.shipped?.length ? `; ${p.shipped.length} key shape${p.shipped.length > 1 ? "s" : ""} in installed software, not counted` : "");
+  if (!p.findings.length) return p.complete ? `no provider key (${cover})` : `no finding, but not everything was read, so unknown (${cover})`;
+  const list = p.findings.map((f) => `${f.place} ${f.where}: ${f.what}`);
+  return `${p.findings.length} finding${p.findings.length > 1 ? "s" : ""}: ${list.join("; ")} (${cover})`;
 }
 
 /** The model stub --model stub runs on the machine. */
@@ -1726,6 +1786,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (gatewayCmux && gatewayLocal) throw new Error("--gateway and --gateway-local: pick one");
   if (gatewayLocal && gatewayUpstream === "stub") throw new Error("--gateway-local needs --gateway-upstream URL (the person's proxy, reachable from this computer)");
   const gatewayAny = Boolean(gatewayCmux || gatewayLocal);
+  // The clean room fails on a finding when the chat machine is meant to hold no key; otherwise it reports.
+  const keysClean = gatewayAny || argv.includes("--keys-clean");
+  const keysProbeOut = argValue("--keys-probe-out", argv);
   // With the gateway and the stub, the stub's nonce reply is checked as --model stub does, but it runs on the gateway.
   const gatewayStub = Boolean(gatewayCmux) && gatewayUpstream === "stub";
   const nonce = randomBytes(6).toString("hex");
@@ -2438,6 +2501,25 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           const turn = await laterTurn("Are you still there? Answer in one short sentence.");
           return { value: null, detail: `daemon ${old} killed, ${now} serves after ${back} s; ${turn.detail}` };
         });
+      }
+    }
+
+    // After the chat, while its processes still run: where a provider key sits on the chat machine.
+    if (only.has("keys")) {
+      J.skip(KEY_PROBE_STEP, "--skip keys");
+    } else {
+      const t0 = Date.now();
+      const mode = gatewayAny ? "gateway" : only.has("login") || !login || !provider ? "no login passed" : "login copy";
+      try {
+        // The walk gets 240 s of the exec route's 300 s; a walk cut short reads as incomplete, never clean.
+        const r = await exec(keyProbeCommand(readFileSync(KEY_PROBE_PY, "utf8"), ["--budget-s", "240"]), 290_000);
+        const probe = parseKeyProbe(r.stdout);
+        if (keysProbeOut) appendFileSync(keysProbeOut, `${JSON.stringify({ tag, backend: backend.name, mode, machine: created.id, at: new Date().toISOString(), ...probe })}\n`);
+        const detail = keyProbeDetail(probe);
+        const status = keyProbeStatus(probe, keysClean);
+        J.record({ step: KEY_PROBE_STEP, status, ms: Date.now() - t0, detail: status === "skip" ? `report only (${mode}; --keys-clean fails it): ${detail}` : `${mode}: ${detail}` });
+      } catch (e) {
+        J.record({ step: KEY_PROBE_STEP, status: keysClean ? "fail" : "skip", ms: Date.now() - t0, detail: `the probe did not run: ${(e as Error).message}` });
       }
     }
 

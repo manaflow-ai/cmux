@@ -152,6 +152,21 @@ impl Hub {
     /// [`crate::claude_stdio::TOOL_GATE`]: the gate's answer for one tool call of `session`'s
     /// agent (module docs). `request` has the shape of a `session/request_permission`.
     pub(super) async fn answer_tool_gate(&self, session: &Arc<Session>, request: Value) -> Value {
+        // Claude Code's own SendMessage to another session, whatever the policy: it never
+        // reaches an acpmux session visibly (`native_messaging.rs`).
+        if let Some(reason) = self.native_message_refusal(session, &request) {
+            let record = json!({
+                "permissionId": uuid::Uuid::now_v7().to_string(),
+                "policy": Value::Null,
+                "optionId": "reject_once",
+                "request": request,
+                "gate": "preToolUse",
+                "reason": "native_message",
+            });
+            self.append(session, "mux", "permission_auto", record);
+            tracing::info!(session = %session.id, "the gate refused a native SendMessage");
+            return json!({"decision": GateDecision::Deny.as_str(), "reason": reason});
+        }
         let default = self.config.read().await.permission_policy;
         let Some(policy) = gate_policy(&session.meta(), default) else {
             return json!({"decision": GateDecision::None.as_str()});

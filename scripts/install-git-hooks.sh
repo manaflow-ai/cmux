@@ -242,6 +242,8 @@ install -m 0644 scripts/ci/validate_test_execution_registry.py "$TRUSTED_HOOK_DI
 install -m 0644 scripts/ci/test_execution_registry.py "$TRUSTED_HOOK_DIR/test_execution_registry.py"
 install -m 0644 scripts/ci/workload_entrypoints.py "$TRUSTED_HOOK_DIR/workload_entrypoints.py"
 install -m 0644 scripts/normalize-pbxproj.py "$TRUSTED_HOOK_DIR/normalize-pbxproj.py"
+# The one reader of the bun version webviews/package.json pins (pre-commit's vp bootstrap).
+install -m 0644 scripts/webviews_bun_version.py "$TRUSTED_HOOK_DIR/webviews_bun_version.py"
 printf '%s\n' "$PYTHON3_BIN" > "$TRUSTED_HOOK_DIR/python3-path"
 chmod 0644 "$TRUSTED_HOOK_DIR/python3-path"
 
