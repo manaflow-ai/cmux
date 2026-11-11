@@ -34,6 +34,9 @@
 //!   when a seed answered at the chat's head while the machine fills the rest
 //!   ([`push`]). The push's
 //!   progress lines go to stderr; `--acpmux-home H` adds `source_trusted` ([`trust`]).
+//! - `trust --folder F --acpmux-home H`: the same trust answer for `F`, read
+//!   before any machine is taken, so a start from a folder this Mac does not
+//!   trust is refused here, never after a lease ([`trust::cli`]).
 //! - `ensure --workspace W --key K [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_...]
 //!   [--platform URL]`, the cmux credential on stdin: the workspace's own
 //!   machine from the cmux platform (`POST /v1/workspaces/{W}/machine`), made
@@ -79,7 +82,8 @@ cmux link start-chat target-pane --key KEY --account ACCOUNT --machine ID --pane
 cmux link start-chat ensure --workspace ID --key KEY [--repo OWNER/NAME] [--project-key KEY] [--ref REF] [--environment env_ID] [--platform URL] (the cmux credential on stdin)\n       \
 cmux link start-chat import --entries JSON\n       \
 cmux link start-chat reserve|release|warm-spare --request JSON (the session credential, then the install token, on stdin), wait-copy --machine ID --provider P\n       \
-cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)";
+cmux link start-chat copy --key KEY --account ACCOUNT --machine ID --socket PATH --local FOLDER [--subpath PATH] --work-root PATH... [--acpmux-home PATH] [--store PLATFORM|default] (with --store, the cmux credential on stdin)\n       \
+cmux link start-chat trust --folder FOLDER --acpmux-home PATH";
 
 /// The error code a work root the machine's user cannot write answers with:
 /// the next root is tried.
@@ -161,6 +165,7 @@ pub(super) fn run(args: &[String]) -> i32 {
             })
         }),
         "import" => flags.one("--entries").map(|entries| import(&ledger, entries)),
+        "trust" => trust::cli(&flags),
         "ensure" => Ensure::of(&flags).map(|ensure| ensure.run(&mut std::io::stdin().lock())),
         "reserve" => {
             reservations::run(&flags, reservations::Action::Reserve, &mut std::io::stdin().lock())
