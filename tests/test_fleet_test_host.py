@@ -93,7 +93,7 @@ class RealGitTests(unittest.TestCase):
             done = subprocess.run(["git", "--version"], env=env, capture_output=True, text=True, timeout=30,
                                   start_new_session=True)
             self.assertEqual(done.returncode, 0, done.stderr)
-            self.assertLess(time.monotonic() - started, 20)
+            self.assertLess(time.monotonic() - started, 10)
 
     def test_run_bounded_kills_a_hung_group_and_fails(self):
         sys.path.insert(0, str(HERE))

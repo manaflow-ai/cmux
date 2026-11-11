@@ -9,8 +9,8 @@ saw it. cosmic-gray, 2026-11-10: four orphaned tests/test_pr_checks_base_only.py
 core this way for 3 to 15 hours (load ~265). Leo: "well this should just be fixed/prevented in teh
 future".
 
-    real_git()        the git binary: `git --exec-path`/git, else Homebrew's or the system's,
-                      never a script (a wrapper)
+    real_git()        the git binary: the first git on PATH that is not a script (a wrapper), else
+                      Homebrew's or the system's; nothing on PATH is run to find it
     run_bounded(...)  subprocess.run with a timeout, in its own process group, the whole group
                       killed on timeout, error or exit, so a hang fails the test and nothing it
                       started outlives it
@@ -85,19 +85,16 @@ def run_bounded(args, *, timeout: float = DEFAULT_TIMEOUT_S, check: bool = False
 
 @functools.lru_cache(maxsize=1)
 def real_git() -> str:
-    """The absolute path of a real git binary, past any wrapper named git on PATH."""
-    candidates = []
-    try:
-        exec_path = run_bounded(["git", "--exec-path"], capture_output=True, text=True, timeout=20).stdout.strip()
-        if exec_path:
-            candidates.append(os.path.join(exec_path, "git"))
-    except (OSError, subprocess.SubprocessError):
-        pass
+    """The absolute path of a real git binary, past any wrapper named git on PATH.
+
+    Nothing found on PATH is run to find it: running `git --exec-path` through PATH is the very loop this
+    avoids. The first `git` on PATH that is a binary (not a #! script) wins, then Homebrew's, then the system's."""
+    candidates = [os.path.join(d or ".", "git") for d in os.environ.get("PATH", "").split(os.pathsep)]
     candidates.extend(FALLBACKS)
     for candidate in candidates:
         if _is_binary(candidate):
-            return candidate
-    raise RuntimeError(f"no git binary found (tried {', '.join(candidates)}); a wrapper script is never used")
+            return os.path.realpath(candidate)
+    raise RuntimeError(f"no git binary found on PATH or in {', '.join(FALLBACKS)}; a wrapper script is never used")
 
 
 if __name__ == "__main__":
