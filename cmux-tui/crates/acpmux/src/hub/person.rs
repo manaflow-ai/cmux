@@ -1143,7 +1143,10 @@ impl Hub {
                 else {
                     return Ok(());
                 };
-                let family = crate::web_modes::family_of(&s.meta());
+                // The family whose modes the configured harness offers: a launcher profile of
+                // Claude Code (`claude-sr2`) asks in Claude's `default` and `plan` too; an agent
+                // that only names itself Claude Code does not (`Hub::trusted_mode_family`).
+                let family = self.trusted_mode_family(&s.meta());
                 if remote_authenticated && self.any_mode_for_web(&s.meta()) {
                     return Ok(());
                 }

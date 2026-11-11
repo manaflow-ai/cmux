@@ -7,13 +7,20 @@ re-signs the same bits as a separate app and publishes them to its own feed. The
 
 | | cmux NEXT (nightly) | cmux NEXT Stable |
 | --- | --- | --- |
-| App | `cmux NEXT.app` | `cmux NEXT Stable.app` |
-| Bundle id | `com.cmuxterm.app.nightly.cmux-next` | `com.cmuxterm.app.nightly.cmux-next-stable` |
+| App | `cmux NIGHTLY.app` | `cmux NEXT Stable.app` |
+| Bundle id | `com.cmuxterm.app.nightly` | `com.cmuxterm.app.nightly.cmux-next-stable` |
 | Icon | Nightly icon | regular cmux icon |
-| Sign-in scheme | `cmux-next` | `cmux-next-stable` |
-| Feed | `files-next.cmux.com/nightly-next/next/appcast-arm64.xml` | `files-next.cmux.com/nightly-next/stable/appcast-arm64.xml` |
+| Sign-in scheme | `cmux-nightly` | `cmux-next-stable` |
+| Feed | `files-next.cmux.com/nightly-next/appcast-arm64.xml` | `files-next.cmux.com/nightly-next/stable/appcast-arm64.xml` |
 | Item channel | `cmux-next` | `cmux-next-stable` |
 | Cadence | every promotion | once a night, from 21:00 Pacific |
+
+Since 2026-11-05 (hq#7156) the nightly-next track ships each build once, as cmux NIGHTLY, on
+`nightly-next/appcast-arm64.xml`, with its notes in `nightly-next/notes/`. The canary verdicts and
+`pulled.json` stay in the retired cmux NEXT feed's folder, `nightly-next/next/`. The stable re-sign
+drops the NIGHTLY provisioning profile and signs with `cmux.next-dev.entitlements`, so the stable
+app claims no App ID or keychain group of its own. The plan warns when the newest nightly is 48 h
+old or more: until this moved, stable read the retired feed and re-tested its last build every night.
 
 The bundle id keeps the `com.cmuxterm.app.nightly` prefix on purpose: `BuildIdentity` treats any
 other `com.cmuxterm.app.<x>` id as a DEV build. Under that prefix the stable app behaves as a
@@ -72,9 +79,8 @@ A run:
    uploads write-once to R2, then the feed is written: the new item plus the two newest earlier stable
    builds, checked by `nightly-next-guard.py appcast`, and written by compare-and-swap against
    the bytes that were read.
-4. **report**: a failed publish run opens the `cmux NEXT Stable blocked` issue, or comments on
-   it if it is open (label `stable-next-blocked`, assigned to `vars.STABLE_NEXT_OWNER`). The
-   next published build closes it.
+4. **report**: edits the run's Slack message to shipped or blocked. Updates go to Slack only,
+   never to a GitHub issue (see "Slack" below).
 
 There is no run-level concurrency group. With one, a rollback would wait hours behind a run's
 gates, or a dispatch could replace a pending rollback. The tick starts at most one publish run,
@@ -90,6 +96,33 @@ on any other chip. Signing stays on Blacksmith, like the nightly's.
 The repository rule against new CI gates (CLAUDE.md, Lawrence 2026-10-23) is about push, pull
 request and nightly paths. This workflow adds nothing to them: it runs only on its schedule, a
 dispatch, or a push to `stable-next-dry-run`.
+
+## Slack
+
+A publish run keeps one Slack message current (`scripts/ci/stable_next_slack.py`):
+
+- **slack-start** posts it when the gates start: the build, its commit, the run link, and every gate
+  as pending.
+- **slack-<gate>**, one job per gate, answers in the message's thread as soon as that gate ends: passed,
+  or failed with why. The why is the gate's own error annotations: the crash-class rows that rose, the
+  perf rows over the baseline and the benches that gave no number, the UI step that failed, the pulled
+  or canary refusal, the new crash-report issues.
+- **report** edits the message when the run ends: shipped (with the feed), or blocked and by which
+  gates, mentioning `vars.STABLE_NEXT_SLACK_MENTION`. A run that plan stops before any gate (the build
+  was pulled, a fail verdict) gets one message with plan's reason. A night with nothing new posts
+  nothing.
+
+Setup, once:
+
+1. A Slack app bot token with `chat:write` (the `cmux Internal Tools` app already has it), stored as
+   the secret `STABLE_NEXT_SLACK_BOT_TOKEN` in the `release-next` environment. Only nightly-next
+   publish runs can read it; dry runs post nothing.
+2. Invite the bot to the channel and set the repository variable `STABLE_NEXT_SLACK_CHANNEL` to the
+   channel id (`C0…`).
+3. Optional: `STABLE_NEXT_SLACK_MENTION` (`<@U…>` or `<!subteam^S…>`) is mentioned when stable is
+   blocked.
+
+Without the token or the channel, the Slack jobs warn and post nothing. Slack never fails a run.
 
 ## Commands
 

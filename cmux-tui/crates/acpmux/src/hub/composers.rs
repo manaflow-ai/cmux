@@ -144,7 +144,7 @@ impl Hub {
         client: &str,
     ) -> Result<Value, RpcError> {
         if session.moving().is_some() {
-            return Err(queue::moving_error());
+            return Err(queue::moving_error(session));
         }
         let composing = !text.trim().is_empty();
         let changed = {

@@ -45,6 +45,7 @@ mod parked_trim;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
 mod tail;
+mod writer;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -77,9 +78,16 @@ pub(crate) const TAIL_FLUSH_INTERVAL: Duration = Duration::from_millis(100);
 /// Snapshot mode: a tail file written since is fsynced at most this often
 /// (the most an OS crash adds to [`TAIL_FLUSH_INTERVAL`]).
 pub(crate) const TAIL_SYNC_INTERVAL: Duration = Duration::from_secs(1);
-/// Snapshot mode: tail bytes past which the next pass writes a snapshot
-/// (the compaction), so a restore replays about this much over it.
+/// Snapshot mode: tail bytes past which a snapshot is written (the
+/// compaction), so a restore replays about this much over it; at most once
+/// per [`TAIL_COMPACT_SPACING`], so a flood captures its screen under the
+/// parser lock once a second, not at every pass.
 const TAIL_MAX_BYTES: u64 = 1024 * 1024;
+/// Snapshot mode: the least time between two tail-cap compactions.
+const TAIL_COMPACT_SPACING: Duration = Duration::from_secs(1);
+/// Snapshot mode: tail bytes past which the compaction does not wait for
+/// its spacing (what a restore replays over the snapshot during a flood).
+const TAIL_FLOOD_MAX_BYTES: u64 = 16 * 1024 * 1024;
 /// Snapshot mode: the most raw bytes one tail file takes while snapshots
 /// fail; past it the bytes wait in memory (capped) for a snapshot. Below
 /// what a restore reads (`tail.rs` MAX_TAIL_FILE_BYTES, compressed).
@@ -115,7 +123,7 @@ const FULL_PENDING_WAKE_BYTES: usize = 8 * 1024 * 1024;
 /// Raw output bytes each terminal keeps in memory for `terminal.output_read`.
 pub(crate) const OUTPUT_TAIL_BYTES: usize = 64 * 1024;
 /// Directory beside the registry that holds the store's files.
-const STORE_DIRECTORY: &str = "terminal-output";
+pub(crate) const STORE_DIRECTORY: &str = "terminal-output";
 
 /// What the store keeps on disk.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -367,22 +375,34 @@ impl LogState {
     }
 
     /// Snapshot mode: when the next pass must try the snapshot this log still
-    /// needs (a drop asked for it, a new generation, a resize), at the earliest
-    /// time one may be written: after a write backoff and after the size has
-    /// settled, never sooner than the flush interval. `None` when it needs
-    /// none.
+    /// needs (a drop asked for it, a new generation, a resize, a tail past
+    /// its cap), at the earliest time one may be written: after a write
+    /// backoff, after the size has settled and after the compaction spacing,
+    /// never sooner than the flush interval. `None` when it needs none.
     fn snapshot_retry_in(&self) -> Option<Duration> {
         let new_generation = self.snapshot_generation.as_deref() != Some(&*self.generation);
         let resized = !new_generation
             && self.size_seen.is_some_and(|(size, _)| self.snapshot_size != Some(size));
         if !(self.force_snapshot || new_generation || resized) {
-            return None;
+            // A tail past its cap that waits out the compaction spacing: the
+            // pass after it compacts, whether or not the terminal prints.
+            return (self.tail_bytes >= TAIL_MAX_BYTES).then(|| {
+                TAIL_FLUSH_INTERVAL
+                    .max(self.retry_wait().unwrap_or_default())
+                    .max(self.compaction_wait())
+            });
         }
         let settle = self
             .size_seen
             .filter(|_| resized)
             .map_or(Duration::ZERO, |(_, since)| RESIZE_SETTLE.saturating_sub(since.elapsed()));
         Some(TAIL_FLUSH_INTERVAL.max(self.retry_wait().unwrap_or_default()).max(settle))
+    }
+
+    /// The time left before a tail-cap compaction may be written.
+    fn compaction_wait(&self) -> Duration {
+        self.snapshot_at
+            .map_or(Duration::ZERO, |at| TAIL_COMPACT_SPACING.saturating_sub(at.elapsed()))
     }
 
     /// Record the size a capture saw; whether it has held for
@@ -488,6 +508,11 @@ impl LogState {
     }
 }
 
+/// A terminal reader's weak handle on its output log
+/// ([`OutputStore::append_cached`]).
+#[derive(Default)]
+pub(crate) struct OutputLogCache(Mutex<std::sync::Weak<TerminalLog>>);
+
 /// One terminal's output log.
 pub(crate) struct TerminalLog {
     terminal_id: TerminalPublicId,
@@ -544,7 +569,7 @@ pub(crate) struct OutputStore {
     /// `None` for an in-memory session (no registry directory).
     directory: Option<PathBuf>,
     logs: Mutex<HashMap<TerminalPublicId, Arc<TerminalLog>>>,
-    writer: snapshot::Writer,
+    writer: writer::Writer,
     full: segments::Segments,
     /// Snapshot mode: output after the snapshot goes to its tail file.
     tail: std::sync::atomic::AtomicBool,
@@ -598,7 +623,7 @@ impl OutputStore {
         Self {
             directory: registry_directory.map(|directory| directory.join(STORE_DIRECTORY)),
             logs: Mutex::new(HashMap::new()),
-            writer: snapshot::Writer::default(),
+            writer: writer::Writer::default(),
             full: segments::Segments::default(),
             tail: std::sync::atomic::AtomicBool::new(false),
             last_enforce: Mutex::new(None),
@@ -702,6 +727,7 @@ impl OutputStore {
     /// no terminal). When the history grew by a step since the terminal's
     /// last measurement, the writer is asked to measure it
     /// (`memory_budget.rs`); this path never walks its pages.
+    #[cfg(test)]
     pub(crate) fn append(
         &self,
         terminal_id: &TerminalPublicId,
@@ -713,7 +739,51 @@ impl OutputStore {
             return;
         }
         let log = self.log(terminal_id, generation);
-        let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        self.append_locked(state, generation, bytes, history);
+    }
+
+    /// [`OutputStore::append`] for a terminal's output reader, through the
+    /// handle `cache` keeps on its log: the per-chunk path takes no lock the
+    /// readers of all terminals share. The handle is weak, and a log the
+    /// store forgot is looked up again, so the cache never keeps a log alive
+    /// or writes into one the store dropped.
+    pub(crate) fn append_cached(
+        &self,
+        cache: &OutputLogCache,
+        terminal_id: &TerminalPublicId,
+        generation: &Arc<str>,
+        bytes: &[u8],
+        history: Option<HistoryRows>,
+    ) {
+        if bytes.is_empty() {
+            return;
+        }
+        let mut cached = cache.0.lock().unwrap_or_else(PoisonError::into_inner);
+        let live = cached.upgrade().filter(|log| log.terminal_id == *terminal_id);
+        if let Some(log) = live {
+            let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if !state.forgotten {
+                drop(cached);
+                self.append_locked(state, generation, bytes, history);
+                return;
+            }
+        }
+        let log = self.log(terminal_id, generation);
+        *cached = Arc::downgrade(&log);
+        drop(cached);
+        let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        self.append_locked(state, generation, bytes, history);
+    }
+
+    /// The body of [`OutputStore::append`] with the log's state locked.
+    fn append_locked(
+        &self,
+        mut state: std::sync::MutexGuard<'_, LogState>,
+        generation: &Arc<str>,
+        bytes: &[u8],
+        history: Option<HistoryRows>,
+    ) {
         if let Some(history) = history
             && !state.measure_due
             && history.moved_past_step(state.measured_rows)
@@ -949,6 +1019,7 @@ impl OutputStore {
         }
         if let Some(directory) = self.directory.as_deref() {
             segments::remove(directory, terminal_id);
+            self.full.forget(directory, terminal_id);
             tail::remove(directory, terminal_id);
             // The cleared lines leave the disk now, not when the next
             // snapshot is written (which a write backoff can delay).
@@ -998,15 +1069,34 @@ impl OutputStore {
         if self.memory_only() {
             return None;
         }
-        let (snapshot, generation, snapshot_end) = snapshot::read(directory, terminal_id)?;
-        if self.cached_policy().is_some_and(|policy| policy.mode == PersistenceMode::Full)
+        let full = self.cached_policy().is_some_and(|policy| policy.mode == PersistenceMode::Full);
+        let (snapshot, generation, tail) = {
+            // The writer replaces a snapshot and then removes the tail it
+            // covers, both under the pass lock. Both files are read under it
+            // too, so a snapshot comes with its own tail: a pass between the
+            // two reads paired the old snapshot with no tail. Only the reads;
+            // the rebuild runs after.
+            let _pass = self.lock_pass();
+            let (snapshot, generation, snapshot_end) = snapshot::read(directory, terminal_id)?;
+            #[cfg(test)]
+            run_between_screen_reads_for_test();
+            // Snapshot mode: the output after the snapshot, from its tail.
+            let tail = if full {
+                Vec::new()
+            } else {
+                snapshot_end
+                    .map(|end| tail::bytes_after(directory, terminal_id, &generation, end))
+                    .unwrap_or_default()
+            };
+            (snapshot, generation, tail)
+        };
+        if full
             && let Some(rebuilt) =
                 segments::rebuild(directory, terminal_id, &generation, snapshot.cols, snapshot.rows)
         {
             return Some(rebuilt);
         }
-        // Snapshot mode: the output after the snapshot, from its tail.
-        Some(tail::restore(directory, terminal_id, &generation, snapshot_end, snapshot))
+        Some(tail::restore(snapshot, &tail))
     }
 
     /// The logs whose terminal printed since the writer last looked; their
@@ -1162,6 +1252,7 @@ impl OutputStore {
             let _pass = self.lock_pass();
             snapshot::remove(directory, terminal_id);
             segments::remove(directory, terminal_id);
+            self.full.forget(directory, terminal_id);
             tail::remove(directory, terminal_id);
         }
     }
@@ -1291,5 +1382,21 @@ impl OutputStore {
     pub(crate) fn memory_only(&self) -> bool {
         self.directory.is_none()
             || self.cached_policy().is_some_and(|policy| policy.mode == PersistenceMode::Memory)
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test seam: runs once on this thread inside [`OutputStore::previous_screen`],
+    /// after it read the snapshot and before it reads the tail.
+    pub(crate) static BETWEEN_SCREEN_READS_FOR_TEST: std::cell::RefCell<Option<Box<dyn FnOnce()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn run_between_screen_reads_for_test() {
+    let hook = BETWEEN_SCREEN_READS_FOR_TEST.with(|slot| slot.borrow_mut().take());
+    if let Some(hook) = hook {
+        hook();
     }
 }

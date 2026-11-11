@@ -5,6 +5,8 @@
 # landed (#22740's export, 2026-10-21). When a newer commit changed the settings sources, that is the next
 # run's work: a warning. The source stamp is derived from each tree, never committed.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's background maintenance in temp repos
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 script="$here/../base-autofix-settings-landed.sh"
 tmp="$(mktemp -d)"
@@ -19,7 +21,7 @@ mdm=docs/mdm/com.manaflow.cmux.json
 # exports dir) and found the MDM file unchanged (not in the dir).
 setup() {
   rm -rf "$tmp/remote.git" "$tmp/lane" "$tmp/bot" "$tmp/exports"
-  git init -q --bare -b feat "$tmp/remote.git"
+  git_fixture_init --bare -b feat "$tmp/remote.git"
   git clone -q "$tmp/remote.git" "$tmp/lane" 2>/dev/null
   (cd "$tmp/lane" && git checkout -q -b feat && mkdir -p scripts/ci schemas/settings docs/mdm \
     && cat > scripts/ci/defaults_guard.py <<'PY'

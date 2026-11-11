@@ -18,9 +18,9 @@ enum TabContent {
     case placeholder(RemoteTerminalPlaceholderView)
     /// An agent chat tab whose session another Mac's acpmux runs ("This chat runs on <machine>").
     case notice(AgentTabElsewhereView)
-    /// A conversation tab (`conversation-tabs-v1`): the Messages page for
-    /// one conversation (plans/cmux-next/home.md 7).
-    case conversation(HomeConversationPage)
+    /// A conversation tab (`conversation-tabs-v1`): the native Home view
+    /// of one conversation (plans/cmux-next/home.md 7).
+    case conversation(HomeHostView)
 
     var view: NSView {
         switch self {
@@ -44,16 +44,19 @@ enum TabContent {
         }
     }
 
-    /// The kind a timed tab switch reports (`debug.tab_switch`).
-    @MainActor var switchKind: String {
+    /// Every kind of pane content; each follows its pane in every frame of a resize (`PaneContentFollowsPaneAllKindsTests`).
+    enum Kind: String, CaseIterable { case terminal, chromium, webkit, agent, page, placeholder, notice, conversation }
+
+    /// This content's kind (a timed tab switch reports its name, `debug.tab_switch`).
+    @MainActor var kind: Kind {
         switch self {
-        case .terminal: "terminal"
-        case .browser(let entry): entry.tab.engineKind == .cef ? "chromium" : "webkit"
-        case .agent: "agent"
-        case .page: "page"
-        case .placeholder: "placeholder"
-        case .notice: "notice"
-        case .conversation: "conversation"
+        case .terminal: .terminal
+        case .browser(let entry): entry.tab.engineKind == .cef ? .chromium : .webkit
+        case .agent: .agent
+        case .page: .page
+        case .placeholder: .placeholder
+        case .notice: .notice
+        case .conversation: .conversation
         }
     }
 

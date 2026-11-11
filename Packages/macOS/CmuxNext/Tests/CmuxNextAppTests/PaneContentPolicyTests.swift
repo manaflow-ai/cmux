@@ -18,8 +18,8 @@ import Testing
 ///   Lawrence on dogfood 363e39f2). Each PTY gets the view's grid at most
 ///   once per 25 ms, the newest, and ends at the landing's grid (`TerminalGridReportCoalescer`; ``grids(_:_:)`` ends the
 ///   window before it reads). A window that draws nothing shows each size at once; one that draws (a display worker)
-///   shows a size's bounds at once and Ghostty shows the frame it drew at it when it is drawn (RESIZE SYNC), so the size
-///   checks step whole refreshes (``refresh(_:)``), never bare frames.
+///   shows a size only in the commit that presents the frame Ghostty drew at it (FRAME OWNER S4,
+///   ``TerminalFramePresenter``), so the size checks step whole refreshes (``refresh(_:)``), never bare frames.
 /// - S3c: a closing pane shows its ground as it was at the close, the same host comes back when a close is taken back,
 ///   and nothing of it is left in the view tree after the landing.
 @MainActor
@@ -44,10 +44,13 @@ struct PaneContentPolicyTests {
         return frames
     }
 
-    /// One refresh as the app runs it: the frame's step and layout pass, then its commit. Each terminal takes its new
-    /// bounds in the frame's turn; Ghostty shows the frame it drew at them when it is drawn (RESIZE SYNC). The refresh
-    /// commits again while a terminal shows no frame of its size yet, at most 2 s: here the renderer keeps up with the
-    /// display.
+    /// One refresh as the app runs it: the frame's step and layout pass, then its commit, before which the window's
+    /// ``TerminalFramePresenter`` gives each terminal its new bounds with the frame Ghostty drew at them. In a window that
+    /// draws (a display worker), a frame stepped with no commit (``Rig/frame()``) leaves each new size waiting for that
+    /// commit: the surface kept the size of the last commit, which came only at the test's next await (T-KEYS 2: 3 cases
+    /// red on display workers at 5840aea3a60 and 2296568ae00, every surface off its pane with the presenter at "request").
+    /// The refresh commits again while a terminal's frame is not drawn yet, at most 2 s: here the renderer keeps up with
+    /// the display; TerminalKeyResizeFrameTests counts the refreshes a terminal keeps its old size when it does not.
     /// Whether the motion still moves.
     static func refresh(_ rig: Rig) async -> Bool {
         let moving = rig.frame()
@@ -69,19 +72,13 @@ struct PaneContentPolicyTests {
         return frames
     }
 
-    /// Commits until each shown terminal shows a frame of its size (at most 2 s).
+    /// Commits until the window's presenter holds no terminal's new size for its frame (at most 2 s).
     static func landDrawnFrames(_ rig: Rig) async {
+        let presenter = TerminalFramePresenter.forWindow(rig.window)
         let deadline = ContinuousClock.now.advanced(by: .seconds(2))
         repeat {
             await TerminalKeyResizeFrameTests.commit()
-        } while ContinuousClock.now < deadline && terminals(in: rig.root).contains { !showsFrameOfItsSize($0) }
-    }
-
-    /// Whether `view` is parked, or its layer and the frame it shows have one pixel size.
-    static func showsFrameOfItsSize(_ view: TerminalSurfaceView) -> Bool {
-        guard !view.isHiddenOrHasHiddenAncestor, let layer = view.layer, let frame = view.presentedFrame else { return true }
-        let scale = layer.contentsScale
-        return Int((layer.bounds.width * scale).rounded()) == frame.width && Int((layer.bounds.height * scale).rounded()) == frame.height
+        } while ContinuousClock.now < deadline && terminals(in: rig.root).contains { presenter.isWaiting($0) }
     }
 
     /// The terminal surfaces under `view`, shown or parked.
@@ -184,19 +181,15 @@ struct PaneContentPolicyTests {
         #expect(frames > 3, "the press did not spring (\(frames) frames)")
         #expect(off.isEmpty, "\(off.count) frames showed a surface off its pane's size: \(off.prefix(3))")
         let windows = TerminalKeyResizeFrameTests.coalescingWindows(since: pressed)
-        // The press's reports are counted at this window's PTYs. `TerminalSurfaceView.gridReports` counts every terminal
-        // of the process, and the terminals of the suites that run beside this one report in the awaits above (the
-        // first case was red at b180ba75b3a beside 12 other suites: 23 reports counted, with each PTY here in its bound).
-        var sent = 0
+        #expect(TerminalSurfaceView.gridReports - reportsBefore <= UInt64(panes.count * windows),
+                "more grid reports than one per terminal per refresh (\(windows)) for one press")
         for pane in panes {
             let grids = try await Self.grids(pane, rig)
-            sent += grids.count
             let final = try #require(try Self.surface(pane, in: rig).fittedGrid)
             #expect(grids.count <= windows && grids.last == final,
                     "\(pane) asked its PTY for \(grids), not at most one grid per refresh (\(windows)) ending at its final grid \(final)")
             #expect((sizes[pane] ?? []).count > 3, "\(pane)'s surface took \(sizes[pane]?.count ?? 0) sizes in a \(frames)-frame spring: its text did not follow its pane")
         }
-        #expect(sent <= panes.count * windows, "\(sent) grid reports, more than one per terminal per refresh (\(windows)) for one press")
     }
 
     /// A held key (three Ctrl-Shift-H presses 4 refreshes apart retarget one spring): in every refresh each terminal's
@@ -301,14 +294,17 @@ struct PaneContentPolicyTests {
     }
 
     /// The surfaces of `panes` whose size is not the one their pane shows them at now (their host's area,
-    /// ``TerminalHostView/surfaceSize(forHostSize:)``), labeled with `label`.
+    /// ``TerminalHostView/surfaceSize(forHostSize:)``), labeled with `label`, with what the window's presenter holds for
+    /// each ("request": a size waits for its drawn frame) and the size asked of Ghostty and not shown yet.
     static func offTheirPanes(_ panes: [PaneID], in rig: Rig, _ label: String) throws -> [String] {
-        try panes.compactMap { pane in
+        let presenter = TerminalFramePresenter.forWindow(rig.window)
+        return try panes.compactMap { pane in
             let surface = try Self.surface(pane, in: rig)
             let host = try #require(rig.provider.sessions[pane]?.session.view)
             let shown = host.surfaceSize(forHostSize: host.bounds.size)
             guard surface.frame.size != shown else { return nil }
-            return "\(label): \(pane)'s surface \(surface.frame.size) in a \(shown) area"
+            let waits = surface.frameOwnership.inFlight.map { "\($0)" } ?? "none"
+            return "\(label): \(pane)'s surface \(surface.frame.size) in a \(shown) area (presenter \(presenter.debugState(of: surface)), in flight \(waits))"
         }
     }
 
@@ -545,7 +541,8 @@ struct PaneContentPolicyTests {
         _ = await Self.refresh(rig)
         let atSecond = await marker()
         let frames = try await Self.runRefreshes(rig)
-        let atLanding = "grid at landing \(String(describing: parked.surfaceView.fittedGrid))"
+        let presenter = TerminalFramePresenter.forWindow(rig.window)
+        let atLanding = "presenter \(presenter.debugState(of: parked.surfaceView)), in flight \(parked.surfaceView.frameOwnership.inFlight.map { "\($0)" } ?? "none"), grid at landing \(String(describing: parked.surfaceView.fittedGrid))"
         let afterLanding = await marker()
         let final = try #require(parked.surfaceView.fittedGrid)
         #expect(frames > 3, "the second press did not spring (\(frames) frames)")
@@ -782,7 +779,7 @@ struct PaneContentPolicyTests {
         rig.model.cancelPaneClose(close)
         rig.root.syncWithModel()
         rig.root.layoutSubtreeIfNeeded()
-        // A snap shows in its own turn (GI RENDERER SYNC 2); the frame after it must keep p2 at its place.
+        // A snap that resizes a pane shows at the next frame tick, its content drawn at the new size (#37330): one frame.
         _ = rig.frame()
         #expect(rig.root.context.hosts["p2"] === host, "the close taken back made a new host")
         #expect(abs(host.frame.minX - rest.minX) < 0.5 && abs(host.frame.width - rest.width) < 0.5, "p2 is at \(host.frame), not at its place \(rest)")

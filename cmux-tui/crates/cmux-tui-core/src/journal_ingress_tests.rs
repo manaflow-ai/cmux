@@ -1619,3 +1619,111 @@ fn terminal_output_ingress_throughput_probe() {
     drop(mux);
     std::fs::remove_dir_all(root).unwrap();
 }
+
+/// Agent hook events through the journal writer, one producer and sixteen at
+/// once: what the registry costs per hook (each call waits for its receipt).
+#[test]
+#[ignore = "manual release-mode agent hook journal probe"]
+fn agent_hook_ingress_throughput_probe() {
+    // `CMUX_PROBE_HOOKS` sets the serial count (a profiler needs a longer run).
+    let serial_count = std::env::var("CMUX_PROBE_HOOKS")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(2_000);
+    const THREADS: usize = 16;
+    const PER_THREAD: usize = 250;
+    let root = std::env::temp_dir().join(format!(
+        "cmux-agent-hook-throughput-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    ));
+    let mux =
+        Mux::open_persistent("agent-hook-throughput", crate::SurfaceOptions::default(), &root)
+            .unwrap();
+    let hook = |thread: usize, index: usize| {
+        crate::agent_hook_journal_ingress(
+            "codex",
+            "PreToolUse",
+            None,
+            serde_json::json!({
+                "session_id":format!("probe-session-{thread}"),
+                "tool_name":"Bash",
+                "tool_input":{"command":format!("echo {index}")},
+            }),
+        )
+        .unwrap()
+    };
+    fn registry_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                registry_files(&path, out);
+            } else if path.file_name().is_some_and(|name| name == "workspace-registry.sqlite3") {
+                out.push(path);
+            }
+        }
+    }
+    let schema_version = || {
+        let mut files = Vec::new();
+        registry_files(&root, &mut files);
+        files
+            .iter()
+            .map(|path| {
+                rusqlite::Connection::open(path)
+                    .unwrap()
+                    .query_row("PRAGMA schema_version", [], |row| row.get::<_, i64>(0))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>()
+    };
+    let schema_before = schema_version();
+    let mut serial = Vec::with_capacity(serial_count);
+    let started = Instant::now();
+    for index in 0..serial_count {
+        let ingress = hook(0, index);
+        let call = Instant::now();
+        mux.append_journal_ingress(&ingress, "client_probe", &format!("probe_serial_{index}"))
+            .unwrap();
+        serial.push(call.elapsed());
+    }
+    let serial_elapsed = started.elapsed();
+    serial.sort();
+    eprintln!(
+        "agent hook serial: {serial_count} in {serial_elapsed:?}, {:.0}/s, p50 {:?} p95 {:?}",
+        serial_count as f64 / serial_elapsed.as_secs_f64(),
+        serial[serial_count / 2],
+        serial[serial_count * 95 / 100],
+    );
+    eprintln!(
+        "agent hook schema_version before {schema_before:?} after serial {:?}",
+        schema_version()
+    );
+    let started = Instant::now();
+    std::thread::scope(|scope| {
+        for thread in 0..THREADS {
+            let mux = &mux;
+            scope.spawn(move || {
+                for index in 0..PER_THREAD {
+                    let ingress = hook(thread + 1, index);
+                    mux.append_journal_ingress(
+                        &ingress,
+                        "client_probe",
+                        &format!("probe_{thread}_{index}"),
+                    )
+                    .unwrap();
+                }
+            });
+        }
+    });
+    let concurrent_elapsed = started.elapsed();
+    eprintln!(
+        "agent hook concurrent: {} in {concurrent_elapsed:?}, {:.0}/s",
+        THREADS * PER_THREAD,
+        (THREADS * PER_THREAD) as f64 / concurrent_elapsed.as_secs_f64(),
+    );
+    if let Some(stats) = mux.journal_writer_stats() {
+        eprintln!("agent hook writer: {stats:?}");
+    }
+    drop(mux);
+    std::fs::remove_dir_all(root).unwrap();
+}

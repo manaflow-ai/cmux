@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from codegen.ir import SdkIR, mutable_document
+from codegen.ir import SdkIR, admits_json_null, mutable_document
 from codegen.writer import Emitter
 
 _JAVA_RESERVED = {
@@ -705,8 +705,14 @@ class JavaEmitter:
         value: str,
         context: str,
     ) -> str:
-        decoded = self._decode(field["type"], value, context)
-        return f"{value} == null ? null : {decoded}" if field["nullable"] else decoded
+        if field["nullable"]:
+            decoded = self._decode(field["type"], value, context)
+            return f"{value} == null ? null : {decoded}"
+        if admits_json_null(self.document["types"], field["type"]):
+            # Opaque JSON keeps a null, so a field that is not nullable
+            # rejects it here with the typed decode error, not a later NPE.
+            value = f"ProtocolSupport.nonNull({value}, {_java_string(context)})"
+        return self._decode(field["type"], value, context)
 
     def _copy_expr(self, expr: Mapping[str, Any], value: str) -> str:
         kind = expr["kind"]
@@ -1113,6 +1119,10 @@ class JavaEmitter:
             + "        }\n"
             + "        if (!equal) throw new CmuxDecodeException(context + \" must equal \" + expected, null);\n"
             + "        return expected;\n"
+            + "    }\n"
+            + "    static Object nonNull(Object actual, String context) {\n"
+            + "        if (actual == null) throw new CmuxDecodeException(context + \" must not be null\", null);\n"
+            + "        return actual;\n"
             + "    }\n"
             + "}\n"
         )

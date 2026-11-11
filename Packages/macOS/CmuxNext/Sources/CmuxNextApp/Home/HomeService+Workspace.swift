@@ -216,17 +216,17 @@ extension HomeService {
 
     /// The view of conversation tab `tab`, made on first show. Opening Home
     /// starts the local mux's brain host once per launch.
-    func tabView(for tab: TabModel) -> HomeConversationPage? {
+    func tabView(for tab: TabModel) -> HomeHostView? {
         guard tab.kind == .conversation, let conversation = tab.snapshot.conversation?.conversation else { return nil }
         if let view = tabViews[tab.id] { return view }
-        guard let view = HomeConversationPage.make(services: services, conversation: conversation) else { return nil }
+        let view = HomeHostView(services: services, conversation: conversation)
         tabViews[tab.id] = view
         // A cloud Chief's brain runs in the cloud or on its server: no local brain host for its tab.
         if cloudChiefs.chief(for: conversation) == nil { homeDidOpen(asked: true) }
         return view
     }
 
-    func existingTabView(_ key: String) -> HomeConversationPage? { tabViews[key] }
+    func existingTabView(_ key: String) -> HomeHostView? { tabViews[key] }
 
     /// The strip title of conversation tab `tab`: its conversation's title.
     func tabTitle(for tab: TabModel) -> String {
@@ -242,6 +242,6 @@ extension HomeService {
 
     /// The tab closed: its view goes with it.
     func releaseTabView(_ key: String) {
-        tabViews.removeValue(forKey: key)?.close()
+        tabViews.removeValue(forKey: key)
     }
 }

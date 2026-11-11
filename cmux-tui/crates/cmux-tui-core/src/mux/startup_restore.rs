@@ -27,12 +27,16 @@ impl Mux {
         // Drain in fixed-size pages, with a hard per-signal cap. Rows beyond
         // the cap remain durable for the next terminal availability signal.
         for _ in 0..crate::workspace_registry::AGENT_HOOK_MAX_RETRY_PAGES_PER_WAKE {
+            // Read before the table: a projection that fails after this
+            // read is noted after it, and keeps its flag.
+            let notes = self.agent_hook_projection_pending_notes(terminal_id);
             let pending = self
                 .workspace_registry
                 .lock()
                 .unwrap()
                 .pending_agent_hook_projections_for_terminal(terminal_id)?;
             if pending.is_empty() {
+                self.note_no_agent_hook_projection_pending(terminal_id, notes);
                 break;
             }
             let applied = self.retry_pending_agent_hooks_rows(pending)?;
@@ -96,6 +100,7 @@ impl Mux {
                     {
                         self.report_internal_diagnostic("agent hook retry bookkeeping deferred");
                     }
+                    self.note_agent_hook_projection_pending(&ingress);
                 }
             }
         }

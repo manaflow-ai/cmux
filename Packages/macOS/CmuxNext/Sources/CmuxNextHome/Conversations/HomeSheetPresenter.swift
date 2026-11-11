@@ -11,7 +11,7 @@ import CmuxNextDesign
 /// field has the keyboard when `present` returns.
 ///
 /// ```swift
-/// HomeSheetPresenter().present(HomeTeamInviteSheet(team: name, prefill: "", requestedByAgent: false), over: window)
+/// HomeSheetPresenter().present(HomeInviteSheet(pending: []), over: window, themeSource: page)
 /// ```
 @MainActor
 public struct HomeSheetPresenter {

@@ -89,6 +89,40 @@ test("the default variant draws the pre-slot live line's markup exactly", () => 
   act(() => other.unmount());
 });
 
+// The live line is one shimmer from the prompt to the last step (Leo, 2026-11-01: "it should just keep
+// going", "and shouldn't flicker"): with the default look, the band element under "Thinking" is the
+// same element under a named step and under "Thinking" again. The slot drew its default through
+// `<Slot>` and a step through the line's own `<ShimmerText>`, two component types at one place, so
+// React mounted a new band at each change (test/transcript-live-line-continuous-browser.test.ts read
+// 5 band elements in a turn of 6 steps).
+test("the default look keeps one shimmer band from Thinking through a step and back", () => {
+  const band = () => container.querySelector(".cv-shimmer__band");
+  act(() => root!.render(<Thinking since={0} now={() => 2_400} />));
+  const first = band();
+  expect(first === null).toBe(false);
+  expect(container.querySelector(".cv-status-verb__word")?.textContent).toBe("Thinking");
+  act(() => root!.render(<Thinking since={0} now={() => 2_400} doing="Read App.tsx" doingAt={1} />));
+  expect(container.querySelector(".cv-shimmer__lit-label")?.getAttribute("data-text")).toBe("Read App.tsx");
+  expect(band() === first).toBe(true);
+  act(() => root!.render(<Thinking since={0} now={() => 2_400} />));
+  expect(container.querySelector(".cv-status-verb__word")?.textContent).toBe("Thinking");
+  expect(band() === first).toBe(true);
+});
+
+// Where the slot itself draws the default (the fallback of a variant that threw, the gallery), it is
+// the same markup.
+test("the default variant's own component draws the pre-slot markup too", () => {
+  const Default = THINKING_INDICATOR_VARIANTS.default;
+  act(() =>
+    root!.render(<Default label="Thinking" verbs={["Thinking", "Pondering"]} elapsed="2s" elapsedMs={2_400} />),
+  );
+  const expected = dom!.window.document.getElementById("expected")!;
+  const other = createRoot(expected);
+  act(() => other.render(<PreSlotDecorative label="Thinking" verbs={["Thinking", "Pondering"]} elapsed="2s" />));
+  expect(container.innerHTML).toBe(expected.innerHTML);
+  act(() => other.unmount());
+});
+
 test("a running call still draws its own shimmer, not the slot", () => {
   act(() => configureThemeSlots({ "chat.thinkingIndicator": "counting-dots" }));
   act(() => root!.render(<Thinking since={0} now={() => 1_000} doing="Read App.tsx" doingAt={1} />));

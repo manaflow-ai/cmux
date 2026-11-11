@@ -20,6 +20,13 @@
 //! acpmux has no record for it: nobody is asked. An agent's own untrusted level, for the
 //! worktree or its repository, still holds a cmux worktree, and for a Web client it counts as
 //! an auto-trust rule does: no person's answer.
+//! A folder this daemon made itself for a proven peer's chat with no folder (the owner's own
+//! daemon on another machine: the app's Remote chat with "No folder", `server/remote_guard.rs`
+//! `peer_scratch`) is the host's agent-home: an empty, owner-only folder under this process's
+//! scratch root, holding the same marker. It is trusted the way a cmux worktree is: nobody is
+//! asked, a person's own answer or an agent's own untrusted level still wins, and for a Web
+//! client it counts as an auto-trust rule does (no person's answer), so a Web caller that names
+//! such a folder still waits for one (cmux#13742).
 //! A folder under the person's project roots, or in a repository whose remotes are all the
 //! person's own organizations, is trusted the same way (`trust_auto.rs`, switchable in Settings);
 //! an explicit "Don't trust" or an agent's own untrusted level still wins.
@@ -80,6 +87,9 @@ pub struct Paths {
     /// The folder cmux makes its worktrees in (`cmux_worktrees_root`): a linked worktree at
     /// `<root>/<project>/<name>` is one cmux made. None: no such folder.
     pub cmux_worktrees: Option<PathBuf>,
+    /// The folder this daemon makes its proven peers' folderless chats in (`peer_scratch_root`):
+    /// a direct child holding the marker is one acpmux made. None: no such folder.
+    pub peer_scratch: Option<PathBuf>,
 }
 
 impl Paths {
@@ -92,6 +102,7 @@ impl Paths {
             record: crate::config::home().join("trust.json"),
             agent_home: agent_home_root(),
             cmux_worktrees: cmux_worktrees_root(),
+            peer_scratch: Some(peer_scratch_root()),
         })
     }
 }
@@ -108,7 +119,24 @@ pub fn cmux_worktrees_root() -> Option<PathBuf> {
     dirs::home_dir().map(|home| cmux_git::worktree_root::worktree_root_path(&home))
 }
 
-/// The file the app writes in each agent-home folder it makes (`AgentHome.ensure`).
+/// `<temp>/acpmux-peer-scratch-<uid>-<id>`: where this process makes the folder of a proven
+/// peer's chat that names none (`server/remote_guard.rs` makes it, owner-only, on first use).
+/// The id is new for each process, so the name is not one another user can make first.
+pub fn peer_scratch_root() -> PathBuf {
+    static ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    ROOT.get_or_init(|| {
+        #[cfg(unix)]
+        let uid = unsafe { libc::getuid() }.to_string();
+        #[cfg(not(unix))]
+        let uid = "user".to_owned();
+        std::env::temp_dir()
+            .join(format!("acpmux-peer-scratch-{uid}-{}", uuid::Uuid::now_v7().simple()))
+    })
+    .clone()
+}
+
+/// The file the app writes in each agent-home folder it makes (`AgentHome.ensure`), and acpmux
+/// in each peer scratch folder it makes (`peer_scratch_root`).
 pub const AGENT_HOME_MARKER: &str = ".cmux-agent-home";
 
 /// A folder path the record can key: absolute, without a trailing slash.
@@ -352,6 +380,8 @@ fn get_at(paths: &Paths, cwd: &str, home: Option<&Path>) -> Result<Value, Failur
     // The repository the pane offers to trust as a whole.
     let repo = repo.filter(|repo| answerable_whole(&repo.root, home));
     let agent_home = paths.agent_home.as_deref().is_some_and(|root| made_by_cmux(root, &cwd));
+    // A folder acpmux made for a proven peer's chat with no folder (the host's agent-home).
+    let scratch = paths.peer_scratch.as_deref().is_some_and(|root| made_by_cmux(root, &cwd));
     // The person's own folders (project roots, own organizations) need no question, unless an
     // agent already holds the folder as untrusted: the rule widens an unknown, never a refusal.
     // A worktree cmux made is answered the same way: like a rule, it is no person's answer for a
@@ -360,6 +390,8 @@ fn get_at(paths: &Paths, cwd: &str, home: Option<&Path>) -> Result<Value, Failur
         .then(|| {
             if worktree {
                 Some(WORKTREE)
+            } else if scratch {
+                Some(PEER_SCRATCH)
             } else {
                 crate::trust_auto::AutoTrust::current().reason(&cwd).map(|r| r.label())
             }
@@ -378,7 +410,7 @@ fn get_at(paths: &Paths, cwd: &str, home: Option<&Path>) -> Result<Value, Failur
         // acpmux answered (its record, its rule for folders cmux made, or an auto-trust rule):
         // `level` holds for every agent.
         "decided": decided.is_some() || agent_home || auto.is_some(),
-        // Why no question was asked (`root`, `org` or `worktree`); absent otherwise.
+        // Why no question was asked (`root`, `org`, `worktree` or `scratch`); absent otherwise.
         "auto": auto,
         // The folder acpmux's decision was made for (a worktree's root, or its repository).
         "via": via,
@@ -418,6 +450,10 @@ fn made_by_cmux(root: &Path, cwd: &str) -> bool {
 
 /// `get`'s `auto` for a worktree cmux made (`cmux_worktree`).
 pub const WORKTREE: &str = "worktree";
+
+/// `get`'s `auto` for a folder acpmux made for a proven peer's chat with no folder
+/// (`peer_scratch_root`).
+pub const PEER_SCRATCH: &str = "scratch";
 
 /// The stricter of the agents' own levels for `folder`.
 fn agents_level(paths: &Paths, folder: &Path) -> Level {
@@ -563,6 +599,7 @@ mod security_tests {
             record,
             agent_home: None,
             cmux_worktrees: None,
+            peer_scratch: None,
         };
         let error =
             get(&paths, &cwd.to_string_lossy()).expect_err("a linked trust decision loaded");
@@ -591,6 +628,7 @@ mod scope_tests {
             record: root.join("state/trust.json"),
             agent_home: None,
             cmux_worktrees: None,
+            peer_scratch: None,
         };
         (root, paths)
     }
