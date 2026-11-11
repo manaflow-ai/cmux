@@ -525,3 +525,11 @@ fn menu_items_fail_closed_while_the_app_name_index_builds() {
     let open = PolicyGuard(crate::policy::PolicyConfig { denied_apps: vec![], ..Default::default() });
     assert!(!roles::menu_item_blocked(&open, &ctx, &pending));
 }
+
+#[test]
+fn a_missing_core_foundation_value_is_none_not_a_crash() {
+    // A Copy/Create call that finds nothing returns NULL; taking it must not
+    // release NULL (CFRelease(NULL) traps and took down the worker).
+    assert!(sys::Cf::created(std::ptr::null()).is_none());
+    assert!(sys::Cf::preference("cmuxNoSuchKey", "com.apple.HIToolbox").is_none());
+}
