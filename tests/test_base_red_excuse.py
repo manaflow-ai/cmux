@@ -900,7 +900,8 @@ class PortableGhLog(unittest.TestCase):
 
     def test_logs_use_the_flag_and_strip_ansi_in_python(self):
         raw = self.read("")
-        self.assertIn("\x1b[31mred", raw)
+        # The reader strips the colour gh served, once, so no parser sees it (#41329's review F2).
+        self.assertEqual(raw, "2026-10-30T12:00:00.000Z red log\n")
         route = f"repos/{REPO}/actions/jobs/7/logs"
         self.assertEqual(self.asked(), [f"api --allow-escape-sequences {route}"])
         self.assertEqual(excuse.lines_of(raw), ["red log"])
@@ -3576,6 +3577,123 @@ class OtherRepoRollups(unittest.TestCase):
     def test_rollups_not_read_are_refused(self):
         with self.assertRaisesRegex(excuse.Refused, "not read from its workflows"):
             excuse.rollups(HQ)
+
+
+# hq#9249 (2026-11-11): a child PR into lane/rerun-guard-fixed-on-base, the head of open PR hq#9226 at d755d38b.
+# Its 'Skill policy tests' (run 42988800012) failed the LaunchAgent step exactly as the parent's head did (run
+# 42985609913); the lane branch has no run of its own, so it was refused as "no lane/... run ... to compare with".
+LANE = "lane/rerun-guard-fixed-on-base"
+PARENT_SHA = "d755d38ba189a2c4c853ad5b5b2596cf6b3ea9e0"
+LAUNCHAGENT_STEP = "Shared clone maintenance LaunchAgent runs the compaction daily"
+LAUNCHAGENT_RED = ("AssertionError: ['/bin/bash', '/home/runner/Library/Application Support/cmuxterm-hq/"
+                   "shared-clone-maintenance/scripts/shared-clone-maintenance.sh', '/x/a&b/repo']",
+                   "FAIL: plist content", "##[error]Process completed with exit code 1.")
+
+
+def parent_pull(number=9226, sha=PARENT_SHA, ref=LANE, repo=HQ):
+    return {"number": number, "state": "open", "head": {"ref": ref, "sha": sha, "repo": {"full_name": repo}}}
+
+
+class StackedParentGitHub(HQGitHub):
+    """hq#9249's shape: head run 10 (Skill policy tests red, its rollup Skill documentation tests red) into LANE, the
+    head of open PR #9226 whose run 30 at PARENT_SHA has the same 'Skill policy tests' red. LANE has no push run."""
+
+    def __init__(self):
+        super().__init__()
+        del self.jobs[2]
+        self.base_runs = []
+        self.jobs[1] = failed_job(1, 10, HEAD, name="Skill policy tests", step=LAUNCHAGENT_STEP)
+        self.logs[1] = log("Skill policy tests", LAUNCHAGENT_STEP, *LAUNCHAGENT_RED)
+        self.jobs[2] = failed_job(2, 30, PARENT_SHA, name="Skill policy tests", step=LAUNCHAGENT_STEP)
+        self.logs[2] = log("Skill policy tests", LAUNCHAGENT_STEP, *LAUNCHAGENT_RED)
+        self.pulls = [parent_pull()]
+        self.tip = PARENT_SHA
+        self.parent_runs = [{"id": 30, "event": "pull_request", "head_branch": LANE, "head_sha": PARENT_SHA,
+                             "status": "completed", "conclusion": "failure", "workflow_id": 7,
+                             "created_at": "2026-11-11T08:40:00Z"}]
+
+    def blob(self, repo, ref, path):
+        self.blobs.append((repo, ref, path))
+        return SKILLS_YML
+
+    def json(self, route, *, paginate=False):
+        if route.startswith(f"repos/{HQ}/pulls?"):
+            self.routes.append(route)
+            assert f"head=manaflow-ai:{LANE}" in route and "state=open" in route, route
+            return copy.deepcopy(self.pulls)
+        if route == f"repos/{HQ}/branches/{LANE}":
+            self.routes.append(route)
+            return {"name": LANE, "commit": {"sha": self.tip}}
+        if route.startswith(f"repos/{HQ}/actions/workflows/7/runs?head_sha="):
+            self.routes.append(route)
+            sha = route.split("head_sha=", 1)[1].split("&", 1)[0]
+            return {"workflow_runs": [copy.deepcopy(run) for run in self.parent_runs if run["head_sha"] == sha]}
+        if route.startswith(f"repos/{HQ}/actions/workflows/7/runs?branch={LANE}"):
+            self.routes.append(route)
+            return {"workflow_runs": []}  # a lane branch has no push or dispatch run of its own
+        return super().json(route, paginate=paginate)
+
+
+class StackedChildIntoLaneParent(unittest.TestCase):
+    """A child PR into a lane branch that heads an open PR is judged by that parent PR's checks at its head
+    (stacked_parent): identity-keyed, as any base verdict; anything less refuses."""
+
+    def setUp(self):
+        self.gh = StackedParentGitHub()
+        patch = unittest.mock.patch.object(excuse, "_REPO_ROLLUPS", {})
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def judge(self):
+        return excuse.judge(HQ, LANE, HEAD, [10], self.gh)
+
+    def test_hq9249_a_red_the_parents_head_has_too_is_excused(self):
+        lines = "\n".join(self.judge())
+        self.assertIn("excused 'Skill policy tests'", lines)
+        self.assertIn(f"open PR #9226's head {PARENT_SHA[:12]}", lines)
+        self.assertIn(f"repos/{HQ}/actions/workflows/7/runs?head_sha={PARENT_SHA}&per_page=100", self.gh.routes)
+
+    def test_a_child_red_the_parents_head_does_not_have_is_refused(self):
+        self.gh.logs[1] = log("Skill policy tests", LAUNCHAGENT_STEP, *LAUNCHAGENT_RED[:1],
+                              "FAIL: launchd label", LAUNCHAGENT_RED[2])
+        with self.assertRaisesRegex(excuse.Refused, "'Skill policy tests'.*not on lane/rerun-guard-fixed-on-base"):
+            self.judge()
+
+    def test_a_green_parent_job_makes_the_red_the_childs_own(self):
+        self.gh.jobs[2] = dict(self.gh.jobs[2], conclusion="success",
+                               steps=[dict(step, conclusion="success") for step in self.gh.jobs[2]["steps"]])
+        with self.assertRaisesRegex(excuse.Refused, "passed on .*PR #9226 at its head d755d38ba189.*own"):
+            self.judge()
+
+    def test_a_parent_head_with_no_completed_run_is_refused(self):
+        for runs in ([], [dict(self.gh.parent_runs[0], status="in_progress", conclusion=None)]):
+            with self.subTest(runs=runs):
+                self.gh.parent_runs = runs
+                with self.assertRaisesRegex(excuse.Refused, "PR #9226's head; its head d755d38ba189 has no completed"):
+                    self.judge()
+
+    def test_a_branch_that_moved_past_its_prs_head_is_refused(self):
+        self.gh.tip = "c" * 40
+        with self.assertRaisesRegex(excuse.Refused, "tip cccccccccccc is not that PR's head d755d38ba189"):
+            self.judge()
+
+    def test_two_open_prs_headed_by_the_branch_judge_as_before(self):
+        # Ambiguous: no parent is chosen, and the lane branch's own (absent) runs refuse as they always did.
+        self.gh.pulls = [parent_pull(), parent_pull(number=9300)]
+        with self.assertRaisesRegex(excuse.Refused, f"no {LANE} run of its workflow has a verdict"):
+            self.judge()
+
+    def test_a_fork_or_other_ref_is_no_parent(self):
+        for pull in (parent_pull(repo="someone/cmuxterm-hq"), parent_pull(ref="lane/other")):
+            with self.subTest(pull=pull):
+                self.gh.pulls = [pull]
+                with self.assertRaisesRegex(excuse.Refused, f"no {LANE} run of its workflow has a verdict"):
+                    excuse.judge(HQ, LANE, HEAD, [10], self.gh)
+
+    def test_an_integration_base_never_reads_a_parent(self):
+        self.assertIsNone(excuse.stacked_parent(HQ, "main", self.gh, {}))
+        self.assertIsNone(excuse.stacked_parent(REPO, "feat-cmux-next", self.gh, {}))
+        self.assertFalse(any("/pulls?" in route for route in self.gh.routes))
 
 
 SOURCE_FAKE_GH = """#!/usr/bin/env python3
@@ -8783,7 +8901,8 @@ LOG_FETCHERS = frozenset({"lost_runner_log", "read_head", "base_evidence", "unpl
                           "web_test_verdict", "cut_short_web_verdict", "windows", "ws_check_verdict", "log"})
 RAW_NAME = re.compile(r"^(?:\w+_)?logs?$")
 # next_batch's expand_job may read its raw log only into these (keying a red as its own) and failed_view.
-NEXT_BATCH_RAW_SINKS = frozenset({"failed_view", "no_verdict", "read"})
+# unjudged: an unplaced log split by its echoes, no step judged (owned_unnamed; #41329's review follow-up F3).
+NEXT_BATCH_RAW_SINKS = frozenset({"failed_view", "no_verdict", "read", "unjudged"})
 
 
 def raw_log_reads(source, next_batch_source=None):
@@ -9902,6 +10021,17 @@ class BunRecapAndRetryCounts(unittest.TestCase):
                 self.assertTrue(path(self.HEAD_RECAP, self.HEAD_RECAP)[0].startswith("excused "))
                 self.assertTrue(path(self.BASE_RECAP, self.BASE_RECAP)[0].startswith("excused "))
 
+    def test_a_recap_only_retry_counts_its_titles_once_placed_and_whole(self):
+        # #41329's review F1: two attempts that each recap `a > one` counted it twice, refused against a base that
+        # failed it once. The retry drops the superseded attempt's recap titles too.
+        retried = self.BASE_RECAP + ["--- retry, alone ---"] + self.BASE_RECAP
+        for path in (self.placed, self.whole):
+            with self.subTest(path=path.__name__):
+                self.assertTrue(path(retried, self.BASE_RECAP)[0].startswith("excused "))
+                with self.assertRaisesRegex(excuse.Refused, "a > one"):
+                    path(self.HEAD_RECAP + ["--- retry, alone ---"]
+                         + self.HEAD_RECAP, self.BASE_RECAP)
+
     def test_a_result_failing_twice_is_not_the_bases_one_failure_placed(self):
         # The same rule for a name its results print twice: the placed path compared the window by name alone.
         twice = bun_lines(results=["a > one", "a > one"])
@@ -9917,6 +10047,81 @@ class BunRecapAndRetryCounts(unittest.TestCase):
                     results=["a > one"], fail=2)
                 with self.assertRaisesRegex(excuse.Refused, "more failing tests than it names"):
                     path(unnamed_retry, self.BASE_ONE)
+
+
+
+class OneVerdictHoldsEachTestsWholeFailure(unittest.TestCase):
+    """#41329's review F1: "the identity match and the count can come from different base verdicts. Reproduced: head
+    recap-only `A x2`; newest base recap-only `A x1`; older base `A x2` but with a TypeError diagnostic. Neither base
+    alone excuses it, yet the combined window does. For each test, require the identity, diagnostic and count to all
+    hold on one verdict." """
+
+    HEAD_RECAP = bun_lines(recap=["a > one", "a > one"], fail=2)
+    NEWEST = bun_lines(recap=["a > one"], fail=1)
+    # bun with no file header names its results by title alone, as the recap does: the same test, its own error.
+    OLDER = ["bun test v1.3.0", "TypeError: pane.close is not a function", "(fail) a > one [1.00ms]",
+             "TypeError: pane.close is not a function", "(fail) a > one [1.00ms]", " 0 pass", " 2 fail"]
+
+    def judge(self, *bases):
+        github = FakeGitHub()
+        github.logs[1] = log(SWIFT, TEST_STEP, *self.HEAD_RECAP)
+        github.base_runs = []
+        for n, lines in enumerate(bases):
+            run = 30 - n
+            github.base_runs.append({"id": run, "event": "push", "head_branch": "feat-cmux-next",
+                                     "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                                     "created_at": f"2026-11-11T{12 - n:02d}:00:00Z"})
+            github.jobs[run] = failed_job(run, run, BASE_SHA)
+            github.logs[run] = log(SWIFT, TEST_STEP, *lines)
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_each_base_alone_refuses_it(self):
+        for bases in ((self.NEWEST,), (self.OLDER,)):
+            with self.subTest(base=bases[0][-1]), self.assertRaises(excuse.Refused):
+                self.judge(*bases)
+
+    def test_the_window_does_not_combine_one_verdicts_identity_with_anothers_count(self):
+        with self.assertRaisesRegex(excuse.Refused, "a > one x2"):
+            self.judge(self.NEWEST, self.OLDER)
+
+    def test_one_verdict_with_all_three_still_excuses(self):
+        said = self.judge(self.NEWEST, self.HEAD_RECAP)
+        self.assertTrue(said[0].startswith(f"excused '{SWIFT}'"), said)
+
+
+
+class SplitSectionsAreNeverJudgedAgain(unittest.TestCase):
+    """#41329's review follow-up F3 (base_red_excuse.py:1487): "re-parsing the concatenated failed sections runs
+    passed_steps again, so a failed section with no ##[error] can be read as passing and its unnamed Bun count dropped.
+    Parse each failed section on its own, and never re-judge pass or fail on text that's already been split." A
+    FailedView's text is a test_reds.Steps: each section is read as the failed step it was placed as."""
+
+    def sections(self):
+        echo = lambda script: [f"2026-11-11T12:00:0{n}.0Z {line}" for n, line in enumerate(
+            [f"##[group]Run {script}", "shell: /usr/bin/bash -e {0}", "##[endgroup]"])]
+        # A failed step that printed no `##[error]` (the jobs API says it failed), then the step that did.
+        quiet = echo("bun test test/a.test.ts") + [f"2026-11-11T12:00:05.0Z {line}" for line in
+                                                     bun_lines(results=["a > one"], fail=2)]
+        loud = echo("cargo test") + [f"2026-11-11T12:00:09.0Z {line}" for line in (
+            "test tests::reconnects ... FAILED",
+            "test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out",
+            "##[error]Process completed with exit code 101.")]
+        return quiet, loud
+
+    def view(self):
+        quiet, loud = self.sections()
+        steps = [{"name": "bun", "conclusion": "failure"}, {"name": "cargo", "conclusion": "failure"}]
+        return excuse.FailedView({"id": 1, "steps": steps}, False, steps,
+                                 [(0, "FAILED", quiet), (1, "FAILED", loud)])
+
+    def test_a_failed_sections_bun_count_is_kept_without_an_error_line(self):
+        view = self.view()
+        own = excuse.owned_unnamed(excuse.test_reds.read("\n".join(sum(self.sections(), []))), view)
+        self.assertEqual(own.unnamed, [" 2 fail"])
+        self.assertTrue(any(why.startswith(excuse.test_reds.UNNAMED_WHY) for why in own.truncated), own.truncated)
+        unnamed: list = []
+        excuse.test_reds.failed_in(excuse.view_text(view), unnamed)
+        self.assertEqual(unnamed, [" 2 fail"])
 
 
 class GuardCrashIsNotItsFinding(unittest.TestCase):

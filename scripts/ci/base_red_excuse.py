@@ -301,16 +301,18 @@ class GitHub(_evidence.GitHub):
         # reader that matches a stamp or a prefix (cmuxterm-hq run 42391652834's WS_CHECK_RESULT, 2026-11-07).
         # This host's glaeda-gh keeps the same bytes for every failed job its daemon saw: read there first, with no
         # API call (a replay of 200 verdicts read each log again: about 150 reads, and it stopped at 51 runs).
+        # The log's terminal escapes are stripped here too, once, so no parser of it sees raw colour (#41329's review
+        # F2: a summary matched on its raw line missed `\x1b[31mFAILED\x1b[0m`).
         kept = glaeda_log.cached_job_log(repo, job.get("id")) if glaeda_log is not None else None
         if kept is not None:
-            return kept.replace("\ufeff", "")
+            return test_reds.plain(kept.replace("\ufeff", ""))
         try:
-            return self.run(["api", ESCAPE_FLAG, route]).replace("\ufeff", "")
+            return test_reds.plain(self.run(["api", ESCAPE_FLAG, route]).replace("\ufeff", ""))
         except Refused as error:
             said = str(error)
             if not (said.startswith(REQUEST_FAILED) and escape_flag_unknown(said[len(REQUEST_FAILED):])):
                 raise
-        return self.run(["api", route]).replace("\ufeff", "")
+        return test_reds.plain(self.run(["api", route]).replace("\ufeff", ""))
 
     def json(self, route: str, *, paginate: bool = False, per_page: int = 100):
         # A run's job list carries every job's steps; see JOBS_PAGE.
@@ -723,14 +725,16 @@ def tested_sha(run: dict) -> str:
     return match.group(1) if match else str(run.get("head_sha") or "")
 
 
-ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+ANSI = test_reds.ANSI  # one pattern for every reader
 ERROR = re.compile(r"##\[error\]|\berror:")
 WARNING = re.compile(r"##\[warning\]|\bwarning:")
 # A job whose own script says its one red on a line of its own, not an annotation: that line is its error line.
 # scripts/ci/cua_signed_host_check.py ends a red run with `FAIL: <why>` and then only the runner's generic exit-code
 # annotation, so 'signed host admission' had no error line to compare, and its base red on cmux#37855 (the same
 # "signed app pid N never kept an accepted host connection" on base run 42383535506) could not be matched.
-JOB_ERROR = {"signed host admission": re.compile(r"^FAIL: ")}
+# cmuxterm-hq's 'Skill policy tests' runs shell tests that end a red the same way (`FAIL: plist content`, hq#9249's
+# LaunchAgent step): with no line of its own to compare, its inherited red had nothing to match on any base.
+JOB_ERROR = {"signed host admission": re.compile(r"^FAIL: "), "Skill policy tests": re.compile(r"^FAIL: ")}
 # Release-notary helpers report successful validations as `ok: ... (error: ...)`.
 # The parenthesized diagnostic is expected output, not a failed check; only
 # error annotations outside a successful `ok:` wrapper are evidence.
@@ -1273,7 +1277,10 @@ class FailedView:
         self.job, self.base, self.steps, self.sections = job, base, steps, sections
 
     def text(self) -> str:
-        return "\n".join(line for _, _, lines in self.sections for line in lines)
+        """Its sections' lines, as a test_reds.Steps: every reader of it reads each section as the failed step it was
+        placed as, never splitting the text by its echoes and judging pass or fail again (#41329's review follow-up
+        F3)."""
+        return test_reds.Steps(["\n".join(lines) for _, _, lines in self.sections])
 
     def lines(self) -> list[tuple[str, int]]:
         """(raw line, the index of its step in STEPS) for each line of the view."""
@@ -1473,18 +1480,25 @@ def signature(view: "FailedView | Unplaced") -> tuple[set[str], set[str], set[st
     text = view_text(view)
     steps = {step["name"] for step in view.job.get("steps") or []  # step-name: classify
              if step.get("conclusion") not in (None, "success", "skipped")}
-    tests = set(test_reds.failed_tests(test_reds.lines_of(text)))  # bun's too (#41158's review F1)
+    tests = set(test_reds.failed_in(text))  # bun's too (#41158's review F1)
     return steps, tests, {error for _, error in step_errors(view)}
 
 
-def owned_unnamed(own: "test_reds.Result", view: "FailedView | Unplaced") -> "test_reds.Result":
-    """OWN (test_reds.read of a red's raw log) with its failures no parser names read from VIEW's failed sections
-    alone, when VIEW is placed: a step that passed is never this red's, whatever it printed (#41244's review F1, the
-    rule of #41241: evidence from passing steps never counts). An unplaced log keeps the whole log's reading."""
-    if view is UNPLACED:
+def owned_unnamed(own: "test_reds.Result", view: "FailedView | Unplaced",
+                  unplaced: "test_reds.Steps | None" = None) -> "test_reds.Result":
+    """OWN (test_reds.read of a red's raw log) with its failures no parser names read from VIEW's failed sections,
+    each on its own, when VIEW is placed: a step that passed is never this red's, whatever it printed (#41244's review
+    F1, the rule of #41241: evidence from passing steps never counts). An unplaced log has no step known to have
+    passed: UNPLACED, its every step split by the caller and none judged pass or fail by its text (test_reds.unjudged;
+    #41329's review follow-up F3), is read, each step on its own."""
+    if view is UNPLACED and unplaced is None:
         return own
-    own.truncated = [why for why in own.truncated if not why.startswith(test_reds.UNNAMED_WHY)]
-    own.unnamed = test_reds.read(view_text(view)).unnamed
+    steps = test_reds.read(unplaced if view is UNPLACED else view_text(view))
+    # A cut-short run in a failed step that printed no `##[error]` is read there too (the raw reading judged that step
+    # passed by its text): the reasons of both readings, the unnamed failures of the steps' alone.
+    own.truncated = [why for why in dict.fromkeys(own.truncated + steps.truncated)
+                     if not why.startswith(test_reds.UNNAMED_WHY)]
+    own.unnamed = steps.unnamed
     if own.unnamed:
         own.truncated.append(test_reds.unnamed_why(own.unnamed))
     return own
@@ -1497,7 +1511,7 @@ def step_errors(view: FailedView) -> set[tuple[str, str]]:
     text = view_text(view)
     scope = view.lines()
     skip = test_reds.echoed(test_reds.log_lines(text))
-    tests = set(test_reds.failed_tests(test_reds.lines_of(text)))
+    tests = set(test_reds.failed_in(text))
     job = view.job
     found: set[tuple[str, str]] = set()
     for n, line in enumerate(lines_of(text)):
@@ -1573,8 +1587,9 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
     # test_reds' one parser (failed_tests): bun's `FILE > TEST` too (#41158's review F1: unread, two different bun
     # failures with one `expect()` headline were the same red), and every source of a name counted alike, an
     # xcresult `FAILED:` line and each listing entry (#41129's review F2; #41158's review F2).
+    # No step of an unplaced log is known to have passed: every step is read, each on its own (test_reds.unjudged).
     unnamed: list = []
-    tests = test_reds.failed_tests(output, unnamed)
+    tests = test_reds.failed_in(test_reds.unjudged(log), unnamed)
     named = set(tests)
     errors: Counter = Counter()
     for line in output:
@@ -4495,16 +4510,6 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
     for kind, head, seen in compared:
         if missing := sorted(head - seen):
             raise Refused(f"'{name}': {kind} not on {base} {runs}: {'; '.join(missing)[:600]}")
-    # A failing test as often as the head fails it, on one verdict (#41222's review F1 at 6719ba22: a name failing
-    # twice is two failures, so a head failing it twice is not a base that failed it once). Each test may be on its own
-    # verdict of the window (the per-test window); a quarantined flake is the base's however often it fails.
-    times = test_reds.failed_tests(test_reds.lines_of(head_text))
-    if often := {test: n for test, n in times.items() if n > 1 and test not in known}:
-        most = Counter()
-        for _, view, *_ in window:
-            most |= test_reds.failed_tests(test_reds.lines_of(view_text(view)))
-        if fewer := sorted(f"{test} x{n} (at most x{most[test]})" for test, n in often.items() if most[test] < n):
-            raise Refused(f"'{name}': failing tests more often than on any of {base} {runs}: {'; '.join(fewer)[:600]}")
     # The failed steps by name compared above; here by identity: each head failed step's (name, conclusion), as often
     # as the head has it (#41158's review F1: a cancelled step is not a failed one, and a step that failed twice is not
     # the base's one failure), all on ONE base verdict of the window, each verdict compared alone. #41166's review F1:
@@ -4515,9 +4520,31 @@ def compare_window(repo: str, base: str, name: str, head: tuple, head_view: Fail
     gaps = [mine - failed_step_keys(view.job) for _, view, *_ in window]
     if all(gaps):
         missing = min(gaps, key=lambda gap: sum(gap.values()))
-        alone = ", each verdict alone" if len(window) > 1 else ""
-        raise Refused(f"'{name}': failed steps not on {base} {runs} with the same conclusion, as often{alone}: "
+        each = ", each verdict alone" if len(window) > 1 else ""
+        raise Refused(f"'{name}': failed steps not on {base} {runs} with the same conclusion, as often{each}: "
                       f"{step_keys_text(missing)[:400]} (the head's: {step_keys_text(mine)[:200]})")
+    # Each failing test whole on ONE verdict of the window: its name, its diagnostic (classify's shared: the same error
+    # and the same files) and as often as the head fails it (#41222's review F1 at 6719ba22: a name failing twice is
+    # two failures). #41329's review F1: the name and diagnostic were taken from any verdict and the count from the
+    # most any verdict had, so a head failing A twice with no error matched a base that failed it once that way and
+    # an older one that failed it twice with a TypeError, a failure no base run had. Each test may still be on its own
+    # verdict (the per-test window), one that also holds the head's failed steps (above): the property test's window
+    # detector found a test on one verdict and the steps on another; a quarantined flake is the base's however often
+    # it fails.
+    times = test_reds.failed_in(head_text)
+    alone = []
+    for (run, view, *_), gap in zip(window, gaps):
+        if gap:
+            continue
+        text = view_text(view)
+        judged = test_reds.classify(head_text, text, name, f"{base} run {run['id']}")
+        alone.append((set(judged.shared) if judged is not None else set(),
+                      test_reds.failed_in(text)))
+    if lone := sorted(f"{test} x{n} (at most x{max([counts[test] for same, counts in alone if test in same] or [0])})"
+                      for test, n in times.items() if test not in known
+                      and not any(test in same and counts[test] >= n for same, counts in alone)):
+        raise Refused(f"'{name}': failing tests more often than on any of {base} {runs} that fails them the same way with the head's failed steps, "
+                      f"each verdict alone: {'; '.join(lone)[:600]}")
     if head_pairs is not None and compared[-1][0] == "errors":
         printed = set().union(*(entry[3] for entry in window if len(entry) > 3))
         if missing := sorted(f"{error} (step '{step}')" for step, error in head_pairs
@@ -5596,7 +5623,7 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     # the head's (test_reds.web_head_part; cmux#34111's replay (2), whose merge parent timed out a file).
     own = test_reds.read(test_reds.web_head_part(head_log) if WEB_TEST_JOB.fullmatch(name) else head_log)
     if not WEB_TEST_JOB.fullmatch(name):
-        own = owned_unnamed(own, view)
+        own = owned_unnamed(own, view, test_reds.unjudged(head_log) if view is UNPLACED else None)
     if own.crashes or (own.truncated and not chromium_without_diagnostics):
         raise Refused(f"'{name}': " + "; ".join(own.crashes + own.truncated[:1])[:800]
                       + " (a crash, a cut-short run or a failure no parser names is never a base red)")
@@ -5619,6 +5646,77 @@ def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, githu
         raise Refused(f"'{name}': {base} run {run['id']}'s log does not map one to one onto its steps "
                       "(step_owners), so no base line can be told to a failed step; nothing is compared")
     return run, view, signature(view), step_errors(view)
+
+
+# A stacked child (hq#9249, 2026-11-11): a child PR into a lane branch that is itself an open PR's head (hq#9226's
+# lane/rerun-guard-fixed-on-base) has no run of the lane branch on base to compare with: the lane branch is only ever
+# run as its own PR's pull_request runs. So every red the child inherited from the parent's stale base was refused as
+# "no lane/... run of its workflow has a verdict" ('Skill policy tests', the LaunchAgent test #9236 fixed on main,
+# red on hq#9249 at a0f7212f and on its parent's head d755d38b alike). Such a base is judged by its parent PR's checks
+# at the parent's current head, with the same identity-keyed comparison as any base verdict. Sound because the parent
+# is gated again before it reaches its own base: nothing lands without CI, and a red the parent has too is not the
+# child's. Only one open same-repo PR headed by the base branch, whose head is the branch's tip, is that parent: none
+# or several judge as before; a branch that moved past its PR's head, or a parent head with no completed run of the
+# workflow carrying the job, refuses. A green parent job means the red is the child's own.
+INTEGRATION_BRANCHES = frozenset({"main", "feat-cmux-next"})
+
+
+class StackedParent(NamedTuple):
+    number: int
+    head: str  # the parent PR's head sha, which is the base branch's tip
+
+
+def stacked_parent(repo: str, base: str, github, cache: dict) -> StackedParent | None:
+    """The open PR of REPO headed by lane branch BASE (StackedParent), read once per judge into CACHE; None when BASE
+    is an integration branch or heads no open PR, or several. Refused when the branch's tip is not that PR's head."""
+    key = ("stacked-parent", repo, base)
+    if key in cache:
+        return cache[key]
+    cache[key] = None
+    if base in INTEGRATION_BRANCHES:
+        return None
+    owner = repo.split("/", 1)[0]
+    listed = github.json(f"repos/{repo}/pulls?head={owner}:{base}&state=open&per_page=100")
+    pulls = [pull for pull in (listed if isinstance(listed, list) else [])
+             if isinstance(pull, dict) and pull.get("state") == "open"
+             and (pull.get("head") or {}).get("ref") == base
+             and ((pull.get("head") or {}).get("repo") or {}).get("full_name") == repo]
+    if len(pulls) != 1:
+        return None
+    pull = pulls[0]
+    head = str((pull.get("head") or {}).get("sha") or "")
+    tip = str(((github.json(f"repos/{repo}/branches/{base}") or {}).get("commit") or {}).get("sha") or "")
+    if not re.fullmatch(r"[0-9a-f]{40}", head) or head != tip:
+        raise Refused(f"{base} is the head of open PR #{pull.get('number')}, but its tip {tip[:12] or '(unread)'} is "
+                      f"not that PR's head {head[:12] or '(unread)'}: the branch moved, so the parent's checks are "
+                      "not its verdict; re-check once the parent's head has run")
+    cache[key] = StackedParent(int(pull.get("number") or 0), head)
+    return cache[key]
+
+
+def stacked_parent_runs(repo: str, workflow, parent: StackedParent, github, base_runs: dict) -> None:
+    """BASE_RUNS[WORKFLOW]: the completed runs of WORKFLOW at PARENT's head (its pull_request or push runs), newest
+    first, in place of the base branch's own (list_base_runs then reads nothing)."""
+    listed = github.json(f"repos/{repo}/actions/workflows/{workflow}/runs?head_sha={parent.head}&per_page=100")
+    base_runs[workflow] = sorted(
+        (run for run in (listed.get("workflow_runs") if isinstance(listed, dict) else None) or []
+         if isinstance(run, dict) and run.get("head_sha") == parent.head
+         and run.get("event") in ("pull_request", "push") and run.get("status") == "completed"
+         and run.get("conclusion") != "skipped"),
+        key=lambda run: run.get("created_at") or "", reverse=True)
+
+
+def stacked_parent_verdicts(name: str, base: str, parent: StackedParent, verdicts):
+    """VERDICTS (base_verdicts' (run, job) pairs) at PARENT's head only, so no older run of the branch (a dispatch,
+    say) stands in; Refused when there is none: the parent's head has no completed verdict for job NAME."""
+    found = [(run, job) for run, job in verdicts if tested_sha(run) == parent.head]
+    if not found:
+        raise Refused(f"'{name}': {base} is PR #{parent.number}'s head; its head {parent.head[:12]} has no completed "
+                      "run of this workflow with a verdict for it to compare with; re-check once it has")
+    if found[0][1].get("conclusion") != "failure":
+        raise Refused(f"'{name}' passed on {base}'s PR #{parent.number} at its head {parent.head[:12]} (run "
+                      f"{found[0][0].get('id')}): the red is this PR's own; fix it on this head")
+    return iter(found)
 
 
 def one_judgement(function):
@@ -5749,9 +5847,16 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if (per_test := got.per_test(workflow_info)) is not None:
             audit.append(per_test)
             continue
+        if (parent := stacked_parent(repo, base, github, run_reads)) is not None:
+            # A lane base heading an open PR: its verdicts are that PR's at its head (stacked_parent).
+            stacked_parent_runs(repo, workflow, parent, github, base_runs)
         list_base_runs(repo, base, workflow, github, base_runs)
         # The newest base run where this job has a verdict decides whether it is red on the base.
         verdicts = base_verdicts(repo, base, workflow, name, github, base_runs, base_jobs, job_reads, suites)
+        if parent is not None:
+            verdicts = stacked_parent_verdicts(name, base, parent, verdicts)
+            audit.append(f"base for '{name}': {base} is open PR #{parent.number}'s head {parent.head[:12]}; its "
+                         "checks there are the base verdicts below")
         base_run, base_job = next(verdicts, (None, None))
         base_workflow = workflow  # the workflow whose run gives the base verdict
         if ((caller := base_caller(repo, base, workflow_info, name)) is not None
