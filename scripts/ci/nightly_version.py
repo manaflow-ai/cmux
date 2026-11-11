@@ -30,9 +30,9 @@
 
   fallback-build (--live BUILD | --feed FILE_OR_URL [--feed ...]) [--k K]
       Prints the build number of a fleet fallback build (cmux NEXT built and
-      published from the git mirror while GitHub Actions starts no runs,
-      scripts/ci/nightly-next-fleet-fallback.sh): <live run id><50+K>, where
-      live is BUILD or the highest sparkle:version on the feeds (pass every
+      published from the git mirror while GitHub Actions starts no runs; the
+      nightly-next train doc, "When Actions starts no runs"): <live run id><50+K>,
+      where live is BUILD or the highest sparkle:version on the feeds (pass every
       feed check-build reads). A live build that is itself a fallback build
       (attempt 50..99) gives live+1+K. Refuses when the attempt would pass 99.
 
@@ -45,7 +45,7 @@ run started later can make: a later run id R > live run id gives R01, and
 R*100+1 > live*100+99. So when Actions recovers its next build goes above the
 fallback's on its own, with no renumbering, and the fallback can never sit
 above a build Actions makes after it. A fallback build names no Actions run:
-nothing may read it as run <id> attempt <50+k> (publish-nightly-next-r2.py
+nothing may read it as run <id> attempt <50+k> (the R2 feed writer's
 compiled_artifact_source refuses to).
 """
 
