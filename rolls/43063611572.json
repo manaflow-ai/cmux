@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43063611572",
+  "recorded_at": "2026-11-11T17:04:36Z",
+  "reason": "cmux-tui 2f29afd2f350 changes the image's cmux-tui (pinned c92f88509a94)",
+  "dry_run": false,
+  "cmux_tui": "2f29afd2f3505329fbc6fd487885a55886346e12",
+  "fixes": [
+    {
+      "sha": "2f29afd2f3505329fbc6fd487885a55886346e12",
+      "mergedAt": "2026-11-11T08:41:33-08:00",
+      "subject": "Customize: clock and weather, my PRs in my order, design links templates, and an ideas page (#40247)"
+    },
+    {
+      "sha": "cb40f445b3d9508910c7fa46a5a9f532ac7f5d84",
+      "mergedAt": "2026-11-11T08:41:15-08:00",
+      "subject": "SDK bindings: explicit null on a non-nullable opaque JSON field is a typed decode error (#41378)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-11T17:04:36Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
