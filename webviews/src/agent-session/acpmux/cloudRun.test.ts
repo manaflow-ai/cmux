@@ -8,6 +8,7 @@ import {
   cloudPageRefusal,
   cloudRunsHere,
   cloudSendAfterCheck,
+  heldPromptShown,
   cloudStartFolder,
   cloudStartKeys,
   cloudStartSaid,
@@ -207,6 +208,29 @@ test("a Cloud send before the tab's check answers waits for it and then goes onc
   expect(sent).toEqual(["hey"]);
   expect(after.offered()).toBe(false);
   expect(sent).toEqual(["hey"]);
+});
+
+// Review of #40915: a held send that went left its prompt in the chat composer, so a second
+// Return could send it again; and a check that answered "a chat is starting here" left
+// "Checking this tab" up with nothing to do.
+test("a held send's start takes its prompt out of the composer only while the composer still shows it", () => {
+  const chip = { id: "a" };
+  expect(heldPromptShown({ text: "hey", attachments: [chip] }, { text: "hey", attachments: [chip] })).toBe(true);
+  expect(heldPromptShown({ text: "hey there", attachments: [chip] }, { text: "hey", attachments: [chip] })).toBe(false);
+  expect(heldPromptShown({ text: "hey", attachments: [] }, { text: "hey", attachments: [chip] })).toBe(false);
+  expect(heldPromptShown({ text: "hey", attachments: [{ id: "b" }] }, { text: "hey", attachments: [chip] })).toBe(false);
+  expect(heldPromptShown(undefined, { text: "hey", attachments: [] })).toBe(false);
+});
+
+test("a held send the check refuses is dropped and gives back its prompt and folder for New Cloud chat", () => {
+  const after = cloudSendAfterCheck();
+  const sent: string[] = [];
+  after.hold(() => sent.push("hey"), { prompt: "hey", cwd: "/Users/leo/hey" });
+  expect(after.take()).toEqual({ prompt: "hey", cwd: "/Users/leo/hey" });
+  expect(after.waiting()).toBe(false);
+  expect(after.offered()).toBe(false);
+  expect(after.take()).toBeUndefined();
+  expect(sent).toEqual([]);
 });
 
 test("a held Cloud send is dropped when the person leaves Cloud before the check answers", () => {

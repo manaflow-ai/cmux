@@ -291,7 +291,7 @@ fn team_rows_check_only_the_active_team_and_name_the_personal_one() {
         facts("t3", "Personal", Some("pro")),
         facts("t4", "  ", Some("")),
     ];
-    let rows = team_rows(&teams, Some("t1"));
+    let rows = team_rows(&teams, Some("t1"), None);
     assert_eq!(rows.iter().filter(|row| row.active).count(), 1);
     assert_eq!(rows[0].title, "cmux");
     assert_eq!(rows[0].kind, TeamKind::Team);
@@ -305,27 +305,32 @@ fn team_rows_check_only_the_active_team_and_name_the_personal_one() {
     assert_eq!(rows[3].title, "t4");
     assert_eq!(rows[3].plan, None);
     // An active id no row has checks none.
-    assert!(team_rows(&teams, Some("gone")).iter().all(|row| !row.active));
-    assert!(team_rows(&teams, None).iter().all(|row| !row.active));
+    assert!(team_rows(&teams, Some("gone"), None).iter().all(|row| !row.active));
+    assert!(team_rows(&teams, None, None).iter().all(|row| !row.active));
 }
 
 // Leo 2026-11-10: his composer showed "leo@cmux.com's…" with the shared-team icon for the team the
 // sign-in service made for his account by itself.
 #[test]
-fn team_rows_show_the_sign_in_services_email_named_default_team_as_personal() {
+fn team_rows_show_only_the_accounts_own_default_team_as_personal() {
+    let own = Some("leo@cmux.com");
     let teams = [facts("t1", "cmux", Some("team")), facts("t2", "leo@cmux.com's Team", None)];
-    let rows = team_rows(&teams, Some("t2"));
-    assert_eq!(rows[1].title, "Personal");
-    assert_eq!(rows[1].kind, TeamKind::Personal);
-    assert_eq!(rows[1].id, "t2");
+    let rows = team_rows(&teams, Some("t2"), own);
+    assert_eq!((rows[1].title.as_str(), rows[1].kind, rows[1].id.as_str()), ("Personal", TeamKind::Personal, "t2"));
     assert!(rows[1].active);
     assert_eq!(rows[0].kind, TeamKind::Team);
     // A curly apostrophe and any case are the same default team.
-    let curly = team_rows(&[facts("t3", "Leo@Cmux.com\u{2019}s team", None)], None);
+    let curly = team_rows(&[facts("t3", "Leo@Cmux.com\u{2019}s team", None)], None, own);
     assert_eq!((curly[0].title.as_str(), curly[0].kind), ("Personal", TeamKind::Personal));
-    // A team people named, even after a person, keeps its name.
-    for name in ["Leo's Team", "leo@cmux's Team", "ops team", "a@b.com's Team for ops"] {
-        let rows = team_rows(&[facts("t4", name, None)], None);
+    // A shared team named after another email, or any other name, keeps its name.
+    for name in ["zoe@cmux.com's Team", "Leo's Team", "leo@cmux.com's Team for ops", "ops team"] {
+        let rows = team_rows(&[facts("t4", name, None)], None, own);
         assert_eq!((rows[0].title.as_str(), rows[0].kind), (name, TeamKind::Team), "{name}");
     }
+    // Without the account's email nothing is relabeled.
+    let unknown = team_rows(&teams, None, None);
+    assert_eq!((unknown[1].title.as_str(), unknown[1].kind), ("leo@cmux.com's Team", TeamKind::Team));
+    // An account that already has a Personal team keeps both names.
+    let both = team_rows(&[facts("t5", "Personal", None), facts("t2", "leo@cmux.com's Team", None)], None, own);
+    assert_eq!((both[1].title.as_str(), both[1].kind), ("leo@cmux.com's Team", TeamKind::Team));
 }

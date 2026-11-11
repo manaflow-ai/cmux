@@ -15,9 +15,17 @@ public protocol ActiveTeamSource: AnyObject {
     func selectTeam(id: String?) async throws
     /// Re-reads membership; a selection the account left falls back to its first team.
     func refreshTeams() async
+    /// The signed-in account's email: the team lists show its sign-in service default team as Personal.
+    var signedInEmail: String? { get }
 }
 
-extension AuthCoordinator: ActiveTeamSource {}
+extension ActiveTeamSource {
+    public var signedInEmail: String? { nil }
+}
+
+extension AuthCoordinator: ActiveTeamSource {
+    public var signedInEmail: String? { currentUser?.primaryEmail }
+}
 
 /// The team cmux works in: one per signed-in account, the single source of
 /// truth for every team-scoped feature (Cloud machines, CodeRouter accounts,
