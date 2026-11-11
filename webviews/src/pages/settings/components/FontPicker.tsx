@@ -126,7 +126,7 @@ export function FontPicker({
         }}
       >
         {value ?? defaultLabel}
-        <Icon name="chevron.updown" className="popup-caret" />
+        <Icon name="chevron.popup" className="popup-caret" />
       </Button>
       <Popover
         open={open && !disabled}

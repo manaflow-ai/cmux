@@ -22,6 +22,10 @@
   --polish-edge: transparent;
 }
 
+:root[data-settings-look="refined"]:is([data-borders="none"], [data-cmux-borders="none"]) .settings {
+  --look-control-line: transparent;
+}
+
 :root[data-settings-look="refined"] .settings {
   /* The window sidebar's workspace row (the host sends --cmux-sidebar-row-*; Compact's before it). */
   --look-nav-height: var(--cmux-sidebar-row-height, var(--grid-row));
@@ -160,12 +164,21 @@
    inset shadow (or the border the control already has), so no control changes size. Hover steps the
    fill up one notch; the edge stays. Borders: None clears the edge with the card lines. */
 :root[data-settings-look="refined"] .settings {
-  /* Aside's quiet steps (Lucas 2026-11-12: the pressed fill on hover was "too bright"): a control
-     sits a few percent of ink over the card, and hover lifts it only a little more; the edge does
-     the drawing. */
-  --look-control-fill: color-mix(in srgb, var(--polish-ink) 5%, transparent);
-  --look-control-fill-hover: color-mix(in srgb, var(--polish-ink) 8%, transparent);
-  --look-control-edge: inset 0 0 0 1px var(--look-line);
+  /* A control is a quiet well with one hairline (Lucas 2026-11-12, after the pressed fill on hover
+     read "too bright"; his reference: a near-black "Use default ⌄" pill). Dark: a few percent of black
+     under the card, so it sits a step below it, and a solid edge mixed into the base (an alpha white
+     edge glows on dark). Light: the page's own white on the grey card, with an alpha ink edge. Hover
+     lifts the dark well a little and greys the light one a little; the edge stays. */
+  --look-control-fill: light-dark(var(--polish-base), color-mix(in srgb, black 24%, transparent));
+  --look-control-fill-hover: light-dark(
+    color-mix(in srgb, var(--polish-ink) 4%, var(--polish-base)),
+    color-mix(in srgb, black 10%, transparent)
+  );
+  --look-control-line: light-dark(
+    color-mix(in srgb, var(--polish-ink) 12%, transparent),
+    color-mix(in srgb, var(--polish-ink) 12%, var(--polish-base))
+  );
+  --look-control-edge: inset 0 0 0 1px var(--look-control-line);
 }
 
 :root[data-settings-look="refined"] .settings :is(.ui-btn[data-variant="subtle"], .ui-select-button) {
@@ -178,7 +191,7 @@
 }
 
 :root[data-settings-look="refined"] .settings .row-control .button:not(.ui-btn) {
-  border-color: var(--look-line);
+  border-color: var(--look-control-line);
   background: var(--look-control-fill);
 }
 
@@ -206,11 +219,13 @@
   color: var(--polish-ink);
 }
 
-/* Every pop-up on the page ends in the same caret (Lucas 2026-11-12: "fix the caret"): the macOS
-   up-and-down chevron, drawn at the page icons' 16 px with their 1.3 stroke, muted, a step in from the
-   button's end. The row menus (ui/Select's chevron, a mask of the same path) and the Theme, Accent and
-   Font pickers (icons.tsx `chevron.updown`) read as one control. */
+/* Every pop-up on the page ends in the same small caret (Lucas 2026-11-12: "just the \/ caret ...
+   make sure it's aligned"): a plain down chevron, 6.5 px wide with a 1.5 stroke, muted, its middle on
+   the text's middle and its end 12 px in from the button's end, so it reads as a hint, not a glyph.
+   The row menus (ui/Select's chevron, a mask of the path) and the Theme, Accent and Font pickers
+   (icons.tsx `chevron.popup`, the same path) draw it the same. */
 :root[data-settings-look="refined"] .settings .ui-select-button .ui-select-chevron {
+  top: 50%;
   right: var(--ds-space-2);
   width: var(--ds-icon-16);
   height: var(--ds-icon-16);
@@ -218,14 +233,15 @@
   background-color: currentColor;
   color: var(--polish-muted);
   opacity: 1;
-  transform: none;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5.6 6.1 8 3.7l2.4 2.4M5.6 9.9 8 12.3l2.4-2.4'/%3E%3C/svg%3E")
+  transform: translateY(-50%);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.75 6.4 3.25 3.25 3.25-3.25'/%3E%3C/svg%3E")
     center / contain no-repeat;
 }
 
 :root[data-settings-look="refined"] .settings .popup-caret {
   margin-inline-end: calc(var(--ds-space-1) * -1);
   color: var(--polish-muted);
+  stroke-width: 1.5;
 }
 
 /* Switches at Aside's size (Lucas 2026-11-12: "a bit bigger/fatter"): 20 px tall, 36 wide, so the

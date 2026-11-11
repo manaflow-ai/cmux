@@ -148,8 +148,8 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   chevron: <path d="m4.5 6.2 3.5 3.6 3.5-3.6" />,
-  // A pop-up button's caret: the macOS up-and-down chevron (Settings menus, Lucas 2026-11-12).
-  "chevron.updown": <path d="M5.6 6.1 8 3.7l2.4 2.4M5.6 9.9 8 12.3l2.4-2.4" />,
+  // A pop-up button's caret: a small down chevron, centered on the box (Settings menus, Lucas 2026-11-12).
+  "chevron.popup": <path d="m4.75 6.4 3.25 3.25 3.25-3.25" />,
   pawprint: (
     <>
       <path d="M8 8.6c-2 0-3.4 1.7-3.4 3.2 0 1 .8 1.6 1.7 1.6.7 0 1.1-.4 1.7-.4s1 .4 1.7.4c.9 0 1.7-.6 1.7-1.6 0-1.5-1.4-3.2-3.4-3.2Z" />

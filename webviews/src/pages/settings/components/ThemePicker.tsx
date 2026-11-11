@@ -209,7 +209,7 @@ export function ThemePicker({
       >
         <ThemeBall name={value ?? undefined} colors={value ? colors?.get(value) : configColors} />
         <span className="theme-button-name">{value ? label(value) : configLabel}</span>
-        <Icon name="chevron.updown" className="popup-caret" />
+        <Icon name="chevron.popup" className="popup-caret" />
       </Button>
       <Popover
         open={open && !disabled}
