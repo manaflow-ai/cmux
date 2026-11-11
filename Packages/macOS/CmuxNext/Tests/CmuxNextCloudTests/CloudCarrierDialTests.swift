@@ -26,6 +26,10 @@ import Testing
         #expect(CloudCarrierDial.serveLine(#"{"ok":true,"socket":"/tmp/a.sock","route":"carrier"}"#) == .ready(socket: "/tmp/a.sock"))
         #expect(CloudCarrierDial.serveLine(#"{"ok":false,"error_code":"ticket","route":"carrier"}"#) == .refused(code: "ticket", detail: nil))
         #expect(CloudCarrierDial.serveLine(#"{"ok":false,"error_code":"socket","error_detail":"in use"}"#) == .refused(code: "socket", detail: "in use"))
+        // Serve's refusal before ready says whether a new serve can get past it (Rust decides: `start_refusal_final`).
+        #expect(CloudCarrierDial.serveLine(#"{"ok":false,"error_code":"handshake","error_detail":"no key","final":true,"route":"carrier"}"#)
+            == .refused(code: "handshake", detail: "no key", isFinal: true))
+        #expect(CloudCarrierDial.serveLine(#"{"ok":false,"error_code":"ticket","final":false,"route":"carrier"}"#) == .refused(code: "ticket", detail: nil))
         #expect(CloudCarrierDial.serveLine(#"{"ok":true,"route":"carrier","vmk":"owner"}"#) == .connected(vmk: "owner"))
         #expect(CloudCarrierDial.serveLine(#"{"ok":true,"route":"carrier"}"#) == .connected(vmk: nil))
         #expect(CloudCarrierDial.serveLine("carrier: listening") == nil)
@@ -168,8 +172,9 @@ import Testing
         }
     }
 
-    /// Serve's exits (#37278) as link failures: before ready, a path it could not claim is the taken socket and
-    /// `ticket` (2) and `handshake` (5) keep the dial's wording; after ready, the listener failing (`socket`, 6)
+    /// Serve's exits (#37278) as link failures: before ready, a path it could not claim is the taken socket,
+    /// a refusal serve calls final (Rust: `handshake`, 5, no device key) is the helper refusing to start and any
+    /// other keeps the dial's wording, whatever its step; after ready, the listener failing (`socket`, 6)
     /// ends serve, and a refused stdin line (`bad_request`) is not a refused connection.
     @Test func serveRefusalsReadAsTheirFailures() {
         let socket = "/tmp/x/cmux-link-0123456789ab.sock"
@@ -178,6 +183,8 @@ import Testing
         #expect(CloudCarrierDial.serveStartError(code: "bad_request", detail: "usage: cmux carrier serve --machine vm_… --socket PATH", socket: socket)
             == .failed(code: "bad_request", message: "bad_request: usage: cmux carrier serve --machine vm_… --socket PATH"))
         #expect(CloudCarrierDial.serveStartError(code: "ticket", detail: "no credential", socket: socket) == .failed(code: "ticket", message: "ticket: no credential"))
+        #expect(CloudCarrierDial.serveStartError(code: "handshake", detail: nil, isFinal: true, socket: socket) == .helperRefused(code: "handshake", message: ""))
+        // Swift has no step rules: a refusal serve did not call final stays a failed connect.
         #expect(CloudCarrierDial.serveStartError(code: "handshake", detail: nil, socket: socket) == .failed(code: "handshake", message: ""))
         #expect(CloudCarrierDial.serveRefusal(code: "bad_request", detail: "a stdin line is too long") == nil)
         #expect(CloudCarrierDial.serveRefusal(code: "socket", detail: "accept failed") == .helperNotRunning(reason: "cmux carrier serve stopped listening: accept failed"))
@@ -558,6 +565,30 @@ import Testing
         try ("#!/bin/sh\n" + body).write(to: cli, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: cli.path)
         return cli
+    }
+
+    /// A serve that refused to start for want of its device key (a DEV build's Keychain that refused it) ends a
+    /// wait for the link with that reason; the same step refused by a ready serve, one connection's dial, and a
+    /// dropped or not yet ready link are dialed again. The reason is the link's own words with no next step.
+    @Test func onlyAHelperThatCannotStartEndsALinkWait() {
+        let socket = "/tmp/x/cmux-link-0123456789ab.sock"
+        let noKey = CloudCarrierDial.serveStartError(code: "handshake", detail: "the Keychain refused the carrier key (-128)", isFinal: true, socket: socket)
+        #expect(CloudLinkError.endsWaits(noKey))
+        #expect(CloudLinkError.failureReason(noKey) == "the Keychain refused the carrier key (-128)")
+        #expect(CloudCarrierDial.carrierRefusal(noKey).retryable == false, "asking again starts a helper that refuses the same way")
+        #expect(CloudCarrierDial.carrierRefusal(noKey).code == "handshake")
+        #expect(noKey.description == "Could not connect to the Cloud machine (handshake: the Keychain refused the carrier key (-128)). Click Connect to try again.")
+        let perConnection = CloudCarrierDial.serveRefusal(code: "handshake", detail: "pin mismatch")
+        #expect(perConnection == .failed(code: "handshake", message: "handshake: pin mismatch"))
+        let healing: [CloudLinkError] = [.failed(code: "handshake", message: "handshake: pin mismatch"),
+                                         CloudCarrierDial.serveStartError(code: "ticket", detail: "no credential", socket: socket),
+                                         CloudCarrierDial.linkError(code: "relay", detail: nil), CloudCarrierDial.linkError(code: "parked_timeout", detail: nil),
+                                         .helperNotRunning(reason: "cmux carrier serve missed its deadline")]
+        for error in healing {
+            #expect(!CloudLinkError.endsWaits(error), "\(error)")
+        }
+        #expect(CloudLinkError.failureReason(CloudLinkError.helperNotRunning(reason: "cmux carrier serve missed its deadline.")) == "cmux carrier serve missed its deadline")
+        #expect(CloudLinkError.failureReason(CloudLinkError.unsupported) == nil)
     }
 
     /// A failed carrier socket ask of the Cloud app server names the carrier step the server maps, never

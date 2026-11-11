@@ -15,9 +15,12 @@
 //!   path while it serves.
 //! - Once listening, stderr gets one JSON line,
 //!   `{"ok":true,"socket":PATH,"route":"carrier"}`. A failure before that
-//!   writes `dial`'s failure line instead and exits: 64 bad usage or a path
-//!   that cannot be claimed (a live listener, a file that is not a socket),
-//!   2 no API or credential, 5 no device key.
+//!   writes `dial`'s failure line with `"final"` added and exits: 64 bad
+//!   usage or a path that cannot be claimed (a live listener, a file that is
+//!   not a socket), 2 no API or credential, 5 no device key. `"final":true`
+//!   (only 5: a new serve reads the same key the same way) says no new serve
+//!   gets past it, so the caller stops starting one
+//!   ([`contract::start_refusal_final`]).
 //! - After the ready line, stderr gets one JSON line per accepted
 //!   connection, written before any of its bytes flow:
 //!   `{"ok":true,"route":"carrier","vmk"?:"owner"|"team"}` when its dial
@@ -113,14 +116,16 @@ struct Shared {
 
 /// `cmux carrier serve …`: the exit code.
 pub(super) fn run(args: &[String]) -> i32 {
+    // Every refusal before the ready line says whether a new serve can get past it.
+    let line = contract::start_refusal_line;
     let Some(ServeArgs { dial, socket }) = super::parse_serve(args) else {
-        return super::usage(USAGE);
+        return super::usage_as(line, USAGE);
     };
-    let (dial, source, identity) = match super::prepare(dial) {
+    let (dial, source, identity) = match super::prepare(dial, line) {
         Ok(prepared) => prepared,
         Err(code) => return code,
     };
-    let runtime = match super::runtime() {
+    let runtime = match super::runtime(line) {
         Ok(runtime) => runtime,
         Err(code) => return code,
     };
@@ -158,7 +163,7 @@ async fn serve(socket: PathBuf, shared: Arc<Shared>) -> i32 {
     let interrupt = signal(SignalKind::interrupt()).ok();
     let listener = match OwnedUnixListener::bind(socket.clone()).await {
         Ok(listener) => listener,
-        Err(error) => return super::usage(&error.to_string()),
+        Err(error) => return super::usage_as(contract::start_refusal_line, &error.to_string()),
     };
     reply(&contract::serving_line(&socket.to_string_lossy()));
     let (stop, stopped) = watch::channel(false);
@@ -323,7 +328,7 @@ async fn connection(
                     elapsed,
                 ));
             }
-            reply(&contract::failure_line(failure.step.error_code(), Some(&failure.detail)));
+            reply(&connection_refusal_line(&failure));
             return;
         }
     };
@@ -348,3 +353,15 @@ async fn connection(
     }
     lease.end().await;
 }
+
+/// The line of one connection a ready serve could not carry: `dial`'s
+/// failure line, never `"final"`. A refused connection (a `handshake` the
+/// daemon refused, a relay that dropped) is that connection's; the next one
+/// dials again.
+fn connection_refusal_line(failure: &contract::Failure) -> String {
+    contract::failure_line(failure.step.error_code(), Some(&failure.detail))
+}
+
+#[cfg(test)]
+#[path = "serve_tests.rs"]
+mod tests;

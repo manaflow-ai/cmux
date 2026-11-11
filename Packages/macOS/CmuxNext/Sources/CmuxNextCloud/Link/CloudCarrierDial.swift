@@ -75,11 +75,13 @@ public struct CloudCarrierDial: Equatable, Sendable {
         case ready(socket: String)
         /// One connection's dial got through; `vmk` is the grant's `owner` or `team`, nil when it had none.
         case connected(vmk: String?)
-        case refused(code: String, detail: String?)
+        /// `isFinal`: Rust's answer to whether a new serve can get past a refusal before the ready line
+        /// (`"final"`, `carrier::contract::start_refusal_final`); a refused connection's line never sets it.
+        case refused(code: String, detail: String?, isFinal: Bool = false)
     }
 
     /// Reads `{"ok":true,"socket":PATH,"route":"carrier"}`, `{"ok":true,"route":"carrier","vmk"?:…}` or
-    /// `{"ok":false,"error_code":…,"error_detail"?:…}`.
+    /// `{"ok":false,"error_code":…,"error_detail"?:…,"final"?:…}`.
     public static func serveLine(_ line: String) -> ServeLine? {
         guard let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any] else { return nil }
         if object["ok"] as? Bool == true {
@@ -87,7 +89,7 @@ public struct CloudCarrierDial: Equatable, Sendable {
             return .connected(vmk: object["vmk"] as? String)
         }
         guard object["ok"] as? Bool == false, let code = object["error_code"] as? String else { return nil }
-        return .refused(code: code, detail: object["error_detail"] as? String)
+        return .refused(code: code, detail: object["error_detail"] as? String, isFinal: object["final"] as? Bool == true)
     }
 
     /// A refused dial as the link wording the sidebar already has, step by step: `relay` dropped,
@@ -103,10 +105,13 @@ public struct CloudCarrierDial: Equatable, Sendable {
 
     /// `carrier serve`'s refusal before its ready line, after which it exits (#37278). A path it could not
     /// claim (a live serve's socket or another file there) is `bad_request` naming that path, exit 64: another
-    /// cmux serving the machine. `ticket` (exit 2: no API URL or credential) and `handshake` (exit 5: no device
-    /// key) keep the dial's wording.
-    public static func serveStartError(code: String, detail: String?, socket: String) -> CloudLinkError {
+    /// cmux serving the machine. A refusal serve calls final (`isFinal`: Rust decides, today only exit 5, no
+    /// device key, such as a Keychain that refused it) is the helper refusing to start: every new serve refuses
+    /// the same way, so a wait ends on it rather than starting serve again and again (a DEV build's Cloud chat
+    /// showed "Thinking" while each serve failed, 2026-11-10). Any other keeps the dial's wording.
+    public static func serveStartError(code: String, detail: String?, isFinal: Bool = false, socket: String) -> CloudLinkError {
         if code == "bad_request", let detail, detail.contains(socket) { return socketTaken }
+        if isFinal { return .helperRefused(code: code, message: detail.map { "\(code): \($0)" } ?? "") }
         return linkError(code: code, detail: detail)
     }
 
@@ -129,6 +134,9 @@ public struct CloudCarrierDial: Equatable, Sendable {
         switch error as? CloudLinkError {
         case .failed(let code, let message)?:
             return .init(code: code, message: message.isEmpty ? text : message, retryable: code != "bad_request")
+        case .helperRefused(let code, let message)?:
+            // Asking again starts a helper that refuses the same way: only the person's Retry, after a fix, helps.
+            return .init(code: code, message: message.isEmpty ? text : message, retryable: false)
         case .disconnected(let reason)? where reason == "relay":
             return .init(code: "relay", message: text, retryable: true)
         case .notUp(let state)? where state == "parked_timeout":

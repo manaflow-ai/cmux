@@ -303,13 +303,25 @@ fn reply(line: &str) {
     let _ = stderr.flush();
 }
 
+/// How a refusal is written: `dial`'s [`contract::failure_line`], or
+/// [`contract::start_refusal_line`] for a `serve` that did not start.
+type RefusalLine = fn(&str, Option<&str>) -> String;
+
 fn fail(failure: &Failure) -> i32 {
-    reply(&contract::failure_line(failure.step.error_code(), Some(&failure.detail)));
+    fail_as(contract::failure_line, failure)
+}
+
+fn fail_as(line: RefusalLine, failure: &Failure) -> i32 {
+    reply(&line(failure.step.error_code(), Some(&failure.detail)));
     failure.step.exit_code()
 }
 
 fn usage(detail: &str) -> i32 {
-    reply(&contract::failure_line(BAD_REQUEST, Some(detail)));
+    usage_as(contract::failure_line, detail)
+}
+
+fn usage_as(line: RefusalLine, detail: &str) -> i32 {
+    reply(&line(BAD_REQUEST, Some(detail)));
     64
 }
 
@@ -336,27 +348,34 @@ fn source(args: &DialArgs) -> Result<answer::HttpSource, Failure> {
 }
 
 /// What every dial of one invocation shares: the platform source and this
-/// device's Noise identity. `Err` is the exit code, its line written.
-fn prepare(args: DialArgs) -> Result<(DialArgs, Arc<answer::HttpSource>, StaticIdentity), i32> {
+/// device's Noise identity. `Err` is the exit code, its line written with
+/// `line`.
+fn prepare(
+    args: DialArgs,
+    line: RefusalLine,
+) -> Result<(DialArgs, Arc<answer::HttpSource>, StaticIdentity), i32> {
     let Some(args) = with_team_env(args, std::env::var(TEAM_ENV).ok()) else {
-        return Err(usage(&format!("{TEAM_ENV} is not team_ and 20 lowercase hex digits")));
+        return Err(usage_as(
+            line,
+            &format!("{TEAM_ENV} is not team_ and 20 lowercase hex digits"),
+        ));
     };
     let source = match source(&args) {
         Ok(source) => Arc::new(source),
-        Err(failure) => return Err(fail(&failure)),
+        Err(failure) => return Err(fail_as(line, &failure)),
     };
     let identity = match noise_key::device_identity() {
         Ok(identity) => identity,
-        Err(why) => return Err(fail(&Failure::fatal(contract::Step::Handshake, why))),
+        Err(why) => return Err(fail_as(line, &Failure::fatal(contract::Step::Handshake, why))),
     };
     Ok((args, source, identity))
 }
 
-fn runtime() -> Result<tokio::runtime::Runtime, i32> {
+fn runtime(line: RefusalLine) -> Result<tokio::runtime::Runtime, i32> {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .map_err(|_| fail(&Failure::fatal(contract::Step::Relay, "no async runtime")))
+        .map_err(|_| fail_as(line, &Failure::fatal(contract::Step::Relay, "no async runtime")))
 }
 
 /// The full-jitter draw of the session's own reconnect policy (the
@@ -520,7 +539,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
             "usage: cmux carrier dial --machine vm_… [--service mux|desktop] [--deadline-ms N] [--cloud-api URL] [--cloud-token-file PATH] [--team team_…] [--answer-fd N] [--wg-hub PATH]",
         );
     };
-    let (args, source, identity) = match prepare(args) {
+    let (args, source, identity) = match prepare(args, contract::failure_line) {
         Ok(prepared) => prepared,
         Err(code) => return code,
     };
@@ -528,7 +547,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
         Ok(answer) => Arc::new(answer::Prefetched::new(answer)),
         Err(why) => return usage(why),
     };
-    let runtime = match runtime() {
+    let runtime = match runtime(contract::failure_line) {
         Ok(runtime) => runtime,
         Err(code) => return code,
     };

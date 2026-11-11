@@ -239,7 +239,7 @@ public actor CloudCarrierServe {
                 guard let line = CloudCarrierDial.serveLine(text) else { continue }
                 if !answered { answered = true; answer.yield(line); answer.finish(); continue }
                 switch line {
-                case .refused(let code, let detail):
+                case .refused(let code, let detail, _):
                     if let refusal = CloudCarrierDial.serveRefusal(code: code, detail: detail) { await self?.noteRefused(refusal) }
                 case .connected(let vmk): await self?.noteConnected(vmk: vmk, from: child)
                 case .ready: break
@@ -272,8 +272,8 @@ public actor CloudCarrierServe {
                 try check(served)
             case .connected?:
                 throw CloudLinkError.invalidAnswer("no ready line")
-            case .refused(let code, let detail)?:
-                throw CloudCarrierDial.serveStartError(code: code, detail: detail, socket: socket)
+            case .refused(let code, let detail, let isFinal)?:
+                throw CloudCarrierDial.serveStartError(code: code, detail: detail, isFinal: isFinal, socket: socket)
             case nil:
                 // Serve writes a line before every exit; none means it never ran.
                 throw CloudLinkError.helperNotRunning(reason: child.stderrText)
