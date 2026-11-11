@@ -408,13 +408,15 @@ const InlineChip = memo(function InlineChip({
   /// Whether this chip loaded in place (a paste, a drop): its picture then comes up from the loading
   /// tile's dim instead of popping in. A chip that arrives ready (a draft read back) just shows.
   /// A `chip` look drew the chip itself while it loaded, picture and all: nothing comes up then.
-  const loaded = useRef(false);
+  // Each is a latch kept in state and set while rendering (React's "adjust state when a prop
+  // changes"), so the chip that replaces its loading tile reads it in the same render.
+  const [loaded, setLoaded] = useState(false);
   // Only a tile that showed (not one held unseen for its size or picture) has a dim to come up from.
-  if (pending && !pending.failed && !pending.sizing && !isChipLook(look)) loaded.current = true;
+  if (!loaded && pending && !pending.failed && !pending.sizing && !isChipLook(look)) setLoaded(true);
   /// Whether its loading tile already showed its own picture: the chip then just stays, with no
   /// second coming up (Leo, 2026-11-11: "this 3 stage attachment thing is still there").
-  const pictured = useRef(false);
-  if (pending?.preview && pending.image && !pending.failed) pictured.current = true;
+  const [pictured, setPictured] = useState(false);
+  if (!pictured && pending?.preview && pending.image && !pending.failed) setPictured(true);
 
   // A node whose attachment is not here (yet: a chat's kept chips still on their way) draws nothing.
   if (!attachment && !pending) return null;
@@ -561,7 +563,7 @@ const InlineChip = memo(function InlineChip({
       data-state="ready"
       data-chip="strip"
       ref={chipRef(id)}
-      {...(loaded.current && !pictured.current ? { "data-loaded": "" } : {})}
+      {...(loaded && !pictured ? { "data-loaded": "" } : {})}
     >
       <AttachmentChip
         attachment={attachment}
