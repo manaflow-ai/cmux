@@ -20,7 +20,7 @@
 //! applies the pick.
 //!
 //! Cost: with no relation held and no create waited for, `shown`, `left`,
-//! `settle_questions` and `settle` are each one or two emptiness checks of a
+//! `settle_questions` and `settle` are each a few emptiness checks of a
 //! map: O(1), no allocation, and no call walks a window's members. With some
 //! held, `shown` and `left` read the workspaces of those relations only, and
 //! `settle` asks about those workspaces only (a few at most, on a membership
@@ -30,6 +30,7 @@ use super::{OpenerKind, Openers};
 use std::collections::HashMap;
 use std::hash::Hash;
 
+mod press;
 mod settle;
 
 pub use settle::{SettleFacts, SettleQuestions};
@@ -93,9 +94,12 @@ struct Expected<W> {
 
 /// One selection repair that runs.
 #[derive(Debug, Clone)]
-struct Repair {
+struct Repair<T> {
     /// This repair or one around it selects for a close, not for a person.
     is_repair: bool,
+    /// The workspace whose row the press of a close hid, while it holds a
+    /// quick relation: the selection this repair makes does not end it.
+    hidden: Option<T>,
 }
 
 /// One selection repair: the selection a close or a membership change
@@ -131,7 +135,11 @@ pub struct WindowCloseSelection<T, W> {
     /// The window of each workspace `openers` may hold a relation of.
     home: HashMap<T, W>,
     /// The selection repairs that run, the outer one first.
-    repairs: Vec<Repair>,
+    repairs: Vec<Repair<T>>,
+    /// The workspaces a press of a close hid with their quick relation kept
+    /// (the close can still be cancelled or refused), each with its window.
+    /// Always workspaces of `home`.
+    pressed: HashMap<T, W>,
 }
 
 impl<T, W> Default for WindowCloseSelection<T, W> {
@@ -141,6 +149,7 @@ impl<T, W> Default for WindowCloseSelection<T, W> {
             expected: HashMap::new(),
             home: HashMap::new(),
             repairs: Vec::new(),
+            pressed: HashMap::new(),
         }
     }
 }
@@ -160,7 +169,10 @@ impl<T: Eq + Hash + Clone, W: Eq + Hash + Clone> WindowCloseSelection<T, W> {
     /// `renamed` and `settle` change nothing, so a shell that numbers its ids
     /// for this state may forget its numbering.
     pub fn holds_ids(&self) -> bool {
-        !(self.expected.is_empty() && self.home.is_empty() && self.repairs.is_empty())
+        !(self.expected.is_empty()
+            && self.home.is_empty()
+            && self.repairs.is_empty()
+            && self.pressed.is_empty())
     }
 
     /// The opener relations, to read.
@@ -182,9 +194,16 @@ impl<T: Eq + Hash + Clone, W: Eq + Hash + Clone> WindowCloseSelection<T, W> {
     /// unless [`is_repair`] says it is the person's. Repairs nest: inside a
     /// repair every selection is a repair's. One push to a small stack that
     /// keeps its capacity.
+    ///
+    /// The repair at the press of a close (`pressed`) whose `shown` lost its
+    /// row keeps a quick relation of `shown`: the close can still be
+    /// cancelled or refused, and the row then comes back with its opener.
+    /// The committed close ends the relation (`left`, `settle`), and so does
+    /// the next selection of another workspace in that window.
     pub fn repair_begin(&mut self, repair: &RepairStart<'_, T>) {
         let own = is_repair(repair.gesture, repair.pick, repair.preferred);
-        self.repairs.push(Repair { is_repair: own });
+        let hidden = self.hidden_by(repair);
+        self.repairs.push(Repair { is_repair: own, hidden });
     }
 
     /// The innermost repair ended. With none running it changes nothing.
@@ -218,6 +237,9 @@ impl<T: Eq + Hash + Clone, W: Eq + Hash + Clone> WindowCloseSelection<T, W> {
     /// socket, MCP or a script). Report every selection change of a window.
     /// Inside a repair the change is the close's, whatever `gesture` says.
     pub fn shown(&mut self, new: &T, old: Option<&T>, window: &W, gesture: bool) {
+        if !self.pressed.is_empty() {
+            self.pressed_window_shows(new, window);
+        }
         if !self.expected.is_empty()
             && let Some(made) = self.expected.remove(new)
             && made.window == *window
@@ -241,15 +263,22 @@ impl<T: Eq + Hash + Clone, W: Eq + Hash + Clone> WindowCloseSelection<T, W> {
         }
         let gesture = gesture && !self.is_repairing();
         let strip = self.strip(window);
+        let kept = old.filter(|old| *old != new).and_then(|old| self.kept_at_press(old));
         self.openers.selected(old, new, gesture, &strip);
+        if let Some((hidden, relation)) = kept {
+            self.keep_pressed(hidden, relation, window);
+        }
         self.forget_when_empty();
     }
 
     /// `workspace` closed or left its window. Call it after the pick for the
-    /// close. One or two map reads for a workspace the state does not hold.
+    /// close. A few map reads for a workspace the state does not hold.
     pub fn left(&mut self, workspace: &T) {
         if !self.expected.is_empty() {
             self.expected.remove(workspace);
+        }
+        if !self.pressed.is_empty() {
+            self.pressed.remove(workspace);
         }
         if self.home.remove(workspace).is_none() {
             return;
@@ -267,6 +296,9 @@ impl<T: Eq + Hash + Clone, W: Eq + Hash + Clone> WindowCloseSelection<T, W> {
         for at in self.home.values_mut().filter(|at| **at == *old) {
             *at = new.clone();
         }
+        for at in self.pressed.values_mut().filter(|at| **at == *old) {
+            *at = new.clone();
+        }
     }
 
     /// The workspace a window shows after `shown` left it: a workspace it
@@ -278,23 +310,40 @@ impl<T: Eq + Hash + Clone, W: Eq + Hash + Clone> WindowCloseSelection<T, W> {
     /// Chrome 156 as observed). A `shown` that is a member stays. Call it
     /// before [`WindowCloseSelection::left`] for the closed workspaces.
     ///
-    /// `batch`: the person closed several rows in one gesture (a
-    /// multi-selection, Close Others, Close Below, Close Above, a group
-    /// close): by position, with no opener rank.
+    /// A close of several rows in one gesture (a multi-selection, Close
+    /// Others, Close Below, Close Above, a group close) is this same pick:
+    /// `members` holds the survivors, and an opener that closes with `shown`
+    /// is no candidate (Chrome 156 as observed).
+    ///
+    /// The caller gives the orders as they are. While a relation is held the
+    /// pick prepares them itself: an opener of `shown` that is a member and
+    /// that no order lists (a tile no sidebar row lists) goes first in each
+    /// order that lists `shown`, and `previous` is the last order, so a
+    /// workspace no row lists yet is picked with the opener rank too. With
+    /// no relation held, or a `shown` that stays, nothing is copied.
     pub fn pick(
         &self,
         shown: Option<&T>,
         previous: &[T],
         members: &[T],
         orders: &[Vec<T>],
-        batch: bool,
     ) -> Option<T> {
         let group: HashMap<T, u32> = HashMap::new();
-        if batch {
-            let by_position: Openers<T> = Openers::new();
-            return by_position.successor_in_orders(shown, previous, members, orders, &group);
+        let closed = shown.filter(|shown| !self.is_empty() && !members.contains(shown));
+        let Some(closed) = closed else {
+            return self.openers.successor_in_orders(shown, previous, members, orders, &group);
+        };
+        let mut prepared = orders.to_vec();
+        if let Some((opener, _)) = self.openers.opener(closed)
+            && members.contains(opener)
+            && !prepared.iter().any(|order| order.contains(opener))
+        {
+            for order in prepared.iter_mut().filter(|order| order.contains(closed)) {
+                order.insert(0, opener.clone());
+            }
         }
-        self.openers.successor_in_orders(shown, previous, members, orders, &group)
+        prepared.push(previous.to_vec());
+        self.openers.successor_in_orders(shown, previous, members, &prepared, &group)
     }
 
     /// With no relation left, nothing of the state is kept.
@@ -306,5 +355,6 @@ impl<T: Eq + Hash + Clone, W: Eq + Hash + Clone> WindowCloseSelection<T, W> {
             self.openers.left(workspace);
         }
         self.home.clear();
+        self.pressed.clear();
     }
 }

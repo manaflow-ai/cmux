@@ -29,7 +29,7 @@ fn pick(
     members: &[Id],
     orders: &[Vec<Id>],
 ) -> Option<Id> {
-    rule.pick(shown.as_ref(), previous, members, orders, false)
+    rule.pick(shown.as_ref(), previous, members, orders)
 }
 
 const END_ROWS: [Id; 4] = ["a", "b", "c", "n"];

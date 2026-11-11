@@ -183,7 +183,7 @@ pub unsafe extern "C" fn cmux_window_close_selection_expect(
 /// `window` now shows `new_workspace`; it showed `old` (`CMUX_FOCUS_NONE`:
 /// nothing) before. `gesture` nonzero: the code running at the change is a
 /// person's own action. Inside a repair the change is never a gesture. With
-/// nothing held: two emptiness checks, no allocation.
+/// nothing held: a few emptiness checks, no allocation.
 ///
 /// # Safety
 ///

@@ -47,7 +47,7 @@ fn rule_pick(
     members: &[Id],
     orders: &[Vec<Id>],
 ) -> Option<Id> {
-    rule.pick(Some(&shown), previous, members, orders, false)
+    rule.pick(Some(&shown), previous, members, orders)
 }
 
 /// Closes `closed` while the window shows `shown`: the pick, then the

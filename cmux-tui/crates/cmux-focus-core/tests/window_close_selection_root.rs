@@ -37,13 +37,13 @@ fn pick(
     members: &[Id],
     orders: &[Vec<Id>],
 ) -> Option<Id> {
-    rule.pick(shown.as_ref(), previous, members, orders, false)
+    rule.pick(shown.as_ref(), previous, members, orders)
 }
 
 /// The rule's pick for a person's close of several rows in one gesture (a
 /// multi-selection, Close Others, Close Below, Close Above, a group close).
 fn batch_pick(rule: &Rule, shown: Id, previous: &[Id], members: &[Id]) -> Option<Id> {
-    rule.pick(Some(&shown), previous, members, &[previous.to_vec()], true)
+    rule.pick(Some(&shown), previous, members, &[previous.to_vec()])
 }
 
 /// The row orders the macOS app prepared for `Openers::successor_in_orders`

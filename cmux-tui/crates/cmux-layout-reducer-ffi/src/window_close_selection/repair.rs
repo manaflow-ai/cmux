@@ -120,7 +120,7 @@ pub unsafe extern "C" fn cmux_window_close_selection_pick(
     let (Some(previous), Some(members), Some(orders)) = arrays else { return NONE };
     let shown = id(close.shown);
     let pick = |state: &State<u32, u32>| {
-        state.pick(shown.as_ref(), previous, members, &orders, false).unwrap_or(NONE)
+        state.pick(shown.as_ref(), previous, members, &orders).unwrap_or(NONE)
     };
     if handle.is_null() {
         return catch_unwind(AssertUnwindSafe(|| pick(&State::new()))).unwrap_or(NONE);
