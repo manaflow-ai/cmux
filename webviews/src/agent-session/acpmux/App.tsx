@@ -2112,14 +2112,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const readHarnessHealth = useCallback(
     async (params: Record<string, unknown>): Promise<{ health?: HarnessHealth | null }> => {
       const client = directClient.current;
-      if (!client || !agentLocal) return {};
+      // This Mac's CLIs, for the Harnesses page too; the composer's own read below also needs `agentLocal`.
+      if (!client || !healthLocal) return {};
       const row = await client.harnessHealth(String(params.id ?? ""), {
         refresh: params.refresh === true,
         rescan: params.rescan === true,
       });
       return { health: (row as HarnessHealth | undefined) ?? null };
     },
-    [agentLocal],
+    [healthLocal],
   );
   /// The Harnesses page's host calls, with `harness.health` answered by acpmux (above).
   const harnessesNative = useCallback(
