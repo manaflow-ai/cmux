@@ -74,6 +74,8 @@ pub(crate) struct RegistryConnection {
     pub(super) intent_sink: std::sync::OnceLock<Arc<dyn super::RegistryIntentSink>>,
     /// Indeterminate registry commits still owed to state (cx-g1fa.3).
     pub(super) unsettled: std::sync::Mutex<Vec<super::registry_intent::UnsettledReceipt>>,
+    /// The length of `unsettled`, written under its mutex, for a reader that takes no lock.
+    pub(super) unsettled_held: std::sync::atomic::AtomicUsize,
     /// Flushes the WAL to disk off every request path (`wal_durability`);
     /// `None` for an in-memory registry.
     durability: Option<super::wal_durability::WalDurability>,
@@ -208,6 +210,7 @@ impl RegistryConnection {
             write_path_stats: crate::diagnostics::WritePathStats::default(),
             intent_sink: std::sync::OnceLock::new(),
             unsettled: std::sync::Mutex::default(),
+            unsettled_held: std::sync::atomic::AtomicUsize::new(0),
             durability,
             #[cfg(test)]
             journal_hooks: std::sync::Mutex::default(),
@@ -244,6 +247,13 @@ impl RegistryConnection {
     }
 
     /// (committed, synced) registry commits for `server-stats` `write_path`.
+    ///
+    /// The committed count is also a CORRECTNESS key, not only a diagnostic: the session snapshot cache
+    /// (`resource_api/committed_snapshot.rs`) is current only while this count is unchanged. It must move
+    /// inside every COMMIT that writes a WAL frame on this connection (the WAL hook, `wal_durability.rs`
+    /// `note_commit`). A `PRAGMA wal_autocheckpoint` or another `sqlite3_wal_hook` on this connection
+    /// replaces that hook, and the snapshot is then stale for ever; the guard is
+    /// `a_warm_snapshot_shows_the_next_commit_of_each_kind` (`mux/tests/snapshot_read.rs`).
     pub(crate) fn durability_counts(&self) -> (u64, u64) {
         self.durability.as_ref().map(|durability| durability.counts()).unwrap_or_default()
     }

@@ -5358,6 +5358,11 @@ mod answers_before_adoption;
 #[path = "terminal_host_recovery/adoption_startup_state.rs"]
 mod adoption_startup_state;
 
+/// Needs the debug-build seam that holds each adoption.
+#[cfg(debug_assertions)]
+#[path = "terminal_host_recovery/input_while_adopting.rs"]
+mod input_while_adopting;
+
 #[cfg(target_os = "macos")]
 #[path = "terminal_host_recovery/slim_host.rs"]
 mod slim_host;

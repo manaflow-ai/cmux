@@ -6,7 +6,6 @@ import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextCookieImport
 import CmuxNextDesign
-import CmuxNextHome
 import CmuxNextImportCards
 import CmuxNextOnboarding
 import CmuxNextSettings
@@ -204,7 +203,9 @@ final class OnboardingService {
         await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
     }
 
-    func historyImportFinished() { UserDefaults.standard.set(true, forKey: HomeMessagesFirstRunProvider.memoryOfferUsedKey) }
+    func historyImportFinished() {
+        UserDefaults.standard.set(true, forKey: HomeHostView.memoryOfferUsedKey)
+    }
 
 }
 
