@@ -96,7 +96,7 @@ public enum ClassicLeftovers {
             }
         }
 
-        public func delete(service: String, account: String?) {
+        public func delete(service: String, account: String?) -> Bool {
             var query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                         kSecAttrService as String: service]
             if let account { query[kSecAttrAccount as String] = account }
