@@ -1788,10 +1788,21 @@ class RatchetTests(Repo):
             want = counts.delta_count(self.repo, f"{sha}^1", sha, use_worktree=False).total("app_lines")
             self.assertEqual(ratchet.app_lines_rise(self.repo, sha), want, files or removed)
             self.assertEqual(ratchet.commit_rises(self.repo, sha, {"app_lines"}), {"app_lines": want})
-        # A manifest change may move the closure: only the full delta count tells.
+        # A manifest change that keeps the closure's packages takes the fast count too.
         self.write(counts.MANIFEST, MANIFEST % "")
         self.write(f"{app}/F.swift", "struct F {}\n")
         sha = self.commit("a manifest and an App file")
+        want = counts.delta_count(self.repo, f"{sha}^1", sha, use_worktree=False).total("app_lines")
+        self.assertEqual(ratchet.app_lines_rise(self.repo, sha), want)
+        # One that links another local package changes the closure: only the full delta count tells.
+        self.write("Packages/Shared/Extra/Package.swift", "// swift-tools-version: 6.2\nimport PackageDescription\n"
+                   "let package = Package(name: \"Extra\", targets: [.target(name: \"Extra\")])\n")
+        self.write("Packages/Shared/Extra/Sources/Extra/G.swift", "struct G {}\nlet g = 1\n")
+        self.write(counts.MANIFEST, MANIFEST.replace('name: "CmuxNext",', 'name: "CmuxNext",\n    dependencies: '
+                                                     '[.package(path: "../../Shared/Extra")],') % "")
+        sha = self.commit("links a local package")
+        self.assertIn("Packages/Shared/Extra", counts.read_paths(self.repo, sha).packages)
+        self.assertNotIn("Packages/Shared/Extra", counts.read_paths(self.repo, f"{sha}^1").packages)
         self.assertIsNone(ratchet.app_lines_rise(self.repo, sha))
         want = counts.delta_count(self.repo, f"{sha}^1", sha, use_worktree=False).total("app_lines")
         self.assertEqual(ratchet.commit_rises(self.repo, sha, {"app_lines"}), {"app_lines": want})

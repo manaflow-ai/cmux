@@ -977,11 +977,11 @@ APP_LINES = "app_lines"
 
 def app_lines_rise(repo: Path, sha: str) -> int | None:
     """app_lines' change in commit SHA over its first parent, or None when only delta_count can tell (a root commit,
-    a commit that changes a Package.swift, so its closure may differ from its parent's).
+    a commit whose Package.swift change gives it another package closure than its parent's).
 
     app_lines is the newlines of every counted Swift file (ReadPaths.is_source) whose module (package_of) is
-    CmuxNextApp, so with one closure at both ends the change is the newline difference of the App files the commit
-    changes. Equal to delta_count's app_lines (test_app_lines_rise_matches_the_delta_count), without its type lookups:
+    CmuxNextApp, so with the same closure packages at both ends the change is the newline difference of the App files
+    the commit changes. Equal to delta_count's app_lines (test_app_lines_rise_matches_the_delta_count), without its type lookups:
     milliseconds a commit where delta_count takes seconds, which is what lets --update attribute weeks of base commits
     (4,366 after the orphaned 9c4b1ccc1285)."""
     counts = load_counts()
@@ -989,10 +989,11 @@ def app_lines_rise(repo: Path, sha: str) -> int | None:
     if code != 0:
         return None
     changed = [x for x in out.split("\0") if x]
-    if any(x == "Package.swift" or x.endswith("/Package.swift") for x in changed):
-        return None
     try:
         scope = counts.read_paths(repo, sha)
+        if (any(x == "Package.swift" or x.endswith("/Package.swift") for x in changed)
+                and counts.read_paths(repo, f"{sha}^1").packages != scope.packages):
+            return None
     except RuntimeError:
         return None
     app = [x for x in changed if scope.is_source(x) and counts.package_of(x) == counts.APP_PACKAGE]
