@@ -40,6 +40,9 @@ type Pinned = {
   /// keeps its drawn place (it never jumps by the offset); it holds still as the thread is drawn
   /// further away and comes home with the thread as it comes back (`cap` only shrinks, to 0).
   cap: number;
+  /// What the line was held back by as last painted, noted as the placement pass begins
+  /// (`notePinPass`): the pass's own chase moves `x` before the pin is let go in it.
+  painted?: number;
   /// The reader took the view: the line and its clips hold where they are drawn.
   held?: boolean;
 };
@@ -109,6 +112,15 @@ export function drawPinned(thread: HTMLElement, x: number): void {
   }
 }
 
+/// The placement pass begins: what the pin holds the line back by now is what the reader sees. A
+/// line let go in this pass carries that, never the rise this pass's chase notes before the pin
+/// is let go (the pass's glide already starts the line from that: counted twice, the line jumped
+/// 105 px when a steer prompt came over it in turn-transition-jumps steer-tools). O(1).
+export function notePinPass(thread: HTMLElement | null): void {
+  const rows = thread ? pinned.get(thread) : undefined;
+  if (rows) rows.painted = rows.x - rows.cap;
+}
+
 /// Pins the live line in `thread` (or unpins it, `pin` false) for this placement pass. Let go while
 /// it was held away from the thread's offset, it returns what it was held back by for the pass's glide
 /// to start from; `settle` plays it home if no glide takes it (`finish`).
@@ -156,7 +168,7 @@ export function pinLiveLine(thread: HTMLElement | null, pin: boolean, hold = fal
   pinned.delete(thread);
   thread.removeAttribute(PIN_LIVE_ATTR);
   clear(was);
-  const held = was.x - was.cap;
+  const held = was.painted ?? was.x - was.cap;
   if (!was.live.isConnected || Math.abs(held) < 0.5) return undefined;
   // Drawn `held` short of where the thread draws it now (its layout place when the cap is 0).
   return { id: LIVE_THINKING, y: held, used: false };
