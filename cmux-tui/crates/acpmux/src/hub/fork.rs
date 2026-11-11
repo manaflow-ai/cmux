@@ -33,6 +33,28 @@ enum Made {
     Empty,
 }
 
+/// A fork onto another harness (`session/fork` with `_meta.acpmux.harness`): the person picked
+/// another harness's model in a started chat and sent a message (Leo 2026-11-11: "if i switch to
+/// a different model in a chat, it should just be able to seamlesly within the same pane do
+/// stuff"). The fork runs that harness, starts on `model`, shows the chat's history by reference
+/// as any fork does, and its first prompt carries the chat's transcript to the new agent
+/// (`rehydrate`): no agent can resume another harness's conversation.
+#[derive(Debug, Clone, Default)]
+pub struct Retarget {
+    /// A family or profile name, as `session/new` takes it.
+    pub harness: String,
+    pub model: Option<String>,
+}
+
+/// The new harness a [`Retarget`] resolves to.
+struct Target {
+    agent: String,
+    profile: crate::config::HarnessProfile,
+    family: String,
+    spawn_model: bool,
+    model: Option<String>,
+}
+
 impl Hub {
     /// A fork's own turns: the turn results in its log after its `forked` record (the ones
     /// before it are the parent's, copied); its meta's `turn_count` starts at the parent's. None
@@ -100,8 +122,70 @@ impl Hub {
             None,
             start_later,
             None,
+            None,
         ))
         .await
+    }
+
+    /// [`Hub::fork`] onto another harness ([`Retarget`]). A harness that resolves to the chat's
+    /// own profile is an ordinary fork; its model is the caller's to set.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn fork_to(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        retarget: Retarget,
+        name: Option<String>,
+        cwd: Option<PathBuf>,
+        session_env: std::collections::BTreeMap<String, String>,
+        workspace_id: Option<String>,
+        start_later: bool,
+    ) -> Result<Arc<Session>, RpcError> {
+        Box::pin(self.fork_with_boundary(
+            session,
+            name,
+            cwd,
+            session_env,
+            workspace_id,
+            None,
+            None,
+            start_later,
+            None,
+            Some(retarget),
+        ))
+        .await
+    }
+
+    /// The harness a [`Retarget`] names, or None when it is the chat's own profile.
+    async fn retarget_to(
+        &self,
+        parent: &SessionMeta,
+        retarget: Retarget,
+        cwd: &Path,
+    ) -> Result<Option<Target>, RpcError> {
+        let cfg = self.config.read().await;
+        let r = self.resolve_new(
+            &cfg,
+            Some(retarget.harness.clone()),
+            &None,
+            retarget.model.as_deref(),
+            parent.remote_origin,
+            Some(cwd),
+        )?;
+        if r.agent == parent.harness {
+            return Ok(None);
+        }
+        if r.profile.kind == crate::config::HarnessKind::Terminal {
+            return Err(super::new_request::terminal_harness_refusal(&r.agent));
+        }
+        let family = crate::config::derive_family(&r.agent, &r.profile);
+        let spawn_model = super::new_request::profile_takes_model_at_spawn(&r.profile);
+        Ok(Some(Target {
+            agent: r.agent.clone(),
+            profile: r.profile.clone(),
+            family,
+            spawn_model,
+            model: retarget.model.or_else(|| r.profile.model.clone()),
+        }))
     }
 
     /// [`Hub::fork`] with an optional boundary (`fork_before.rs`), and with `sub` a fork that is
@@ -120,6 +204,7 @@ impl Hub {
         before: Option<(String, crate::store::ForkBefore)>,
         start_later: bool,
         sub: Option<SubsessionFork<'_>>,
+        retarget: Option<Retarget>,
     ) -> Result<Arc<Session>, RpcError> {
         let empty = before.as_ref().is_some_and(|(_, b)| b.through_seq.is_none());
         let (subsession, lineage, checked) = match sub {
@@ -146,8 +231,24 @@ impl Hub {
         // env, `session_env::workspace_id`), else its parent's.
         let workspace_id = workspace_id.or_else(|| parent_meta.workspace_id.clone());
         crate::agent_displays::mark(&mut fork_env, workspace_id.as_deref());
-        let sid =
-            parent_meta.agent_session_id.clone().or_else(|| empty.then(String::new)).ok_or_else(
+        let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
+        // Onto another harness: its agent starts from the chat's transcript (`Made::Fresh`).
+        let target = match retarget {
+            Some(r) if before.is_none() && !empty && through.is_none() => {
+                self.retarget_to(&parent_meta, r, &cwd).await?
+            }
+            Some(_) => {
+                return Err(RpcError::invalid_params(
+                    "a fork onto another harness forks the whole chat as it is now",
+                ));
+            }
+            None => None,
+        };
+        let sid = parent_meta
+            .agent_session_id
+            .clone()
+            .or_else(|| (empty || target.is_some()).then(String::new))
+            .ok_or_else(
                 || {
                     if before.is_some() {
                         super::fork_before::refused(
@@ -189,7 +290,13 @@ impl Hub {
         // Claude forks by `--resume <parent> --fork-session`, which needs a stored
         // conversation; a chat with no turn has none, and its fork would fail at its
         // first prompt ("No conversation found"). Refuse before a chat is made.
-        if !empty && is_claude && cut.is_none() && parent_meta.turn_count == 0 && !working {
+        if !empty
+            && target.is_none()
+            && is_claude
+            && cut.is_none()
+            && parent_meta.turn_count == 0
+            && !working
+        {
             return Err(RpcError::invalid_params(NOTHING_TO_FORK));
         }
         let mut turn_count = parent_meta.turn_count;
@@ -243,6 +350,10 @@ impl Hub {
         let made = if empty {
             turn_count = 0;
             Made::Empty
+        } else if target.is_some() {
+            // No agent resumes another harness's conversation: the new one reads the chat's.
+            rules_at_copy = Some(session.read_meta(rules_of));
+            Made::Fresh
         } else if let Some(through) = cut {
             // The fork resumes a copy of the agent's transcript through that turn.
             // The chat moved past that turn at its next event, which acpmux logs
@@ -611,7 +722,28 @@ impl Hub {
             delegator: None,
             cold: None,
         };
-        if empty && !meta.remote_origin {
+        // Onto another harness: the new one's own launch, and nothing its agent would not know
+        // (the old agent's modes, options, models, commands and store). The mode and model are
+        // set once it is up (below).
+        if let Some(t) = &target {
+            meta.harness = t.agent.clone();
+            meta.harness_argv = t.profile.argv.clone();
+            meta.family = Some(t.family.clone());
+            meta.preset = None;
+            meta.model_request = if t.spawn_model { t.model.clone() } else { None };
+            meta.agent_info = None;
+            meta.agent_capabilities = None;
+            meta.mode_set_by_cmux = None;
+            meta.modes = None;
+            meta.config_options = None;
+            meta.models = None;
+            meta.usage_limits = None;
+            meta.available_commands = None;
+            meta.chat_store = None;
+            meta.preset_mode_approval = None;
+            meta.harness_cost_usd = None;
+        }
+        if (empty || target.is_some()) && !meta.remote_origin {
             let cfg = self.config.read().await;
             meta.cmux_preset_prompt = crate::context_inventory::preset_override(&meta, &cfg);
             meta.cmux_context = Some(crate::context_inventory::snapshot_session(&meta, &cfg));
@@ -783,6 +915,11 @@ impl Hub {
             forked.set("from", json!("transcript"));
             forked.set("harness", json!(parent_meta.harness));
         }
+        if let Some(t) = &target {
+            forked.set("from", json!("transcript"));
+            forked.set("harness", json!(t.agent));
+            forked.set("fromHarness", json!(parent_meta.harness));
+        }
         self.ledger.unsuppress(&new.id);
         self.append(&new, "mux", "forked", forked);
         if before.is_none() {
@@ -827,6 +964,10 @@ impl Hub {
             if let Err(e) = self.start_checked_child(&new, checked).await {
                 return Err(self.close_refused(&new, e).await);
             }
+        } else if let Some(t) = &target {
+            // Onto another harness: up, on the picked model and in the mode a new chat of it
+            // starts in, before the reply, so the first prompt runs there (as `new_session`).
+            self.start_retargeted(&new, t).await;
         } else if start_later {
             let hub = self.clone();
             let fork = new.clone();
@@ -843,6 +984,43 @@ impl Hub {
             tracing::warn!(session = %new.id, "fork child start failed: {e}");
         }
         Ok(new)
+    }
+}
+
+impl Hub {
+    /// Starts a fork onto another harness ([`Retarget`]): its agent, its model when the
+    /// harness takes it after spawn, and the mode a new chat of that harness starts in
+    /// (`start_mode.rs`). Soft, as a new chat's start defaults: a step that fails is recorded
+    /// on the fork, and its first prompt starts the agent again.
+    async fn start_retargeted(self: &Arc<Self>, fork: &Arc<Session>, target: &Target) {
+        if let Err(e) = self.child_for(fork).await {
+            tracing::warn!(session = %fork.id, "fork child start failed: {e}");
+            self.append(fork, "mux", "fork_start_failed", json!({"error": e.message}));
+            return;
+        }
+        if !target.spawn_model
+            && let Some(model) = &target.model
+            && let Err(e) = Box::pin(self.set_model(fork, model)).await
+        {
+            tracing::warn!(session = %fork.id, model = %model, "fork model skipped: {}", e.message);
+            self.append(
+                fork,
+                "mux",
+                "start_default_skipped",
+                json!({"model": model, "error": e.message}),
+            );
+        }
+        if let Some(mode) = Box::pin(self.start_mode(fork)).await
+            && let Err(e) = Box::pin(self.set_mode(fork, &mode)).await
+        {
+            tracing::warn!(session = %fork.id, mode = %mode, "fork mode skipped: {}", e.message);
+            self.append(
+                fork,
+                "mux",
+                "start_default_skipped",
+                json!({"modeId": mode, "error": e.message}),
+            );
+        }
     }
 }
 
