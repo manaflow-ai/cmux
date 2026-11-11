@@ -10,9 +10,15 @@ mod agent_hook_fences;
 mod agent_hook_retry;
 #[cfg(unix)]
 mod agent_hooks_at_rest;
+#[cfg(unix)]
+mod agent_hooks_at_rest_reopen;
+#[cfg(unix)]
+mod agent_plugin_refresh_at_rest;
 mod agent_presence;
 mod agent_reply_text;
 mod agent_reports;
+#[cfg(unix)]
+mod agent_reports_at_rest;
 mod agent_roster_catch_up;
 mod agent_roster_fold_lock;
 mod agent_roster_kind_scope;
@@ -20,6 +26,7 @@ mod agent_roster_poison;
 mod agent_roster_restore;
 mod agent_screen_exit;
 mod agent_start_mark;
+mod at_rest_writers;
 mod cell_pixel_fanout;
 mod cell_pixels;
 mod checkpoint_retention;
@@ -57,18 +64,25 @@ mod restart;
 mod rows;
 mod session_lists;
 mod signaled_mutex;
+mod snapshot_read;
 mod split_ratio;
 mod stack_layout;
 mod surface_notifications;
 mod tab_workspace_move;
 mod tabs;
 mod terminal_exit_restart;
+mod terminal_live_cost;
 mod terminal_moves;
 mod terminal_publisher;
 mod terminal_registry;
 mod terminal_views;
+mod unreadable_exit_sidecar;
 mod view_close_replay;
 mod viewport_columns;
+#[cfg(unix)]
+mod workspace_close_cost;
+#[cfg(unix)]
+mod workspace_close_time;
 mod workspace_materialize;
 mod workspaces;
 mod writer_lock_order;

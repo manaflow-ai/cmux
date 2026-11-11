@@ -125,6 +125,14 @@ pub struct EventFilter {
     /// it (`_meta.acpmux.subagents[].id`, its spawn and its end). A subagent pane reads its
     /// subagent with it when the chat's loaded page no longer holds that subagent.
     subagent: Option<String>,
+    /// Records past this many bytes go as stubs (`_acpmux/events` `recordMaxBytes`): a page
+    /// always carries its first record, so without it one large record is the whole page, every
+    /// time it is asked. A durable watch on a peer chat asked for the same 1 MB record every
+    /// few seconds for good (2026-11-10). The stub keeps the record's seq, dir and kind.
+    record_max: Option<usize>,
+    /// A durable watch's `match` text (`_acpmux/events` `match`): a stub of a reply chunk says
+    /// whether its whole text held it, since the stub no longer holds that text.
+    pattern: Option<String>,
 }
 
 impl EventFilter {
@@ -165,11 +173,43 @@ impl EventFilter {
         self
     }
 
+    /// Records over `bytes` go as stubs (``fit``); `None` keeps the usual message-sized limit.
+    pub fn stubbing_over(mut self, bytes: Option<usize>) -> Self {
+        self.record_max = bytes;
+        self
+    }
+
+    /// The text a stubbed reply chunk is checked for (``stub_msg``); `None` or blank: none.
+    pub fn matching(mut self, pattern: Option<&str>) -> Self {
+        self.pattern = pattern.filter(|p| !p.is_empty()).map(str::to_owned);
+        self
+    }
+
+    /// The most bytes a record goes out whole with, in a page bounded by bytes or not.
+    fn stub_over(&self, bounded: bool) -> Option<usize> {
+        match (bounded, self.record_max) {
+            (_, Some(max)) => Some(max.min(MAX_RECORD_BYTES)),
+            (true, None) => Some(MAX_RECORD_BYTES),
+            (false, None) => None,
+        }
+    }
+
     /// Bytes every line of a matching record holds: a subagent's id as the log writes the JSON
     /// string (``subagent_owns`` reads it from `_meta.acpmux`), so a store passes the chat's other
     /// lines unparsed (`Store::scan_matching`). None when any line may match.
     fn line_needle(&self) -> Option<Vec<u8>> {
         serde_json::to_vec(self.subagent.as_deref()?).ok()
+    }
+
+    /// Whether a page reads only kinds the log keeps copies of (`store/kind_index.rs`
+    /// `INDEXED_KINDS`): exact kinds, none a group (`transcript`, `mux`, `wire`, `all`), and no
+    /// subagent. Such a page is read with `Store::scan_back_indexed` (`Hub::events_page`).
+    fn reads_indexed_kinds(&self) -> bool {
+        self.subagent.is_none()
+            && self.kinds.as_ref().is_some_and(|kinds| {
+                !kinds.is_empty()
+                    && kinds.iter().all(|k| crate::store::INDEXED_KINDS.contains(&k.as_str()))
+            })
     }
 
     pub fn is_all(&self) -> bool {
@@ -306,25 +346,126 @@ pub fn page_bytes(params: &Value) -> usize {
 /// reply around it.
 pub const MAX_RECORD_BYTES: usize = crate::rpc::MAX_MESSAGE_BYTES - (1 << 20);
 
-/// A record no message can carry goes as a stub with its kind and seq: what it left out, and how
-/// much. Also returns what the record adds to the page.
-fn fit(rec: EventRecord, bounded: bool) -> (EventRecord, usize) {
+/// A record past `over` (no message can carry it, or past the caller's `recordMaxBytes`) goes as
+/// a stub with its kind and seq: what it left out, and how much (``stub_msg``). Also returns
+/// what the record adds to the page.
+fn fit(rec: EventRecord, over: Option<usize>, pattern: Option<&str>) -> (EventRecord, usize) {
     let bytes = record_bytes(&rec);
-    fit_sized(rec, bytes, bounded)
+    fit_sized(rec, bytes, over, pattern)
 }
 
 /// [`fit`] for a record whose bytes are known.
-fn fit_sized(mut rec: EventRecord, bytes: usize, bounded: bool) -> (EventRecord, usize) {
-    if !bounded || bytes <= MAX_RECORD_BYTES {
+fn fit_sized(
+    mut rec: EventRecord,
+    bytes: usize,
+    over: Option<usize>,
+    pattern: Option<&str>,
+) -> (EventRecord, usize) {
+    if over.is_none_or(|max| bytes <= max) {
         return (rec, bytes);
     }
-    rec.msg = omitted(bytes);
+    rec.msg = stub_msg(&rec.msg, bytes, pattern);
     // A kind is an agent's own name for its update, and can be the large part.
     if rec.kind.len() > ENVELOPE_FIELD_BYTES {
         rec.kind.clear();
     }
     let stub = record_bytes(&rec);
     (rec, stub)
+}
+
+/// The longest top-level string, and key, a stub keeps from its record (``stub_msg``).
+const STUB_FIELD_BYTES: usize = 256;
+
+/// The most JSON a stub's `msg` holds: well under any page's budget, whatever the record held.
+pub const STUB_BYTES: usize = 8 * 1024;
+/// How much of a stubbed reply chunk's text a stub keeps at each end, at least: enough for a
+/// watch's `match` that spans into the chunk from the one before it, or out of it into the next.
+const STUB_TEXT_CHARS: usize = 1024;
+/// Where a reply chunk holds its text.
+const STUB_TEXT_AT: &str = "/params/update/content/text";
+
+/// What a stubbed record's `msg` becomes, at most [`STUB_BYTES`] of JSON. First what the stub
+/// left out (`_meta.acpmux.omitted`: its bytes; for a reply chunk whether its whole text held the
+/// reader's `match`, so a stub never reads as a non-match, and the ends of that text; whether it
+/// was a subagent's), then the record's short top-level fields, ids first, while they fit. A
+/// stub that had to leave fields or text out says `truncated`.
+pub(super) fn stub_msg(msg: &Value, bytes: usize, pattern: Option<&str>) -> Value {
+    let mut omitted = serde_json::Map::new();
+    omitted.insert("bytes".into(), json!(bytes));
+    omitted.insert("reason".into(), json!("too_large"));
+    if msg.pointer("/params/_meta/acpmux/subagent").is_some() {
+        omitted.insert("subagent".into(), json!(true));
+    }
+    let text = msg.pointer(STUB_TEXT_AT).and_then(Value::as_str);
+    if let (Some(text), Some(pattern)) = (text, pattern) {
+        omitted.insert("matched".into(), json!(text.contains(pattern)));
+    }
+    let mut fields = serde_json::Map::new();
+    let build = |omitted: &serde_json::Map<String, Value>,
+                 fields: &serde_json::Map<String, Value>| {
+        let mut msg = fields.clone();
+        msg.insert("_meta".into(), json!({"acpmux": {"omitted": omitted}}));
+        Value::Object(msg)
+    };
+    let size = |v: &Value| serde_json::to_string(v).map_or(usize::MAX, |s| s.len());
+    let mut truncated = false;
+    // Room left for the `truncated` flag, added once the fields are in.
+    let fill = STUB_BYTES - r#","truncated":true"#.len();
+    let short: Vec<(&String, &Value)> = msg
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(k, v)| {
+            k.as_str() != "_meta"
+                && k.len() <= STUB_FIELD_BYTES
+                && match v {
+                    Value::String(s) => s.len() <= STUB_FIELD_BYTES,
+                    Value::Number(_) | Value::Bool(_) | Value::Null => true,
+                    _ => false,
+                }
+        })
+        .collect();
+    let is_id = |k: &str| k == "id" || k.ends_with("Id") || k.ends_with("_id");
+    // The text's ends go in first, before any field, each at least the pattern's length (at most
+    // `MAX_MATCH_BYTES`, `server/watches.rs`) always: a match that runs out of this chunk into the
+    // next, or into this one from the last, is found only from them. That floor may pass
+    // STUB_BYTES on text that escapes long (6 bytes a char at worst), still far under any page's
+    // record bound.
+    if let Some(text) = text {
+        let chars = text.chars().count();
+        let floor = pattern.map_or(0, |p| p.chars().count()).min(chars);
+        let mut keep = STUB_TEXT_CHARS.max(floor);
+        let wanted = keep.min(chars);
+        loop {
+            let head: String = text.chars().take(keep.max(floor)).collect();
+            let tail: String = text.chars().skip(chars.saturating_sub(keep.max(floor))).collect();
+            omitted.insert("textHead".into(), json!(head));
+            omitted.insert("textTail".into(), json!(tail));
+            if keep == 0 || size(&build(&omitted, &fields)) <= fill {
+                break;
+            }
+            keep /= 2;
+        }
+        truncated |= keep.min(chars) < wanted;
+    }
+    for &(k, v) in short.iter().filter(|(k, _)| is_id(k)) {
+        fields.insert(k.clone(), v.clone());
+        if size(&build(&omitted, &fields)) > fill {
+            fields.remove(k);
+            truncated = true;
+        }
+    }
+    for &(k, v) in short.iter().filter(|(k, _)| !is_id(k)) {
+        fields.insert(k.clone(), v.clone());
+        if size(&build(&omitted, &fields)) > fill {
+            fields.remove(k);
+            truncated = true;
+        }
+    }
+    if truncated {
+        omitted.insert("truncated".into(), json!(true));
+    }
+    build(&omitted, &fields)
 }
 
 /// What a record's `msg` becomes when no message can carry it: what it left out, and how much.
@@ -508,6 +649,8 @@ impl Hub {
     ) -> Result<EventPage> {
         let before = before.unwrap_or(u64::MAX);
         let bounded = max_bytes.is_some();
+        let over = filter.stub_over(bounded);
+        let pattern = filter.pattern.as_deref();
         // An ask in the log reads as acpmux shows it now (`Hub::display_logged`).
         let session = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         let mut page = EventPage::default();
@@ -536,7 +679,7 @@ impl Hub {
                 }
                 let mut rec = rec;
                 self.display_logged(session.as_deref(), &mut rec);
-                let (rec, rec_bytes) = fit(rec, bounded);
+                let (rec, rec_bytes) = fit(rec, over, pattern);
                 if full(rec_bytes, found) {
                     page.has_more = true;
                     return false;
@@ -558,7 +701,21 @@ impl Hub {
             filter.surely_skips(dir, kind) && !(omit && crate::store::starts_prompt(dir, kind))
         };
         let mut superseded = omit.then(crate::store::Superseded::default);
-        self.store.scan_back(id, after, before, &skip, &mut |rec| {
+        // A page of prompts, the queue or turn results reads the log's copies of those kinds
+        // where they are good, segment by segment, newest first: read back from the end, a page
+        // of a chat's last 16 prompts walked its whole log when it had fewer, and every open asks
+        // for one (`turn_opener.rs`), 4 s for a 1 GB chat. The superseded fold below touches tool
+        // calls only, so it changes nothing on such a page.
+        let indexed = filter.reads_indexed_kinds();
+        let back = |skip: &dyn Fn(&[u8], &[u8]) -> bool,
+                    visit: &mut dyn FnMut(EventRecord) -> bool| {
+            if indexed {
+                self.store.scan_back_indexed(id, after, before, skip, visit)
+            } else {
+                self.store.scan_back(id, after, before, skip, visit)
+            }
+        };
+        back(&skip, &mut |rec| {
             let matches = filter.matches(&rec);
             let mut rec = rec;
             if matches {
@@ -574,7 +731,7 @@ impl Hub {
                     superseded.read(&mut rec, found.len(), |rec| {
                         let bytes = record_bytes(rec);
                         sized = Some(bytes);
-                        !bounded || bytes <= MAX_RECORD_BYTES
+                        over.is_none_or(|max| bytes <= max)
                     })
                 }
                 _ => None,
@@ -583,8 +740,8 @@ impl Hub {
                 return true;
             }
             let (rec, rec_bytes) = match sized {
-                Some(bytes) => fit_sized(rec, bytes, bounded),
-                None => fit(rec, bounded),
+                Some(bytes) => fit_sized(rec, bytes, over, pattern),
+                None => fit(rec, over, pattern),
             };
             let moot_bytes = moot.and_then(|slot| found.get(slot)?.as_ref()).map_or(0, |(_, b)| *b);
             let kept = held + 1 - usize::from(moot.is_some());

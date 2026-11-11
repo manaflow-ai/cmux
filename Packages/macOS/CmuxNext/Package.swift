@@ -188,8 +188,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-d9ee7a4b120df26ff7fcdd9dd59a16521840fda9/CCmuxAppFFI.xcframework.zip",
-    checksum: "fbda6ad79ff12d3c9c3cec951dc3e69cb3279bdc2188595b10f9672e7a891239"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-e7402189989fcd919740224d0d0e5588e8da5b33/CCmuxAppFFI.xcframework.zip",
+    checksum: "7a98792313da50a86cdc8ef49083287ca0e3e8a20e1fc234488e3ed1d0599b7e"
 )
 
 // Debug-only product consumed by Prototypes/UiLayerHost. Keeping this leaf
@@ -1267,7 +1267,10 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // (Inline) and Stop/Restart VS Code Inline Server. The App opens its URL in a browser tab.
         .target(
             name: "CmuxNextVSCodeServer",
-            dependencies: ["CmuxNextWakeups"],
+            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextCompat",
+                "CmuxNextWakeups",
+            ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(

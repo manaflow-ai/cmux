@@ -94,7 +94,7 @@ Push with `git push -q`: without `-q`, git spends 4-14 s printing a status for
 all of GitHub's ~27,600 refs. `-q` still prints errors and the hook's output. The hook ends with
 `pre-push: hook times: <each phase> Ns; total Ns`, which shows where a slow push spent its time.
 - `pre-push: refused in <phase>` with a check's findings: fix them and push again. Do not retry unchanged.
-- The gate's `ran past its 600s limit`, a failure after `pre-push: passed`
+- The gate's `ran past its <N>s limit` (600 s, more on a loaded Mac), a failure after `pre-push: passed`
   (`[remote rejected] ... (failed)`, `RPC failed`, `remote end hung up`, a timeout), or a
   `timeout 1500` kill: retry at most 3 times. Wait 30 s before the first retry, 60 s before
   the second and 120 s before the third.
@@ -102,6 +102,13 @@ all of GitHub's ~27,600 refs. `-q` still prints errors and the hook's output. Th
   If it does, the push landed: stop.
 - A failed push is never a reason for `--no-verify` or the git data API. After 3 failed retries,
   report the hook-times line and the last error.
+- The hook takes a turn: 2 pushes are checked at once on a Mac (`CMUX_PREPUSH_SLOTS`), and the rest
+  wait (`pre-push: ... waiting for a turn`; `queue Ns` in the hook-times line). A wait is not a hang.
+- On a Mac too loaded to finish the hook (load average far above its core count), push through an
+  idle Mac: `scripts/cmux-next/push-from-host.sh --rebase <branch>` pushes `HEAD` to `origin/<branch>`
+  from `cmux-lawrence-2` (`--host`, more than once for a fallback; `--sha`), where the same hook runs
+  and refuses the same things. `--rebase` rebases there onto the branch's newest head first, which a
+  busy branch needs; the pushed commits then have new ids, so fetch and rebase before more work.
 
 ## Before you touch hot paths
 
