@@ -68,7 +68,9 @@ if [[ "${1:-}" == --one ]]; then
     # A whole tar with entries, not only whole gzip: a host can answer 200 with a
     # gzipped error page (GNU tar lists a short non-tar as an empty archive, exit 0).
     # Counted, not kept: a listing can be long. pipefail keeps tar's own status.
-    entries="$(tar -tzf "$part" 2>/dev/null | wc -l)" && (( entries > 0 )) \
+    # Through stdin: GNU tar reads a C:\... path (the Zig cache on a Windows runner)
+    # as HOST:FILE and rejected every download there (cmux-tui job 130512447393).
+    entries="$(tar -tzf - < "$part" 2>/dev/null | wc -l)" && (( entries > 0 )) \
       || { echo "seed: $url is not a whole tar archive" >&2; continue; }
     if [[ -n "$want" ]]; then
       if command -v sha256sum >/dev/null 2>&1; then got="$(sha256sum "$part" | cut -d' ' -f1)"
@@ -168,8 +170,9 @@ package_manifest() {
   if [[ -f "$source_dir/zig-pkg/$hash/build.zig.zon" ]]; then cat "$source_dir/zig-pkg/$hash/build.zig.zon"; return 0; fi
   if [[ -f "$cache/p/$hash/build.zig.zon" ]]; then cat "$cache/p/$hash/build.zig.zon"; return 0; fi
   [[ -f "$archive" ]] || return 0
-  name="$(tar -tzf "$archive" 2>/dev/null | grep -E '^(\./)?([^/]+/)?build\.zig\.zon$' | head -n 1 || true)"
-  [[ -n "$name" ]] && tar -xzOf "$archive" "$name" 2>/dev/null || true
+  # Through stdin, as in --one: a C:\... path is HOST:FILE to GNU tar.
+  name="$(tar -tzf - < "$archive" 2>/dev/null | grep -E '^(\./)?([^/]+/)?build\.zig\.zon$' | head -n 1 || true)"
+  [[ -n "$name" ]] && tar -xzOf - "$name" < "$archive" 2>/dev/null || true
 }
 
 pairs="$(find "$source_dir" -name build.zig.zon -not -path '*/zig-pkg/*' -not -path '*/.zig-cache/*' -print \
