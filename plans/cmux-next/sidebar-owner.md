@@ -134,6 +134,11 @@
   Regression: `SidebarListPatchCopyTests` (a real `SidebarListView` attached, elements copied per patch).
   dcb21bf3e42 (review F1 of #39638: write into the cached section only when the same node sits at that place) has no
   visual change; it reached the branch without its `Sidebar-Look:` trailer.
+- 2026-11-10: the Priority view's "Loading agent chats…" ends at a 10 s deadline. Acceptance rule of the UI state
+  fixes (#40135): "A failure shows an error with Retry, never \"loading\" forever and never \"empty\"." With no acpmux
+  daemon no lane store goes live, so the empty note said loading forever; past `SidebarPriorityFeed.loadDeadline`
+  it says "Couldn't load agent chats." in the same note, and a list read later replaces it. Only the note's text
+  changes; no layout, font or color. Regression: `SidebarPriorityLoadingTests`.
 - 2026-11-09: a multi-selection drags as one stack of its rows, as a browser's vertical tabs do. Leo,
   verbatim (2026-11-08, ask-2ba1bed2e4, screen recordings of ours beside a browser's): "ours vs edge's group moving i
   think we need to make ours more like edge and chrome". The card carried only the pressed row and a count badge

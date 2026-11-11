@@ -16,6 +16,10 @@ extension Strings {
     static var priorityLoading: String {
         String(localized: "sidebar.priority.loading", defaultValue: "Loading agent chats…", bundle: .module)
     }
+    /// No chat list arrived within its deadline (no acpmux answered); a list that arrives later replaces it.
+    static var priorityLoadFailed: String {
+        String(localized: "sidebar.priority.loadFailed", defaultValue: "Couldn’t load agent chats.", bundle: .module)
+    }
     static var priorityEmpty: String {
         String(localized: "sidebar.priority.empty", defaultValue: "No agent chats right now", bundle: .module)
     }

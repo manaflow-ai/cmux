@@ -91,14 +91,18 @@ public nonisolated struct SidebarPriorityPanel: Hashable, Sendable {
     /// The chat list was read: with no entries the view says there are none only then, and says
     /// it is loading before (ui-state-fixes M6).
     public var loaded: Bool
+    /// Not loaded, and no chat list arrived within its deadline (`SidebarPriorityFeed.loadDeadline`):
+    /// the view says it couldn't load the chats instead of loading forever. A later list replaces it.
+    public var loadFailed: Bool
 
     public init(entries: [SidebarPriorityEntry], shown: Bool = true, collapsed: Bool = false, shortcut: String? = nil,
-                loaded: Bool = true) {
+                loaded: Bool = true, loadFailed: Bool = false) {
         self.entries = entries
         self.shown = shown
         self.collapsed = collapsed
         self.shortcut = shortcut
         self.loaded = loaded
+        self.loadFailed = !loaded && loadFailed
     }
 
     /// The rows that need the person (the folded header's count and the bell's dot).

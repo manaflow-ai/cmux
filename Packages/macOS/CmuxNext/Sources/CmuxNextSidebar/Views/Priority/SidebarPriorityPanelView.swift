@@ -102,7 +102,8 @@ final class SidebarPriorityPanelView: NSView {
         count.stringValue = panel.collapsed && attention > 0 ? String(attention) : ""
         empty.isHidden = panel.collapsed || !panel.entries.isEmpty
         // Before the chat list was read the panel does not know there are none.
-        empty.stringValue = panel.loaded ? Strings.priorityEmpty : Strings.priorityLoading
+        // Past the list's deadline (no acpmux answered) it says so instead of loading forever.
+        empty.stringValue = panel.loaded ? Strings.priorityEmpty : panel.loadFailed ? Strings.priorityLoadFailed : Strings.priorityLoading
         fade.isHidden = panel.collapsed
         placeRows(animated: window != nil && old.entries != panel.entries)
         updateTicker()
