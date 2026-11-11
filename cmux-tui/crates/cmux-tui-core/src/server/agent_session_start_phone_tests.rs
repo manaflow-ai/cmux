@@ -157,8 +157,13 @@ fn session_new(phone: &Phone) -> Value {
 impl Phone {
     /// The owner's start naming the person's pick of the chat's mode.
     fn start_in(&mut self, mode: &str) -> Value {
+        self.start_as("claude", mode)
+    }
+
+    /// [`Self::start_in`] on `harness`.
+    fn start_as(&mut self, harness: &str, mode: &str) -> Value {
         let start = json!({"cmd":"agent-session-start","surface":self.surface,"cwd":self.cwd,
-            "harness":"claude","vm_kind":"owner","mode":mode});
+            "harness":harness,"vm_kind":"owner","mode":mode});
         self.client.request(start)
     }
 }
@@ -203,6 +208,50 @@ fn an_asking_pick_the_agent_refuses_ends_the_chat() {
     assert_code(&owner.start_in("default"), "agent_session.not_asking");
     let methods = owner.methods();
     assert_eq!(methods.last().map(String::as_str), Some("_acpmux/kill"), "{methods:?}");
+}
+
+/// A Codex chat that started wide and does not take an asking pick would run wider than asked:
+/// Codex has no asking mode acpmux's table vouches for, so it is ended and refused.
+#[test]
+fn a_codex_chat_started_wide_that_refuses_the_pick_is_ended() {
+    let mut owner = connect("owner-codex-wide", false, true, "codex", "agent-full-access", true);
+    assert_code(&owner.start_as("codex", "ask"), "agent_session.not_asking");
+    let methods = owner.methods();
+    assert!(methods.contains(&"session/set_mode".to_owned()), "{methods:?}");
+    assert_eq!(methods.last().map(String::as_str), Some("_acpmux/kill"), "{methods:?}");
+}
+
+/// Claude in Bypass that does not take an Accept Edits pick runs wider than asked: it moves to an
+/// asking mode, and one it does not take either ends the chat.
+#[test]
+fn a_claude_chat_in_bypass_that_refuses_accept_edits_is_ended() {
+    let mut owner = connect("owner-accept-edits", false, true, "claude", "bypassPermissions", true);
+    assert_code(&owner.start_in("acceptEdits"), "agent_session.not_asking");
+    let methods = owner.methods();
+    assert_eq!(methods.last().map(String::as_str), Some("_acpmux/kill"), "{methods:?}");
+}
+
+/// A team VM, even with the creator's owner word, is no person's own sandbox: the pick is ignored
+/// and the chat starts asking.
+#[test]
+fn a_pick_on_a_team_vm_keeps_the_asking_rule() {
+    let mut team = connect("team-picks-bypass", false, true, "claude", "acceptEdits", false);
+    team.mux.set_agent_start_host(Arc::new(|| AgentStartHost::TeamVm));
+    let started = team.start_in("bypassPermissions");
+    assert_eq!(started["ok"], json!(true), "{started}");
+    assert_eq!(*team.mode.lock().unwrap(), "default");
+    let new = session_new(&team);
+    assert_eq!(new["params"]["_meta"]["acpmux"]["policy"], json!("ask"), "{new}");
+}
+
+#[test]
+fn a_malformed_mode_is_a_bad_request() {
+    let mut owner = connect("owner-bad-mode", false, true, "claude", "default", false);
+    for mode in ["-x", "a b", "", "mode;rm", &"m".repeat(65)] {
+        assert_code(&owner.start_in(mode), "agent_session.bad_request");
+    }
+    let methods = owner.methods();
+    assert!(!methods.contains(&"session/new".to_owned()), "{methods:?}");
 }
 
 /// A phone's start keeps the phone's floor whatever mode it names.

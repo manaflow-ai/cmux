@@ -1312,6 +1312,9 @@ export type AcpmuxSnapshot = {
   /// it runs, `cloud.startChat`), not on this Mac. The send carries the start mode the chip names
   /// (cloudRun.ts cloudStartMode), which the person's own Cloud machine starts the chat in.
   startsOnCloud?: true;
+  /// Composer only, with `startsOnCloud`: that send switches to a team (the plan card's Switch to
+  /// <team>), whose machine starts the chat in its own asking mode whatever the chip names.
+  startsOnTeamCloud?: true;
   /// acpmux reconnects a Claude Code chat's failed MCP server for this connection: its `initialize`
   /// lists `_acpmux/mcp/reconnect` (an older acpmux does not), so Session Info's Connectors offer
   /// Reconnect.

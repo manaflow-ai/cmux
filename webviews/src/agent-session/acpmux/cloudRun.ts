@@ -9,7 +9,8 @@
 
 import { isAgentHome } from "./sessionList";
 import { pickFolder } from "./startFolderModel";
-import { exactStartMode } from "./startMode";
+import { highestMode } from "./harnessModes";
+import { keptStartAnswer } from "./startMode";
 import type { ComposerAttachment } from "./attachments";
 import type { AcpmuxSnapshot } from "./model";
 
@@ -49,22 +50,29 @@ export function cloudStartFolder(project: string | undefined): { cwd: string } |
   return { cwd: folder };
 }
 
-/// The mode a Cloud send starts its chat in: the one the access chip names for this new chat, the
-/// person's pick (a switch's held mode) else this Mac's acpmux answer for the harness in the folder
-/// (`_acpmux/start_mode`, Start New Chats In). The person's own Cloud machine starts the chat in it
-/// (cmux-tui agent_session_start.rs `agent-session-start-mode-v1`), as this Mac would have (Leo,
-/// 2026-11-11, on the asking mode a Cloud chat started in: "but shouldnt the user be allowed to just
-/// go through with stuff?"). None when the chip names none: the machine's own start applies.
+/// The mode a Cloud send starts its chat in, and the harness it is for: the mode the access chip
+/// names for this new chat (ComposerPickers): the person's pick (a switch's held mode), else this
+/// Mac's acpmux answer for the harness (`_acpmux/start_mode`, Start New Chats In; another folder's
+/// while this one has none), else, before acpmux ever answered, the harness's highest mode. The
+/// person's own Cloud machine starts the chat in it (cmux-tui agent_session_start.rs
+/// `agent-session-start-mode-v1`), as this Mac would have (Leo, 2026-11-11, on the asking mode a
+/// Cloud chat started in: "but shouldnt the user be allowed to just go through with stuff?"). None
+/// when the chip names none (acpmux sets none): the machine's own start applies.
 export function cloudStartMode(
-  summary: AcpmuxSnapshot["summary"],
+  snapshot: Pick<AcpmuxSnapshot, "summary" | "catalog">,
   harness: string | undefined,
   cwd: string | undefined,
-): { mode: string } | Record<string, never> {
+): { mode: string; harness: string } | Record<string, never> {
+  const summary = snapshot.summary;
   const chat = harness ?? summary?.harness;
   if (!chat || summary?.sessionId) return {};
   const picked = summary?.harness === chat ? summary.modes?.currentModeId : undefined;
-  const mode = picked ?? exactStartMode(chat, cwd)?.modeId;
-  return mode ? { mode } : {};
+  const kept = keptStartAnswer(chat, cwd);
+  const family =
+    (summary?.harness === chat ? summary.family : undefined) ??
+    snapshot.catalog.find((entry) => entry.id === chat)?.family;
+  const mode = picked ?? (kept === undefined ? highestMode(family, chat)?.id : kept?.modeId);
+  return mode ? { mode, harness: chat } : {};
 }
 
 type Native = (method: string, params?: Record<string, unknown>) => Promise<unknown>;
@@ -367,20 +375,25 @@ export function cloudStartKeys(
 /// began, so the card's Retry of that start names the team too and reaches the same start key (its
 /// machine and copy); it goes once that start ends in a chat (or on this Mac), or the person leaves
 /// Cloud or the chat (`reset`).
-export function cloudStartTeam() {
+export function cloudStartTeam(changed?: (team: string | undefined) => void) {
   let team: string | undefined;
+  const set = (next: string | undefined) => {
+    if (next === team) return;
+    team = next;
+    changed?.(team);
+  };
   return {
     pick(id: string) {
-      team = id;
+      set(id);
     },
     forSend(): string | undefined {
       return team;
     },
     ended(answer: CloudStartAnswer) {
-      if (answer.ok || cloudRunsHere(answer)) team = undefined;
+      if (answer.ok || cloudRunsHere(answer)) set(undefined);
     },
     reset() {
-      team = undefined;
+      set(undefined);
     },
   };
 }

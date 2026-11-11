@@ -109,7 +109,7 @@ export function cachedStartMode(harness: string | undefined, cwd?: string): Kept
 /// What this viewer kept for a new chat on `harness` in `cwd`: acpmux's answer (`cachedStartMode`),
 /// `null` when acpmux answered that it sets no mode there (or, borrowed, in the folder it answered
 /// last), `undefined` when acpmux never answered for `harness` here.
-function keptAnswer(harness: string, cwd?: string): KeptStartMode | null | undefined {
+export function keptStartAnswer(harness: string, cwd?: string): KeptStartMode | null | undefined {
   const all = load();
   const key = keyOf(harness, cwd);
   if (key in all || Object.keys(all).some((other) => other.startsWith(`${harness}\u0000`)))
@@ -301,7 +301,7 @@ export function useStartMode(
   return key && harness ? keptAt(state, harness, cwd) : undefined;
 }
 
-/// `keptAnswer`, read at store state `_state` (see useStartMode).
+/// `keptStartAnswer`, read at store state `_state` (see useStartMode).
 function keptAt(_state: string, harness: string, cwd?: string): KeptStartMode | null | undefined {
-  return keptAnswer(harness, cwd);
+  return keptStartAnswer(harness, cwd);
 }

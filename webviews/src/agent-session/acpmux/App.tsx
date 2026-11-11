@@ -4672,7 +4672,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const dismissCloudFailure = () => setCloudStart(undefined);
   /// The plan card's Switch to <team>: the next Cloud send carries the team, and the host switches to it
   /// (the team picker's switch) before it starts, under the same click.
-  const [cloudSwitchTeam] = useState(() => cloudStartTeam());
+  /// The team the next Cloud send switches to, drawn: its machine is a team's, whose daemon ignores a
+  /// start mode, so the access chip names none for it (ComposerPickers `startsOnTeamCloud`).
+  const [cloudTeam, setCloudTeam] = useState<string>();
+  const [cloudSwitchTeam] = useState(() => cloudStartTeam(setCloudTeam));
   const sendToCloud = (
     text: string,
     attachments: ComposerAttachment[],
@@ -4687,10 +4690,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const environment = cloudEnvironment.forSend(start.environment);
     const reservationKey = cloudReservation.handoff(environment);
     const team = cloudSwitchTeam.forSend();
+    // A team's machine starts the chat in its own asking mode: no mode goes with that send.
+    const { mode, ...rest } = start;
     const request: CloudStart = {
       task: text,
       attachments,
-      ...start,
+      ...rest,
+      ...(mode && !team ? { mode } : {}),
       ...(environment ? { environment } : {}),
       ...(reservationKey ? { reservationKey } : {}),
       ...(team ? { team } : {}),
@@ -6767,6 +6773,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(quick && { canHandoff: false }),
       // Cloud picked: the first send starts the chat on a Cloud machine, which decides its mode.
       ...(cloudPicked && { startsOnCloud: true as const }),
+      ...(cloudPicked && cloudTeam !== undefined && { startsOnTeamCloud: true as const }),
     };
     // Prompts still waiting for a new chat to take them follow acpmux's queue, then the prompts the
     // folder's trust holds (trustHeld.ts).
@@ -6790,6 +6797,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     quick,
     keptStopping,
     cloudPicked,
+    cloudTeam,
   ]);
   // What the composer draws from: the same object while nothing it shows changed (composer/composerView.ts),
   // so a tool call or another row added to the transcript does not draw the composer again.
@@ -11513,7 +11521,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     ...cloudStartFolder(projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd),
                     ...heldPick(composerSnapshot),
                     ...cloudStartMode(
-                      composerSnapshot.summary,
+                      composerSnapshot,
                       heldPick(composerSnapshot).harness,
                       projectDraft ?? composerSnapshot.summary?.cwd ?? newTab?.cwd,
                     ),
@@ -12389,7 +12397,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                               harness,
                               ...cloudStartFolder(cwd),
                               ...(model ? { model } : {}),
-                              ...cloudStartMode(snapshot.summary, harness, cwd),
+                              ...cloudStartMode(snapshot, harness, cwd),
                             },
                             true,
                           ),

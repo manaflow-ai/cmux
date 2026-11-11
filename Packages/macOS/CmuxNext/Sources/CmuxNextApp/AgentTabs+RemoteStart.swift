@@ -92,10 +92,10 @@ extension AgentTabStore {
         let result: Result<String, any Error>
         let home = fallback.map { existingView(key, machine: machine)?.model.transport.remoteHomeChosen.contains($0) == true } ?? false // the person's Use Home Folder (cx-1bhjj)
         let harness = chosenHarness ?? seed?.harness
-        // A default model pick is omitted by the page. After a harness switch it must remain
-        // that harness's default, rather than restoring the previous harness's seeded model.
+        // A default model pick is omitted by the page; after a harness switch it stays that harness's default, not the seed's.
         let model = chosenModel ?? (harness == seed?.harness ? seed?.model : nil)
-        do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model, startMode: harness == seed?.harness ? seed?.mode : nil)) } // the Cloud send's mode, for its harness; sent only to the person's own Cloud machine catch { result = .failure(error) }
+        // The Cloud send's mode only for the harness it named (the client sends it only to the person's own Cloud machine).
+        do { result = .success(try await client.start(cwd: fallback, harness: harness, homeConfirmed: home, personKey: personKey, ownerLink: ownerLink, model: model, startMode: harness != nil && harness == seed?.harness ? seed?.mode : nil)) } catch { result = .failure(error) }
         let phases = await client.startPhases
         await client.close()
         switch result {

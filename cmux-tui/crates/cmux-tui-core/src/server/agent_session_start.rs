@@ -879,10 +879,11 @@ fn session_family(link: &AcpmuxLink, until: Instant, session: &str) -> Result<St
 }
 
 /// The person's pick of a new chat's `mode` on their own Cloud VM (`agent-session-start-mode-v1`):
-/// set unless the session already runs it. A pick the agent does not take leaves the chat in the
-/// mode acpmux started it in, unless the pick asks before acting (one of the family's asking modes
-/// in acpmux's `_acpmux/web_modes`): the chat would then run wider than the person asked, so it is
-/// refused (the caller ends it). Returns the session's family.
+/// set unless the session already runs it. When the agent does not take it, the chat runs no wider
+/// than the person asked or asks before acting: it is kept when the mode it runs is the pick or one
+/// of its family's asking modes (acpmux's `_acpmux/web_modes`; no mode counts as asking), else it
+/// moves to its family's asking default ([`settle_asking_mode`]), else it is refused (the caller
+/// ends it). Returns the session's family.
 fn set_picked_mode(
     link: &AcpmuxLink,
     until: Instant,
@@ -899,20 +900,26 @@ fn set_picked_mode(
         .filter(|family| !family.is_empty())
         .map(str::to_owned)
         .ok_or(Refusal::Refused)?;
-    let current =
-        |table: &Value| table.pointer("/session/mode").and_then(Value::as_str) == Some(mode);
-    if current(&table) {
+    let running =
+        |table: &Value| table.pointer("/session/mode").and_then(Value::as_str).map(str::to_owned);
+    if running(&table).as_deref() == Some(mode) {
         return Ok(family);
     }
-    let set = ask(link, until, "session/set_mode", json!({"sessionId": session, "modeId": mode}));
-    if set.is_ok() && current(&read()?) {
-        return Ok(family);
+    // Its answer is not the word: the mode the session runs after it is.
+    let _ = ask(link, until, "session/set_mode", json!({"sessionId": session, "modeId": mode}));
+    let table = read()?;
+    let asking = |runs: &str| {
+        !refused_family(&table, &family)
+            && table
+                .pointer(&format!("/families/{}", family.replace('~', "~0").replace('/', "~1")))
+                .and_then(Value::as_array)
+                .is_some_and(|modes| modes.iter().any(|asking| asking.as_str() == Some(runs)))
+    };
+    match running(&table) {
+        Some(runs) if runs == mode || asking(&runs) => Ok(family),
+        None if !refused_family(&table, &family) => Ok(family),
+        _ => settle_asking_mode(link, until, session),
     }
-    let asks = table
-        .pointer(&format!("/families/{}", family.replace('~', "~0").replace('/', "~1")))
-        .and_then(Value::as_array)
-        .is_some_and(|modes| modes.iter().any(|asking| asking.as_str() == Some(mode)));
-    if asks { Err(Refusal::NotAsking) } else { Ok(family) }
 }
 
 /// acpmux's remote rule for a new session: its family is not refused and

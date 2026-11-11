@@ -932,7 +932,8 @@ export function ComposerPickers({
   // local one does: the send carries the mode the chip names, and the person's own Cloud machine
   // starts the chat in it (cloudRun.ts cloudStartMode; Leo, 2026-11-11: "but shouldnt the user be
   // allowed to just go through with stuff?").
-  const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer";
+  // A send that switches to a team (`startsOnTeamCloud`) names none: a team's machine ignores it.
+  const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer" && !snapshot.startsOnTeamCloud;
   const asksStart = awaiting && local && modes.length === 0;
   const startAnswer = useStartMode(chipHarness, folder ?? summary?.cwd, asksStart);
   // A chat this Mac's acpmux runs: not a peer's, a remote host's or the cloud's. A peer's chat comes

@@ -72,7 +72,9 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // The kept start-mode answers live in the page's memory as well as storage.
+  (await import("../src/agent-session/acpmux/startMode")).resetStartModesForTests();
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
@@ -122,13 +124,13 @@ async function newChat(startsOnCloud: boolean): Promise<Snapshot> {
   } as Snapshot;
 }
 
-async function render(snapshot: Snapshot) {
+async function render(snapshot: Snapshot, answered = true) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ChatComposerChips } = await import("../src/agent-session/acpmux/App");
   // This Mac's acpmux answered that a new Claude chat here starts in Bypass permissions.
   const { rememberStartMode } = await import("../src/agent-session/acpmux/startMode");
-  rememberStartMode("claude", FOLDER, { modeId: "bypassPermissions", name: "Bypass permissions" });
+  if (answered) rememberStartMode("claude", FOLDER, { modeId: "bypassPermissions", name: "Bypass permissions" });
   root ??= createRoot(host);
   await act(async () =>
     root!.render(
@@ -152,21 +154,54 @@ test("with Cloud picked, the chip names the mode the Cloud chat starts in", asyn
   expect(chipText()).toBe("Bypass permissions");
 });
 
-test("a Cloud send carries the mode the chip names", async () => {
+test("a Cloud send carries the mode the chip names, with its harness", async () => {
   const { cloudStartMode } = await import("../src/agent-session/acpmux/cloudRun");
   const snapshot = await newChat(true);
   await render(snapshot);
-  expect(cloudStartMode(snapshot.summary, undefined, FOLDER)).toEqual({ mode: "bypassPermissions" });
+  expect(cloudStartMode(snapshot, undefined, FOLDER)).toEqual({ mode: "bypassPermissions", harness: "claude" });
   // The person's pick (a switch's held mode) goes instead of this Mac's answer.
   const picked = {
-    ...snapshot.summary!,
-    modes: { currentModeId: "default", availableModes: [{ id: "default", name: "Default" }] },
-  } as Summary;
-  expect(cloudStartMode(picked, "claude", FOLDER)).toEqual({ mode: "default" });
-  // Another harness, a folder acpmux has not answered for, or a chat that already runs: none.
-  expect(cloudStartMode(snapshot.summary, "codex", FOLDER)).toEqual({});
-  expect(cloudStartMode(snapshot.summary, undefined, "/home/dev/elsewhere")).toEqual({});
-  expect(cloudStartMode({ ...snapshot.summary!, sessionId: "s1" }, undefined, FOLDER)).toEqual({});
+    ...snapshot,
+    summary: {
+      ...snapshot.summary!,
+      modes: { currentModeId: "default", availableModes: [{ id: "default", name: "Default" }] },
+    } as Summary,
+  };
+  expect(cloudStartMode(picked, "claude", FOLDER)).toEqual({ mode: "default", harness: "claude" });
+  // A folder acpmux has not answered for names the harness's latest answer, as the chip does.
+  expect(cloudStartMode(snapshot, undefined, "/home/dev/elsewhere")).toEqual({
+    mode: "bypassPermissions",
+    harness: "claude",
+  });
+  // A chat that already runs: none.
+  expect(
+    cloudStartMode({ ...snapshot, summary: { ...snapshot.summary!, sessionId: "s1" } }, undefined, FOLDER),
+  ).toEqual({});
+});
+
+test("before acpmux ever answered, the chip and the send both name the harness's highest mode", async () => {
+  const { cloudStartMode } = await import("../src/agent-session/acpmux/cloudRun");
+  const { highestMode } = await import("../src/agent-session/acpmux/harnessModes");
+  const snapshot = await newChat(true);
+  await render(snapshot, false);
+  const highest = highestMode("claude", "claude")!;
+  expect(chipText()).toBe(highest.name);
+  expect(cloudStartMode(snapshot, undefined, FOLDER)).toEqual({ mode: highest.id, harness: "claude" });
+});
+
+test("a Cloud send that switches to a team keeps the placeholder chip", async () => {
+  await render({ ...(await newChat(true)), startsOnTeamCloud: true } as Snapshot);
+  expect(chipText()).toBe("Mode");
+});
+
+test("a team switch is drawn: the composer learns it as it is picked and dropped", async () => {
+  const { cloudStartTeam } = await import("../src/agent-session/acpmux/cloudRun");
+  const seen: (string | undefined)[] = [];
+  const team = cloudStartTeam((id) => seen.push(id));
+  team.pick("t1");
+  team.pick("t1");
+  team.ended({ ok: true });
+  expect(seen).toEqual(["t1", undefined]);
 });
 
 test("the Cloud start request names the mode to the host", async () => {
