@@ -1341,6 +1341,26 @@ class Controller:
             got = self.gh.gh("api", route, check=False)
         return got.stdout if got.returncode == 0 else None
 
+    def step_names(self, job: dict):
+        """base_red_excuse.step_owners' STEP_NAMES for JOB, read as judge reads them (workflow_step_names): its
+        workflow at its head_sha, by git alone (no API quota), at the path its run's record names (read once per
+        run). STEP_NAMES_UNKNOWN when no step's name starts with "Run " (the answer changes nothing) or the run or
+        workflow cannot be read. Both sides of a batch read their own (#40542's Codex F1 at 221c7e4d: without it, a
+        named "Run package tests (...)" step's red, the same on the base and the stack, was keyed as new)."""
+        unknown = base_red_excuse.STEP_NAMES_UNKNOWN
+        if not any(str(step.get("name") or "").startswith("Run ")  # step-name: validate
+                   for step in job.get("steps") or []) or not isinstance(job.get("run_id"), int):
+            return unknown
+        paths = self.__dict__.setdefault("run_paths", {})
+        if job["run_id"] not in paths:
+            try:
+                record = self.gh.api(f"repos/{self.args.repo}/actions/runs/{job['run_id']}")
+            except (RuntimeError, OSError, ValueError):
+                record = None
+            paths[job["run_id"]] = record.get("path") if isinstance(record, dict) else None
+        reads = self.__dict__.setdefault("workflow_reads", {})
+        return base_red_excuse.workflow_step_names(self.args.repo, job, paths[job["run_id"]], None, reads)
+
     def expand_job(self, name: str, job_id: int | str, job: dict | None = None) -> set[str]:
         if name.endswith(CHECKS_JOB):
             log = self.job_log(job_id) or ""
@@ -1362,7 +1382,7 @@ class Controller:
         if base_red_excuse.no_verdict(log) is not None:
             # A compile check with no verdict compiled nothing: keyed by this job's id, it is never the base's.
             return {f"{name}: no compile verdict (job {job_id}, never a base red)"}
-        found = base_red_excuse.signature(job, log)
+        found = base_red_excuse.signature(job, log, step_names=self.step_names(job))
         # A crash or a run cut short is never the base's (scripts/ci/test_reds.py): keyed by
         # this job's id, no base failure can match it, whatever the base shows.
         own = base_red_excuse.test_reds.read(log)

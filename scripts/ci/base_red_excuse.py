@@ -978,7 +978,22 @@ SECTION_RED = re.compile(r"^##\[error\]")
 STEP_OWNERS_MAX_LINES = 2_000_000
 
 
-def step_owners(job: dict, log: str) -> list[tuple[str, int | None, str]]:
+class StepNamesUnknown:
+    """STEP_NAMES_UNKNOWN: what a caller of step_owners passes as STEP_NAMES when it cannot read which of the job's
+    steps its workflow names (workflow_step_names could not prove it). A choice made at the call site: step_owners and
+    every reader of it take STEP_NAMES as a required keyword, so no caller forgets the workflow (#40542's Codex F1 at
+    221c7e4d: next_batch's expand_job never read it, and a named "Run package tests (...)" step's red, the same on
+    the base, was keyed as new)."""
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "STEP_NAMES_UNKNOWN"
+
+
+STEP_NAMES_UNKNOWN = StepNamesUnknown()
+
+
+def step_owners(job: dict, log: str, *, step_names) -> list[tuple[str, int | None, str]]:
     """Each line of LOG as (line, the index of the step of JOB that printed it or None, its status) when the log maps
     one to one onto the steps that ran (the jobs API's steps[], by number, without skipped ones), AMBIGUOUS for every
     line when it does not. The one owner of a line's step: failed_steps_log, signature, step_lines and every caller of
@@ -999,16 +1014,21 @@ def step_owners(job: dict, log: str) -> list[tuple[str, int | None, str]]:
       `Post job cleanup.` and no other step does, and a named step's header (`Run <its script's first line>`) cannot
       be read off its name. A name alone never proves a header is a step's: the workflow's author picks it, so a
       silent step named like a composite's inner `Run` line would take that line (#40542's third Codex BLOCK).
-      Whether a step is unnamed is the workflow's to say, never its name's: a step's "named_in_workflow" (set only by
-      workflow_step_names, from the workflow at the job's head) is True for a step with a `name:` (only its stamp
-      places it, so "Run package tests (...)" may open with `Run set -euo pipefail`, #40542's sixth Codex BLOCK) and
-      False for one with none (its header must be its name). A step it was not set on is unproven: a name that
-      starts with "Run " is then taken for an unnamed step's, whose header must be it.
+      Whether a step is unnamed is the workflow's to say, never its name's: STEP_NAMES (workflow_step_names, from the
+      workflow at the job's head) says True for a step with a `name:` (only its stamp places it, so "Run package
+      tests (...)" may open with `Run set -euo pipefail`, #40542's sixth Codex BLOCK) and False for one with none
+      (its header must be its name). A step it does not name is unproven: a name that starts with "Run " is then
+      taken for an unnamed step's, whose header must be it.
+    STEP_NAMES is workflow_step_names' answer, {step number: whether its workflow step has a `name:`}, or
+    STEP_NAMES_UNKNOWN; anything else is a TypeError.
     Any composite action, silent step, extra header, mismatch or step with no times places nothing. A placed section
     is FAILED when the jobs API says its step did not succeed, ERRORED when its step succeeded but it has a live
     SECTION_RED line outside its script's echo, else PASSED. The last section is "Complete job"'s too: when that failed
     and the step before it succeeded, which of the two its lines belong to is not proven, so they are AMBIGUOUS
     (#40542's fourth Codex BLOCK, F2)."""
+    if step_names is not STEP_NAMES_UNKNOWN and not isinstance(step_names, dict):
+        raise TypeError(f"step_names must be workflow_step_names' answer or STEP_NAMES_UNKNOWN, not {step_names!r}")
+    proven = {} if step_names is STEP_NAMES_UNKNOWN else step_names
     lines = log.splitlines()
     unknown = [(line, None, AMBIGUOUS) for line in lines]
     steps = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
@@ -1032,7 +1052,7 @@ def step_owners(job: dict, log: str) -> list[tuple[str, int | None, str]]:
         name = str(steps[k].get("name") or "")  # step-name: validate
         header = texts[n].removeprefix("##[group]")
         # Whether the workflow gives this step a `name:`, as workflow_step_names proved it (absent: not proven).
-        named = steps[k].get("named_in_workflow")
+        named = proven.get(steps[k].get("number"))
         if header == "Post job cleanup." or name.startswith("Post "):
             if not (header == "Post job cleanup." and name.startswith("Post ")):
                 return unknown
@@ -1072,20 +1092,20 @@ def step_owners(job: dict, log: str) -> list[tuple[str, int | None, str]]:
     return found
 
 
-def placed(job: dict, log: str) -> bool:
+def placed(job: dict, log: str, *, step_names) -> bool:
     """Whether step_owners tells every line of LOG to the step of JOB that printed it (an empty log has nothing to
     place)."""
-    return not log.strip() or all(status != AMBIGUOUS for _, _, status in step_owners(job, log))
+    return not log.strip() or all(status != AMBIGUOUS for _, _, status in step_owners(job, log, step_names=step_names))
 
 
-def failed_steps_log(job: dict, log: str) -> str:
+def failed_steps_log(job: dict, log: str, *, step_names) -> str:
     """LOG without the lines of JOB's passing steps: its FAILED, ERRORED and AMBIGUOUS lines (step_owners). A job
     runs many steps, and a passing one may print error-looking stderr on purpose: test_ghostty_licenses.py's negative
     cases print "pinned license manifest digest changed" and pass. 2026-11-10: cmux#40369's static checks failed only
     in "Every page's strings generate with no missing translation" (feat-cmux-next runs 42820823641, 42820590433),
     and the excuse quoted that digest line, sending an agent after the wrong cause. A line whose step cannot be told
     is kept: what is shown of a red never hides its evidence."""
-    return "\n".join(line for line, _, status in step_owners(job, log) if status != PASSED)
+    return "\n".join(line for line, _, status in step_owners(job, log, step_names=step_names) if status != PASSED)
 
 
 # The runner's own steps around a job's workflow steps in the jobs API's steps[]: "Set up job" first, then a job-started
@@ -1095,27 +1115,28 @@ RUNNER_LEADING_STEPS = ("Set up runner",)
 RUNNER_TRAILING_STEPS = ("Complete runner",)
 
 
-def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> None:
-    """Set "named_in_workflow" on each of JOB's jobs-API steps that its workflow (PATH, read at the job's head_sha)
-    lists: True when that step has a `name:`, False when it has none (step_owners). Only a proven mapping marks
-    anything: one workflow job whose name is JOB's (no matrix, no called workflow), its steps matched to the jobs
-    API's by order between the runner's own (RUNNER_LEADING_STEPS, RUNNER_TRAILING_STEPS), every fixed `name:` the
-    step's API name, every unnamed step's API name `Run <its uses>` or, for a `run:` step, `Run ...` (_step_marks);
-    a job whose name is an expression _check_matcher does not read (cmux-next.yml's cmux-scheme-compile) may be JOB
-    too, so one whose steps fit as well must give the same marks. A workflow
-    that cannot be read, or any doubt, marks nothing, so step_owners keeps taking a "Run ..." name for an unnamed
-    step's (#40542's sixth Codex BLOCK). Read only for a job with such a step; each workflow is read once (SEEN)."""
+def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> dict[int, bool] | StepNamesUnknown:
+    """step_owners' STEP_NAMES for JOB: {the number of each of its jobs-API steps its workflow (PATH, read at the
+    job's head_sha) lists: True when that step has a `name:`, False when it has none}, or STEP_NAMES_UNKNOWN. Only a
+    proven mapping names anything: one workflow job whose name is JOB's (no matrix, no called workflow), its steps
+    matched to the jobs API's by order between the runner's own (RUNNER_LEADING_STEPS, RUNNER_TRAILING_STEPS), every
+    fixed `name:` the step's API name, every unnamed step's API name `Run <its uses>` or, for a `run:` step, `Run ...`
+    (_step_marks); a job whose name is an expression _check_matcher does not read (cmux-next.yml's
+    cmux-scheme-compile) may be JOB too, so one whose steps fit as well must give the same marks. A local composite
+    is one jobs-API step and changes none of this (LocalCompositeCannotPose). A workflow that cannot be read, or any
+    doubt, is STEP_NAMES_UNKNOWN, so step_owners keeps taking a "Run ..." name for an unnamed step's (#40542's sixth
+    Codex BLOCK). Each workflow is read once (SEEN). GITHUB with no blob read (next_batch's) reads git alone."""
     api = sorted(job.get("steps") or [], key=lambda step: step.get("number") if isinstance(step.get("number"), int)
                  else -1)
     names = [step.get("name") for step in api]  # step-name: validate
     if not any(isinstance(name, str) and name.startswith("Run ") for name in names):
-        return
+        return STEP_NAMES_UNKNOWN
     sha = str(job.get("head_sha") or "")
     path = str(path or "").split("@", 1)[0]
     if ([step.get("number") for step in api] != list(range(1, len(api) + 1)) or not re.fullmatch(r"[0-9a-f]{40}", sha)
             or not re.fullmatch(r"\.github/workflows/[\w.-]+\.ya?ml", path)
             or not all(isinstance(name, str) for name in names)):
-        return
+        return STEP_NAMES_UNKNOWN
     key = ("workflow-jobs", sha, path)
     if key not in seen:
         def read(_: str) -> str:
@@ -1132,13 +1153,13 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> None:
             seen[key] = None
     jobs = seen[key]
     if not isinstance(jobs, dict):
-        return
+        return STEP_NAMES_UNKNOWN
     # The workflow job named like JOB, and every job whose name is not read (an expression may render as JOB's): each
     # that fits the jobs API's steps must give the same marks, so only one way of reading the steps is possible.
     named, unread = [], []
     for job_id, spec in jobs.items():
         if not isinstance(spec, dict):
-            return
+            return STEP_NAMES_UNKNOWN
         try:
             matcher = _check_matcher(str(job_id), spec, path)
         except Refused:
@@ -1148,13 +1169,30 @@ def workflow_step_names(repo: str, job: dict, path, github, seen: dict) -> None:
                                                        for start in matcher["prefixes"])):
             named.append(spec)
     if len(named) != 1 or "uses" in named[0] or (named[0].get("strategy") or {}).get("matrix"):
-        return
+        return STEP_NAMES_UNKNOWN
     marks = _step_marks(named[0].get("steps"), names)
     if marks is None or any(_step_marks(spec.get("steps"), names) not in (None, marks) for spec in unread):
-        return
-    for step, mark in zip(api, marks):
-        if mark is not None:
-            step["named_in_workflow"] = mark
+        return STEP_NAMES_UNKNOWN
+    return {step["number"]: mark for step, mark in zip(api, marks) if mark is not None}
+
+
+def job_step_names(repo: str, job: dict, github, seen: dict, path=None) -> dict[int, bool] | StepNamesUnknown:
+    """workflow_step_names for JOB, its workflow's PATH read from its run's record when not given (rest_run, once per
+    run in SEEN; an unread record is STEP_NAMES_UNKNOWN). Read only when a step's name starts with "Run ", the one case
+    the answer changes step_owners'."""
+    steps = job.get("steps") or []
+    if not any(str(step.get("name") or "").startswith("Run ") for step in steps):  # step-name: validate
+        return STEP_NAMES_UNKNOWN
+    if path is None:
+        key = ("run-record", job.get("run_id"))
+        if key not in seen:
+            try:
+                seen[key] = rest_run(repo, job["run_id"], github, seen)
+            except (KeyError, Refused):
+                seen[key] = None
+        record = seen[key]
+        path = record.get("path") if isinstance(record, dict) else None
+    return workflow_step_names(repo, job, path, github, seen)
 
 
 def _step_marks(declared, names: list[str]) -> list[bool | None] | None:
@@ -1204,7 +1242,8 @@ UNPLACED_WHY = ("its log does not map one to one onto its steps (step_owners: a 
                 "header that is not its step's own), so no line can be told to the step that printed it")
 
 
-def signature(job: dict, log: str, base: bool = False) -> tuple[set[str], set[str], set[str]] | Unplaced:
+def signature(job: dict, log: str, base: bool = False, *,
+              step_names) -> tuple[set[str], set[str], set[str]] | Unplaced:
     """(failed step names, failing test names, error lines with numbers masked), from what the steps printed: the
     runner's echo of each step's script is never a test or an error (test_reds.echoed; 2026-10-30, cmux#28145 was
     excused because the base's log echoed the same `echo "::error::..."` lines of its step's script). Error lines come
@@ -1213,22 +1252,24 @@ def signature(job: dict, log: str, base: bool = False) -> tuple[set[str], set[st
     passing step may have printed never matches a head failure (cmux#40542 F1: a composite's extra STEP_START line put
     a passing step's `Sources/New.swift` diagnostic in the base's errors, and judge() excused the head's new failure;
     its fourth Codex BLOCK: a passing step's echoed exit line, or a failing "Complete job", made a passing step's
-    lines base evidence). A log step_owners does not place has no signature: UNPLACED, on either side."""
-    if not placed(job, log):
+    lines base evidence). A log step_owners does not place has no signature: UNPLACED, on either side. STEP_NAMES:
+    step_owners'."""
+    if not placed(job, log, step_names=step_names):
         return UNPLACED
     steps = {step["name"] for step in job.get("steps") or []  # step-name: classify
              if step.get("conclusion") not in (None, "success", "skipped")}
-    owned = step_owners(job, log)
+    owned = step_owners(job, log, step_names=step_names)
     tests = test_reds.failed_names(test_reds.lines_of(
         "\n".join(line for line, _, status in owned if status == FAILED) if base else log))
-    return steps, tests, {error for _, error in step_errors(job, log, base, owned)}
+    return steps, tests, {error for _, error in step_errors(job, log, base, owned, step_names=step_names)}
 
 
-def step_errors(job: dict, log: str, base: bool = False, owned: list | None = None) -> set[tuple[str, str]]:
+def step_errors(job: dict, log: str, base: bool = False, owned: list | None = None, *,
+                step_names) -> set[tuple[str, str]]:
     """(the name of the step that printed it, the error line with numbers masked) for each error line signature()
     reads from LOG: with BASE, from FAILED sections alone. judge() excuses a head error only when a base printed it
     from a failed step of the same name."""
-    owned = step_owners(job, log) if owned is None else owned
+    owned = step_owners(job, log, step_names=step_names) if owned is None else owned
     ran = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
     if all(isinstance(step.get("number"), int) for step in ran):
         ran.sort(key=lambda step: step["number"])
@@ -1634,7 +1675,7 @@ def validate_guard_routes(repo: str, sha: str, guard: dict, children: list[dict]
     text = github.log(repo, guard)
     if refused_at_setup(guard, text):
         raise Refused(f"'{name}' was refused at setup by its runner")
-    found = signature(guard, text)
+    found = signature(guard, text, step_names=job_step_names(repo, guard, github, {}))
     if found is UNPLACED:
         raise Refused(f"'{name}': {UNPLACED_WHY}; its routes are not judged")
     steps, _, errors = found
@@ -2750,10 +2791,10 @@ def package_reads(repo: str, sha: str, package: dict, github) -> tuple[str, ...]
     return reads
 
 
-def package_tests(package: dict, job: dict, head_log: str) -> list[str]:
+def package_tests(package: dict, job: dict, head_log: str, *, step_names) -> list[str]:
     """The failing tests of a PACKAGE_JOBS job, whose every failed step is one of its test steps and names a failing
     test of its own (one step's test failure never covers another's compile error); raises Refused."""
-    found = signature(job, head_log)
+    found = signature(job, head_log, step_names=step_names)
     if found is UNPLACED:
         raise Refused(UNPLACED_WHY)
     steps, _, _ = found
@@ -2761,7 +2802,7 @@ def package_tests(package: dict, job: dict, head_log: str) -> list[str]:
         raise Refused(f"its failed step {other[0]!r} is not one of the job's test steps")
     if not steps:
         raise Refused("no failing test in its test steps")
-    owned = step_lines(job, head_log)
+    owned = step_lines(job, head_log, step_names=step_names)
     if owned is None:
         raise Refused("its log does not map one to one onto its steps (step_owners), so no line can be told to the "
                       "step that printed it")
@@ -2887,14 +2928,15 @@ def fixed_on_base_pull(repo: str, base: str, sha: str, name: str, merge_base: st
 
 
 def fixed_on_base(repo: str, base: str, sha: str, name: str, head_log: str, base_run: dict, github,
-                  job: dict | None = None) -> str:
+                  job: dict | None = None, *, step_names) -> str:
     """The audit line for a red job whose every failing test is fixed on the base (the rule above); raises Refused
     with the reason it is not. BASE_RUN is the newest base run with a verdict for the job, and that verdict passed."""
     package = PACKAGE_JOBS.get(name)
     if not guard_job(name) and package is None:
         raise Refused(f"'{name}' is not a declared guard job (GUARD_JOBS) or package job (PACKAGE_JOBS); its tests "
                       "may read product code")
-    tests = guard_tests(head_log) if package is None else dict.fromkeys(package_tests(package, job or {}, head_log))
+    tests = guard_tests(head_log) if package is None else dict.fromkeys(package_tests(package, job or {}, head_log,
+                                                                                          step_names=step_names))
     tested = tested_sha(base_run)
     if not re.fullmatch(r"[0-9a-f]{40}", tested):
         raise Refused(f"{base} run {base_run['id']} names no commit it tested")
@@ -3099,20 +3141,20 @@ def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
         raise
 
 
-def step_lines(job: dict, head_log: str) -> list[tuple[dict, list[str], bool]] | None:
+def step_lines(job: dict, head_log: str, *, step_names) -> list[tuple[dict, list[str], bool]] | None:
     """[(step, the lines of HEAD_LOG it printed, whether its section is FAILED)] for each step of JOB that ran, by
     number, as step_owners places them; None when it places nothing (the log does not map one to one onto the steps).
     A step whose section has a live `##[error]` annotation (ERRORED) counts as failed whatever the jobs API says.
     "Complete job" shares the last section with the step before it. Each line is its stamp and text (`gh run view --log`'s job
     and step columns dropped)."""
-    if not placed(job, head_log):
+    if not placed(job, head_log, step_names=step_names):
         return None
     steps = [step for step in job.get("steps") or [] if step.get("conclusion") != "skipped"]
     if all(isinstance(step.get("number"), int) for step in steps):
         steps.sort(key=lambda step: step["number"])
     found: list[list[str]] = [[] for _ in steps]
     red = [False] * len(steps)
-    for line, index, status in step_owners(job, head_log):
+    for line, index, status in step_owners(job, head_log, step_names=step_names):
         parts = line.split("\t", 2)
         found[index].append(parts[2] if len(parts) == 3 and STAMP.match(parts[2]) else line)
         red[index] = red[index] or status in (FAILED, ERRORED)
@@ -3123,10 +3165,10 @@ def step_failed(step: dict) -> bool:
     return step.get("conclusion") not in (None, "success", "skipped")
 
 
-def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
+def quarantined_only(job: dict, head_log: str, known: dict, *, step_names) -> bool:
     """A whole test-step red explained entirely by matching quarantines, with no additional failing step/error."""
     found = test_reds.read(head_log)
-    sig = signature(job, head_log)
+    sig = signature(job, head_log, step_names=step_names)
     if sig is UNPLACED:
         return False  # no failed step's lines are proven, so no quarantine explains them
     steps, _, errors = sig
@@ -3136,7 +3178,7 @@ def quarantined_only(job: dict, head_log: str, known: dict) -> bool:
     # A generic failed test-named step must not borrow a quarantined test from another step: each failed section's own
     # lines (step_lines) name its quarantined tests, and a log that does not map one to one onto its steps explains
     # none.
-    owned = step_lines(job, head_log)
+    owned = step_lines(job, head_log, step_names=step_names)
     if owned is None:
         return False
     for step, lines, red in owned:
@@ -3887,18 +3929,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if refused_at_setup(job):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
         head_log = lost_runner_log(repo, name, job, github)
-        if any(str(step.get("name") or "").startswith("Run ") for step in job.get("steps") or []):  # step-name: validate
-            # Which steps the workflow names (step_owners), read before any reader places this log's lines.
-            # An unread run record marks nothing (the "Run ..." names stay unproven); its workflow_id is read below.
-            run_key = ("run-record", job["run_id"])
-            if run_key not in run_reads:
-                try:
-                    run_reads[run_key] = rest_run(repo, job["run_id"], github, run_reads)
-                except Refused:
-                    run_reads[run_key] = None
-            record = run_reads[run_key]
-            workflow_step_names(repo, job, record.get("path") if isinstance(record, dict) else None, github,
-                                run_reads)
+        # Which steps the workflow names (step_owners), read before any reader places this log's lines.
+        names = job_step_names(repo, job, github, run_reads)
         if refused_at_setup(job, head_log):
             raise Refused(f"'{name}' was refused at setup by its runner; it gets re-run, never excused")
         if name == GENERATED_VERDICT_JOB and (said := generated_no_verdict(head_log)) is not None:
@@ -3925,7 +3957,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 continue
             except Refused:
                 pass
-        early = signature(job, head_log)
+        early = signature(job, head_log, step_names=names)
         # An unplaced head has no signature: no rule below that reads one (the Chromium currency step, the app FFI
         # pin) applies to it, and the base comparison refuses it (placed, below); per-test web and gallery verdicts
         # read their own evidence.
@@ -3956,7 +3988,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # This supplement uses only measured base observations with an active public quarantine issue. It can
         # bridge a green base run; it never changes the deterministic comparison when state is absent or invalid.
         known = test_reds.flaky_failures(head_log, name, workflow_info.get("name", ""), flake_state)
-        if base == "feat-cmux-next" and quarantined_only(job, head_log, known):
+        if base == "feat-cmux-next" and quarantined_only(job, head_log, known, step_names=names):
             audit.append(f"excused '{name}': quarantined base flakes: "
                          + "; ".join(f"{test} ({why})" for test, why in sorted(known.items())))
             continue
@@ -3992,7 +4024,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             continue
         if base_job.get("conclusion") != "failure":
             try:
-                audit.append(fixed_on_base(repo, base, sha, name, head_log, base_run, github, job))
+                audit.append(fixed_on_base(repo, base, sha, name, head_log, base_run, github, job, step_names=names))
             except Refused as why:
                 if (stale := before_merge_base(repo, base, sha, base_run, github, merge_bases)) is not None:
                     dispatch = base_dispatch(repo, base, workflow_info, base_runs[workflow], github)
@@ -4003,11 +4035,11 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 raise Refused(f"'{name}' is not red on {base} run {base_run['id']} ({base_job.get('conclusion')}), "
                               f"and not fixed on base: {why}; fix it on this head") from None
             continue
-        if not placed(job, head_log):
+        if not placed(job, head_log, step_names=names):
             raise Refused(f"'{name}': its log does not map one to one onto its steps (step_owners: a composite action, "
                           "a silent step or a header that is not its step's own), so no line can be told to the step "
                           "that printed it; nothing is compared with the base")
-        head = signature(job, head_log)
+        head = signature(job, head_log, step_names=names)
         if head is UNPLACED:  # placed() above: never, and never compared if it were
             raise Refused(f"'{name}': {UNPLACED_WHY}; nothing is compared with the base")
         if aside is not None:
@@ -4018,20 +4050,20 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # BASE_WINDOW_HOURS of it, read only while a head failure is on none so far. A green verdict ends it.
         def red(run: dict, found: dict) -> tuple:
             text = github.log(repo, found)
-            workflow_step_names(repo, found, run.get("path"), github, run_reads)
-            if not placed(found, text):
+            found_names = job_step_names(repo, found, github, run_reads, path=run.get("path"))
+            if not placed(found, text, step_names=found_names):
                 raise Refused(f"'{name}': {base} run {run['id']}'s log does not map one to one onto its steps "
                               "(step_owners), so no base line can be told to a failed step; nothing is compared")
-            said = signature(found, text, base=True)
+            said = signature(found, text, base=True, step_names=found_names)
             if said is UNPLACED:  # placed() above: never, and never base evidence if it were
                 raise Refused(f"'{name}': {base} run {run['id']}: {UNPLACED_WHY}; nothing is compared")
-            return run, text, said, step_errors(found, text, base=True)
+            return run, text, said, step_errors(found, text, base=True, step_names=found_names)
         window, newest, read = [red(base_run, base_job)], created(base_run), 1
         while True:
             try:
                 audit.append(compare_window(repo, base, name, head, head_log, window, chromium_without_diagnostics,
                                             flake_state=flake_state, workflow=workflow_info.get("name", ""),
-                                            head_pairs=step_errors(job, head_log))
+                                            head_pairs=step_errors(job, head_log, step_names=names))
                              + (f"; {aside}" if aside is not None else ""))
                 break
             except Final:

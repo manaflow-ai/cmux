@@ -180,11 +180,15 @@ def frame_legacy(job, text):
     return "\n".join(out)
 
 
+# What a fixture with no workflow to read passes for step_owners' required STEP_NAMES.
+UNKNOWN = {"step_names": excuse.STEP_NAMES_UNKNOWN}
+
+
 def placed_signature(job, text, base=False):
     """excuse.signature of a fixture written before lines were placed by step order, framed as the job-log endpoint
     serves it (frame_legacy) so step_owners places it: a log it does not place has no signature (excuse.UNPLACED)."""
     job = copy.deepcopy(job)
-    return excuse.signature(job, frame_legacy(job, text), base)
+    return excuse.signature(job, frame_legacy(job, text), base, **UNKNOWN)
 
 
 class InProgressJobLogGitHub(FakeGitHub):
@@ -3534,7 +3538,7 @@ class EchoedStepScriptIsNoEvidence(unittest.TestCase):
              "started_at": "2026-10-30T23:16:38Z", "completed_at": "2026-10-30T23:29:27Z"},
             {"number": 4, "name": "Complete job", "status": "completed", "conclusion": "success",
              "started_at": "2026-10-30T23:29:27Z", "completed_at": "2026-10-30T23:29:27Z"}])
-        _, tests, errors = excuse.signature(job, self.gh.logs[2])
+        _, tests, errors = excuse.signature(job, self.gh.logs[2], **UNKNOWN)
         self.assertEqual(tests, {"TerminalSurfaceFramePacingTests.busyOutputDrawsAtMostOneFramePerDisplayRefresh()"})
         self.assertEqual(errors, set(), "every `::error::` in this log is the step script's echo")
 
@@ -6643,7 +6647,8 @@ class FailingStepLogOnly(unittest.TestCase):
     # failed_steps_log is vendored, byte for byte, into cmuxterm-hq tools/fleet-reconcilers/failed_steps_log.py and
     # leo-workspace tools/failed_steps_log.py (base-red-watch reads job logs there and cannot import this script); each
     # copy's test pins the same fingerprint. A change here updates this value and both copies.
-    VENDORED_FINGERPRINT = "0d74413175a0e1a4c878a08c869895b3a88bf5254d2ac3ea56fd07e86273ce13"
+    # Each copy keeps STEP_NAMES_UNKNOWN too: step_owners requires a caller to pass it when it reads no workflow.
+    VENDORED_FINGERPRINT = "b25a8e4f61d1d373e53ae5fe0797484f4adf9c6cf104dda2d1472f1e8af5a61a"
 
     def test_the_code_vendored_into_base_red_watch_is_pinned(self):
         import hashlib
@@ -6652,6 +6657,7 @@ class FailingStepLogOnly(unittest.TestCase):
         parts += [str(excuse.STEP_OWNERS_MAX_LINES)]
         parts += [inspect.getsource(getattr(excuse, name))
                   for name in ("lines_of", "_stamp_time", "step_owners", "failed_steps_log")]
+        parts += [repr(excuse.STEP_NAMES_UNKNOWN)]  # the sentinel step_owners requires when no workflow is read
         self.assertEqual(hashlib.sha256("\0".join(parts).encode()).hexdigest(), self.VENDORED_FINGERPRINT,
                          "step_owners or failed_steps_log changed: copy them to cmuxterm-hq "
                          "tools/fleet-reconcilers/failed_steps_log.py "
@@ -6680,7 +6686,7 @@ class FailingStepLogOnly(unittest.TestCase):
         # took it out of "passed" and brought back its whole log, so the excuse quoted "digest changed" again.
         missing = ["settings: 42 strings missing"]
         log = self.raw(self.adjacent_sections(missing))
-        scoped = excuse.failed_steps_log(self.job(1, 10, HEAD, self.adjacent_steps()), log)
+        scoped = excuse.failed_steps_log(self.job(1, 10, HEAD, self.adjacent_steps()), log, **UNKNOWN)
         # The strings step's header is stamped in the second the license step ended in, so the log does not map one
         # to one onto the steps: the comment keeps the whole log, digest line included, and nothing is excused.
         self.assertIn("digest changed", scoped)
@@ -6965,13 +6971,13 @@ class StepOwnership(unittest.TestCase):
             with self.subTest(columns=columns):
                 job, log_text = {"steps": framed_steps(steps)}, framed_log(lines, columns=columns)
                 said = {}
-                for line, _, status in excuse.step_owners(job, log_text):
+                for line, _, status in excuse.step_owners(job, log_text, **UNKNOWN):
                     said.setdefault(excuse.lines_of(line)[0], set()).add(status)
                 for status, texts in ((excuse.FAILED, failed), (excuse.PASSED, passed),
                                       (excuse.AMBIGUOUS, ambiguous), ("errored", errored)):
                     for text in texts:
                         self.assertEqual(said.get(text), {status}, text)
-                out = excuse.failed_steps_log(job, log_text)
+                out = excuse.failed_steps_log(job, log_text, **UNKNOWN)
                 for text in failed + ambiguous + errored:
                     self.assertIn(text, out)
                 for text in passed:
@@ -7066,7 +7072,7 @@ class StepOwnership(unittest.TestCase):
                                            ("one step's 10,000 headers", (one, flood), (excuse.AMBIGUOUS,) * 2)):
             job, log_text = {"steps": framed_steps(steps)}, framed_log(text)
             started = time.perf_counter()
-            owned = excuse.step_owners(job, log_text)
+            owned = excuse.step_owners(job, log_text, **UNKNOWN)
             took = time.perf_counter() - started
             said = {excuse.lines_of(line)[0]: status for line, _, status in owned}
             with self.subTest(shape=label):
@@ -7328,9 +7334,9 @@ class StepLayouts(unittest.TestCase):
             columns = bool(n % 2)
             job = {"steps": framed_steps(steps)}
             head_log, base_log = framed_log(head, name, columns), framed_log(base, name, columns)
-            ambiguous = any(status == excuse.AMBIGUOUS for _, _, status in excuse.step_owners(job, head_log))
+            ambiguous = any(status == excuse.AMBIGUOUS for _, _, status in excuse.step_owners(job, head_log, **UNKNOWN))
             seen["ambiguous" if ambiguous else "placed"] += 1
-            kept = excuse.failed_steps_log(job, head_log)
+            kept = excuse.failed_steps_log(job, head_log, **UNKNOWN)
             for text in red:
                 self.assertIn(text, kept, f"case {n}: {text!r} dropped")
             for pair, allowed in (((head_log, base_log), may), ((head_log, head_log), None)):
@@ -7391,10 +7397,10 @@ class StepOwnershipCallers(unittest.TestCase):
                 job, log_text, package = callers_case(case, columns)
                 with self.subTest(case=case, columns=columns):
                     if case in PACKAGE_EXCUSED:
-                        self.assertEqual(excuse.package_tests(package, job, log_text), ["own()"])
+                        self.assertEqual(excuse.package_tests(package, job, log_text, **UNKNOWN), ["own()"])
                     else:
                         with self.assertRaises(excuse.Refused):
-                            excuse.package_tests(package, job, log_text)
+                            excuse.package_tests(package, job, log_text, **UNKNOWN)
 
     def test_every_step_ownership_case_through_quarantined_only(self):
         # The passing steps' quarantined failure never explains the failed step, whose own lines name no test.
@@ -7402,12 +7408,12 @@ class StepOwnershipCallers(unittest.TestCase):
             for columns in (False, True):
                 job, log_text, _ = callers_case(case, columns, own=False)
                 with self.subTest(case=case, columns=columns):
-                    self.assertFalse(excuse.quarantined_only(job, log_text, {"sometimes()": "hq#1"}))
+                    self.assertFalse(excuse.quarantined_only(job, log_text, {"sometimes()": "hq#1"}, **UNKNOWN))
 
     def test_step_lines_gives_a_failed_section_its_own_lines_only(self):
         for case, (_, _, _, _, ambiguous, *_) in STEP_OWNERSHIP.items():
             job, log_text, _ = callers_case(case)
-            owned = excuse.step_lines(job, log_text)
+            owned = excuse.step_lines(job, log_text, **UNKNOWN)
             with self.subTest(case=case):
                 if ambiguous:
                     self.assertIsNone(owned)
@@ -7424,7 +7430,8 @@ class StepOwnershipCallers(unittest.TestCase):
         for columns in (False, True):
             with self.subTest(columns=columns):
                 self.assertTrue(excuse.quarantined_only({"name": "swift", "steps": framed_steps(steps)},
-                                                        framed_log(lines, columns=columns), {"sometimes()": "hq#1"}))
+                                                        framed_log(lines, columns=columns), {"sometimes()": "hq#1"},
+                                                        **UNKNOWN))
 
 
 class UnplacedSignature(unittest.TestCase):
@@ -7452,9 +7459,9 @@ class UnplacedSignature(unittest.TestCase):
             text = framed_log(self.lines(OLD_RED), SWIFT, columns=columns)
             for base in (False, True):
                 with self.subTest(columns=columns, base=base):
-                    self.assertIs(excuse.signature(self.job(), text, base), excuse.UNPLACED)
+                    self.assertIs(excuse.signature(self.job(), text, base, **UNKNOWN), excuse.UNPLACED)
             placed = excuse.signature(self.job(), framed_log(self.lines(OLD_RED, placed=True), SWIFT, columns=columns),
-                                      True)
+                                      True, **UNKNOWN)
             self.assertIsNot(placed, excuse.UNPLACED)
             self.assertEqual(placed[0], {"Unit tests"})
 
@@ -7464,11 +7471,11 @@ class UnplacedSignature(unittest.TestCase):
         lines = [(("swift test (macOS)" if step == "Unit tests" else step), at, text)
                  for step, at, text in self.lines(OWN)]
         with self.assertRaises(excuse.Refused):
-            excuse.package_tests(package, self.job(steps), framed_log(lines, SWIFT))
+            excuse.package_tests(package, self.job(steps), framed_log(lines, SWIFT), **UNKNOWN)
 
     def test_quarantined_only_never_explains_an_unplaced_log(self):
         self.assertFalse(excuse.quarantined_only(self.job(), framed_log(self.lines(FLAKE), SWIFT),
-                                                 {"sometimes()": "hq#1"}))
+                                                 {"sometimes()": "hq#1"}, **UNKNOWN))
 
     def test_judge_refuses_an_unplaced_head_whatever_the_base(self):
         for columns in (False, True):
@@ -7693,14 +7700,13 @@ class LocalCompositeCannotPose(unittest.TestCase):
                     steps = self.steps(end)
                     log_text = framed_log(self.lines(end, inner_at, several), self.NAME, columns=columns)
                     job = {"id": 1, "run_id": 10, "head_sha": HEAD, "name": self.NAME, "steps": steps}
-                    excuse.workflow_step_names(REPO, job, self.PATH, self.github(log_text, steps), {})
+                    names = excuse.workflow_step_names(REPO, job, self.PATH, self.github(log_text, steps), {})
                     # The composite does not stop the marks: the workflow proves the sibling unnamed.
-                    self.assertEqual([step.get("named_in_workflow") for step in steps],
-                                     [None, False, True, False, None, None])
-                    owned = excuse.step_owners(job, log_text)
+                    self.assertEqual(names, {2: False, 3: True, 4: False})
+                    owned = excuse.step_owners(job, log_text, step_names=names)
                     self.assertEqual({status for _, _, status in owned}, {excuse.AMBIGUOUS})
                     self.assertFalse(any(index == 3 for _, index, _ in owned), "a line was placed on the sibling")
-                    self.assertIs(excuse.signature(job, log_text, base=True), excuse.UNPLACED)
+                    self.assertIs(excuse.signature(job, log_text, base=True, step_names=names), excuse.UNPLACED)
                     with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps"):
                         excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.github(log_text, steps))
 
