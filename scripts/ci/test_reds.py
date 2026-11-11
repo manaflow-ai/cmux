@@ -338,6 +338,22 @@ def lines_of(log: str) -> list[str]:
     return [text for n, text in enumerate(lines) if n not in skip]
 
 
+def step_lines(log: str) -> list[tuple[bool, str]]:
+    """lines_of, each with whether a step that passed printed it (passed_steps)."""
+    lines = log_lines(log)
+    skip = echoed(lines)
+    passed = passed_steps(lines, skip)
+    return [(n in passed, text) for n, text in enumerate(lines) if n not in skip]
+
+
+def red_lines(log: str) -> list[str]:
+    """What the job's steps that did not pass printed: lines_of without every line of a step that passed. The source
+    every reader of a red's tests reads (parse_log, failed_tests' callers), so no reader sees a passing step's lines
+    (#41244's review F1 at 0a9fdca7: read_bun was handed them before the filter, and a filter inside each reader left
+    the next reader to skip it)."""
+    return [text for passing, text in step_lines(log) if not passing]
+
+
 # A crash-class rule's failure line (cmux-next-crash-class.yml; crash_class_fast_gate.py lists the prefixes):
 # `objc-selectors: <file>:<line>: super.<sel> (<Class> call:<sel>/<n>): probe needed; run ...` and
 # `cef-objc-contract: <detail>`. The rule is a named failure the way a test is, so a base red there is excused.
@@ -681,7 +697,7 @@ def bun_diagnostic(said: list, where: str = "") -> str:
     return f"{said} at {where}" if said and where else said
 
 
-def read_bun(lines: list[str], result: Result, unowned: frozenset = frozenset()) -> None:
+def read_bun(lines: list[str], result: Result) -> None:
     """`bun test`'s failures into `result`: each named `FILE > TEST` under its file's header (webviews_test_results.py's
     names), or `TEST` when the recap is all that names it, with its diagnostics (bun_diagnostic, or its timeout; every
     distinct one when the name fails more than once) as its message. An unhandled error between tests is a failure
@@ -692,8 +708,8 @@ def read_bun(lines: list[str], result: Result, unowned: frozenset = frozenset())
     when no bun line names a failure at all; the wrapper's retry drops the attempt it supersedes, count and all.
     A recap title is counted as often as the recap lists it, less the results of its invocation that named it: a
     title that failed twice and is named only in the recap is two failures (#41222's review F1 at 6719ba22).
-    UNOWNED holds the indexes of LINES a step that passed printed: a marker there is never this red's (#41244's review
-    F1; #41241: evidence from passing steps never counts)."""
+    LINES hold no passing step's output: the caller filters at the source (red_lines; #41241: evidence from passing
+    steps never counts)."""
     file, said, where, last, recap, unhandled, open_run = "", [], "", None, False, False, False
     results: Counter = Counter()  # this invocation's `(fail)` results by title (bun's `describe > test`)
     recapped: Counter = Counter()  # this invocation's recap lines by title
@@ -741,7 +757,7 @@ def read_bun(lines: list[str], result: Result, unowned: frozenset = frozenset())
             result.truncated.append(f"a bun test run printed no ` N pass` / ` N fail` summary before {why}")
         open_run = False
 
-    for at, text in enumerate(lines):
+    for text in lines:
         if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
             continue
         if BUN_RUN.match(text) or text == WEB_RETRY:
@@ -793,7 +809,7 @@ def read_bun(lines: list[str], result: Result, unowned: frozenset = frozenset())
             if unhandled:
                 fail(f"{file} > unhandled error" if file else "unhandled error", "")
             recap_failures()
-            if int(text.split()[0]) > kept and at not in unowned:
+            if int(text.split()[0]) > kept:
                 marked.append((run_file, text))
             file, said, where, last, recap, unhandled, open_run = "", [], "", None, False, False, False
             block, kept = False, 0
@@ -826,8 +842,8 @@ def read_bun(lines: list[str], result: Result, unowned: frozenset = frozenset())
     end_run("the log ended")
     result.unnamed.extend(said_line for _, said_line in marked)
     if not any_named:
-        result.unnamed.extend(text for n, text in enumerate(lines)
-                              if (match := BUN_RESULT.match(text)) and match.group(1) == "FAIL" and n not in unowned)
+        result.unnamed.extend(text for text in lines
+                              if (match := BUN_RESULT.match(text)) and match.group(1) == "FAIL")
     for name, found in diagnostics.items():
         if found:
             # Like web_failures: several diagnostics for one name are all compared, none dropped, in sorted order so
@@ -869,23 +885,21 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
     if log is None or not log.strip():
         result.truncated.append("its log could not be read" if log is None else "its log is empty")
         return result
-    every = log_lines(log)
-    skip = echoed(every)
-    passed = passed_steps(every, skip)
-    kept = [n for n in range(len(every)) if n not in skip and not every[n].startswith(TAP_MARKER)]
-    lines = [every[n] for n in kept]
+    # The lines once, filtered at the source (step_lines): no echo, no TAP marker, and LINES holds nothing a step that
+    # passed printed. Every reader below reads LINES alone (#41244's review F1 at 0a9fdca7: read_bun was handed every
+    # line before the passing-step filter, so a passing step's `(fail)` and ` 2 fail` called the whole job cut short,
+    # and a filter inside each reader left the next reader to skip it). The one reader of a passing step's lines is
+    # the crash scan, by rule: a segfault there is still a crash (a signal someone sent, SHELL_SIGNAL, is the step's).
+    shown = [(passing, text) for passing, text in step_lines(log) if not text.startswith(TAP_MARKER)]
+    lines = [text for passing, text in shown if not passing]
     started = {m.group(1) for text in lines for m in [STARTED.search(text)] if m}
     stack: list[str] = []
     signals: list[str] = []
     named: list[str] = []
     crashed = False
-    for at, text in enumerate(lines):
+    for passing, text in shown:
         if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
             continue
-        if RAN.search(text) or UNITTEST_LINE.match(text) or BUN_STARTED.match(text) or BUN_RESULT.match(text):
-            result.ran = True
-        if (match := BUN_RESULT.match(text)) and match.group(1) == "TIMEOUT":
-            result.truncated.append(f"{match.group(2)} timed out (killed at the wrapper's hard limit)")
         if BUN_PANIC.match(text):
             crashed = True
         if match := XCTEST_RESTART.search(text):
@@ -897,7 +911,7 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
         if 1 <= signal_exit <= 64:
             crashed = True
             signals.append(str(signal_exit))
-        killed = SHELL_SIGNAL.search(text) and kept[at] not in passed
+        killed = SHELL_SIGNAL.search(text) and not passing
         runtime = HELPER_KILLED.search(text) or killed or (
             (CRASH.search(text) or CRASH_AT_START.search(text) or SIGNALED.search(text)) and not TEST_LINE.search(text) and not HEADING.match(text))
         if runtime:
@@ -906,6 +920,13 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
                 signals.append(number)
         if crashed and ("$s" in text or re.match(r"^\s*\d+\s+\S+\s+0x[0-9a-f]+ ", text)):
             stack.append(text)
+    for text in lines:
+        if SWIFT_TEST_SUMMARY_FIXTURE.search(text):
+            continue
+        if RAN.search(text) or UNITTEST_LINE.match(text) or BUN_STARTED.match(text) or BUN_RESULT.match(text):
+            result.ran = True
+        if (match := BUN_RESULT.match(text)) and match.group(1) == "TIMEOUT":
+            result.truncated.append(f"{match.group(2)} timed out (killed at the wrapper's hard limit)")
         if TRUNCATED.search(text) or NO_RESULT.search(text):
             why = re.sub(r"^##\[error\]|^::error[^:]*::", "", text).strip()
             result.truncated.append(why[:200])
@@ -954,13 +975,10 @@ def parse_log(log: str | None, bun: bool = True) -> Result:
     if running > sum(1 for text in lines if text.startswith("test result: ")):
         result.truncated.append("a cargo test binary printed no `test result:` line")
     if bun:
-        # A step that passed printed no red's marker (#41244's review F1): its lines are no bun count's either.
-        read_bun(lines, result, frozenset(at for at, n in enumerate(kept) if n in passed))
+        read_bun(lines, result)
     # A failure no parser names (unnamed_failures), read here, in the reading every consumer goes through (classify,
-    # classify_any, judge()'s read_head, next_batch's expand_job), never per consumer (#41222's review F1). A passing
-    # step's lines are no red's (#40542), so its summaries are not read.
-    result.unnamed = runner_unnamed([every[n] for n in kept if n not in passed
-                                     and not SWIFT_TEST_SUMMARY_FIXTURE.search(every[n])]) + result.unnamed
+    # classify_any, judge()'s read_head, next_batch's expand_job), never per consumer (#41222's review F1).
+    result.unnamed = runner_unnamed(real) + result.unnamed
     if result.unnamed:
         result.truncated.append(unnamed_why(result.unnamed))
     if crashed:

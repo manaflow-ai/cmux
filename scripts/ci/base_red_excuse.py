@@ -1473,7 +1473,7 @@ def signature(view: "FailedView | Unplaced") -> tuple[set[str], set[str], set[st
     text = view_text(view)
     steps = {step["name"] for step in view.job.get("steps") or []  # step-name: classify
              if step.get("conclusion") not in (None, "success", "skipped")}
-    tests = set(test_reds.failed_tests(test_reds.lines_of(text)))  # bun's too (#41158's review F1)
+    tests = set(test_reds.failed_tests(test_reds.red_lines(text)))  # bun's too (#41158's review F1)
     return steps, tests, {error for _, error in step_errors(view)}
 
 
@@ -1497,7 +1497,7 @@ def step_errors(view: FailedView) -> set[tuple[str, str]]:
     text = view_text(view)
     scope = view.lines()
     skip = test_reds.echoed(test_reds.log_lines(text))
-    tests = set(test_reds.failed_tests(test_reds.lines_of(text)))
+    tests = set(test_reds.failed_tests(test_reds.red_lines(text)))
     job = view.job
     found: set[tuple[str, str]] = set()
     for n, line in enumerate(lines_of(text)):
@@ -1573,8 +1573,10 @@ def unplaced_signature(job: dict, log: str) -> UnplacedSignature:
     # test_reds' one parser (failed_tests): bun's `FILE > TEST` too (#41158's review F1: unread, two different bun
     # failures with one `expect()` headline were the same red), and every source of a name counted alike, an
     # xcresult `FAILED:` line and each listing entry (#41129's review F2; #41158's review F2).
+    # A passing step's lines are no failing test's: the names are read from red_lines, as parse_log reads them
+    # (#41244's review F1).
     unnamed: list = []
-    tests = test_reds.failed_tests(output, unnamed)
+    tests = test_reds.failed_tests(test_reds.red_lines(log), unnamed)
     named = set(tests)
     errors: Counter = Counter()
     for line in output:
