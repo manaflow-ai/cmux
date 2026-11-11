@@ -65,21 +65,32 @@ fn keys(value: &Value) -> std::collections::BTreeSet<&str> {
 
 /// The commit that first wrote `"key" :` (the Swift encoder's spacing) into the dump, the way to
 /// find the pull request that put a key on every action; or the command that finds it when git
-/// can't (a shallow or no clone).
+/// can't. A shallow clone (CI's, a fleet step's) can't: its oldest commit is not the one that added
+/// the key, and `-S` also matches a commit that removed some.
 fn commit_that_added(key: &str) -> String {
     let pattern = format!("\"{key}\" :");
     let command = format!(
         "git log -S'{pattern}' --reverse --format='%h %s' -- plans/cmux-next/action-catalog.json"
     );
-    let found = std::process::Command::new("git")
+    let shallow = std::process::Command::new("git")
         .current_dir(repo())
-        .args(["log", "-S", &pattern, "--reverse", "--format=%h %s", "--"])
-        .arg("plans/cmux-next/action-catalog.json")
+        .args(["rev-parse", "--is-shallow-repository"])
         .output()
         .ok()
-        .filter(|out| out.status.success())
-        .and_then(|out| String::from_utf8(out.stdout).ok())
-        .and_then(|text| text.lines().next().map(str::to_owned));
+        .is_none_or(|out| !out.status.success() || out.stdout.starts_with(b"true"));
+    let found = if shallow {
+        None
+    } else {
+        std::process::Command::new("git")
+            .current_dir(repo())
+            .args(["log", "-S", &pattern, "--reverse", "--format=%h %s", "--"])
+            .arg("plans/cmux-next/action-catalog.json")
+            .output()
+            .ok()
+            .filter(|out| out.status.success())
+            .and_then(|out| String::from_utf8(out.stdout).ok())
+            .and_then(|text| text.lines().next().map(str::to_owned))
+    };
     found.map_or_else(|| format!("find it with `{command}`"), |line| format!("first in {line}"))
 }
 
