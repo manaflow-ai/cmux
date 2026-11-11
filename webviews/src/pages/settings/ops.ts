@@ -1064,6 +1064,24 @@ export type IntegrationRow = {
   errorKind?: "noAnswer" | "notFinished" | null;
 };
 
+/** One coding agent of Settings > Agents > Agents with cmux Tools: whether its own config gives it
+ * cmux's MCP server (`cmux setup mcp`). The name is the product's own, never translated. */
+export type AgentToolsCardRow = { id: string; name: string; state: "ready" | "added" | "conflict" | "failed" };
+
+/** Agents with cmux Tools (`SettingsAgentTools.state`). */
+export type AgentToolsCardState = {
+  /** The first read answered (an empty list then says none was found). */
+  loaded: boolean;
+  /** Add Now or Remove runs. */
+  applying: boolean;
+  /** The last run could not change every agent. */
+  failed: boolean;
+  rows: AgentToolsCardRow[];
+};
+
+/** One Agents with cmux Tools gesture; `add` and `remove` run only on a click. */
+export type AgentToolsCardRun = { action: "refresh" | "add" | "remove" };
+
 /** The Agent integrations part (`SettingsAgentIntegrations.state`). */
 export type IntegrationsState = {
   loading: boolean;
@@ -1242,6 +1260,10 @@ export type SettingsOps = {
   "cmux.settings.integrations.state": [Record<string, never>, IntegrationsState];
   /** Native: one Agent integrations gesture (`agent hook install|uninstall <id>`, or a refresh). */
   "cmux.settings.integrations.run": [IntegrationsRun, unknown];
+  /** Native: the coding agents and whether their configs hold cmux's MCP server (Settings > Agents). */
+  "cmux.settings.agentTools.state": [Record<string, never>, AgentToolsCardState];
+  /** Native: Add Now (`agents.cmuxMcp` on, then `cmux setup mcp`), Remove (`--remove`) or a refresh. */
+  "cmux.settings.agentTools.run": [AgentToolsCardRun, AgentToolsCardState];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */

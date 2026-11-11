@@ -2,7 +2,18 @@ import { describe, expect, test } from "bun:test";
 import { createStrings } from "../shared/i18n";
 import table from "./generated/strings.json";
 import type { OnboardingFooter } from "./ops";
-import { countsLine, keychainLine, keyIntent, primaryLabel, quotedList } from "./text";
+import { agentToolsState } from "./fixtures";
+import {
+  agentToolsStatus,
+  countsLine,
+  keychainLine,
+  keyIntent,
+  primaryLabel,
+  primaryLabels,
+  quotedList,
+  skipLabel,
+  windowTitle,
+} from "./text";
 
 const en = createStrings(table, ["en"]);
 const de = createStrings(table, ["de"]);
@@ -57,6 +68,23 @@ describe("primary label", () => {
     expect(primaryLabel(en, "findBrowsers")).toBe("Find Browsers");
     expect(primaryLabel(en, "import")).toBe("Import");
     expect(primaryLabel(en, "beginImporting")).toBe("Begin Importing");
+  });
+});
+
+describe("cmux tools text", () => {
+  test("the buttons, the window title and the status line follow the state", () => {
+    expect(primaryLabel(en, "addTools")).toBe("Add to My Agents");
+    expect(primaryLabels(en, "agentTools")).toEqual(["Add to My Agents", "Done"]);
+    expect(skipLabel(en, "notNow")).toBe("Not Now");
+    expect(windowTitle(en, agentToolsState("found"))).toBe("cmux Tools");
+    expect(agentToolsStatus(en, agentToolsState("found").agentTools)).toBeNull();
+    expect(agentToolsStatus(en, agentToolsState("adding").agentTools)).toBe("Adding…");
+    expect(agentToolsStatus(en, null)).toBe("Checking…");
+  });
+  test("the place in Settings is translated with the Settings page's own names", () => {
+    expect(de.t("onboarding.agentTools.settings")).toContain(
+      "Einstellungen > Agenten > cmux-Werkzeuge in deinen Coding-Agenten",
+    );
   });
 });
 

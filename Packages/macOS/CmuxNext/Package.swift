@@ -737,6 +737,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextOnboarding",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
+                "CmuxNextAgentIntegrations",
                 "CmuxNextBrowserImport",
                 "CmuxNextCompat",
                 "CmuxNextDesign",
@@ -2479,6 +2480,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextActions",
                 "CmuxNextAgentCursor",
                 "CmuxNextAgentCursorVisibility",
+                "CmuxNextAgentIntegrations",
                 "CmuxNextAgentLanes",
                 "CmuxNextAgentPermissions",
                 "CmuxNextAgentUpdates",

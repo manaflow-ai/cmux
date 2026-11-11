@@ -89,10 +89,13 @@ fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
         launch.push(OsString::from("-c"));
         launch.push(OsString::from(setting));
     }
-    // cmux Computer Use, with no setup (agent_computer_use.rs).
-    for setting in
-        crate::agent_computer_use::codex_settings(&executable, &socket).unwrap_or_default()
-    {
+    // cmux Computer Use, with no setup (agent_computer_use.rs), unless the
+    // person said no to cmux's tools in their agents (agent_mcp_choice.rs).
+    for setting in crate::agent_mcp_choice::codex_settings(
+        cmux_tui_core::user_settings::AgentsCmuxMcp::current(),
+        &executable,
+        &socket,
+    ) {
         launch.push(OsString::from("-c"));
         launch.push(setting);
     }

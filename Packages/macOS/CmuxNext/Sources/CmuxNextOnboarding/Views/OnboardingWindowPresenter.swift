@@ -1,3 +1,4 @@
+public import CmuxNextAgentIntegrations
 public import AppKit
 public import CmuxNextDesign
 
@@ -86,13 +87,26 @@ public final class OnboardingWindowPresenter {
         !defaults.bool(forKey: historyShownKey) && defaults.string(forKey: FirstRunSetup.stateKey) == nil
     }
 
-    /// The first-run steps, one at a time: Agents first (it gets a person to a working agent),
-    /// then `next` (Bring your history) once no tool window shows. Each keeps its own once flag.
-    public func showFirstRunSteps(isFirstRun: Bool, source: (any AgentSignInSource)?, defaults: UserDefaults = .standard,
-                                  then next: @MainActor () -> Void) async {
+    /// The first-run steps, one at a time: Agents first (it gets a person to a working agent), then
+    /// cmux Tools (``showAgentToolsAtFirstRun(isFirstRun:source:)``), then `next` (Bring your
+    /// history) once no tool window shows. Each keeps its own once flag.
+    public func showFirstRunSteps(isFirstRun: Bool, source: (any AgentSignInSource)?, agentTools: (any AgentToolsSource)? = nil,
+                                  defaults: UserDefaults = .standard, then next: @MainActor () -> Void) async {
         await showAgentsAtFirstRun(isFirstRun: isFirstRun, source: source, defaults: defaults)
         await untilClosed()
+        await showAgentToolsAtFirstRun(isFirstRun: isFirstRun, source: agentTools)
+        await untilClosed()
         next()
+    }
+
+    /// First run only: the cmux Tools step, asking whether cmux may add its MCP server to the
+    /// person's coding agents, when nobody answered yet (`agents.cmuxMcp` is `ask`), a coding agent
+    /// is installed to add it to, and no tool window shows. The answer is its once flag: an existing
+    /// installation, or a Mac with no agent, is never asked here (Settings > Agents keeps the row).
+    public func showAgentToolsAtFirstRun(isFirstRun: Bool, source: (any AgentToolsSource)?) async {
+        guard isFirstRun, let source, source.agentToolsChoice() == .ask, controller == nil else { return }
+        guard !(await source.agentToolsAgents()).isEmpty, controller == nil else { return }
+        show(step: .agentTools)
     }
 
     private func windowDidClose(_ closed: OnboardingWindowController?) {

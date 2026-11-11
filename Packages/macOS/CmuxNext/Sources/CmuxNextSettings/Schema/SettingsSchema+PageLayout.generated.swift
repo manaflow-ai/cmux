@@ -23,6 +23,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case accounts
         case agentHarnesses
         case agentIntegrations
+        /// Settings > Agents > Agents with cmux Tools: each coding agent and whether its own config gives it cmux's MCP server (`cmux setup mcp --dry-run`), with Add Now and Remove, right under the agents.cmuxMcp choice row (the onboarding step's question); `cmux.settings.agentTools.*`.
+        case agentTools
         case chiefs
         case advancedInfo
         case advancedActions

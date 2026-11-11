@@ -84,7 +84,7 @@ What only you can do: pasting the line on the other machine.
 Give Claude Code and Codex outside cmux the cmux MCP server: run `cmux setup mcp`. If it names a setting, give me that one line to turn on; do not edit the file. Tell me the undo.
 ```
 
-What only you can do: turning on "mcp": {"enabled": true} in the cmux settings file.
+What only you can do: choosing Add to My Agents in Settings > Agents > cmux Tools in Coding Agents (or turning on "mcp": {"enabled": true} in the cmux settings file).
 
 ## Let agents use the Mac (cmux Computer Use)
 

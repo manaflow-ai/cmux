@@ -6,17 +6,26 @@
 // next to this file); the host sends values, never sentences.
 
 /** The one tool a window shows; it never changes for a window. */
-export type OnboardingStep = "agents" | "importData" | "computerUse";
+/** `agentTools` asks whether cmux may add its MCP server (Computer Use included) to the person's coding agents. */
+export type OnboardingStep = "agents" | "importData" | "computerUse" | "agentTools";
 
 /** What the footer's filled button says (OnboardingModel.primaryTitle). */
-export type PrimaryAction = "continue" | "done" | "detecting" | "findBrowsers" | "import" | "beginImporting";
+export type PrimaryAction =
+  | "continue"
+  | "done"
+  | "detecting"
+  | "findBrowsers"
+  | "import"
+  | "beginImporting"
+  | "addTools";
 
 export interface OnboardingFooter {
   primary: PrimaryAction;
   /** False while browser detection runs (the button stays, disabled). */
   primaryEnabled: boolean;
-  /** Skip, or Skip Importing on the Keychain explainer. */
-  skip: "skip" | "skipImporting";
+  /** Skip, Skip Importing on the Keychain explainer, Not Now on cmux Tools until answered, or
+   * `none` (cmux Tools answered: only Done is left). */
+  skip: "skip" | "skipImporting" | "notNow" | "none";
   /** Back shows over the import explainers (the progress bar is up). */
   showsBack: boolean;
   backEnabled: boolean;
@@ -194,6 +203,32 @@ export interface ComputerUseState {
   comebacks: number;
 }
 
+// MARK: cmux Tools
+
+/** One coding agent and whether its own config gives it cmux's tools (`cmux setup mcp`):
+ * `ready` (none yet), `added`, `conflict` (another server named cmux is the person's) or `failed`. */
+export interface AgentToolsRow {
+  id: string;
+  /** The product's own name ("Claude Code"): never translated. */
+  name: string;
+  state: "ready" | "added" | "conflict" | "failed";
+}
+
+export interface AgentToolsState {
+  /** The coding agents found on this Mac; the page draws each one's mark from its id. */
+  rows: AgentToolsRow[];
+  /** The first read answered (an empty list then says none was found). */
+  loaded: boolean;
+  /** `agents.cmuxMcp` now: `ask` until the person answers. */
+  choice: "ask" | "on" | "off";
+  /** Add to My Agents runs `cmux setup mcp`. */
+  applying: boolean;
+  /** The run could not set up every agent. */
+  failed: boolean;
+  /** The person answered in this window. */
+  answered: boolean;
+}
+
 // MARK: The page
 
 export interface OnboardingState {
@@ -202,6 +237,8 @@ export interface OnboardingState {
   agents: AgentsState | null;
   importer: ImportState | null;
   computerUse: ComputerUseState | null;
+  /** The cmux Tools step's state; null on the other steps (absent from older hosts). */
+  agentTools?: AgentToolsState | null;
 }
 
 /** Ops the page calls: [params, result]. Every gesture answers `{}` and the change comes back on
@@ -211,9 +248,9 @@ export interface OnboardingOps {
   /** The page gained focus: back from a Sign In, the host checks the sign-ins again. A read, so it
    * needs no click or key (the page engine keys its own child window, not the onboarding window). */
   "cmux.onboarding.focused": [Record<string, never>, unknown];
-  /** The footer's filled button, or Return. */
+  /** The footer's filled button, or Return (cmux Tools: Add to My Agents, then Done). */
   "cmux.onboarding.next": [Record<string, never>, unknown];
-  /** Skip / Skip Importing / Not Now, or Escape. */
+  /** Skip / Skip Importing / Not Now, or Escape (cmux Tools' Not Now answers no). */
   "cmux.onboarding.skip": [Record<string, never>, unknown];
   "cmux.onboarding.back": [Record<string, never>, unknown];
   "cmux.onboarding.agents.signIn": [{ id: string }, unknown];

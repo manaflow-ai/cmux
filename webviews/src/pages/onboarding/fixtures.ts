@@ -3,6 +3,7 @@
 // browsers and profiles are made up; icons are small drawn SVGs standing in for the host's PNGs.
 import type {
   AgentRow,
+  AgentToolsRow,
   ComputerUseState,
   HostImage,
   ImportCounts,
@@ -403,6 +404,66 @@ export function computerUseState(kind: ComputerUseFixture = "fresh"): Onboarding
               : null,
       showsRestart: kind === "helperFailed",
       comebacks: kind === "oneGranted" ? 1 : 0,
+    },
+  };
+}
+
+// MARK: cmux Tools
+
+export type AgentToolsFixture =
+  | "checking"
+  | "none"
+  | "found"
+  | "oneAdded"
+  | "conflict"
+  | "adding"
+  | "added"
+  | "declined"
+  | "failed";
+
+const TOOLS_AGENTS: AgentToolsRow[] = [
+  { id: "claude", name: "Claude Code", state: "ready" },
+  { id: "codex", name: "Codex", state: "ready" },
+];
+
+/** The cmux Tools step: before an answer (checking, none found, Claude Code and Codex found, one
+ * already has cmux's tools, one keeps the person's own server named cmux), while Add runs, and each
+ * answer (added, declined, some agent failed). */
+export function agentToolsState(kind: AgentToolsFixture = "found"): OnboardingState {
+  const answered = kind === "adding" || kind === "added" || kind === "declined" || kind === "failed";
+  const rows: AgentToolsRow[] =
+    kind === "checking" || kind === "none"
+      ? []
+      : kind === "oneAdded"
+        ? [{ ...TOOLS_AGENTS[0]!, state: "added" }, TOOLS_AGENTS[1]!]
+        : kind === "conflict"
+          ? [TOOLS_AGENTS[0]!, { ...TOOLS_AGENTS[1]!, state: "conflict" }]
+          : kind === "added"
+            ? TOOLS_AGENTS.map((row) => ({ ...row, state: "added" as const }))
+            : kind === "failed"
+              ? [
+                  { ...TOOLS_AGENTS[0]!, state: "added" },
+                  { ...TOOLS_AGENTS[1]!, state: "failed" },
+                ]
+              : TOOLS_AGENTS;
+  const done = kind === "added" || kind === "declined" || kind === "failed";
+  return {
+    step: "agentTools",
+    footer: footer({
+      primary: done ? "done" : "addTools",
+      primaryEnabled: kind !== "adding",
+      skip: answered ? "none" : "notNow",
+    }),
+    agents: null,
+    importer: null,
+    computerUse: null,
+    agentTools: {
+      rows,
+      loaded: kind !== "checking",
+      choice: kind === "declined" ? "off" : answered ? "on" : "ask",
+      applying: kind === "adding",
+      failed: kind === "failed",
+      answered,
     },
   };
 }

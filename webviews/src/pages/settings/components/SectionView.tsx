@@ -7,6 +7,7 @@ import { text } from "../strings";
 import { AccountsSection } from "./AccountsSection";
 import { AgentHarnesses } from "./AgentHarnesses";
 import { AgentIntegrations } from "./AgentIntegrations";
+import { AgentToolsCard } from "./AgentToolsCard";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { ChannelsCard } from "./ChannelsCard";
 import { CHIEFS_ROWS, ChiefsCard } from "./ChiefsCard";
@@ -62,6 +63,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   accounts: () => <AccountsSection />,
   agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
   agentIntegrations: (focus) => <AgentIntegrations focus={focus} />,
+  agentTools: () => <AgentToolsCard />,
   chiefs: (focus) => <ChiefsCard focus={focus} />,
   advancedInfo: () => <AdvancedInfo />,
   advancedActions: () => <PlaceholderSection section="advanced" />,

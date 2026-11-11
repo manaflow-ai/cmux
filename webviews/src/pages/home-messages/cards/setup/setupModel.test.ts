@@ -48,6 +48,31 @@ describe("setupSteps", () => {
     expect(setupSteps({ ...fresh, history: null }, strings).map((step) => step.id)).not.toContain("history");
   });
 
+  test("cmux tools: a row after the agents asks before adding anything, then says what the answer did", () => {
+    const ask: SetupState = { ...fresh, tools: { agents: ["Claude Code", "Codex"], choice: "ask", applying: false } };
+    const steps = setupSteps(ask, strings);
+    expect(steps.map((step) => step.id)).toEqual(["agents", "tools", "account", "cli"]);
+    expect(steps[1]).toMatchObject({
+      title: "cmux tools in your agents",
+      detail: "Computer Use and more for Claude Code, Codex",
+      done: false,
+    });
+    expect(steps[1]?.action).toEqual({ label: "Add", run: { kind: "addTools" } });
+    expect(steps[1]?.secondary).toEqual({ label: "Not Now", run: { kind: "declineTools" } });
+    const adding = setupSteps({ ...ask, tools: { ...ask.tools!, choice: "on", applying: true } }, strings)[1]!;
+    expect([adding.busy, adding.done, adding.action]).toEqual([true, false, undefined]);
+    const added = setupSteps({ ...ask, tools: { ...ask.tools!, choice: "on" } }, strings)[1]!;
+    expect([added.done, added.detail, added.action]).toEqual([true, "Added to your agents", undefined]);
+    const declined = setupSteps({ ...ask, tools: { ...ask.tools!, choice: "off" } }, strings)[1]!;
+    expect([declined.done, declined.detail, declined.secondary]).toEqual([
+      true,
+      "Not added: Settings > Agents",
+      undefined,
+    ]);
+    // Nothing to ask: no row.
+    expect(setupSteps({ ...fresh, tools: null }, strings).map((step) => step.id)).not.toContain("tools");
+  });
+
   test("a signed-out agent offers its sign-in over installing another; a signed-in one finishes the row", () => {
     const signedOut = setupSteps(
       { ...fresh, agents: [fresh.agents[0]!, { id: "codex", name: "Codex", state: "signedOut" }] },

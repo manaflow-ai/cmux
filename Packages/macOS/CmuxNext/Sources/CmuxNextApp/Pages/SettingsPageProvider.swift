@@ -217,7 +217,7 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.agents.run": return try await Self.host(agents, "agents").runPage(params)
         case "cmux.settings.harnesses.state": return try Self.host(harnessesState, "harnesses")()
         case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
-        case "cmux.settings.integrations.state", "cmux.settings.integrations.run":
+        case "cmux.settings.integrations.state", "cmux.settings.integrations.run", "cmux.settings.agentTools.state", "cmux.settings.agentTools.run":
             return try await Self.host(integrations, "agent integrations").call(op, params: params, context: context)
         case "cmux.settings.environments.state": return try Self.host(environmentsState, "environments")()
         case "cmux.settings.environments.run": return try await Self.host(environmentsRun, "environments")(params)

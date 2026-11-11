@@ -14,6 +14,7 @@ export default componentEntry<OnboardingGalleryProps>({
     "pages/onboarding/AgentsStep.tsx",
     "pages/onboarding/ImportStep.tsx",
     "pages/onboarding/ComputerUseStep.tsx",
+    "pages/onboarding/AgentToolsStep.tsx",
     "pages/onboarding/galleryFixture.tsx",
   ],
   load: async () => (await import("./galleryFixture")).OnboardingGallery,
@@ -72,5 +73,21 @@ export default componentEntry<OnboardingGalleryProps>({
     "computer-use-helper-failed": { props: { step: "computerUse", computerUse: "helperFailed" } },
     "computer-use-off": { props: { step: "computerUse", computerUse: "off" } },
     "computer-use-unavailable": { props: { step: "computerUse", computerUse: "unavailable" } },
+    // cmux Tools: may cmux add its MCP server (Computer Use included) to the person's coding agents?
+    "agent-tools-checking": { props: { step: "agentTools", agentTools: "checking" } },
+    "agent-tools-none": {
+      note: "No coding agent found: Add still records the answer for agents installed later.",
+      props: { step: "agentTools", agentTools: "none" },
+    },
+    "agent-tools-found": {
+      note: "Claude Code and Codex found: the question, Not Now and Add to My Agents.",
+      props: { step: "agentTools", agentTools: "found" },
+    },
+    "agent-tools-one-added": { props: { step: "agentTools", agentTools: "oneAdded" } },
+    "agent-tools-conflict": { props: { step: "agentTools", agentTools: "conflict" } },
+    "agent-tools-adding": { props: { step: "agentTools", agentTools: "adding" } },
+    "agent-tools-added": { props: { step: "agentTools", agentTools: "added" } },
+    "agent-tools-declined": { props: { step: "agentTools", agentTools: "declined" } },
+    "agent-tools-failed": { props: { step: "agentTools", agentTools: "failed" } },
   },
 });

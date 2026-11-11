@@ -226,6 +226,77 @@ pub fn ultra_mode() -> bool {
     }
 }
 
+/// Settings-file `agents.cmuxMcp` ("cmux Tools in Coding Agents"): whether
+/// cmux adds its `cmux` MCP server (which carries cmux Computer Use) to the
+/// person's own coding agents, Claude Code and Codex. It governs both ways
+/// cmux does that: the server the `claude` and `codex` shims pass to an agent
+/// started in a cmux terminal (each launch), and the entries `cmux setup mcp`
+/// writes into the agents' own config files. The onboarding step asks, and
+/// Settings > Agents keeps the answer. cmux's own agent chats always have
+/// their tools; this is about the person's agents.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AgentsCmuxMcp {
+    /// Not answered yet (no value, `"ask"`, or anything else): cmux does what
+    /// it did before the question existed. The shims pass the server, and
+    /// `cmux setup mcp` writes only once `mcp.enabled` is on.
+    #[default]
+    Ask,
+    /// The person said yes: the shims pass the server, `cmux setup mcp`
+    /// writes, and the server serves these agents outside cmux's chats (as
+    /// `"mcp": {"enabled": true}` does, unless that key says otherwise).
+    On,
+    /// The person said no: the shims pass no MCP server and `cmux setup mcp`
+    /// writes nothing (removing cmux's own entries still works).
+    Off,
+}
+
+impl AgentsCmuxMcp {
+    /// The dotted settings key.
+    pub const KEY: &'static str = "agents.cmuxMcp";
+
+    /// The value in the settings text, flat (`"agents.cmuxMcp"`) or nested
+    /// (`{"agents": {"cmuxMcp": …}}`), as the app's settings owner writes
+    /// either. A file that does not parse is `Ask`: the person's answer is
+    /// unknown, so cmux keeps its old behavior.
+    pub fn from_config_text(text: &str) -> Self {
+        let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
+            return Self::Ask;
+        };
+        let value = document.get(Self::KEY).or_else(|| document.pointer("/agents/cmuxMcp"));
+        match value.and_then(Value::as_str) {
+            Some("on") => Self::On,
+            Some("off") => Self::Off,
+            _ => Self::Ask,
+        }
+    }
+
+    /// The value in the settings file at `path`; `Ask` without one.
+    pub fn from_config_file(path: &Path) -> Self {
+        std::fs::read_to_string(path).map(|text| Self::from_config_text(&text)).unwrap_or_default()
+    }
+
+    /// The value in the app's settings file ([`config_path`]), read at each
+    /// call so a change applies to the next agent launch with no reload.
+    pub fn current() -> Self {
+        Self::from_config_file(&config_path())
+    }
+
+    /// Whether the shims pass the cmux server to an agent launched in a cmux
+    /// terminal: yes unless the person said no.
+    pub fn injects(self) -> bool {
+        self != Self::Off
+    }
+
+    /// The settings value (`ask`, `on`, `off`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ask => "ask",
+            Self::On => "on",
+            Self::Off => "off",
+        }
+    }
+}
+
 /// JSONC to JSON: drops `//` and `/* */` comments, then trailing commas,
 /// outside strings (the dialect the app's `JSONC` parser reads).
 pub fn strip_jsonc(text: &str) -> String {
@@ -328,6 +399,27 @@ mod tests {
         assert!(!resume_agents("{\n  // off\n  \"sessions\": {\"resumeAgents\": false,},\n}"));
         assert!(!resume_agents(r#"{"sessions": {"resumeAgents": "yes"}}"#), "not a boolean");
         assert!(!resume_agents("{not json"), "an unreadable file never runs a resume");
+    }
+
+    #[test]
+    fn agents_cmux_mcp_is_ask_until_the_file_says_on_or_off() {
+        use super::AgentsCmuxMcp as Choice;
+        assert_eq!(Choice::from_config_text(""), Choice::Ask);
+        assert_eq!(Choice::from_config_text("{}"), Choice::Ask);
+        assert_eq!(Choice::from_config_text(r#"{"agents": {"cmuxMcp": "ask"}}"#), Choice::Ask);
+        assert_eq!(Choice::from_config_text(r#"{"agents": {"cmuxMcp": "on"}}"#), Choice::On);
+        assert_eq!(Choice::from_config_text(r#"{"agents.cmuxMcp": "off"}"#), Choice::Off);
+        assert_eq!(
+            Choice::from_config_text("{\n  // no\n  \"agents\": {\"cmuxMcp\": \"off\",},\n}"),
+            Choice::Off
+        );
+        assert_eq!(Choice::from_config_text(r#"{"agents": {"cmuxMcp": true}}"#), Choice::Ask);
+        assert_eq!(Choice::from_config_text("{not json"), Choice::Ask, "unknown keeps the old way");
+        assert!(Choice::Ask.injects() && Choice::On.injects() && !Choice::Off.injects());
+        assert_eq!(
+            Choice::from_config_file(std::path::Path::new("/nonexistent/cmux-next.json")),
+            Choice::Ask
+        );
     }
 
     #[test]

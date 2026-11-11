@@ -828,6 +828,19 @@ fn jsonc_comments_and_trailing_commas_are_dropped_outside_strings() {
     assert_eq!(config::enabled_in("{\"mcp\": {}}").ok(), Some(false));
 }
 
+#[test]
+fn yes_to_cmux_tools_in_coding_agents_turns_the_server_on_unless_mcp_enabled_says_otherwise() {
+    assert_eq!(config::enabled_in(r#"{"agents": {"cmuxMcp": "on"}}"#).ok(), Some(true));
+    assert_eq!(config::enabled_in(r#"{"agents.cmuxMcp": "on"}"#).ok(), Some(true));
+    assert_eq!(config::enabled_in(r#"{"agents": {"cmuxMcp": "ask"}}"#).ok(), Some(false));
+    assert_eq!(config::enabled_in(r#"{"agents": {"cmuxMcp": "off"}}"#).ok(), Some(false));
+    // The person's own switch wins over the answer.
+    let both = r#"{"agents": {"cmuxMcp": "on"}, "mcp": {"enabled": false}}"#;
+    assert_eq!(config::enabled_in(both).ok(), Some(false));
+    let both = r#"{"agents": {"cmuxMcp": "off"}, "mcp": {"enabled": true}}"#;
+    assert_eq!(config::enabled_in(both).ok(), Some(true));
+}
+
 fn fake_env(
     pairs: &'static [(&'static str, &'static str)],
 ) -> impl Fn(&str) -> Option<std::ffi::OsString> {

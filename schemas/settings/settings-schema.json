@@ -1381,6 +1381,16 @@
               "key" : "settings.group.folderTrust",
               "text" : "Folder Trust"
             }
+          },
+          {
+            "key" : "settings.group.agentTools",
+            "rows" : [
+              "agents.cmuxMcp"
+            ],
+            "title" : {
+              "key" : "settings.group.agentTools",
+              "text" : "cmux Tools in Your Coding Agents"
+            }
           }
         ],
         "id" : "agents",
@@ -1393,6 +1403,7 @@
           "text" : "Agents"
         },
         "trail" : [
+          "agentTools",
           "harnesses",
           "agentHarnesses",
           "agentIntegrations",
@@ -1415,6 +1426,8 @@
               "computerUse.allowOwnMachines",
               "computerUse.pauseOnTakeover",
               "computerUse.showCursor",
+              "computerUse.cursorTag",
+              "computerUse.settle",
               "computerUse.livePreview",
               "computerUse.allowForeground"
             ],
@@ -1424,7 +1437,7 @@
             }
           }
         ],
-        "id" : "computer-use",
+        "id" : "computerUse",
         "lead" : [
           "computerUse"
         ],
@@ -2153,7 +2166,7 @@
       {
         "categories" : [
           "agents",
-          "computer-use",
+          "computerUse",
           "chief"
         ],
         "id" : "ai",
@@ -11352,6 +11365,7 @@
         "computerUse",
         "pauseOnTakeover"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -11486,6 +11500,7 @@
         "computerUse",
         "showCursor"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -11587,6 +11602,329 @@
     },
     {
       "accepts" : [
+        "hover",
+        "always",
+        "never"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.computerUse.cursorTag.hover",
+            "text" : "When I Point at It"
+          },
+          "value" : "hover"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.cursorTag.always",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.cursorTag.never",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "hover",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.cursorTag.help",
+        "text" : "Each agent cursor can carry a tag: the agent's workspace name, or a tag the agent sets. Show it when your pointer is over the cursor, always, or never."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.cursorTag",
+      "keywords" : [
+        "computer use",
+        "cursor",
+        "tag",
+        "label",
+        "workspace",
+        "name",
+        "hover"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "cursorTag"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.computerUse.cursorTag.summary",
+        "text" : "When the agent cursor shows its tag"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:computerUse.cursorTag"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.computerUse.cursorTag",
+        "text" : "Agent Cursor Tag"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "adaptive",
+        "anthropic",
+        "openai"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.computerUse.settle.adaptive",
+            "text" : "Wait for the change (adaptive)"
+          },
+          "value" : "adaptive"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.settle.anthropic",
+            "text" : "Fixed 2 s, then screenshot (Anthropic)"
+          },
+          "value" : "anthropic"
+        },
+        {
+          "title" : {
+            "key" : "settings.computerUse.settle.openai",
+            "text" : "Screenshot at once (OpenAI)"
+          },
+          "value" : "openai"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "adaptive",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.computerUse",
+        "text" : "Computer Use"
+      },
+      "help" : {
+        "key" : "settings.computerUse.settle.help",
+        "text" : "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "computerUse.settle",
+      "keywords" : [
+        "computer use",
+        "settle",
+        "wait",
+        "delay",
+        "screenshot",
+        "action",
+        "anthropic",
+        "openai"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "computerUse",
+        "settle"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.computerUse.settle.summary",
+        "text" : "What agents wait for after each action"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:computerUse.settle"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.computerUse.settle",
+        "text" : "After Each Action"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -11621,6 +11959,7 @@
         "computerUse",
         "livePreview"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -11756,6 +12095,7 @@
         "computerUse",
         "allowForeground"
       ],
+      "placeholder" : null,
       "refuses" : [
         "true",
         1,
@@ -102796,6 +103136,169 @@
       "title" : {
         "key" : "settings.agents.modelRouter.model",
         "text" : "cmux Model Router Model"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "ask",
+        "on",
+        "off"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.agents.cmuxMcp.ask",
+            "text" : "Ask"
+          },
+          "value" : "ask"
+        },
+        {
+          "title" : {
+            "key" : "settings.agents.cmuxMcp.on",
+            "text" : "Add to My Agents"
+          },
+          "value" : "on"
+        },
+        {
+          "title" : {
+            "key" : "settings.agents.cmuxMcp.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "ask",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentTools",
+        "text" : "cmux Tools in Your Coding Agents"
+      },
+      "help" : {
+        "key" : "settings.agents.cmuxMcp.help",
+        "text" : "Lets Claude Code, Codex and other coding agents you run use cmux's tools, Computer Use included. Ask keeps adding them to agents you start in a cmux terminal until you choose. Off adds nothing and leaves your agents' settings alone."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.cmuxMcp",
+      "keywords" : [
+        "mcp",
+        "mcp server",
+        "cmux tools",
+        "computer use",
+        "claude",
+        "codex",
+        "coding agents",
+        "agents",
+        "onboarding"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "cmuxMcp"
+      ],
+      "placeholder" : null,
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.agents.cmuxMcp.summary",
+        "text" : "Whether your coding agents get cmux's tools"
+      },
+      "surfaces" : {
+        "cli" : {
+          "aliases" : [
+            "settings.unset"
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        },
+        "mcp" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get"
+          ],
+          "reason" : "agent_settable_false",
+          "row" : null
+        },
+        "palette" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+
+          ],
+          "app_operations" : [
+
+          ],
+          "editor" : "options",
+          "offered" : true,
+          "operations" : [
+
+          ],
+          "reason" : null,
+          "row" : "setting:agents.cmuxMcp"
+        },
+        "socket" : {
+          "aliases" : [
+
+          ],
+          "app_aliases" : [
+            "settings.unset"
+          ],
+          "app_operations" : [
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "editor" : null,
+          "offered" : true,
+          "operations" : [
+            "settings.list",
+            "settings.get",
+            "settings.set",
+            "settings.reset"
+          ],
+          "reason" : null,
+          "row" : null
+        }
+      },
+      "title" : {
+        "key" : "settings.agents.cmuxMcp",
+        "text" : "Add cmux Tools to Your Coding Agents"
       },
       "validation" : "portable"
     },

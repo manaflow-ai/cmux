@@ -14,6 +14,7 @@
     {"id": "accounts"},
     {"id": "agentHarnesses"},
     {"id": "agentIntegrations"},
+    {"id": "agentTools", "note": "Settings > Agents > Agents with cmux Tools: each coding agent and whether its own config gives it cmux's MCP server (`cmux setup mcp --dry-run`), with Add Now and Remove, right under the agents.cmuxMcp choice row (the onboarding step's question); `cmux.settings.agentTools.*`."},
     {"id": "chiefs"},
     {"id": "advancedInfo"},
     {"id": "advancedActions"},
@@ -310,9 +311,10 @@
             {"group": "settings.group.agentGuidance", "note": "cmux's guidance for the agents it runs and the person's own skills."},
             {"group": "settings.group.agentRetry", "note": "Whether a turn a rate limit or a lost connection ended is tried again, how often."},
             {"group": "settings.group.agentCache", "note": "Whether an idle Claude chat is compacted while its prompt cache is warm."},
-            {"group": "settings.group.folderTrust", "note": "Folders that start an agent without the trust question."}
+            {"group": "settings.group.folderTrust", "note": "Folders that start an agent without the trust question."},
+            {"group": "settings.group.agentTools", "note": "Whether cmux adds its MCP server (Computer Use included) to the person's own coding agents (the onboarding step's question); the agentTools card under it lists the agents with Add Now and Remove."}
           ],
-          "trail": ["harnesses", "agentHarnesses", "agentIntegrations", "worktreeSetup"]
+          "trail": ["agentTools", "harnesses", "agentHarnesses", "agentIntegrations", "worktreeSetup"]
         },
         {
           "id": "computerUse",

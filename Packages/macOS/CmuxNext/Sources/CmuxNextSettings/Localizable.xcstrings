@@ -1,6 +1,930 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.group.agentTools": {
+      "comment": "Settings > Agents > cmux Tools in Your Coding Agents: whether cmux adds its MCP server (Computer Use included) to the person's coding agents (agents.cmuxMcp)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Tools in Your Coding Agents"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدوات cmux في وكلاء البرمجة لديك"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux alati u vašim agentima za kodiranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-værktøjer i dine kodeagenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Werkzeuge in deinen Coding-Agenten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Herramientas de cmux en tus agentes de programación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Outils cmux dans vos agents de code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strumenti di cmux nei tuoi agenti di programmazione"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コーディングエージェントの cmux ツール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឧបករណ៍ cmux ក្នុងភ្នាក់ងារសរសេរកូដរបស់អ្នក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코딩 에이전트의 cmux 도구"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-verktøy i kodeagentene dine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Narzędzia cmux w Twoich agentach kodowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ferramentas do cmux nos seus agentes de programação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Инструменты cmux в ваших агентах для кода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องมือ cmux ในเอเจนต์เขียนโค้ดของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kodlama ajanlarınızda cmux araçları"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інструменти cmux у ваших агентах для коду"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Công cụ cmux trong các tác tử lập trình của bạn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编程智能体中的 cmux 工具"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程式設計代理程式中的 cmux 工具"
+          }
+        }
+      }
+    },
+    "settings.agents.cmuxMcp": {
+      "comment": "Settings > Agents > cmux Tools in Your Coding Agents: whether cmux adds its MCP server (Computer Use included) to the person's coding agents (agents.cmuxMcp)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add cmux Tools to Your Coding Agents"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إضافة أدوات cmux إلى وكلاء البرمجة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodaj cmux alate agentima za kodiranje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Føj cmux-værktøjer til dine kodeagenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux-Werkzeuge zu deinen Coding-Agenten hinzufügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir herramientas de cmux a tus agentes de programación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter les outils cmux à vos agents de code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi gli strumenti di cmux ai tuoi agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コーディングエージェントに cmux ツールを追加"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ថែមឧបករណ៍ cmux ទៅភ្នាក់ងារសរសេរកូដ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코딩 에이전트에 cmux 도구 추가"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legg til cmux-verktøy i kodeagentene"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodaj narzędzia cmux do agentów kodowania"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar ferramentas do cmux aos agentes de programação"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавлять инструменты cmux агентам для кода"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่มเครื่องมือ cmux ให้เอเจนต์เขียนโค้ด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux araçlarını kodlama ajanlarına ekle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Додавати інструменти cmux агентам для коду"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thêm công cụ cmux vào tác tử lập trình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向编程智能体添加 cmux 工具"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將 cmux 工具加入程式設計代理程式"
+          }
+        }
+      }
+    },
+    "settings.agents.cmuxMcp.help": {
+      "comment": "Settings > Agents > cmux Tools in Your Coding Agents: whether cmux adds its MCP server (Computer Use included) to the person's coding agents (agents.cmuxMcp)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets Claude Code, Codex and other coding agents you run use cmux's tools, Computer Use included. Ask keeps adding them to agents you start in a cmux terminal until you choose. Off adds nothing and leaves your agents' settings alone."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتيح لـ Claude Code وCodex ووكلاء البرمجة الآخرين الذين تشغّلهم استخدام أدوات cmux، بما فيها استخدام الكمبيوتر. مع «اسأل» تستمر إضافتها إلى الوكلاء الذين تبدأهم في طرفية cmux حتى تختار. مع «إيقاف» لا يُضاف شيء وتبقى إعدادات وكلائك كما هي."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omogućava da Claude Code, Codex i drugi agenti za kodiranje koje pokrećete koriste cmux alate, uključujući Computer Use. Uz Pitaj alati se i dalje dodaju agentima pokrenutim u cmux terminalu dok ne odaberete. Isključeno ne dodaje ništa i ne dira postavke vaših agenata."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lader Claude Code, Codex og andre kodeagenter, du kører, bruge cmux' værktøjer, også Computer Use. Spørg bliver ved med at give dem til agenter, du starter i en cmux-terminal, indtil du vælger. Fra tilføjer intet og lader dine agenters indstillinger være."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lässt Claude Code, Codex und andere Coding-Agenten, die du nutzt, die Werkzeuge von cmux verwenden, Computer Use eingeschlossen. Fragen gibt sie weiter an Agenten, die du in einem cmux-Terminal startest, bis du dich entscheidest. Aus fügt nichts hinzu und lässt die Einstellungen deiner Agenten unverändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que Claude Code, Codex y otros agentes de programación que uses usen las herramientas de cmux, incluido Computer Use. Preguntar sigue añadiéndolas a los agentes que inicias en un terminal de cmux hasta que elijas. Desactivado no añade nada y deja los ajustes de tus agentes como están."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permet à Claude Code, Codex et aux autres agents de code que vous lancez d’utiliser les outils de cmux, Computer Use compris. Demander continue de les ajouter aux agents lancés dans un terminal cmux jusqu’à votre choix. Désactivé n’ajoute rien et laisse les réglages de vos agents intacts."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consente a Claude Code, Codex e agli altri agenti di programmazione che usi di usare gli strumenti di cmux, Computer Use compreso. Chiedi continua ad aggiungerli agli agenti avviati in un terminale cmux finché non scegli. Disattivato non aggiunge nulla e lascia invariate le impostazioni dei tuoi agenti."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code、Codex など、使用しているコーディングエージェントが Computer Use を含む cmux のツールを使えるようにします。「確認する」の間は、選ぶまで cmux のターミナルで起動したエージェントに追加し続けます。「オフ」は何も追加せず、エージェントの設定も変更しません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតឱ្យ Claude Code, Codex និងភ្នាក់ងារសរសេរកូដផ្សេងទៀតដែលអ្នកដំណើរការ ប្រើឧបករណ៍របស់ cmux រួមទាំង Computer Use។ «សួរ» នៅតែបន្ថែមវាទៅភ្នាក់ងារដែលអ្នកចាប់ផ្ដើមក្នុងស្ថានីយ cmux រហូតដល់អ្នកជ្រើសរើស។ «បិទ» មិនបន្ថែមអ្វីទេ ហើយទុកការកំណត់ភ្នាក់ងាររបស់អ្នកដដែល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code, Codex 등 사용하는 코딩 에이전트가 Computer Use를 포함한 cmux 도구를 쓸 수 있게 합니다. '묻기'는 선택할 때까지 cmux 터미널에서 시작한 에이전트에 계속 추가합니다. '끔'은 아무것도 추가하지 않고 에이전트 설정을 그대로 둡니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lar Claude Code, Codex og andre kodeagenter du kjører, bruke cmux sine verktøy, også Computer Use. Spør fortsetter å gi dem til agenter du starter i en cmux-terminal til du velger. Av legger ikke til noe og lar agentinnstillingene være i fred."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pozwala Claude Code, Codex i innym używanym agentom kodowania korzystać z narzędzi cmux, w tym z Computer Use. Pytaj nadal dodaje je agentom uruchamianym w terminalu cmux, dopóki nie wybierzesz. Wyłączone niczego nie dodaje i nie zmienia ustawień agentów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que o Claude Code, o Codex e outros agentes de programação que você usa usem as ferramentas do cmux, incluindo o Computer Use. Perguntar continua adicionando-as aos agentes iniciados em um terminal do cmux até você escolher. Desativado não adiciona nada e mantém os ajustes dos seus agentes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Позволяет Claude Code, Codex и другим вашим агентам для кода пользоваться инструментами cmux, включая Computer Use. «Спрашивать» продолжает добавлять их агентам, запущенным в терминале cmux, пока вы не выберете. «Выкл.» ничего не добавляет и не меняет настройки агентов."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้ Claude Code, Codex และเอเจนต์เขียนโค้ดอื่นที่คุณใช้ ใช้เครื่องมือของ cmux ได้ รวมถึง Computer Use ตัวเลือก ถาม จะยังเพิ่มให้เอเจนต์ที่เริ่มในเทอร์มินัล cmux จนกว่าคุณจะเลือก ปิด จะไม่เพิ่มอะไรและไม่แตะการตั้งค่าเอเจนต์ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Claude Code, Codex ve kullandığınız diğer kodlama ajanlarının Computer Use dahil cmux araçlarını kullanmasını sağlar. Sor, siz seçene kadar cmux terminalinde başlattığınız ajanlara eklemeye devam eder. Kapalı hiçbir şey eklemez ve ajanlarınızın ayarlarına dokunmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволяє Claude Code, Codex та іншим вашим агентам для коду користуватися інструментами cmux, зокрема Computer Use. «Питати» й далі додає їх агентам, запущеним у терміналі cmux, доки ви не виберете. «Вимк.» нічого не додає й не змінює налаштувань агентів."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép Claude Code, Codex và các tác tử lập trình khác bạn dùng sử dụng công cụ của cmux, kể cả Computer Use. Hỏi vẫn thêm chúng cho tác tử bạn mở trong terminal cmux cho đến khi bạn chọn. Tắt không thêm gì và giữ nguyên cài đặt của tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让 Claude Code、Codex 和你使用的其他编程智能体使用 cmux 的工具，包括 Computer Use。选“询问”时，在你做出选择前，cmux 终端中启动的智能体仍会获得这些工具。选“关闭”则不添加任何内容，也不改动智能体的设置。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓 Claude Code、Codex 和你使用的其他程式設計代理程式使用 cmux 的工具，包括 Computer Use。選「詢問」時，在你做出選擇前，cmux 終端機中啟動的代理程式仍會取得這些工具。選「關閉」則不加入任何內容，也不更動代理程式的設定。"
+          }
+        }
+      }
+    },
+    "settings.agents.cmuxMcp.summary": {
+      "comment": "Settings > Agents > cmux Tools in Your Coding Agents: whether cmux adds its MCP server (Computer Use included) to the person's coding agents (agents.cmuxMcp)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Whether your coding agents get cmux's tools"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل يحصل وكلاء البرمجة على أدوات cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Da li vaši agenti dobijaju cmux alate"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Om dine kodeagenter får cmux' værktøjer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ob deine Coding-Agenten die Werkzeuge von cmux bekommen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si tus agentes reciben las herramientas de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si vos agents de code reçoivent les outils cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se i tuoi agenti ricevono gli strumenti di cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントに cmux ツールを渡すかどうか"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ថាតើភ្នាក់ងាររបស់អ្នកទទួលបានឧបករណ៍ cmux ឬអត់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "코딩 에이전트에 cmux 도구를 줄지 여부"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Om kodeagentene får cmux sine verktøy"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czy agenci kodowania dostają narzędzia cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se seus agentes recebem as ferramentas do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Получают ли агенты инструменты cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ให้เอเจนต์ได้รับเครื่องมือ cmux หรือไม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanların cmux araçlarını alıp almayacağı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чи отримують агенти інструменти cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tác tử có nhận công cụ cmux hay không"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编程智能体是否获得 cmux 工具"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "程式設計代理程式是否取得 cmux 工具"
+          }
+        }
+      }
+    },
+    "settings.agents.cmuxMcp.ask": {
+      "comment": "Settings > Agents > cmux Tools in Your Coding Agents: whether cmux adds its MCP server (Computer Use included) to the person's coding agents (agents.cmuxMcp)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "اسأل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pitaj"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spørg"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fragen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preguntar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demander"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiedi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "確認する"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សួរ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "묻기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spør"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pytaj"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perguntar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Спрашивать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ถาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Питати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hỏi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "询问"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "詢問"
+          }
+        }
+      }
+    },
+    "settings.agents.cmuxMcp.on": {
+      "comment": "Settings > Agents > cmux Tools in Your Coding Agents: whether cmux adds its MCP server (Computer Use included) to the person's coding agents (agents.cmuxMcp)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add to My Agents"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أضف إلى وكلائي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodaj mojim agentima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Føj til mine agenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu meinen Agenten hinzufügen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Añadir a mis agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajouter à mes agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aggiungi ai miei agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントに追加"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បន្ថែមទៅភ្នាក់ងាររបស់ខ្ញុំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 에이전트에 추가"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Legg til i agentene mine"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dodaj do moich agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adicionar aos meus agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Добавить моим агентам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เพิ่มให้เอเจนต์ของฉัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajanlarıma ekle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Додати моїм агентам"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thêm vào tác tử của tôi"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添加到我的智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加入我的代理程式"
+          }
+        }
+      }
+    },
+    "settings.agents.cmuxMcp.off": {
+      "comment": "Settings > Agents > cmux Tools in Your Coding Agents: whether cmux adds its MCP server (Computer Use included) to the person's coding agents (agents.cmuxMcp)",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Isključeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desactivado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disattivato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끔"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Av"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wyłączone"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Выкл."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вимк."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tắt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
     "settings.computerUse.cursorTag": {
       "comment": "Settings > Computer Use: when an agent cursor shows its tag (the agent's workspace name or a tag it set)",
       "extractionState": "manual",

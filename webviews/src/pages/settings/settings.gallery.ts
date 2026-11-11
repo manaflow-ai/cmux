@@ -298,6 +298,10 @@ const variants: Record<string, SettingsPageVariant> = {
     options: { values: { "agentPane.display.harnessPlacement": "symbols" } },
     note: "An explicit top symbols choice wins over the old left rail and offers Reset.",
   }),
+  "agent-tools": variant("agents", {
+    focus: "agents.cmuxMcp",
+    note: "The onboarding step's question kept in Settings: the cmux Tools choice, then each coding agent with Add Now and Remove.",
+  }),
 };
 for (const category of categories) {
   const allThemes = category.id === "theme";
@@ -1811,6 +1815,7 @@ export default settingsPageEntry({
     "pages/settings/components/AccountsTeams.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
     "pages/settings/components/AgentIntegrations.tsx",
+    "pages/settings/components/AgentToolsCard.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
     "pages/settings/components/DevicesCard.tsx",
     "pages/settings/components/ChiefsCard.tsx#ChiefsCard",

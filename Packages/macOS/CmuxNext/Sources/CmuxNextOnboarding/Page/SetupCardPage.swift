@@ -1,3 +1,4 @@
+public import CmuxNextAgentIntegrations
 public import AppKit
 public import CmuxNextPages
 public import CmuxNextSettings
@@ -36,12 +37,15 @@ public struct SetupCardEnvironment {
     public var historySources: @MainActor () async -> Bool
     /// Shows Bring your history (the person's click); false when it did not show.
     public var importHistory: @MainActor () -> Bool
+    /// The cmux Tools question (`agents.cmuxMcp` and `cmux setup mcp`); nil: the card has no such row.
+    public var agentTools: (any AgentToolsSource)?
 
     public init(account: @escaping @MainActor () -> (signedIn: Bool, email: String?), signInAccount: @escaping @MainActor () -> Void,
                 cliState: @escaping @MainActor () async -> String, installCLI: @escaping @MainActor (_ replacing: Bool) async -> Void,
                 openAgents: @escaping @MainActor () -> Void,
                 screenReader: @escaping @MainActor () -> Bool = { NSWorkspace.shared.isVoiceOverEnabled },
-                historySources: @escaping @MainActor () async -> Bool, importHistory: @escaping @MainActor () -> Bool) {
+                historySources: @escaping @MainActor () async -> Bool, importHistory: @escaping @MainActor () -> Bool,
+                agentTools: (any AgentToolsSource)? = nil) {
         self.account = account
         self.signInAccount = signInAccount
         self.cliState = cliState
@@ -50,6 +54,7 @@ public struct SetupCardEnvironment {
         self.screenReader = screenReader
         self.historySources = historySources
         self.importHistory = importHistory
+        self.agentTools = agentTools
     }
 }
 
@@ -113,6 +118,8 @@ public final class SetupCardPageProvider: PageProvider {
 
     @ObservationIgnored private let setup: FirstRunSetup
     @ObservationIgnored let agents: AgentsStepModel
+    /// The cmux Tools row: whether cmux may add its MCP server to the person's coding agents.
+    @ObservationIgnored let tools: AgentToolsStepModel
     @ObservationIgnored private let environment: SetupCardEnvironment
     /// The `cmux` a new login shell runs, read at start, on focus and after an install; nil before the first read.
     private(set) var cli: String?
@@ -129,6 +136,8 @@ public final class SetupCardPageProvider: PageProvider {
         self.setup = setup
         self.agents = setup.agents(source: agents)
         self.environment = environment
+        tools = AgentToolsStepModel(source: environment.agentTools)
+        tools.start()
         self.agents.start()
         readCLI()
         // task-owner: one read of the chat sources at start; stop() cancels it.
@@ -141,6 +150,7 @@ public final class SetupCardPageProvider: PageProvider {
 
     /// The card's own reads end; the shared agents model (``FirstRunSetup/agents(source:)``) and its install go on.
     func stop() {
+        tools.stop()
         cliRead?.cancel()
         historyRead?.cancel()
     }
@@ -172,8 +182,22 @@ public final class SetupCardPageProvider: PageProvider {
         let account = environment.account()
         var wire: [String: JSONValue] = ["signedIn": .bool(account.signedIn)]
         if account.signedIn, let email = account.email { wire["email"] = .string(email) }
-        return ["agents": .array(rows), "history": history == true ? ["done": .bool(setup.historyDone)] : .null,
+        return ["agents": .array(rows), "tools": toolsRow, "history": history == true ? ["done": .bool(setup.historyDone)] : .null,
                 "account": .object(wire), "cli": .string(cliInstalling ? "installing" : cli ?? "missing"), "classic": .null]
+    }
+
+    /// The cmux Tools row (setupModel.ts `SetupState.tools`): shown while the question is open, or once
+    /// the person answered it on this card; null when nobody can be asked (no source, no coding agent
+    /// found) or it was answered elsewhere before.
+    var toolsRow: JSONValue {
+        guard environment.agentTools != nil, tools.loaded, !tools.agents.isEmpty, tools.choice == .ask || tools.answered else { return .null }
+        return ["agents": .array(tools.agents.map { .string($0.name) }), "choice": .string(tools.choice.rawValue),
+                "applying": .bool(tools.applying)]
+    }
+
+    /// The cmux Tools row is done: answered, or not shown (read, and nothing to ask).
+    var toolsDone: Bool {
+        environment.agentTools == nil || (tools.loaded && (tools.agents.isEmpty || tools.choice != .ask))
     }
 
     /// Every row is done: an agent signed in, the chat history answered (when found: never before the read of
@@ -184,7 +208,7 @@ public final class SetupCardPageProvider: PageProvider {
 
     /// The rows besides the agents' are done (``allDone``).
     var rowsBesideAgentsDone: Bool {
-        (history == false || setup.historyDone) && environment.account().signedIn && cli == "installed"
+        (history == false || setup.historyDone) && toolsDone && environment.account().signedIn && cli == "installed"
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
@@ -231,6 +255,9 @@ public final class SetupCardPageProvider: PageProvider {
         case "signInAccount": environment.signInAccount()
         case "importHistory": if environment.importHistory() { setup.historyAnswered() }
         case "declineHistory": setup.historyAnswered()
+        // cmux Tools: Add to My Agents runs `cmux setup mcp` for the agents found; Not Now writes nothing.
+        case "addTools" where toolsRow != .null: tools.add()
+        case "declineTools" where toolsRow != .null: tools.decline()
         case "installCLI":
             // Only the row's own offer: Install when missing, Replace for another cmux app's CLI; never over a
             // `cmux` that is no cmux app's.

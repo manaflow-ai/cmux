@@ -14,6 +14,8 @@ mod acp;
 mod agent_browser_provider;
 #[cfg(unix)]
 mod agent_computer_use;
+#[cfg(unix)]
+mod agent_mcp_choice;
 use cmux_tui_hooks as agent_hook_install;
 mod agent_plugin_config;
 #[cfg(unix)]

@@ -1333,6 +1333,13 @@
     },
     {
       "agent": "userOnly",
+      "why": "Whether cmux adds its tools to the person's own coding agents (their config files and each terminal launch): the onboarding step asks the person, and only the person answers; an agent must not grant itself or other agents cmux's tools.",
+      "keys": [
+        "agents.cmuxMcp"
+      ]
+    },
+    {
+      "agent": "userOnly",
       "why": "How long Claude Code chats keep their prompt cache: it moves the person's model bill.",
       "keys": [
         "agents.promptCache"

@@ -16,6 +16,13 @@ extension AgentDefaultsSettingsSchema {
     nonisolated static let modelRouterModelValues = ["deepseek/deepseek-v4.1-flash-1017", "deepseek/deepseek-v4.1-flash", "deepseek/deepseek-v4-flash", "deepseek/deepseek-v4-pro"]
 }
 
+extension AgentDefaultsSettingsSchema {
+    /// `agents.cmuxMcp`: Whether cmux adds its cmux MCP server (cmux mcp serve, which carries cmux Computer Use) to the person's own coding agents, Claude Code and Codex: both the server the claude and codex shims pass to an agent started in a cmux terminal (cmux-tui agent_mcp_choice.rs) and the entries cmux setup mcp writes into the agents' config files (cli/setup/mcp.rs). ask (unset) keeps what cmux did before the onboarding step asked; on is the person's opt-in (it also turns the server on for these agents unless mcp.enabled says otherwise, cli/mcp/config.rs); off passes and writes nothing. cmux's own agent chats keep their tools either way. Rust reads it with cmux_tui_core::user_settings::AgentsCmuxMcp.
+    nonisolated static let cmuxMcpPath = ["agents", "cmuxMcp"]
+    nonisolated static let cmuxMcpDefault = "ask"
+    nonisolated static let cmuxMcpValues = ["ask", "on", "off"]
+}
+
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum AgentDefaultsSettingsSchema {
     /// The defaults a new agent chat starts with (Agents > Agent Chat).
@@ -63,6 +70,28 @@ nonisolated enum AgentDefaultsSettingsSchema {
                 ]),
                 default: .string(AgentDefaultsSettingsSchema.modelRouterModelDefault),
                 keywords: ["model", "router", "cmux router", "deepseek", "vision", "images", "inference", "default model", "new chat"]
+            ),
+        ]
+    }
+
+    /// Settings > Agents > cmux Tools in Your Coding Agents: the onboarding step's question (may cmux add its MCP server to the person's coding agents?) and its answer, beside the card that adds or removes the server now.
+    static var toolsDescriptors: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.agentTools", "cmux Tools in Your Coding Agents")
+        return [
+            SettingDescriptor(
+                AgentDefaultsSettingsSchema.cmuxMcpPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.agents.cmuxMcp", "Add cmux Tools to Your Coding Agents"),
+                help: SettingsText.keyed("settings.agents.cmuxMcp.help", "Lets Claude Code, Codex and other coding agents you run use cmux's tools, Computer Use included. Ask keeps adding them to agents you start in a cmux terminal until you choose. Off adds nothing and leaves your agents' settings alone."),
+                summary: SettingsText.keyed("settings.agents.cmuxMcp.summary", "Whether your coding agents get cmux's tools"),
+                kind: .choice([
+                    SettingChoice("ask", SettingsText.keyed("settings.agents.cmuxMcp.ask", "Ask")),
+                    SettingChoice("on", SettingsText.keyed("settings.agents.cmuxMcp.on", "Add to My Agents")),
+                    SettingChoice("off", SettingsText.keyed("settings.agents.cmuxMcp.off", "Off")),
+                ]),
+                default: .string(AgentDefaultsSettingsSchema.cmuxMcpDefault),
+                keywords: ["mcp", "mcp server", "cmux tools", "computer use", "claude", "codex", "coding agents", "agents", "onboarding"]
             ),
         ]
     }

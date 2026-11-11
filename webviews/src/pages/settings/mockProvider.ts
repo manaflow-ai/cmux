@@ -40,6 +40,8 @@ import {
   type HarnessesState,
   type ProviderAccount,
   type IntegrationsRun,
+  type AgentToolsCardRun,
+  type AgentToolsCardState,
   type IntegrationsState,
   type Diagnostic,
   type Domains,
@@ -600,6 +602,22 @@ export class MockSettingsProvider {
         this.harnessRuns.push(run);
         return {};
       },
+      "cmux.settings.agentTools.state": () => this.agentTools,
+      "cmux.settings.agentTools.run": (params) => {
+        const run = params as AgentToolsCardRun;
+        if (run.action === "refresh") return this.agentTools;
+        // Like the host: Add sets the choice to on and adds to every ready agent; Remove takes cmux's own
+        // entry out; a server of the person's (conflict) stays either way.
+        this.agentToolsRuns.push(run);
+        const from = run.action === "add" ? "ready" : "added";
+        const to = run.action === "add" ? "added" : "ready";
+        if (run.action === "add") this.values.set("agents.cmuxMcp", "on");
+        this.agentTools = {
+          ...this.agentTools,
+          rows: this.agentTools.rows.map((row) => (row.state === from ? { ...row, state: to } : row)),
+        };
+        return this.agentTools;
+      },
       "cmux.settings.integrations.state": () => this.integrations,
       "cmux.settings.integrations.run": (params) => {
         const run = params as IntegrationsRun;
@@ -680,6 +698,8 @@ export class MockSettingsProvider {
       "cmux.settings.tailnet.logout",
       "cmux.settings.integrations.state",
       "cmux.settings.integrations.run",
+      "cmux.settings.agentTools.state",
+      "cmux.settings.agentTools.run",
       "cmux.settings.theme.set",
       "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
@@ -1135,6 +1155,19 @@ export class MockSettingsProvider {
       { id: "gemini", path: "~/.gemini/settings.json", state: "absent", reason: null, detail: null, error: null },
     ],
   };
+  /** `cmux setup mcp --dry-run` as the app serves it (`SettingsAgentTools.state`). */
+  agentTools: AgentToolsCardState = {
+    loaded: true,
+    applying: false,
+    failed: false,
+    rows: [
+      { id: "claude", name: "Claude Code", state: "added" },
+      { id: "codex", name: "Codex", state: "ready" },
+    ],
+  };
+  /** Agents with cmux Tools gestures the page sent (add, remove). */
+  readonly agentToolsRuns: AgentToolsCardRun[] = [];
+
   /** Agent integrations gestures the page sent (install, repair, remove). */
   readonly integrationRuns: IntegrationsRun[] = [];
 

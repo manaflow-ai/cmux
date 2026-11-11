@@ -448,6 +448,17 @@
       "title" : "Session Recap",
       "type" : "boolean"
     },
+    "agents.cmuxMcp" : {
+      "default" : "ask",
+      "description" : "Lets Claude Code, Codex and other coding agents you run use cmux's tools, Computer Use included. Ask keeps adding them to agents you start in a cmux terminal until you choose. Off adds nothing and leaves your agents' settings alone.",
+      "enum" : [
+        "ask",
+        "on",
+        "off"
+      ],
+      "title" : "Add cmux Tools to Your Coding Agents",
+      "type" : "string"
+    },
     "agents.defaultPermissionMode" : {
       "default" : "fullAccess",
       "description" : "What a new chat may do without asking. A mode you pick in a chat applies to that chat only.",
@@ -2254,6 +2265,17 @@
       "title" : "Allow My Other Machines",
       "type" : "boolean"
     },
+    "computerUse.cursorTag" : {
+      "default" : "hover",
+      "description" : "Each agent cursor can carry a tag: the agent's workspace name, or a tag the agent sets. Show it when your pointer is over the cursor, always, or never.",
+      "enum" : [
+        "hover",
+        "always",
+        "never"
+      ],
+      "title" : "Agent Cursor Tag",
+      "type" : "string"
+    },
     "computerUse.deniedApps" : {
       "default" : [
         "com.apple.keychainaccess",
@@ -2325,6 +2347,17 @@
       "description" : "While you use the mouse or keyboard, agents wait before their next click or key press.",
       "title" : "Pause When I Use the Mouse or Keyboard",
       "type" : "boolean"
+    },
+    "computerUse.settle" : {
+      "default" : "adaptive",
+      "description" : "What an agent waits for after each click or key press before it looks again: the screen to stop changing, a fixed 2 seconds, or nothing.",
+      "enum" : [
+        "adaptive",
+        "anthropic",
+        "openai"
+      ],
+      "title" : "After Each Action",
+      "type" : "string"
     },
     "computerUse.showCursor" : {
       "default" : true,

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createStrings } from "../shared/i18n";
 import type { AgentsLook } from "./AgentsStep";
-import { agentsState, computerUseState, importState } from "./fixtures";
+import { agentToolsState, agentsState, computerUseState, importState } from "./fixtures";
 import table from "./generated/strings.json";
 import { OnboardingPage } from "./Onboarding";
 import { OPS, type OnboardingState } from "./ops";
@@ -16,7 +16,11 @@ function render(state: OnboardingState, look?: AgentsLook): string {
 }
 
 /** Text with tags removed, so assertions read what a person reads (hidden sizing labels are attributes). */
-const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+const text = (html: string) =>
+  html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&gt;/g, ">")
+    .replace(/\s+/g, " ");
 
 describe("agents", () => {
   test("title, line, each agent with its sign-in, and Skip / Continue", () => {
@@ -148,6 +152,65 @@ describe("computer use", () => {
   });
   test("off: the note", () => {
     expect(text(render(computerUseState("off")))).toContain("Computer Use is off.");
+  });
+});
+
+describe("cmux tools", () => {
+  const settingsPlace = "You can change this later in Settings > Agents > cmux Tools in Your Coding Agents.";
+  test("asks before adding anything: the question, Claude Code and Codex found, Not Now and Add to My Agents", () => {
+    const html = render(agentToolsState("found"));
+    const words = text(html);
+    expect(words).toContain("Add cmux Tools to Your Agents?");
+    expect(words).toContain("Computer Use included");
+    expect(html).toContain('data-agent="claude"');
+    expect(html).toContain('data-agent="codex"');
+    expect(html.match(/data-tools="ready"/g)?.length).toBe(2);
+    expect(words).toContain("Found on this Mac");
+    expect(words).toContain("Not Now");
+    expect(html).toMatch(/data-primary="addTools"/);
+    expect(words).toContain("Add to My Agents");
+    expect(words).toContain(settingsPlace);
+  });
+  test("none found and still checking say so, and still name the place in Settings", () => {
+    const none = text(render(agentToolsState("none")));
+    expect(none).toContain("No coding agents found on this Mac yet.");
+    expect(none).toContain(settingsPlace);
+    expect(text(render(agentToolsState("checking")))).toContain("Checking…");
+  });
+  test("one already has cmux's tools; a server of the person's named cmux is left alone", () => {
+    expect(text(render(agentToolsState("oneAdded")))).toContain("Has cmux’s tools");
+    const conflict = render(agentToolsState("conflict"));
+    expect(conflict).toContain('data-tools="conflict"');
+    expect(text(conflict)).toContain("Has another server named cmux");
+  });
+  test("while Add runs the primary waits; added, declined and failed answers end on Done with no Not Now", () => {
+    const adding = render(agentToolsState("adding"));
+    expect(text(adding)).toContain("Adding…");
+    expect(adding).toMatch(/data-primary="addTools"[^>]*disabled/);
+    const added = render(agentToolsState("added"));
+    expect(text(added)).toContain("Done. Your agents get cmux’s tools when they next start.");
+    expect(added).toMatch(/data-primary="done"/);
+    expect(text(added)).not.toContain("Not Now");
+    const declined = text(render(agentToolsState("declined")));
+    expect(declined).toContain("cmux won’t add its tools to your agents.");
+    expect(declined).toContain("Not added");
+    expect(text(render(agentToolsState("failed")))).toContain(
+      "Some agents couldn’t be set up. You can try again in Settings.",
+    );
+  });
+  test("Add and Not Now are the footer's two gestures: next and skip", async () => {
+    const calls: string[] = [];
+    const store = new OnboardingStore({
+      call: async <R,>(op: string): Promise<R> => {
+        calls.push(op);
+        return {} as R;
+      },
+      subscribe: async () => () => {},
+      handle: () => () => {},
+    });
+    store.call(OPS.next);
+    store.call(OPS.skip);
+    expect(calls).toEqual([OPS.next, OPS.skip]);
   });
 });
 

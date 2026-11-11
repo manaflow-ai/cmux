@@ -1,6 +1,8 @@
 //! The MCP server's switch: `mcp.enabled` in the settings file, owned by the config
 //! layer (the app writes the file; this only reads it). Off unless the file
-//! says `true`.
+//! says `true`, or leaves it unset while the person answered yes to cmux's
+//! tools in their coding agents (`agents.cmuxMcp` `on`, the onboarding step's
+//! Add to My Agents): that answer is the same opt-in.
 
 use std::path::{Path, PathBuf};
 
@@ -42,6 +44,12 @@ fn setting_in(text: &str) -> Result<Option<bool>, String> {
     let document: Value = serde_json::from_str(&strip_jsonc(text))
         .map_err(|error| format!("cmux.json is not valid JSONC: {error}"))?;
     match document.get("mcp").and_then(|mcp| mcp.get("enabled")) {
+        None | Some(Value::Null)
+            if cmux_tui_core::user_settings::AgentsCmuxMcp::from_config_text(text)
+                == cmux_tui_core::user_settings::AgentsCmuxMcp::On =>
+        {
+            Ok(Some(true))
+        }
         None | Some(Value::Null) => Ok(None),
         Some(Value::Bool(enabled)) => Ok(Some(*enabled)),
         Some(_) => Err("mcp.enabled must be true or false".into()),

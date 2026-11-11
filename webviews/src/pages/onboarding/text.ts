@@ -5,6 +5,8 @@ import type { Strings } from "../shared/i18n";
 import type {
   AgentAuth,
   AgentRow,
+  AgentToolsRow,
+  AgentToolsState,
   ComputerUseState,
   ImportCounts,
   ImportDataKind,
@@ -105,6 +107,7 @@ const PRIMARY_KEYS: Record<PrimaryAction, string> = {
   findBrowsers: "onboarding.import.findBrowsers",
   import: "onboarding.button.import",
   beginImporting: "onboarding.button.beginImporting",
+  addTools: "onboarding.agentTools.add",
 };
 
 /** The footer's filled button. */
@@ -118,19 +121,49 @@ export function primaryLabels(strings: Strings, step: OnboardingStep): string[] 
   const actions: PrimaryAction[] =
     step === "importData"
       ? ["findBrowsers", "detecting", "import", "beginImporting", "continue", "done"]
-      : ["continue"];
+      : step === "agentTools"
+        ? ["addTools", "done"]
+        : ["continue"];
   return actions.map((action) => strings.t(PRIMARY_KEYS[action]));
 }
 
 export function skipLabel(strings: Strings, skip: OnboardingFooter["skip"]): string {
+  if (skip === "notNow") return strings.t("onboarding.computerUse.notNow");
   return strings.t(skip === "skipImporting" ? "onboarding.button.skipImporting" : "onboarding.button.skip");
 }
 
 /** Skip's labels on a step: Import also says Skip Importing over the Keychain explainer. */
 export function skipLabels(strings: Strings, step: OnboardingStep): string[] {
+  if (step === "agentTools") return [strings.t("onboarding.computerUse.notNow")];
   return step === "importData"
     ? [strings.t("onboarding.button.skip"), strings.t("onboarding.button.skipImporting")]
     : [strings.t("onboarding.button.skip")];
+}
+
+const TOOLS_STATE_KEYS: Record<AgentToolsRow["state"], string> = {
+  ready: "onboarding.agentTools.state.ready",
+  added: "onboarding.agentTools.state.added",
+  conflict: "onboarding.agentTools.state.conflict",
+  failed: "onboarding.agentTools.state.failed",
+};
+
+/** The line under a coding agent's name: found, has cmux's tools, keeps the person's own server
+ * named cmux, or could not be read; after Not Now a found agent says Not added. */
+export function agentToolsDetail(strings: Strings, row: AgentToolsRow, tools: AgentToolsState): string {
+  if (row.state === "ready" && tools.choice === "off") return strings.t("onboarding.agentTools.state.notAdded");
+  return strings.t(TOOLS_STATE_KEYS[row.state] ?? TOOLS_STATE_KEYS.ready);
+}
+
+/** The line under the cmux Tools list, or null for none: Checking…, none found, Adding…, what the
+ * answer did, or that some agent could not be set up. */
+export function agentToolsStatus(strings: Strings, tools: AgentToolsState | null | undefined): string | null {
+  if (tools == null || !tools.loaded) return strings.t("onboarding.agents.checking");
+  if (tools.applying) return strings.t("onboarding.agentTools.adding");
+  if (tools.answered && tools.failed) return strings.t("onboarding.agentTools.failed");
+  if (tools.answered && tools.choice === "on") return strings.t("onboarding.agentTools.added");
+  if (tools.answered && tools.choice === "off") return strings.t("onboarding.agentTools.declined");
+  if (tools.rows.length === 0) return strings.t("onboarding.agentTools.none");
+  return null;
 }
 
 const AUTH_KEYS: Record<AgentAuth, string> = {
@@ -256,6 +289,7 @@ export function computerUseLine(strings: Strings, pane: string): string {
 export function windowTitle(strings: Strings, state: OnboardingState | null): string {
   if (state?.step === "importData") return strings.t("onboarding.import.title2");
   if (state?.step === "computerUse") return strings.t("onboarding.computerUse.title");
+  if (state?.step === "agentTools") return strings.t("onboarding.agentTools.title");
   return strings.t("onboarding.agents.title");
 }
 
