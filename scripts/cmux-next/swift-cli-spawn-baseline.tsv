@@ -48,6 +48,8 @@ Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLauncher+Replace.swi
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonLauncher.swift	process	2	keep:daemon-launch (starts the daemon)
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonVersionHandoff.swift	process	1	keep:daemon-launch (starts the daemon)
 Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/LoginEnvironment.swift	process	1	keep:daemon-launch (starts the daemon)
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/CloudMoveSetup+SourceTrust.swift	cmux-cli	1	lane:cloud-move
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/CloudMoveSetup+SourceTrust.swift	main-actor	1	lane:cloud-move
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefMoveWatchLauncher.swift	process	1	lane:chief
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefTeleportRunner.swift	main-actor	1	lane:chief
 Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefTeleport/ChiefTeleportRunner.swift	process	1	lane:chief
