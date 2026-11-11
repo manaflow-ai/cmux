@@ -202,7 +202,7 @@ export class BookmarksStore {
         }),
         await client.subscribe<HostChangedEvent>(HostOps.changed, (event) => {
           if (event?.reason === "icons") this.forgetMissingIcons();
-          else if (event?.reason !== "lend") void this.reload();
+          else void this.reload();
         }),
       ];
       // The page stopped (or stopped and started) while this was in flight: they are not this run's.
