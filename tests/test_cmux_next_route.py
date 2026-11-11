@@ -109,6 +109,64 @@ def tiers(changed: list[str], event: str = "pull_request", labels: frozenset[str
     return outputs(route(ROOT, event, changed, set(labels)))
 
 
+# The build and packaging scripts outside the Xcode project's build phases: the GhosttyKit fetch, the tagged
+# dev-build driver, and the release strip, thin and signing steps.
+NATIVE_SCRIPT_SEEDS = (
+    "cmux.xcodeproj/project.pbxproj",
+    "scripts/ensure-ghosttykit.sh", "scripts/download-prebuilt-ghosttykit.sh",
+    "scripts/reload.sh", "scripts/reloads.sh", "scripts/reload2.sh", "scripts/reloadp.sh",
+    "scripts/strip-release-bundle.sh", "scripts/write-app-symbol-map.py", "scripts/thin-app-bundle.sh",
+    "scripts/sign-cmux-bundle.sh", "scripts/sign-cmux-bundle-helpers.sh",
+)
+_PATH_TOKEN = re.compile(r"[A-Za-z0-9_.@-]*(?:/[A-Za-z0-9_.@-]+)+|[A-Za-z0-9_-]+\.[A-Za-z]{2,6}\b|\b[A-Z][A-Z_]+[A-Z]\b")
+# Comments, docstrings and messages name files they do not read.
+_NOT_A_READ = re.compile(r"^\s*(#|//|\"\"\")|\b(echo|printf|print|warn|die|fail|log)\b[ (]")
+
+
+def native_script_reads() -> dict[str, set[str]]:
+    """{repository file: the build or packaging files that read it}. Walks the seeds, the scripts the Xcode
+    project's phases name and the shell files a walked script sources; a read is a path literal outside a
+    comment or message that names an existing file, from the root or the script's folder, with or without
+    its leading variable (`$SCRIPT_DIR/...`, `$(SRCROOT)/...`)."""
+    def resolve(token: str, folder: Path) -> str | None:
+        token = token.lstrip("/").removeprefix("./")
+        candidates = [token] + ([token.split("/", 1)[1]] if "/" in token else [])
+        for candidate in candidates:
+            for base in (ROOT, folder):
+                path = base / candidate
+                if path.is_file():
+                    try:
+                        return path.resolve().relative_to(ROOT).as_posix()
+                    except ValueError:
+                        return None
+        return None
+
+    reads: dict[str, set[str]] = {}
+    seen: set[str] = set()
+    pending = list(NATIVE_SCRIPT_SEEDS)
+    while pending:
+        script = pending.pop()
+        if script in seen or not (ROOT / script).is_file():
+            continue
+        seen.add(script)
+        project = script.endswith(".pbxproj")
+        text = (ROOT / script).read_text(encoding="utf-8", errors="replace")
+        lines = text.splitlines() if project else [line for line in text.splitlines() if not _NOT_A_READ.search(line)]
+        for line in lines:
+            for token in _PATH_TOKEN.findall(line):
+                if not project and f"({token})" in line:
+                    continue  # a citation in a message: "... (plans/cmux-next/crash-elimination.md)"
+                path = resolve(token, (ROOT / script).parent)
+                if path is None or path == script:
+                    continue
+                reads.setdefault(path, set()).add(script)
+                runnable = path.endswith((".sh", ".py")) or (path.startswith("scripts/") and "." not in path.rsplit("/", 1)[-1])
+                sourced = re.search(r"(\bsource|^\s*\.)\s+\S*" + re.escape(path.rsplit("/", 1)[-1]), line)
+                if runnable and (project or sourced):
+                    pending.append(path)
+    return reads
+
+
 def graph_dependencies(name: str) -> set[str]:
     """Every target `name` depends on, directly or not, read straight from the graph."""
     found: set[str] = set()
@@ -536,6 +594,38 @@ class PullRequestTiers(unittest.TestCase):
                      "scripts/strip-release-bundle.sh", "scripts/write-app-symbol-map.py", ".gitattributes"):
             with self.subTest(path=path):
                 self.assertEqual(tiers([path])["native"], "true")
+
+    def test_native_script_inputs_run_the_app_compiles(self):
+        """Every file the app build or its packaging reads runs the app compiles, whatever its name: the
+        Xcode project's resources and build phase inputs, the scripts its phases run, and the GhosttyKit,
+        reload, strip and signing scripts, with what each of those reads or sources. A `.txt`, `.md` or
+        scripts/ci/ file among them used to route to a Linux tier by its name alone
+        (scripts/ghosttykit-checksums.txt, which ensure-ghosttykit.sh checks the download against)."""
+        import cmux_next_route as route_module
+        reads = native_script_reads()
+        self.assertIn("scripts/ghosttykit-checksums.txt", reads)
+        self.assertIn("THIRD_PARTY_LICENSES.md", reads)
+        bundle = route_module.WEBVIEW + route_module.BUNDLE_INPUTS + route_module.CHECKED_WEB_BUNDLES
+        in_bundle = lambda path: any(fnmatch.fnmatch(path, p) for p in bundle)  # noqa: E731
+        misrouted = sorted(
+            f"{path} (read by {', '.join(sorted(readers))})" for path, readers in reads.items()
+            # ci-web's bundle --check stands in for the app compile for the web bundles' own inputs.
+            if not in_bundle(path) and not all(in_bundle(reader) for reader in readers)
+            and (route_module.web_fast(path) or route_module.ci_only(path))
+        )
+        self.assertEqual(misrouted, [], "add these to NATIVE_SCRIPT_INPUTS in scripts/ci/cmux_next_route.py")
+        import yaml
+        import workflow_paths_cover_inputs as path_filters
+        workflow = yaml.safe_load((ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8"))
+        kind, patterns = path_filters.filtered_events(workflow)["pull_request"]
+        for path in route_module.NATIVE_SCRIPT_INPUTS:
+            with self.subTest(path=path):
+                self.assertIn(path, reads, "a NATIVE_SCRIPT_INPUTS entry no build script reads any more")
+                # The router only routes what starts the workflow.
+                self.assertTrue(path_filters.admits(kind, patterns, path), "add it to cmux-next.yml's paths")
+                result = tiers([path])
+                self.assertEqual(result["native"], "true")
+                self.assertEqual(result["scheme"], "true")
 
     def test_ci_files_a_mac_job_consumes_keep_their_tier(self):
         self.assertEqual(tiers(["scripts/ci/xcode-pins.txt"])["full"], "true")
