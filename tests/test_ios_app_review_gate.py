@@ -407,6 +407,24 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("remove from", out.read_text())
 
+    def test_a_change_cannot_pin_its_own_regression(self) -> None:
+        suite, known = self.ratchet_inputs(["testOld()", "testNew()"])
+        proposed = self.root / "proposed.json"
+        proposed.write_text(json.dumps({"blockers": [{"key": "uitest.failed|iphone|AppReviewGateUITests/testOld()"},
+                                                     {"key": "uitest.failed|iphone|AppReviewGateUITests/testNew()"}]}))
+        out = self.root / "report.md"
+        # Its own list alone would pass it; judged on the base's, it fails twice over.
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite),
+                                    "--known-blockers", str(proposed), "--out", str(out)]), 0)
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite), "--known-blockers",
+                                    str(known), "--proposed-known-blockers", str(proposed), "--out", str(out)]), 1)
+        self.assertIn("known-blockers.added", out.read_text())
+        # Removing a fixed entry is fine.
+        suite, known = self.ratchet_inputs([])
+        proposed.write_text(json.dumps({"blockers": []}))
+        self.assertEqual(gate.main(["report", "--asc-skipped", "--xcresult-json", str(suite), "--known-blockers",
+                                    str(known), "--proposed-known-blockers", str(proposed), "--out", str(out)]), 0)
+
     def test_the_key_ignores_line_numbers_and_screen_dumps(self) -> None:
         a = {"rule": "uitest.failed", "where": "ipad", "message": "AppReviewGateUITests/testX(): T.swift:120: on screen: a"}
         b = {"rule": "uitest.failed", "where": "ipad", "message": "AppReviewGateUITests/testX(): T.swift:131: on screen: b"}
@@ -463,7 +481,8 @@ class RealTreeTests(unittest.TestCase):
 
     def test_pushes_and_pull_requests_fail_on_a_new_blocker(self) -> None:
         workflow = (ROOT / ".github/workflows/ios-review-gate.yml").read_text()
-        self.assertIn("--known-blockers cmux-next-ios/AppStoreReview/known-blockers.json", workflow)
+        self.assertIn('--known-blockers "base/$known" --proposed-known-blockers "$known"', workflow)
+        self.assertIn("ref: ${{ github.event.pull_request.base.sha }}", workflow)
         self.assertNotIn("ADVISORY", workflow)
         pull_request = workflow.split("  pull_request:", 1)[1].split("  workflow_dispatch:", 1)[0]
         self.assertIn('"cmux-next-ios/**"', pull_request)

@@ -1086,6 +1086,16 @@ def cmd_report(args: argparse.Namespace) -> int:
     if args.known_blockers:
         known, unreadable = read_known_blockers(Path(args.known_blockers))
         findings += unreadable
+        if args.proposed_known_blockers:
+            # A pull request is judged on its base's list, and a key it adds
+            # to the list is itself a blocker: pinning the regression it brings
+            # would otherwise pass it.
+            proposed, unreadable = read_known_blockers(Path(args.proposed_known_blockers))
+            findings += unreadable
+            findings += [{"rule": "known-blockers.added", "guideline": "2.1", "severity": "blocker",
+                          "source": "known blockers", "where": key,
+                          "message": f"this change adds {key} to {KNOWN_BLOCKERS_FILE}; fix the blocker instead"}
+                         for key in sorted(proposed - known)]
     md = render(findings, lint, asc, tests)
     new: list[dict] | None = None
     if known is not None:
@@ -1142,6 +1152,8 @@ def main(argv: list[str] | None = None) -> int:
                         help="a device family (iphone, ipad) whose suite result must be present")
     report.add_argument("--known-blockers",
                         help="known-blockers.json: fail only on a blocker not listed there (a push or pull request)")
+    report.add_argument("--proposed-known-blockers",
+                        help="the change's own known-blockers.json: every key it adds over --known-blockers blocks")
     report.add_argument("--out")
     version = sub.add_parser("version")
     version.add_argument("--source-root", default=".")

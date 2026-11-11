@@ -40,8 +40,9 @@ feat-cmux-next push or pull request run reports the same ranked list and
 (run 43002601165), each with the fix that owns it. So a change that breaks
 the reviewer's path is red on its own pull request, before it merges, instead
 of being found by App Review. A fix removes its entry (the report lists the
-known blockers it no longer sees); nothing is ever added to get a change past
-the gate. The agent reviewer pass is a model's judgement and can differ run to
+known blockers it no longer sees). A pull request is judged on its base's
+list, and any key it adds to the list is itself a blocker, so a change can
+never pin its own regression. The agent reviewer pass is a model's judgement and can differ run to
 run, so it is listed on every run but fails only a submission.
 
 ## Checks
