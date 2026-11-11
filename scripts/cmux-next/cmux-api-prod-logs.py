@@ -26,6 +26,18 @@ SERVICE = "cmux-api"
 LOG_FIELDS = ("msg", "team", "outcome", "code", "type", "fails", "step", "attempts", "status", "op")
 NEEDLE_OK = re.compile(r"^[A-Za-z0-9_./ :-]{3,80}$")
 PAGES = 20
+# Printed values are scrubbed as well as allowlisted: a free-text msg, error or path may hold one (run logs are public).
+SCRUB = [(re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}"), "<email>"),
+         (re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b|\b[0-9a-fA-F]{1,4}(?::[0-9a-fA-F]{0,4}){4,7}\b"), "<ip>"),
+         (re.compile(r"[A-Za-z0-9+/_=-]{40,}"), "<long>")]
+
+
+def scrub(v):
+    if not isinstance(v, str):
+        return v
+    for rx, to in SCRUB:
+        v = rx.sub(to, v)
+    return v
 
 
 def query(token, frm, to, offset=None):
@@ -82,7 +94,7 @@ def line(e):
     when = datetime.datetime.fromtimestamp(ts / 1000, datetime.timezone.utc).strftime("%H:%M:%S.%fZ")[:-4] + "Z" if isinstance(ts, (int, float)) else "?"
     ev = dig(e, "$workers", "event") or {}
     req = ev.get("request") if isinstance(ev, dict) else None
-    rec = {"t": when, "kind": dig(e, "$metadata", "type") or dig(e, "$workers", "eventType"), "outcome": dig(e, "$workers", "outcome"),
+    rec = {"_ts": ts if isinstance(ts, (int, float)) else 0, "t": when, "kind": dig(e, "$metadata", "type") or dig(e, "$workers", "eventType"), "outcome": dig(e, "$workers", "outcome"),
            "entry": dig(e, "$workers", "entrypoint")}
     if isinstance(req, dict):
         rec["method"] = req.get("method")
@@ -92,7 +104,9 @@ def line(e):
         rec["status"] = status
     for f in console_fields(e):
         rec["log"] = f
-    return {k: v for k, v in rec.items() if v not in (None, "", False)}
+    if "log" in rec:
+        rec["log"] = {k: scrub(v) for k, v in rec["log"].items()}
+    return {k: scrub(v) for k, v in rec.items() if v not in (None, "", False)}
 
 
 def key_paths(o, p=""):
@@ -120,22 +134,24 @@ def main():
     frm = int(start.timestamp() * 1000)
     to = frm + minutes * 60_000
     token = sys.stdin.readline().strip()
-    events, offset, pages = [], None, 0
+    events, offset, pages, complete = [], None, 0, False
     while pages < PAGES:
         got = dig(query(token, frm, to, offset), "result", "events", "events") or []
         events += got
         pages += 1
         if len(got) < 1000:
+            complete = True
             break
         offset = dig(got[-1], "$metadata", "id")
         if not offset:
+            complete = True
             break
     keys = sorted({k for e in events[:50] for k in key_paths(e)})
     kept = [e for e in events if not needles or any(n in json.dumps(e) for n in needles)]
     rows = [line(e) for e in kept]
-    rows.sort(key=lambda r: r.get("t", ""))
+    rows.sort(key=lambda r: r.pop("_ts", 0))
     print(json.dumps({"service": SERVICE, "window_utc": [args.frm, minutes], "needles": needles, "events_in_window": len(events),
-                      "pages": pages, "truncated": pages >= PAGES, "kept": len(rows), "event_key_paths": keys}, indent=1))
+                      "pages": pages, "truncated": not complete, "kept": len(rows), "event_key_paths": keys}, indent=1))
     for r in rows[:2000]:
         print(json.dumps(r, separators=(",", ":")))
     return 0
