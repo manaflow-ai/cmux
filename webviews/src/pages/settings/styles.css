@@ -1610,6 +1610,13 @@ mark {
   box-shadow: var(--ui-popup-drop);
 }
 
+.content:has(.appearance-bar) {
+  /* While the bar floats over the page, a row scrolled into view at the bottom (a Tab stop, a
+     click's scroll) lands above the bar, not under it: the bar's height (a button and its 4px frame)
+     joins the fade's clearance. */
+  scroll-padding-bottom: calc(var(--content-fade-bottom) + 4px + var(--ds-control-row) + 10px + 6px);
+}
+
 .appearance-bar-button {
   width: 28px;
   height: 26px;
