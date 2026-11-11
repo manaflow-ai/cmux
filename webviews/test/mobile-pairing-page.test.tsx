@@ -334,3 +334,44 @@ test("the page shows Retry, not Loading…, once the deadline passes", async () 
   expect(host.querySelector(".pairing-panel button")).not.toBeNull();
   store.stop();
 });
+
+test("Retry shows Loading… again and runs under a fresh deadline", async () => {
+  const { MobilePairingStore } = await import("../src/pages/mobile-pairing/store");
+  const deadline = manualDeadline();
+  const store = new MobilePairingStore(silentHost().client, Date.now, { schedule: deadline.schedule });
+  void store.start();
+  deadline.fire();
+  expect(store.getSnapshot()).toEqual({ loading: false, failed: {} });
+
+  const before = deadline.pending.length;
+  void store.retry();
+  // The failure clears at once: the page says it is loading again, not the old error.
+  expect(store.getSnapshot()).toEqual({ loading: true });
+  const fresh = deadline.pending.slice(before);
+  expect(fresh.map((entry) => entry.ms)).toEqual([10_000]);
+  // The retried read hangs too: the fresh deadline ends it in the failure again.
+  fresh[0]!.fire();
+  expect(store.getSnapshot()).toEqual({ loading: false, failed: {} });
+  store.stop();
+});
+
+test("the page's Retry button shows Loading… again", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { MobilePairingPage } = await import("../src/pages/mobile-pairing/MobilePairingPage");
+  const { MobilePairingStore } = await import("../src/pages/mobile-pairing/store");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/mobile-pairing/generated/strings.json")).default;
+  const deadline = manualDeadline();
+  const store = new MobilePairingStore(silentHost().client, Date.now, { schedule: deadline.schedule });
+  act(() => root?.unmount());
+  root = createRoot(host);
+  act(() => root!.render(<MobilePairingPage store={store} strings={createStrings(table, ["en"])} />));
+  act(() => void store.start());
+  act(() => deadline.fire());
+  const retry = host.querySelector<HTMLButtonElement>(".pairing-panel button");
+  expect(retry).not.toBeNull();
+  act(() => retry!.click());
+  expect(host.querySelector(".pairing-panel button")).toBeNull();
+  expect(host.querySelector(".pairing-muted")?.textContent).toBeTruthy();
+  store.stop();
+});
