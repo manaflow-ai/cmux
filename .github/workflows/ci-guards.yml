@@ -1920,6 +1920,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_runner_preflight.py
 
+      - name: Validate every App token step names only inputs the action declares, and some permission
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_app_token_steps.py
+
       - name: Validate nightly-next signs and publishes on cmux15 first
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_nightly_signing_on_cmux15.py
