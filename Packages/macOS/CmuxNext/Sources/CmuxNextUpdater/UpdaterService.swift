@@ -116,6 +116,11 @@ public final class UpdaterService {
     @ObservationIgnored let lastUpdates: WhatsNewLastUpdateStore?
     /// The record last written, so an unchanged one is not written again.
     @ObservationIgnored var recordedUpdate: WhatsNewLastUpdate?
+    /// What the switch or rollback the person started is doing, step by step (Settings > Updates'
+    /// Channels card shows it on the pressed button); nil when none runs.
+    public internal(set) var buildSwitchProgress: BuildSwitchProgress?
+    /// A switch or rollback runs (``UpdateDropBack``): a second one from any entry point is refused.
+    @ObservationIgnored var switchRunning = false
     /// The running bundle's keep for rollback (``keepRunningBuildForRollback()``).
     @ObservationIgnored var keptRunningBuild: KeepState?
     @ObservationIgnored var keepTask: Task<Void, Never>?

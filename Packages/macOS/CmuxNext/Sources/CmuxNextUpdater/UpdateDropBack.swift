@@ -29,19 +29,36 @@ public struct UpdateDropBack {
     /// session kept.
     @discardableResult
     public func run(to build: String? = nil, checkOnly: Bool = false, stateDirectories: [URL?]) async throws -> KeptVersion {
-        if !checkOnly {
-            Self.mark("revert.clicked")
-            updater.revert = RevertProgress(step: .checking, target: build)
+        if checkOnly {
+            let inputs = await updater.rollbackInputs(to: build, stateDirectories: stateDirectories)
+            return try updater.rollbackDecision(to: build, inputs: inputs).get()
         }
+        // One switch at a time, from any entry point (the card, the palette, the CLI).
+        guard !updater.switchRunning else { throw RollbackRefusal.busy }
+        updater.switchRunning = true
+        defer { updater.switchRunning = false }
+        return try await runClaimed(to: build, stateDirectories: stateDirectories)
+    }
+
+    /// ``run(to:checkOnly:stateDirectories:)`` once the caller holds ``UpdaterService/switchRunning``
+    /// (``UpdaterService/switchToBuild(_:)`` holds it from before its download). Each step shows on
+    /// the sidebar's notice card (``UpdaterService/revert``) and on the Channels card's pressed
+    /// button (``UpdaterService/buildSwitchProgress``).
+    func runClaimed(to build: String?, stateDirectories: [URL?]) async throws -> KeptVersion {
+        Self.mark("revert.clicked")
+        let started = ContinuousClock.now
+        updater.revert = RevertProgress(step: .checking, target: build)
+        updater.buildSwitchProgress = BuildSwitchProgress(build: build ?? "", stage: .stores)
         do {
             let inputs = await updater.rollbackInputs(to: build, stateDirectories: stateDirectories)
-            if checkOnly { return try updater.rollbackDecision(to: build, inputs: inputs).get() }
             Self.mark("revert.inputs_read")
+            updater.log.append("rollback: checked \(build ?? "the previous build") in \(started.duration(to: .now))")
             let target = try await updater.swapForRollback(to: build, inputs: inputs)
             try await restart(into: target)
             return target
         } catch {
-            if !checkOnly { updater.revert = RevertProgress(step: .failed, target: build, failure: Self.message(error)) }
+            updater.buildSwitchProgress = nil
+            updater.revert = RevertProgress(step: .failed, target: build, failure: Self.message(error))
             throw error
         }
     }
@@ -51,10 +68,12 @@ public struct UpdateDropBack {
     /// stays false): Restart to Update prepares that handoff while the update stages, a rollback has
     /// nothing staged, and starting it at the click cost 3.9 s of the quit (update harness, cmux20,
     /// 2026-11-11); the running daemon keeps every agent and the kept build reconnects to it. A helper
-    /// that cannot start leaves cmux running and says how to finish.
+    /// that cannot start leaves cmux running and says how to finish (the next launch opens the
+    /// picked build: the bundles are already swapped).
     private func restart(into target: KeptVersion) async throws {
         let label = RevertTarget(kept: target).label
         updater.revert = RevertProgress(step: .restarting, target: target.build, label: label)
+        updater.buildSwitchProgress = BuildSwitchProgress(build: target.build, stage: .restart)
         guard await Self.relaunchAfterExit(Bundle.main.bundleURL) else {
             updater.log.append("rollback: the relaunch helper did not start; \(target.build) opens on the next launch")
             throw RollbackRefusal.relaunchFailed(target)
@@ -88,10 +107,10 @@ public struct UpdateDropBack {
 
     /// ``run(to:checkOnly:stateDirectories:)`` for an action: nil when it ran, else what the
     /// user reads (a refusal's message, or the swap's error).
-    public func failure(to build: String?, stateDirectories: [URL?]) async -> String? {
-        if build == nil { return await goBack(stateDirectories: stateDirectories) }
+    public func failure(to build: String?, stateDirectories: [URL?], claimed: Bool = false) async -> String? {
+        if build == nil, !claimed { return await goBack(stateDirectories: stateDirectories) }
         do {
-            try await run(to: build, stateDirectories: stateDirectories)
+            if claimed { try await runClaimed(to: build, stateDirectories: stateDirectories) } else { try await run(to: build, stateDirectories: stateDirectories) }
             return nil
         } catch {
             return Self.message(error)

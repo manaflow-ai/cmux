@@ -5,15 +5,18 @@ import CmuxNextWakeups
 /// What a rollback compares, read off the main actor
 /// (``UpdaterService/rollbackInputs(to:stateDirectories:)``).
 nonisolated public struct RollbackInputs: Sendable {
-    /// Kept versions, newest first, each with the schemas it reads (its
-    /// Info.plist, its record, else its own CLI; nil when none says).
+    /// Kept versions, newest first. The rollback's target carries the schemas it reads (its
+    /// Info.plist, its record, else its own CLI; nil when none says) and its checked team.
     public var kept: [KeptVersion]
     /// The newest schema each store holds; nil when they could not be read.
     public var stored: [String: Int]?
+    /// The running app's signing team; nil for an unsigned app.
+    public var teamID: String?
 
-    public init(kept: [KeptVersion], stored: [String: Int]?) {
+    public init(kept: [KeptVersion], stored: [String: Int]?, teamID: String? = nil) {
         self.kept = kept
         self.stored = stored
+        self.teamID = teamID
     }
 }
 
@@ -103,11 +106,13 @@ extension UpdaterService {
         }
     }
 
-    /// Reads the kept versions and the stored schemas off the main actor: the
-    /// list reads each kept build's Info.plist and record, and the stored
-    /// schemas are one run of the running build's CLI per state root. Both at
-    /// once. `stateDirectories` are the daemons' state roots (nil: cmux-tui's
-    /// default).
+    /// Reads what a rollback to `build` (nil: the previous build) compares, off the main actor.
+    /// Only that build is checked: its team (sealed by the full check when it was kept, else every
+    /// file now) and, when neither its Info.plist nor its record names its schemas and only once
+    /// that check passed, its own CLI. Every other kept build's team is the record's, unchecked,
+    /// and the decision never takes one of them. The stored schemas (one run of the running build's
+    /// CLI per state root, `stateDirectories`; nil: cmux-tui's default) are read beside it, and the
+    /// running app's team is its own code's (no file read).
     public func rollbackInputs(to build: String? = nil, stateDirectories: [URL?]) async -> RollbackInputs {
         let store = keptVersions
         let bundle = Bundle.main.bundleURL
@@ -115,24 +120,25 @@ extension UpdaterService {
         // task-owner: the rollback's read; awaited below.
         async let stored = StoreSchemaProbe(bundle: bundle).stored(stateDirectories: stateDirectories)
         var kept = (try? await work.run(.userVisible, mayBlock: .files) { store.list(teams: false) }) ?? []
-        // Only the build the rollback would take is checked: its team (sealed by the full check when
-        // it was kept, else every file now) and, when neither its Info.plist nor its record names its
-        // schemas, its own CLI (a process start, seconds on a busy Mac). Every other kept build's
-        // team is the record's, unchecked, and the decision never takes one of them.
+        let running = UpdateDropBack.runningTeam
         let target = build ?? RollbackDecision.previous(kept: kept, running: identity.build)?.build
         if let index = kept.firstIndex(where: { $0.build == target }) {
             let picked = kept[index]
             kept[index].teamID = (try? await work.run(.userVisible, mayBlock: .files) { store.checkedTeam(of: picked) }) ?? nil
-            if kept[index].storeSchemas == nil { kept[index].storeSchemas = await StoreSchemaProbe(bundle: picked.bundle).readable() }
+            // Its CLI runs only once its signature is this app's team: a kept bundle changed on disk never
+            // runs code as the app (``RollbackDecision`` refuses it on the team before any schema).
+            if kept[index].storeSchemas == nil, let running, kept[index].teamID == running {
+                kept[index].storeSchemas = await StoreSchemaProbe(bundle: picked.bundle, timeout: .seconds(30)).readable()
+            }
         }
-        return RollbackInputs(kept: kept, stored: await stored)
+        return RollbackInputs(kept: kept, stored: await stored, teamID: running)
     }
 
     /// Whether a rollback to `build` (nil: the previous build) would run.
     public func rollbackDecision(to build: String?, inputs: RollbackInputs) -> Result<KeptVersion, RollbackRefusal> {
         guard let stored = inputs.stored else { return .failure(.storesUnknown) }
         return RollbackDecision.decide(kept: inputs.kept, build: build, running: identity.build, stored: stored,
-                                       teamID: UpdateDropBack.runningTeam)
+                                       teamID: inputs.teamID)
     }
 }
 

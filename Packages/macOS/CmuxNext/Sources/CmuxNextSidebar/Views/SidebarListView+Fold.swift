@@ -29,6 +29,10 @@ extension SidebarListViewComponents {
         }
         SidebarPerfCounters.add(.groupFolds)
         groups[id] = group
+        // The row caches hold what the layout shows: a space page kept from them (`SidebarSpacePage`) is compared with
+        // the model, so its sections have this fold as its layout has.
+        spacePages.cachesTookChange(at: model.structureRevision)
+        sections[section.id] = section
         applyFold(from: old, group: id)
     }
 

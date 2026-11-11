@@ -1597,3 +1597,164 @@ async fn only_a_peer_daemons_link_says_the_person_proved_a_prompt() {
         }
     }
 }
+
+/// What a script's own unix connection sends (`a_named_sender_is_verified_by_the_host_token`): an
+/// acpmux CLI's `initialize` at a plain terminal (caller protocol 1, `terminal`, no caller
+/// token), then one `session/prompt`.
+#[cfg(unix)]
+const SENDER_SCRIPT: &str = r#"
+import json, socket, sys
+path, params = sys.argv[1], json.loads(sys.argv[2])
+s = socket.socket(socket.AF_UNIX)
+s.connect(path)
+f = s.makefile("rw")
+def call(i, method, p):
+    f.write(json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": p}) + "\n")
+    f.flush()
+    for line in f:
+        m = json.loads(line)
+        if m.get("id") == i:
+            return m
+call(1, "initialize", {"protocolVersion": 1, "clientCapabilities": {},
+     "clientInfo": {"name": "acpmux-cli", "version": "9.9.9"},
+     "_meta": {"acpmux": {"callerProtocol": 1, "callerKind": "terminal"}}})
+print(json.dumps(call(2, "session/prompt", params)))
+"#;
+
+/// Leo, 2026-11-11, on our own outbox relay's notice drawn as "Unverified sender": "generally the
+/// "unverified sender" things should be more verified". Our own tools prove themselves with this
+/// host's sender token (`sender_token.rs`, `~/.acpmux/sender-token`): a named sender (`--from`, a
+/// notice's) whose local unix send carries it is `verified` by it. A wrong token, none, one from
+/// the Web and a forged check are not. A token with no name changes nothing: it is the same send
+/// as one without. The token is never stored.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_named_sender_is_verified_by_the_host_token() {
+    // A session the Web may prompt (an asking mode and policy, `hub/web_control.rs`), so the
+    // Web's send below reaches it.
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "ask",
+        "webAskingModes": {"fake": ["normal"]},
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    cfg.agent_inbox = Some(false);
+    let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let mut owner = Client::open(&hub);
+    let receiver = owner.new_session(json!({"harness": "fake"})).await;
+    // `/tmp`, not the temp dir: a worker's can be too long for a socket path.
+    let socket = std::path::PathBuf::from("/tmp")
+        .join(format!("acpmux-sender-token-{}.sock", std::process::id()));
+    let listener = acpmux::server::bind_unix(&socket).await.unwrap();
+    tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
+    let dir = tempfile::tempdir().unwrap();
+    let script = dir.path().join("sender.py");
+    std::fs::write(&script, SENDER_SCRIPT).unwrap();
+    // The host token, as the daemon makes it at start, in this process's daemon home.
+    let home = acpmux::config::home();
+    std::fs::create_dir_all(&home).unwrap();
+    acpmux::sender_token::ensure(&home).unwrap();
+    let token = acpmux::sender_token::read_trusted(&acpmux::sender_token::path_in(&home))
+        .expect("the daemon's token");
+    let wrong = "0".repeat(64);
+
+    let send = |id: &'static str, fields: Value| {
+        let mut params = prompt(&receiver, id, "#40611 conflicts with feat-cmux-next", None);
+        for (key, value) in fields.as_object().unwrap() {
+            params["_meta"]["acpmux"][key] = value.clone();
+        }
+        let (socket, script) = (socket.clone(), script.clone());
+        async move {
+            let out = tokio::process::Command::new("python3")
+                .arg(&script)
+                .arg(&socket)
+                .arg(params.to_string())
+                .output()
+                .await
+                .expect("run the sender script");
+            let reply = String::from_utf8_lossy(&out.stdout).into_owned();
+            assert!(out.status.success() && reply.contains("\"result\""), "{id}: {reply} {out:?}");
+        }
+    };
+    let notice =
+        |sender: &str| json!({"sender": sender, "severity": "warn", "title": "#40611 conflicts"});
+    send("p-named", json!({"fromAgent": "outbox-relay", "senderToken": token})).await;
+    send("p-notice", json!({"notice": notice("outbox-relay"), "senderToken": token})).await;
+    send("p-unnamed", json!({"senderToken": token})).await;
+    send("p-unnamed-plain", json!({})).await;
+    // The outbox relay's own send as the CLI makes it under Xcode's python: no app, but the tool it
+    // ran under (`sender_harness::from_chain`, review of #41064 at 8cc17ed2, F1).
+    let tool = json!({"harness": "Python", "source": "process"});
+    send("p-tool", json!({"senderToken": token, "senderHarness": tool})).await;
+    send("p-wrong", json!({"fromAgent": "outbox-relay", "senderToken": wrong})).await;
+    send("p-none", json!({"fromAgent": "outbox-relay"})).await;
+    // The Web's token is dropped unread: a page cannot verify a name.
+    let mut web = Client::open_authed(&hub, Origin::Web, ConnAuth::ListenerToken);
+    let mut from_web = prompt(&receiver, "p-web", "hi", None);
+    from_web["_meta"]["acpmux"]["fromAgent"] = json!("outbox-relay");
+    from_web["_meta"]["acpmux"]["senderToken"] = json!(token);
+    web.call("session/prompt", from_web).await;
+    // Nor can an in-process connection with no socket peer, nor a forged check.
+    let mut forged = prompt(&receiver, "p-forged", "hi", None);
+    forged["_meta"]["acpmux"]["fromAgent"] = json!("outbox-relay");
+    forged["_meta"]["acpmux"]["senderToken"] = json!(token);
+    forged["_meta"]["acpmux"]["senderTokenChecked"] = json!(true);
+    owner.call("session/prompt", forged).await;
+
+    for (id, kind) in [("p-named", "agent_message"), ("p-notice", "notice")] {
+        let message = owner.user_message(&receiver, id).await;
+        let p = &message["_meta"]["provenance"];
+        assert_eq!(p["kind"], kind, "{id}: {message}");
+        assert_eq!(p["fromName"], "outbox-relay", "{id}: {message}");
+        assert_eq!(p["verified"], true, "{id}: {message}");
+        assert_eq!(p["verifiedBy"], "host-token", "{id}: {message}");
+        // Verified by the token, it names no proven session: the sender record says how.
+        let record = acpmux::prompt_provenance::sender_record(Some(p), None, None);
+        assert_eq!(
+            (&record["verification"], &record["verifiedBy"], &record["authenticated"]),
+            (&json!("verified"), &json!("host-token"), &json!(false)),
+            "{id}: {record}"
+        );
+    }
+    // A name is needed: the token alone changes nothing about the send.
+    let unnamed = owner.user_message(&receiver, "p-unnamed").await;
+    let plain = owner.user_message(&receiver, "p-unnamed-plain").await;
+    assert_eq!(
+        unnamed.pointer("/_meta/origin"),
+        plain.pointer("/_meta/origin"),
+        "{unnamed} vs {plain}"
+    );
+    assert_eq!(
+        unnamed.pointer("/_meta/provenance/kind"),
+        plain.pointer("/_meta/provenance/kind"),
+        "{unnamed} vs {plain}"
+    );
+    assert!(unnamed.pointer("/_meta/provenance/verifiedBy").is_none(), "{unnamed}");
+    let tool = owner.user_message(&receiver, "p-tool").await;
+    assert_eq!(tool.pointer("/_meta/provenance/verified"), Some(&json!(false)), "{tool}");
+    assert!(tool.pointer("/_meta/provenance/verifiedBy").is_none(), "{tool}");
+    for id in ["p-wrong", "p-none", "p-web", "p-forged"] {
+        let message = owner.user_message(&receiver, id).await;
+        let p = &message["_meta"]["provenance"];
+        assert_ne!(p["verified"], true, "{id}: {message}");
+        assert!(p.get("verifiedBy").is_none(), "{id}: {message}");
+        let record = acpmux::prompt_provenance::sender_record(Some(p), None, None);
+        assert_ne!(record["verification"], "verified", "{id}: {record}");
+    }
+    // None of the named ones is the person's, verified or not, nor a tool's unnamed send.
+    for id in ["p-named", "p-notice", "p-wrong", "p-none", "p-web", "p-tool"] {
+        let message = owner.user_message(&receiver, id).await;
+        assert_eq!(message.pointer("/_meta/origin"), None, "{id}: {message}");
+        assert!(message.pointer("/_meta/provenance").is_some(), "{id}: {message}");
+    }
+    // The token is in no record or event of the chat.
+    let events = owner.call("_acpmux/events", json!({"sessionId": receiver})).await;
+    let all = events.to_string();
+    assert!(all.contains("p-named"), "the events were read");
+    assert!(!all.contains(&token), "the token was stored");
+    assert!(!all.contains("\"senderToken\""), "the token's key was stored");
+    let _ = std::fs::remove_file(&socket);
+}

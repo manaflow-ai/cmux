@@ -47,6 +47,8 @@ nonisolated public enum RollbackRefusal: Error, Equatable, Sendable {
     case storesUnknown
     /// The kept build is in place, but the helper that reopens cmux did not start.
     case relaunchFailed(KeptVersion)
+    /// Another switch or rollback is already running.
+    case busy
 }
 
 /// Picks the rollback target or refuses (pure).
@@ -108,6 +110,8 @@ extension RollbackRefusal {
             UpdaterStrings.rollbackStoresUnknown
         case .relaunchFailed(let kept):
             UpdaterStrings.rollbackRelaunchFailed(kept.shortVersion)
+        case .busy:
+            UpdaterStrings.rollbackBusy
         }
     }
 }

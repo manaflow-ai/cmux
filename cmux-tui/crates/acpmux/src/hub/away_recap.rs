@@ -267,7 +267,7 @@ impl Hub {
     pub(super) fn watch_recaps(self: &Arc<Self>) {
         let mut events = self.subscribe();
         let hub = Arc::downgrade(self);
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("recap-events", async move {
             loop {
                 let ev = match events.recv().await {
                     Ok(ev) => ev,
@@ -286,7 +286,7 @@ impl Hub {
         });
         let hub = Arc::downgrade(self);
         let wake = self.recap_wake.clone();
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("recap-timer", async move {
             loop {
                 let next = {
                     let Some(hub) = hub.upgrade() else { return };

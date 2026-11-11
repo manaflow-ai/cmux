@@ -11,8 +11,15 @@ import Foundation
 /// answer is the stores the copy reads, kept in its record when its Info.plist does not say.
 nonisolated enum KeptWarmup {
     /// `@concurrent`: the list and the record are file I/O, off the caller's actor.
-    @concurrent static func warm(store: KeptVersionStore, build: String, log: UpdateLogBuffer) async {
+    @concurrent static func warm(store: KeptVersionStore, build: String, log: UpdateLogBuffer,
+                                 running: String? = UpdateDropBack.runningTeam) async {
         guard let kept = store.list(teams: false).first(where: { $0.build == build }) else { return }
+        // Its code runs only once its signature is this app's team (the seal makes that quick): a
+        // kept bundle changed on disk never runs code as the app.
+        guard let running, store.checkedTeam(of: kept) == running else {
+            log.append("kept \(build): not run, its signature is not this app's")
+            return
+        }
         let started = ContinuousClock.now
         let schemas = await StoreSchemaProbe(bundle: kept.bundle).readable()
         log.append("kept \(build): first run of its code took \(ContinuousClock.now - started)")
@@ -28,10 +35,11 @@ nonisolated enum KeptWarmup {
 
     /// Runs each kept build whose code has not run since it was kept: a keep made at a click, or
     /// one whose run a quit cut short (Restart to Update right after the update staged). At launch.
-    @concurrent static func warmPending(store: KeptVersionStore, log: UpdateLogBuffer) async {
+    @concurrent static func warmPending(store: KeptVersionStore, log: UpdateLogBuffer,
+                                        running: String? = UpdateDropBack.runningTeam) async {
         let pending = store.list(teams: false).filter { kept in
             KeptRecord.read(from: kept.bundle.deletingLastPathComponent().appending(path: KeptVersionStore.recordName))?.warmed != true
         }
-        for kept in pending { await warm(store: store, build: kept.build, log: log) }
+        for kept in pending { await warm(store: store, build: kept.build, log: log, running: running) }
     }
 }

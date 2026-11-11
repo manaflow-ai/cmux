@@ -172,6 +172,9 @@ enum LinkEnd {
 }
 
 pub struct Peer {
+    /// The owner of this peer's own tasks (its lent GitHub actions, its attach retries):
+    /// `stop` cancels them, and the hub's shutdown joins them (`Peer::close_tasks`).
+    scope: cmux_scope::Scope,
     pub name: String,
     /// Unique per `Peer` instance; a replacement under the same name gets a
     /// new one.
@@ -473,6 +476,7 @@ impl Peer {
     ) -> Arc<Self> {
         let (out, out_rx) = mpsc::channel(1024);
         Arc::new(Self {
+            scope: cmux_scope::Scope::new("acpmux peer"),
             name: name.to_owned(),
             generation: NEXT_GENERATION.fetch_add(1, Ordering::SeqCst),
             url: url.to_owned(),
@@ -744,6 +748,8 @@ impl Peer {
 
     pub fn stop(&self) {
         self.stop.store(true, Ordering::SeqCst);
+        // Its own tasks stop with it; the hub's shutdown joins them (`close_tasks`).
+        self.scope.token().cancel();
         self.stop_changed.send_replace(true);
         self.link_ended();
         // Stores a permit when `serve` is not waiting yet.
@@ -754,6 +760,11 @@ impl Peer {
             }
             *t = None;
         }
+    }
+
+    /// Cancel this peer's own tasks and join them within `within` (the hub's shutdown).
+    pub(crate) async fn close_tasks(&self, within: std::time::Duration) -> cmux_scope::CloseReport {
+        self.scope.close(within).await
     }
 
     /// `ssh://user@host[:port]` -> (ssh destination, remote port); None for
@@ -1085,10 +1096,11 @@ impl Peer {
         // move to a faster path while it runs (`Peer::switch_due`), for at most the action's
         // own budget.
         let answering = self.answering.start(crate::github_broker::ACTION_BUDGET);
+        let scope = &self.scope;
         // The slot is held until the answer is queued, within the request budget: at most
         // `OWNER_SLOTS` of these tasks exist per peer name, across reconnects, even when the link
         // stops reading.
-        tokio::spawn(async move {
+        scope.spawn_until_cancelled("peer-github-action", async move {
             // Lending that ends while it runs (`githubBroker` off, the peer removed, the link
             // ended) stops it: its `gh` is killed (`kill_on_drop`), and a link still up is told.
             let revoked = me.github_revoked.notified();
@@ -1269,7 +1281,7 @@ impl Peer {
             return;
         }
         let (me, id) = (self.clone(), id.to_owned());
-        tokio::spawn(async move {
+        self.scope.spawn_until_cancelled("peer-attach-retry", async move {
             for (n, after) in ATTACH_RETRY_AFTER.iter().enumerate() {
                 tokio::time::sleep(*after).await;
                 if !me.attach_wanted(&id, link) {
