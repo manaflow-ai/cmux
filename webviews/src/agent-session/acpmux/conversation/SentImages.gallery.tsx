@@ -83,7 +83,7 @@ function GalleryPrimedLate({ images }: Props) {
 /// Sent images whose row holds their bytes, as the pane's own row does from the moment it sends.
 function GalleryHeld({ images }: Props) {
   // Painted one time: with no `shot` left, the shown row does not paint each image again.
-  const [held] = useState(() => images.map(({ shot, ...image }) => ({ ...image, src: paint(shot!) })));
+  const [held] = useState(() => images.map(({ shot, ...image }) => (shot ? { ...image, src: paint(shot) } : image)));
   return <GalleryShownImages images={held} />;
 }
 
@@ -205,9 +205,11 @@ export default componentEntry<Props>({
     pasted: {
       note: "Three screenshots the person just pasted and sent (square, wide, tall): each the whole image at most 120px tall, at its own shape from its first frame; hover names its size.",
       // The row holds the bytes, as the pane's own send does. Read from acpmux with no size on record
-      // (`named`, `wide-strip`), a slot is a square until its image decodes; three large images decode
-      // one after the other on a loaded machine, and each one moved its neighbours again, so this
-      // state's load shift was 0.039 in one run and 0.22 in the next of the same commit.
+      // (an old chat; `named`, `failed`, `wide-strip`, `narrow`), a slot is a square until its image is
+      // read and decoded, then it takes the image's shape: that shift is the product's, and `named`
+      // and `failed` hold it to a row. With three large images of mixed shapes the decodes end one
+      // after the other in no fixed order, so this state's load shift was 0.052 in one replay and
+      // 0.217 in the next of the same commit, against a row of 0.039: no measure of a change.
       props: { images: pasted, held: true },
     },
     "wide-strip": {

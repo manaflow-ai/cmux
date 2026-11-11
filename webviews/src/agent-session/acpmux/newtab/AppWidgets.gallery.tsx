@@ -122,7 +122,8 @@ export default componentEntry<Props>({
       play: async (ctx) => {
         await drawn(2)(ctx);
         // On a widget, not the page's middle: this template's composer is there, and the page's menu
-        // leaves a right-click on the composer to the composer (NewTabScreen.tsx `ignore`).
+        // leaves a right-click on the composer's text field to the field (NewTabScreen.tsx `ignore`,
+        // `[contenteditable]`).
         await ctx.contextMenu({ selector: ".nt-extra-timer" });
         await ctx.click({ role: "menuitem", name: "Edit New Tab" });
         await ctx.waitFor(() => ctx.document.querySelectorAll(".nt-grid-frame .nt-widget-remove").length === 3);
