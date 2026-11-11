@@ -115,7 +115,7 @@ const FULL_PENDING_WAKE_BYTES: usize = 8 * 1024 * 1024;
 /// Raw output bytes each terminal keeps in memory for `terminal.output_read`.
 pub(crate) const OUTPUT_TAIL_BYTES: usize = 64 * 1024;
 /// Directory beside the registry that holds the store's files.
-const STORE_DIRECTORY: &str = "terminal-output";
+pub(crate) const STORE_DIRECTORY: &str = "terminal-output";
 
 /// What the store keeps on disk.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

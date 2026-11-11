@@ -251417,6 +251417,60 @@
         "zh-Hant": { "stringUnit": { "state": "translated", "value": "使用 API 金鑰" } }
       }
     },
+    "turn.signIn.gateway": {
+      "comment": "Agent pane: a Cloud chat's failed sign-in card, the link that runs the agent on cmux's gateway (the team's own account) instead of a sign-in of its own. Shown only when the machine's team has the gateway.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Use cmux's gateway" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "استخدام بوابة cmux" } },
+        "bs": { "stringUnit": { "state": "translated", "value": "Koristi cmux gateway" } },
+        "da": { "stringUnit": { "state": "translated", "value": "Brug cmux' gateway" } },
+        "de": { "stringUnit": { "state": "translated", "value": "cmux-Gateway verwenden" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Usar la pasarela de cmux" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Utiliser la passerelle cmux" } },
+        "it": { "stringUnit": { "state": "translated", "value": "Usa il gateway di cmux" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux のゲートウェイを使う" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ប្រើច្រកផ្លូវរបស់ cmux" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux 게이트웨이 사용" } },
+        "nb": { "stringUnit": { "state": "translated", "value": "Bruk cmux sin gateway" } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Użyj bramy cmux" } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "Usar o gateway do cmux" } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Использовать шлюз cmux" } },
+        "th": { "stringUnit": { "state": "translated", "value": "ใช้เกตเวย์ของ cmux" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "cmux ağ geçidini kullan" } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Використати шлюз cmux" } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Dùng cổng của cmux" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "使用 cmux 网关" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "使用 cmux 閘道" } }
+      }
+    },
+    "turn.signIn.error.noGateway": {
+      "comment": "Agent pane: Cloud sign-in card, when cmux's gateway turned out not to serve the agent for this machine's team.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "cmux's gateway is not set up for this machine's team." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "بوابة cmux غير مُعدّة لفريق هذا الجهاز." } },
+        "bs": { "stringUnit": { "state": "translated", "value": "cmux gateway nije postavljen za tim ove mašine." } },
+        "da": { "stringUnit": { "state": "translated", "value": "cmux' gateway er ikke sat op til denne maskines team." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Das cmux-Gateway ist für das Team dieser Maschine nicht eingerichtet." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La pasarela de cmux no está configurada para el equipo de esta máquina." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La passerelle cmux n'est pas configurée pour l'équipe de cette machine." } },
+        "it": { "stringUnit": { "state": "translated", "value": "Il gateway di cmux non è configurato per il team di questa macchina." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "このマシンのチームでは cmux のゲートウェイが設定されていません。" } },
+        "km": { "stringUnit": { "state": "translated", "value": "ច្រកផ្លូវរបស់ cmux មិនទាន់រៀបចំសម្រាប់ក្រុមនៃម៉ាស៊ីននេះទេ។" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "이 머신의 팀에는 cmux 게이트웨이가 설정되어 있지 않습니다." } },
+        "nb": { "stringUnit": { "state": "translated", "value": "cmux sin gateway er ikke satt opp for denne maskinens team." } },
+        "pl": { "stringUnit": { "state": "translated", "value": "Brama cmux nie jest skonfigurowana dla zespołu tej maszyny." } },
+        "pt-BR": { "stringUnit": { "state": "translated", "value": "O gateway do cmux não está configurado para a equipe desta máquina." } },
+        "ru": { "stringUnit": { "state": "translated", "value": "Шлюз cmux не настроен для команды этой машины." } },
+        "th": { "stringUnit": { "state": "translated", "value": "ยังไม่ได้ตั้งค่าเกตเวย์ของ cmux สำหรับทีมของเครื่องนี้" } },
+        "tr": { "stringUnit": { "state": "translated", "value": "cmux ağ geçidi bu makinenin ekibi için ayarlanmamış." } },
+        "uk": { "stringUnit": { "state": "translated", "value": "Шлюз cmux не налаштовано для команди цієї машини." } },
+        "vi": { "stringUnit": { "state": "translated", "value": "Cổng của cmux chưa được thiết lập cho nhóm của máy này." } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "此机器的团队尚未设置 cmux 网关。" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "此機器的團隊尚未設定 cmux 閘道。" } }
+      }
+    },
     "turn.signIn.pasteCode": {
       "comment": "Agent pane: Cloud sign-in card, what to do after Claude's sign-in page opened.",
       "extractionState": "manual",

@@ -299,7 +299,6 @@ import json
 import math
 import os
 import re
-import signal
 import sys
 import time
 import urllib.error
@@ -310,8 +309,8 @@ import zlib
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import github_spend  # noqa: E402 - per-token request counts, reported when the step exits
+import deadline_http  # noqa: E402 - every GitHub call ends by its bound, nothing sent past it
 from collections.abc import Callable, Collection, Mapping, Sequence
-from contextlib import contextmanager
 from typing import Any
 
 DEFAULT_RUNNER = "blacksmith-6vcpu-macos-26"
@@ -2180,60 +2179,10 @@ def newest_snapshot_artifact(artifacts: Sequence[Any], *, now: dt.datetime,
     return newest
 
 
-class _NoRedirect(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
-        return None
-
-
 @dataclasses.dataclass
 class RetryBudget:
     """Retries left to the clients that share it: one for a whole step, not one per client or read."""
     left: int = 1
-
-
-@contextmanager
-def _absolute_deadline(deadline: float | None):
-    """Interrupt one blocking urllib operation at the caller's wall deadline.
-
-    Socket timeouts only limit inactivity; a peer that drips one byte at a time
-    can otherwise keep ``response.read()`` alive forever.  The picker runs in
-    the workflow's main thread, where a process alarm covers connect, headers,
-    TLS and body reads without leaving a worker thread behind.  Calls without
-    a deadline retain the legacy behavior, and a non-main-thread caller keeps
-    the per-socket timeout fallback rather than changing signal state.
-    """
-    if deadline is None:
-        yield
-        return
-    try:
-        previous_handler = signal.getsignal(signal.SIGALRM)
-        previous_timer = signal.getitimer(signal.ITIMER_REAL)
-        def raise_deadline(_signum: int, _frame: Any) -> None:
-            raise TimeoutError("GitHub request deadline exceeded")
-
-        signal.signal(signal.SIGALRM, raise_deadline)
-    except (AttributeError, OSError, ValueError):
-        # Signals are process-global and only available from the main thread.
-        # The request's remaining socket timeout still bounds idle connections.
-        yield
-        return
-    remaining = deadline - time.monotonic()
-    if remaining <= 0:
-        signal.signal(signal.SIGALRM, previous_handler)
-        raise TimeoutError("GitHub request deadline exceeded")
-    started = time.monotonic()
-    signal.setitimer(signal.ITIMER_REAL, remaining)
-    try:
-        yield
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous_handler)
-        if previous_timer[0] > 0:
-            elapsed = time.monotonic() - started
-            restored = max(0.0, previous_timer[0] - elapsed)
-            if restored > 0:
-                signal.setitimer(signal.ITIMER_REAL, restored, previous_timer[1])
-
 
 
 # Repository variables arrive through trusted workflow context, without a token or
@@ -2402,10 +2351,10 @@ class GitHub:
         request = urllib.request.Request(f"{API}{path}", headers=self.headers)
         for attempt in (1, 2):
             try:
-                with _absolute_deadline(self.deadline):
-                    with urllib.request.urlopen(request, timeout=self._timeout(15)) as response:
-                        github_spend.record(self.headers["Authorization"], getattr(response, "headers", None), getattr(response, "status", 200))
-                        body = response.read()
+                # The whole call ends within its bound (the time left, at most 15 s), a peer that drips
+                # one byte at a time included (deadline_http).
+                status, body, headers = deadline_http.request(request, self._timeout(15), raise_errors=True)
+                github_spend.record(self.headers["Authorization"], headers, status)
                 return json.loads(body)
             except urllib.error.HTTPError as error:
                 github_spend.record(self.headers["Authorization"], error.headers, error.code)
@@ -2449,21 +2398,16 @@ class GitHub:
         """One artifact's zip archive (one API request)."""
         # The download answers with a redirect to signed blob storage, which must
         # not receive the token, so follow it by hand.
-        opener = urllib.request.build_opener(_NoRedirect)
         download = urllib.request.Request(str(artifact["archive_download_url"]), headers=self.headers)
-        try:
-            with _absolute_deadline(self.deadline):
-                with opener.open(download, timeout=self._timeout(15)):
-                    raise RuntimeError("artifact download did not redirect")
-        except urllib.error.HTTPError as error:
-            github_spend.record(self.headers["Authorization"], error.headers, error.code)
-            location = error.headers.get("Location") if error.code in (301, 302, 303, 307, 308) else None
-            if not location:
-                raise RuntimeError(f"artifact download failed ({error.code})") from error
+        status, _, headers = deadline_http.request(download, self._timeout(15), follow_redirects=False)
+        github_spend.record(self.headers["Authorization"], headers, status)
+        if 200 <= status < 300:
+            raise RuntimeError("artifact download did not redirect")
+        location = headers.get("Location") if status in (301, 302, 303, 307, 308) else None
+        if not location:
+            raise RuntimeError(f"artifact download failed ({status})")
         blob = urllib.request.Request(location, headers={"User-Agent": self.headers["User-Agent"]})
-        with _absolute_deadline(self.deadline):
-            with urllib.request.urlopen(blob, timeout=self._timeout(30)) as response:
-                return response.read()
+        return deadline_http.request(blob, self._timeout(30), raise_errors=True)[1]
 
     def runs_since(self, workflow: str, since: str, **filters: str) -> list[Mapping[str, Any]]:
         """One page of `workflow`'s runs created at or after `since` (one request)."""

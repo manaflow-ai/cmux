@@ -38,6 +38,8 @@ pub(super) struct PendingSurfaceRequest {
     pub(super) request: Request,
     pub(super) retained_bytes: usize,
     pub(super) _bytes_permit: ServerSurfaceBytesPermit,
+    /// The request's record in the slow request log, while it waits in the queue.
+    pub(super) slow_log: Option<crate::diagnostics::request_log::Parked>,
 }
 
 #[derive(Default)]
@@ -185,6 +187,7 @@ impl ConnectionSurfaceScheduler {
             request: queued,
             retained_bytes,
             _bytes_permit: bytes_permit,
+            slow_log: crate::diagnostics::request_log::park(),
         });
         self.changed.notify_all();
         drop(state);
@@ -375,7 +378,8 @@ pub(super) fn run_pending_request(
     pending: PendingSurfaceRequest,
     writer: &MessageWriter,
 ) -> bool {
-    let PendingSurfaceRequest { request, _bytes_permit, .. } = pending;
+    let PendingSurfaceRequest { request, _bytes_permit, slow_log, .. } = pending;
+    let _slow_log = crate::diagnostics::request_log::resume(slow_log);
     handle_request_with_cancellation(mux, client, request, writer, Some(&scheduler.cancelled))
 }
 

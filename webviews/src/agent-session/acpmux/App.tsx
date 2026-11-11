@@ -389,6 +389,18 @@ import {
   trackEditableTurns,
   type EditableTurns,
 } from "./conversation/editPrompt";
+import {
+  CloudTurnCheckpoints,
+  readyPromptKey,
+  readyPromptMap,
+  readyPromptRows,
+  bindMarks,
+  chatAfterRewind,
+  chatWithCheckpoint,
+  handshakeMarks,
+  marksFor,
+  type ChatMarks,
+} from "./conversation/cloudTurnCheckpoints";
 import { isFindRow, type ChatFind } from "./conversation/chatFind";
 import { revealedSaid, saidRows, type SaidReveal } from "./conversation/saidReveal";
 import { ChatFindScope } from "./conversation/ChatFindScope";
@@ -731,7 +743,7 @@ import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type Ru
 import { SandboxRunView } from "./SandboxRunView";
 import { PaneFeatureTips } from "./featureTips";
 import { CloudChatHint } from "./CloudChatHint";
-import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint } from "./cloudChatHintModel";
+import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHintClaim } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
@@ -1636,10 +1648,29 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // handshake that gave it, cleared when the pane moves to another chat or New Tab page.
   const cloudIdentityBound = useRef(false);
   const [cloudCredentialRecoveryAvailable, setCloudCredentialRecoveryAvailable] = useState(false);
-  // Back to before this turn (TurnActions `rewind`): the prompt row ids whose turn has a whole-machine
-  // checkpoint taken before it ran, as the handshake's `cloudTurnRewind` names them. Undefined where
-  // the host serves no rewind (every host today), so no prompt draws the button.
-  const [cloudTurnRewind, setCloudTurnRewind] = useState<ReadonlySet<string>>();
+  // Back to before this turn (TurnActions `rewind`): per chat, the checkpoint marks of its turns
+  // (`user-<n>`), first as the handshake's `cloudTurnRewind` names them for its chat. Undefined where
+  // the host serves no rewind (every host today), so no prompt draws the button. Kept per chat:
+  // `chat.select` switches chats with no new handshake (cloudTurnCheckpoints.ts `ChatMarks`).
+  const [cloudTurnRewind, setCloudTurnRewind] = useState<ChatMarks>();
+  // A handshake that named no chat: its list joins the first chat a snapshot shows.
+  const cloudTurnRewindUnbound = useRef(false);
+  // With `cloudTurnRewind` present, each completed turn asks the app for the checkpoint before the
+  // next one (`chat.turnCheckpoint {afterSeq}`, conversation/cloudTurnCheckpoints.ts), fed by the
+  // snapshot handlers below; its answer's row joins that chat's ready set.
+  const cloudCheckpoints = useRef<CloudTurnCheckpoints | undefined>(undefined);
+  cloudCheckpoints.current ??= new CloudTurnCheckpoints(
+    // Straight to native, as the rewind: callNative would select a page action of the same name.
+    (afterSeq) => postNative("chat.turnCheckpoint", { afterSeq }),
+    (answer, session) => setCloudTurnRewind((marks) => chatWithCheckpoint(marks, answer, session)),
+  );
+  const observeCloudTurn = (next: AcpmuxSnapshot) => {
+    cloudCheckpoints.current?.observe(next);
+    const session = next.sessionId;
+    if (!cloudTurnRewindUnbound.current || !session) return;
+    cloudTurnRewindUnbound.current = false;
+    setCloudTurnRewind((marks) => bindMarks(marks, session));
+  };
   // A team Cloud machine its start passed no personal login to (handshake `cloudTeamMachine`): a
   // sign-in failure says so (failureCopy.ts isTeamMachineSignIn) and offers no login transfer.
   const [cloudTeamMachine, setCloudTeamMachine] = useState(false);
@@ -2020,6 +2051,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const tryAnotherApproachInFlight = useRef<Promise<void> | undefined>(undefined);
   // One machine rewind at a time: a second while one runs is refused, so its button says so.
   const rewindInFlight = useRef(false);
+  // The prompts drawn with Back to before this turn, each with the checkpoint row it rewinds to
+  // (cloudTurnCheckpoints.ts `readyPromptRows`): a sent prompt keeps its own row id, and the
+  // checkpoint names the turn number after the one before it. Rebuilt only when they change.
+  const rewindRowsKey = readyPromptKey(readyPromptRows(snapshot.rows, marksFor(cloudTurnRewind, snapshot.sessionId)));
+  const rewindRows = useMemo(() => readyPromptMap(rewindRowsKey), [rewindRowsKey]);
+  const rewindReady = useMemo<ReadonlySet<string>>(() => new Set(rewindRows.keys()), [rewindRows]);
   // Edit and resend (cx-ncc.60): rebuilt when the editable prompts change, not on every streamed row.
   // A running chat still permits editing an earlier completed prompt: editResend forks through that
   // prompt's preceding turn, leaving this branch running while the edited sibling starts its own turn.
@@ -3821,12 +3858,16 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(cloudMachineID &&
         cloudTurnRewind && {
           rewind: {
-            ready: cloudTurnRewind,
+            ready: rewindReady,
             before: async (rowId: string) => {
               if (rewindInFlight.current) throw new Error("rewind in flight"); // l10n-allow: an error the button reads as failed, never shown
               rewindInFlight.current = true;
+              const mark = rewindRows.get(rowId) ?? rowId;
+              const session = snapshotRef.current?.sessionId;
               try {
-                const answer = await postNative<{ seconds?: unknown } | null>("chat.rewindTurn", { rowId });
+                const answer = await postNative<{ seconds?: unknown } | null>("chat.rewindTurn", { rowId: mark });
+                // Back at that checkpoint: the chat's marks past it name discarded states.
+                setCloudTurnRewind((marks) => chatAfterRewind(marks, answer, session, mark));
                 return { seconds: typeof answer?.seconds === "number" ? answer.seconds : Number.NaN };
               } finally {
                 rewindInFlight.current = false;
@@ -4058,6 +4099,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       loginCommand,
       cloudMachineID,
       cloudTurnRewind,
+      rewindRows,
+      rewindReady,
       cloudRouteHostKind,
       cloudCredentialRecoveryAvailable,
       cloudTeamMachine,
@@ -4441,8 +4484,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// Counts the Cloud starts that ended, so the folder default looks again once one has.
   const [cloudStartsEnded, setCloudStartsEnded] = useState(0);
   /// The one-time Cloud hint over a new chat's composer (cloudChatHintModel.ts): its record is the app's.
-  /// A pick of Cloud by any path (the hint, the Where menu, New Cloud Chat) is its use.
-  const cloudHint = useCloudChatHint(paneTipHost, newTabGeneration);
+  /// A pick of Cloud by any path (the hint, the Where menu, New Cloud Chat) is its use. Each adoption
+  /// reads the record again: a hint one tab showed is done before the next tab takes this page.
+  const cloudHint = useCloudChatHint(paneTipHost, newTabAdoptions);
   const featureTipsOn = useFeatureTipsOn();
   /// New Cloud Chat (the handshake's `pickCloud`), counted: the New Tab page or this composer picks
   /// Cloud once Cloud is offered here.
@@ -7150,6 +7194,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         rowsRef.current = next.rows;
         snapshotRef.current = next;
         trustRouteSnapshot.current = next;
+        observeCloudTurn(next);
         const owner = directClient.current;
         trustRenderedOwner.current = {
           client: owner,
@@ -7422,11 +7467,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         acpmuxPerf.markLaunch("handshakeReady");
         setCloudCredentialRecoveryAvailable(host.cloudCredentialRecoveryAvailable === true);
         setCloudTeamMachine(host.cloudTeamMachine === true);
-        setCloudTurnRewind(
+        const turnRewind =
           Array.isArray(host.cloudTurnRewind) && host.cloudTurnRewind.every((id) => typeof id === "string")
             ? new Set(host.cloudTurnRewind as string[])
-            : undefined,
-        );
+            : undefined;
+        const turnRewindChat =
+          (typeof host.sessionId === "string" && host.sessionId) || snapshotRef.current?.sessionId || undefined;
+        cloudTurnRewindUnbound.current = turnRewind !== undefined && !turnRewindChat;
+        setCloudTurnRewind((marks) => handshakeMarks(marks, turnRewind, turnRewindChat));
+        cloudCheckpoints.current?.setOn(turnRewind !== undefined);
         setCloudRepositoryAvailable(host.cloudRepositoryAvailable === true);
         setCloudMachineID(
           typeof host.cloudMachineID === "string" && host.cloudMachineID ? host.cloudMachineID : undefined,
@@ -7593,6 +7642,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             rowsRef.current = next.rows;
             snapshotRef.current = next;
             trustRouteSnapshot.current = next;
+            observeCloudTurn(next);
             if (connectingClient)
               trustRenderedOwner.current = {
                 client: connectingClient,
@@ -10056,10 +10106,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const cloudHintDraws =
     !showNewTab || (newTab !== undefined && !newTab.history && shownTemplate(newTab) !== "classic");
   const cloudHintDue = !quick && !onOtherMachine && cloudHintDraws && cloudChatHintDue(cloudHintFacts);
-  const claimCloudHint = cloudHint.claim;
-  useEffect(() => {
-    if (cloudHintDue) claimCloudHint();
-  }, [cloudHintDue, claimCloudHint]);
+  /// Only the page the person looks at asks: a spare in the pool never does.
+  useCloudChatHintClaim(cloudHintDue, cloudHint.claim);
   const cloudHintShown = !quick && !onOtherMachine && cloudChatHintShown(cloudHintFacts);
   /// New Cloud Chat, pending until taken: the New Tab page takes it (`cloudPick`) or this composer
   /// picks Cloud once it is offered; a chat that already started drops it.

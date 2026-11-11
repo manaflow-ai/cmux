@@ -189,9 +189,28 @@ fn a_vm_chat_is_the_cloud_start_chat_run() {
         ])
     );
     assert_eq!(cloud_words(&start(&["go"]), &Machine::New).unwrap(), words(&["--prompt", "go"]));
-    // A Cloud chat needs a prompt, and takes no model or chat name.
+    // A Cloud chat needs a prompt, and takes no chat name.
     assert!(cloud_words(&start(&[]), &Machine::New).is_err());
-    assert!(cloud_words(&start(&["--model", "m", "go"]), &Machine::New).is_err());
+    assert!(cloud_words(&start(&["--name", "n", "go"]), &Machine::New).is_err());
+}
+
+/// Leo, 2026-11-10: a Cloud chat runs the Claude model the person asked for. `--model` reaches
+/// `cloud start-chat`, which hands it to `cloud start-session --model`.
+#[test]
+fn a_cloud_chat_takes_the_model_asked_for() {
+    let vm = start(&["--on", "vm:dev", "--model", "claude-haiku-5-5", "-p", "go"]);
+    let words_out = cloud_words(&vm, &Machine::Target("vm-dev".into())).unwrap();
+    assert_eq!(
+        words_out,
+        words(&["--prompt", "go", "--target", "machine:vm-dev", "--model", "claude-haiku-5-5"])
+    );
+    let super::super::cloud_start_chat::Parsed::Run(request) =
+        super::super::cloud_start_chat::parse(&words_out, || Ok(String::new())).unwrap()
+    else {
+        panic!("help")
+    };
+    assert_eq!(request.model.as_deref(), Some("claude-haiku-5-5"));
+    assert_eq!(request.agent, "claude");
 }
 
 /// Leo, 2026-11-10: "Does it work across every expected possible workspace?" `cmux chat --on
@@ -208,6 +227,18 @@ fn from_folder_goes_to_the_cloud_start() {
     assert!(TAKES_VALUE.contains(&"--from-folder"));
     assert!(USAGE.contains("--from-folder DIR"));
     assert!(parse(&words(&["--from-folder", "a", "--from-folder", "b", "go"]), None).is_err());
+}
+
+/// The copy-size refusal's recovery, `--allow-large`, works on `cmux chat` too: it goes to the
+/// Cloud start with the folder.
+#[test]
+fn allow_large_goes_to_the_cloud_start() {
+    let picked = start(&["--on", "vm:new", "--from-folder", ".", "--allow-large", "go"]);
+    assert!(picked.allow_large);
+    assert_eq!(
+        cloud_words(&picked, &Machine::New).unwrap(),
+        words(&["--prompt", "go", "--from-folder", ".", "--allow-large"])
+    );
 }
 
 /// Leo, 2026-11-06: "Shared chat commands can start in cloud." `cmux chat --on cloud` takes the

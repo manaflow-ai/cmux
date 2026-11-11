@@ -595,8 +595,9 @@ pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
 ) -> std::io::Result<()> {
     match item {
         OutboundItem::Text(text) => {
-            writer.write_all(text.as_bytes())?;
-            writer.write_all(b"\n")
+            let result = writer.write_all(text.as_bytes()).and_then(|()| writer.write_all(b"\n"));
+            text.note_written(result.is_ok());
+            result
         }
         OutboundItem::Flush(flushed) => {
             writer.flush()?;
