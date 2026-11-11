@@ -1,7 +1,7 @@
 // A completed turn keeps its final answer in sight and folds the earlier transcript, including
 // received reports, under one stable Worked-for disclosure. A running turn keeps the existing
 // step-by-step rows so the reader can follow work as it arrives.
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import {
   openViewTurnFold,
@@ -12,6 +12,17 @@ import {
   turnView,
   WORKED,
 } from "../src/agent-session/acpmux/conversation/turns";
+
+// This file covers the `runs` arm of liveTurnWork.experiment.ts: a running turn keeps its finished
+// runs in sight until it ends. The shipped `line` arm (one live line, as chatgpt.com draws a running
+// turn) is covered by live-turn-one-line.test.ts.
+const liveTurnArmsBefore = globalThis.cmuxExperiments;
+beforeAll(() => {
+  globalThis.cmuxExperiments = { ...liveTurnArmsBefore, "live-turn-work": "runs" };
+});
+afterAll(() => {
+  globalThis.cmuxExperiments = liveTurnArmsBefore;
+});
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
