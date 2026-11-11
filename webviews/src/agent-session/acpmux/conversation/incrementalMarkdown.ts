@@ -4,6 +4,7 @@
 import { type MdBlock, parseMarkdown } from "./markdownModel";
 import { fenceStep } from "./fenceRule";
 import { safeTail } from "./safeTail";
+import { onTestReset } from "../../testReset";
 
 export type KeyedBlock = { key: string; block: MdBlock };
 
@@ -22,6 +23,10 @@ const WHOLE_PARSES_CAP = 2048;
 const WHOLE_PARSES_CHARS = 2_000_000;
 const wholeParses = new Map<string, WholeParse>();
 let wholeChars = 0;
+onTestReset(() => {
+  wholeParses.clear();
+  wholeChars = 0;
+});
 const wholeKey = (source: string, messageAt: number | undefined) => `${messageAt ?? ""}\u0000${source}`;
 
 const LIST_START = /^(\s*)([-*+]|\d+[.)])\s+/;

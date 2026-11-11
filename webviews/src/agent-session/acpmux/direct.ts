@@ -216,6 +216,7 @@ import {
   type PresetApprovalChange,
   type PresetApprovalOutcome,
 } from "./conversation/presetApproval";
+import { onTestReset } from "../testReset";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -595,6 +596,7 @@ function keptPeer(sessionId: string): string | undefined {
 /// Each chat's slash commands from its last attach on this page (a few dozen chats): back on a
 /// chat, `/` lists them at once instead of "No commands" until the attach (Leo 2026-10-19).
 const knownCommands = new Map<string, SlashCommand[]>();
+onTestReset(() => knownCommands.clear());
 function rememberCommands(sessionId: string, commands: SlashCommand[]) {
   knownCommands.delete(sessionId);
   knownCommands.set(sessionId, commands);

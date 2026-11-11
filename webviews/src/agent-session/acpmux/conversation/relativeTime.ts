@@ -3,6 +3,7 @@
 // "last week", "2 months ago", "last year" (it never switches to a date there), and on hover
 // "Oct 20, 2026, 10:16 PM". Intl words both in the pane's language.
 import { hasTimestamp } from "./timestamps";
+import { onTestReset } from "../../testReset";
 
 /// Claude's units, largest first, in seconds: the age reads in the largest one it has reached.
 const UNITS: readonly (readonly [Intl.RelativeTimeFormatUnit, number])[] = [
@@ -17,6 +18,9 @@ const UNITS: readonly (readonly [Intl.RelativeTimeFormatUnit, number])[] = [
 // Newly mounted messages share the pane's language. Keep one formatter, not one per message
 // or an unbounded map of locale strings. Default-locale fallbacks stay live and uncached.
 let lastWords: { locale: string; formatter: Intl.RelativeTimeFormat; englishNow: boolean } | undefined;
+onTestReset(() => {
+  lastWords = undefined;
+});
 function relativeWords(locale?: string) {
   if (locale !== undefined && lastWords?.locale === locale) return lastWords;
   const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });

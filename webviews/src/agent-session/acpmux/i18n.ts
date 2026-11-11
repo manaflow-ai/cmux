@@ -18,6 +18,7 @@
 // code outside render (event handlers, clients), where the current language is read once.
 import { useSyncExternalStore } from "react";
 import { resolveLanguage, setDocumentLanguage } from "../../pages/shared/i18n";
+import { onTestReset } from "../testReset";
 
 type Catalog = typeof import("./generated/strings.json");
 /** A plural string's text per CLDR category is `key#<category>` in the table (gen-strings.mjs). */
@@ -67,7 +68,6 @@ function followWindow(): void {
   followed = view;
   followed?.addEventListener("languagechange", followLanguageChange);
 }
-followWindow();
 
 /** The language the pane renders in now. */
 export function currentLanguage(): PaneLanguage {
@@ -207,3 +207,10 @@ export const STRING_TABLES: Record<string, Record<string, string>> = tables() as
 
 // Last, so every store above exists before a recovered table arrives.
 recoverStrings();
+
+onTestReset(() => {
+  followed?.removeEventListener("languagechange", followLanguageChange);
+  followed = undefined;
+  translators.clear();
+  pluralRules.clear();
+});

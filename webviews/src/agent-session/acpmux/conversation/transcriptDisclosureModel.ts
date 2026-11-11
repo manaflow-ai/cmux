@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useSyncExternalStore } from "react";
 import { type TranscriptView } from "./transcriptView";
+import { onTestReset } from "../../testReset";
 
 /**
  * Disclosure state for transcript details. Rows are virtualized, so the state cannot live in a
@@ -15,6 +16,9 @@ type SessionChoices = Map<string, boolean>;
 type Choices = Map<string, SessionChoices>;
 
 let choices: Choices | undefined;
+onTestReset(() => {
+  choices = undefined;
+});
 const listeners = new Set<() => void>();
 
 function parseChoices(value: unknown): Choices {

@@ -5,6 +5,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { callChipHost } from "./host";
 import { useTranscriptReadOnly } from "../conversation/readOnly";
+import { onTestReset } from "../../testReset";
 
 export type PathPlace = "root" | "outside" | "denied" | "missing";
 export type PathInfo = { place: PathPlace; folder: boolean };
@@ -39,9 +40,15 @@ const paths = new Map<string, PathInfo | null>();
 const sites = new Map<string, SiteInfo | null>();
 /// Paths sent to the host and not answered yet.
 const asking = new Set<string>();
-let policy: ReplyPolicy = { outsideRoots: "confirm", remoteImages: "click", clickFreeImageHosts: [] };
-let queuedPaths: string[] = [];
-let queuedUrls: string[] = [];
+/// The policy a fresh page starts on (frozen: a reply replaces `policy`, never changes this one).
+const defaultPolicy: ReplyPolicy = Object.freeze({
+  outsideRoots: "confirm",
+  remoteImages: "click",
+  clickFreeImageHosts: [],
+});
+let policy: ReplyPolicy = defaultPolicy;
+const queuedPaths: string[] = [];
+const queuedUrls: string[] = [];
 let scheduled = false;
 let inFlight = false;
 /// The policy is asked once, with the first chip or image (an empty inspect when there is none).
@@ -162,16 +169,22 @@ export function useReplyPolicy(): ReplyPolicy {
 
 /// Tests start from nothing.
 export function resetLinkStore(): void {
+  forgetLinks();
+  changed();
+}
+
+/// The store's caches as a fresh page has them; after a test file, with no one to tell.
+function forgetLinks(): void {
   paths.clear();
   asking.clear();
   sites.clear();
-  queuedPaths = [];
-  queuedUrls = [];
+  queuedPaths.length = 0;
+  queuedUrls.length = 0;
   scheduled = false;
-  policy = { outsideRoots: "confirm", remoteImages: "click", clickFreeImageHosts: [] };
+  policy = defaultPolicy;
   policyAsked = false;
-  changed();
 }
+onTestReset(forgetLinks);
 
 /** Gallery host fixtures can prime the same cache the native inspect call would fill. */
 export function seedLinkStore(seed: {

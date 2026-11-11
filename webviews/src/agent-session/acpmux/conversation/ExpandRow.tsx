@@ -8,8 +8,12 @@
 import type { Ref } from "react";
 import { experimentArm } from "../../../experiments/experiment";
 import { expandRowLook } from "./expandRow.experiment";
+import { onTestReset } from "../../testReset";
 
 let looked = false;
+onTestReset(() => {
+  looked = false;
+});
 
 /// Marks the page with the gallery's arm of `expand-row-look` the first time a row draws
 /// (conversation.css `:root[data-expand-row]`; the shipped arm sets nothing). Read at render, not at

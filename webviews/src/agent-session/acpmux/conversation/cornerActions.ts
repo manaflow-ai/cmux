@@ -4,10 +4,14 @@
 // focus ring; `.cv-codeblock__action` only sizes it (conversation.css).
 import { experimentArm } from "../../../experiments/experiment";
 import { codeActionsLook } from "./codeActions.experiment";
+import { onTestReset } from "../../testReset";
 
 const CORNER_ACTION = "cv-iconbtn cv-codeblock__action";
 
 let looked = false;
+onTestReset(() => {
+  looked = false;
+});
 
 /**
  * The corner button's class. The first call also marks the page with the gallery's arm of
