@@ -3783,8 +3783,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     : undefined;
   const askerRef = useRef(asker);
   askerRef.current = asker;
+  // The hat's × reaches the shown chat's dismissals; the ref follows it after each commit (never in render).
   const dismissPinnedAskRef = useRef(dismissPinnedAsk);
-  dismissPinnedAskRef.current = dismissPinnedAsk;
+  useLayoutEffect(() => {
+    dismissPinnedAskRef.current = dismissPinnedAsk;
+  }, [dismissPinnedAsk]);
   const hatQuestionActions = useMemo(
     () =>
       hatActions(
