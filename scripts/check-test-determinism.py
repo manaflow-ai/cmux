@@ -4023,7 +4023,12 @@ def _sleep_in_loop(lines: list[str], idx: int) -> bool:
 def detect_sleep_then_assert(lines: list[str], idx: int, path_suffix: str) -> bool:
     """Sleep on lines[idx] followed by an assertion within 3 non-blank lines."""
     line = lines[idx]
-    is_sleep = bool(_SLEEP_CALL.search(line))
+    is_sleep = False
+    matches = list(_SLEEP_CALL.finditer(line))
+    if matches:
+        # A sleep inside a string or a regex literal (`expect(wait).not.toMatch(/sleep (?!1;)\d/)`) sleeps nothing.
+        executable = _executable_code_positions(line, path_suffix)
+        is_sleep = any(match.start() >= len(executable) or executable[match.start()] for match in matches)
     if not is_sleep and path_suffix == ".sh":
         is_sleep = bool(_SHELL_BARE_SLEEP.search(line))
     if not is_sleep:
@@ -7043,6 +7048,15 @@ def _self_test() -> int:
                 "        let span2 = Date(timeIntervalSince1970: 5).timeIntervalSince(Date(timeIntervalSince1970: 0))\n"
                 "        XCTAssertLessThan(span2, 6)\n"
                 "    }\n"
+            ),
+        ),
+        # "sleep" in a regex literal or a string the test reads is no sleep (vm-image-cmux-vm-commands.test.ts).
+        (
+            "web/tests/n43.test.ts",
+            (
+                "  const wait = bake.acpmuxHarnessChecksDoneCommand();\n"
+                "  expect(wait).not.toMatch(/sleep (?!1;)\\d/);\n"
+                "  expect(wait).toContain(\"sleep(1)\");\n"
             ),
         ),
         # A timing checked only to be positive: no bound on how long it took.
