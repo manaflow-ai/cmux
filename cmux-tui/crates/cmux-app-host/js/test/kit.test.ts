@@ -275,6 +275,145 @@ describe("the template folders (skills/cmux-customization/templates)", () => {
   })
 })
 
+describe("the widget templates (clock-weather, my-prs, design-links)", () => {
+  const load = (name: string) => readFileSync(new URL(`../../../../../skills/cmux-customization/templates/${name}/main.js`, import.meta.url), "utf8")
+  const init = { app: { id: "local/customize", version: "1.0.0" }, apiVersion: "1.0.0" }
+  const ok = (value: unknown = null) => () => ({ ok: true, body: { value } })
+  const fetched = (body: unknown) => ({ ok: true, body: { value: { status: 200, headers: {}, body: JSON.stringify(body) } } })
+
+  test("clock-weather: the time with no scope; a saved city reads its weather; a typed city is found and kept", async () => {
+    const host = new FakeHost(load("clock-weather"), init)
+    host.handlers["app.storage.get"] = ok(null)
+    host.handlers["app.storage.set"] = ok()
+    host.handlers["net.fetch"] = (p) =>
+      p.url.startsWith("https://geocoding-api.open-meteo.com/")
+        ? fetched({ results: [{ name: "Tokyo", latitude: 35.68, longitude: 139.69 }] })
+        : fetched({ current: { temperature_2m: 21.4, weather_code: 0 }, daily: { temperature_2m_max: [24.2], temperature_2m_min: [15.6] } })
+    expect(host.mount("m", "renderClock")).toBe("")
+    await host.settle()
+    expect(liveTexts(host).some((t) => /^\d\d:\d\d$/.test(t))).toBe(true)
+    expect(host.calls.filter((c) => c.name === "net.fetch")).toEqual([])
+    // A clock and a 15-minute weather read; nothing faster than the host's 1 s floor.
+    expect([...host.timers.values()].map((t) => t.ms).sort((a, b) => a - b)).toEqual([15000, 900000])
+    host.dispatch("m", host.findNode("m", (n) => n.type === "TextField")!, "submit", { text: "Tokyo" })
+    await host.settle(10)
+    expect(liveTexts(host)).toContain("21°")
+    expect(liveTexts(host).some((t) => t.includes("Tokyo, Clear, 16° to 24°"))).toBe(true)
+    expect(host.calls.find((c) => c.name === "app.storage.set")?.params).toEqual({ key: "place", value: { name: "Tokyo", latitude: 35.68, longitude: 139.69 } })
+    expect(host.findNode("m", (n) => n.type === "TextField")).toBeUndefined()
+  })
+
+  test("my-prs: yours and your reviews, kept in the order you move them, read again when a chat changes", async () => {
+    const host = new FakeHost(load("my-prs"), init)
+    const item = (id: number, title: string) => ({ id, number: id, title, html_url: `https://github.com/o/r/pull/${id}`, repository_url: "https://api.github.com/repos/o/r", draft: false })
+    host.handlers["app.storage.get"] = ok(null)
+    host.handlers["app.storage.set"] = ok()
+    host.handlers["action.run"] = ok()
+    host.handlers["integration.request"] = (p) =>
+      ({ ok: true, body: { value: { items: p.path.includes("review-requested") ? [item(3, "Review me")] : [item(1, "First"), item(2, "Second")] } } })
+    expect(host.mount("m", "renderPRs")).toBe("")
+    await host.settle(10)
+    const rows = () => rowTitles(host)
+    expect(rows()).toEqual(["First", "Second", "Review me"])
+    expect([...host.subscriptions.values()].map((s) => s.stream)).toContain("agent_chat.changed")
+    expect([...host.timers.values()]).toContainEqual({ ms: 60000, repeat: true })
+    const row = (title: string) => host.findNode("m", (n) => n.type === "Row" && n.props.title === title)!
+    // Move to top is the row's menu entry 2 (Open, divider, Move to top).
+    host.dispatch("m", row("Review me"), "menu", { path: [2] })
+    await host.settle()
+    expect(rows()).toEqual(["Review me", "First", "Second"])
+    expect(host.calls.filter((c) => c.name === "app.storage.set").at(-1)?.params).toEqual({ key: "order", value: [3, 1, 2] })
+    host.dispatch("m", row("First"), "tap", { gesture: "g4" })
+    await host.settle()
+    const open = host.calls.find((c) => c.name === "action.run")!
+    expect([open.params, open.options.gesture]).toEqual([{ id: "openBrowser", args: { url: "https://github.com/o/r/pull/1" } }, "g4"])
+    // A chat change inside 20 s of the last read waits for one later read instead of searching at once.
+    const searches = () => host.calls.filter((c) => c.name === "integration.request").length
+    const before = searches()
+    host.emit("agent_chat.changed")
+    host.emit("agent_chat.changed")
+    await host.settle()
+    expect(searches()).toBe(before)
+    expect([...host.timers.values()].filter((t) => t.ms === 20000 && !t.repeat)).toHaveLength(1)
+  })
+
+  test("my-prs: with no connected account it asks for a login and reads the public API", async () => {
+    const host = new FakeHost(load("my-prs"), init)
+    host.handlers["app.storage.get"] = ok(null)
+    host.handlers["app.storage.set"] = ok()
+    host.handlers["integration.request"] = () => ({ ok: false, body: { code: "provider.unavailable", message: "no provider", retryable: false } })
+    host.handlers["net.fetch"] = (p) =>
+      p.url.includes("nobody")
+        ? { ok: true, body: { value: { status: 422, headers: {}, body: "{}" } } }
+        : { ok: true, body: { value: { status: 200, headers: {}, body: JSON.stringify({ items: p.url.includes("author%3Aoctocat") ? [{ id: 7, number: 7, title: "Public one", html_url: "https://github.com/o/r/pull/7", repository_url: "https://api.github.com/repos/o/r" }] : [] }) } } }
+    host.mount("m", "renderPRs")
+    await host.settle(10)
+    expect(host.calls.filter((c) => c.name === "net.fetch")).toEqual([])
+    // A login GitHub does not know asks again instead of hiding the field for good.
+    host.dispatch("m", host.findNode("m", (n) => n.type === "TextField")!, "submit", { text: "nobody" })
+    await host.settle(10)
+    expect(host.findNode("m", (n) => n.type === "TextField")).toBeDefined()
+    expect(host.calls.find((c) => c.name === "net.fetch")?.params.headers["User-Agent"]).toBe("cmux-my-prs")
+    host.dispatch("m", host.findNode("m", (n) => n.type === "TextField")!, "submit", { text: "octocat" })
+    await host.settle(10)
+    expect(rowTitles(host)).toEqual(["Public one"])
+    expect(host.calls.filter((c) => c.name === "app.storage.set" && c.params.key === "login").at(-1)?.params.value).toBe("octocat")
+    expect(host.findNode("m", (n) => n.type === "TextField")).toBeUndefined()
+  })
+
+  test("my-prs: a login with no open PRs can still be changed", async () => {
+    const host = new FakeHost(load("my-prs"), init)
+    host.handlers["app.storage.get"] = (p) => ({ ok: true, body: { value: p.key === "login" ? "quiet" : null } })
+    host.handlers["app.storage.set"] = ok()
+    host.handlers["integration.request"] = () => ({ ok: false, body: { code: "provider.unavailable", message: "no provider", retryable: false } })
+    host.handlers["net.fetch"] = () => fetched({ items: [] })
+    host.mount("m", "renderPRs")
+    await host.settle(10)
+    expect(rowTitles(host)).toEqual([])
+    expect(host.findNode("m", (n) => n.type === "TextField")).toBeUndefined()
+    host.dispatch("m", host.findNode("m", (n) => n.type === "Button" && n.props.title === "Change GitHub login")!, "tap")
+    await host.settle()
+    expect(host.findNode("m", (n) => n.type === "TextField")).toBeDefined()
+  })
+
+  test("design-links: a pasted Figma link gets its file name and opens in a browser tab", async () => {
+    const host = new FakeHost(load("design-links"), init)
+    host.handlers["app.storage.get"] = ok(null)
+    host.handlers["app.storage.set"] = ok()
+    host.handlers["action.run"] = ok()
+    host.handlers["toast.show"] = ok()
+    expect(host.mount("m", "renderLinks")).toBe("")
+    await host.settle()
+    const field = () => host.findNode("m", (n) => n.type === "TextField")!
+    host.dispatch("m", field(), "submit", { text: "ftp://nope" })
+    await host.settle()
+    expect(host.calls.find((c) => c.name === "toast.show")?.params.title).toBe("Paste a link that starts with https://")
+    const url = "https://www.figma.com/design/AbC123/Checkout-Flow-v2?node-id=1-2"
+    host.dispatch("m", field(), "submit", { text: url })
+    await host.settle()
+    const row = host.findNode("m", (n) => n.type === "Row")!
+    expect([host.tree("m").nodes.get(row)!.props.title, host.tree("m").nodes.get(row)!.props.subtitle]).toEqual(["Checkout Flow v2", "Figma"])
+    host.dispatch("m", row, "tap", { gesture: "g9" })
+    await host.settle()
+    const open = host.calls.find((c) => c.name === "action.run")!
+    expect([open.params, open.options.gesture]).toEqual([{ id: "openBrowser", args: { url } }, "g9"])
+  })
+})
+
+/** The titles of the Rows reachable from the root, in screen order (a reorder only moves children). */
+function rowTitles(host: FakeHost, mount = "m"): unknown[] {
+  const tree = host.tree(mount)
+  const out: unknown[] = []
+  const walk = (id: string) => {
+    const n = tree.nodes.get(id)
+    if (!n) return
+    if (n.type === "Row") out.push(n.props.title)
+    n.children.forEach(walk)
+  }
+  walk(tree.root)
+  return out
+}
+
 /** The texts of the nodes reachable from the root, in order (detached nodes left out). */
 function liveTexts(host: FakeHost): string[] {
   const tree = host.tree("m")

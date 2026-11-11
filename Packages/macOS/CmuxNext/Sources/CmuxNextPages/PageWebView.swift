@@ -43,8 +43,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     let scriptTarget: PageScriptTarget
     /// The engine the page shows in and, for WebKit, why (``PageEnginePolicy``).
     public internal(set) var engineDecision: PageEngineDecision
-    /// The Chromium page while one shows the document (PageWebView+Chromium.swift).
-    var chromiumSession: PageChromiumSession?
+    /// The Chromium page while one shows the document (PageWebView+Chromium.swift). Its host places the page by its engine: it lays out again.
+    var chromiumSession: PageChromiumSession? { didSet { if (oldValue == nil) != (chromiumSession == nil) { superview?.needsLayout = true } } }
     /// App health's feed for this page, from the page host it was made with (``PageChromiumHosting/healthFeed``).
     public internal(set) var healthFeed: (any PageHealthFeed)?
     /// Rects in this view's coordinates where native UI of the window shows over the page
