@@ -366,6 +366,16 @@ on:
       - cmux.xcodeproj/**
       # An app resource the Xcode project copies (cmux_next_route.py NATIVE_SCRIPT_INPUTS).
       - THIRD_PARTY_LICENSES.md
+      # The rest of NATIVE_SCRIPT_INPUTS: files the app build or its packaging reads, which the pull request
+      # paths above already name.
+      - scripts/ghosttykit-checksums.txt
+      - scripts/cmux-next/cmux-tui-tree-inputs.txt
+      - scripts/cmux-next/cef-license/LICENSE.txt
+      - scripts/ci/macho_minos.py
+      - scripts/ci/cmux_tui_tree_key.py
+      - scripts/ci/lib/signing-runtime-guard.sh
+      - scripts/ci/swift_incremental_diagnostics.py
+      - scripts/ci/fleet-rust-cache.sh
       # Base pushes still run the full side workflow for every package input;
       # only pull requests use the focused package routing below.
       - Packages/macOS/**
