@@ -79,6 +79,8 @@ jobs:
           # refuses any other commit); the tip may have moved on since, so
           # accept a branch that contains the commit and name it.
           branch="$(gh api "repos/manaflow-ai/cef/commits/$commit/branches-where-head" --jq '[.[].name | select(startswith("cmux/"))][0] // empty' 2>/dev/null || true)"
+          # A failed read prints its error body on stdout; fall back to the branch search.
+          [[ "$branch" =~ ^cmux/[A-Za-z0-9._/-]+$ ]] || branch=""
           if [[ -z "$branch" ]]; then
             for name in $(gh api "repos/manaflow-ai/cef/branches?per_page=100" --jq '.[].name | select(startswith("cmux/"))'); do
               status="$(gh api "repos/manaflow-ai/cef/compare/$commit...$name" --jq .status)"
