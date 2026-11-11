@@ -17,10 +17,10 @@ The detector, ported from cmuxterm-hq tests/test_noclobber_sweep.py (the same tw
     git grep -nE 'set -[a-zA-Z]*C\\b|set -o noclobber' -- scripts .github
     git grep -nE '((/private)?/tmp|\\$\\{?TMPDIR(:-/tmp)?\\}?)/[A-Za-z0-9._-]*(\\$\\$|\\$\\{?[A-Za-z_]|\\$\\(|\\{[A-Za-z_])' -- scripts .github
 
-Tests, comment lines and mktemp templates (a line with XXXXXX) do not count. A name the app, its daemons or acpmux pick
-(APP_NAMES) is theirs to move: a script here only names it to them or reads it. A hit that is safe for a reason the
-grep cannot see goes in ALLOWED with that reason, keyed by path and a piece of its line; an entry nothing matches
-fails, so the list only shrinks.
+Tests, comment lines and a mktemp call's template word (the word with XXXXXX in it) do not count; the rest of a line
+with a template is still read. A name the app, its daemons or acpmux pick (APP_NAMES) is theirs to move: a script
+here only names it to them or reads it. A hit that is safe for a reason the grep cannot see goes in ALLOWED with that
+reason, keyed by path and a piece of its line; an entry nothing matches fails, so the list only shrinks.
 """
 from __future__ import annotations
 
@@ -113,8 +113,24 @@ def code(line: str) -> str:
     return re.sub(r"(^|\s)#.*$", "", line)
 
 
+# The template word of a mktemp call (the word with XXXXXX in it, quoted or bare): mktemp makes that name exclusively,
+# so only that word is left out of the scan. A mktemp on a line exempts nothing else on it (review of
+# manaflow-ai/cmux-platform#1262, F2: `d=$(mktemp -d ".../safe.XXXXXX"); printf secret > /tmp/out.$$` passed whole).
+MKTEMP_TEMPLATE = re.compile(r"""(\bmktemp\b[^;|&\n]*?)(?:"[^"\n]*XXXXXX[^"\n]*"|'[^'\n]*XXXXXX[^'\n]*'"""
+                             r"""|[^\s;|&()"']*XXXXXX[^\s;|&()"']*)""")
+
+
+def shared_tmp(line: str) -> list[str]:
+    """The guessable shared-temp names in LINE, a mktemp template word left out."""
+    return [m.group(0) for m in SHARED_TMP.finditer(MKTEMP_TEMPLATE.sub(r"\1TEMPLATE", line))]
+
+
+def flagged(line: str) -> bool:
+    return bool(NOCLOBBER.search(line) or shared_tmp(line))
+
+
 def app_named(line: str) -> bool:
-    found = [m.group(0) for m in SHARED_TMP.finditer(line)]
+    found = shared_tmp(line)
     return bool(found) and all(any(m.startswith(p) for p in APP_NAMES) for m in found)
 
 
@@ -137,7 +153,7 @@ def hits(root: Path = ROOT) -> list[tuple[str, int, str]]:
             continue
         for n, line in enumerate(text.splitlines(), 1):
             c = code(line)
-            if NOCLOBBER.search(c) or (SHARED_TMP.search(c) and "XXXXXX" not in c):
+            if flagged(c):
                 out.append((path, n, c.strip()))
     return out
 
@@ -175,9 +191,16 @@ class NoclobberSweep(unittest.TestCase):
                      'const bundle = `/tmp/land-${Date.now()}.bundle`;'):
             self.assertTrue(SHARED_TMP.search(code(line)), line)
         for line in ('# set -C is not exclusive', 'd=$(mktemp -d "${TMPDIR:-/tmp}/x.XXXXXX")',
-                     'cache="$HOME/.cache/x"', 'set -eu', 'p=/tmp/fixed-name', 'x="$tmp/a/$b"'):
-            c = code(line)
-            self.assertFalse(NOCLOBBER.search(c) or (SHARED_TMP.search(c) and "XXXXXX" not in c), line)
+                     'cache="$HOME/.cache/x"', 'set -eu', 'p=/tmp/fixed-name', 'x="$tmp/a/$b"',
+                     "t=$(mktemp -p /tmp ${TMPDIR:-/tmp}/run.XXXXXX)"):
+            self.assertFalse(flagged(code(line)), line)
+
+    def test_a_mktemp_template_exempts_only_itself(self):
+        """Review of manaflow-ai/cmux-platform#1262, F2: a line with XXXXXX was exempt whole."""
+        for line in ('d=$(mktemp -d ".../safe.XXXXXX"); printf secret > /tmp/out.$$',
+                     'd=$(mktemp -d "${TMPDIR:-/tmp}/x.XXXXXX") && cp a /tmp/run.$$',
+                     "t=$(mktemp /tmp/a.XXXXXX); echo > ${TMPDIR:-/tmp}/b.$(id -u)"):
+            self.assertTrue(flagged(code(line)), line)
 
     def test_an_app_name_excuses_only_app_names(self):
         self.assertTrue(app_named('sock="/tmp/cmux-debug-$tag.sock"'))
