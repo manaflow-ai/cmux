@@ -32,8 +32,12 @@ import Testing
               favicon: nil)
     }
 
-    private static func sidebar(_ store: DaemonStore) -> SidebarView {
-        let sections = SidebarMapping.shared.sections(store.sidebarSections, machine: mac, pageFace: folderLabel, terminalTitle: "Terminal")
+    /// No label from the front tab: the row shows the workspace's own name ("workspace-1").
+    private static func noLabel(_: WorkspaceModel, _: TabModel, _: TabModel?) -> SidebarMapping.PageFace? { nil }
+
+    private static func sidebar(_ store: DaemonStore,
+                                pageFace: @escaping (WorkspaceModel, TabModel, TabModel?) -> SidebarMapping.PageFace? = folderLabel) -> SidebarView {
+        let sections = SidebarMapping.shared.sections(store.sidebarSections, machine: mac, pageFace: pageFace, terminalTitle: "Terminal")
         let sidebar = SidebarView(model: SidebarModel(sections: sections), design: DesignSettings())
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         sidebar.renderNow()
@@ -53,9 +57,9 @@ import Testing
     }
 
     @Test func anIdleUnnamedRowReadsInTheSameInkAsANamedRow() throws {
-        let sidebar = Self.sidebar(Self.store(["workspace-1", "workspace-2", "api"], cwd: "/tmp/cmux-unnamed-ink"))
+        let sidebar = Self.sidebar(Self.store(["workspace-1", "workspace-2", "api"], cwd: "/tmp/cmux-unnamed-ink"), pageFace: Self.noLabel)
         let rows = Self.inks(sidebar)
-        #expect(rows.count == 3)
+        #expect(Set(rows.map(\.title)) == ["workspace-1", "workspace-2", "api"], "the rows show the daemon's default names")
         for row in rows {
             #expect(row.ink == row.want, "\(row.title) reads in the sidebar title's ink")
         }
@@ -64,7 +68,7 @@ import Testing
     @Test func aShellAtHomeReadsInTheSameInkAsANamedRow() throws {
         let sidebar = Self.sidebar(Self.store(["workspace-3"], cwd: NSHomeDirectory()))
         let rows = Self.inks(sidebar)
-        #expect(rows.count == 1)
+        #expect(rows.map(\.title) == ["~"], "the row shows its home folder")
         for row in rows {
             #expect(row.ink == row.want, "\(row.title) reads in the sidebar title's ink")
         }
