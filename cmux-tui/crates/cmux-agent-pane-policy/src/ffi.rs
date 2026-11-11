@@ -14,6 +14,12 @@
 //!
 //! The host sends a fresh serialization of `frame`, never the page's bytes.
 //!
+//! The host also says which gesture of the person it holds ([`Gesture`],
+//! [`cmux_agent_pane_policy_check_gesture`]): an answer method (`policy.json`
+//! `click_only`) that needs a gesture passes on a click only. The check
+//! without that argument ([`cmux_agent_pane_policy_check`]) holds no gesture,
+//! so it refuses each such frame.
+//!
 //! What the host decides with its own state (tickets, the click's intent, the
 //! folder check on disk) it asks the same rules for, through the JSON ops
 //! ([`Pane::call`], [`call`]): the pick of a method and params that came as
@@ -30,7 +36,7 @@ use crate::check::{Checked, FrameState, GesturePick, PaneScope, check_frame, own
 use crate::data::policy;
 use crate::error::Refusal;
 use crate::frame::{RefusalNote, raw_id, refusal_frame_noted};
-use crate::gesture::PermissionOptions;
+use crate::gesture::{Gesture, PermissionOptions};
 use crate::reply::filtered_reply;
 use crate::sessions::PaneSessions;
 use serde_json::{Map, Value, json};
@@ -39,7 +45,7 @@ use std::ffi::{CStr, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 /// Bumped on any change to a type, a function or an op in the header.
-pub const ABI_VERSION: u32 = 2;
+pub const ABI_VERSION: u32 = 3;
 pub const OK: i32 = 0;
 /// `filter_reply`: the method has no reply shape; the host relays the reply as it is.
 pub const NO_SHAPE: i32 = 1;
@@ -60,6 +66,9 @@ pub struct CheckInput<'a> {
     pub token: Option<&'a str>,
     /// The daemon's mode field names (P1), when known.
     pub mode_fields: Option<&'a BTreeSet<String>>,
+    /// The person's gesture the host holds; the default is none, which
+    /// refuses every click-only frame that needs a gesture.
+    pub gesture: Gesture,
 }
 
 /// One pane connection's policy state (the safe core of the C handle).
@@ -90,6 +99,7 @@ impl Pane {
             local_app_token: input.token,
             mode_fields: input.mode_fields,
             remote_wire: input.remote_wire,
+            gesture: input.gesture,
             scope: &self.sessions,
             options: &self.options,
         };
@@ -159,7 +169,8 @@ impl Pane {
 ///
 /// - `policy`: the data the host reads once (`initialize`,
 ///   `maximum_frame_bytes`, `gesture_ticket_key`, `reply_shape_methods`,
-///   `question_answers`, `starting`, `handoff_records`, `path_keys`).
+///   `question_answers`, `starting`, `handoff_records`, `path_keys`,
+///   `click_only`, `click_window_ms`).
 /// - `refusal_frame` `{id, code, method?, root_requested?, detail?, reason?}`:
 ///   `{"frame": text}`, the error frame answering a refused request
 ///   ([`RefusalNote`] for `detail` and `reason`).
@@ -234,6 +245,8 @@ pub fn policy_json() -> Value {
         "starting": crate::sessions::STARTING,
         "handoff_records": crate::sessions::HANDOFF_RECORDS,
         "path_keys": p.path_keys,
+        "click_only": p.click_only,
+        "click_window_ms": p.click_window_ms,
     })
 }
 
@@ -372,12 +385,75 @@ pub unsafe extern "C" fn cmux_agent_pane_policy_bytes_free(bytes: CmuxAgentPaneB
     }
 }
 
+/// The arguments of one check as the C caller gave them.
+struct RawCheck {
+    text_ptr: *const u8,
+    text_len: usize,
+    first: bool,
+    remote_wire: bool,
+    /// None: a number that is no gesture.
+    gesture: Option<Gesture>,
+    token: *const u8,
+    token_len: usize,
+    mode_fields: *const u8,
+    mode_fields_len: usize,
+}
+
+/// The body of the two check functions.
+///
+/// # Safety
+///
+/// As [`cmux_agent_pane_policy_check_gesture`].
+unsafe fn check_raw(
+    pane: *const CmuxAgentPanePolicy,
+    raw: &RawCheck,
+    out: *mut CmuxAgentPaneBytes,
+) -> i32 {
+    if pane.is_null() || out.is_null() {
+        return ERR_NULL;
+    }
+    guarded(|| {
+        let Some(gesture) = raw.gesture else { return ERR_INVALID };
+        // SAFETY: the caller's pointer rules.
+        let Some(frame) = (unsafe { text(raw.text_ptr, raw.text_len) }) else { return ERR_INVALID };
+        // SAFETY: as above.
+        let token = match unsafe { optional_text(raw.token, raw.token_len) } {
+            Ok(token) => token,
+            Err(code) => return code,
+        };
+        // SAFETY: as above.
+        let modes = match unsafe { optional_text(raw.mode_fields, raw.mode_fields_len) } {
+            Ok(None) => None,
+            Ok(Some(json)) => match serde_json::from_str::<BTreeSet<String>>(json) {
+                Ok(set) => Some(set),
+                Err(_) => return ERR_INVALID,
+            },
+            Err(code) => return code,
+        };
+        let input = CheckInput {
+            first: raw.first,
+            remote_wire: raw.remote_wire,
+            token,
+            mode_fields: modes.as_ref(),
+            gesture,
+        };
+        // SAFETY: a live handle; the pane's state is under its own locks.
+        let pane = unsafe { &(*pane).pane };
+        // SAFETY: `out` checked non-null.
+        unsafe { give(out, &pane.check(frame, &input)) }
+    })
+}
+
 /// The full check of one page frame (`text`, UTF-8) on the pane's state:
 /// the check reply JSON in `out` (see the module docs). `token`: the
 /// LocalApp token (null: none). `mode_fields`: a JSON array of the daemon's
 /// mode field names (null: not known). `ERR_INVALID` when an input is not
 /// UTF-8 or `mode_fields` is not an array of strings; the host refuses the
 /// frame then.
+///
+/// This function holds no gesture ([`Gesture::None`]): it refuses every
+/// click-only frame that needs a gesture (`transport.gesture_required`). A
+/// host that relays answers calls [`cmux_agent_pane_policy_check_gesture`].
 ///
 /// # Safety
 ///
@@ -397,32 +473,58 @@ pub unsafe extern "C" fn cmux_agent_pane_policy_check(
     mode_fields_len: usize,
     out: *mut CmuxAgentPaneBytes,
 ) -> i32 {
-    if pane.is_null() || out.is_null() {
-        return ERR_NULL;
-    }
-    guarded(|| {
-        // SAFETY: the caller's pointer rules.
-        let Some(frame) = (unsafe { text(text_ptr, text_len) }) else { return ERR_INVALID };
-        // SAFETY: as above.
-        let token = match unsafe { optional_text(token, token_len) } {
-            Ok(token) => token,
-            Err(code) => return code,
-        };
-        // SAFETY: as above.
-        let modes = match unsafe { optional_text(mode_fields, mode_fields_len) } {
-            Ok(None) => None,
-            Ok(Some(json)) => match serde_json::from_str::<BTreeSet<String>>(json) {
-                Ok(set) => Some(set),
-                Err(_) => return ERR_INVALID,
-            },
-            Err(code) => return code,
-        };
-        let input = CheckInput { first, remote_wire, token, mode_fields: modes.as_ref() };
-        // SAFETY: a live handle; the pane's state is under its own locks.
-        let pane = unsafe { &(*pane).pane };
-        // SAFETY: `out` checked non-null.
-        unsafe { give(out, &pane.check(frame, &input)) }
-    })
+    let raw = RawCheck {
+        text_ptr,
+        text_len,
+        first,
+        remote_wire,
+        gesture: Some(Gesture::None),
+        token,
+        token_len,
+        mode_fields,
+        mode_fields_len,
+    };
+    // SAFETY: forwarded from the caller.
+    unsafe { check_raw(pane, &raw, out) }
+}
+
+/// [`cmux_agent_pane_policy_check`] with the person's gesture the host
+/// holds: `gesture` 0 none, 1 key, 2 click ([`Gesture`], which says what a
+/// host may call a click). Any other number is `ERR_INVALID`; the host
+/// refuses the frame then.
+///
+/// # Safety
+///
+/// `pane` is a live handle; each pointer with its length is readable (or
+/// null); `out` is writable.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn cmux_agent_pane_policy_check_gesture(
+    pane: *const CmuxAgentPanePolicy,
+    text_ptr: *const u8,
+    text_len: usize,
+    first: bool,
+    remote_wire: bool,
+    gesture: u8,
+    token: *const u8,
+    token_len: usize,
+    mode_fields: *const u8,
+    mode_fields_len: usize,
+    out: *mut CmuxAgentPaneBytes,
+) -> i32 {
+    let raw = RawCheck {
+        text_ptr,
+        text_len,
+        first,
+        remote_wire,
+        gesture: Gesture::from_abi(gesture),
+        token,
+        token_len,
+        mode_fields,
+        mode_fields_len,
+    };
+    // SAFETY: forwarded from the caller.
+    unsafe { check_raw(pane, &raw, out) }
 }
 
 /// Feeds one parsed daemon frame (`text`, UTF-8) to the pane's state
