@@ -32,8 +32,13 @@ const replacements: Record<string, unknown> = {
   customElements: dom.window.customElements,
   MutationObserver: dom.window.MutationObserver,
   NodeFilter: dom.window.NodeFilter,
+  // A browser delivers each new observation once before the frame paints; the prompt measures there
+  // (PromptText.tsx). Delivered at once here, inside the same act.
   ResizeObserver: class {
-    observe() {}
+    constructor(private changed: (entries: unknown[]) => void) {}
+    observe() {
+      this.changed([]);
+    }
     unobserve() {}
     disconnect() {}
   },
@@ -138,6 +143,14 @@ function measuredPrompt(
   const computed = dom.window.getComputedStyle;
   const observer = scope.ResizeObserver;
   const observers = new Set<() => void>();
+  // A browser's observer delivers each new observation once, after the frame's layout and before
+  // its paint: the prompt measures there, not in its commit (PromptText.tsx).
+  const fresh = new Set<() => void>();
+  const deliver = () => {
+    const due = [...fresh];
+    fresh.clear();
+    for (const changed of due) changed();
+  };
   const commits: string[] = [];
   let height = initialHeight;
   let measurements = 0;
@@ -151,15 +164,17 @@ function measuredPrompt(
     constructor(private changed: () => void) {}
     observe() {
       observers.add(this.changed);
+      fresh.add(this.changed);
     }
     disconnect() {
       observers.delete(this.changed);
+      fresh.delete(this.changed);
     }
   };
   const show = (text: string) => text;
   try {
     run({
-      render: (text) =>
+      render: (text) => {
         act(() =>
           root.render(
             <Profiler id="prompt" onRender={(_id, phase) => commits.push(phase)}>
@@ -168,7 +183,9 @@ function measuredPrompt(
               </div>
             </Profiler>,
           ),
-        ),
+        );
+        act(deliver);
+      },
       resize: (next) => {
         height = next;
         expect(observers.size).toBe(1);
@@ -454,6 +471,7 @@ try {
       constructor(private changed: () => void) {}
       observe() {
         observers.add(this.changed);
+        this.changed();
       }
       disconnect() {
         observers.delete(this.changed);

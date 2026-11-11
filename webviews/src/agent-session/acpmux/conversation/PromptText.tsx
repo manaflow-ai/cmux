@@ -44,6 +44,12 @@ import { sentPasteJoin } from "./sentPasteJoin.experiment";
 import { SentPromptFoldContext, SentUIPicks } from "./SentUIPick";
 import { sentUIPickSegments } from "./sentUIPickModel";
 
+/// Whether a prompt's text is long, by its row and the bubble's width, for the text it was measured
+/// with: a remount (a row scrolled out and back) reads it instead of laying the text out again.
+/// Bounded: the oldest prompts go first.
+const longPrompts = new Map<string, { text: string; join: unknown; widths: Map<number, boolean> }>();
+const LONG_PROMPTS_KEPT = 2000;
+
 export function PromptText({
   rowId,
   text,
@@ -97,7 +103,18 @@ export function PromptText({
   useLayoutEffect(() => {
     const node = body.current;
     if (!node) return;
-    const measure = () => {
+    // A measure kept from an earlier mount of the same text at the same bubble width (a row
+    // scrolled out and back): the fold is known without laying the text out again.
+    const kept = (width: number) => {
+      const entry = width > 0 ? longPrompts.get(rowId) : undefined;
+      return entry && entry.text === text && entry.join === join ? entry.widths.get(width) : undefined;
+    };
+    const measure = (width: number) => {
+      const known = kept(width);
+      if (known !== undefined) {
+        setMeasured((last) => ((last?.parts === parts ? last.long : guess) === known ? last : { parts, long: known }));
+        return;
+      }
       // The node's own window: a test DOM may install none as a global.
       const style = node.ownerDocument.defaultView?.getComputedStyle?.(node);
       const lineHeight = parseFloat(style?.lineHeight ?? "");
@@ -116,17 +133,34 @@ export function PromptText({
       // to the head again, and loop until React's update limit. Only the whole text, drawn open or
       // unfolded, can measure short. One rule for typed and pasted parts.
       if (!next && (head || node.querySelector("[data-prompt-head]"))) return;
+      if (width > 0) {
+        let entry = longPrompts.get(rowId);
+        if (!entry || entry.text !== text || entry.join !== join) entry = { text, join, widths: new Map() };
+        longPrompts.delete(rowId);
+        longPrompts.set(rowId, entry);
+        entry.widths.set(width, next);
+        if (longPrompts.size > LONG_PROMPTS_KEPT) longPrompts.delete(longPrompts.keys().next().value!);
+      }
       // Confirming the guess changes no UI. Keep that mount to one commit; a width or content
       // change that disagrees still updates the fold synchronously before paint.
       setMeasured((last) => ((last?.parts === parts ? last.long : guess) === next ? last : { parts, long: next }));
     };
-    measure();
-    if (typeof ResizeObserver !== "function") return;
-    const observer = new ResizeObserver(measure);
+    // Measured from the observer's delivery, after the frame's layout and before its paint, never
+    // in this commit: a layout read here forced a layout of the transcript in the middle of the
+    // commit that mounts rows, once per prompt a scroll brings in (Leo, 2026-11-11: "scrolling up
+    // is slow and it layout shift and everythng lag"). A test DOM with no observer measures here.
+    if (typeof ResizeObserver !== "function") {
+      measure(0);
+      return;
+    }
+    const observer = new ResizeObserver((entries?: ResizeObserverEntry[]) => {
+      const entry = entries?.[entries.length - 1];
+      measure(Math.round(entry?.borderBoxSize?.[0]?.inlineSize ?? entry?.contentRect.width ?? 0));
+    });
     // The bubble: a text drawn whole has no box to observe.
     observer.observe(node.parentElement ?? node);
     return () => observer.disconnect();
-  }, [parts, guess, long, open, children, head]);
+  }, [parts, guess, long, open, children, head, rowId, text, join]);
   const shownParts = useMemo(
     () =>
       head ? headParts(parts, HUGE_PROMPT_HEAD_CHARS, (part) => (part.kind === "text" ? part.text : undefined)) : parts,
