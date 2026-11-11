@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43017529062",
+  "recorded_at": "2026-11-11T12:18:57Z",
+  "reason": "cmux-tui f969818e8f90 changes the image's cmux-tui (pinned a90d8327cb54)",
+  "dry_run": false,
+  "cmux_tui": "f969818e8f90cb0e6825aa9f0a82a738dceb6035",
+  "fixes": [
+    {
+      "sha": "f969818e8f90cb0e6825aa9f0a82a738dceb6035",
+      "mergedAt": "2026-11-11T03:54:18-08:00",
+      "subject": "BASE RED: acpmux sender_harness builds for Windows again (unix-only bundle stamp behind cfg(unix)) (#41257)"
+    },
+    {
+      "sha": "918d0832c3b2edc34ef15dd8d739bd26b9f7f9e2",
+      "mergedAt": "2026-11-11T03:42:41-08:00",
+      "subject": "Cloud clients honour the platform's refusal codes: a cap is final, a rate limit waits, the body says retry (#40552)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-11T12:18:57Z",
+    "snapshot_id": "sh-5bc5a336eb3b4c428463ee9afde49063",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43017529062): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "92c73019ceaa53262140dec0209d5c7bf708c294",
+    "image": "cloud-native-auto-f969818e-43017529062-1",
+    "revision": "ci-43017529062-1",
+    "at": "2026-11-11T12:18:57Z"
+  },
+  "rolled_back": false
+}
