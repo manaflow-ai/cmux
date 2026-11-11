@@ -48,12 +48,17 @@ public final class ConversationViewController: UIViewController {
             view.setNeedsLayout()
         }
     }
-    /// The header's bottom edge in this controller's view: a host places its
-    /// pinned row (``headerAccessoryRoom``) from here.
-    public var headerMaxY: CGFloat { header.frame.maxY }
+    /// The header's bottom edge in this controller's view, below its
+    /// "Connecting…" line while that shows (the line hangs under the name
+    /// pill, past the header's frame): a host places its pinned row
+    /// (``headerAccessoryRoom``) from here.
+    public var headerMaxY: CGFloat {
+        guard header.statusLabel.text != nil else { return header.frame.maxY }
+        return max(header.frame.maxY, header.convert(header.statusLabel.frame, to: view).maxY + 2)
+    }
     /// Where content may start under the header and a host's pinned row:
     /// the reply thread and a full composer field stop here.
-    var contentTop: CGFloat { header.frame.maxY + max(0, headerAccessoryRoom) }
+    var contentTop: CGFloat { headerAccessoryRoom > 0 ? headerMaxY + headerAccessoryRoom : header.frame.maxY }
     /// Replaces the details page when the name or avatar is activated.
     public var onHeaderInfo: (() -> Void)?
     /// Runs only in the normal header state. Reply/edit/select still dismiss
@@ -567,7 +572,7 @@ public final class ConversationViewController: UIViewController {
         // Landscape (compact bar): the transcript starts at the bar's bottom
         // (Messages 27, iPhone 17 Pro Max: content inset 78 = 24 + 54).
         let spacing = options.header.transcriptTopSpacing ?? (header.isCompact ? 0 : 10.0 / 3.0)
-        let top = header.frame.maxY + max(0, spacing) + max(0, headerAccessoryRoom)
+        let top = headerAccessoryRoom > 0 ? headerMaxY + headerAccessoryRoom : header.frame.maxY + max(0, spacing)
         collectionView.edgeTopInset = options.header.scrollEdge == .system ? top : 0
         // The last body rests 16.71 pt above the field (ChatKit's send
         // lands it there on iOS 26 and 27): the field sits 4 pt into the
@@ -776,6 +781,8 @@ public final class ConversationViewController: UIViewController {
         switch change {
         case .connection:
             header.setConnectionStatus(store.connection == .connected ? nil : String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module))
+            // A host's pinned row sits under that line: it moves with it.
+            parent?.view.setNeedsLayout()
             if let info = store.info { header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount) }
             return
         case .readState:
