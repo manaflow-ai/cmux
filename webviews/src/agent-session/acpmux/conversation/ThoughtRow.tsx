@@ -181,8 +181,10 @@ export function StepThought({ item, id, lead = false }: { item: AcpmuxActivity; 
   // reuses for another `id` reads that one's kept choice.
   const [chosen, setChosen] = useState<{ id: string; open: boolean } | undefined>(undefined);
   // Closed until the reader opens it, the lead one too: opening or closing a run never opens a thought
-  // by itself (Lucas, 2026-11-11), as the Codex app lists a run's thoughts as one line each.
-  const open = chosen?.id === id ? chosen.open : (choices.get(id) ?? false);
+  // by itself (Lucas, 2026-11-11), as the Codex app lists a run's thoughts as one line each. Thinking
+  // and Verbose, the views for reading the work, open the lead one, as before.
+  const view = useTranscriptViewContext();
+  const open = chosen?.id === id ? chosen.open : (choices.get(id) ?? (lead && view !== "normal"));
   const bodyId = useId();
   const choose = (next: boolean) => {
     choices.set(id, next);

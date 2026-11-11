@@ -3362,16 +3362,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // "the Worked for should ALWAYS collapse when the turn has ended"): on the shown chat's step from
   // working to idle, its last turn's keys leave the open folds. The reader can open it again after.
   // Adjusted in render, as a chat switch is above: no extra frame. The lines the reader opened in it
-  // are forgotten in a layout effect, before the frame paints (`closedTurns`).
-  const closedTurns = useRef<{ session?: string; keys: string[] }>({ keys: [] });
+  // are forgotten in a layout effect, before the frame paints (`closedTurn`).
+  const [closedTurn, setClosedTurn] = useState<{ session?: string; key: string; rows: readonly AcpmuxRow[] }>();
   useLayoutEffect(() => {
-    const { session, keys } = closedTurns.current;
-    if (keys.length === 0) return;
-    closedTurns.current = { keys: [] };
-    // Every key names the same turn (its prompt's and each steer's): resolve it once.
+    if (!closedTurn) return;
+    // Every key names the same turn (its prompt's and each steer's): resolved once, by its last key.
     const edits = new Set<string>();
-    forgetInsideTurn(session, turnInsideIds(snapshot.rows, keys.at(-1)!, edits), edits);
-  });
+    forgetInsideTurn(closedTurn.session, turnInsideIds(closedTurn.rows, closedTurn.key, edits), edits);
+  }, [closedTurn]);
   const [workingSeen, setWorkingSeen] = useState<{ session?: string; working: boolean }>({ working: false });
   if (workingSeen.session !== shownSessionId || workingSeen.working !== snapshot.isWorking) {
     const ended = workingSeen.session === shownSessionId && workingSeen.working && !snapshot.isWorking;
@@ -3379,7 +3377,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     const keys = ended ? lastTurnWorkedKeys(snapshot.rows) : [];
     // What the reader opened while it ran closes with it, once this render is done (the store tells
     // the rows, which may not update while the pane draws).
-    if (keys.length) closedTurns.current = { session: shownSessionId, keys };
+    if (keys.length) setClosedTurn({ session: shownSessionId, key: keys.at(-1)!, rows: snapshot.rows });
     if (keys.some((key) => expanded.has(key))) {
       const next = new Set(expanded);
       for (const key of keys) next.delete(key);
@@ -4212,7 +4210,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const turnRowsRef = useRef(snapshot.rows);
   turnRowsRef.current = snapshot.rows;
   const shownSessionRef = useRef(shownSessionId);
-  shownSessionRef.current = shownSessionId;
+  useLayoutEffect(() => {
+    shownSessionRef.current = shownSessionId;
+  }, [shownSessionId]);
   // The image viewer holds the chat's images from when it opened; another chat closes it.
   const [imageView, setImageView] = useState<{ images: ChatImage[]; index: number } | undefined>();
   const openImage = useCallback(

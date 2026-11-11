@@ -14,7 +14,9 @@ function useScrollFades(follow: boolean) {
   const content = useRef<HTMLDivElement>(null);
   const atEnd = useRef(true);
   const following = useRef(follow);
-  following.current = follow;
+  useLayoutEffect(() => {
+    following.current = follow;
+  }, [follow]);
   const mark = useCallback(() => {
     const node = box.current;
     if (!node) return;

@@ -2251,6 +2251,8 @@ export default agentPaneEntry({
       },
     },
     "working-tokens": {
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
       note: "A live Claude turn says its tokens so far after its time, on its one live line at the bottom: Thinking 5m 54s · ↓ 12.4K out ↑ 2.1M in. Output comes first, as Anthropic counts a turn, and is only what the model generated (never folded into one total with the context); then all it read (fresh input, cache reads and writes, named on hover). The time and the tokens are in the line's quieter color, in tabular numerals. No blinking dots before it and no Working for over the turn. A harness that does not report each call shows the time alone. Play: the line holds still.",
       snapshot: chat(
         [
@@ -2276,6 +2278,8 @@ export default agentPaneEntry({
       play: runningLineStill(/^Thinking/, true),
     },
     "working-tokens-total": {
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
       note: "A live turn whose calls named their output but not what they read: the line says the output alone, Thinking 5m 54s · 2.1M out, in the same quieter color.",
       snapshot: chat(
         [
@@ -2598,6 +2602,8 @@ export default agentPaneEntry({
       ),
     },
     "codex-turn-command-under-messages": {
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
       note: 'Leo, 2026-10-22: "the ran thing basiclly replcaes the thinking usually". A command still running in an earlier run while the agent writes and messages others: it is the live line at the bottom (Running cp … with its time, ⌃B to run in background at its right on hover), not a Ran cp row with the hint over a Thinking line. Play: the line names the cp, no transcript row draws the hint or runs.',
       snapshot: chat(
         [
@@ -2632,6 +2638,8 @@ export default agentPaneEntry({
       },
     },
     "codex-turn-raw-commands": {
+      // Reads the clock on the live line (liveTurnClock.experiment.ts `line`); the shipped `top` puts it over the work.
+      experiments: { "live-turn-clock": "line" },
       note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, flush under the run over it as one more 22px line of it (#31497); ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
         [
