@@ -61,6 +61,13 @@ colour (`appearance.surfaces.sidebar`) takes the contrast rule against that colo
 (`Palette.selectedSurface(over:)`). With no shade, `--cmux-chrome-shade` is the hover fill, so a
 track or a nav keeps its background.
 
+One rule decides when the selected tab drops its pill (`TabStripView.updateFolderShows`,
+`TabStripView.folderSeen`, `Palette.folderReads`): only when its folder is cut out of a shade that
+really shows (the strip's own band, or the frame's shade with nothing over it) and reads against it.
+Anything that covers the window's shade under a strip (the pane's own picture or cover, the user's
+`appearance.surfaces.tabBar` colour) makes that strip draw its own band over it
+(`coversWindowShade`). Every other case keeps the pill, so a selected tab always looks selected.
+
 `selectedSurface` is the token, mapped to `contentSurface`: `ThemeTokens.selectedSurface`,
 `Palette.selectedSurface` (a row over the shade), `Palette.selectedFolderSurface` (the folder tab, =
 `Palette.contentSurface` = `paneFill`, what the content really paints),

@@ -156,10 +156,26 @@ public struct Palette {
     /// content colour, made opaque, stands in for it. False on a chrome with no shade or a near-black
     /// theme (Builtin Dark's #000000): the selected tab keeps `selectionFill` on its pill there, over the
     /// folder, so it never disappears.
-    public static var selectedFolderReads: Bool {
+    public static var selectedFolderReads: Bool { folderReads(over: nil, shade: chromeShade) }
+
+    /// The one rule for whether a folder tab is seen (design/selected-is-foreground.md): the folder,
+    /// cut out of black at `shade` over `fill` (a strip's own fill, `appearance.surfaces.tabBar`; nil:
+    /// the content), stands out of that shade by ``ThemeTokens/minimumSelectedContrast``. The folder
+    /// shows the content's surface where panes paint it, else what lies under the cut (the fill over
+    /// the window's tint, the theme's content colour made opaque standing in for that tint). False: the
+    /// tab keeps its pill (`TabCell.folderShows`).
+    public static func folderReads(over fill: NSColor?, shade: CGFloat) -> Bool {
+        guard shade > 0 else { return false }
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
-        let shade = Double(Metrics.mainPaneChromeShade(isDark: tokens.isDark))
-        return ThemeTokens.selectedOnChrome(tokens.contentSurface.withAlpha(1), chromeShade: shade) != nil
+        let content = tokens.contentSurface.withAlpha(1).nsColor
+        let under = fill.map { composited($0, over: content) } ?? content
+        // colour-allow: the chrome's shade, black at its alpha
+        let around = composited(NSColor.black.withAlphaComponent(shade), over: under)
+        let folder = paneFill.alphaComponent >= 1 ? content : under
+        guard let a = folder.usingColorSpace(.sRGB), let b = around.usingColorSpace(.sRGB) else { return false }
+        let x = ThemeRGB(red: Double(a.redComponent), green: Double(a.greenComponent), blue: Double(a.blueComponent))
+        let y = ThemeRGB(red: Double(b.redComponent), green: Double(b.greenComponent), blue: Double(b.blueComponent))
+        return x.contrast(with: y) >= ThemeTokens.minimumSelectedContrast
     }
     /// Multi-selected rows that are not the active one.
     public static var secondarySelectionFill: NSColor { color(\.secondarySelectionFill, dynamic: PaletteDynamic.secondarySelectionFill) }

@@ -84,6 +84,12 @@ final class TabCell {
     }
     /// The selected tab runs into the card (``cornerFoot``); a lifted (dragged) tab is a pill again.
     var runsIntoCard: Bool { cornerFoot > 0 && isSelected && !isLifted }
+    /// The strip's verdict that this tab's folder is really seen (``TabStripView/folderShows``): its fill
+    /// painted, or the shade cut away under it, and standing out of what is around it. The pill's fill
+    /// goes only then; any other case keeps it, so a selected tab always has a selected look.
+    var folderShows = false {
+        didSet { if folderShows != oldValue, isSelected { updateColors(animated: false) } }
+    }
     /// The share of the selected fill's alpha a background window's active tab keeps.
     static let backgroundWindowSelectionShare: CGFloat = 0.55
     /// Hover may start the title marquee (off while a drag or rename runs).
@@ -355,7 +361,7 @@ final class TabCell {
             // The folder tab draws the selected tab (the content's surface, one shape with the content); the
             // pill draws nothing under it, so the selection is never a gray pill. Where the content's surface
             // does not stand out of the chrome (no shade, a near-black theme), the pill keeps the selection fill.
-            if runsIntoCard, Palette.selectedFolderReads { backgroundLayer.backgroundColor = nil }
+            if runsIntoCard, folderShows { backgroundLayer.backgroundColor = nil }
             cornerFeetLayer?.fillColor = Palette.selectedFolderSurface.cgColor
             if isLifted, let lift = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary) {
                 // Keeps the tabs sliding under it quiet: solid when opaque, thicker glass when translucent.

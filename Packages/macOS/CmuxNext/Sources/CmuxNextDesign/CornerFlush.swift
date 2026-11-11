@@ -105,14 +105,18 @@ public protocol TabStripCorner: AnyObject {
     /// The selected folder along a move in flight (its tab's width or slot), in the folder layer's
     /// coordinates as ``selectedFolder`` gives them; nil at rest.
     var selectedFolderMotion: FolderMotion? { get }
-    /// The strip's pane paints its own backdrop under it, over the window's shade: the strip draws its
-    /// own band, on the top row too.
-    var sitsOnPaneBackdrop: Bool { get }
+    /// Something under the strip (its pane's own backdrop, its own fill) covers the window's shade: the
+    /// strip draws its own band, on the top row too.
+    var coversWindowShade: Bool { get }
+    /// The window's chrome changed under the strip (its frame drawn or hidden, its band): the strip
+    /// redraws its band and decides again whether its folder is seen. Reports nothing back.
+    func chromeDidChange()
 }
 
 extension TabStripCorner {
     public var selectedFolderMotion: FolderMotion? { nil }
-    public var sitsOnPaneBackdrop: Bool { false }
+    public var coversWindowShade: Bool { false }
+    public func chromeDidChange() {}
 }
 
 extension Metrics {
@@ -205,13 +209,19 @@ public final class CornerFlushChrome: NSView {
         let band = gone ? 0 : bandShade(for: strip)
         guard let shade, let shadeLayer = shade.layer else { return band }
         let key = ObjectIdentifier(strip)
-        if !gone, !isHidden, drawn != nil, band == 0, !strip.isHiddenOrHasHiddenAncestor, let folder = strip.selectedFolder {
+        if !gone, cutsHole(for: strip, band: band), let folder = strip.selectedFolder {
             let motion = animated ? nil : strip.selectedFolderMotion?.map { shadeLayer.converted($0, from: folder.layer) }
             shade.setFolder(key, path: shadeLayer.converted(folder.path, from: folder.layer), animated: animated, motion: motion)
         } else {
             shade.setFolder(key, path: nil, animated: animated && !gone)
         }
         return band
+    }
+
+    /// Whether the frame's shade is cut away under `strip`'s folder: the frame is drawn and the strip, shown,
+    /// sits on it with no band of its own (`band`: ``bandShade(for:)``).
+    public func cutsHole(for strip: any TabStripCorner & NSView, band: CGFloat) -> Bool {
+        !isHidden && drawn != nil && shade != nil && band == 0 && !strip.isHiddenOrHasHiddenAncestor
     }
 
     /// The chrome band `strip` draws under its tabs (design/selected-is-foreground.md): every tab strip
@@ -225,7 +235,7 @@ public final class CornerFlushChrome: NSView {
         guard let drawn else { return 0 }
         let frame = root.convert(strip.cornerFrameInWindow, from: nil)
         // A pane painting its own backdrop covers the frame's shade under its strip (Codex at b01bf4ed, F1).
-        let onFrame = abs(frame.minY - drawn.card.maxY) < 2 && !Metrics.floatingPanes && !strip.sitsOnPaneBackdrop
+        let onFrame = abs(frame.minY - drawn.card.maxY) < 2 && !Metrics.floatingPanes && !strip.coversWindowShade
         return onFrame ? 0 : drawn.alpha
     }
 
@@ -273,6 +283,7 @@ public final class CornerFlushChrome: NSView {
             shade.update(card: card, radius: radius, alpha: alpha)
             for case let strip as (any TabStripCorner & NSView) in strips.allObjects {
                 shade.setFolder(ObjectIdentifier(strip), path: nil, animated: false)
+                strip.chromeDidChange()
             }
             return
         }
@@ -368,6 +379,7 @@ public final class CornerFlushChrome: NSView {
         redrawing = true
         for case let strip as (any TabStripCorner & NSView) in strips.allObjects {
             folderDidChange(strip, animated: false, gone: strip.window !== root.window)
+            strip.chromeDidChange()
         }
         redrawing = false
     }

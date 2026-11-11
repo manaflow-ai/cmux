@@ -29,6 +29,9 @@ export type FolderTabsProps = {
   /** The content card's corner radius (layout.paneCornerRadius; 12 by default). 0: a square card whose
    * straight top edge the folder joins, no wedges. */
   cardRadius?: number;
+  /** The user's tab bar colour (appearance.surfaces.tabBar) under the strip: it covers the window's
+   * shade there, so the strip draws the band over it and the folder is cut out of that band. */
+  tabBarFill?: boolean;
 };
 
 export type FolderScene = "light" | "dark" | "image";
@@ -97,6 +100,7 @@ export function FolderTabs({
   scene,
   panes = "card",
   cardRadius = CARD_R,
+  tabBarFill = false,
 }: FolderTabsProps) {
   const stripBottom = STRIP_TOP + 36;
   const area: Box = { x0: SIDEBAR + GAP, x1: W - GAP, top: stripBottom, bottom: H - GAP };
@@ -134,6 +138,9 @@ export function FolderTabs({
       style={{ width: W, height: H }}
     >
       <svg className="folder-tabs-layers" viewBox={`0 0 ${W} ${H}`} width={W} height={H} aria-hidden="true">
+        {tabBarFill ? (
+          <rect className="folder-tabs-tabbar" x={area.x0} y={0} width={area.x1 - area.x0} height={stripBottom} />
+        ) : null}
         <path className="folder-tabs-chrome" d={shade} fillRule="evenodd" />
         {outlines.map((outline) => (
           <path key={outline} className="folder-tabs-content" d={outline} />

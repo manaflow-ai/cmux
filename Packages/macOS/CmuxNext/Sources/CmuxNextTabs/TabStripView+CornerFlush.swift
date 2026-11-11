@@ -100,6 +100,32 @@ extension TabStripView: TabStripCorner {
         cornerChrome = chrome
         let drawn = chrome?.folderDidChange(self, animated: animated) ?? 0
         applyCornerBand(drawn, animated: animated)
+        updateFolderShows()
+    }
+
+    public func chromeDidChange() {
+        let band = cornerChrome?.bandShade(for: self) ?? 0
+        if band != cornerBandShade { applyCornerBand(band, animated: false) }
+        updateFolderShows()
+    }
+
+    /// The one place that decides whether the selected folder is seen (``TabCell/folderShows``): cut out of
+    /// this strip's own band, or out of the frame's shade, and standing out of it (`Palette.folderReads`).
+    /// Anything else (no band and no hole, a fill over the cut, too little contrast) keeps the pill.
+    func updateFolderShows() {
+        guard let id = model.selectedID, let cell = cells[id] else { return }
+        let band = cornerBandShade
+        let hole = band == 0 && (cornerChrome?.cutsHole(for: self, band: 0) ?? false)
+        let fill = band > 0 ? layer?.backgroundColor.flatMap { NSColor(cgColor: $0) } : nil
+        cell.folderShows = Self.folderSeen(runsIntoCard: cell.runsIntoCard, hasFolder: selectedFolder != nil, band: band, hole: hole) {
+            performWithTheme { Palette.folderReads(over: fill, shade: band > 0 ? band : Palette.chromeShade) }
+        }
+    }
+
+    /// The folder is seen only when it is cut out of a shade that shows (this strip's band, or the frame's
+    /// shade with nothing over it) and reads against it; `reads` runs only then.
+    static func folderSeen(runsIntoCard: Bool, hasFolder: Bool, band: CGFloat, hole: Bool, reads: () -> Bool) -> Bool {
+        runsIntoCard && hasFolder && (band > 0 || hole) && reads()
     }
 
     /// The chrome's shade under the tabs of a strip inside the content card (design/selected-is-foreground.md):

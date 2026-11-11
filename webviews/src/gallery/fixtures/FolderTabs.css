@@ -16,6 +16,8 @@
 }
 .folder-tabs-layers { position: absolute; inset: 0; }
 .folder-tabs-chrome { fill: var(--ft-shade); }
+/* The user's tab bar colour under the strip (appearance.surfaces.tabBar): the band lies over it. */
+.folder-tabs-tabbar { fill: color-mix(in srgb, var(--ft-ink) 8%, Canvas); }
 .folder-tabs-content { fill: var(--ft-content); }
 .folder-tabs-edge { fill: none; stroke: var(--ft-edge); stroke-width: 1; vector-effect: non-scaling-stroke; }
 /* The look before: a gray pill on the strip, the content apart. */

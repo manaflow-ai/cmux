@@ -47,6 +47,14 @@ const variants: Record<string, { props: FolderTabsProps; note: string }> = {
     props: { shape: "goo", fillet: 8, radius: 6, join: "seamless", selected: 1, scene: "image" },
     note: "appearance.paneBackgrounds perPane: the pane's own picture covers the window's shade, so its strip draws the band itself; it reads as the shared picture does",
   },
+  "goo-r8-tabbar-fill": {
+    props: { shape: "goo", fillet: 8, radius: 6, join: "seamless", selected: 1, tabBarFill: true },
+    note: "appearance.surfaces.tabBar set: the strip draws the band over its own colour and the folder is cut out of it; where it would not read, the pill stays",
+  },
+  "goo-r8-image-tabbar-fill": {
+    props: { shape: "goo", fillet: 8, radius: 6, join: "seamless", selected: 1, scene: "image", tabBarFill: true },
+    note: "a translucent window over a picture with an opaque tab bar colour: the folder shows that colour cut out of the band",
+  },
   "goo-r8-floating": {
     props: { shape: "goo", fillet: 8, radius: 6, join: "seamless", selected: 1, panes: "floating" },
     note: "Floating Panes: each pane is its own card with its own folder tab, its pane padding kept",

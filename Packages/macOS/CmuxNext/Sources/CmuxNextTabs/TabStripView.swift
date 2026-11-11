@@ -107,6 +107,10 @@ public final class TabStripView: NSView {
     public var sitsOnPaneBackdrop = false {
         didSet { if sitsOnPaneBackdrop != oldValue { reportFolder(animated: false) } }
     }
+    /// Something under the strip covers the window's chrome shade: the pane's own backdrop, or the
+    /// strip's own fill (`appearance.surfaces.tabBar`). The strip then draws the band itself, above
+    /// that fill, so its folder is cut out of a shade that shows (``TabStripCorner/coversWindowShade``).
+    public var coversWindowShade: Bool { sitsOnPaneBackdrop || (layer?.backgroundColor?.alpha ?? 0) > 0 }
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
