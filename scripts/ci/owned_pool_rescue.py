@@ -563,6 +563,10 @@ TRUSTED_SIDE_EVENTS = frozenset({"push", "schedule", "workflow_dispatch"})
 # their re-runs. owned_pool_sources.py must find no owned workflow outside these and
 # WATCHED_WORKFLOW_PATHS (tests/test_ci_owned_pool_sources.py).
 UNRESCUED_WORKFLOW_PATHS = {
+    ".github/workflows/cloud-composer-journey.yml":
+        "never takes an owned pool: pick-runner runs e2e_runner_pool.py with --owned 0 and keeps only a Blacksmith "
+        "macOS 26 label, because the journey job holds a Stack account pair; a re-run takes the declared macos_26 "
+        "pool, and the scheduled dispatcher on main starts the next run",
     ".github/workflows/stable-next.yml":
         "feat-cmux-next only (main keeps its tick); the nightly cmux NEXT Stable run. Its owned jobs take the gui pool or "
         "the gateway on attempt 1 and Blacksmith on a re-run; main's tick cancels a run still queued after 90 minutes and "
