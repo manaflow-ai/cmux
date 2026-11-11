@@ -2062,6 +2062,53 @@ class CancelledRunSupersededByLaterGreen(unittest.TestCase):
             self.judge()
 
 
+class CancelledRunWithPassedJobsSuperseded(unittest.TestCase):
+    """#40963 review F1 at 1f697b4c: a cancelled run whose jobs all passed, skipped or were neutral never asked
+    superseding_run, so it still read "no failed job found" though a later green run of its workflow file passed. Every
+    cancelled run with no failed or timed-out job is asked; a failure or a time-out is still a verdict."""
+
+    def setUp(self):
+        self.gh = SupersededRunGitHub()
+        self.gh.listed = [head_run(30, "cancelled", 1), head_run(31, "success", 5)]
+
+    def judge(self):
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [30], self.gh)
+
+    def jobs(self, *conclusions):
+        self.gh.jobs = {job_id: dict(failed_job(job_id, 30, HEAD, name=f"job {job_id}"), conclusion=conclusion)
+                        for job_id, conclusion in enumerate(conclusions, start=3)}
+
+    def test_an_all_success_cancelled_run_with_a_later_green_run_is_ignored(self):
+        self.jobs("success", "success")
+        lines = self.judge()
+        self.assertEqual(lines[0].split(":", 1)[0], "ignored 'backend-migrations'", lines)
+        self.assertIn("its cancelled run 30 is superseded by run 31", lines[0])
+
+    def test_an_all_skipped_cancelled_run_with_a_later_green_run_is_ignored(self):
+        self.jobs("skipped", "neutral")
+        lines = self.judge()
+        self.assertTrue(lines[0].startswith("ignored 'backend-migrations': its cancelled run 30 is superseded by run 31"),
+                        lines)
+
+    def test_a_passed_job_run_with_no_later_green_still_refuses(self):
+        self.jobs("success", "skipped")
+        del self.gh.listed[1:]
+        with self.assertRaisesRegex(excuse.Refused, "no failed job found"):
+            self.judge()
+
+    def test_a_failed_or_timed_out_job_in_a_superseded_run_is_still_judged(self):
+        self.gh.jobs = {1: failed_job(1, 30, HEAD), 2: failed_job(2, 20, BASE_SHA),
+                        3: dict(failed_job(3, 30, HEAD, name="job 3"), conclusion="success")}
+        self.assertIn(f"excused '{SWIFT}'", "\n".join(self.judge()))  # judged against the base, as before
+        self.gh.logs[2] = log(SWIFT, TEST_STEP, OTHER, "##[error]1 red test: palette()")
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+        self.gh.jobs = {1: dict(failed_job(1, 30, HEAD), conclusion="timed_out"),
+                        3: dict(failed_job(3, 30, HEAD, name="job 3"), conclusion="success")}
+        with self.assertRaisesRegex(excuse.Refused, "timed_out"):
+            self.judge()
+
+
 class StatusOnlyChecks(unittest.TestCase):
     """A same-tree run posts 'cmux-next daemon tests (same-tree)' as a commit status, not a check run (cmux#30294):
     it is judged by the job behind it, in the run its target_url links."""
