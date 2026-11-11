@@ -6,17 +6,24 @@ The pre-push gate runs the copy of scripts/cmux-next that install-git-hooks.sh p
 exactly feat-cmux-next, and agents fetch and rebase in worktrees, so their copy stayed at the last pull: the
 per-symbol compile trailer rule (2026-10-28) landed and no agent's push ran it. So pre-push runs this first.
 
-On a push to feat-cmux-next of the canonical manaflow-ai/cmux remote, when the scripts/cmux-next tree of the
-fetched refs/remotes/<remote>/feat-cmux-next (a remote with the canonical URL) differs from the one the installed
-copy was made from (its .source stamp), and the stamp's commit does not already contain that commit, this writes a new copy from
-that commit's blobs, never from the working tree, and points the link at it with one rename (the installer's
-scheme: a running gate holds its copy through a shared flock on .in-use). It also refreshes the gate entry point
-and its git helper in the hook folder. It never refuses a push: on any error the push runs the copy it has.
+On a push to feat-cmux-next of the canonical manaflow-ai/cmux remote, when what the copy is made from (every path
+scripts/git-hooks/checks-copy-inputs lists, read at the fetched refs/remotes/<remote>/feat-cmux-next of a remote
+with the canonical URL) differs from what the installed copy was made from (its .source stamp), and the stamp's
+commit does not already contain that commit, this writes a new copy from that commit's blobs, never from the
+working tree, and points the link at it with one rename (the installer's scheme: a running gate holds its copy
+through a shared flock on .in-use). It also refreshes the gate entry point and its git helper in the hook folder.
+It never refuses a push: on any error the push runs the copy it has.
+
+The stamp is "<commit> <digest>", the digest a hash of the tree entries of exactly the listed paths at that commit;
+install-git-hooks.sh writes it with `--stamp`, so both derive it from the one list. It used to be the
+scripts/cmux-next tree alone, so a feat-cmux-next that changed only tests/workflow_jobs.py, which the copy also
+carries, never reached an installed hook (Codex on #40894).
 """
 from __future__ import annotations
 
 import argparse
 import fcntl
+import hashlib
 import os
 import shutil
 import subprocess
@@ -33,11 +40,8 @@ CANONICAL = (
 )
 BRANCH = "feat-cmux-next"
 CHECKS = "cmux-next-checks"
-SOURCE_DIR = "scripts/cmux-next"
-MASKER = "scripts/swift_source_mask.py"
-WORKFLOW_JOBS = "tests/workflow_jobs.py"  # check-single-host-fallbacks.py reads runs-on through it
-RELEASE_DOWNLOAD = "scripts/ci/github_release_download.py"  # the gate's release download fallback
-STAMP = ".source"  # "<commit> <scripts/cmux-next tree>" of the copy, or "worktree" for an install from a dirty tree
+INPUTS = "scripts/git-hooks/checks-copy-inputs"  # what the copy is made from: the installer's list and this one's
+STAMP = ".source"  # "<commit> <digest of the INPUTS paths>" of the copy, or "worktree" for an install from a dirty tree
 ENTRY_POINTS = {"prepush-gate.py": "cmux_next_prepush_gate.py", "git_batch.py": "git_batch.py",
                 "github_release_download.py": "github_release_download.py"}
 
@@ -68,20 +72,46 @@ def trusted_commit(repo: Path) -> str | None:
     return None
 
 
+def parse_inputs(text: str) -> list[str]:
+    """The paths of a checks-copy-inputs file: one per line, `#` comments and blank lines skipped."""
+    return [line.strip() for line in text.splitlines() if line.strip() and not line.strip().startswith("#")]
+
+
+def inputs_at(repo: Path, commit: str) -> list[str] | None:
+    """The INPUTS list at COMMIT, or None for a commit from before the list."""
+    text = git(repo, "cat-file", "blob", f"{commit}:{INPUTS}", check=False)
+    return parse_inputs(text.decode()) if text else None
+
+
+def digest(repo: Path, commit: str, inputs: list[str]) -> str:
+    """A hash of the tree entries (mode, id, path) of exactly the INPUTS paths at COMMIT; a path the commit lacks
+    adds nothing, so adding it changes the digest."""
+    listing = git(repo, "ls-tree", "-z", "--full-tree", commit, "--", *(entry.rstrip("/") for entry in inputs))
+    return hashlib.sha256(listing).hexdigest()
+
+
+def stamp_for(repo: Path, commit: str) -> str:
+    """The .source stamp of a copy made from COMMIT ("worktree" when COMMIT has no INPUTS list)."""
+    sha = git(repo, "rev-parse", "--verify", f"{commit}^{{commit}}").decode().strip()
+    inputs = inputs_at(repo, sha)
+    return "worktree" if inputs is None else f"{sha} {digest(repo, sha, inputs)}"
+
+
 def wanted(relative: str) -> bool:
-    """The installer's selection: files directly in scripts/cmux-next, and lint/ and arch_rules/ below it."""
+    """The installer's selection in a listed folder: its own files, and lint/ and arch_rules/ below it."""
     return "/" not in relative or relative.startswith(("lint/", "arch_rules/"))
 
 
-def files_at(repo: Path, commit: str) -> list[tuple[str, str]]:
-    """(mode, path under scripts/cmux-next) of the copy's files at COMMIT."""
+def files_at(repo: Path, commit: str, folder: str) -> list[tuple[str, str]]:
+    """(mode, path under FOLDER) of the copy's files from FOLDER at COMMIT."""
+    folder = folder.rstrip("/")
     out = []
-    for row in git(repo, "ls-tree", "-r", "-z", commit, "--", SOURCE_DIR).split(b"\0"):
+    for row in git(repo, "ls-tree", "-r", "-z", "--full-tree", commit, "--", folder).split(b"\0"):
         if not row:
             continue
         meta, _, path = row.decode().partition("\t")
         mode, kind, _ = meta.split(" ")
-        relative = path[len(SOURCE_DIR) + 1:]
+        relative = path[len(folder) + 1:]
         if kind == "blob" and mode in ("100644", "100755") and wanted(relative):
             out.append((mode, relative))
     return out
@@ -102,7 +132,8 @@ def blobs(repo: Path, specs: list[str]) -> list[bytes]:
 
 
 def stale(repo: Path, hook_dir: Path, commit: str, tree: str) -> bool:
-    """True when the installed copy is not made from TREE and does not already contain COMMIT (made from it or a
+    """True when the installed copy is not made from TREE (the digest of the INPUTS paths) and does not already
+    contain COMMIT (made from it or a
     descendant). A copy made from a commit feat-cmux-next never got (an agent's unpushed or rebased-away commit) is
     stale: keeping it until it became an ancestor kept its unreviewed checks forever."""
     try:
@@ -155,7 +186,10 @@ def remove_unused(hook_dir: Path) -> None:
 
 def refresh(repo: Path, hook_dir: Path, commit: str) -> str | None:
     """Write the copy of COMMIT and link it; the line to print, or None when the copy was already current."""
-    tree = git(repo, "rev-parse", f"{commit}:{SOURCE_DIR}").decode().strip()
+    inputs = inputs_at(repo, commit)
+    if inputs is None:
+        return None  # a feat-cmux-next from before the list: keep the copy this clone has
+    tree = digest(repo, commit, inputs)
     if not stale(repo, hook_dir, commit, tree):
         return None
     lock = os.open(hook_dir / "install.lock", os.O_RDWR | os.O_CREAT, 0o644)
@@ -166,23 +200,20 @@ def refresh(repo: Path, hook_dir: Path, commit: str) -> str | None:
             return "pre-push: an install of the hooks is running; this push runs the checks copy it has."
         if not stale(repo, hook_dir, commit, tree):  # another push refreshed it while this one waited
             return None
-        files = files_at(repo, commit)
-        contents = blobs(repo, [f"{commit}:{SOURCE_DIR}/{relative}" for _, relative in files])
-        # check-package-dependency-lists.py reads the Swift source masker beside itself (install-git-hooks.sh).
-        masker = git(repo, "cat-file", "blob", f"{commit}:{MASKER}", check=False)
-        if masker:
-            files.append(("100644", Path(MASKER).name))
-            contents.append(masker)
-        # check-single-host-fallbacks.py reads runs-on through the shared resolver beside itself (install-git-hooks.sh).
-        resolver = git(repo, "cat-file", "blob", f"{commit}:{WORKFLOW_JOBS}", check=False)
-        if resolver:
-            files.append(("100644", Path(WORKFLOW_JOBS).name))
-            contents.append(resolver)
-        # The gate loads its release download fallback from beside itself (prepush-gate.py, release_download).
-        helper = git(repo, "cat-file", "blob", f"{commit}:{RELEASE_DOWNLOAD}", check=False)
-        if helper:
-            files.append(("100644", Path(RELEASE_DOWNLOAD).name))
-            contents.append(helper)
+        # Every listed path (INPUTS says why each is there): a folder's selected files at the copy's root, a file
+        # beside them under its own name.
+        files: list[tuple[str, str]] = []
+        contents: list[bytes] = []
+        for entry in inputs:
+            if entry.endswith("/"):
+                found = files_at(repo, commit, entry)
+                files += found
+                contents += blobs(repo, [f"{commit}:{entry}{relative}" for _, relative in found]) if found else []
+                continue
+            data = git(repo, "cat-file", "blob", f"{commit}:{entry}", check=False)
+            if data:
+                files.append(("100644", Path(entry).name))
+                contents.append(data)
         version = f"{CHECKS}.v{int(time.time())}.{os.getpid()}"
         stage = hook_dir / f"{version}.partial"
         shutil.rmtree(stage, ignore_errors=True)
@@ -211,10 +242,17 @@ def refresh(repo: Path, hook_dir: Path, commit: str) -> str | None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    parser.add_argument("--hook-dir", required=True, type=Path)
+    parser.add_argument("--hook-dir", type=Path)
     parser.add_argument("--repo", required=True, type=Path)
     parser.add_argument("--remote-url", default="")
+    parser.add_argument("--stamp", metavar="COMMIT",
+                        help="print the .source stamp of a copy made from COMMIT and exit (install-git-hooks.sh)")
     args = parser.parse_args()
+    if args.stamp:
+        print(stamp_for(args.repo, args.stamp))
+        return 0
+    if args.hook_dir is None:
+        parser.error("--hook-dir is required")
     lines = sys.stdin.read().splitlines()
     try:
         if args.remote_url not in CANONICAL:

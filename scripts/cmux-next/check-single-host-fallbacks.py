@@ -11,16 +11,21 @@ Read, for every job of every workflow under <root>/.github/workflows, through th
 workflow guard shares (tests/workflow_jobs.py: resolve): its runs-on per matrix cell, literal indexes read as dot
 form (`matrix['runner']`, `vars['X']`), an expression's literal branches, and a reusable workflow's `inputs.X`
 traced to every value its callers pass (each caller's own matrix expanded, at any call depth). Then:
-- every repository variable any of those values or unresolved parts reads, wherever it sits (`fromJSON(vars.X)`,
-  `needs.a.outputs.b && vars.X || 'y'`), must be declared; one whose name is itself an expression cannot be, and
-  is a finding;
+- every repository variable the resolve step consumed resolving the runs-on (Resolved.vars_read, field runs-on)
+  must be declared, wherever it sat: the runs-on as written, a matrix value it took or a matrix nothing could
+  expand (`fromJSON(vars.X)`, in the job or in a caller whose value reaches an input), a caller's `with:` value,
+  a condition (`vars.X == 'a' && 'a' || 'b'`, `needs.a.outputs.b && vars.X || 'y'`). One whose name is itself an
+  expression cannot be declared, and is a finding. This file reads no runs-on text itself: the resolver reads every
+  text a runs-on can take a value from (Codex on #40894: a re-scan of the runs-on text here missed a caller's
+  fromJSON matrix and every condition inside a matrix value);
 - every resolved label that is single-host (a controller label or one starting with a `single_host_prefixes`
   entry) must be declared under `labels`.
 A part that reads no variable (a needs output, an input with no caller) is not this policy's business.
 The declaration must also promise a bounded fallback, by the build-fleet test's own schema rules.
 
-The hook runs only installed code, so the installer puts tests/workflow_jobs.py beside this checker; it loads that
-copy first, else the repository's.
+The hook runs only installed code, so the installer puts tests/workflow_jobs.py beside this checker (it is in
+scripts/git-hooks/checks-copy-inputs, which also stamps the copy, so a resolver change alone reaches the hook); it
+loads that copy first, else the repository's.
 
 Where it runs. No CI gate (CLAUDE.md, Lawrence 2026-10-23: no new CI gates or tests). The mode is an explicit
 flag, never read from the environment:
@@ -53,8 +58,6 @@ WORKFLOWS = ".github/workflows"
 # A finding's status (see the module doc): the scan found it, or the scan did not run.
 FOUND, INCOMPLETE = "found", "incomplete"
 
-# `vars.NAME` and `vars['NAME']`; GitHub matches variable names case-insensitively, so `vars.name` reads NAME.
-VAR = re.compile(r"\bvars\s*(?:\.\s*(?P<dot>[A-Za-z_][A-Za-z0-9_]*)|\[\s*'(?P<key>[^']*)'\s*\])")
 # The build-fleet test's label token, so both read the same labels off a line.
 LABEL = re.compile(r"(?<![A-Za-z0-9_.-])([A-Za-z][A-Za-z0-9_.-]*)(?![A-Za-z0-9_.-])")
 # The build-fleet repository's GitHub-hosted label pattern (scripts/ci/check-runner-labels.py HOSTED).
@@ -184,11 +187,6 @@ def load_workflow_jobs():
     raise FileNotFoundError("tests/workflow_jobs.py is not beside the checker nor in its repository")
 
 
-def variable_names(text: str) -> Iterator[str]:
-    for match in VAR.finditer(text):
-        yield (match.group("dot") or match.group("key")).upper()
-
-
 def first_line(paths: list[Path], pattern: re.Pattern) -> tuple[Path, int]:
     """The first of PATHS with a line PATTERN matches, and that line; the first path and line 1 when none has one."""
     for path in paths:
@@ -198,28 +196,8 @@ def first_line(paths: list[Path], pattern: re.Pattern) -> tuple[Path, int]:
     return paths[0], 1
 
 
-# A repository variable read at all: `vars.` or `vars[`, whatever the name is.
+# A repository variable read at all, for the line of one whose name is an expression.
 ANY_VAR = re.compile(r"\bvars\s*[.\[]", re.IGNORECASE)
-INPUT_READ = re.compile(r"\binputs\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.IGNORECASE)
-
-
-def written(wj, workflows, workflow: str, texts: list[str], seen: set) -> list[str]:
-    """TEXTS as written (literal indexes in dot form), plus every caller's `with:` value for each `inputs.X` they
-    read, followed through the callers' own inputs. The resolve step keeps only the values an expression can take,
-    so a variable read in a condition (`vars.X == 'a' && 'a' || 'b'`) is in these, not in its values."""
-    out = []
-    for text in texts:
-        text = wj.dotted(text)
-        out.append(text)
-        for name in INPUT_READ.findall(text):
-            key = (workflow, name.lower())
-            if key in seen:
-                continue
-            seen.add(key)
-            for caller, _, job in workflows.callers(workflow):
-                passed = [v for k, v in (job.get("with") or {}).items() if str(k).lower() == name.lower()]
-                out += written(wj, workflows, caller, list(wj.strings(passed)), seen)
-    return out
 
 
 class Reads:
@@ -258,29 +236,22 @@ def references(workflow_dirs: Iterable[Path]) -> Reads:
                     continue
                 where = f"{name}: job {job_id}"
                 resolved = wj.resolve(job, job_id, name, workflows)
-                # The job's file first, then the callers a traced input came from, for the annotation's line.
-                search = [paths[name], *(p for p in everything if p != paths[name])]
-                parts = set(resolved.runs_on | resolved.runs_on_unresolved)
-                parts |= set(written(wj, workflows, name, list(wj.strings(job.get("runs-on"))), set()))
-                if any(re.search(r"\bmatrix\b", part) for part in resolved.runs_on_unresolved):
-                    # A matrix nothing could expand (an expression, a key it lacks): what it is built from may be a
-                    # variable, so every string in it counts (fail closed).
-                    strategy = job.get("strategy")
-                    parts |= set(wj.strings(strategy.get("matrix") if isinstance(strategy, dict) else None))
-                for value in sorted(parts):
-                    text = wj.dotted(value if "${{" in value else f"${{{{ {value} }}}}")
-                    names = list(variable_names(text))
-                    for variable in names:
-                        places = reads.variables.setdefault(variable, [])
-                        if all(not seen.endswith(f": {where}") for seen, _, _ in places):
-                            path, line = first_line(search, re.compile(
-                                rf"\bvars\s*(?:\.\s*{re.escape(variable)}\b|\[\s*['\"]{re.escape(variable)}['\"]\s*\])",
-                                re.IGNORECASE))
-                            places.append((f"{path.name}:{line}: {where}", f"{WORKFLOWS}/{path.name}", line))
-                    if len(ANY_VAR.findall(text)) > len(names) and all(not w.startswith(f"{where}: ")
-                                                                        for w, _, _ in reads.dynamic):
-                        path, line = first_line(search, ANY_VAR)
-                        reads.dynamic.append((f"{where}: {value[:120]}", f"{WORKFLOWS}/{path.name}", line))
+                for read in sorted((r for r in resolved.vars_read if r.field == "runs-on"),
+                                   key=lambda r: (r.name or "", r.file or "", r.job, r.path, r.text)):
+                    # The line is in the file the read sits in (a caller's, for a traced input), else the job's.
+                    source = paths.get(read.file or name, paths[name])
+                    search = [source, *(p for p in everything if p != source)]
+                    if read.name is None:
+                        if all(not w.startswith(f"{where}: ") for w, _, _ in reads.dynamic):
+                            path, line = first_line(search, ANY_VAR)
+                            reads.dynamic.append((f"{where}: {read.text[:120]}", f"{WORKFLOWS}/{path.name}", line))
+                        continue
+                    places = reads.variables.setdefault(read.name, [])
+                    if all(not seen.endswith(f": {where}") for seen, _, _ in places):
+                        path, line = first_line(search, re.compile(
+                            rf"\bvars\s*(?:\.\s*{re.escape(read.name)}\b|\[\s*['\"]{re.escape(read.name)}['\"]\s*\])",
+                            re.IGNORECASE))
+                        places.append((f"{path.name}:{line}: {where}", f"{WORKFLOWS}/{path.name}", line))
                 for value in sorted(resolved.runs_on):
                     for label in LABEL.findall(value):
                         _, line = first_line([paths[name]], re.compile(rf"(?<![A-Za-z0-9_.-]){re.escape(label)}(?![A-Za-z0-9_.-])"))

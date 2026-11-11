@@ -186,12 +186,15 @@ mkdir -p "$TRUSTED_CHECKS_STAGE"
 # arch-ratchet.py loads from its own directory (without it the installed ratchet runs no layer gate). Folders are
 # made only below the stage (relative to its open folder): a stage that is gone fails this install instead of
 # coming back without its .in-use. A tracked file missing from the checkout fails it too, as cp did.
+# What the copy is made from is one list, scripts/git-hooks/checks-copy-inputs, which refresh_checks.py also copies
+# and stamps from and post-merge trusts: a folder entry (ending in /) goes through this program, a file entry lands
+# beside the checks under its own name.
 COPY_CHECKERS='
 import os
 import shutil
 import sys
 
-stage, prefix = sys.argv[1], "scripts/cmux-next/"
+stage, prefix = sys.argv[1], sys.argv[2]
 stage_fd = os.open(stage, os.O_RDONLY | os.O_DIRECTORY)
 for raw in sys.stdin.buffer.read().split(b"\0"):
     if not raw:
@@ -208,21 +211,29 @@ for raw in sys.stdin.buffer.read().split(b"\0"):
             pass
     shutil.copy2(checker, os.path.join(stage, relative))
 '
-git ls-files -z scripts/cmux-next | "$PYTHON3_BIN" -I -c "$COPY_CHECKERS" "$TRUSTED_CHECKS_STAGE"
-# check-package-dependency-lists.py imports the Swift source masker from scripts/; the installed copy reads it here.
-if [[ -f scripts/swift_source_mask.py ]]; then
-    cp -p scripts/swift_source_mask.py "$TRUSTED_CHECKS_STAGE/swift_source_mask.py"
+CHECKS_INPUTS_LIST=scripts/git-hooks/checks-copy-inputs
+CHECKS_INPUTS=()
+while IFS= read -r entry || [[ -n "$entry" ]]; do
+    entry="${entry#"${entry%%[![:space:]]*}"}"
+    entry="${entry%"${entry##*[![:space:]]}"}"
+    [[ -z "$entry" || "$entry" == \#* ]] && continue
+    CHECKS_INPUTS+=("$entry")
+done < "$CHECKS_INPUTS_LIST"
+for entry in "${CHECKS_INPUTS[@]}"; do
+    if [[ "$entry" == */ ]]; then
+        git ls-files -z -- "$entry" | "$PYTHON3_BIN" -I -c "$COPY_CHECKERS" "$TRUSTED_CHECKS_STAGE" "$entry"
+    elif [[ -f "$entry" ]]; then
+        cp -p "$entry" "$TRUSTED_CHECKS_STAGE/$(basename "$entry")"
+    fi
+done
+# What the copy is made from, for refresh_checks.py: the commit and a digest of exactly the listed paths, which
+# refresh_checks.py derives the same way; "worktree" when any of them (or the list) differs from HEAD.
+CHECKS_STAMP=worktree
+if git rev-parse -q --verify HEAD >/dev/null && git diff --quiet HEAD -- "$CHECKS_INPUTS_LIST" "${CHECKS_INPUTS[@]}"; then
+    CHECKS_STAMP="$("$PYTHON3_BIN" -I scripts/git-hooks/refresh_checks.py --repo "$REPO_ROOT" --stamp HEAD </dev/null)" \
+        || CHECKS_STAMP=worktree
 fi
-# check-single-host-fallbacks.py reads runs-on through tests/workflow_jobs.py; the installed copy reads it here.
-if [[ -f tests/workflow_jobs.py ]]; then
-    cp -p tests/workflow_jobs.py "$TRUSTED_CHECKS_STAGE/workflow_jobs.py"
-fi
-# The commit and tree the copy is made from, for refresh_checks.py; "worktree" when scripts/cmux-next differs from HEAD.
-if git diff --quiet HEAD -- scripts/cmux-next && git rev-parse -q --verify HEAD >/dev/null; then
-    printf '%s %s\n' "$(git rev-parse HEAD)" "$(git rev-parse HEAD:scripts/cmux-next)" > "$TRUSTED_CHECKS_STAGE/.source"
-else
-    echo worktree > "$TRUSTED_CHECKS_STAGE/.source"
-fi
+printf '%s\n' "$CHECKS_STAMP" > "$TRUSTED_CHECKS_STAGE/.source"
 mv "$TRUSTED_CHECKS_STAGE" "$TRUSTED_HOOK_DIR/$CHECKS_VERSION"
 PREVIOUS_CHECKS=""
 if [[ -L "$TRUSTED_CHECKS_DIR" ]]; then
