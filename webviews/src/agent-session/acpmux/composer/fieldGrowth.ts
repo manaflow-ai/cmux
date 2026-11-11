@@ -4,20 +4,29 @@ import type { EditorView } from "@milkdown/kit/prose/view";
 import { FIELD_GROWTH_EVENT, type FieldGrowthDetail } from "./fieldGrowthEvent";
 import { experimentArm } from "../../../experiments/experiment";
 import { SETTLING_SCROLLER_ATTRIBUTE } from "../../../scrollers";
-import { MOTION_SPRINGS, springCurve, type SpringParameters } from "../../../files-panel-motion";
-import { MOTION_EASE_OUT, MOTION_MS } from "../../../motion/scale.generated";
+import { cssTimeMs } from "../conversation/fold";
 import { motionMode } from "../../../ui/motion/motionMode";
-import { fieldGrowthMotion, type FieldGrowthArm } from "./fieldGrowth.experiment";
+import { fieldGrowthMotion } from "./fieldGrowth.experiment";
 import { sliceHoldsInline } from "./inlineNode";
 
 // The prompt field's height moves to its text's on one motion, not in a step per line (Leo,
 // 2026-11-07: "it's like the composer kind of doesn't grow smoothly. It grows in bursts."). The
-// field lays out at its natural height (markdownField.css: auto, up to its cap); when an edit
-// changes that height, this draws the field from the height it showed to the new one on the move
-// spring (fieldGrowth.experiment.ts arms). It starts in the edit's own task, before the frame's
-// layout and observers, so the first frame still draws the old height, and tells the transcript
-// (fieldGrowthEvent.ts): it takes the end height into its room in one render and moves its rows
-// home on the same curve and clock, on the compositor, with no render per frame.
+// motion is a CSS height transition on the motion tokens (markdownField.css `[data-field-growth]`),
+// not a spring sampled into Web Animation keyframes (Leo, 2026-11-11: "oof yeah there's some ultra
+// bad looking slow animations when the composer goes up"): it runs on the one spring, at its end
+// by about 130 ms, turns from the height drawn when an edit retargets it, and the motion gate and
+// Reduce Motion reach it through CSS.
+//
+// How it starts. An edit's own task (before the frame's layout and observers) reads the field's
+// natural height once, as ProseMirror's own caret reveal reads the same layout next: at rest the
+// field is `auto`; mid-motion the field's text is measured instead (the field keeps its moving
+// height). The field is then given the height it drew, its style flushed (no layout), and the end
+// height with the transition's attribute: the first frame still draws the old height. When it lands
+// the inline height goes and the field rests at `auto` again (so a short pane can still take height
+// from it, bottomStack.css).
+//
+// The transcript moves with it (fieldGrowthEvent.ts): it takes the end height into its room in one
+// render and moves its rows home on the transition's own duration and curve, on the compositor.
 //
 // Where the text rides: a line typed or wrapped keeps the text's top on the field's moving top edge,
 // so the lines already there move with the edge and the new line comes in at the bottom as the edge
@@ -32,36 +41,26 @@ import { sliceHoldsInline } from "./inlineNode";
 //
 // An edit that places an attachment (a paste, a drop, the + menu) changes the height in its frame:
 // its tile shows at its final slot from its first frame, and the lines already there keep their
-// place under the composer's top (composer-attach-no-jump.test.ts, Leo's #38155). Riding the moving
-// edge drew the new tile a line low and slid it up over the spring.
+// place under the composer's top (composer-attach-no-jump.test.ts, Leo's #38155).
 //
-// An edit that lands while the field moves retargets from the height drawn, keeping the motion's
-// end. A value set from outside (a send clearing the prompt, a chat's draft), Reduce Motion and
-// motion off change the height in the frame, as before. Nothing runs at rest: the animation and the
-// text's observer exist only while the field moves, and both go when it lands or the editor goes.
+// An edit that lands while the field moves sets the new end, and the transition turns from the
+// height drawn. A value set from outside (a send clearing the prompt, a chat's draft), Reduce Motion,
+// motion off and the `instant` arm change the height in the frame. Nothing runs at rest: no inline
+// height, no transition (the attribute that carries it is only on a moving field).
 
-/** The spring arms' springs; `ease` and `instant` have none. */
-const SPRINGS: Partial<Record<FieldGrowthArm, SpringParameters>> = {
-  spring: MOTION_SPRINGS.move,
-  soft: { response: 0.24, dampingFraction: 1 },
-};
+/** The attribute that carries the field's height transition, valued with its arm. */
+const GROWTH_ATTRIBUTE = "data-field-growth";
 
 /** A growth past this many lines keeps the caret in view rather than the text's top. */
 const REVEAL_LINES = 1.5;
 
 type Motion = {
-  /** The running animation; replaced, at the same time on the same curve, when an edit keeps its end. */
+  /** The running transition. */
   animation: Animation;
-  keyframes: Keyframe[];
-  timing: KeyframeAnimationOptions;
   /** The height it lands on (px). */
   to: number;
-  /** When it lands (performance.now). */
-  end: number;
   /** The caret stays in view on each frame (caretInView); else the text keeps its top. */
   reveal: boolean;
-  /** The text's own size changes while it moves (a rewrap): retarget. */
-  observer: ResizeObserver | undefined;
 };
 
 /** Whether a transaction placed an attachment's node: its steps' own slices, O(the edit). */
@@ -81,26 +80,11 @@ export function growthHoldsTop(scroller: HTMLElement): boolean {
   return motion !== undefined && !motion.reveal;
 }
 
-/** Keyframes and timing of a move from `from` to `to` px on `arm`, over at most `remaining` ms. */
-function growthFrames(arm: FieldGrowthArm, from: number, to: number, remaining?: number) {
-  const spring = SPRINGS[arm];
-  if (spring) {
-    // The spring sampled as height keyframes (linearly interpolated), so every engine runs it the
-    // same, with no `linear()` easing (WebKit before Safari 17.2 has none).
-    const { durationMs, progress } = springCurve(spring);
-    return {
-      progress,
-      keyframes: progress.map((value) => ({ height: `${from + (to - from) * value}px` })),
-      duration: remaining === undefined ? durationMs : Math.max(remaining, MOTION_MS.quick),
-      easing: "linear",
-    };
-  }
-  return {
-    keyframes: [{ height: `${from}px` }, { height: `${to}px` }],
-    duration: remaining === undefined ? MOTION_MS.standard : Math.max(remaining, MOTION_MS.quick),
-    easing: MOTION_EASE_OUT,
-  };
-}
+/** A computed length in px, or `fallback` for `none`, `auto` or a percentage left unresolved. */
+const px = (value: string, fallback: number) => {
+  const parsed = Number.parseFloat(value);
+  return value.endsWith("px") && Number.isFinite(parsed) ? parsed : fallback;
+};
 
 /** The plugin. `external` is true while the field applies a value set from outside it. */
 export function fieldGrowth(external: () => boolean): Plugin {
@@ -128,92 +112,83 @@ export function fieldGrowth(external: () => boolean): Plugin {
         });
         restObserver.observe(field);
       };
+      /** The field rests at its natural height again: no inline height, no transition. */
       const land = (field: HTMLElement) => {
-        const motion = moving.get(field);
-        if (!motion) return;
         moving.delete(field);
         field.removeAttribute(SETTLING_SCROLLER_ATTRIBUTE);
-        motion.observer?.disconnect();
-        motion.animation.cancel();
-      };
-      /** Runs `motion` as `animation`, and lets the field rest when it ends. */
-      const run = (field: HTMLElement, motion: Motion, animation: Animation) => {
-        motion.animation = animation;
-        const done = () => {
-          if (moving.get(field) !== motion || motion.animation !== animation) return;
-          moving.delete(field);
-          field.removeAttribute(SETTLING_SCROLLER_ATTRIBUTE);
-          motion.observer?.disconnect();
-        };
-        animation.addEventListener("finish", done, { once: true });
-        animation.addEventListener("cancel", done, { once: true });
+        field.removeAttribute(GROWTH_ATTRIBUTE);
+        field.style.removeProperty("height");
       };
       // perf-hot: one layout read per edit (ProseMirror's own caret reveal reads the same layout next).
       const follow = (atOnce = false) => {
         const field = scroller;
         if (!field) return;
         const running = moving.get(field);
-        // Where the field is drawn now: mid-motion, the motion's height this frame.
-        const from = running ? field.getBoundingClientRect().height : shown;
-        // Its natural height, with no motion on it. Taller for that read, the field would clamp its
-        // scroll to the taller box's end: the scroll it draws with is kept.
-        const started = running?.animation.startTime ?? null;
-        const scrolled = field.scrollTop;
-        running?.animation.cancel();
-        const to = field.getBoundingClientRect().height;
-        shown = to;
-        if (running && !atOnce && Math.abs(to - running.to) < 0.5) {
-          // The same end (a second edit on the same line, the text's observer's first call): the
-          // motion goes on where it was, on the same curve and clock. A started animation given its
-          // start time runs from the next frame; left pending it would hold a frame still.
-          const again = field.animate(running.keyframes, running.timing);
-          if (started !== null) again.startTime = started;
-          field.scrollTop = scrolled;
-          run(field, running, again);
+        if (atOnce || arm === "instant" || external() || (!running && shown < 0)) {
+          if (running) land(field);
           return;
         }
-        if (running) land(field);
-        if (from < 0 || Math.abs(to - from) < 0.5) return;
-        if (atOnce || arm === "instant" || external() || motionMode(field.ownerDocument) !== "full") return;
-        const lineHeight = Number.parseFloat(getComputedStyle(field).lineHeight) || 20;
-        const capped = field.scrollHeight > field.clientHeight + 1;
+        const style = getComputedStyle(field);
+        let to: number;
+        let capped: boolean;
+        if (running) {
+          // Mid-motion the field keeps its moving height: its text's own box, laid out the same at
+          // any field height, and the field's edges and caps (style reads) give the end.
+          const text = field.querySelector<HTMLElement>(":scope > .acpmux-md-root") ?? view.dom;
+          const edges =
+            px(style.paddingTop, 0) +
+            px(style.paddingBottom, 0) +
+            px(style.borderTopWidth, 0) +
+            px(style.borderBottomWidth, 0);
+          const natural = text.getBoundingClientRect().height + edges;
+          const max = px(style.maxHeight, Number.POSITIVE_INFINITY);
+          to = Math.max(px(style.minHeight, 0), Math.min(natural, max));
+          capped = natural > max + 0.5;
+          if (Math.abs(to - running.to) < 0.5) return;
+        } else {
+          to = field.getBoundingClientRect().height;
+          if (Math.abs(to - shown) < 0.5) return;
+          capped = field.scrollHeight > field.clientHeight + 1;
+        }
+        const from = shown;
+        if (motionMode(field.ownerDocument) !== "full") {
+          if (running) land(field);
+          shown = to;
+          return;
+        }
+        const lineHeight = Number.parseFloat(style.lineHeight) || 20;
         const reveal = capped || Math.abs(to - from) > lineHeight * REVEAL_LINES || (running?.reveal ?? false);
-        const now = performance.now();
-        const { keyframes, duration, easing, progress } = growthFrames(
-          arm,
-          from,
-          to,
-          running ? running.end - now : undefined,
-        );
-        const timing = { duration, easing };
-        const animation = field.animate(keyframes, timing);
-        // Started now on the document's clock, not left pending: WebKit holds a pending animation a
-        // few frames, which the rows' move (VirtualTranscript) would run ahead of. A retarget moves
-        // on in the next frame from where the field is drawn.
-        const timeline = field.ownerDocument.timeline?.currentTime;
-        if (typeof timeline === "number") animation.startTime = timeline;
-        if (running) field.scrollTop = scrolled;
-        // The text rewrapped meanwhile (the actions beside it changed width): move to its height. Its
-        // first call is the observation starting, with nothing changed.
-        let observed = false;
-        const observer =
-          typeof ResizeObserver === "function"
-            ? new ResizeObserver(() => {
-                if (!observed) {
-                  observed = true;
-                  return;
-                }
-                if (moving.get(field) === motion) follow();
-              })
-            : undefined;
-        const motion: Motion = { animation, keyframes, timing, to, end: now + duration, reveal, observer };
+        if (!running) {
+          // The height it drew, as the transition's start: a style flush, no layout.
+          field.style.height = `${from}px`;
+          field.getAnimations();
+        }
+        field.setAttribute(GROWTH_ATTRIBUTE, arm);
+        field.style.height = `${to}px`;
+        shown = to;
+        // The transition the write starts (a style flush, no layout); a running one turns from the
+        // height drawn. None when motion is off (Reduce Motion, a zero token).
+        const animation = field.getAnimations().find((each) => (each as CSSTransition).transitionProperty === "height");
+        if (!animation) {
+          land(field);
+          return;
+        }
+        const motion: Motion = { animation, to, reveal };
         moving.set(field, motion);
-        // Read at the end height above: the text fits the field it lands on, so no thumb meanwhile.
+        // At the end height the text fits the field, so no thumb meanwhile.
         field.toggleAttribute(SETTLING_SCROLLER_ATTRIBUTE, !capped);
-        run(field, motion, animation);
-        observer?.observe(view.dom);
+        const done = () => {
+          if (moving.get(field) === motion) land(field);
+        };
+        animation.addEventListener("finish", done, { once: true });
+        animation.addEventListener("cancel", done, { once: true });
         // The transcript takes the end height into its room now and moves its rows on this curve.
-        const detail: FieldGrowthDetail = { to, easing, duration, animation, ...(progress ? { progress } : {}) };
+        const detail: FieldGrowthDetail = {
+          to,
+          easing: style.transitionTimingFunction || "ease",
+          duration: Number(animation.effect?.getTiming().duration) || (cssTimeMs(style.transitionDuration) ?? 0),
+          animation,
+        };
         field.dispatchEvent(new CustomEvent(FIELD_GROWTH_EVENT, { bubbles: true, detail }));
       };
       attach();

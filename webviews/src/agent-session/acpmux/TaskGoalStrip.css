@@ -118,9 +118,9 @@
   /* The reference, frame-stepped: opens in about 200 ms on an ease-out quad, closes in about 110 ms
      on an ease-out cubic, no overshoot. Both scale with the motion token, so the motion gate's 0 ms
      and the app's animation speed apply. */
-  --acpmux-goal-open: calc(var(--agent-motion-move, 180ms) * 10 / 9);
+  --acpmux-goal-open: calc(var(--agent-motion-move) * 10 / 9);
   --acpmux-goal-open-ease: cubic-bezier(0.25, 0.46, 0.45, 0.94);
-  --acpmux-goal-close: calc(var(--agent-motion-move, 180ms) * 0.6);
+  --acpmux-goal-close: calc(var(--agent-motion-move) * 0.6);
   --acpmux-goal-close-ease: cubic-bezier(0.215, 0.61, 0.355, 1);
   display: grid;
   grid-template-columns: 16px auto minmax(0, 1fr);
@@ -190,17 +190,32 @@
   white-space: nowrap;
 }
 
-/* The objective's box: one line folded, the whole text open. Its height is the one thing the fold
-   moves; the script sets it from the frame's current height, so a click mid-way turns it around. */
+/* The objective's box: one line folded, the whole text open. The fold moves one thing, its grid
+   row, from 0fr to 1fr: CSS interpolates the track in every engine (WebKit included, which has no
+   `interpolate-size` for a move to `auto`), turns a running fold around from where it is drawn, and
+   open the row follows the text as it rewraps or the goal's field grows. No script measures it.
+   The first line is always there: the box's top padding holds it, and the text is pulled up into
+   that padding (its negative top margin), so the row carries only the lines under it. Folded the box
+   is the padding, one line; open it is the padding plus the rest, the whole text; in between it is
+   the first line plus that share of the rest, so the first line never moves and no frame is still. */
 .acpmux-goal-clip {
+  display: grid;
+  /* One column the box's width: an `auto` one would widen to the cut line's whole text. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 0fr;
   min-width: 0;
   margin-inline-end: calc(var(--acpmux-goal-trail, 0px) + var(--ds-space-2));
-  height: var(--acpmux-goal-line);
+  padding-top: var(--acpmux-goal-line);
   overflow: hidden;
-  transition: height var(--acpmux-goal-close) var(--acpmux-goal-close-ease);
+  transition: grid-template-rows var(--acpmux-goal-close) var(--acpmux-goal-close-ease);
+}
+.acpmux-goal-clip > .acpmux-goal-content {
+  min-height: 0;
+  margin-top: calc(-1 * var(--acpmux-goal-line));
 }
 .acpmux-goal[data-open] .acpmux-goal-clip {
-  transition: height var(--acpmux-goal-open) var(--acpmux-goal-open-ease);
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--acpmux-goal-open) var(--acpmux-goal-open-ease);
 }
 /* Open, the scroller takes the pointer: the wheel scrolls a long goal (the dock passes a wheel on to
    the transcript only where nothing under the pointer scrolls), and its text can be selected. The
@@ -347,7 +362,7 @@
   gap: var(--ds-space-1);
   margin-inline-end: var(--ds-space-1);
   opacity: 0;
-  transition: opacity var(--agent-motion-quick, 120ms) var(--agent-ease-out, ease-out);
+  transition: opacity var(--agent-motion-in) var(--agent-ease-out);
 }
 .acpmux-goal[data-look]:hover .acpmux-goal-actions,
 .acpmux-goal[data-look]:has([data-popup-open]) .acpmux-goal-actions,

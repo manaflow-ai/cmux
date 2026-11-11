@@ -168,10 +168,18 @@ await requireBrowserLane("composer-goal-hat.test.ts", async () => {
       );
       expect(late).toEqual([]);
       expect(last.open).toBe(true);
-      // Review of cmux#39151, F1: a fold that reversed still settles: open ends on `auto` height.
-      expect(await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-goal-clip")!.style.height)).toBe(
-        "auto",
-      );
+      // Review of cmux#39151, F1: a fold that reversed still settles open, its whole text shown. The
+      // fold is CSS: no script sets the box's height.
+      expect(
+        await page.evaluate(() => {
+          const clip = document.querySelector<HTMLElement>(".acpmux-goal-clip")!;
+          const content = clip.querySelector<HTMLElement>(".acpmux-goal-content")!;
+          return {
+            height: clip.style.height,
+            whole: Math.abs(clip.getBoundingClientRect().bottom - content.getBoundingClientRect().bottom) < 0.5,
+          };
+        }),
+      ).toEqual({ height: "", whole: true });
       // One more click mid-open, then one back: it ends folded, one cut line again (its ellipsis
       // and hover card come back).
       await page.mouse.click(x, y);

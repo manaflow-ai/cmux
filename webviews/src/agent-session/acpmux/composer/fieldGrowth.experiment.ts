@@ -15,16 +15,17 @@ export const fieldGrowthMotion = defineExperiment({
     spring: {
       label: "Spring",
       description:
-        "The field's height runs on the motion scale's move spring (response 0.15 s, critically damped), at rest by 180 ms. The text keeps its top on the moving edge; a paste keeps its end in view.",
+        "The field's height is a CSS transition on the one spring (--cmux-ease-spring over --agent-motion-calm): fast, at its end by about 130 ms, never past it. The text keeps its top on the moving edge; a paste keeps its end in view.",
     },
     soft: {
       label: "Soft spring",
-      description: "As Spring on a slower spring (response 0.24 s), at rest by about 280 ms.",
+      description:
+        "The send curve (--agent-ease-send) over the calm step (--agent-motion-calm, 240 ms): a fast start that settles.",
     },
     ease: {
       label: "Ease-out",
       description:
-        "The field's height eases out over the standard step (180 ms, --cmux-ease-out), as a CSS height transition would.",
+        "The ease-out curve (--agent-ease-out, the native fades' easeOut) over the move step (--agent-motion-move, 180 ms).",
     },
     instant: { label: "At once (before)", description: "The height changes in the frame the text does, as before." },
   },
