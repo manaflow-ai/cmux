@@ -79,6 +79,7 @@ impl Scratch {
             record: root.join("acpmux").join("trust.json"),
             agent_home: Some(root.join("agent-home")),
             cmux_worktrees: None,
+            peer_scratch: None,
         };
         Scratch { root, trust }
     }

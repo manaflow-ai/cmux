@@ -73,8 +73,8 @@ type Roll = { key?: string; label: string; lead?: { lead: string; rest: string }
 
 /// The live line rolls its words when they change (Leo, 2026-11-05, on another app's status line:
 /// "this is quite good too how it animates the changing text!!! we need to have that!!! for
-/// changing tool calls at the bottom"): the old words rise and fade out above as the new rise in
-/// from below (conversation.css `cv-roll-*`). `key` names what the line says; the playful verb's
+/// changing tool calls at the bottom"): the old words roll up and out of the line as the new roll in
+/// from below, both opaque and clipped to the line (conversation.css `cv-roll-*`). `key` names what the line says; the playful verb's
 /// own rotation keeps one key, so only a new call or state rolls. Undefined (the line waits on the
 /// person, retries or shows a start look) rolls nothing, and neither do the first words after it.
 function useRoll(key: string | undefined, label: string, lead: Roll["lead"]): Roll {

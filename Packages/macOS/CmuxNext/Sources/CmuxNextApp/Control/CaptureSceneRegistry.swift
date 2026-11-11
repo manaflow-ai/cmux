@@ -22,6 +22,10 @@ struct CaptureSceneDefinition: Sendable {
 final class CaptureSceneRegistry {
     let services: AppServices
     let frames = BenchFrames()
+    /// The tab `home-chief` reported as waiting, put back to idle after its snapshot.
+    var blockedTerminal: String?
+    /// The terminals `home-chief` opened, closed after its snapshot.
+    var openedTerminals: [String] = []
 
     /// Creates a registry bound to the running app services.
     init(services: AppServices) {
@@ -122,8 +126,11 @@ final class CaptureSceneRegistry {
             return .object(["error": .string("worked agent turn did not seed"), "scene": .string(definition.name), "turn": turn])
         }
 
+        // Home is native: it settles on its own conditions, and neither the
+        // agent pane's readiness nor its web view is part of its picture.
+        let isHome = definition.name == Self.homeChiefScene || definition.name == Self.homeChiefLongDraftScene
         let readiness = await DebugAgentPane.handle(["action": .string("readiness")], services)
-        guard readinessIsComplete(readiness) else {
+        guard isHome || readinessIsComplete(readiness) else {
             return .object([
                 "error": .string("agent pane is blank or composer is hidden"),
                 "scene": .string(definition.name), "readiness": readiness, "turn": turn,
@@ -131,11 +138,12 @@ final class CaptureSceneRegistry {
         }
 
         let sceneAction = await applySceneAction(definition.name)
-        let actionReadiness = await waitForSceneAnimation()
+        let actionReadiness = isHome
+            ? await showHomeChief(windowID: targetWindowID, longDraft: definition.name == Self.homeChiefLongDraftScene) : await waitForSceneAnimation()
         guard case .object(let actionReadinessReport) = actionReadiness,
               actionReadinessReport["error"] == nil,
-              actionReadinessReport["animations_pending"]?.boolValue == false else {
-            return .object(["error": .string("scene popover did not become opaque before capture"),
+              isHome || actionReadinessReport["animations_pending"]?.boolValue == false else {
+            return .object(["error": .string(isHome ? "Home scene did not settle" : "scene popover did not become opaque before capture"),
                             "scene": .string(definition.name), "readiness": actionReadiness,
                             "scene_action": sceneAction])
         }
@@ -155,8 +163,11 @@ final class CaptureSceneRegistry {
         var snapshotParams = params
         snapshotParams["window"] = .string(targetWindowID)
         let snapshot = await DebugWindowSnapshot.captureAsync(snapshotParams, services: services)
+        let click = isHome ? await clickHomeAgent(params, windowID: targetWindowID) : nil
+        if isHome { clearShowcaseAgent(windowID: targetWindowID) }
         guard case .object(var result) = snapshot else { return snapshot }
-        guard Self.pageComposited(result) else {
+        result["click"] = click
+        guard isHome || Self.pageComposited(result) else {
             return .object([
                 "error": .string("agent page was not composited"),
                 "scene": .string(definition.name), "readiness": readiness, "snapshot": snapshot,
@@ -270,9 +281,13 @@ final class CaptureSceneRegistry {
         CaptureSceneDefinition(name: "hints-ctrl-held", description: "Control modifier hint destination."),
         CaptureSceneDefinition(name: "workspace-auto-name",
                                description: "A real agent chat changes a daemon-owned workspace from its first auto name to its generated title."),
+        CaptureSceneDefinition(name: homeChiefScene,
+                               description: "Home's empty Chief conversation listing the showcase agents and terminal agents waiting, failed, done and working; click_agent N clicks row N (from 0) and reports the focused tab, click_path snapshots after it."),
         // A literal name: cmux-ci capture finds scenes by `CaptureSceneDefinition(name: "…")`.
         CaptureSceneDefinition(name: "cloud-machine-disconnected",
                                description: "Two Cloud machine headers: a running machine whose app link dropped, and one whose connect the provider refused."),
+        CaptureSceneDefinition(name: "home-chief-long-draft",
+                               description: "The home-chief scene with a long draft that grows the field up into the first-run panel; the panel drops what does not fit and nothing it shows runs under the field."),
     ]
 }
 

@@ -1,7 +1,8 @@
 # shellcheck shell=bash
 # Sourced by the cmux-next scripts that build Packages/macOS/CmuxNext in place
 # outside the suite scripts: the regenerate-*-exports.sh exporters,
-# check-action-surfaces.sh and scripts/measure/export-action-surfaces.sh. It
+# check-action-surfaces.sh, scripts/measure/export-action-surfaces.sh and
+# scripts/measure/export-action-catalog-dump.sh. It
 # keeps the suite scripts' contract with a .build that a fleet warm slot
 # shares (hq build-fleet internal/warmscripts):
 #   - swiftpm_binary_module_guard before the build, so a binary-target pin
