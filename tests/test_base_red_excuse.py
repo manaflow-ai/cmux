@@ -149,6 +149,13 @@ class FakeGitHub:
                                     for job in self.jobs.values() if job["head_sha"] == HEAD]}]
         if "/actions/jobs/" in route:
             return copy.deepcopy(self.jobs[int(route.rsplit("/", 1)[1])])
+        if route.endswith("/annotations?per_page=100"):
+            # A job's check-run annotations (fixed_on_base_by_step's rollup reds): one per `##[error]` line, as the
+            # runner makes them.
+            text = self.logs.get(int(route.split("/check-runs/", 1)[1].split("/", 1)[0])) or ""
+            notes = [{"annotation_level": "failure", "message": line.removeprefix("##[error]")}
+                     for line in excuse.lines_of(text) if line.startswith("##[error]")]
+            return [notes] if paginate else notes
         if "/actions/runs?head_sha=" in route:
             # The head's run list (head_runs): each run's workflow, no workflow file or time, so none supersedes
             # another by run (superseding_run) unless a test lists them (SupersededRunGitHub).
@@ -5830,10 +5837,12 @@ class WsCheckFixedOnBase(unittest.TestCase):
 
 class SweepGitHub(FakeGitHub):
     """A head like cmux#36958's (2026-11-06): N red jobs, each in its own workflow whose 35 newest base runs cancelled
-    the job, and a 'next-autoland / verdict' status with no run link among 32 head runs, none of which has that job.
-    Counts the job reads glaeda-gh's sweep limit counts: distinct runs whose jobs, or jobs, were read."""
+    the job, and a status with no run link among 32 head runs, none of which has that job (on cmux#36958 it was
+    'next-autoland / verdict', now a derived status judged by its parts, DerivedStatusByParts; a jobless status of
+    another name is still read this way). Counts the job reads glaeda-gh's sweep limit counts: distinct runs whose
+    jobs, or jobs, were read."""
 
-    STATUS = "next-autoland / verdict"
+    STATUS = "fleet / verdict"
     SAID = "its own red: cmux-next defaults guard / defaults guard"
     SWEEP = __import__("re").compile(r"^repos/[^/]+/[^/]+/actions/(?:runs/(\d+)/jobs|jobs/(\d+))/?(?:\?.*)?$")
 
@@ -8376,7 +8385,7 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 VIEW_COMPARATORS = frozenset({
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
-    "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text"})
+    "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence"})
 # The only readers of step_owners: failed_view (every comparator's) and failed_steps_log (what a comment shows, never
 # compared).
 STEP_OWNERS_READERS = frozenset({"failed_view", "failed_steps_log"})
@@ -8716,6 +8725,32 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         head = base + ["✘ Test reconnectsAfterSleep() failed after 2.100 seconds with 1 issue."]
         with self.assertRaisesRegex(excuse.Refused, "its failing tests are not .*more on this head: .*reconnectsAfterSleep"):
             self.judge(UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, base))
+
+    def test_review_41129_f1_a_ratchet_row_counts_in_the_whole_comparison(self):
+        # #41129's review at c15725ea: the ratchet's summary error is the same at any count, so 693 at the head was
+        # excused against 692 at the base. Its RED rows are compared word for word.
+        def ratchet(count):
+            return [excuse.RATCHET_RED, f"acpmux: clippy::indexing_slicing {count} > baseline 686",
+                    "src/lib.rs:12:5", "Fix the hit or raise the baseline",
+                    "##[error]the panic ratchet is red for acpmux; its log above names each new hit"]
+        with self.assertRaisesRegex(excuse.Refused, "more on this head: .*indexing_slicing 693"):
+            self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP, ratchet(693), ratchet(692)))
+        self.assertIn("compared whole", self.judge(UnplacedGitHub(UNPLACED_CHECKS, UNPLACED_CHECKS_STEP,
+                                                                  ratchet(693), ratchet(693))))
+
+    def test_review_41129_f2_every_xcodebuild_listing_entry_counts(self):
+        # #41129's review at c15725ea: names under `Failing tests:` were counted once however often listed.
+        listing = ["Failing tests:", "KitTests.reconnectsAfterSleep()"]
+
+        def kit(head, base):
+            github = UnplacedGitHub(UNPLACED_KIT, UNPLACED_KIT_STEP, head, base)
+            # xcodebuild indents each entry with a tab, which the framed fixture log cannot carry: added as read.
+            framed = github.log
+            github.log = lambda repo, job: framed(repo, job).replace("Z KitTests.", "Z \tKitTests.")
+            return github
+        with self.assertRaisesRegex(excuse.Refused, "failing tests are not .*more on this head: .*reconnectsAfterSleep"):
+            self.judge(kit(listing + ["** TEST FAILED **"] + listing, listing))
+        self.assertIn("compared whole", self.judge(kit(listing, listing)))
 
     def test_a_base_that_fails_more_is_not_enough_either(self):
         # Identity, never a subset: the comparison is the whole log, so what the base fails besides is not proof the
@@ -9138,6 +9173,597 @@ class LoadedModuleList(unittest.TestCase):
             (ci / "deeper.py").write_text("")
             derived = self.derive(ci)
         self.assertEqual(derived - self.listed(self.LIST.read_text()), {"new_sibling.py", "deeper.py"})
+
+
+# cmux#40984 at a6698ad5 (2026-11-11): 'cmux-next checks (god files, concurrency, crash safety, l10n)' failed in its
+# continue-on-error step "Motion and colour tokens" (the jobs API calls it a success; the job's rollup step "Fail on any
+# red check" names it), #40959 fixed that step on feat-cmux-next, and the job stayed red there for another step, so
+# judge() refused it as "errors not on feat-cmux-next any of runs ...". fixed_on_base_by_step judges the failing steps
+# alone, keyed by (workflow, job, step): base run 20 (at NEWER, after the merge-base) is the newest base verdict, base
+# run 19 (at the merge-base, created before its commit time) the verdict the PR was built on.
+class StepFixture:
+    """FixedOnBaseByStep's fixture, shared with DerivedStatusByParts (a mixin, so neither runs the other's tests)."""
+    JOB = "cmux-next checks (god files, concurrency, crash safety, l10n)"
+    MOTION = "Motion and colour tokens"
+    SURFACES = "Surface roles"
+    UNIT = "Unit tests"
+    ROLLUP = "Fail on any red check"
+    ORDER = (MOTION, SURFACES, UNIT, ROLLUP)
+    QUIET = (MOTION, SURFACES)  # continue-on-error: the rollup names them
+    NEWER = "c" * 40
+    OLDER = "d" * 40
+    MERGE_BASE_TIME = "2026-11-11T01:24:40Z"
+
+    def setUp(self):
+        self.notes = {}
+        self.dispatches = []  # base runs created before the merge-base, beside run 19 (prior_base_verdict)
+        self.caller_only = False  # only BASE_WORKFLOW_FOR's caller runs the job on the base (#41104's review F2)
+        self.head_path = ".github/workflows/cmux-next.yml"  # run 10's workflow file
+
+    def side(self, job_id, run_id, sha, states, names=None, rollup=None):
+        """(job, log) for a checks job where STATES maps a step to pass (default), red (its conclusion failure),
+        quiet-red (a continue-on-error step that failed: a success to the jobs API, named by the rollup), skipped or
+        cancelled. NAMES renames the steps in order (a duplicate or empty name); ROLLUP forces the rollup's state."""
+        steps, lines, rolled, second, state, errors = [], [], [], 10, "pass", []
+        for n, step in enumerate(self.ORDER):
+            name = names[n] if names else step
+            state = states.get(step, "pass")
+            if step == self.ROLLUP:
+                state = rollup or ("red" if rolled else "pass")
+            if state == "skipped":
+                steps.append((name, "skipped", second, second))
+                second += 10
+                continue
+            conclusion = {"red": "failure", "new-red": "failure", "cancelled": "cancelled"}.get(state, "success")
+            steps.append((name, conclusion, second, second + 2))
+            lines += [(name, second, f"##[group]Run scripts/check-{n}.sh"), (name, second, "##[endgroup]")]
+            if step == self.ROLLUP and state == "red":
+                lines += [(name, second + 1, f"##[error]red check: {red}") for red in rolled]
+                lines.append((name, second + 1, EXIT))
+            elif state in ("red", "quiet-red", "new-red", "new-quiet"):
+                found = [(f"Sources/A{n}.swift", n + 1, f"{step} broke")]
+                if state.startswith("new"):
+                    found.append(("Sources/New.swift", 9, f"{step} broke anew"))
+                lines += [(name, second + 1, f"/work/cmux/{path}:{line}:3: error: {said}") for path, line, said in found]
+                lines.append((name, second + 1, EXIT))
+                errors += [{"annotation_level": "failure", "path": path, "start_line": line, "message": said}
+                           for path, line, said in found]
+                if state in ("quiet-red", "new-quiet"):
+                    rolled.append(name)
+            else:
+                lines.append((name, second + 1, "ok"))
+            second += 10
+        failed = any(conclusion not in ("success", "skipped") for _, conclusion, _, _ in steps)
+        job = {"id": job_id, "run_id": run_id, "head_sha": sha, "name": self.JOB, "status": "completed",
+               "conclusion": "failure" if failed else "success", "steps": framed_steps(steps)}
+        # The check run's annotations: each step's exit line and error (no step named), the rollup's red checks.
+        self.notes[job_id] = [{"annotation_level": "failure", "title": "cmux-next check", "message": f"red check: {red}"}
+                              for red in (rolled if state == "red" else ())]
+        self.notes[job_id] += errors + [{"annotation_level": "failure", "title": "", "message": EXIT.split("]", 1)[1]},
+                               {"annotation_level": "warning", "title": "ratchet debt", "message": "red check: no"}]
+        return job, framed_log(lines, self.JOB)
+
+    def github(self, head, newest, prior, *, newest_sha=None):
+        test = self
+
+        class GitHub(FakeGitHub):
+            def json(self, route, *, paginate=False):
+                if f"/compare/feat-cmux-next...{HEAD}" in route:
+                    self.routes.append(route)
+                    return {"merge_base_commit": {"sha": BASE_SHA,
+                                                  "commit": {"committer": {"date": test.MERGE_BASE_TIME}}},
+                            "files": []}
+                if f"/compare/{BASE_SHA}...{test.OLDER}" in route:
+                    self.routes.append(route)
+                    return {"status": "behind"}
+                if "/annotations?per_page=100" in route:
+                    self.routes.append(route)
+                    notes = copy.deepcopy(test.notes[int(route.split("/check-runs/", 1)[1].split("/", 1)[0])])
+                    # GitHub's pages of 100, read in full only when paginated.
+                    pages = [notes[n:n + 100] for n in range(0, max(len(notes), 1), 100)]
+                    return pages if paginate else pages[0]
+                if route.endswith("/actions/runs/10"):
+                    self.routes.append(route)
+                    return {"id": 10, "workflow_id": 7, "name": f"cmux-next · {HEAD}", "path": test.head_path}
+                if "/actions/workflows/8/runs?" in route:
+                    route = route.replace("/actions/workflows/8/", "/actions/workflows/7/")
+                if test.caller_only and "/actions/workflows/" in route:
+                    # Only the base caller's workflow (BASE_WORKFLOW_FOR) runs the job on the base.
+                    if "/actions/workflows/7/runs?" in route:
+                        self.routes.append(route)
+                        return {"workflow_runs": []}
+                    if "/actions/workflows/cmux-next-web.yml/" in route:
+                        self.routes.append(route)
+                        route = route.replace("/actions/workflows/cmux-next-web.yml/", "/actions/workflows/7/")
+                found = super().json(route, paginate=paginate)
+                if "/actions/workflows/7/runs?" in route and "&head_sha=" in route:
+                    sha = route.split("&head_sha=", 1)[1].split("&", 1)[0]
+                    found["workflow_runs"] = [run for run in found["workflow_runs"] + copy.deepcopy(test.dispatches)
+                                              if run.get("head_sha") == sha]
+                    return found
+                if "/actions/workflows/7/runs?" in route and "&created=" in route:
+                    found["workflow_runs"] += copy.deepcopy(test.dispatches)
+                if "/actions/workflows/7/runs?" in route and "&created=" not in route:
+                    # The base's newest runs do not reach back to the merge-base (cmux#40984: 229 commits behind),
+                    # so run 19 is never in the window compare_window reads; only the dated read finds it.
+                    found["workflow_runs"] = [run for run in found["workflow_runs"] if run["id"] != 19]
+                return found
+
+            def run(self, args):
+                # SuiteChecks' GraphQL read: each suite's check runs of the name, from this fixture's jobs.
+                assert args[:2] == ["api", "graphql"], args
+                query = next(arg for arg in args if arg.startswith("query="))
+                name = next(arg for arg in args if arg.startswith("name="))[len("name="):]
+                return json.dumps({"data": {"nodes": [
+                    {"id": f"CS_{run}", "checkRuns": {"pageInfo": {"hasNextPage": False}, "nodes": [
+                        {"conclusion": (job["conclusion"] or "").upper() or None}
+                        for job in self.jobs.values() if job["run_id"] == int(run) and job["name"] == name]}}
+                    for run in re.findall(r'"CS_(\d+)"', query)]}})
+
+        github = GitHub()
+        jobs, logs = {}, {}
+        for job_id, run_id, sha, (states, extra) in ((1, 10, HEAD, head), (2, 20, newest_sha or self.NEWER, newest),
+                                                     (3, 19, BASE_SHA, prior)):
+            jobs[job_id], logs[job_id] = self.side(job_id, run_id, sha, states, **extra)
+        github.jobs, github.logs = jobs, logs
+        github.base_runs = [
+            {"id": 20, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+             "conclusion": jobs[2]["conclusion"], "head_sha": newest_sha or self.NEWER,
+             "created_at": "2026-11-11T03:00:00Z"},
+            {"id": 19, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+             "conclusion": jobs[3]["conclusion"], "head_sha": BASE_SHA, "created_at": "2026-11-11T01:10:00Z"}]
+        return github
+
+    PURPOSE = {"purpose": "update-branch"}  # the per-step reading's one caller (excuse.PER_STEP_PURPOSE)
+
+    def judge(self, head, newest, prior, purpose="update-branch", **kwargs):
+        github = self.github(head, newest, prior, **kwargs)
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github, purpose=purpose)), github
+
+    def refused(self, pattern, head, newest, prior, purpose="update-branch", **kwargs):
+        github = self.github(head, newest, prior, **kwargs)
+        with self.assertRaisesRegex(excuse.Refused, pattern) as raised:
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github, purpose=purpose)
+        self.assertNotIn("excused", str(raised.exception))
+        return str(raised.exception)
+
+
+
+class FixedOnBaseByStep(StepFixture, unittest.TestCase):
+    """fixed_on_base_by_step (StepFixture's head and base runs)."""
+
+    def test_the_same_step_green_on_base_is_fixed_on_base_while_the_job_stays_red_there(self):
+        # cmux#40984's shape: the head's one red step is fixed on base, whose job is red for another step.
+        said, _ = self.judge(({self.MOTION: "quiet-red"}, {}), ({self.SURFACES: "quiet-red"}, {}),
+                             ({self.MOTION: "quiet-red"}, {}))
+        self.assertTrue(said.startswith(f"excused '{self.JOB}': fixed on base ("), said)
+        self.assertEqual(said.splitlines(), [
+            f"excused '{self.JOB}': fixed on base (run 10 / {self.JOB}, job 1, workflow .github/workflows/cmux-next.yml;"
+            f" step '{self.MOTION}': passes in feat-cmux-next run 20 at cccccccccccc, at or after the merge-base "
+            f"{BASE_SHA[:12]}; red in feat-cmux-next run 19 at {BASE_SHA[:12]}, at or before it) "
+            f"(https://github.com/{REPO}/actions/runs/20)"])
+
+    def test_the_same_step_green_on_a_green_base_job_is_fixed_on_base(self):
+        said, _ = self.judge(({self.MOTION: "quiet-red"}, {}), ({}, {}), ({self.MOTION: "quiet-red"}, {}))
+        self.assertTrue(said.startswith(f"excused '{self.JOB}': fixed on base ("), said)
+
+    def test_a_failing_step_by_its_conclusion_green_on_base_is_fixed_on_base(self):
+        said, _ = self.judge(({self.UNIT: "red"}, {}), ({self.SURFACES: "quiet-red"}, {}), ({self.UNIT: "red"}, {}))
+        self.assertIn(f"step '{self.UNIT}'", said)
+
+    def test_the_same_step_red_on_base_is_not_excused(self):
+        self.refused(f"per step: not green in feat-cmux-next run 20: '{self.MOTION}' is failure",
+                     ({self.MOTION: "quiet-red"}, {}), ({self.MOTION: "quiet-red"}, {}),
+                     ({self.MOTION: "quiet-red"}, {}))
+
+    def test_a_step_of_the_prs_own_is_not_excused(self):
+        # Green on the base at the merge-base and after it: the head broke it.
+        self.refused("per step: the PR's own red: at or before the merge-base .* run 19 was not red in it: "
+                     f"'{self.MOTION}' is success",
+                     ({self.MOTION: "quiet-red"}, {}), ({self.SURFACES: "quiet-red"}, {}),
+                     ({self.SURFACES: "quiet-red"}, {}))
+        # A step only the head has is missing on the base: unknown.
+        renamed = [self.MOTION, self.SURFACES, "Unit tests (new)", self.ROLLUP]
+        self.refused("per step: step 'Unit tests \\(new\\)' is missing in base job 2",
+                     ({self.UNIT: "red"}, {"names": renamed}), ({self.SURFACES: "quiet-red"}, {}),
+                     ({self.UNIT: "red"}, {}))
+
+    def test_a_step_skipped_on_base_is_not_green(self):
+        # The base job died in its unit tests: its later steps and the rollup were skipped, never fixed.
+        order = (self.UNIT, self.MOTION, self.SURFACES, self.ROLLUP)
+        with unittest.mock.patch.object(type(self), "ORDER", order):
+            self.refused(f"per step: not green in feat-cmux-next run 20: '{self.MOTION}' is skipped",
+                         ({self.MOTION: "quiet-red"}, {}),
+                         ({self.UNIT: "red", self.MOTION: "skipped", self.SURFACES: "skipped"},
+                          {"rollup": "skipped"}),
+                         ({self.MOTION: "quiet-red"}, {}))
+            # Its own step passed but the rollup that says whether it did was skipped.
+            self.refused(f"per step: not green in feat-cmux-next run 20: '{self.MOTION}' is skipped \\(its rollup",
+                         ({self.MOTION: "quiet-red"}, {}), ({self.UNIT: "red"}, {"rollup": "skipped"}),
+                         ({self.MOTION: "quiet-red"}, {}))
+
+    def test_a_step_cancelled_on_base_is_not_green(self):
+        self.refused(f"per step: not green in feat-cmux-next run 20: '{self.UNIT}' is cancelled",
+                     ({self.UNIT: "red"}, {}), ({self.UNIT: "cancelled", self.SURFACES: "quiet-red"}, {}),
+                     ({self.UNIT: "red"}, {}))
+        self.refused(f"'{self.MOTION}' is cancelled \\(its rollup",
+                     ({self.MOTION: "quiet-red"}, {}), ({self.UNIT: "red"}, {"rollup": "cancelled"}),
+                     ({self.MOTION: "quiet-red"}, {}))
+
+    def test_a_duplicate_step_name_is_unknown_on_either_side(self):
+        twice = [self.MOTION, self.MOTION, self.UNIT, self.ROLLUP]
+        self.refused(f"per step: step '{self.MOTION}' is named 2 times in head job 1",
+                     ({self.MOTION: "quiet-red"}, {"names": twice}), ({self.UNIT: "red"}, {}),
+                     ({self.MOTION: "quiet-red"}, {}))
+        self.refused(f"per step: step '{self.MOTION}' is named 2 times in base job 2",
+                     ({self.MOTION: "quiet-red"}, {}), ({self.UNIT: "red"}, {"names": twice}),
+                     ({self.MOTION: "quiet-red"}, {}))
+
+    def test_a_missing_step_name_is_unknown(self):
+        self.refused("per step: head job 1 has a step with no name",
+                     ({self.UNIT: "red"}, {"names": [self.MOTION, "", self.UNIT, self.ROLLUP]}),
+                     ({self.SURFACES: "quiet-red"}, {}), ({self.UNIT: "red"}, {}))
+        # The rollup names a red check no step of the head job is.
+        renamed = ["Motion tokens", self.SURFACES, self.UNIT, self.ROLLUP]
+        github = self.github(({self.MOTION: "quiet-red"}, {"names": renamed}), ({self.SURFACES: "quiet-red"}, {}),
+                             ({self.MOTION: "quiet-red"}, {}))
+        self.notes[1] = [{"annotation_level": "failure", "message": f"red check: {self.MOTION}"}]
+        with self.assertRaisesRegex(excuse.Refused, f"per step: step '{self.MOTION}' is missing in head job 1"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github, **self.PURPOSE)
+
+    def test_a_base_run_older_than_the_merge_base_is_not_base(self):
+        self.refused("per step: feat-cmux-next's newest verdict for it, run 20, tested dddddddddddd, which is behind "
+                     "the merge-base",
+                     ({self.MOTION: "quiet-red"}, {}), ({self.SURFACES: "quiet-red"}, {}),
+                     ({self.MOTION: "quiet-red"}, {}), newest_sha=self.OLDER)
+
+    def test_two_failing_steps_where_only_one_is_green_on_base_is_not_excused(self):
+        self.refused(f"per step: not green in feat-cmux-next run 20: '{self.UNIT}' is failure",
+                     ({self.MOTION: "quiet-red", self.UNIT: "red"}, {}), ({self.UNIT: "red"}, {}),
+                     ({self.MOTION: "quiet-red", self.UNIT: "red"}, {}))
+
+    def test_base_runs_before_the_merge_base_that_never_ran_the_job_cost_no_job_read(self):
+        # cmux#40984's 'cmux-next generated files': the newest runs before the merge-base were DEV daily and tip
+        # suite dispatches without it. Their suites show no check run of the job, so only run 19's job list is read.
+        self.dispatches = [{"id": 30 + n, "event": "workflow_dispatch", "head_branch": "feat-cmux-next",
+                            "status": "completed", "conclusion": "failure", "head_sha": BASE_SHA,
+                            "check_suite_node_id": f"CS_{30 + n}", "created_at": f"2026-11-11T01:2{n}:00Z"}
+                           for n in range(excuse.STEP_PRIOR_JOB_READS + 2)]
+        said, github = self.judge(({self.MOTION: "quiet-red"}, {}), ({self.SURFACES: "quiet-red"}, {}),
+                                  ({self.MOTION: "quiet-red"}, {}))
+        self.assertTrue(said.startswith(f"excused '{self.JOB}': fixed on base ("), said)
+        self.assertFalse([route for route in github.routes if re.search(r"/actions/runs/3\d/jobs", route)])
+
+    def test_a_job_name_red_in_two_workflows_is_unknown(self):
+        github = self.github(({self.MOTION: "quiet-red"}, {}), ({self.SURFACES: "quiet-red"}, {}),
+                             ({self.MOTION: "quiet-red"}, {}))
+        other, github.logs[4] = self.side(4, 11, HEAD, {self.MOTION: "quiet-red"})
+        github.jobs[4] = other
+        github.workflows = {11: 8}
+        with self.assertRaisesRegex(excuse.Refused, f"per step: '{re.escape(self.JOB)}' is red in two workflows"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10, 11], github, **self.PURPOSE)
+
+    def test_a_rollup_whose_annotations_name_no_red_or_may_be_cut_is_unknown(self):
+        for reds in ([], [f"check {n}" for n in range(excuse.ANNOTATION_STEP_CAP)]):
+            with self.subTest(reds=len(reds)):
+                github = self.github(({self.MOTION: "quiet-red"}, {}), ({self.SURFACES: "quiet-red"}, {}),
+                                     ({self.MOTION: "quiet-red"}, {}))
+                self.notes[1] = [{"annotation_level": "failure", "message": f"red check: {red}"} for red in reds]
+                with self.assertRaisesRegex(excuse.Refused, f"per step: rollup '{self.ROLLUP}' of head job 1 failed, "
+                                                            "and its annotations do not name its reds"):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github, **self.PURPOSE)
+
+    def test_a_head_log_step_owners_cannot_place_is_still_judged_by_its_steps(self):
+        # cmux#40984's head job log is not placed (step_owners); its steps and annotations still are its verdict.
+        github = self.github(({self.MOTION: "quiet-red"}, {}), ({self.SURFACES: "quiet-red"}, {}),
+                             ({self.MOTION: "quiet-red"}, {}))
+        github.logs[1] = github.logs[1].replace("##[group]Run scripts/check-1.sh", "##[group]Run a/composite@v1\n"
+                                                + github.logs[1].splitlines()[3][:28] + " ##[group]Run inner.sh")
+        self.assertIs(excuse.failed_view(github.jobs[1], github.log(REPO, github.jobs[1]), base=False, **UNKNOWN),
+                      excuse.UNPLACED)
+        said = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github, **self.PURPOSE))
+        self.assertTrue(said.startswith(f"excused '{self.JOB}': fixed on base ("), said)
+
+    # #41117's review at 56ed528a (receipt issuecomment-6788710856) and #41104's at 14c9b7d6 (issuecomment-6788724645).
+    def test_review_f1_a_land_never_gets_the_per_step_excuse(self):
+        # merge_hold's land (tools/merge_hold.py actions_verdict: no purpose, or --purpose land) judges the same red
+        # update_branch would excuse per step: refused, the per-step reading named as not its own.
+        fixed = (({self.MOTION: "quiet-red"}, {}), ({self.SURFACES: "quiet-red"}, {}), ({self.MOTION: "quiet-red"}, {}))
+        self.assertTrue(self.judge(*fixed)[0].startswith(f"excused '{self.JOB}': fixed on base ("))
+        for purpose in (None, "land"):
+            with self.subTest(purpose=purpose):
+                self.refused(f"per step: the per-step reading is for --purpose update-branch alone .*purpose land",
+                             *fixed, purpose=purpose)
+        self.refused("purpose 'merge' is not one of land, update-branch; nothing was judged", *fixed, purpose="merge")
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            excuse.main(["--repo", REPO, "--base", "feat-cmux-next", "--sha", HEAD, "--purpose", "merge"])
+
+    def test_review_f1_a_new_failure_in_a_step_red_at_the_merge_base_is_not_excused(self):
+        # Unit tests were red at the merge-base, green on the base after it; the head adds an error of its own there.
+        self.refused(r"per step: failures not in feat-cmux-next run 19 at the merge-base, so not the base's: .*"
+                     r"New\.swift:9: ",
+                     ({self.UNIT: "new-red"}, {}), ({}, {}), ({self.UNIT: "red"}, {}))
+        # And in a continue-on-error step, whose errors only its job's annotations carry.
+        self.refused(r"per step: failures not in feat-cmux-next run 19 at the merge-base, so not the base's: .*"
+                     r"New\.swift:9: ",
+                     ({self.MOTION: "new-quiet"}, {}), ({}, {}), ({self.MOTION: "quiet-red"}, {}))
+        # The same errors as at the merge-base stay excused.
+        self.assertIn(f"step '{self.UNIT}'", self.judge(({self.UNIT: "red"}, {}), ({}, {}), ({self.UNIT: "red"}, {}))[0])
+
+    def test_review_f3_the_merge_bases_own_run_is_its_verdict_before_older_runs(self):
+        # A push run at the merge-base starts after its commit: created after the merge-base time, it was never read,
+        # and an older run's red stood for the merge-base's. Its own run passed the step: the PR's own red.
+        self.dispatches = [{"id": 21, "event": "push", "head_branch": "feat-cmux-next", "status": "completed",
+                            "conclusion": "success", "head_sha": BASE_SHA, "check_suite_node_id": "CS_21",
+                            "created_at": "2026-11-11T01:30:00Z"}]
+        github = self.github(({self.MOTION: "quiet-red"}, {}), ({self.SURFACES: "quiet-red"}, {}),
+                             ({self.MOTION: "quiet-red"}, {}))
+        github.jobs[5], github.logs[5] = self.side(5, 21, BASE_SHA, {})
+        with self.assertRaisesRegex(excuse.Refused, "per step: the PR's own red: .* run 21 was not red in it: "
+                                                    f"'{self.MOTION}' is success"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github, **self.PURPOSE)
+
+    def test_review_f4_every_error_annotation_counts_toward_the_cap(self):
+        # GitHub keeps 10 error annotations a step: 2 rollup markers beside 8 other errors may be a cut list.
+        github = self.github(({self.MOTION: "quiet-red", self.SURFACES: "quiet-red"}, {}), ({self.UNIT: "red"}, {}),
+                             ({self.MOTION: "quiet-red", self.SURFACES: "quiet-red"}, {}))
+        self.notes[1] += [{"annotation_level": "failure", "message": f"error {n}"} for n in range(5)]
+        self.assertEqual(sum(note["annotation_level"] == "failure" for note in self.notes[1]),
+                         excuse.ANNOTATION_STEP_CAP)
+        with self.assertRaisesRegex(excuse.Refused, f"per step: rollup '{self.ROLLUP}' of head job 1 failed, and its "
+                                                    "annotations do not name its reds"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github, **self.PURPOSE)
+        del self.notes[1][-1]  # 9: complete
+        said = "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github, **self.PURPOSE))
+        self.assertTrue(said.startswith(f"excused '{self.JOB}': fixed on base ("), said)
+
+    def test_review_41104_f1_annotations_are_read_past_their_first_page(self):
+        # The base job's rollup names Motion red on its second page, after 100 annotations (Surface roles among them).
+        github = self.github(({self.MOTION: "quiet-red"}, {}), ({self.MOTION: "quiet-red", self.SURFACES: "quiet-red"}, {}),
+                             ({self.MOTION: "quiet-red"}, {}))
+        motion = next(note for note in self.notes[2] if note["message"] == f"red check: {self.MOTION}")
+        self.notes[2].remove(motion)
+        self.notes[2][1:1] = [{"annotation_level": "warning", "message": f"ratchet {n}"} for n in range(100)]
+        self.notes[2].append(motion)
+        with self.assertRaisesRegex(excuse.Refused, f"per step: not green in feat-cmux-next run 20: '{self.MOTION}' "
+                                                    "is failure"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github, **self.PURPOSE)
+        # A full page that is not continued is a cut list: unknown.
+        unpaged = self.github(({self.MOTION: "quiet-red"}, {}), ({self.SURFACES: "quiet-red"}, {}),
+                              ({self.MOTION: "quiet-red"}, {}))
+        self.notes[1] += [{"annotation_level": "warning", "message": f"ratchet {n}"} for n in range(100)]
+        inner = unpaged.json
+        unpaged.json = lambda route, *, paginate=False: (inner(route, paginate=paginate)[0]
+                                                         if "/annotations" in route and paginate
+                                                         else inner(route, paginate=paginate))
+        with self.assertRaisesRegex(excuse.Refused, "annotations do not name its reds"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [10], unpaged, **self.PURPOSE)
+
+    def test_a_step_absent_at_the_merge_base_and_green_on_base_is_fixed_on_base_for_update_branch_alone(self):
+        # hq#9137 at e34418c5: Skill documentation tests failed in "The deleted-or-weakened-tests
+        # guard ...", a step the base added after the merge-base (absent from merge-base job 130336035846) and green
+        # on main run 42975394561. The merge-base job read its steps, and the step is not one of them.
+        guard = "The deleted-or-weakened-tests guard judges tests by what they do and what runs them"
+        with unittest.mock.patch.object(type(self), "ORDER", (self.MOTION, self.SURFACES, guard, self.ROLLUP)):
+            def absent(purpose="update-branch", newest=None, steps=None, missing_on_base=False):
+                github = self.github(({guard: "red"}, {}), (newest or {}, {}), ({}, {}))
+                for job in [3] + [2] * missing_on_base:
+                    github.jobs[job]["steps"] = [step for step in github.jobs[job]["steps"] if step["name"] != guard]
+                if steps is not None:
+                    github.jobs[3]["steps"] = steps
+                return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github, purpose=purpose))
+            said = absent()
+            self.assertTrue(said.startswith(f"excused '{self.JOB}': fixed on base (run 10 / {self.JOB}, "), said)
+            self.assertIn(f"'{guard}': passes in feat-cmux-next run 20", said)
+            self.assertIn(f"'{guard}' absent from feat-cmux-next run 19 at {BASE_SHA[:12]}, at or before it "
+                          "(added to feat-cmux-next since)", said)
+            # A land never gets it.
+            for purpose in (None, "land"):
+                with self.subTest(purpose=purpose), self.assertRaisesRegex(excuse.Refused, "--purpose update-branch alone"):
+                    absent(purpose)
+            # Missing on the base's newest run still refuses: absence proves nothing there. (Red there, the job-level
+            # read judges it as the base's own red, the same failure; the per-step reading never says green.)
+            with self.assertRaisesRegex(excuse.Refused, f"step '{guard}' is missing in base job 2"):
+                absent(missing_on_base=True)
+            # A merge-base job whose steps are unread, or has a nameless step, is not proof the step was absent.
+            for steps in ([], [{"name": "", "status": "completed", "conclusion": "success"}]):
+                # (No steps at all is no verdict: refused_at_setup.)
+                with self.subTest(steps=steps), self.assertRaisesRegex(
+                        excuse.Refused, f"per step: (step '{guard}' is missing in merge-base job 3|no feat-cmux-next "
+                                        "verdict for it at or before the merge-base)"):
+                    absent(steps=steps)
+            # hq#9168, the contrast: its merge-base had the step, red there, so the old rule (c) excuses it.
+            said = self.judge(({guard: "red"}, {}), ({}, {}), ({guard: "red"}, {}))[0]
+            self.assertIn(f"red in feat-cmux-next run 19 at {BASE_SHA[:12]}", said)
+            self.assertNotIn("absent from", said)
+            # And one green there is the PR's own.
+            self.refused(f"the PR's own red: .* run 19 was not red in it: '{guard}' is success",
+                         ({guard: "red"}, {}), ({}, {}), ({}, {}))
+
+    def test_review_41104_f2_the_base_callers_workflow_gives_the_merge_bases_verdict(self):
+        # ci.yml's web job runs on pull requests alone; cmux-next-web.yml calls it on base pushes (BASE_WORKFLOW_FOR).
+        # The base verdict is the caller's, so the merge-base's is read from the caller's runs and named in the line.
+        self.caller_only, self.head_path = True, ".github/workflows/ci.yml"
+        with unittest.mock.patch.object(type(self), "JOB", "web / cmux-next checks"):
+            said, github = self.judge(({self.MOTION: "quiet-red"}, {}), ({self.SURFACES: "quiet-red"}, {}),
+                                      ({self.MOTION: "quiet-red"}, {}))
+        self.assertTrue(said.startswith("excused 'web / cmux-next checks': fixed on base (run 10 / web / cmux-next "
+                                        "checks, job 1, workflow .github/workflows/ci.yml, base workflow "
+                                        "cmux-next-web.yml;"), said)
+        self.assertIn(f"repos/{REPO}/actions/workflows/cmux-next-web.yml/runs?branch=feat-cmux-next&head_sha={BASE_SHA}"
+                      f"&per_page={excuse.STEP_PRIOR_RUNS}", github.routes)
+
+# cmux#40984 at a6698ad5: 'next-autoland / verdict' read "its own red: cmux-next / cmux-next checks (god files,
+# concurrency, crash safety, l10n) (and 2 more red, not probed)", and judge() refused it as a status with no job. It is a
+# derived status (DERIVED_STATUSES): judged by every red at the head, each judged by judge() itself. Its parts here are
+# StepFixture's jobs, renamed: head job 10*i+1 in run 10, the base's newest 10*i+2 in run 20, the merge-base's
+# 10*i+3 in run 19.
+class DerivedStatusByParts(StepFixture, unittest.TestCase):
+    VERDICT = "next-autoland / verdict"
+    FAST = "cmux-next fast tier"
+    GENERATED = "cmux-next generated files"
+    FIXED = ({StepFixture.MOTION: "quiet-red"}, {StepFixture.SURFACES: "quiet-red"},
+             {StepFixture.MOTION: "quiet-red"})  # head, newest base, merge-base: fixed on base by its step
+    BUILD_FIXED = ({StepFixture.UNIT: "red"}, {}, {StepFixture.UNIT: "red"})
+    OWN = ({StepFixture.UNIT: "red"}, {}, {})  # green on base before and after the merge-base
+
+    def parts(self, parts, description, *, extra_checks=(), check_total=None, green_statuses=0, extra_statuses=()):
+        """A head whose red jobs are PARTS ((job name, (head, newest, prior) states), ...) and whose derived status
+        reads DESCRIPTION."""
+        github = self.github(({}, {}), ({}, {}), ({}, {}))
+        github.jobs, github.logs = {}, {}
+        for n, (name, states) in enumerate(parts):
+            for k, (run_id, sha, side) in enumerate(((10, HEAD, states[0]), (20, self.NEWER, states[1]),
+                                                     (19, BASE_SHA, states[2]))):
+                job_id = 10 * n + k + 1
+                job, github.logs[job_id] = self.side(job_id, run_id, sha, side)
+                github.jobs[job_id] = dict(job, name=name)
+        statuses = [{"context": f"green {n}", "state": "success", "description": "ok"} for n in range(green_statuses)]
+        statuses += [{"context": self.VERDICT, "state": "failure", "description": description},
+                     {"context": "Vercel", "state": "success", "description": "Deployed"}]
+        statuses += copy.deepcopy(list(extra_statuses))
+        inner = github.json
+
+        def json(route, *, paginate=False):
+            if route.endswith(f"commits/{HEAD}/status?per_page=100"):
+                # GitHub's combined status: 100 contexts a page, total_count all of them.
+                github.routes.append(route)
+                pages = [{"state": "failure", "total_count": len(statuses), "statuses": copy.deepcopy(statuses[n:n + 100])}
+                         for n in range(0, len(statuses), 100)]
+                return pages if paginate else pages[0]
+            found = inner(route, paginate=paginate)
+            if route.endswith(f"commits/{HEAD}/check-runs?filter=all&per_page=100"):
+                found[0]["check_runs"] += copy.deepcopy(list(extra_checks))
+                found[0]["total_count"] = check_total or len(found[0]["check_runs"])
+            return found
+        github.json = json
+        return github
+
+    def own(self, key, more=0):
+        return f"its own red: cmux-next / {key}" + (f" (and {more} more red, not probed)" if more else "")
+
+    def test_every_part_excused_excuses_the_derived_status(self):
+        github = self.parts([(self.JOB, self.FIXED), (self.FAST, self.BUILD_FIXED)], self.own(self.JOB, 1))
+        said = excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
+        self.assertEqual(sorted(line.split("'")[1] for line in said), sorted([self.JOB, self.FAST, self.VERDICT]))
+        self.assertTrue(said[-1].startswith(f"excused '{self.VERDICT}': fixed on base (a derived status: its red is a "
+                                            f"function of the 2 red checks at {HEAD[:12]}"), said[-1])
+
+    def test_fast_tier_and_generated_files_go_through_the_per_step_path(self):
+        # No rule of their own: their failing step is fixed on base like any other job's.
+        github = self.parts([(self.FAST, self.BUILD_FIXED), (self.GENERATED, self.BUILD_FIXED)],
+                            self.own(self.FAST, 1))
+        said = excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github, checks=[self.VERDICT], **self.PURPOSE)
+        for name in (self.FAST, self.GENERATED):
+            line = next(line for line in said if line.startswith(f"excused '{name}'"))
+            self.assertTrue(line.startswith(f"excused '{name}': fixed on base (run 10 / {name}, "), line)
+            self.assertIn(f"step '{self.UNIT}'", line)
+
+    def test_one_part_not_excused_keeps_the_derived_status_red(self):
+        github = self.parts([(self.JOB, self.FIXED), (self.FAST, self.OWN)], self.own(self.JOB, 1))
+        with self.assertRaisesRegex(excuse.Refused, f"'{self.FAST}'.*per step: the PR's own red: .* run 19 was not "
+                                                    f"red in it: '{self.UNIT}' is success"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
+
+    def test_an_unprobed_part_is_not_excused(self):
+        # A check still running at the head, or a check-run list that came back short, leaves a part unread.
+        running = {"id": 99, "name": "cmux-next daemon tests", "status": "in_progress", "conclusion": None,
+                   "app": {"slug": "github-actions"},
+                   "details_url": f"https://github.com/{REPO}/actions/runs/10/job/99"}
+        for kwargs, pattern in (({"extra_checks": [running]}, "'cmux-next daemon tests' not finished"),
+                                ({"check_total": 7}, "came back incomplete \\(1 read of 7\\)")):
+            with self.subTest(pattern=pattern):
+                github = self.parts([(self.JOB, self.FIXED)], self.own(self.JOB), **kwargs)
+                with self.assertRaisesRegex(excuse.Refused, pattern):
+                    excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
+
+    def test_a_derived_status_naming_a_check_the_head_does_not_have_is_not_excused(self):
+        github = self.parts([(self.JOB, self.FIXED)], self.own("cmux-next daemon tests"))
+        with self.assertRaisesRegex(excuse.Refused, f"'{self.VERDICT}' names 'cmux-next / cmux-next daemon tests', "
+                                                    "which is not red at"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
+        # Or counting more reds than the head has.
+        github = self.parts([(self.JOB, self.FIXED)], self.own(self.JOB, 2))
+        with self.assertRaisesRegex(excuse.Refused, "counts 3 reds, and aaaaaaaaaaaa has 1"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
+
+    def test_f1_a_third_party_red_sharing_an_actions_jobs_name_is_unknown(self):
+        # A newer check of another app, red, with the Actions job's name: judged by name, the Actions job's base
+        # evidence excused it. Its identity is "other-ci / NAME", never "run 10 / NAME": unknown, not excused.
+        other = {"id": 999, "name": self.JOB, "status": "completed", "conclusion": "failure",
+                 "app": {"slug": "other-ci"}, "details_url": "https://ci.example.com/build/1"}
+        github = self.parts([(self.JOB, self.FIXED)], self.own(self.JOB), extra_checks=[other])
+        with self.assertRaisesRegex(excuse.Refused, f"'other-ci / {re.escape(self.JOB)}'"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
+        # Another app's red of its own name has no job judge() can rule on either.
+        github = self.parts([(self.JOB, self.FIXED)], self.own(self.JOB), extra_checks=[dict(other, name="lint")])
+        with self.assertRaisesRegex(excuse.Refused, "'other-ci / lint' is another app's check"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
+
+    def test_f1_one_name_red_in_two_actions_runs_is_unknown(self):
+        github = self.parts([(self.JOB, self.FIXED)], self.own(self.JOB))
+        twin, github.logs[90] = self.side(90, 11, HEAD, {self.MOTION: "quiet-red"})
+        github.jobs[90] = twin
+        with self.assertRaisesRegex(excuse.Refused, "red in 2 Actions runs at"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
+
+    def test_f2_a_red_aggregate_part_carries_its_own_judgement(self):
+        # ci-status, red for its one failed job under its needs ('macos / ...'), is excused when judged alone; as a
+        # part of the derived status it was refused for having no line of its own.
+        child = "macos / cmux-next checks"
+        github = self.parts([(child, self.FIXED)], self.own("ci-status", 1))
+        github.jobs[50] = {"id": 50, "run_id": 10, "head_sha": HEAD, "name": "ci-status", "status": "completed",
+                           "conclusion": "failure", "steps": [{"name": "Report", "status": "completed",
+                                                                "conclusion": "failure"}]}
+        alone = excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=["ci-status"], **self.PURPOSE)
+        self.assertTrue(any(line.startswith(f"excused '{child}': fixed on base (") for line in alone), alone)
+        said = excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
+        line = next(line for line in said if line.startswith("excused 'ci-status'"))
+        self.assertTrue(line.startswith("excused 'ci-status': fixed on base (run 10 / ci-status: an aggregate"), line)
+        self.assertTrue(said[-1].startswith(f"excused '{self.VERDICT}': fixed on base ("), said[-1])
+
+    def test_f3_the_combined_status_is_read_past_100_contexts(self):
+        # 101 contexts: the derived status is the 100th, its parts' reds past the first page would be unread.
+        github = self.parts([(self.JOB, self.FIXED)], self.own(self.JOB), green_statuses=99)
+        github_red = self.parts([(self.JOB, self.FIXED)], self.own(self.JOB), green_statuses=99)
+        said = excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
+        self.assertTrue(said[-1].startswith(f"excused '{self.VERDICT}': fixed on base ("), said[-1])
+        # A red context on the second page is a part too: one judge() cannot rule on keeps it red.
+        statuses_route = f"repos/{REPO}/commits/{HEAD}/status?per_page=100"
+        inner = github_red.json
+
+        def json(route, *, paginate=False):
+            found = inner(route, paginate=paginate)
+            if route == statuses_route and paginate:
+                found[-1]["statuses"].append({"context": "Vercel – docs", "state": "failure", "description": "x"})
+                for page in found:
+                    page["total_count"] += 1
+            return found
+        github_red.json = json
+        with self.assertRaisesRegex(excuse.Refused, "Vercel – docs"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github_red, checks=[self.VERDICT], **self.PURPOSE)
+
+    def test_review_f2_a_status_and_an_actions_job_of_one_name_are_unknown(self):
+        # A failing commit status named as the Actions job: judged by name, both read the job's one line.
+        github = self.parts([(self.JOB, self.FIXED)], self.own(self.JOB, 1),
+                            extra_statuses=[{"context": self.JOB, "state": "failure", "description": "x"}])
+        with self.assertRaisesRegex(excuse.Refused, f"'status / {re.escape(self.JOB)}' and a check run share the name"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
+        # A green status beside a red job of its name is unknown too.
+        github = self.parts([(self.JOB, self.FIXED)], self.own(self.JOB),
+                            extra_statuses=[{"context": self.JOB, "state": "success", "description": "x"}])
+        with self.assertRaisesRegex(excuse.Refused, "share the name"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
+
+    def test_review_f1_the_derived_status_gets_no_per_step_excuse_on_a_land(self):
+        github = self.parts([(self.JOB, self.FIXED)], self.own(self.JOB))
+        with self.assertRaisesRegex(excuse.Refused, "per-step reading is for --purpose update-branch alone"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT])
+
+    def test_a_derived_status_red_for_another_reason_is_not_judged_by_its_parts(self):
+        github = self.parts([(self.JOB, self.FIXED)], "conflicting with feat-cmux-next")
+        with self.assertRaisesRegex(excuse.Refused, "is not a red of the head's other checks"):
+            excuse.judge(REPO, "feat-cmux-next", HEAD, [], github, checks=[self.VERDICT], **self.PURPOSE)
 
 
 if __name__ == "__main__":
