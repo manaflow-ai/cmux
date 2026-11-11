@@ -1608,6 +1608,24 @@
      "presence": "required",
      "nullable": false
     },
+    "title_text": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12
+    },
+    "title_activity": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "since": 12
+    },
     "size": {
      "type": {
       "kind": "ref",
@@ -6500,6 +6518,22 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "commands": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsCommands"
+     },
+     "presence": "optional",
+     "nullable": false
+    },
+    "journal_followers": {
+     "type": {
+      "kind": "ref",
+      "name": "ServerStatsJournalFollowers"
+     },
+     "presence": "optional",
+     "nullable": false
     }
    },
    "additional_properties": false,
@@ -6511,7 +6545,9 @@
     "write_path is present only when the request names it in include.",
     "locks is present only when the request names it in include.",
     "hook_queue is present only when the request names it in include and the session serves a socket.",
-    "disk is present only when the request names it in include and the session keeps its registry on disk."
+    "disk is present only when the request names it in include and the session keeps its registry on disk.",
+    "commands is present only when the request names it in include.",
+    "journal_followers is present only when the request names it in include."
    ]
   },
   "ServerStatsHookQueue": {
@@ -6547,6 +6583,165 @@
     "queued_events counts the hook event lines in this session's queues (hook-spool/ beside the socket): events no daemon answered yet, and answered ones a sender has not removed yet.",
     "reset_dropped_events counts hook events that cmux session NAME reset-state dropped with a session's saved state, for every session whose socket shares this one's directory.",
     "undeliverable_events counts hook events a live daemon took several times in a row and never answered (it closed on them, or did not reply within its own longest journal wait), so their senders gave them up, for every session whose socket shares this one's directory."
+   ]
+  },
+  "ServerStatsCommands": {
+   "kind": "object",
+   "fields": {
+    "names": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "name_limit": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hist_bounds_ns": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "uint64"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "rows": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsCommandRow"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "connections": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsCommandConnections"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "Counts every request the daemon handled since it started, by command name and by client kind; always on.",
+    "names counts the command names that have rows of their own; past name_limit the requests of a further name count in the row named other.",
+    "hist_bounds_ns holds the upper bounds, in nanoseconds, of the first 15 buckets of each hist: 250000 (0.25 ms), then each twice the one before, up to 4096000000; the last bucket has no upper bound.",
+    "rows has one entry for each name and kind with a request, the largest total_ns first.",
+    "connections has one entry for each client kind with a connection."
+   ]
+  },
+  "ServerStatsCommandRow": {
+   "kind": "object",
+   "fields": {
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "count": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "total_ns": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "max_ns": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "hist": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "uint64"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "name is a legacy command name, a protocol 2 method name or other (a line that is neither, a command word the daemon does not know, an app-private frame); never a word of a request.",
+    "kind is one of the daemon's own words: unknown, local, terminal, hook, plugin, app, tui, cli, mcp, remote-probe, remote-link, remote, websocket, other. A kind that set-client-info declared outside that list counts as other.",
+    "total_ns and max_ns are the handler's time from the decoded line to its reply queued for the connection's writer; the wait in the connection's queue is not counted.",
+    "hist has 16 counts: the requests below hist_bounds_ns[0], then one bucket for each bound, then the requests at or above the last bound."
+   ]
+  },
+  "ServerStatsCommandConnections": {
+   "kind": "object",
+   "fields": {
+    "kind": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "accepted": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "refused": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "accepted counts the connections that registered, under the kind each has now.",
+    "refused counts the connections dropped at the connection limit, under the kind known at that moment (terminal, local, websocket or remote)."
    ]
   },
   "ServerStatsResourceProjection": {
@@ -7389,6 +7584,157 @@
     "files lists at most 32 entries of the registry's directory, largest first; files_unlisted counts the others, and files_truncated is true when the listing stopped at 20000 entries.",
     "journal and segments are null when the registry could not be read, and error says why.",
     "Reads on its own read-only connection, never under the registry lock and never a scan of the live journal."
+   ]
+  },
+  "ServerStatsJournalFollower": {
+   "kind": "object",
+   "fields": {
+    "client": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "stream_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "remote": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "kinds": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "max_sensitivity": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "connected_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "left_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "keeps_hook_rows": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "keeps_report_rows": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "kinds is the stream's kind filter as sent (a trailing .* is a prefix); empty means every kind.",
+    "max_sensitivity is public, metadata or sensitive; null means no limit. A remote client's limit is metadata.",
+    "left_ms is null while the stream is live; otherwise the stream ended that long ago and still keeps rows until grace_ms is over.",
+    "keeps_hook_rows: the stream is sent agent.state.changed rows at sensitive, so every agent hook report is a journal row.",
+    "keeps_report_rows: the stream is sent agent.report rows at sensitive, so every agent plugin report is a journal row."
+   ]
+  },
+  "ServerStatsJournalFollowers": {
+   "kind": "object",
+   "fields": {
+    "grace_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "keep_all_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "journal_hook_keeps_rows": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "hook_rows_kept": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "report_rows_kept": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "followers": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsJournalFollower"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "followers lists the live session.journal.subscribe streams with follow not false, and those that ended less than grace_ms ago.",
+    "keep_all_ms is what is left of the time after the daemon became ready in which every report is a row; 0 when it is over.",
+    "journal_hook_keeps_rows: an enabled journal hook's kind filter matches a row the daemon leaves out at rest; null when the daemon has not read its hooks since it started or since they changed (the next report reads them).",
+    "hook_rows_kept and report_rows_kept say whether a report that changes no durable state is appended now."
    ]
   },
   "GuestUrlOpenResult": {
@@ -9461,6 +9807,17 @@
      "nullable": true,
      "default": null,
      "description": "Caller-minted public id of the new split (split_ and 32 hex digits), as split-client-split-id-v1; refused when it exists or ever existed."
+    },
+    "around": {
+     "type": {
+      "kind": "ref",
+      "name": "Id"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "default": null,
+     "capability": "split-around-v1",
+     "description": "The split the new split wraps whole, as split-around-v1 on split: pane must be that split's last pane and direction right or down."
     }
    },
    "additional_properties": false
@@ -14681,6 +15038,18 @@
        }
       ]
      },
+     "around": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "split-around-v1",
+      "description": "The split the new split wraps whole (the new pane after it, as wide or tall as the whole subtree): inserting a pane at a divider. pane must be that split's last pane and dir right or down."
+     },
      "before": {
       "type": {
        "kind": "scalar",
@@ -14808,6 +15177,50 @@
    },
    "stream": null,
    "constraints": []
+  },
+  "set-divider-visible": {
+   "authority": "control",
+   "since": 12,
+   "capability": "split-divider-visibility-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "split": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "visible": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "transaction": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The split must not be a viewport column or row boundary; the same value again changes nothing and sends no event."
+   ]
   },
   "set-viewport-pane-width": {
    "authority": "control",
@@ -18221,7 +18634,7 @@
    "stream": null,
    "constraints": [
     "Owner-only diagnostics; never journaled and safe to poll.",
-    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk); unknown names are ignored."
+    "include names optional result sections (resource_projection, write_path, locks, hook_queue, disk, commands, journal_followers); unknown names are ignored."
    ]
   },
   "paste-image": {
@@ -30419,6 +30832,24 @@
       "presence": "optional",
       "nullable": false,
       "since": 7
+     },
+     "text": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12
+     },
+     "activity": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "since": 12
      }
     },
     "additional_properties": false
@@ -31453,6 +31884,77 @@
         "kind": "scalar",
         "name": "string"
        }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "feed-view-changed": {
+   "since": 12,
+   "capability": "feed-client-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "feed-view-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "changed": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   }
+  },
+  "feed-reports-changed": {
+   "since": 12,
+   "capability": "feed-client-v1",
+   "streams": [
+    "subscribe"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "feed-reports-changed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "revision": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
       },
       "presence": "required",
       "nullable": false

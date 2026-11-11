@@ -27,6 +27,9 @@
 // A prompt acpmux could not attribute (kind `unverified`, prompt_provenance.rs: a plain `acpmux
 // send` at a shell, a script, an agent outside acpmux) is no one's for sure and never the person's:
 // a card from the name it puts first, else from an unverified sender, marked unverified either way.
+// The daemon names the program that ran the send when it can (`program: {name, path?}`,
+// sender_program.rs, from the socket peer's process chain, or a peer daemon that looked): that is
+// what acpmux saw, so it names the card over any name the text claims, still not proven an agent.
 // A record with no provenance and no `_meta.origin` (acpmux's mark of the proven person's prompt)
 // predates both: it keeps its bubble as it was, with no mark, since every person's prompt before
 // that mark was recorded so (only the explicit `unverified` kind marks a prompt).
@@ -37,7 +40,14 @@
 // threads draw as received lines (inboxNotice.ts), its text for the agent never shows.
 import { clipMessagePreview as clip } from "./clipMessagePreview";
 import { inboxNotice, type InboxNotice } from "./inboxNotice";
-import { bareSender, provenanceAuthenticated, relayAddress, senderRecord, senderUnverified } from "./senderIdentity";
+import {
+  bareSender,
+  hostTokenVerified,
+  provenanceAuthenticated,
+  relayAddress,
+  senderRecord,
+  senderUnverified,
+} from "./senderIdentity";
 import { relayEnvelope, withoutRelayEnvelope, withoutRelayLabel, withoutRelayLabelOfMessage } from "./relayEnvelope";
 import {
   legacyNotice,
@@ -46,6 +56,8 @@ import {
   noticeRowText,
   provenanceNotice,
   renderedNotice,
+  shownNoticeBody,
+  shownSender,
   type AgentNotice,
 } from "./agentNotice";
 
@@ -96,6 +108,10 @@ export type IncomingMessage = {
   /// senderIdentity.ts, or provenance kind `unverified`, which names an unverified sender when the
   /// message names no one): the line draws a subtle marker by the name, never words in it.
   unverified?: true;
+  /// The program acpmux saw run the send of an `unverified` prompt (`program`, sender_program.rs),
+  /// and the machine the checking daemon read it on (`program.host`): the card names the program, and its mark
+  /// says acpmux checked it, still no agent it proved.
+  program?: SenderProgram;
   /// The sender's model and thinking effort when the message names them (`fromModel`,
   /// `fromEffort`), for its line's hover; a listed chat's own come first.
   model?: string;
@@ -120,6 +136,31 @@ export type IncomingMessage = {
   /// message's first line, never that name beside the senders the line already names.
   preview?: string;
 };
+
+/// A program acpmux checked (`IncomingMessage.program`).
+export type SenderProgram = { name: string; path?: string; host?: string };
+
+/// The program an `unverified` provenance names, or none when it is malformed: a name of one line
+/// and at most 64 characters (code points, as acpmux counts them), a path of at most 256 bytes
+/// (sender_program.rs `MAX_NAME_CHARS`, `MAX_PATH_BYTES`). The host is the one the checking
+/// daemon wrote (`program.host`, its own machine), never the send's `claimed.cliHost`, which
+/// proves nothing.
+export function senderProgram(provenance: Record<string, unknown> | undefined): SenderProgram | undefined {
+  const program = provenance?.program as Record<string, unknown> | undefined;
+  if (!program || typeof program !== "object" || Array.isArray(program)) return undefined;
+  const name = typeof program.name === "string" ? program.name.trim() : "";
+  if (!name || /[\r\n]/.test(name) || Array.from(name).length > 64) return undefined;
+  const path =
+    typeof program.path === "string" &&
+    program.path.trim() &&
+    !/[\r\n]/.test(program.path) &&
+    new TextEncoder().encode(program.path).length <= 256
+      ? program.path.trim()
+      : undefined;
+  const host =
+    typeof program.host === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(program.host) ? program.host : undefined;
+  return { name, ...(path && { path }), ...(host && { host }) };
+}
 
 /// What the pane knows that tells an agent's addressed message (`sender -> receiver: …`) from the
 /// person's words: whether a name is this chat's, and whether it is a listed chat's. Each is asked
@@ -419,7 +460,7 @@ function withSender(
   // With no sender record, acpmux's own proof in the provenance (a relay's record, a session it
   // stamped) verifies the sender, as acpmux's record would have (review of cmux#37653).
   const unverified =
-    !(record === undefined && provenanceAuthenticated(provenance)) &&
+    !(record === undefined && (provenanceAuthenticated(provenance) || hostTokenVerified(provenance))) &&
     senderUnverified(record, sender.declared || declared || provenance?.from === NAMED_SENDER);
   const harness = prompt.message.harness ?? record?.harness;
   // A relayed sender's chat is asked for by its whole relay address: the name acpmux gave it is cut
@@ -583,7 +624,14 @@ function promptOf(
     if (notice)
       return {
         kind: "message",
-        message: { name: notice.sender, notice, ...remote, ...harness, text: noticeBody(text), raw: text },
+        message: {
+          name: notice.sender,
+          notice,
+          ...remote,
+          ...harness,
+          text: shownNoticeBody(notice, noticeBody(text)),
+          raw: text,
+        },
       };
   }
   // A notice an older acpmux kept no provenance for, and tell-coordinator's page (agentNotice.ts
@@ -602,7 +650,14 @@ function promptOf(
     if (read && "notice" in read)
       return {
         kind: "message",
-        message: { name: read.notice.sender, notice: read.notice, ...remote, ...harness, text: read.body, raw: text },
+        message: {
+          name: read.notice.sender,
+          notice: read.notice,
+          ...remote,
+          ...harness,
+          text: shownNoticeBody(read.notice, read.body),
+          raw: text,
+        },
       };
     if (read)
       return { kind: "message", message: { name: read.sender, ...remote, ...harness, text: read.text, raw: text } };
@@ -657,6 +712,22 @@ function promptOf(
   // No proof names its sender: the name it puts first is a claim, and it is never the person's.
   if (provenance?.kind === "unverified") {
     const named = namedFirst(text.trim()) ?? fromFirst(text.trim()) ?? addressedFirst(text.trim(), context);
+    // The program acpmux saw names the card over the text's claim. A signature naming that program
+    // only repeats it and goes; one naming anyone else stays in the text, the claim it is.
+    const program = senderProgram(provenance);
+    if (program)
+      return {
+        kind: "message",
+        message: {
+          name: program.name,
+          text: named && namesSender(named.name, [program.name]) ? named.text : text.trim(),
+          unverified: true,
+          program,
+          ...remote,
+          ...harness,
+          raw: text,
+        },
+      };
     return {
       kind: "message",
       message: {
@@ -906,17 +977,17 @@ function digestParts(text: string, messages: readonly unknown[]): DigestPart[] {
   const parts = [...rest.matchAll(DIGEST_PART)];
   if (!parts.length || parts[0]!.index !== 0) return [];
   return parts.map((part, index) => {
-    const sender = part[1]!.trim();
+    const sender = shownSender(part[1]!.trim());
     const end = parts[index + 1]?.index ?? rest.length;
     const body = withoutRelayEnvelope(rest.slice(part.index! + part[0].length, end)).trim();
     const sent = (messages[index] as { provenance?: Record<string, unknown> } | null)?.provenance;
     const notice = sent?.kind === "notice" || sent?.kind === "who_else" ? provenanceNotice(sent) : undefined;
-    if (notice) return { sender, notice, text: noticeBody(body) };
+    if (notice) return { sender, notice, text: shownNoticeBody(notice, noticeBody(body)) };
     // A notice an older acpmux kept no provenance for, or tell-coordinator's page, sent at a shell
     // (agentNotice.ts): read from its head, as a turn of its own reads it.
     const named = !sent || (sent.kind === "agent_message" && sent.from === NAMED_SENDER);
     const read = named ? (renderedNotice(body) ?? legacyNotice(body)) : undefined;
-    if (read && "notice" in read) return { sender, notice: read.notice, text: read.body };
+    if (read && "notice" in read) return { sender, notice: read.notice, text: shownNoticeBody(read.notice, read.body) };
     const signed = agentSigned(body, [sender]);
     return { sender: signed?.name ?? sender, text: signed?.text ?? body };
   });

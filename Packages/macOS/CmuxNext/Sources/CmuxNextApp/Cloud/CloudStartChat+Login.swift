@@ -29,11 +29,11 @@ extension CloudStartChat {
         var decision = CloudHarnessLoginDecision(dogfood: DevTools.isEnabled, setting: CloudCredentialTransfer.passHarnessLoginSetting(.standard),
                                                  harness: harness, signedIn: userID != nil)
         let gate = Self.loginCopyGate(services, asker: asker), steps = CloudStartSteps(logger: cloud.logger)
+        defer { machine.harnessLogin = decision; cloud.logger.info("cloud start chat: harness login \(decision.summary, privacy: .public)") } // Never silent (CloudHarnessLoginDecision): the reason goes to the log and the machine's `cloud.machines` row.
+        if await decision.takeWarmReceipt(cli: cloud.move.cli, machine: machineID, userID: userID, ask: ask) { steps.done("login.receipt"); return true } // the warm's copy is the check: no re-check after Send
         await gate.read(into: &decision)
         steps.done("login.gate")
         ask.apply(to: &decision, userID: userID) // `--login`, the kept choice, and whether a prompt may show
-        // Never silent (CloudHarnessLoginDecision): the reason goes to the log and the machine's `cloud.machines` row.
-        defer { machine.harnessLogin = decision; cloud.logger.info("cloud start chat: harness login \(decision.summary, privacy: .public)") }
         do {
             var verdict = decision.verdict // One FFI answer per step (cmux#32483): a step's fields never mix a failed call with a good one.
             if verdict.gate, verdict.transferProvider != nil, let userID {

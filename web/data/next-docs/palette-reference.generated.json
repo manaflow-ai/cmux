@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "entries": 1387,
-    "shortcuts": 188
+    "entries": 1385,
+    "shortcuts": 187
   },
   "sections": [
     {
@@ -2098,10 +2098,22 @@
           "command": null
         },
         {
+          "id": "divider.hide",
+          "title": "Hide Divider",
+          "shortcut": null,
+          "command": "cmux divider hide"
+        },
+        {
           "id": "increaseWorkspaceTerminalFontSize",
           "title": "Increase Workspace Font Size",
           "shortcut": "⌘=",
           "command": null
+        },
+        {
+          "id": "divider.insertNew",
+          "title": "Insert New",
+          "shortcut": null,
+          "command": "cmux divider insert"
         },
         {
           "id": "column.moveLeft",
@@ -2522,6 +2534,12 @@
           "title": "Show Artifacts",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "divider.show",
+          "title": "Show Divider",
+          "shortcut": null,
+          "command": "cmux divider show"
         },
         {
           "id": "pane.focus",
@@ -5488,12 +5506,6 @@
           "command": null
         },
         {
-          "id": "focusRightSidebar",
-          "title": "Focus Right Sidebar",
-          "shortcut": "⇧⌘E",
-          "command": null
-        },
-        {
           "id": "vaultFocusSession",
           "title": "Focus Session",
           "shortcut": null,
@@ -5812,36 +5824,6 @@
           "command": "cmux sidebar section-layout-list"
         },
         {
-          "id": "switchRightSidebarToMachines",
-          "title": "Show Cloud",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "switchRightSidebarToDock",
-          "title": "Show Dock",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "switchRightSidebarToFeed",
-          "title": "Show Feed in Right Sidebar",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "switchRightSidebarToFiles",
-          "title": "Show Files",
-          "shortcut": null,
-          "command": null
-        },
-        {
-          "id": "switchRightSidebarToFind",
-          "title": "Show Find",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "sidebar.sections.showHidden",
           "title": "Show Hidden Sections",
           "shortcut": null,
@@ -5890,12 +5872,6 @@
           "command": "cmux sidebar show-spaces"
         },
         {
-          "id": "switchRightSidebarToSessions",
-          "title": "Show Vault",
-          "shortcut": null,
-          "command": null
-        },
-        {
           "id": "sidebar.noFade.on",
           "title": "Show Whole Sidebar (No Fade)",
           "shortcut": null,
@@ -5926,6 +5902,12 @@
           "command": null
         },
         {
+          "id": "sidebar.custom.toggle",
+          "title": "Toggle Custom Sidebar",
+          "shortcut": "⌃⌥⌘B",
+          "command": "cmux sidebar toggle-custom"
+        },
+        {
           "id": "toggleSidebar",
           "title": "Toggle Left Sidebar",
           "shortcut": "⌘B",
@@ -5935,12 +5917,6 @@
           "id": "sidebar.priorityView.toggle",
           "title": "Toggle Priority View",
           "shortcut": "⌥⌘K",
-          "command": null
-        },
-        {
-          "id": "toggleRightSidebar",
-          "title": "Toggle Right Sidebar",
-          "shortcut": "⌥⌘B",
           "command": null
         }
       ]
@@ -6472,12 +6448,6 @@
           "command": null
         },
         {
-          "id": "agentPane.togglePointerInspector",
-          "title": "Inspect UI Element",
-          "shortcut": null,
-          "command": "cmux agent toggle-ui-pointer"
-        },
-        {
           "id": "palette.addHarness",
           "title": "Integrate a Harness with an Agent…",
           "shortcut": null,
@@ -6590,6 +6560,12 @@
           "title": "Open Voice Room",
           "shortcut": null,
           "command": null
+        },
+        {
+          "id": "agentPane.togglePointerInspector",
+          "title": "Point at Element",
+          "shortcut": null,
+          "command": "cmux agent toggle-ui-pointer"
         },
         {
           "id": "agentPane.previousBookmarkedPrompt",
@@ -7102,6 +7078,12 @@
           "command": "cmux cloud port-list"
         },
         {
+          "id": "cloudMoveToMachine",
+          "title": "Move to Another Machine",
+          "shortcut": null,
+          "command": "cmux cloud move-to-machine"
+        },
+        {
           "id": "cloudMove",
           "title": "Move to Cloud",
           "shortcut": null,
@@ -7584,6 +7566,12 @@
         {
           "id": "help.copyLogs",
           "title": "Copy Logs",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "debug.blockingCalls.copy",
+          "title": "Copy Main-Thread Blocking Sites",
           "shortcut": null,
           "command": null
         },
@@ -8128,6 +8116,12 @@
           "command": null
         },
         {
+          "id": "debug.sidebarToggleIcon",
+          "title": "Sidebar Toggle Icon…",
+          "shortcut": null,
+          "command": null
+        },
+        {
           "id": "links.signInPagesByLinkSettings",
           "title": "Sign-In Pages: Follow Link Settings",
           "shortcut": null,
@@ -8148,6 +8142,12 @@
         {
           "id": "liveSwift.start",
           "title": "Start Swift Live Mode",
+          "shortcut": null,
+          "command": null
+        },
+        {
+          "id": "debug.statusIconSet",
+          "title": "Status Icons…",
           "shortcut": null,
           "command": null
         },
@@ -8252,18 +8252,6 @@
           "title": "Upgrade to cmux Pro",
           "shortcut": null,
           "command": null
-        },
-        {
-          "id": "appearance.animations.bounce.none",
-          "title": "Use Animations Without Bounce",
-          "shortcut": null,
-          "command": "cmux settings use-animations-without-bounce"
-        },
-        {
-          "id": "appearance.animations.bounce.subtle",
-          "title": "Use Bouncy Animations",
-          "shortcut": null,
-          "command": "cmux settings use-bouncy-animations"
         },
         {
           "id": "browser.defaultEngine.chromium",

@@ -1056,10 +1056,12 @@ class CaptureStatesTests(unittest.TestCase):
 
 
 def load_media_runner():
-    spec = importlib.util.spec_from_file_location("media_runner_for_gate", ROOT / "scripts/ci/cmux_next_media_runner.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name, never loaded by path: one module object per file, so a test that patches it
+    # patches what every other test reads (tests/test_script_module_loads.py).
+    if str(ROOT / "scripts/ci") not in sys.path:
+        sys.path.insert(0, str(ROOT / "scripts/ci"))
+    import cmux_next_media_runner
+    return cmux_next_media_runner
 
 
 def runner(name, *labels, busy=False, status="online"):

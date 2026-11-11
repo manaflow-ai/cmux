@@ -1,4 +1,5 @@
 #if DEBUG && os(iOS)
+import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileTerminal
 import CmuxSpinner
@@ -17,17 +18,25 @@ import SwiftUI
 ///   whose read takes about a second (a real network answer);
 /// - `cloud`: a Cloud machine's connect wait (A, the screen's, with the two
 ///   variants it was picked from), its failure with the cause, and Cloud chats
-///   with no Mac to reach them through.
+///   with no Mac to reach them through;
+/// - `chiefoff`: Home's "Chief Is Off" card (the Cloud Chief's brain is off, as every new
+///   account's is): A, the one Home shows, in its four states (off, turning on, failed,
+///   unavailable on this account), then the variants it was picked from, B and C;
+/// - `cloudmachines`: Settings → Cloud → Cloud Machines with fixed machines, plan and snapshots.
 public struct RecoveryGalleryRoot: View {
     public static var isRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-cmux-mobile-recovery-gallery")
     }
 
     let scene: String
+    /// `-cmux-mobile-gallery-appearance light|dark`: the scheme the shots use (else the system's).
+    let scheme: ColorScheme?
 
     public init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         let index = arguments.firstIndex(of: "-cmux-mobile-recovery-gallery")
         scene = index.flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil } ?? "states"
+        let look = arguments.firstIndex(of: "-cmux-mobile-gallery-appearance").flatMap { i in arguments.indices.contains(i + 1) ? arguments[i + 1] : nil }
+        scheme = look == "dark" ? .dark : look == "light" ? .light : nil
     }
 
     public var body: some View {
@@ -42,12 +51,19 @@ public struct RecoveryGalleryRoot: View {
                 cloud
             case "home":
                 home
+            case "chiefoff":
+                chiefOff
+            case "signedout":
+                signedOut
+            case "cloudmachines":
+                NavigationStack { CloudMachinesScreen(model: .gallery(), openChats: {}) }
             default:
                 states
             }
         }
         .ignoresSafeArea(edges: scene == "terminal" ? .all : [])
         .accessibilityIdentifier("recoveryGallery.\(scene)")
+        .preferredColorScheme(scheme)
     }
 
     private var states: some View {
@@ -121,14 +137,49 @@ public struct RecoveryGalleryRoot: View {
         .background(CmuxMobileTheme.standard.colors.bg.color)
     }
 
+    /// A (picked): SPEC 7.3's inline failure card, the shape every failure card in the
+    /// app has, so the state reads as something to act on, with its one button.
+    /// B: a centered note as Home's other notes (reads as fine print; easy to miss).
+    /// C: the Chief's row with the button trailing (reads as a chat, and a tap on the row
+    /// would open a Chief that does not answer).
+    private var chiefOff: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                galleryLabel("A · picked · off")
+                ChiefOffCardView(.off) {}.padding(.horizontal, 16)
+                galleryLabel("A · turning on")
+                ChiefOffCardView(.turningOn) {}.padding(.horizontal, 16)
+                galleryLabel("A · failed")
+                ChiefOffCardView(.failed) {}.padding(.horizontal, 16)
+                galleryLabel("A · unavailable on this account")
+                ChiefOffCardView(.unavailable) {}.padding(.horizontal, 16)
+                galleryLabel("B · note")
+                ChiefOffCardView(.off, style: .note) {}.padding(.horizontal, 16)
+                galleryLabel("C · row")
+                ChiefOffCardView(.off, style: .row) {}.padding(.horizontal, 16)
+            }
+            .padding(.vertical, 60)
+        }
+        .background(CmuxMobileTheme.standard.colors.bg.color)
+    }
+
     private func galleryLabel(_ text: String) -> some View {
         Text(text).font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
             .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 20)
     }
 
+    /// The signed-out banner where the Workspaces list shows it (`-cmux-mobile-recovery-gallery signedout`).
+    private var signedOut: some View {
+        List {
+            ForEach(["cmux", "api", "web"], id: \.self) { Text($0) }
+        }
+        .cmuxMobileBanner(.signedOut, retry: {})
+    }
+
     private var cards: some View {
         VStack(spacing: 24) {
             ConnectionBanner(.offline, retry: {})
+            ConnectionBanner(.signedOut, retry: {})
             FailureCard(title: "Couldn't load your teams", message: "Check your connection, then retry.") {}
                 .padding(.horizontal, 20)
             VStack(spacing: 10) {

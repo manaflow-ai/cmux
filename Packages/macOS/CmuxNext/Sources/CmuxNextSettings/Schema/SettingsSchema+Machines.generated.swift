@@ -32,6 +32,9 @@ extension CloudNewWorkspaceSetting {
     /// `cloud.newWorkspaceFolder`: What a new Cloud workspace starts with.
     public nonisolated static let folderPath = ["cloud", "newWorkspaceFolder"]
     public nonisolated static let folderDefault: CloudWorkspaceFolder = .inherit
+    /// `cloud.turnCheckpoints`.
+    public nonisolated static let turnCheckpointsPath = ["cloud", "turnCheckpoints"]
+    public nonisolated static let turnCheckpointsDefault = false
 }
 
 extension CloudLoginCopyConsentSetting {
@@ -143,7 +146,9 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var freeModel: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.freeModel", "AI Models")
         return [
@@ -160,7 +165,9 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var sshLinks: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.sshLinks", "SSH Links")
         return [
@@ -169,7 +176,7 @@ nonisolated enum MachineSettingsSchema {
                 section: .machines,
                 group: group,
                 title: SettingsText.keyed("settings.machines.sshLinkHosts", "Always Allowed SSH Link Hosts"),
-                help: SettingsText.keyed("settings.machines.sshLinkHosts.help", "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and acpmux peers never ask."),
+                help: SettingsText.keyed("settings.machines.sshLinkHosts.help", "An ssh:// link from another app connects to these hosts without asking. Remove a host to be asked again. Saved machines and cmux peers never ask."),
                 kind: .stringList,
                 default: .array(SSHLinkHostsSetting.fallback.map { .string($0) }),
                 keywords: ["ssh", "link", "url", "host", "trust", "allow", "always", "machine", "security"],
@@ -177,7 +184,9 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var cloud: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.cloudWorkspaces", "Cloud Workspaces")
         return [
@@ -234,9 +243,21 @@ nonisolated enum MachineSettingsSchema {
                 default: .bool(CloudAgentStartSetting.fallback),
                 keywords: ["cloud", "vm", "machine", "agent", "start", "session", "create", "new machine", "move", "ask", "approve", "permission", "bypass", "without asking", "delegate"]
             ),
+            SettingDescriptor(
+                CloudNewWorkspaceSetting.turnCheckpointsPath,
+                section: .machines,
+                group: group,
+                title: SettingsText.keyed("settings.cloud.turnCheckpoints", "Save a Checkpoint Before Each Cloud Chat Turn"),
+                help: SettingsText.keyed("settings.cloud.turnCheckpoints.help", "Saves the whole Cloud machine between turns of a Cloud chat, so Back to Before This Turn restores it in seconds. Keeps the newest few checkpoints of each chat. Off: no checkpoints are saved."),
+                kind: .toggle,
+                default: .bool(CloudNewWorkspaceSetting.turnCheckpointsDefault),
+                keywords: ["cloud", "checkpoint", "snapshot", "undo", "rewind", "restore", "turn", "back", "machine"]
+            ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var mobile: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.mobile", "iPhone")
         return [
@@ -278,7 +299,9 @@ nonisolated enum MachineSettingsSchema {
             ).hiddenFromSettingsPage("device ids, set in the cmux app on the iPhone"),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var macScreen: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.macScreenKeyboard", "Mac Screen")
         return [
@@ -295,7 +318,9 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var macScreenDebug: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.macScreen", "Mac Screen")
         return [
@@ -312,7 +337,9 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var remote: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.cmuxRemote", "cmux Remote")
         return [
@@ -340,7 +367,9 @@ nonisolated enum MachineSettingsSchema {
             ),
         ]
     }
+}
 
+extension MachineSettingsSchema {
     static var deviceHub: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.deviceHub", "Device Hub")
         return [
@@ -355,32 +384,6 @@ nonisolated enum MachineSettingsSchema {
                 default: .string(DeviceHubSettings.urlDefault),
                 keywords: ["device hub", "devices", "mac screen", "backend", "development", "debug"]
             ),
-        ]
-    }
-
-    static var imessage: [SettingDescriptor] {
-        let group = SettingsText.keyed("settings.section.accounts", "Accounts")
-        return [
-            SettingDescriptor(
-                CmuxConfigSnapshot.imessageEnabledPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.imessage.enabled", "Connect iMessage"),
-                help: SettingsText.keyed("settings.imessage.enabled.help", "Allow reading Messages conversations on this Mac after connecting in Session Info. Sending still needs your click."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.imessageEnabledDefault),
-                keywords: ["imessage", "messages", "connector", "privacy"]
-            ).hiddenFromSettingsPage("connect and disconnect from Session Info's iMessage connector"),
-            SettingDescriptor(
-                CmuxConfigSnapshot.imessageAutomationSkippedPath,
-                section: .accounts,
-                group: group,
-                title: SettingsText.keyed("settings.imessage.automationSkipped", "Skip Messages Automation"),
-                help: SettingsText.keyed("settings.imessage.automationSkipped.help", "Remember skipping the Messages Automation step. This does not grant access or authorize sending."),
-                kind: .toggle,
-                default: .bool(CmuxConfigSnapshot.imessageAutomationSkippedDefault),
-                keywords: ["imessage", "messages", "automation", "connector"]
-            ).hiddenFromSettingsPage("permission walkthrough state, set only by the iMessage connector"),
         ]
     }
 }

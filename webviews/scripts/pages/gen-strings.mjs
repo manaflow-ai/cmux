@@ -95,7 +95,13 @@ export const PAGES = {
           all.filter(
             (key) =>
               key.startsWith("git.") ||
-              ["changes.stageFile", "changes.unstageFile", "changes.stageFailed"].includes(key),
+              [
+                "changes.stageFile",
+                "changes.unstageFile",
+                "changes.stageFailed",
+                "changes.createPullRequest",
+                "changes.pullRequestFailed",
+              ].includes(key),
           ),
       },
     ],
@@ -171,6 +177,12 @@ export const PAGES = {
     out: "webviews/src/pages/stash/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/stash/Localizable.xcstrings" }],
   },
+  // The Feed page (plans/cmux-next/feed-page.md): its table moved next to it when the Swift Feed
+  // module was deleted (the same keys and values), with the refusal toast's `toast.dismiss`.
+  feed: {
+    out: "webviews/src/pages/feed/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/feed/Localizable.xcstrings" }],
+  },
   // The App Store page reads the `store.` keys of the app platform's table until the Swift store
   // is deleted (react-pages.md A3); then the table moves next to the page.
   apps: {
@@ -211,6 +223,31 @@ export const PAGES = {
   bookmarks: {
     out: "webviews/src/pages/bookmarks/generated/strings.json",
     catalogs: [{ file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings` }],
+  },
+  // The bookmarks bar (cmux-page://cmux.bookmarks-bar/): the bar's words from the same catalog.
+  "bookmarks-bar": {
+    out: "webviews/src/pages/bookmarks-bar/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextBookmarks/Resources/Localizable.xcstrings`,
+        keys: () => ["root.bar", "root.other", "bar.more", "bar.emptyHint", "folder.empty", "verb.openAll"],
+      },
+    ],
+  },
+  // The sidebar's chat history blocks (CmuxNextSidebar SidebarChatHistoryHost): the sidebar's own keys.
+  "sidebar-chats": {
+    out: "webviews/src/pages/sidebar-chats/generated/strings.json",
+    catalogs: [
+      {
+        file: `${sources}/CmuxNextSidebar/Resources/Localizable.xcstrings`,
+        keys: () => [
+          "sidebar.section.pinned",
+          "sidebar.chatHistory.earlier",
+          "sidebar.chatHistory.showMore",
+          "sidebar.chatHistory.loading",
+        ],
+      },
+    ],
   },
   // Cloud has no Swift page, so its table lives next to the page.
   cloud: {
@@ -280,11 +317,6 @@ export const PAGES = {
     out: "webviews/src/pages/artifacts/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/artifacts/Localizable.xcstrings" }],
   },
-  // The overlay page's toast stack (cmux-page://cmux.overlay/, route /toasts); its table lives next to it.
-  "overlay-toasts": {
-    out: "webviews/src/pages/overlay/toasts/generated/strings.json",
-    catalogs: [{ file: "webviews/src/pages/overlay/toasts/Localizable.xcstrings" }],
-  },
   // The Stats page (cmux-page://cmux.stats/, hq#1920); its table lives next to it.
   stats: {
     out: "webviews/src/pages/stats/generated/strings.json",
@@ -294,6 +326,19 @@ export const PAGES = {
   github: {
     out: "webviews/src/pages/github/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/github/Localizable.xcstrings" }],
+  },
+  // The Task Manager page (cmux-page://cmux.task-manager/): its own words next to it (the columns,
+  // the empty list, the total, moved from the SwiftUI table it replaced), and the tab title and Kill
+  // Process, which the Swift kill question says too, from CmuxNextResources' catalog.
+  "task-manager": {
+    out: "webviews/src/pages/task-manager/generated/strings.json",
+    catalogs: [
+      { file: "webviews/src/pages/task-manager/Localizable.xcstrings" },
+      {
+        file: `${sources}/CmuxNextResources/Resources/Localizable.xcstrings`,
+        keys: () => ["taskManager.title", "taskManager.kill.button"],
+      },
+    ],
   },
   // The Tasks page (cmux-page://cmux.tasks/); its table lives next to it (the Swift pane is gone).
   tasks: {
@@ -440,7 +485,18 @@ export const PAGES = {
   // next to it. The pane's build splits it into locales/<code>.js (build-agent-pane-web.sh).
   agentPane: {
     out: "webviews/src/agent-session/acpmux/generated/strings.json",
-    catalogs: [{ file: "webviews/src/agent-session/acpmux/Localizable.xcstrings" }],
+    catalogs: [
+      { file: "webviews/src/agent-session/acpmux/Localizable.xcstrings" },
+      // An app section's failure row (apps/scene/SceneFailure.tsx) says what the native
+      // AppFailureNSView says: the app platform's own `apps.failure.` and Reload keys.
+      {
+        file: `${sources}/CmuxNextApps/Resources/Localizable.xcstrings`,
+        keys: (all) =>
+          all.filter(
+            (key) => key.startsWith("apps.failure.") || key === "apps.mount.reload" || key === "apps.mount.reload.help",
+          ),
+      },
+    ],
   },
   // The empty states of the diff and markdown pages and their path picker (src/viewer-empty).
   viewerEmpty: {

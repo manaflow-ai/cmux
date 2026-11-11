@@ -17,6 +17,76 @@ struct AgentIncomingCard: View {
     @State private var open: Set<Int> = []
 
     var body: some View {
+        if incoming.chief != nil, let message = incoming.messages.first {
+            chiefBubble(message)
+        } else {
+            card
+        }
+    }
+
+    /// A message a Chief's turn sent this chat (acpmux `fromChief`), as the person asked (CMUX-51: "if
+    /// sent from chief, make it a blue bubble (not from me)"): a blue bubble at the right, under the
+    /// Chief's own name and a "Chief" tag, so it never reads as the person's grey bubble. Its sender
+    /// is said in words too (the line and the accessibility label), not by colour alone.
+    private func chiefBubble(_ message: AgentIncoming.Message) -> some View {
+        let name = message.sender
+        return VStack(alignment: .trailing, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "person.crop.circle.badge.checkmark")
+                    .font(.footnote)
+                    .foregroundStyle(Color(uiColor: .systemBlue))
+                    .accessibilityHidden(true)
+                Text(name)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                AgentIncomingChip(label: "Chief")
+                if incoming.edited { AgentIncomingChip(label: "edited") }
+                Text(at, style: .time)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+            if !attachments.isEmpty {
+                SentAttachments(attachments: attachments)
+            }
+            Text(Self.inlineMarkdown(message.text))
+                .font(.body)
+                .lineSpacing(4)
+                .foregroundStyle(.white)
+                .tint(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 11)
+                .background(Color(uiColor: .systemBlue), in: .rect(cornerRadius: 20, style: .continuous))
+                .contentShape(.contextMenuPreview, .rect(cornerRadius: 20, style: .continuous))
+                .contextMenu { menu }
+        }
+        .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.8 }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(Text("From Chief \(name): \(message.text)"))
+        .accessibilityIdentifier("agent-chat.chief-bubble")
+    }
+
+    /// The message's inline Markdown (bold, code, links), its line breaks kept; as written when it
+    /// does not read.
+    static func inlineMarkdown(_ text: String) -> AttributedString {
+        (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(text)
+    }
+
+    @ViewBuilder private var menu: some View {
+        Section(AgentTurn.menuTimestamp(at)) {
+            Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = incoming.text }
+            Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(incoming.text) }
+            // The prompt the agent got, envelope and all.
+            Button("Copy as Sent", systemImage: "envelope") { UIPasteboard.general.string = incoming.raw }
+            if let id = incoming.messageID {
+                Button("Copy Message ID \(id)", systemImage: "number") { UIPasteboard.general.string = id }
+            }
+        }
+    }
+
+    private var card: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
             if !attachments.isEmpty {
@@ -39,17 +109,7 @@ struct AgentIncomingCard: View {
         .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(.separator, lineWidth: 0.5))
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(.contextMenuPreview, .rect(cornerRadius: 16, style: .continuous))
-        .contextMenu {
-            Section(AgentTurn.menuTimestamp(at)) {
-                Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = incoming.text }
-                Button("Select Text", systemImage: "selection.pin.in.out") { ChatSelectText.present(incoming.text) }
-                // The prompt the agent got, envelope and all.
-                Button("Copy as Sent", systemImage: "envelope") { UIPasteboard.general.string = incoming.raw }
-                if let id = incoming.messageID {
-                    Button("Copy Message ID \(id)", systemImage: "number") { UIPasteboard.general.string = id }
-                }
-            }
-        }
+        .contextMenu { menu }
         .accessibilityElement(children: .contain)
     }
 
@@ -161,7 +221,9 @@ struct AgentIncomingCard: View {
 /// method named like a `View` modifier: a `tag(_:)` helper here lost overload resolution to
 /// SwiftUI's `View.tag(_:)` (a `String` literal beats a `LocalizedStringKey` one), so the header
 /// drew the whole card again inside itself, without end, and the transcript crashed with a stack
-/// overflow on the first agent message it laid out (TestFlight 20261110000821, 2026-11-09).
+/// overflow on the first agent message it laid out (TestFlight 20261110000821, 2026-11-09). The
+/// Chief's bubble kept two such `tag("…")` calls after the helper was gone, which compiled the same
+/// way and crashed the chat when it scrolled up to a Chief's message (AgentHistoryScrollUITests).
 struct AgentIncomingChip: View {
     let label: LocalizedStringKey
 

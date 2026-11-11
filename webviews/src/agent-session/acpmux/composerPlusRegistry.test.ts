@@ -292,6 +292,7 @@ test("recent commands are kept most recent first, without repeats", () => {
     expect(rememberRecentCommand("review")).toEqual(["review", "deploy"]);
     expect(loadRecentCommandNames()).toEqual(["review", "deploy"]);
   } finally {
-    globalThis.localStorage = previous;
+    if (previous === undefined) delete (globalThis as { localStorage?: Storage }).localStorage;
+    else globalThis.localStorage = previous;
   }
 });

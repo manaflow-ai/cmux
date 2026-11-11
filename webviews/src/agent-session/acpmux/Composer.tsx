@@ -160,6 +160,7 @@ import {
 import { compactingUsage } from "./usageStats";
 import { experimentArm } from "../../experiments/experiment";
 import { promptSuggestionLook } from "./promptSuggestionLook.experiment";
+import { cloudStartComposerLook } from "./cloudStartComposer.experiment";
 import { emojiShortcodeLook } from "./emojiShortcodeLook.experiment";
 import { EmojiMenu } from "./EmojiMenu";
 import { keepSendOrigins, noteSendOrigins } from "./conversation/sendMorph";
@@ -219,6 +220,9 @@ export type ComposerEditCommand = "cut" | "copy" | "paste" | "pasteAsPlainText";
 export type ComposerHandle = {
   /// Reads the current prompt and attachments before the composer is swapped out.
   draft(): { text: string; attachments: ComposerAttachment[] };
+  /// Takes the prompt and its chips out, leaving the composer empty (a failed Cloud start's Retry
+  /// sends its prompt alone and puts back what was typed during the start: App.tsx `sendStartPrompt`).
+  take(): { text: string; attachments: ComposerAttachment[] };
   /// Puts a held-back prompt in: `text` before what is typed now, `attachments` before the rest
   /// (`behind`: after them, for prompts sent after one already given back).
   restore(text: string, attachments: ComposerAttachment[], behind?: boolean): void;
@@ -468,9 +472,11 @@ type Props = {
   /// A new chat waiting on its folder choice: no prompt goes, including a trust-resend callback.
   /// Shell mode still runs. This is separate from a trust read's empty `blocked` object.
   blockSend?: boolean;
-  /// A Cloud start is out: the box takes no input until it ends (ComposerBox `inert`), since this
-  /// tab closes once the chat opens on the machine and an edit made meanwhile would be lost.
-  locked?: boolean;
+  /// A Cloud start is out (App.tsx `cloudStarting`): the box still takes typing, pastes, drops and
+  /// dictation, and nothing sends until the start ends, so a second Return starts no second chat.
+  /// What is typed goes to the host at once (`onUnsentDraft`, no throttle), which seeds the started
+  /// chat's composer with it as a draft (CloudStartChat `openUploaded`).
+  cloudStarting?: boolean;
   /// Current session/route auth refusal. Unlike folder Trust, force-send cannot bypass it.
   authBlock?: string;
   /// Keeps auth refusal blocking sends when its text is represented by another notice.
@@ -572,7 +578,7 @@ function ComposerFrame({
   switching,
   blocked,
   blockSend = false,
-  locked = false,
+  cloudStarting = false,
   authBlock,
   authBlocked = false,
   authChecking = false,
@@ -756,7 +762,6 @@ function ComposerFrame({
     pending,
     loading,
     unsettled,
-    videoReading,
     cancel,
     retry,
     revive,
@@ -769,6 +774,7 @@ function ComposerFrame({
     dropLanded,
     attach,
     attachLater,
+    refused: attachRefused,
   } = useAttachmentIntake({
     // An attachment the person brings is their edit of the prompt, as a key is: a draft read that
     // answers while it loads keeps the prompt that holds its placeholder, never replaces it (Leo,
@@ -781,7 +787,9 @@ function ComposerFrame({
     },
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
-    locked: () => locked,
+    // A Cloud start is out: the host carries the started chat's text, not its chips, so a file
+    // pasted, dropped or picked now is refused with this note rather than lost with this tab.
+    refusal: () => (cloudStarting ? t("composer.cloudStartingAttach") : undefined),
     // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
     pasteTarget: (target) =>
       shellField.current?.contains(target)
@@ -821,12 +829,11 @@ function ComposerFrame({
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   // It binds the Enter's or click's gesture at once: the screenshot's upload would spend it meanwhile.
   const bindHeldSend = () => onBindSendGesture?.();
-  const holdForAttachments = useSendWhenAttached<SendGesture>(
-    loading + videoReading,
-    sessionId,
-    unsettled + videoReading,
-    bindHeldSend,
-  );
+  // A video's read (its poster, frames and speech, composer/videoAttachments.ts) holds no send: the
+  // chip is its path from the paste on, and what the host has read by the send goes with it (Leo,
+  // 2026-11-10: "it's 99% of the time fine for it to just to be a path and stuff, so idk why it's so
+  // slow").
+  const holdForAttachments = useSendWhenAttached<SendGesture>(loading, sessionId, unsettled, bindHeldSend);
   /// A prompt too large for one acpmux message waits for its images' originals still uploading,
   /// then goes with them as links (promptBudget.ts); the person's x on one lets it go without it.
   const holdForOriginals = useSendWhenOriginals<SendGesture>(
@@ -839,8 +846,6 @@ function ComposerFrame({
   // A paste anywhere in the pane outside a text field goes into the prompt, after what is already
   // there (composer/pasteAnywhere.ts).
   usePasteAnywhere(() => {
-    // A Cloud start is out (`locked`): the prompt takes nothing until it ends.
-    if (locked) return false;
     const shellInput = shellRef.current.shell ? shellField.current : null;
     if (shellInput) {
       shellInput.focus();
@@ -915,6 +920,21 @@ function ComposerFrame({
           attachments: attachmentsRef.current.filter((attachment) => !attachment.shellRun),
         };
       },
+      take() {
+        const taken = {
+          text: field.current?.value() ?? textRef.current,
+          attachments: attachmentsRef.current.filter((attachment) => !attachment.shellRun),
+        };
+        // Taken out by the page, not typed: no edit of the person's.
+        notTyped();
+        attachmentsRef.current = attachmentsRef.current.filter((attachment) => attachment.shellRun);
+        setAttachments((current) => current.filter((attachment) => attachment.shellRun));
+        if (!field.current?.type("")) {
+          setText("");
+          setCaret(0);
+        }
+        return taken;
+      },
       draftText: () =>
         withoutInlineTokens(field.current?.value() ?? textRef.current, (id) =>
           attachmentsRef.current.some((attachment) => attachment.id === id),
@@ -968,6 +988,9 @@ function ComposerFrame({
           });
       },
       attach(attachment) {
+        // A Cloud start is out: no chip comes in from any caller (a highlight, a selection, a
+        // recording, a link pick, the focused tab), and the note says why (`refusal`).
+        if (attachRefused()) return;
         // A pick past the most the composer holds says so, as a dropped file does.
         const held = attachmentsRef.current;
         const next = appendAttachments(held, [attachment]);
@@ -1079,7 +1102,7 @@ function ComposerFrame({
         }
       },
     }),
-    [setAttachments, attachLater],
+    [setAttachments, attachLater, attachRefused],
   );
   useEffect(() => {
     if (!draft) return;
@@ -1248,7 +1271,10 @@ function ComposerFrame({
   }, [sessionId, onUnsentDraft]);
   useEffect(() => {
     unsentDraft.current?.push(unsentText(text));
-  }, [text, sessionId, onUnsentDraft]);
+    // A Cloud start is out: the host may open its chat and close this tab at any moment, seeding that
+    // chat's composer with what it holds then, so each change goes now (the Send's clear included).
+    if (cloudStarting) unsentDraft.current?.flush();
+  }, [text, sessionId, onUnsentDraft, cloudStarting]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
   // Permission modes live in the access chip beside +; the + menu keeps only the Plan/Build toggle.
@@ -1373,11 +1399,9 @@ function ComposerFrame({
   const selected = Math.min(active, Math.max(matches.length - 1, 0));
   useLayoutEffect(() => {
     const node = shellField.current;
-    if (!node) return;
-    // One line grows with what is typed, as the prompt does (no scrollbar under 40vh).
-    node.style.height = "0px";
-    node.style.height = `${node.scrollHeight}px`;
-    if (shellCaret.current === undefined) return;
+    // It grows with what is typed by CSS (`field-sizing: content`, composerStates.css), as the prompt does: setting
+    // its height to 0 and reading scrollHeight here forced a layout on every render of the composer.
+    if (!node || shellCaret.current === undefined) return;
     node.focus();
     node.setSelectionRange(shellCaret.current, shellCaret.current);
     shellCaret.current = undefined;
@@ -1479,6 +1503,9 @@ function ComposerFrame({
     holdForOriginals(false, () => undefined);
     // acpmux refuses this chat on this connection (remoteEditing.ts): keep the draft.
     if (!remote.canSend) return false;
+    // A Cloud start is out: the prompt stays here (it goes to the started chat as a draft), and no
+    // Return starts a second chat, in Cloud or here, which the host would close with this tab.
+    if (cloudStarting) return false;
     // The folder's trust question is open: the prompt stays where it is.
     if (authBlock || authBlocked || blockSend || (blocked?.reason && !force)) return false;
     // The host has not taken the last prompt yet: it is still here, so Enter sends no copy, and
@@ -2089,8 +2116,10 @@ function ComposerFrame({
 
   promptBeforeInput.current = (data, state) => {
     typedAt.current = performance.now();
-    // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
-    if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
+    // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`. Not while a Cloud
+    // start is out: the started chat has no shell yet, and only the prompt's text reaches it, so `!`
+    // stays text.
+    if (!onShell || cloudStarting || state.composing || !state.empty || !data.startsWith("!")) return false;
     enterShell(data.slice(1));
     return true;
   };
@@ -2285,6 +2314,15 @@ function ComposerFrame({
         : undefined;
   const agentSuggested = suggested !== undefined && !suggestion;
   const suggestionLook = experimentArm(promptSuggestionLook);
+  // A Cloud start is out (`cloudStarting`): the open prompt says what is typed now waits for the
+  // Cloud chat (cloudStartComposer.experiment.ts). Each look stays inside the field and Send, so
+  // nothing moves when the start ends.
+  const startLook = experimentArm(cloudStartComposerLook);
+  const startingPlaceholder =
+    !cloudStarting || startLook === "dimmed"
+      ? undefined
+      : t(startLook === "status" ? "composer.cloudStartingStatus" : "composer.cloudStartingPlaceholder");
+  const startHoldsSend = cloudStarting && !shell;
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -2501,7 +2539,7 @@ function ComposerFrame({
     ? []
     : sendMenuChoices({
         // Send refused for now (trust, sign-in, a held send): no other way goes either.
-        draft: hasDraft && !(authBlock || authBlocked || blockSend || blocked?.reason),
+        draft: hasDraft && !(authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend),
         sendSteers: returnSteers && !steersAlways && !onOpenInWindow,
         side: Boolean(sendsToSide) && remote.canSend && !onOpenInWindow,
       });
@@ -2525,8 +2563,8 @@ function ComposerFrame({
         <button
           ref={sendButton}
           type="submit"
-          disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason) && !shell}
-          className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && hasDraft) ? " acpmux-send-ready" : ""}`}
+          disabled={Boolean(authBlock || authBlocked || blockSend || blocked?.reason || startHoldsSend) && !shell}
+          className={`acpmux-send${(shell ? shellText.trim() : !blockSend && !blocked?.reason && !startHoldsSend && hasDraft) ? " acpmux-send-ready" : ""}`}
           aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
           title={
             shell
@@ -2535,17 +2573,19 @@ function ComposerFrame({
                 ? t(COMPOSER_LABELS.escapeAgainToStop)
                 : authBlock
                   ? authBlock
-                  : blocked?.reason
-                    ? t(blocked.reason)
-                    : t(
-                        !snapshot.isWorking
-                          ? "composer.sendTooltip"
-                          : returnSteers && !steersAlways && !onOpenInWindow
-                            ? COMPOSER_LABELS.steerQueueTooltip
-                            : steersAlways || returnSteers
-                              ? "composer.steerTooltip"
-                              : "composer.queueTooltip",
-                      )
+                  : startHoldsSend
+                    ? t("composer.cloudStartingSend")
+                    : blocked?.reason
+                      ? t(blocked.reason)
+                      : t(
+                          !snapshot.isWorking
+                            ? "composer.sendTooltip"
+                            : returnSteers && !steersAlways && !onOpenInWindow
+                              ? COMPOSER_LABELS.steerQueueTooltip
+                              : steersAlways || returnSteers
+                                ? "composer.steerTooltip"
+                                : "composer.queueTooltip",
+                        )
           }
         >
           <SendSlotGlyph glyph={quietActions && !shell ? "return" : "arrow"} memory={morphMemory} scope={sessionId} />
@@ -2649,17 +2689,16 @@ function ComposerFrame({
           typedAt.current = performance.now();
         }}
         boxRef={setComposerBox}
-        inert={locked}
         fieldRef={fieldRef}
         field={{
           className: shell
             ? "acpmux-composer-prompt is-hidden"
-            : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}${agentSuggested && suggestionLook === "italic" ? " is-suggestion-italic" : ""}`,
+            : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}${agentSuggested && suggestionLook === "italic" ? " is-suggestion-italic" : ""}${cloudStarting && startLook === "dimmed" ? " is-cloud-starting" : ""}`,
           value: text,
           selectionKey: sessionId,
-          placeholder: dictating ? t("dictation.listening") : (suggested ?? placeholderText),
+          placeholder: dictating ? t("dictation.listening") : (startingPlaceholder ?? suggested ?? placeholderText),
           placeholderKey:
-            suggested && !dictating && (!agentSuggested || suggestionLook === "keycap")
+            suggested && !dictating && !startingPlaceholder && (!agentSuggested || suggestionLook === "keycap")
               ? t(COMPOSER_LABELS.suggestionKey)
               : undefined,
           attributes: {
@@ -2720,6 +2759,8 @@ function ComposerFrame({
         originalFailures={originalFailures}
         onPasteFile={(file) => void attach([file], true, "paste")}
         onPasteFiles={(files) => void attach(files, true, "paste")}
+        pasteKeepsText={cloudStarting}
+        onPasteRefused={() => setAttachError(t("composer.cloudStartingAttach"))}
         fieldMenu={fieldMenu}
         onFieldMenuOpen={noteSelection}
         fieldOverlay={

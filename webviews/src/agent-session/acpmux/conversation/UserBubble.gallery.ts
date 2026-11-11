@@ -6,6 +6,8 @@
 // chat's prompts after its first turn, which acpmux can fork through (cx-ncc.60). The icon buttons
 // name themselves in a tooltip on hover (the *-tooltip plays). A long prompt opens on its first twenty
 // lines, fading out, with Show more; a pasted block is the bubble's own text (PromptText.tsx).
+// A Cloud chat's prompt whose turn has a machine checkpoint adds Back to before this turn (the
+// rewind-* plays): three placements to compare, then the shipped one's pending, done and failed.
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, session, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -140,6 +142,54 @@ const yesterday = () =>
     ]),
   );
 
+/// A Cloud chat of two turns whose prompts each have a machine checkpoint taken before they ran, as
+/// the handshake's `cloudTurnRewind` names them (`user-<seq>`, the marks cloudTurnCheckpoints.ts
+/// reads; App.tsx). `answer`: how the host's `chat.rewindTurn` answers; `delayMs`: how long it takes.
+const REWIND_PROMPT = "Now cover it with a test that fakes two timeouts";
+const rewindChat = (answer: unknown = { seconds: 9.4 }, delayMs?: number) => ({
+  ready: { cloudMachineID: "vm_gallery_cloud", cloudTurnRewind: ["user-1", "user-4"] },
+  native: { "chat.rewindTurn": answer },
+  ...(delayMs !== undefined && { nativeDelayMs: { "chat.rewindTurn": delayMs } }),
+  snapshot: claude(
+    chat([
+      user("Add retry with backoff to the uploader", 9, { id: "user-1", seq: 1 }),
+      assistant("Done: three tries, doubling from 200 ms, only on 5xx and timeouts.", 8.5),
+      summary(8.5, { seq: 3, status: "completed" }),
+      user(REWIND_PROMPT, 6, { id: "user-4", seq: 4 }),
+      assistant("Added `uploader.retry.test.ts`; it passes and fails without the retry.", 5),
+      summary(5, { seq: 6, status: "completed" }),
+    ]),
+  ),
+});
+const REWIND = ".cv-user__actions .cv-turn-rewind";
+/// The latest prompt's rewind button.
+const LATEST_REWIND = `[data-row-id="user-4"] ${REWIND}`;
+
+/// Hovers the latest prompt and waits for its rewind button to show.
+const hoverRewind = async (ctx: PlayContext) => {
+  await ctx.hover({ text: REWIND_PROMPT });
+  await ctx.waitFor(() => ctx.document.querySelectorAll(REWIND).length === 2);
+};
+
+/// Clicks the latest prompt's rewind, then points at the composer, away from the prompt, and waits
+/// for the button to reach `state` with its row still shown. A failed rewind keeps no row shown, so
+/// that play points at the prompt again to show it.
+const rewindTo = (state: "pending" | "done" | "failed") => async (ctx: PlayContext) => {
+  await hoverRewind(ctx);
+  await ctx.click({ selector: LATEST_REWIND });
+  await ctx.hover({ selector: ".acpmux-composer" });
+  const selector = `${LATEST_REWIND}[data-rewind-state="${state}"]`;
+  if (state === "failed") {
+    await ctx.waitFor(() => ctx.document.querySelector(selector));
+    await ctx.hover({ text: REWIND_PROMPT });
+    return;
+  }
+  await ctx.waitFor(() => {
+    const row = ctx.document.querySelector(selector)?.closest(".cv-user__actions");
+    return row != null && ctx.document.defaultView!.getComputedStyle(row).opacity === "1";
+  });
+};
+
 /// Hovers the `selector` time and waits for its exact date and time to show above it.
 const hoverTime = (selector: string) => async (ctx: PlayContext) => {
   await ctx.waitFor(() => ctx.document.querySelector(selector));
@@ -170,6 +220,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
     "agent-session/acpmux/conversation/icons.tsx#Pin",
     "agent-session/acpmux/conversation/icons.tsx#Speaker",
+    "agent-session/acpmux/conversation/icons.tsx#Undo",
   ],
   anchors: [{ selector: ".acpmux-composer" }, { selector: ".acpmux-header" }],
   variants: {
@@ -367,6 +418,47 @@ export default agentPaneEntry({
         await ctx.click({ selector: '.cv-user__actions button[aria-label="Edit"]' });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-user__edit"));
       },
+    },
+    "rewind-row": {
+      note: "Shipped (A, the default). A Cloud chat's prompt whose turn has a machine checkpoint: hover it for Back to before this turn, an undo arrow after Fork in the same 24 px row, named in its tooltip. It reads as one of the row's own actions, beside Retry's rotate arrow and Fork, takes no room until the row shows, and the row keeps one grammar of glyphs (cmux/live/transcript-sent-message-footer-actions).",
+      ...rewindChat(),
+      play: async (ctx) => {
+        await hoverRewind(ctx);
+        await ctx.hover({ selector: LATEST_REWIND });
+        await ctx.waitFor(
+          () =>
+            ctx.document
+              .querySelector(".ui-title-tooltip:not([hidden])")
+              ?.textContent?.startsWith("Back to before this turn") ?? false,
+        );
+      },
+    },
+    "rewind-label": {
+      note: "Variant B, not shipped: Undo turn written out in the row after Fork. The plainest to find, but the only words among the row's glyphs, and it widens the row on every Cloud prompt.",
+      ...rewindChat(),
+      documentAttributes: { "turn-rewind-look": "label" },
+      play: hoverRewind,
+    },
+    "rewind-corner": {
+      note: "Variant C, not shipped: the undo arrow inside the bubble's bottom-right corner. Closest to the prompt it undoes, but it sits over the bubble's last line and apart from Retry and Fork.",
+      ...rewindChat(),
+      documentAttributes: { "turn-rewind-look": "corner" },
+      play: hoverRewind,
+    },
+    "rewind-pending": {
+      note: "Play: Back to before this turn clicked; while the machine goes back (about 16 s today) the button spins, says Going back… and cannot be pressed again, and the row stays shown with the pointer elsewhere, nothing moved.",
+      ...rewindChat({ seconds: 9.4 }, 600_000),
+      play: rewindTo("pending"),
+    },
+    "rewind-done": {
+      note: "Play: the rewind finished; the button is a check named Back to before this turn · 9.4 s, and the row stays shown so the reader sees it went.",
+      ...rewindChat({ seconds: 9.4 }),
+      play: rewindTo("done"),
+    },
+    "rewind-failed": {
+      note: "Play: the host refused the rewind; the button turns to the failure glyph named Couldn’t go back, and a second click tries again.",
+      ...rewindChat({ nativeError: { code: "cloud.rewind_failed" } }),
+      play: rewindTo("failed"),
     },
     "edit-tooltip": {
       note: "Play: hover the later prompt's pencil; the tooltip says Edit.",

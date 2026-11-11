@@ -200,6 +200,64 @@ fn persistent_reader_observes_commits_on_an_independent_connection() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Registry connections keep their statements compiled
+/// (`REGISTRY_STATEMENT_CACHE_CAPACITY`). A reused statement must read the
+/// latest commit, never the snapshot of its previous run: a long-lived
+/// reader (the fanout's, the roster's) and the writer each run the same
+/// statements again after every commit here.
+#[test]
+fn reused_statements_read_every_later_commit() {
+    let root = std::env::temp_dir().join(format!("cmux-journal-cached-{}", new_uuid_v4()));
+    let registry = WorkspaceRegistry::open(&root, "cached").unwrap();
+    let database_path = registry.session_journal_database_path().unwrap();
+    let reader = SessionJournalReader::open(&database_path).unwrap();
+    let workspace_id = format!("ws_{}", "2".repeat(32));
+    let result = serde_json::json!({"workspace_id":workspace_id});
+    for revision in 1..=6_u64 {
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )
+        .unwrap();
+        append_resource_journal_record(
+            &tx,
+            revision,
+            revision - 1,
+            "cached-test",
+            &format!("cached-commit-{revision}"),
+            if revision % 2 == 0 { "workspace.focus" } else { "workspace.rename" },
+            None,
+            &result,
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+        drop(db);
+
+        assert_eq!(registry.session_journal_head().unwrap(), revision);
+        assert_eq!(reader.head().unwrap(), revision);
+        let page = reader.after(revision - 1, 10).unwrap();
+        assert_eq!(page.head_sequence, revision);
+        assert_eq!(
+            page.records.iter().map(|record| record.sequence).collect::<Vec<_>>(),
+            [revision]
+        );
+        let (focused, reached) =
+            reader.kinds_after(0, revision, |kind| kind == "workspace.focus", 100).unwrap();
+        assert_eq!(reached, revision);
+        assert_eq!(
+            focused.iter().map(|record| record.sequence).collect::<Vec<_>>(),
+            (1..=revision).filter(|sequence| sequence % 2 == 0).collect::<Vec<_>>(),
+            "the kind read after commit {revision}"
+        );
+    }
+    drop(reader);
+    drop(registry);
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[test]
 fn archived_segment_metadata_is_verified_before_replay() {
     let registry = WorkspaceRegistry::in_memory("segment-integrity").unwrap();
@@ -880,8 +938,21 @@ fn a_read_only_kind_read_decodes_a_segment_whose_map_is_not_proven_whole() {
 /// The same on a synthetic registry of a long-lived owner's shape
 /// (`synth_registry`: `personal.session.put` churn, agent events, sealed
 /// segments) whose kind map is gone, as an older build's segments have none:
-/// the first kind read the roster replay makes, and all of them to the head.
-/// Writes both times to `.build/kind-backfill-slice.json` for the PR.
+/// the first kind read the roster replay makes maps one segment of the
+/// backfill, not all of them, and stops short of the head.
+///
+/// The bound is a count of segments, with the slice at zero so that it does
+/// not depend on the host: one call of the backfill then maps exactly one
+/// segment. A first read that waits for the whole backfill maps every
+/// segment and fails here. It was a ratio of two wall times before (the
+/// first read under a third of all reads): with the 100 ms slice the first
+/// read is 100 ms and one segment whatever the host, and all the reads took
+/// about three times that on the Linux CI host (121 ms of 338 ms in one red
+/// run), so the ratio stood at its limit by design and failed on correct
+/// code.
+///
+/// Both times with the real slice still go to
+/// `.build/kind-backfill-slice.json` for a PR; nothing asserts them.
 #[test]
 fn a_synth_registrys_first_kind_read_is_bounded_while_its_backfill_is_unfinished() {
     use crate::synth_registry::{SynthOptions, generate};
@@ -896,18 +967,41 @@ fn a_synth_registrys_first_kind_read_is_bounded_while_its_backfill_is_unfinished
     };
     let report = generate(&root, &options).unwrap();
     let registry = WorkspaceRegistry::open(&root, &options.session).unwrap();
-    let db = registry.connection.get();
-    db.execute_batch(
-        "DELETE FROM journal_segment_kinds;
-         DELETE FROM meta WHERE key LIKE 'journal_segment_kinds_backfill%';",
-    )
-    .unwrap();
-    drop(db);
+    let forget_kind_maps = |registry: &WorkspaceRegistry| {
+        registry
+            .connection
+            .get()
+            .execute_batch(
+                "DELETE FROM journal_segment_kinds;
+                 DELETE FROM meta WHERE key LIKE 'journal_segment_kinds_backfill%';",
+            )
+            .unwrap();
+    };
+    let mapped = |registry: &WorkspaceRegistry| -> i64 {
+        registry
+            .connection
+            .get()
+            .query_row("SELECT COUNT(DISTINCT segment_id) FROM journal_segment_kinds", [], |row| {
+                row.get(0)
+            })
+            .unwrap()
+    };
     let head = registry.session_journal_head().unwrap();
     let kinds = crate::journal_reducers::AgentRoster::folds_kind;
+
+    // The bound, in segments: a zero slice is one segment a call.
+    forget_kind_maps(&registry);
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(Some(std::time::Duration::ZERO)));
+    let (_, first_cursor) = registry.session_journal_kinds_after(0, head, kinds, 512).unwrap();
+    BACKFILL_SLICE_FOR_TEST.with(|slice| slice.set(None));
+    let first_mapped = mapped(&registry);
+
+    // The times with the real slice, for the report only.
+    forget_kind_maps(&registry);
     let started = std::time::Instant::now();
     let (_, mut cursor) = registry.session_journal_kinds_after(0, head, kinds, 512).unwrap();
     let first = started.elapsed();
+    let sliced_mapped = mapped(&registry);
     let mut reads = 1;
     while cursor < head {
         let (_, reached) = registry.session_journal_kinds_after(cursor, head, kinds, 512).unwrap();
@@ -920,6 +1014,9 @@ fn a_synth_registrys_first_kind_read_is_bounded_while_its_backfill_is_unfinished
         "segments": report.segments,
         "journal_head": head,
         "registry_bytes": report.registry_bytes,
+        "zero_slice_first_read_mapped_segments": first_mapped,
+        "zero_slice_first_read_cursor": first_cursor,
+        "first_read_mapped_segments": sliced_mapped,
         "first_read_ms": first.as_millis().to_string(),
         "all_reads_ms": total.as_millis().to_string(),
         "reads": reads,
@@ -931,8 +1028,142 @@ fn a_synth_registrys_first_kind_read_is_bounded_while_its_backfill_is_unfinished
     drop(registry);
     let _ = fs::remove_dir_all(&root);
     assert!(report.segments > 8, "{numbers}");
-    // The slice and one segment past it, with room for a slow host; the
-    // whole backfill is several times that.
-    assert!(first < std::time::Duration::from_millis(600), "{numbers}");
-    assert!(first * 3 < total, "the first read is a slice of the backfill: {numbers}");
+    assert_eq!(first_mapped, 1, "the first read maps one segment of the backfill: {numbers}");
+    assert!(first_cursor < head, "the first read stops short of the head: {numbers}");
+}
+
+/// The page reader's cursor rules (`query_resource_events_after`): a cursor at the head reads an empty page
+/// whatever history is retained; a cursor behind the head with no retained resource history, or behind the
+/// oldest retained revision, is a gap; a cursor past the head is invalid.
+#[test]
+fn resource_event_pages_keep_their_head_gap_and_ahead_rules() {
+    let registry = WorkspaceRegistry::in_memory("page-cursor-rules").unwrap();
+    {
+        let db = registry.connection.get();
+        db.execute("UPDATE meta SET value = '5' WHERE key = 'resource_revision'", []).unwrap();
+    }
+    // No retained resource history at all.
+    let at_head = registry.resource_events_after(5).unwrap();
+    assert_eq!(at_head.head_revision, 5);
+    assert!(at_head.batches.is_empty());
+    let behind = registry.resource_events_after(4).unwrap_err().to_string();
+    assert!(behind.starts_with("cursor.gap:"), "{behind}");
+    let ahead = registry.resource_events_after(6).unwrap_err().to_string();
+    assert!(ahead.starts_with("cursor.invalid:"), "{ahead}");
+
+    // History retained from revision 6 on: 5 reads it, 4 is a gap, the head reads nothing.
+    for revision in 6..=7 {
+        let db = registry.connection.get();
+        let tx = db.unchecked_transaction().unwrap();
+        tx.execute(
+            "UPDATE meta SET value = ?1 WHERE key = 'resource_revision'",
+            [revision.to_string()],
+        )
+        .unwrap();
+        append_resource_journal_record(
+            &tx,
+            revision,
+            revision - 1,
+            "test",
+            &format!("page-{revision}"),
+            "pane.focus",
+            None,
+            &serde_json::json!({}),
+            &serde_json::json!([]),
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+    assert_eq!(registry.resource_events_after(7).unwrap().batches.len(), 0);
+    let page = registry.resource_events_after(5).unwrap();
+    assert_eq!(page.batches.iter().map(|batch| batch.revision).collect::<Vec<_>>(), vec![6, 7]);
+    let gap = registry.resource_events_after(4).unwrap_err().to_string();
+    assert!(gap.starts_with("cursor.gap:"), "{gap}");
+}
+
+/// Probe (ignored): the cost of one agent roster snapshot save for a roster
+/// of N agent terminals (hook rows plus screen evidence), as the fold writes
+/// it after each pass that moves its cursor. Prints the snapshot size, the
+/// time per save and the WAL bytes each save appends.
+#[test]
+#[ignore = "probe: prints roster snapshot save cost"]
+fn agent_roster_snapshot_save_cost_probe() {
+    use crate::journal_reducers::{AGENT_PLUGIN_FORMAT, AgentRoster, RosterEvent};
+    for terminals in [10_usize, 170, 800] {
+        let mut roster = AgentRoster::default();
+        let mut sequence = 0_u64;
+        for index in 0..terminals {
+            let terminal = format!("term_{index:032x}");
+            for native_event in ["SessionStart", "UserPromptSubmit", "PreToolUse"] {
+                sequence += 1;
+                let ingress = crate::agent_hook_journal_ingress(
+                    "claude",
+                    native_event,
+                    Some(&terminal),
+                    serde_json::json!({"tool_name":"Bash","session_id":format!("session-{index}")}),
+                )
+                .unwrap();
+                roster.apply(&RosterEvent {
+                    producer_id: &ingress.producer_id,
+                    kind: &ingress.kind,
+                    subjects: &ingress.subjects,
+                    payload: &ingress.payload,
+                    sequence,
+                    committed_at_ms: 1_000_000 + sequence,
+                });
+            }
+            sequence += 1;
+            let payload = serde_json::json!({
+                "format": AGENT_PLUGIN_FORMAT,
+                "plugin": {"id": "agent-screen-detection", "version": 1},
+                "adapter": {"id": "claude", "version": 1},
+                "event": "state.changed",
+                "normalized": {
+                    "state": "working",
+                    "source_session": format!("pid:{}", 4000 + index),
+                    "observed_at_ms": (1_000_000 + sequence).to_string(),
+                    "plugin_generation": "1",
+                },
+                "native": {"visible": {"idle": false, "blocker": false, "working": true}},
+            });
+            let subjects = vec![JournalSubject { kind: "terminal".into(), id: terminal.clone() }];
+            roster.apply(&RosterEvent {
+                producer_id: "agent-screen-detection",
+                kind: "plugin.agent-screen-detection.agent.state.changed",
+                subjects: &subjects,
+                payload: &payload,
+                sequence,
+                committed_at_ms: 1_000_000 + sequence,
+            });
+        }
+        let root = std::env::temp_dir().join(format!("cmux-roster-save-{}", new_uuid_v4()));
+        let registry = WorkspaceRegistry::open(&root, "roster-save").unwrap();
+        let database_path = registry.session_journal_database_path().unwrap();
+        let wal_path = database_path.with_extension("sqlite3-wal");
+        let wal_len = || fs::metadata(&wal_path).map(|meta| meta.len()).unwrap_or(0);
+        const SAVES: u64 = 200;
+        let serialize_started = std::time::Instant::now();
+        let mut snapshot = String::new();
+        for _ in 0..SAVES {
+            snapshot = roster.snapshot().to_string();
+        }
+        let serialize = serialize_started.elapsed() / SAVES as u32;
+        // One save first, so the probe measures replacing a snapshot.
+        registry.put_journal_reducer_state("agent_roster", 1, 0, &snapshot).unwrap();
+        let wal_before = wal_len();
+        let started = std::time::Instant::now();
+        for cursor in 1..=SAVES {
+            registry.put_journal_reducer_state("agent_roster", 1, cursor, &snapshot).unwrap();
+        }
+        let per_save = started.elapsed() / SAVES as u32;
+        let wal_after = wal_len();
+        eprintln!(
+            "roster save: {terminals} agent terminals, snapshot {} bytes, serialize {serialize:?}, \
+             save {per_save:?}, WAL {} bytes per save (wal {wal_before} -> {wal_after})",
+            snapshot.len(),
+            wal_after.saturating_sub(wal_before) / SAVES,
+        );
+        drop(registry);
+        let _ = fs::remove_dir_all(root);
+    }
 }

@@ -1,0 +1,137 @@
+{
+  "$comment": "Theme slots: named, swappable micro-interactions a theme pack can replace (webviews/src/slots/registry.ts, docs/cmux-next/extensions/replace-a-slot.md). One entry per slot: its props contract, its motion spec in motion-scale tokens (never raw numbers), its reduced-motion behavior (required), the box every variant must fit (a variant never changes layout), the per-frame budget, and the variants cmux ships. The theme look selects a variant per slot (`slots: { \"<slot id>\": \"<variant id>\" }`); without it, or with an id no variant has, a slot draws its default. webviews `check:theme-slots` (scripts/check-theme-slots.ts) holds every variant to this file.",
+  "tokens": {
+    "$comment": "What a variant's stylesheet may name for a duration or an easing. Durations: the motion scale (schemas/motion-scale, `--cmux-motion-*`, `--cmux-spinner-period`) and the page loop periods beside it in pages/shared/desktop.css. Easings: the scale's curves, or `linear` / `steps(n)` for a loop.",
+    "durations": [
+      "--cmux-motion-quick",
+      "--cmux-motion-micro",
+      "--cmux-motion-standard",
+      "--cmux-motion-large",
+      "--cmux-motion-settle",
+      "--cmux-motion-send",
+      "--cmux-spinner-period",
+      "--cmux-breath-period",
+      "--cmux-shimmer-period"
+    ],
+    "easings": ["--cmux-ease-out", "--cmux-ease-spring", "--cmux-ease-settle", "--cmux-ease-send"],
+    "easingKeywords": ["linear", "steps"]
+  },
+  "budget": {
+    "$comment": "The rules every variant of every slot keeps. The check enforces each `enforced` rule on the variant's own files.",
+    "animatedProperties": ["transform", "opacity"],
+    "rules": [
+      {
+        "id": "compositor-only",
+        "enforced": true,
+        "rule": "Keyframes and transitions change only `transform` and `opacity`: the compositor runs them, the page lays out and paints nothing per frame."
+      },
+      {
+        "id": "no-js-per-frame",
+        "enforced": true,
+        "rule": "A variant's script starts no frame loop or timer (`requestAnimationFrame`, `setInterval`, `setTimeout`, Web Animations `animate()`, the page clock): all motion is CSS, so its main-thread cost per frame is zero by construction. Props the line already updates (its one-second clock) are the only change over time."
+      },
+      {
+        "id": "tokens-only",
+        "enforced": true,
+        "rule": "Every animation and transition duration is a `var()` of a duration token above and every easing an easing token or keyword: no `ms`/`s` literal anywhere in a variant's motion."
+      },
+      {
+        "id": "reduced-motion",
+        "enforced": true,
+        "rule": "Every animation sits inside `@media (prefers-reduced-motion: no-preference)` and under the slot's motion gate, so Reduce Motion, static status indicators and animations off draw the variant's still frame."
+      },
+      {
+        "id": "no-breathing",
+        "enforced": true,
+        "rule": "No mark fades, blinks or pulses forever (an infinite loop whose keyframes move `opacity`, `visibility` or `scale`): a status mark is still, and a loop moves a mark from place to place instead. webviews test/no-breathing-dots.test.ts holds every shipped stylesheet to it."
+      },
+      {
+        "id": "fixed-box",
+        "enforced": false,
+        "rule": "A variant fits the slot's box (`box`): the same block size as the default, and an inline size that never changes while it runs. Swapping variants never moves the transcript. Reviewed in the gallery entry, whose layout-shift gate fails a variant that moves."
+      },
+      {
+        "id": "stops",
+        "enforced": false,
+        "rule": "A loop stops with its condition (`stop`): the slot is drawn only while that holds, and a hidden page pauses every loop (`data-cmux-page-hidden`)."
+      }
+    ]
+  },
+  "motionGate": ":root:not([data-status-indicators=\"static\"], [data-agent-motion=\"off\"], [data-cmux-motion=\"off\"], [data-cmux-motion=\"reduced\"])",
+  "slots": [
+    {
+      "id": "chat.thinkingIndicator",
+      "title": "Thinking indicator",
+      "docs": "The agent chat's live line while a turn thinks before it names a step: the word (\"Thinking\", or the rotating verb) and how it shows the agent is working. Drawn by webviews/src/agent-session/acpmux/conversation/Thinking.tsx inside the line's `<output>`; the line's clock, tokens and counts after it are not the slot's.",
+      "props": {
+        "label": { "type": "string", "docs": "The words to draw: \"Thinking\", the turn's rotating verb or the person's custom verb. Already translated." },
+        "verbs": { "type": "string[]", "docs": "Every label the line may rotate through: reserve the widest (the default's `.cv-status-verb` grid does) so a verb change never moves what follows." },
+        "elapsed": { "type": "string?", "docs": "The time drawn after the slot (\"12s\"), when the line shows one; the default's light band crosses it too." },
+        "elapsedMs": { "type": "number", "docs": "How long the turn has run, updated by the line's existing one-second clock. A variant may change its look past a threshold (more dots as thinking continues); it never starts its own timer." }
+      },
+      "box": {
+        "block": "The live line's one row (`.cv-worked`, `var(--grid-row)`): a variant draws inside the line's 20px line box and never grows it.",
+        "inline": "The label at its reserved width (the widest of `verbs`) plus at most one mark of a fixed inline size, which never changes while the variant runs."
+      },
+      "motion": {
+        "durations": {
+          "loop": "--cmux-spinner-period",
+          "shimmer": "--cmux-shimmer-period",
+          "breath": "--cmux-breath-period"
+        },
+        "easings": {
+          "loop": "linear",
+          "breath": "--cmux-ease-settle",
+          "step": "steps"
+        },
+        "reducedMotion": "Every loop stops and the variant draws its still frame: the word in the line's muted tone and the mark (if any) at full strength, as the default draws the word with no band. Under Reduce Motion, static status indicators (`data-status-indicators=\"static\"`) and animations off (`data-agent-motion=\"off\"`, `data-cmux-motion`).",
+        "stop": "The slot is drawn only while the turn thinks with no step named: the line changes to the call, \"Writing\" or the next state, or the turn ends, and the slot unmounts with its loops (the built-in default keeps its one band mounted through a named step: the live line draws it in place). A hidden page pauses it (`data-cmux-page-hidden`); the transcript unmounts rows outside its window."
+      },
+      "defaultVariant": "default",
+      "variants": [
+        {
+          "id": "default",
+          "label": "Shimmer",
+          "docs": "What the line drew before slots, unchanged: a light band in the theme accent sweeps across the dim word and the time. Its two loops are the shared shimmer (conversation.css `.cv-shimmer__*`, `cmux-shimmer-band`/`cmux-shimmer-lit` on `--cmux-shimmer-period`, transform only), which other running rows share, so its rules stay in conversation.css.",
+          "source": "webviews/src/slots/thinkingIndicator/DefaultThinkingIndicator.tsx",
+          "styles": []
+        },
+        {
+          "id": "counting-dots",
+          "label": "Counting dots",
+          "docs": "Three dim dots after the word and a lit dot stepping from one to the next; past twenty seconds a fourth dot joins and the lit dot counts four, so a long think reads as longer.",
+          "source": "webviews/src/slots/thinkingIndicator/CountingDots.tsx",
+          "styles": ["webviews/src/slots/thinkingIndicator/thinkingIndicator.css"]
+        },
+        {
+          "id": "pulse",
+          "label": "Pulse",
+          "docs": "One small round mark after the word swells in once as the think starts, then holds still.",
+          "source": "webviews/src/slots/thinkingIndicator/PulseMark.tsx",
+          "styles": ["webviews/src/slots/thinkingIndicator/thinkingIndicator.css"]
+        },
+        {
+          "id": "caret",
+          "label": "Caret",
+          "docs": "A thin caret after the word steps ahead a place at a time, as a cursor typing ahead of the next words; it never blinks.",
+          "source": "webviews/src/slots/thinkingIndicator/CaretMark.tsx",
+          "styles": ["webviews/src/slots/thinkingIndicator/thinkingIndicator.css"]
+        },
+        {
+          "id": "blocks",
+          "label": "Blocks",
+          "docs": "Three square cells after the word, a lit block stepping across them a cell at a time: a retro look with no easing.",
+          "source": "webviews/src/slots/thinkingIndicator/BlockSteps.tsx",
+          "styles": ["webviews/src/slots/thinkingIndicator/thinkingIndicator.css"]
+        }
+      ]
+    }
+  ],
+  "next": [
+    { "id": "chat.jumpToBottom", "docs": "The transcript's jump-to-latest button: how it appears, rests and leaves." },
+    { "id": "chat.sendTransition", "docs": "A sent prompt's arrival in the transcript (today `--cmux-motion-send`)." },
+    { "id": "chat.receiveTransition", "docs": "A reply's first words arriving under the live line." },
+    { "id": "chat.sideInteraction", "docs": "The /side interaction: how a side question opens beside the thread and folds back." },
+    { "id": "chat.rowHover", "docs": "A transcript row's hover: its fill and the actions it reveals." }
+  ]
+}

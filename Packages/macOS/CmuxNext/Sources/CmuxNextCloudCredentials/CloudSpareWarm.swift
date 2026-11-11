@@ -46,7 +46,8 @@ public import os
             let still: @MainActor @Sendable () async throws -> Bool = { [auth] in auth.user?.id == userID && auth.teamID == teamID }
             let installed = await copyLogin(onto: copy.machineID, userID: userID, teamID: teamID, still: still)
             let kept = installed ? true : (try? await still()) == true
-            let end: CloudMoveCLI.SpareWarmEnd = kept ? .finished(copy.machineID) : .abandoned(copy.machineID)
+            // An installed copy is the receipt a start onto this machine takes instead of checking the login again.
+            let end: CloudMoveCLI.SpareWarmEnd = installed ? .installed(copy.machineID) : kept ? .finished(copy.machineID) : .abandoned(copy.machineID)
             _ = await cli.startChatWarmSpare(platform: platform, account: userID, access: token, install: install, end: end)
         }
     }
@@ -93,6 +94,21 @@ public extension CloudAuth {
 }
 
 public extension CloudHarnessLoginDecision {
+    /// The start record's outcome when a spare warm's installed copy on the start's machine stood in for the login check.
+    nonisolated static let warmReceipt = "warm receipt"
+
+    /// Whether a spare warm already installed `userID`'s login on `machine` before Send (Rust's `loginReceipt`, kept when
+    /// ``CloudSpareWarm`` reports its copy installed); then the start records ``warmReceipt`` and reads and passes no login
+    /// of its own (Leo, 2026-11-10: "if they're logged in why do we need to re-check their login after the critical path").
+    /// Never for a `--login` word, which decides for itself; no harness named is Claude, as the rules read it.
+    mutating func takeWarmReceipt(cli binary: URL?, machine: String, userID: String?, ask: CloudHarnessLoginAsk) async -> Bool {
+        guard ask.requested == nil, let binary, let userID else { return false }
+        let provider = harness.flatMap { $0.isEmpty ? nil : $0 } ?? CloudCredentialTransfer.Provider.claude.rawValue
+        guard await CloudMoveCLI(binary: binary).startChatLoginReceipt(machine: machine, account: userID, provider: provider) else { return false }
+        outcome = Self.warmReceipt
+        return true
+    }
+
     /// A login cancelled with its start (its copy failed before `run` awaited it) is `cancelled`, never "failed: CancellationError" (run 42157718918).
     nonisolated static let loginCancelled = "cancelled"
     /// The start record's outcome when the copy failed, before its fixed text.

@@ -31,6 +31,9 @@ WORKFLOWS = ROOT / ".github" / "workflows"
 
 HOSTED_MAC = re.compile(r"(?<![\w.-])macos-(?:latest|\d+)(?:-[a-z0-9]+)*(?![\w.-])")
 FORK_BRANCH = re.compile(r"github\.repository_owner != 'manaflow-ai' && 'macos-(?:latest|\d+)'")
+# The operator's hosted signing switch (Leo, 2026-11-10: "It's fine to sign on GitHub hosted tonight"): the
+# variable is compared with macos-26, never used as the label; unset, the signing jobs keep the trusted signer.
+HOSTED_SIGNING_SWITCH = re.compile(r"vars\.CI_NIGHTLY_MINI_SIGNER == 'macos-26' && 'macos-26'")
 # A comparison against a label (matrix.pool == 'macos-15') reads a route, it does not pick one.
 COMPARISON = re.compile(r"== 'macos-(?:latest|\d+)'")
 NEEDS_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.\w+")
@@ -48,7 +51,7 @@ def hosted_mentions(path: Path, *, comment: str) -> list[str]:
     for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if line.lstrip().startswith(comment):
             continue
-        code = COMPARISON.sub("", FORK_BRANCH.sub("", line.split(f" {comment} ", 1)[0]))
+        code = COMPARISON.sub("", HOSTED_SIGNING_SWITCH.sub("", FORK_BRANCH.sub("", line.split(f" {comment} ", 1)[0])))
         if HOSTED_MAC.search(code):
             hits.append(f"{path.relative_to(ROOT)}:{number}: {line.strip()}")
     return hits
@@ -111,10 +114,10 @@ class NoHostedMacInNightlies(unittest.TestCase):
 
     def test_the_sign_picker_answers_blacksmith_even_when_every_label_is_stalled(self) -> None:
         path = ROOT / "scripts/ci/nightly_sign_runner.py"
-        sys.path.insert(0, str(path.parent))
-        spec = importlib.util.spec_from_file_location("nightly_sign_runner_no_hosted", path)
-        picker = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(picker)
+        if str(path.parent) not in sys.path:
+            sys.path.insert(0, str(path.parent))
+        # Imported by name: the one module object other tests import.
+        import nightly_sign_runner as picker
         now = dt.datetime(2026, 10, 27, 3, 0, tzinfo=dt.timezone.utc)
         stalled = {
             "generated_at": now.isoformat().replace("+00:00", "Z"),

@@ -433,6 +433,11 @@ pub(in crate::cli) fn new(
             format!("acpmux answered no session: {created}"),
         ));
     }
+    // The chat `cmux chat send TEXT` and `chat wait|read last` mean next (last_chat.rs); an
+    // agent's own MCP calls are not the person's last chat.
+    if origin != "mcp" {
+        super::super::last_chat::remember(&session, None);
+    }
     let mut result = json!({
         "chat": session,
         "name": created.pointer("/_meta/acpmux/name").cloned().unwrap_or(Value::Null),
@@ -556,6 +561,8 @@ pub(in crate::cli) fn state(global: &GlobalArgs, target: &str) -> Result<Value, 
         ("policy", "policy"),
         ("cwd", "cwd"),
         ("pendingPermissions", "pending_permissions"),
+        // Other sessions' messages its Claude Code holds (acpmux `hub/native_messaging.rs`).
+        ("heldMessages", "held_messages"),
         ("queued", "queued"),
     ] {
         if let Some(value) = info.get(from).filter(|value| !value.is_null()) {

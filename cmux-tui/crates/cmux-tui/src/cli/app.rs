@@ -26,7 +26,10 @@ use open::{OpenRequest, parse_open};
 #[cfg(test)]
 use open::{is_web_url, open_is_interactive, parse_open_with};
 use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot, takes_caller};
-pub(super) use run::{action_run_params, insert_run_key, request_with_retry, safe_to_resend};
+pub(super) use run::{
+    action_run_params, insert_run_key, request_with_retry, request_with_retry_within,
+    safe_to_resend,
+};
 
 mod agent_open;
 mod batch;
@@ -125,10 +128,10 @@ pub(in crate::cli) fn waiting_run_timeout(action: &str) -> Duration {
     if PERSON_ACTIONS.contains(&action) { PERSON_RUN_TIMEOUT } else { WAITING_RUN_TIMEOUT }
 }
 const MAX_RESPONSE_BYTES: u64 = 16 << 20;
-/// An app that says the run never started (`busy`, an early `timeout`, a
-/// reconnecting daemon) is asked again this many times, after the delay it
-/// names (`retry_after_ms`, else this default, doubled each time).
-const BUSY_RETRIES: u32 = 5;
+/// An app that did not get to the request (`busy`, an early `timeout`, a
+/// reconnecting daemon; never a refusal the app decided) is asked again after the delay it names
+/// (`retry_after_ms`, else this default, doubled each time), until the
+/// request's deadline (`run::not_run_deadline`), never a fixed count of tries.
 const BUSY_RETRY_DELAY: Duration = Duration::from_millis(100);
 const MAX_BUSY_RETRY_DELAY: Duration = Duration::from_secs(1);
 
@@ -672,8 +675,9 @@ pub(super) fn run_action(
         };
         index += 1;
         match name.as_str() {
+            // `--target vm:ID` is the app's `machine:ID` (vm_words.rs).
             "target" => {
-                params.insert("target".into(), value);
+                params.insert("target".into(), super::vm_words::app_target(value));
             }
             "arg" => {
                 let text = value.as_str().unwrap_or_default();
@@ -700,6 +704,12 @@ pub(super) fn run_action(
                 params.insert("focus".into(), json!(on));
                 arguments.insert("focus".into(), json!(on));
             }
+            // `--yes` is the CLI's one word for "I confirm" (`device remove
+            // --yes`); an action whose argument is `confirm` (`settings set`,
+            // `cloud kill-machine`) takes it as `--confirm`.
+            "yes" if super::action_hint::action_takes_argument(action, "confirm") => {
+                arguments.insert("confirm".into(), value);
+            }
             _ => {
                 let key = argument_name(&name);
                 // A file or folder of the caller's working directory, for an app that runs elsewhere.
@@ -709,6 +719,8 @@ pub(super) fn run_action(
                     "path" | "out" | "bootstrapScript" | "machineConfig" | "fromFolder"
                 ) || (key == "cwd" && cwd_is_callers(action));
                 let value = if file { caller_path(value) } else { value };
+                let value =
+                    if key == "machine" { super::vm_words::app_target(value) } else { value };
                 arguments.insert(key, value);
             }
         }
@@ -836,21 +848,41 @@ fn run_command(global: &GlobalArgs, command: AppCommand) -> Ran {
 /// that does not answer as the cmux app is `socket.wrong_kind`; neither
 /// tries another socket.
 pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> {
-    let socket = command_socket(global)?;
+    connect_command_or_wait(global).map_err(|failure| failure.error)
+}
+
+/// A failed [`connect_command`]: the error to print, and whether it may pass by waiting (the app's
+/// control server restarting). Told from the connect's own failure, never from another connection.
+pub(super) struct ConnectFailure {
+    pub error: Value,
+    pub may_pass: bool,
+}
+
+/// [`connect_command`] that says whether its failure may pass by waiting.
+pub(super) fn connect_command_or_wait(global: &GlobalArgs) -> Result<UnixStream, ConnectFailure> {
+    let fixed = |error| ConnectFailure { error, may_pass: false };
+    let socket = command_socket(global).map_err(fixed)?;
+    let uid = cmux_tui_core::platform::effective_uid();
     let Some(flag) = socket.named_by else {
-        return connect(&socket.path).map_err(|message| typed("app.unreachable", message, None));
+        return connect_for_uid(&socket.path, uid).map_err(|error| ConnectFailure {
+            may_pass: socket_gone(&error),
+            error: typed("app.unreachable", connect_message(&socket.path, &error), None),
+        });
     };
     let messages = &crate::localization::catalog().app_control;
     let path = socket.path.display().to_string();
-    let mut stream = connect_for_uid(&socket.path, cmux_tui_core::platform::effective_uid())
-        .map_err(|error| {
-            let message = messages
-                .explicit_unreachable
-                .replace("{path}", &path)
-                .replace("{flag}", flag)
-                .replace("{error}", &error.to_string());
-            typed("socket.unreachable", message, Some(&socket))
-        })?;
+    let unreachable = |error: &dyn std::fmt::Display| {
+        let message = messages
+            .explicit_unreachable
+            .replace("{path}", &path)
+            .replace("{flag}", flag)
+            .replace("{error}", &error.to_string());
+        typed("socket.unreachable", message, Some(&socket))
+    };
+    let mut stream = connect_for_uid(&socket.path, uid).map_err(|error| ConnectFailure {
+        may_pass: socket_gone(&error),
+        error: unreachable(&error),
+    })?;
     // `--socket` may name a daemon's socket: the app answers `system.ping`
     // with `pong`, anything else is another kind of socket, and no app
     // request runs there. `--app-socket` names the app socket itself.
@@ -862,11 +894,19 @@ pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> 
         let is_app = match &pong {
             Ok(Ok(result)) => result.get("pong") == Some(&Value::Bool(true)),
             Ok(Err(error)) => error.get("code").is_some_and(Value::is_string),
+            // A socket that took the connection and then closed it or did not answer is an app between a
+            // bind and its first answer (a control server restarting), not another kind of socket.
+            Err(message)
+                if is_dropped(message) || *message == wait::timeout_message(READ_TIMEOUT) =>
+            {
+                return Err(ConnectFailure { may_pass: true, error: unreachable(message) });
+            }
+            // A daemon's refusal of the unknown line is a plain-text line.
             Err(_) => false,
         };
         if !is_app {
             let message = messages.wrong_kind.replace("{path}", &path);
-            return Err(typed("socket.wrong_kind", message, Some(&socket)));
+            return Err(fixed(typed("socket.wrong_kind", message, Some(&socket))));
         }
     }
     Ok(stream)
@@ -1097,13 +1137,23 @@ fn names_a_target(error: &Value) -> bool {
     error.get("data").and_then(|data| data.get("reason")).is_some()
 }
 
-/// A refusal the CLI asks again for instead of showing it: the app says nothing ran
-/// (`not_run`) and the cause passes (`busy`, a `timeout` before the work started, or an
-/// `unavailable` read barrier on a daemon connection that was reconnecting, #32724). One that
-/// may have started (`in_progress`) is reported.
+/// A refusal the CLI asks again for instead of showing it: the app did not get to the request
+/// and the cause passes. A `busy` or a `timeout` before the work started (`not_run`) is one. An
+/// `unavailable` is one only when the app says so in `data.state: "not_run"`: the read barrier on
+/// a daemon connection that was reconnecting (#32724). Every other `unavailable` is a refusal the
+/// app decided (`state: "rejected"`, or no state from an app before it said one: a pane that
+/// cannot split, a person-only action, a window that is not ready). The same request gets the
+/// same answer, so it is reported at once, never held to the request's deadline
+/// (`cmux action run splitDown` on the agent chat took 45 s to say why); its text says when a
+/// new request can pass. One that may have started (`in_progress`) is reported too.
 fn retry_before_running(error: &Value) -> bool {
-    matches!(error_code(error), Some("busy" | "timeout" | "unavailable"))
-        && refused_before_running(error)
+    match error_code(error) {
+        Some("busy" | "timeout") => refused_before_running(error),
+        Some("unavailable") => {
+            error.pointer("/data/state").and_then(Value::as_str) == Some("not_run")
+        }
+        _ => false,
+    }
 }
 
 /// The app says nothing ran (`data.not_run`): it refused before the
@@ -1223,18 +1273,20 @@ pub(super) fn app_owns_daemon(identity: &AppIdentity, daemon: &Path) -> bool {
 /// No app listens at `socket` (no file, or a stale one): the command needs
 /// the app, which a Chief without the app must hear plainly (E17).
 pub(super) fn connect(socket: &Path) -> Result<UnixStream, String> {
+    connect_for_uid(socket, cmux_tui_core::platform::effective_uid())
+        .map_err(|error| connect_message(socket, &error))
+}
+
+fn connect_message(socket: &Path, error: &std::io::Error) -> String {
     let messages = &crate::localization::catalog().app_control;
-    connect_for_uid(socket, cmux_tui_core::platform::effective_uid()).map_err(|error| {
-        let template = match error.kind() {
-            std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => {
-                messages.needs_app
-            }
-            _ => messages.unreachable,
-        };
-        template
-            .replace("{path}", &socket.display().to_string())
-            .replace("{error}", &error.to_string())
-    })
+    let template = if socket_gone(error) { messages.needs_app } else { messages.unreachable };
+    template.replace("{path}", &socket.display().to_string()).replace("{error}", &error.to_string())
+}
+
+/// Nothing at the socket's path, or nothing listening there: an app restarting its control server, or
+/// one that quit. A permission or peer-uid failure is not this: it fails the same way every time.
+fn socket_gone(error: &std::io::Error) -> bool {
+    matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused)
 }
 
 /// Connects to one app socket. The peer-uid check is on this connection,
@@ -1441,31 +1493,59 @@ fn read_reply(
     alive: impl Fn(&UnixStream, Duration) -> bool,
 ) -> Result<Result<Value, Value>, String> {
     let mut reader = BufReader::new(
-        stream.try_clone().map_err(|error| error.to_string())?.take(MAX_RESPONSE_BYTES),
+        stream.try_clone().map_err(|error| io_message(&error))?.take(MAX_RESPONSE_BYTES),
     );
     // Bytes, not a String: a read cut by the timeout keeps what it read, even half a character.
     let mut response = Vec::new();
     let started = Instant::now();
+    // Socket reads one at a time, not `read_until`: that keeps reading while bytes trickle in,
+    // each read with a fresh window, so a reply sent in chunks could run past the deadline.
     loop {
-        // Each read waits one window, or less when the deadline is nearer.
-        let window = match (timeout, deadline) {
-            (_, Some(deadline)) => {
-                let left = deadline.saturating_duration_since(Instant::now());
-                if left.is_zero() {
-                    return Ok(Err(deadline_passed(method)));
-                }
-                Some(timeout.map_or(left, |window| window.min(left)))
-            }
-            (timeout, None) => timeout,
+        // Each socket read waits one window, or less when the deadline is nearer.
+        let Some(window) = window_before(timeout, deadline) else {
+            return Ok(Err(deadline_passed(method)));
         };
-        stream.set_read_timeout(window).map_err(|error| error.to_string())?;
-        match reader.read_until(b'\n', &mut response) {
-            Ok(_) => break,
+        // macOS refuses a socket option (EINVAL) once the peer closed: that is a dropped connection too.
+        stream.set_read_timeout(window).map_err(|error| match error.kind() {
+            // (A zero window is the other EINVAL, and not a dropped connection.)
+            std::io::ErrorKind::InvalidInput if window != Some(Duration::ZERO) => {
+                crate::localization::catalog().app_control.closed.to_owned()
+            }
+            _ => io_message(&error),
+        })?;
+        let read = match reader.fill_buf() {
+            Ok(available) => {
+                let newline = available.iter().position(|byte| *byte == b'\n');
+                let taken = newline.map_or(available.len(), |at| at.saturating_add(1));
+                response.extend(available.iter().take(taken));
+                Ok((taken, newline.is_some() || available.is_empty()))
+            }
+            Err(error) => Err(error),
+        };
+        match read {
+            Ok((taken, done)) => {
+                reader.consume(taken);
+                if done {
+                    break;
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
             Err(error) if is_read_timeout(&error) && passed(deadline) => {
                 return Ok(Err(deadline_passed(method)));
             }
             Err(error) => match timeout {
-                Some(window) if is_read_timeout(&error) && alive(stream, window) => {
+                Some(window) if is_read_timeout(&error) => {
+                    // The ping is held to the same deadline as the request.
+                    let Some(probe) = window_before(Some(window), deadline).flatten() else {
+                        return Ok(Err(deadline_passed(method)));
+                    };
+                    let answers = alive(stream, probe);
+                    if passed(deadline) {
+                        return Ok(Err(deadline_passed(method)));
+                    }
+                    if !answers {
+                        return Err(read_error(&error, timeout));
+                    }
                     note_busy(method, started.elapsed());
                 }
                 _ => return Err(read_error(&error, timeout)),
@@ -1473,6 +1553,17 @@ fn read_reply(
         }
     }
     parse_response(&String::from_utf8_lossy(&response))
+}
+
+/// How long the next wait may take: `timeout`, cut to what is left before `deadline`. `None` once
+/// the deadline has passed; `Some(None)` waits without a limit.
+fn window_before(timeout: Option<Duration>, deadline: Option<Instant>) -> Option<Option<Duration>> {
+    let Some(deadline) = deadline else { return Some(timeout) };
+    let left = deadline.saturating_duration_since(Instant::now());
+    if left.is_zero() {
+        return None;
+    }
+    Some(Some(timeout.map_or(left, |window| window.min(left))))
 }
 
 fn is_read_timeout(error: &std::io::Error) -> bool {
@@ -1512,7 +1603,29 @@ fn note_busy(method: &str, waited: Duration) {
 pub(super) fn send_line(stream: &mut UnixStream, value: &Value) -> Result<(), String> {
     let mut bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
     bytes.push(b'\n');
-    stream.write_all(&bytes).map_err(|error| error.to_string())
+    stream.write_all(&bytes).map_err(|error| io_message(&error))
+}
+
+/// An I/O failure's text. A connection the app dropped (a restart of its control server, a close under load)
+/// reads as the app's `closed` message: the one transport failure a new connection may heal ([`is_dropped`]).
+fn io_message(error: &std::io::Error) -> String {
+    use std::io::ErrorKind::{
+        BrokenPipe, ConnectionAborted, ConnectionReset, NotConnected, UnexpectedEof,
+    };
+    if matches!(
+        error.kind(),
+        BrokenPipe | ConnectionReset | ConnectionAborted | NotConnected | UnexpectedEof
+    ) {
+        crate::localization::catalog().app_control.closed.to_owned()
+    } else {
+        error.to_string()
+    }
+}
+
+/// Whether a transport failure is a dropped connection, which a new connection may heal. Any other one
+/// (an answer this cmux cannot read, a socket that is not the app's) fails the same way every time.
+pub(super) fn is_dropped(message: &str) -> bool {
+    message == crate::localization::catalog().app_control.closed
 }
 
 fn read_error(error: &std::io::Error, timeout: Option<Duration>) -> String {
@@ -1520,7 +1633,7 @@ fn read_error(error: &std::io::Error, timeout: Option<Duration>) -> String {
         (std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut, Some(timeout)) => {
             wait::timeout_message(timeout)
         }
-        _ => error.to_string(),
+        _ => io_message(error),
     }
 }
 

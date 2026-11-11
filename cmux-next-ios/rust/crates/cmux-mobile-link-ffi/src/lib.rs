@@ -13,9 +13,11 @@ use cmux_mobile_link::{ChannelEvent, DialError, DialOptions, LinkConfig, Signali
 use tokio::runtime::Runtime;
 
 mod browser;
+mod classic_leftovers;
 mod terminal_prediction;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
+pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
 
 uniffi::setup_scaffolding!();
@@ -182,6 +184,22 @@ pub enum CmuxMobileError {
     Transport { message: String },
     #[error("closed: {message}")]
     Closed { message: String },
+}
+
+/// The code of [`CmuxMobileError::Refused`] when the cmux service refused the
+/// access token (HTTP 401). The app refreshes the token once; a refused fresh
+/// token is a revoked session (it stops redialing and asks to sign in).
+pub const UNAUTHORIZED: &str = "unauthorized";
+
+impl From<cmux_mobile_link::signaling::SignalingError> for CmuxMobileError {
+    fn from(error: cmux_mobile_link::signaling::SignalingError) -> Self {
+        match error {
+            cmux_mobile_link::signaling::SignalingError::Unauthorized => {
+                Self::Refused { code: UNAUTHORIZED.into(), message: error.to_string() }
+            }
+            other => Self::Signaling { message: other.to_string() },
+        }
+    }
 }
 
 impl From<DialError> for CmuxMobileError {
@@ -953,7 +971,7 @@ impl Warm {
     ) -> Result<Arc<WarmSocket>, CmuxMobileError> {
         let client = SignalingClient::connect(&key.base_url, token, &key.team_id, &key.device_id)
             .await
-            .map_err(|e| CmuxMobileError::Signaling { message: e.to_string() })?;
+            .map_err(CmuxMobileError::from)?;
         timeline.mark("signaling_open");
         let socket = Arc::new(WarmSocket { key: key.clone(), client });
         let mut pool = self.sockets.lock().await;
