@@ -57,8 +57,8 @@ private struct ProjectPanelSearchFieldAnchor: NSViewRepresentable {
 /// keyboard focus for the panel.
 ///
 /// SwiftUI does not expose the `NSTextField` behind a `TextField`, so this
-/// view stands in for it: it shares the field's frame, and a responder whose
-/// text field is centered inside that frame is the field's editor.
+/// view stands in for it: it shares the field's frame, and a text field
+/// centred inside that frame is the search field.
 @MainActor
 final class ProjectPanelSearchFieldAnchorView: NSView {
     private weak var ownerPanel: ProjectPanel?
@@ -84,23 +84,32 @@ final class ProjectPanelSearchFieldAnchorView: NSView {
 
     /// Whether `responder` is the search field this view sits behind, or that
     /// field's editor, in `window`.
-    ///
-    /// AppKit places a field editor inside the text field it edits, so the
-    /// visible part of either lies within the field and so within this view.
-    /// The editor's delegate is not consulted: SwiftUI can give a field editor
-    /// a delegate that is not the text field.
     func ownsKeyboardFocus(_ responder: NSResponder, in window: NSWindow) -> Bool {
-        guard self.window === window else { return false }
-        let fieldView: NSView
+        guard self.window === window,
+              let field = Self.textField(owning: responder),
+              field.window === window else { return false }
+        let fieldFrame = field.convert(field.bounds, to: nil)
+        return convert(bounds, to: nil).contains(NSPoint(x: fieldFrame.midX, y: fieldFrame.midY))
+    }
+
+    /// The text field that `responder` is, or whose field editor it is.
+    ///
+    /// AppKit installs a field editor inside the text field it edits, so the
+    /// field is the editor's nearest `NSTextField` superview. The editor's
+    /// delegate is not used: SwiftUI can give a field editor a delegate that
+    /// is not the text field.
+    private static func textField(owning responder: NSResponder) -> NSTextField? {
         if let field = responder as? NSTextField {
-            fieldView = field
-        } else if let editor = responder as? NSTextView, editor.isFieldEditor {
-            fieldView = editor
-        } else {
-            return false
+            return field
         }
-        guard fieldView.window === window else { return false }
-        let visibleFrame = fieldView.convert(fieldView.visibleRect, to: nil)
-        return convert(bounds, to: nil).contains(NSPoint(x: visibleFrame.midX, y: visibleFrame.midY))
+        guard let editor = responder as? NSTextView, editor.isFieldEditor else { return nil }
+        var view = editor.superview
+        while let candidate = view {
+            if let field = candidate as? NSTextField {
+                return field
+            }
+            view = candidate.superview
+        }
+        return nil
     }
 }
