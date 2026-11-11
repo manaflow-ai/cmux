@@ -14,7 +14,9 @@ base does not have is the change's, however red the step is on the base. report(
 there. A finding's check name is its text with line numbers taken out (`path:123:` and `L123`), so a finding that
 only moved is still the base's, and an added one, in a file already red or not, is the change's.
 
-Outside the guard runner ($CMUX_GUARD_CHECK_RESULTS unset) report() does nothing.
+Outside the guard runner ($CMUX_GUARD_CHECK_RESULTS unset) report() does nothing. A guard that can scan another
+tree (`--root`, a self-test's fixture repository) passes the tree it scanned: only findings in the checkout the
+runner judges ($GITHUB_WORKSPACE) are reported, so a self-test's planted findings never become the step's checks.
 """
 from __future__ import annotations
 
@@ -35,9 +37,15 @@ def check_name(finding: str) -> str:
     return text[:MAX_CHECK_CHARS]
 
 
-def report(findings: Iterable[str], env: dict[str, str] | None = None) -> int:
-    """Append each finding as a failed check of the running guard step; returns how many were written."""
-    path = (os.environ if env is None else env).get(CHECK_RESULTS_ENV, "")
+def report(findings: Iterable[str], env: dict[str, str] | None = None,
+           root: "str | os.PathLike[str] | None" = None) -> int:
+    """Append each finding as a failed check of the running guard step; returns how many were written.
+    With `root`, nothing is written unless it is the checkout the guard runner judges ($GITHUB_WORKSPACE)."""
+    env = os.environ if env is None else env
+    path = env.get(CHECK_RESULTS_ENV, "")
+    workspace = env.get("GITHUB_WORKSPACE", "")
+    if root is not None and workspace and os.path.realpath(root) != os.path.realpath(workspace):
+        return 0
     names = sorted({name for name in (check_name(finding) for finding in findings) if name})
     if not path or not names:
         return 0

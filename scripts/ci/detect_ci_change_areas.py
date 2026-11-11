@@ -645,7 +645,7 @@ def _python_runner_names(root: Path, runner: str, test: str) -> Optional[bool]:
 def _test_nothing_runs(root: Path, test: str) -> bool:
     """True for a tests/ file in a registry lane no job runs (manual, say) that no workflow, action, script or
     other test runs and nothing imports: a test a person runs by hand. One that runs another test runs it only
-    there. tests/test_script_module_loads.py (manual) runs test_cmux_next_route.py in a subprocess, which made
+    there. The manual module-load test runs the cmux-next route test in a subprocess, which made
     every helper that route test names fail open (owned_pool_rescue.py, strip-release-bundle.sh: 2026-11-11)."""
     if not test.startswith("tests/") or not _nothing_imports_test(root, test):
         return False

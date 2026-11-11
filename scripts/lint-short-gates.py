@@ -256,7 +256,7 @@ def main(argv: list[str]) -> int:
         )
         for hit in hits:
             print(hit.show(), file=sys.stderr)
-        guard_findings.report(hit.show() for hit in hits)
+        guard_findings.report((hit.show() for hit in hits), root=REPO_ROOT)
         return 1
     print(f"lint-short-gates: ok ({len(files)} files, {len(entries)} allowlisted gates)")
     return 0
