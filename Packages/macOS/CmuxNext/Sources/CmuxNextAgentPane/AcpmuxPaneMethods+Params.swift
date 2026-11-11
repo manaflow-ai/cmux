@@ -128,6 +128,12 @@ nonisolated extension AcpmuxPaneMethods {
         // The preset approval card's answer only; a preset write (`set`, `clear`) never comes from the pane.
         "_acpmux/presets": (["name", "approveMode", "approveDigest", "sessionId"], []),
         "_acpmux/archive": (["sessionId", "archived"], []),
+        "_acpmux/cold_archive": (["sessionId", "archived"], []),
+        "_acpmux/prompt_coach": (["sessionId", "coachId"], []),
+        "_acpmux/run_elsewhere/plan": (["sessionId", "command"], []),
+        "_acpmux/run_elsewhere/start": (["sessionId", "command", "peer", "digest", "sendSecrets"], []),
+        "_acpmux/bg/output": (["sessionId", "id", "fromByte"], []),
+        "_acpmux/bg/stop": (["sessionId", "id"], []),
         "_acpmux/markUnread": (["sessionId"], []),
         "_acpmux/harness/health": (["refresh", "rescan"], []),
         "_acpmux/forum/rules": ([], []),
