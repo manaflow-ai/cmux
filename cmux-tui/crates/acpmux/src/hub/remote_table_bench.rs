@@ -56,48 +56,56 @@ struct Round {
     reads: u64,
 }
 
+/// Ends the reader's loop when the round ends, also when a notice panics: the scope that owns the
+/// reader thread then joins it and the round fails. A reader left in its loop would hang the scope.
+struct StopReader<'a>(&'a AtomicBool);
+
+impl Drop for StopReader<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::Release);
+    }
+}
+
 /// The last peer's `NOTICES` `session_changed` notices, each timed; with `busy`, one thread walks
 /// the rows the whole time. `round` keeps each round's `updatedAt` new, so every notice writes.
 fn notices_round(hub: &Arc<Hub>, peer: &Peer, busy: bool, round: usize) -> Round {
-    let stop = Arc::new(AtomicBool::new(false));
-    let reads = Arc::new(AtomicU64::new(0));
-    let started = Arc::new(std::sync::Barrier::new(2));
-    let reader = busy.then(|| {
-        let (hub, stop, reads, started) =
-            (hub.clone(), stop.clone(), reads.clone(), started.clone());
-        std::thread::spawn(move || {
+    let stop = AtomicBool::new(false);
+    let reads = AtomicU64::new(0);
+    let started = std::sync::Barrier::new(2);
+    // The round owns its reader thread: the scope joins the reader before it returns, so the
+    // thread never outlives the round that started it, and a panic of the reader fails the round.
+    let mut took = std::thread::scope(|scope| {
+        let _stop = StopReader(&stop);
+        if busy {
+            scope.spawn(|| {
+                started.wait();
+                while !stop.load(Ordering::Acquire) {
+                    // Each a walk over all 12,000 rows, as a lookup by a short name or a bare id
+                    // made before cmux#40935's indexes.
+                    std::hint::black_box(hub.remote_matches("lane-39"));
+                    std::hint::black_box(hub.resolve_remote("lane-39"));
+                    std::hint::black_box(hub.remote_names_containing("lane-39"));
+                    reads.fetch_add(1, Ordering::Relaxed);
+                }
+            });
             started.wait();
-            while !stop.load(Ordering::Acquire) {
-                // Each a walk over all 12,000 rows, as a lookup by a short name or a bare id
-                // made before cmux#40935's indexes.
-                std::hint::black_box(hub.remote_matches("lane-39"));
-                std::hint::black_box(hub.resolve_remote("lane-39"));
-                std::hint::black_box(hub.remote_names_containing("lane-39"));
-                reads.fetch_add(1, Ordering::Relaxed);
-            }
-        })
+            // Let the reader get into its walk before the first notice.
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let p = PEERS - 1;
+        let mut took = Vec::with_capacity(NOTICES);
+        for n in 0..NOTICES {
+            let session = row(p, n % PER_PEER, 10_000 + round * NOTICES + n);
+            let t = Instant::now();
+            hub.apply_peer_notice(
+                &peer.name,
+                peer.generation,
+                PeerNotice::SessionChanged { session, kind: "status".into(), seq: 0 },
+            );
+            took.push(t.elapsed());
+        }
+        took
     });
-    if busy {
-        started.wait();
-        // Let the reader get into its walk before the first notice.
-        std::thread::sleep(Duration::from_millis(5));
-    }
-    let p = PEERS - 1;
-    let mut took = Vec::with_capacity(NOTICES);
-    for n in 0..NOTICES {
-        let session = row(p, n % PER_PEER, 10_000 + round * NOTICES + n);
-        let t = Instant::now();
-        hub.apply_peer_notice(
-            &peer.name,
-            peer.generation,
-            PeerNotice::SessionChanged { session, kind: "status".into(), seq: 0 },
-        );
-        took.push(t.elapsed());
-    }
-    stop.store(true, Ordering::Release);
-    if let Some(reader) = reader {
-        reader.join().unwrap();
-    }
     took.sort();
     let at = |q: f64| took[((took.len() as f64 * q) as usize).min(took.len() - 1)];
     Round {
