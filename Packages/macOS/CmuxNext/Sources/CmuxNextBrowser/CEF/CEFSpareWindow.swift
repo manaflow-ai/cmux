@@ -147,6 +147,10 @@ final class CEFSpareWindow {
     private func preparePage(in spare: CEFPaneHost, runtime: CEFRuntime) -> Bool {
         guard Self.makesPages, !pagesHeld, page == nil, spare.isLive, runtime.forkAPIVersion >= 3, let anchor = spare.placeholder?.browserID,
               let shim = runtime.shim else { return false }
+        if let restsUntil {
+            guard now() >= restsUntil else { return false }
+            self.restsUntil = nil
+        }
         createdDuringPage = []
         let add = { shim.tabAdd(anchor, "", -1, 0) }
         let started = now()
@@ -156,6 +160,7 @@ final class CEFSpareWindow {
         let browser = add()
         #endif
         let ended = now()
+        if started.duration(to: ended) > Self.stallBudget { restsUntil = ended.advanced(by: Self.stallRest) }
         let created = createdDuringPage ?? []
         createdDuringPage = nil
         // A tab Chromium made itself during the call (an extension's) goes the way of every such tab,
