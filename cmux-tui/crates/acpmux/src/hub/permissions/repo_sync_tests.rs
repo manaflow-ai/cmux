@@ -43,6 +43,30 @@ async fn repo_sync_write_waits_then_preserves_the_agent_edit() {
     assert_eq!(std::fs::read_to_string(cwd.join("source")).unwrap(), "agent edit");
 }
 
+/// A seed that is still running holds its lock: it is alive, however long it takes. A write
+/// waits for it (or for its failure, or a stop), never fails on a deadline while it runs (the
+/// timer rule: no deadline fails a request while the other side is alive). Before, a seed past
+/// 10 minutes refused the agent's write with "repository sync is still running".
+#[tokio::test(start_paused = true)]
+async fn repo_sync_a_write_waits_for_a_live_seed_past_ten_minutes() {
+    let (_dir, hub, session) = fixture();
+    let cwd = session.meta().cwd;
+    let sync = Sync::begin(&cwd).unwrap();
+    let epoch = session.permission_epoch.load(Ordering::SeqCst);
+    let write = hub.handle_fs_write(
+        &session,
+        json!({"path":"source", "content":"agent edit"}),
+        epoch,
+        None,
+    );
+    tokio::pin!(write);
+    let early = tokio::time::timeout(Duration::from_secs(11 * 60), &mut write).await;
+    assert!(early.is_err(), "a live seed's wait ended after 11 minutes: {early:?}");
+    sync.complete().unwrap();
+    tokio::time::timeout(Duration::from_secs(2), &mut write).await.unwrap().unwrap();
+    assert_eq!(std::fs::read_to_string(cwd.join("source")).unwrap(), "agent edit");
+}
+
 #[tokio::test]
 async fn repo_sync_failure_and_stop_never_allow_a_write() {
     for cancelled in [false, true] {
