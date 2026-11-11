@@ -340,22 +340,23 @@ class ARatchetFindingCannotMaskAnother(unittest.TestCase):
                 paths.append(str(path))
             return subprocess.run([sys.executable, str(SCRIPT), *paths], capture_output=True, text=True)
 
-    OLD = "Tests/A.swift:25: sleep-then-assert: try await Task.sleep(for: .milliseconds(200))"
-    MOVED = "Tests/A.swift:31: sleep-then-assert: try await Task.sleep(for: .milliseconds(200))"
-    NEW = "Tests/B.swift:57: sleep-then-assert: try await Task.sleep(for: .milliseconds(50))"
+    # Finding text as the determinism gate prints it (`path:line: rule: code`), with a stand-in rule and code.
+    OLD = "Tests/A.swift:25: some-rule: try await wait(for: 200)"
+    MOVED = "Tests/A.swift:31: some-rule: try await wait(for: 200)"
+    NEW = "Tests/B.swift:57: some-rule: try await wait(for: 50)"
 
     def test_each_finding_is_a_check_named_without_its_line(self):
         head = self.results([self.OLD, "cmux-tui/src/x.rs: 2 new cap(s): L23 decl: const MAX: u64 = 20;"])
         self.assertFalse(head[self.STEP])
-        self.assertFalse(head[f"{self.STEP} :: Tests/A.swift: sleep-then-assert: try await Task.sleep(for: .milliseconds(200))"])
+        self.assertFalse(head[f"{self.STEP} :: Tests/A.swift: some-rule: try await wait(for: 200)"])
         self.assertFalse(head[f"{self.STEP} :: cmux-tui/src/x.rs: 2 new cap(s): decl: const MAX: u64 = 20;"])
 
     def test_a_new_finding_in_a_step_red_on_the_base_is_the_changes(self):
         done = self.compare(self.results([self.MOVED, self.NEW]), self.results([self.OLD]))
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
-        self.assertIn("::error title=Guard red on this change::" + self.STEP + " :: Tests/B.swift: sleep-then-assert",
+        self.assertIn("::error title=Guard red on this change::" + self.STEP + " :: Tests/B.swift: some-rule",
                       done.stdout)
-        self.assertIn("::warning title=Guard red on the base too::" + self.STEP + " :: Tests/A.swift: sleep-then-assert",
+        self.assertIn("::warning title=Guard red on the base too::" + self.STEP + " :: Tests/A.swift: some-rule",
                       done.stdout)
 
     def test_a_finding_that_only_moved_stays_the_bases(self):
@@ -370,7 +371,11 @@ class ARatchetFindingCannotMaskAnother(unittest.TestCase):
             env = {guard_findings.CHECK_RESULTS_ENV: str(out)}
             self.assertEqual(guard_findings.report([self.OLD, self.MOVED], env=env), 1, "a moved copy is one finding")
             self.assertEqual(out.read_text(encoding="utf-8"),
-                             "0\tTests/A.swift: sleep-then-assert: try await Task.sleep(for: .milliseconds(200))\n")
+                             "0\tTests/A.swift: some-rule: try await wait(for: 200)\n")
+            # A guard that scanned another tree (a self-test's fixture repository) reports nothing.
+            other = {**env, "GITHUB_WORKSPACE": str(ROOT)}
+            self.assertEqual(guard_findings.report([self.NEW], env=other, root=tmp), 0)
+            self.assertEqual(guard_findings.report([self.NEW], env=other, root=ROOT), 1)
 
 
 if __name__ == "__main__":

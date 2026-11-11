@@ -6837,7 +6837,8 @@ def main(argv: list[str]) -> int:
             print("(non-strict mode: not failing. Run with --strict to enforce.)")
 
     if args.strict and active:
-        guard_findings.report(f"{finding.path}: {finding.rule}: {finding.snippet}" for finding in active)
+        guard_findings.report((f"{finding.path}: {finding.rule}: {finding.snippet}" for finding in active),
+                              root=repo_root)
         return 1
     return 0
 

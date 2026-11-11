@@ -417,7 +417,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     if findings:
         for finding in findings:
             print(finding, file=sys.stderr)
-        guard_findings.report(str(finding) for finding in findings)
+        guard_findings.report((str(finding) for finding in findings), root=root)
         print(f"\n{FIX_HINT}", file=sys.stderr)
         return 1
     print(f"errno is captured before every assertion in {len(paths)} Swift test files")
