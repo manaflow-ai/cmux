@@ -556,6 +556,7 @@ mod list_workspaces_cost;
 mod outbound_and_scheduler;
 mod rds_input_lane;
 mod read_barrier;
+mod reply_value;
 mod resource_attach;
 mod resource_waits;
 mod send_expect_agent_replay;

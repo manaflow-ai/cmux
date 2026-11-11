@@ -297,40 +297,53 @@ tabs after.
 
 ### Workspaces: the app's side
 
-- State: one `WindowCloseSelection` for every window, owned by the window manager's
-  `WindowRegistryStore` (a workspace has one owner window, so one handle is enough). It holds
-  the handle through `CloseSelection` (CmuxNextDesignTokens).
-- `made`: `WorkspaceSpawner.start` reports a create into a window (`WindowCloseSelection.expect`)
-  before the window can show it, and only for a person's own New Workspace
-  (`WorkspaceSpawn.quickOpener`): the spawn opens the New Tab page, and the run is the person's
-  own (action origin `user`, view change allowed). A duplicate, a template, a session transfer, an
-  import and a tab moved to a new workspace report none. The relation is made when that window
-  shows the new workspace; its opener is the workspace shown before. With
-  `workspaces.newPlacement` `afterCurrent` (the default) it is a task opener, not reported as
-  foreground (Chrome 156's observed rows for a new tab in the middle: a visit to the opener and
-  back still returns to the opener); with `top` or `bottom` it is the quick opener.
+- State: Rust's (cmux-focus-core `close_selection::windows::WindowCloseSelection`, the C calls
+  `cmux_window_close_selection_*` of cmux-layout-reducer-ffi): the creates a window waits to show,
+  the window of each relation, the repairs that run, the relations, when one ends, and the pick.
+  Swift's `WindowCloseSelection` (CmuxNextLayout; one for every window, owned by the window
+  manager's `WindowRegistryStore`, as a workspace has one owner window) owns the handle, numbers
+  the app's string ids for it and passes each fact on. It decides nothing.
+- `made`: `WorkspaceSpawner.start` reports each create into a window (`WindowCloseSelection.expect`)
+  before the window can show it, with the relation Rust gives for the create's facts
+  (`WorkspaceSpawn.closeRelation`, one `cmux_window_close_selection_relation` call): the spawn
+  opens the New Tab page, the run is the person's own (action origin `user`), it may change the
+  view, and the placement setting puts the row after the current one. Only a person's own New
+  Workspace gets one; a duplicate, a template, a session transfer, an import and a tab moved to a
+  new workspace get none. The relation is made when that window shows the new workspace; its
+  opener is the workspace shown before. With `workspaces.newPlacement` `afterCurrent` (the default)
+  it is a task opener, not reported as foreground (Chrome 156's observed rows for a new tab in the
+  middle: a visit to the opener and back still returns to the opener); with `top` or `bottom` it
+  is the quick opener.
 - `selected`: every change of `WindowState.workspaceID` (`WindowCloseSelection.watch`). A selection a
   repair makes is not a gesture; a selection in a script's, the CLI's or MCP's run is not one.
-- `left`: when the close is committed (`WindowCloseSelection.settle`, after the pick of each repair):
-  for each workspace of the state that no window lists any more (the daemon's delta took it), that
-  moved to another window, or whose create failed. The press of a close keeps the relation, so a
-  cancelled or refused close shows the row again with its opener.
+- `left`: when the close is committed (`WindowCloseSelection.settle`, after the pick of each repair).
+  Rust asks about the workspaces and windows it holds (`_settle_questions`), Swift answers with the
+  registry's facts (the owner window, a waiting create, a registered window), and Rust ends what
+  is gone: a workspace no window lists any more (the daemon's delta took it), one that moved to
+  another window, one whose create failed.
+- The press of a close (`InstantClose.begin`, `repair(pressed: true)`) can still be cancelled or
+  refused. A quick relation of the hidden row lasts through that repair only; a cancelled close
+  shows the row again inside `WindowCloseSelection.repairing`, so that selection is the close's and
+  the row has its opener as before the press. A repair that is no press (a daemon delta, a move, a
+  room change) ends a quick relation as every selection that leaves the workspace does.
 - A selection that a daemon delta causes is never a gesture: the reconcile caller says so itself
-  (`repairSelection(gesture:)`), because no action run surrounds a delta.
+  (`repairSelection(gesture:)`), because no action run surrounds a delta. Whose selection a repair
+  makes is Rust's answer (`_repair_begin`): the person's only for a workspace they just moved in.
 - An opener that no sidebar order lists (a pinned layout tile) and a closed workspace that no order
-  lists yet: `WindowCloseSelection.pick` prepares the orders (the tile first in the order that lists
-  the closed row; the window's members as the last order), only while a relation is held. Rust
-  still decides. The root place is `successor_in_orders`; a change there needs a new FFI release
-  and pin (follow-up, with the tab PR), then the preparation goes.
-- A person's close of several rows in one gesture through `InstantClose.begin` (a multi-selection,
-  Close Others, Close Below, Close Above with more than one row) picks by position with no opener
-  rank (`pick(batch:)`). A bulk close that goes to the daemon direct (one row, a script's run, rows
-  of several windows, the group closes) is repaired at the delta, with the opener rank.
+  lists yet are the Rust pick's own steps (the opener goes first; the window's members before the
+  close are the last order). Swift passes the orders as they are.
+- A person's close of several rows in one gesture (a multi-selection, Close Others, Close Below,
+  Close Above, a group close) is the same pick as a close of one row: the opener rank over the rows
+  that survive, so an opener that closes with it is no candidate. There is no batch flag.
 - The pick: `WindowManager.repairSelections` calls `WindowRegistryStore.repairSelection` (CmuxNextLayout)
   for every close entry point: the pick, the selection, then the settle. No group map is passed
   (decision 2026-11-10, Chrome 156 as observed: the next row, whatever its group). The app's
   sidebar sends a close as an intent and never picks; a sidebar model alone (the mock, a test)
   picks by position with `SidebarCloseSuccessor`.
-- Cost: with no relation held, a selection change, a close and a selection repair are emptiness
-  checks; with some held they ask about those relations' workspaces only. No hook walks a
-  window's members (`WorkspaceCloseSelectionTests.aSwitchAndACloseNeverWalkTheMembers`).
+- Cost: while Rust holds no id (no create is waited for, no relation), a selection change, a close,
+  a settle and a repair read one flag (`cmux_window_close_selection_holds_ids`): no id is numbered
+  and nothing is allocated. With some held, a call numbers its own ids, and the settle asks about
+  the held workspaces only. No hook walks a window's members
+  (`WorkspaceCloseSelectionTests.aSwitchAndACloseNeverWalkTheMembers`). A selection that is still
+  a member, and a preferred workspace, need no pick: that one line stays in Swift
+  (`WindowRegistry.repairedSelection`) so that most membership changes make no call.
