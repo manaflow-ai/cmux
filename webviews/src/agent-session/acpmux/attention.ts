@@ -6,7 +6,7 @@
 // The pane tells acpmux it shows its chat only while the reader is here (direct.ts `syncView`), so
 // a turn that ends while they are away is unread (acpmux hub/seen.rs), and coming back by hand is
 // seeing it: "New since you looked" goes after the last record they were here for, and Jump up
-// takes them there. Discord marks a channel read while it is open in a focused window; this asks
+// takes them there. Chat apps mark a channel read while it is open in a focused window; this asks
 // for a hand on it, since a window left open on a chat says nothing about whether anyone read it.
 //
 // One record per page: an input moves `lastInputAt` and nothing else; a single timer, armed once
