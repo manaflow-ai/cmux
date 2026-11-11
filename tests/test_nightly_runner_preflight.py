@@ -24,6 +24,7 @@ import nightly_runner_preflight as preflight  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "tests"))
 from nightly_workflow_text import expand  # noqa: E402
+import workflow_jobs  # noqa: E402
 
 NOW = dt.datetime(2026, 11, 11, 1, 40, tzinfo=dt.timezone.utc)
 
@@ -129,8 +130,9 @@ class Wiring(unittest.TestCase):
         job = self.JOBS["runner-preflight"]
         self.assertEqual(self.JOBS["decide"]["needs"], "runner-preflight")
         self.assertEqual(job["if"], self.JOBS["decide"]["if"], "the preflight runs exactly when decide would")
-        self.assertEqual(job["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}")
-        self.assertNotIn("vars.", job["runs-on"])
+        self.assertEqual(workflow_jobs.runs_on_cells(job),
+                         ["${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'ubuntu-24.04' }}"])
+        self.assertNotIn("vars.", workflow_jobs.runs_on(job))
         self.assertEqual(job["permissions"], {})
         self.assertLessEqual(job["timeout-minutes"], 5)
         text = json.dumps(job)

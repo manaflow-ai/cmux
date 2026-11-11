@@ -1201,7 +1201,9 @@ class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
 
     def runner(self, promote: str, event: str = "push", attempt: int = 1) -> str:
         build = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["build"]
-        return evaluate(build["runs-on"], {
+        cells = workflow_jobs.runs_on_cells(build)
+        self.assertEqual(len(cells or []), 1, f"build: runs-on is {cells!r}, not one route")
+        return evaluate(cells[0], {
             "github": {"repository_owner": "manaflow-ai", "event_name": event, "run_attempt": attempt},
             "vars": {"CI_NEXT_PROMOTE_POOL": promote, "MACOS_RUNNER_26": self.SMALL,
                      "RUNNER_POOLS": json.dumps({"macos_26": self.SMALL})}})
