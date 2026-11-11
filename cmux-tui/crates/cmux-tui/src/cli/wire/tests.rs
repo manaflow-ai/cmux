@@ -690,3 +690,28 @@ fn a_stream_line_split_by_a_read_timeout_is_read_whole() {
         Err("transport closed with a partial JSON line".to_string())
     );
 }
+
+/// A failure before the request was sent (the connection's preflight timed
+/// out or dropped) leaves nothing on the daemon to join or to run twice, so
+/// every request is tried again, a mutation and a wait with its own timeout
+/// too, and none of them reports an unknown outcome.
+#[test]
+fn a_request_whose_preflight_failed_before_it_was_sent_is_tried_again() {
+    for operation in [
+        ResourceOperation::WorkspaceCreate,
+        ResourceOperation::TerminalWait,
+        ResourceOperation::TerminalScreenRead,
+    ] {
+        let tries = retry::Tries::new(&plan(operation));
+        assert!(
+            tries.may_retry_before_send(retry::Failure::Timeout),
+            "{operation:?}: a preflight timeout"
+        );
+        assert!(
+            tries.may_retry_before_send(retry::Failure::Dropped),
+            "{operation:?}: a preflight drop"
+        );
+        assert!(!tries.may_retry_before_send(retry::Failure::Other), "{operation:?}");
+        assert!(!tries.sent_before(), "{operation:?}: nothing was sent");
+    }
+}
