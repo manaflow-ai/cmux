@@ -273,3 +273,61 @@ pub fn step_target(value: &str, min: f64, max: f64) -> Option<f64> {
 pub fn step_reached(read: f64, target: f64, min: f64, max: f64) -> bool {
     (read - target).abs() <= ((max - min).abs() * 0.02).max(f64::EPSILON)
 }
+
+/// How a menu item could reach another app.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MenuLaunch {
+    /// Under Services: hands the selection to another app's service.
+    Services,
+    /// Under Recent Items or Open With: opens an app (or a document in one).
+    AppEntry,
+}
+
+/// Whether the menu titles above an item (outermost first) put it where it
+/// can open or hand data to another app. English titles (macOS menus are
+/// localized; other languages are not recognized yet).
+pub fn menu_launch(path: &[String]) -> Option<MenuLaunch> {
+    if path.iter().any(|t| t == "Services") {
+        Some(MenuLaunch::Services)
+    } else if path.iter().any(|t| t == "Recent Items" || t == "Open With") {
+        Some(MenuLaunch::AppEntry)
+    } else {
+        None
+    }
+}
+
+/// The app name of an Open With or Recent Items entry: "TextEdit (default)"
+/// and "Xcode (16.4)" name TextEdit and Xcode.
+pub fn entry_app_name(title: &str) -> &str {
+    let t = title.trim();
+    match t.rfind(" (") {
+        Some(i) if t.ends_with(')') => t[..i].trim_end(),
+        _ => t,
+    }
+}
+
+/// Whether the deny list hides and refuses a menu item, given its title, the
+/// menu titles above it and a resolver from app names to bundle ids. An entry
+/// whose app cannot be told (a document, a service) is refused whenever any
+/// app is denied: it could reach one.
+pub fn menu_item_blocked(
+    guard: &dyn crate::desktop::MenuGuard,
+    path: &[String],
+    title: &str,
+    resolve: &dyn Fn(&str) -> Option<String>,
+) -> bool {
+    match menu_launch(path) {
+        None => false,
+        Some(MenuLaunch::Services) => guard.denies_any(),
+        Some(MenuLaunch::AppEntry) => {
+            let name = entry_app_name(title);
+            if name.is_empty() {
+                return false;
+            }
+            match resolve(name) {
+                Some(id) => guard.app_blocked(&id, name),
+                None => guard.app_blocked("", name) || guard.denies_any(),
+            }
+        }
+    }
+}

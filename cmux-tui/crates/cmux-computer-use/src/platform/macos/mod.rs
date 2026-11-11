@@ -30,11 +30,25 @@ use cgwindows::CgWindow;
 pub struct MacDesktop {
     host: Option<Arc<dyn HostServices>>,
     elements: ElementCache,
+    menu_guard: std::sync::RwLock<Option<Arc<dyn MenuGuard>>>,
 }
 
 impl MacDesktop {
     pub fn new(host: Option<Arc<dyn HostServices>>) -> Self {
-        Self { host, elements: ElementCache::default() }
+        Self { host, elements: ElementCache::default(), menu_guard: std::sync::RwLock::new(None) }
+    }
+
+    fn guard(&self) -> Option<Arc<dyn MenuGuard>> {
+        self.menu_guard.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Whether the deny list hides and refuses this menu item (Recent Items,
+    /// Open With and Services entries that reach a denied or protected app).
+    fn menu_item_blocked(&self, item: &Ax) -> bool {
+        let Some(guard) = self.guard() else { return false };
+        let path = ax::menu_path(item);
+        let title = item.string("AXTitle").unwrap_or_default();
+        roles::menu_item_blocked(&*guard, &path, &title, &workspace::bundle_id_for_name)
     }
 }
 
@@ -314,7 +328,17 @@ impl Desktop for MacDesktop {
     fn ui_tree(&self, window_id: &str, options: TreeOptions) -> DResult<UiTree> {
         let t = self.target(window_id)?;
         let (_, window) = self.ax_window(&t)?;
-        self.elements.tree(&t.id(), window, options)
+        let guard = self.guard();
+        let blocked = |path: &[String], title: &str| {
+            guard.as_ref().is_some_and(|g| {
+                roles::menu_item_blocked(&**g, path, title, &workspace::bundle_id_for_name)
+            })
+        };
+        self.elements.tree(&t.id(), window, options, &blocked)
+    }
+
+    fn set_menu_guard(&self, guard: Arc<dyn MenuGuard>) {
+        *self.menu_guard.write().unwrap_or_else(|e| e.into_inner()) = Some(guard);
     }
 
     fn click(&self, target: &PointerTarget, spec: &ClickSpec) -> DResult<ActionOutcome> {

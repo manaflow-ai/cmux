@@ -246,3 +246,31 @@ fn start_launch(bundle_id: &str) -> DResult<mpsc::Receiver<LaunchResult>> {
     }
     Ok(rx)
 }
+
+/// The bundle id of the installed app LaunchServices finds by display name
+/// ("TextEdit", "Terminal"), cached; None when there is none.
+pub fn bundle_id_for_name(name: &str) -> Option<String> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<String>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Some(hit) = cache.lock().unwrap_or_else(|e| e.into_inner()).get(name) {
+        return hit.clone();
+    }
+    let found = autoreleasepool(|_| {
+        let ws = shared_workspace().ok()?;
+        let n = Cf::string(name)?;
+        let n_obj: *const AnyObject = n.ptr().cast();
+        // SAFETY: -fullPathForApplication: takes an NSString and returns nil
+        // or an NSString path.
+        let path: Option<Retained<AnyObject>> = unsafe { msg_send![&*ws, fullPathForApplication: n_obj] };
+        let path = path?;
+        let bundle_cls = class(c"NSBundle").ok()?;
+        // SAFETY: +bundleWithPath: takes an NSString; -bundleIdentifier returns nil or an NSString.
+        let bundle: Option<Retained<AnyObject>> = unsafe { msg_send![bundle_cls, bundleWithPath: &*path] };
+        let bundle = bundle?;
+        ns_string(unsafe { msg_send![&*bundle, bundleIdentifier] })
+    });
+    cache.lock().unwrap_or_else(|e| e.into_inner()).insert(name.to_string(), found.clone());
+    found
+}

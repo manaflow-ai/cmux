@@ -159,15 +159,26 @@ pub struct UiTree {
     pub truncated: bool,
 }
 
+/// What the policy says about an app a menu item would open or hand data to.
+pub trait MenuGuard: Send + Sync {
+    /// The app (bundle id and/or name) is protected or on the deny list.
+    fn app_blocked(&self, id: &str, name: &str) -> bool;
+    /// Any app at all is denied (an item whose app cannot be told is then refused).
+    fn denies_any(&self) -> bool;
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct TreeOptions {
     pub max_nodes: usize,
     pub max_depth: usize,
+    /// Add the app's menu bar after the window (macOS), within max_nodes.
+    /// Off for the state an action returns.
+    pub menus: bool,
 }
 
 impl Default for TreeOptions {
     fn default() -> Self {
-        Self { max_nodes: 1500, max_depth: 30 }
+        Self { max_nodes: 1500, max_depth: 30, menus: true }
     }
 }
 
@@ -369,6 +380,9 @@ pub trait Desktop: Send + Sync {
         Err(DesktopError::Unsupported("this desktop lists no capture apps".into()))
     }
     fn ui_tree(&self, window_id: &str, options: TreeOptions) -> DResult<UiTree>;
+    /// The policy's view of apps that menu items could open or hand data to
+    /// (Recent Items, Open With, Services); the engine sets it once.
+    fn set_menu_guard(&self, _guard: std::sync::Arc<dyn MenuGuard>) {}
     fn click(&self, target: &PointerTarget, spec: &ClickSpec) -> DResult<ActionOutcome>;
     /// Types `text` into the window's focused element (or `element_id`).
     fn type_text(

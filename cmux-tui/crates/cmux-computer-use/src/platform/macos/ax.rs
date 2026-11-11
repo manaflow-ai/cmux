@@ -162,7 +162,6 @@ impl Ax {
         err == AX_OK && out != 0
     }
 
-    /// The CGWindowID of a window element.
     /// The app's AXWindows that are windows (role AXWindow).
     pub fn windows(&self) -> Vec<Ax> {
         self.elements("AXWindows")
@@ -171,6 +170,7 @@ impl Ax {
             .collect()
     }
 
+    /// The CGWindowID of a window element.
     pub fn window_id(&self) -> Option<u32> {
         let f = get_window_fn()?;
         let mut id = 0u32;
@@ -404,6 +404,70 @@ impl Walk {
         Ok((element, v[9].take()))
     }
 
+    /// The menu bar, breadth-first (every top menu's items before any
+    /// submenu's), at most `budget` nodes and MENU_DEPTH levels; items
+    /// `blocked` says reach a denied app are left out. Sets `truncated` when
+    /// the budget or depth cuts it short.
+    fn menu_bar(
+        &mut self,
+        bar: Ax,
+        budget: usize,
+        blocked: &dyn Fn(&[String], &str) -> bool,
+    ) -> Result<Element, AXError> {
+        struct Slot {
+            element: Element,
+            parent: Option<usize>,
+        }
+        let mut slots: Vec<Slot> = Vec::new();
+        // (element, depth, parent slot, menu titles above it)
+        let mut queue: VecDeque<(Ax, usize, Option<usize>, Vec<String>)> = VecDeque::new();
+        queue.push_back((bar, 0, None, Vec::new()));
+        while let Some((ax, depth, parent, path)) = queue.pop_front() {
+            if slots.len() >= budget {
+                self.truncated = true;
+                break;
+            }
+            let index = self.elements.len();
+            let (element, children) = match self.describe(&ax, index) {
+                Ok(v) => v,
+                Err(AX_INVALID_ELEMENT) if parent.is_some() => continue,
+                Err(e) => return Err(e),
+            };
+            let title = ax.string("AXTitle").unwrap_or_default();
+            if parent.is_some() && blocked(&path, &title) {
+                continue;
+            }
+            self.elements.push(ax.clone());
+            let slot = slots.len();
+            slots.push(Slot { element, parent });
+            let children: Vec<Ax> = children
+                .map(|c| c.items().into_iter().filter_map(Ax::from_cf).collect())
+                .unwrap_or_default();
+            if children.is_empty() {
+                continue;
+            }
+            if depth + 1 >= MENU_DEPTH {
+                self.truncated = true;
+                continue;
+            }
+            let mut below = path.clone();
+            if !title.is_empty() {
+                below.push(title);
+            }
+            for child in children {
+                queue.push_back((child, depth + 1, Some(slot), below.clone()));
+            }
+        }
+        // Children were pushed after their parents: attach from the end.
+        while slots.len() > 1 {
+            let Some(last) = slots.pop() else { break };
+            if let Some(p) = last.parent {
+                slots[p].element.children.insert(0, last.element);
+            }
+        }
+        slots.pop().map(|s| s.element).ok_or(AX_INVALID_ELEMENT)
+    }
+
     fn node(&mut self, ax: Ax, depth: usize) -> Result<Element, AXError> {
         let index = self.elements.len();
         self.elements.push(ax.clone());
@@ -503,39 +567,88 @@ impl ElementCache {
     }
 
     /// Walks `window` (the AX element of `window_id`) and caches its ids.
-    pub fn tree(&self, window_id: &str, window: Ax, options: TreeOptions) -> DResult<UiTree> {
+    /// With `options.menus`, the app's menu bar follows the window: every
+    /// menu's items while the menus stay closed, so an agent presses a menu
+    /// item (click or perform_action) and it runs with no menu opening over
+    /// the person's screen. `blocked` (menu titles above, item title) hides
+    /// items that would reach a denied app.
+    pub fn tree(
+        &self,
+        window_id: &str,
+        window: Ax,
+        options: TreeOptions,
+        blocked: &dyn Fn(&[String], &str) -> bool,
+    ) -> DResult<UiTree> {
         let names: Vec<Cf> = NODE_ATTRS.iter().filter_map(|n| Cf::string(n)).collect();
         let ptrs: Vec<CFTypeRef> = names.iter().map(Cf::ptr).collect();
         let attrs = Cf::array(&ptrs)
             .ok_or_else(|| DesktopError::Failed("could not build the attribute list".into()))?;
+        let max_nodes = options.max_nodes.max(1);
+        let bar = options
+            .menus
+            .then(|| window.pid().and_then(Ax::application).and_then(|app| app.element("AXMenuBar")))
+            .flatten();
+        // The menu bar's share of max_nodes is kept back from the window walk,
+        // so a large window never crowds the menus out (and the reverse).
+        let menu_share = if bar.is_some() { (max_nodes / 4).min(MENU_NODES) } else { 0 };
         let mut walk = Walk {
             attrs,
             options: TreeOptions {
-                max_nodes: options.max_nodes.max(1),
+                max_nodes: (max_nodes - menu_share).max(1),
                 max_depth: options.max_depth.max(1),
+                menus: options.menus,
             },
             generation: self.next_generation(),
             elements: Vec::new(),
             truncated: false,
         };
-        let pid = window.pid();
         let mut root =
             walk.node(window, 0).map_err(|e| ax_error(e, &format!("window {window_id}")))?;
-        // The app's menu bar, with every menu's items while the menus stay
-        // closed: an agent presses a menu item (click or perform_action) and it
-        // runs at once, with no menu opening over the person's screen. Its own
-        // node budget, so a large window never hides the menus.
-        if let Some(bar) = pid.and_then(Ax::application).and_then(|app| app.element("AXMenuBar")) {
-            let window_truncated = walk.truncated;
-            walk.options.max_nodes = walk.elements.len() + MENU_NODES;
-            walk.options.max_depth = MENU_DEPTH;
-            if let Ok(menus) = walk.node(bar, 0) {
+        if let Some(bar) = bar {
+            let budget = max_nodes.saturating_sub(walk.elements.len());
+            if let Ok(menus) = walk.menu_bar(bar, budget, blocked) {
                 root.children.push(menus);
             }
-            walk.truncated = window_truncated;
         }
         let truncated = walk.truncated;
         self.store(window_id, walk.generation, walk.elements);
         Ok(UiTree { window_id: window_id.to_string(), root, truncated })
     }
+}
+
+/// The titles of the menus above a menu item, outermost first (the menu bar
+/// item, then each submenu's item), up to 8 levels.
+pub fn menu_path(item: &Ax) -> Vec<String> {
+    let mut path = Vec::new();
+    let mut current = item.element("AXParent");
+    for _ in 0..16 {
+        let Some(node) = current else { break };
+        let role = node.string("AXRole").unwrap_or_default();
+        if matches!(role.as_str(), "AXMenuItem" | "AXMenuBarItem")
+            && let Some(title) = node.string("AXTitle").filter(|t| !t.is_empty())
+        {
+            path.push(title);
+        }
+        if role == "AXMenuBar" || role == "AXApplication" {
+            break;
+        }
+        current = node.element("AXParent");
+    }
+    path.reverse();
+    path
+}
+
+/// Whether the element is a menu item (or menu bar item) of an app's menu bar.
+pub fn in_menu_bar(el: &Ax) -> bool {
+    let mut current = Some(el.clone());
+    for _ in 0..16 {
+        let Some(node) = current else { return false };
+        match node.string("AXRole").as_deref() {
+            Some("AXMenuBar") => return true,
+            Some("AXWindow") | Some("AXApplication") | None => return false,
+            _ => {}
+        }
+        current = node.element("AXParent");
+    }
+    false
 }

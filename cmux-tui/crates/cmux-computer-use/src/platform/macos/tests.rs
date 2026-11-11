@@ -244,7 +244,7 @@ fn macos_desktop_smoke() {
             Ok(f) => println!("window {}: {}x{} @{}x", w.id, f.width, f.height, f.scale),
             Err(e) => println!("window capture: {e} ({})", e.code()),
         }
-        match d.ui_tree(&w.id, TreeOptions { max_nodes: 200, max_depth: 8 }) {
+        match d.ui_tree(&w.id, TreeOptions { max_nodes: 200, max_depth: 8, menus: true }) {
             Ok(t) => println!("tree of {}: root {} truncated={}", w.id, t.root.role, t.truncated),
             Err(e) => println!("ui_tree: {e} ({})", e.code()),
         }
@@ -291,4 +291,49 @@ fn stepping_targets_take_numbers_and_percentages() {
     assert_eq!(roles::step_target("loud", 0.0, 1.0), None);
     assert!(roles::step_reached(0.26, 0.25, 0.0, 1.0));
     assert!(!roles::step_reached(0.31, 0.25, 0.0, 1.0));
+}
+
+/// A guard over the real policy decision (deny list and protected apps).
+struct PolicyGuard(crate::policy::PolicyConfig);
+impl crate::desktop::MenuGuard for PolicyGuard {
+    fn app_blocked(&self, id: &str, name: &str) -> bool {
+        crate::policy::is_blocked(&self.0, &crate::policy::TargetApp { id: id.into(), name: name.into() }).is_some()
+    }
+    fn denies_any(&self) -> bool {
+        !self.0.denied_apps.is_empty()
+    }
+}
+
+#[test]
+fn a_denied_app_is_never_reachable_through_recent_items_open_with_or_services() {
+    let guard = PolicyGuard(crate::policy::PolicyConfig::default()); // denies Terminal, Keychain, ...
+    let path = |p: &[&str]| p.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    let resolve = |name: &str| match name {
+        "Terminal" => Some("com.apple.Terminal".to_string()),
+        "TextEdit" => Some("com.apple.TextEdit".to_string()),
+        "Keychain Access" => Some("com.apple.keychainaccess".to_string()),
+        _ => None,
+    };
+    let blocked = |p: &[&str], title: &str| roles::menu_item_blocked(&guard, &path(p), title, &resolve);
+    // Apple menu > Recent Items: a denied app is hidden and refused; an allowed one is not.
+    assert!(blocked(&["Apple", "Recent Items"], "Terminal"));
+    assert!(blocked(&["Apple", "Recent Items"], "Keychain Access"));
+    assert!(!blocked(&["Apple", "Recent Items"], "TextEdit"));
+    // A recent document (its app cannot be told) is refused while any app is denied.
+    assert!(blocked(&["Apple", "Recent Items"], "notes.txt"));
+    // Finder File > Open With: "Terminal" and "Terminal (default)" alike.
+    assert!(blocked(&["File", "Open With"], "Terminal (default)"));
+    assert!(!blocked(&["File", "Open With"], "TextEdit (default)"));
+    // Services can hand the selection to any app: refused while any app is denied.
+    assert!(blocked(&["TextEdit", "Services"], "New Terminal at Folder"));
+    // Everything else in the Apple menu stays reachable (the person allows it).
+    assert!(!blocked(&["Apple"], "About This Mac"));
+    assert!(!blocked(&["File"], "Save"));
+    // With an empty deny list nothing is refused (protected apps still are).
+    let open = PolicyGuard(crate::policy::PolicyConfig { denied_apps: vec![], ..Default::default() });
+    let blocked_open = |p: &[&str], title: &str| roles::menu_item_blocked(&open, &path(p), title, &resolve);
+    assert!(!blocked_open(&["Apple", "Recent Items"], "Terminal"));
+    assert!(!blocked_open(&["TextEdit", "Services"], "New Terminal at Folder"));
+    assert_eq!(roles::entry_app_name("Xcode (16.4)"), "Xcode");
+    assert_eq!(roles::entry_app_name("Preview"), "Preview");
 }
