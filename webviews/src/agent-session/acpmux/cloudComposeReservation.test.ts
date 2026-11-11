@@ -12,7 +12,7 @@ import { RELEASE_AFTER_MS } from "./newChatPrewarm";
 
 function harness(
   reserve: () => Promise<unknown> = async () => ({}),
-  store: CloudStartKeyStore | undefined = undefined,
+  store?: CloudStartKeyStore,
   prefix = "compose",
 ) {
   const calls: [string, Record<string, unknown>][] = [];

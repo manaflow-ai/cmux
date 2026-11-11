@@ -242,6 +242,14 @@ impl Tally<'_> {
         }
     }
 
+    /// Says the push is still going while no file is done yet: making a big copy's folders takes
+    /// minutes, and a start with no word from the host for 5 minutes shows as stalled.
+    fn heard(&mut self) {
+        if let Some(report) = self.progress.as_mut() {
+            report(self.done);
+        }
+    }
+
     fn unchanged(&mut self, relative: &str, pushed: &Pushed, bytes: u64) {
         self.summary.unchanged += 1;
         self.next.files.insert(relative.to_string(), pushed.clone());
@@ -1192,6 +1200,7 @@ fn push_inner(
             if remote.no_follow() { Some(listings.kind(&mut remote, &target)?) } else { None };
         if made.insert(parent.to_string()) {
             remote.mkdir_all(parent)?;
+            tally.heard();
         }
         let job =
             Job { relative: relative.clone(), target, file: file.clone(), sha256, bytes, found };
@@ -1810,5 +1819,29 @@ mod drain_tests {
         let mut got = Vec::new();
         drain_heard(&results, None, &mut |item| got.push(item));
         assert_eq!(got, vec![0, 1, 2]);
+    }
+}
+
+#[cfg(test)]
+mod heard_tests {
+    use super::*;
+
+    /// Word from the push with no file done yet: the card's stall timer counts any line.
+    #[test]
+    fn a_push_making_folders_is_heard_with_no_file_done() {
+        let mut heard = Vec::new();
+        let mut report = |progress: Progress| heard.push(progress.files_done);
+        let mut tally = Tally {
+            summary: Summary::default(),
+            next: Manifest::default(),
+            save_every_files: SAVE_EVERY_FILES,
+            since_save: (0, 0),
+            done: Progress { files_total: 3, ..Progress::default() },
+            progress: Some(&mut report),
+        };
+        tally.heard();
+        tally.heard();
+        drop(tally);
+        assert_eq!(heard, [0, 0]);
     }
 }

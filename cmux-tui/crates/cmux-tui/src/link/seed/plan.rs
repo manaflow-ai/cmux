@@ -324,6 +324,9 @@ enum Since<'a> {
     Previous(&'a PreviousSeed),
 }
 
+/// Tracking branches [`Repo::tracking_bases`] looks at, the newest first.
+const MAX_TRACKING_BRANCHES: usize = 32;
+
 /// The working copy as the plan sees it.
 struct Repo {
     top: PathBuf,
@@ -413,9 +416,42 @@ impl Repo {
             bases.extend(self.merge_base(&tip));
             bases.push(tip);
         }
+        if bases.is_empty() {
+            bases = self.tracking_bases();
+        }
         let mut seen = std::collections::HashSet::new();
         bases.retain(|base| seen.insert(base.clone()));
         bases
+    }
+
+    /// For a clone with no upstream and no default branch of the remote (a single-branch clone):
+    /// the merge-bases with the remote's tracking branches, the fewest commits behind HEAD first,
+    /// so the bundle carries as little as it can.
+    fn tracking_bases(&self) -> Vec<String> {
+        let prefix = format!("refs/remotes/{}/", self.remote);
+        let count = format!("--count={MAX_TRACKING_BRANCHES}");
+        let Some(tips) = git::optional(git::at(&self.top).args([
+            "for-each-ref",
+            "--sort=-committerdate",
+            count.as_str(),
+            "--format=%(objectname)",
+            prefix.as_str(),
+        ])) else {
+            return Vec::new();
+        };
+        let mut bases: Vec<String> = tips.lines().filter_map(|tip| self.merge_base(tip)).collect();
+        bases.sort_unstable();
+        bases.dedup();
+        bases.sort_by_cached_key(|base| self.commits_since(base));
+        bases
+    }
+
+    /// Commits on HEAD that `base` lacks; the most there can be when git cannot say.
+    fn commits_since(&self, base: &str) -> u64 {
+        let range = format!("{base}..{}", self.head);
+        git::optional(git::at(&self.top).args(["rev-list", "--count", range.as_str()]))
+            .and_then(|count| count.parse().ok())
+            .unwrap_or(u64::MAX)
     }
 
     fn commit(&self, name: &str) -> Option<String> {

@@ -268,7 +268,7 @@ export function cloudStartFingerprint(start: CloudStart): string {
 
 /// The page's store, or none (a page with no `localStorage`, or one that throws): keys then live
 /// only as long as the page.
-function pageKeyStore(): CloudStartKeyStore | undefined {
+export function pageKeyStore(): CloudStartKeyStore | undefined {
   try {
     return typeof localStorage === "undefined" ? undefined : localStorage;
   } catch {

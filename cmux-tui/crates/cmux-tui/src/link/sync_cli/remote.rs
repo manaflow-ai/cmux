@@ -190,6 +190,9 @@ pub(super) struct Remote {
     /// (`fs-write-nofollow-v1`, [`Remote::negotiate`]): every write says
     /// `no_follow`, so a caller need not `fs.stat` the target first.
     no_follow: bool,
+    /// Folders this connection found or made ([`Remote::mkdir_all`]), so one below them needs no
+    /// `fs.stat`. A delete or rename on it forgets them.
+    known_folders: BTreeSet<String>,
 }
 
 impl Remote {
@@ -209,6 +212,7 @@ impl Remote {
             next_id: 1,
             deflate: false,
             no_follow: false,
+            known_folders: BTreeSet::new(),
         }
     }
 
@@ -309,6 +313,9 @@ impl Remote {
         mut params: Value,
         progress: &mut dyn FnMut(),
     ) -> anyhow::Result<Value> {
+        if matches!(cmd, "fs.delete" | "fs.rename") {
+            self.known_folders.clear();
+        }
         let started = Instant::now();
         let mut replays = 0;
         loop {
@@ -499,16 +506,28 @@ impl Remote {
 
     /// Creates the folder `path` and any missing folder above it.
     pub(super) fn mkdir_all(&mut self, path: &str) -> anyhow::Result<()> {
-        if self.is_dir(path)? {
+        if self.known_folders.contains(path) {
             return Ok(());
         }
-        let (parent, name) = split(path)?;
-        self.mkdir_all(parent)?;
-        match self.call("fs.mkdir", json!({ "path": parent, "name": name })) {
-            Ok(_) => Ok(()),
-            Err(error) if refusal_code(&error) == Some("fs.exists") && self.is_dir(path)? => Ok(()),
-            Err(error) => Err(error),
+        // Below a folder known here, `fs.mkdir` alone says whether it was there already: a copy
+        // makes thousands of folders, one round trip each.
+        let parent_known = split(path).is_ok_and(|(parent, _)| self.known_folders.contains(parent));
+        if !parent_known {
+            if self.is_dir(path)? {
+                self.known_folders.insert(path.to_string());
+                return Ok(());
+            }
+            let (parent, _) = split(path)?;
+            self.mkdir_all(parent)?;
         }
+        let (parent, name) = split(path)?;
+        match self.call("fs.mkdir", json!({ "path": parent, "name": name })) {
+            Ok(_) => {}
+            Err(error) if refusal_code(&error) == Some("fs.exists") && self.is_dir(path)? => {}
+            Err(error) => return Err(error),
+        }
+        self.known_folders.insert(path.to_string());
+        Ok(())
     }
 
     /// The socket's read timeout: how long one read waits with nothing
