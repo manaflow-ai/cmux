@@ -260,8 +260,8 @@ jobs:
           CI_RUNNER_STATE: ${{ vars.CI_RUNNER_STATE }}
           CI_NIGHTLY_MINI: ${{ vars.CI_NIGHTLY_MINI }}
           CI_NIGHTLY_MINI_BUILDER: ${{ vars.CI_NIGHTLY_MINI_BUILDER }}
-          CI_NIGHTLY_SIGN_RUNNER: ${{ vars.CI_NIGHTLY_SIGN_RUNNER }}
           CI_NIGHTLY_ONLY_RUNNER: ${{ vars.CI_NIGHTLY_ONLY_RUNNER }}
+          NIGHTLY_SCHEDULE: ${{ github.event.schedule }}
         run: python3 scripts/ci/nightly_runner_preflight.py
 
   decide:

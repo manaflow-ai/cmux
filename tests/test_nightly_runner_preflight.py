@@ -64,9 +64,8 @@ class Preflight(unittest.TestCase):
                                         CI_NIGHTLY_SIGN_RUNNER="cmux-lawrence-2"), NOW)
         self.assertFalse(ok)
         errors = [l for l in lines if l.startswith("::error")]
-        self.assertEqual(len(errors), 3, lines)
-        for name in ("CI_NIGHTLY_MINI=cmux-lawrence-2-light", "CI_NIGHTLY_MINI_BUILDER=cmux-lawrence-2",
-                     "CI_NIGHTLY_SIGN_RUNNER=cmux-lawrence-2"):
+        self.assertEqual(len(errors), 2, lines)
+        for name in ("CI_NIGHTLY_MINI=cmux-lawrence-2-light", "CI_NIGHTLY_MINI_BUILDER=cmux-lawrence-2"):
             self.assertTrue(any(name in l for l in errors), name)
         self.assertIn("gh variable delete CI_NIGHTLY_MINI -R manaflow-ai/cmux", errors[0])
         self.assertIn("glaeda-nightly-only-m4pro", errors[0])
@@ -91,16 +90,19 @@ class Preflight(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("bring the runners of glaeda-nightly-only-m4pro back", lines[0])
 
-    def test_the_builder_and_signer_count_only_on_their_routes(self) -> None:
-        # Without CI_NIGHTLY_MINI, build-nightly-app never reads CI_NIGHTLY_MINI_BUILDER, and only a nightly-next
-        # push's promote jobs read CI_NIGHTLY_SIGN_RUNNER.
-        quiet = env(CI_NIGHTLY_MINI_BUILDER="cmux-lawrence-2", CI_NIGHTLY_SIGN_RUNNER="cmux-lawrence-2",
-                    GITHUB_REF="refs/heads/main")
+    def test_the_builder_counts_only_on_its_route_and_the_signer_never(self) -> None:
+        # Without CI_NIGHTLY_MINI build-nightly-app never reads CI_NIGHTLY_MINI_BUILDER; the cache-seed schedule builds
+        # no app; CI_NIGHTLY_SIGN_RUNNER routes only the promote dispatch, which this preflight skips.
+        quiet = env(CI_NIGHTLY_MINI_BUILDER="cmux-lawrence-2", CI_NIGHTLY_SIGN_RUNNER="cmux-lawrence-2")
         self.assertTrue(preflight.judge(quiet, NOW)[0])
-        ok, lines = preflight.judge({**quiet, "GITHUB_REF": "refs/heads/nightly-next"}, NOW)
+        mini = {**quiet, "CI_NIGHTLY_MINI": "glaeda-nightly-only-m4pro"}
+        ok, lines = preflight.judge(mini, NOW)
         self.assertFalse(ok)
-        self.assertTrue(any("CI_NIGHTLY_SIGN_RUNNER=cmux-lawrence-2" in l for l in lines))
-        self.assertFalse(any("CI_NIGHTLY_MINI_BUILDER" in l for l in lines))
+        self.assertTrue(any("CI_NIGHTLY_MINI_BUILDER=cmux-lawrence-2" in l for l in lines))
+        self.assertFalse(any("CI_NIGHTLY_SIGN_RUNNER" in l for l in lines))
+        seed = {**mini, "GITHUB_EVENT_NAME": "schedule", "NIGHTLY_SCHEDULE": "17 */6 * * *"}
+        self.assertTrue(preflight.judge(seed, NOW)[0])
+        self.assertFalse(preflight.judge({**seed, "NIGHTLY_SCHEDULE": "47 8 * * *"}, NOW)[0])
 
     def test_no_proof_never_fails(self) -> None:
         bad = env(CI_NIGHTLY_MINI="cmux-lawrence-2-light")
@@ -135,9 +137,9 @@ class Wiring(unittest.TestCase):
         self.assertNotIn("secrets.", text)
         self.assertNotRegex(text, r"cancel|gh run|actions/runs")
         step_env = job["steps"][-1]["env"]
-        for name in ("CI_RUNNER_STATE", "CI_NIGHTLY_MINI", "CI_NIGHTLY_MINI_BUILDER", "CI_NIGHTLY_SIGN_RUNNER",
-                     "CI_NIGHTLY_ONLY_RUNNER"):
+        for name in ("CI_RUNNER_STATE", "CI_NIGHTLY_MINI", "CI_NIGHTLY_MINI_BUILDER", "CI_NIGHTLY_ONLY_RUNNER"):
             self.assertEqual(step_env[name], "${{ vars.%s }}" % name)
+        self.assertEqual(step_env["NIGHTLY_SCHEDULE"], "${{ github.event.schedule }}")
 
     def test_the_judged_labels_match_decides_route(self) -> None:
         self.assertIn("vars.CI_NIGHTLY_MINI != '' && vars.CI_NIGHTLY_MINI || vars.CI_NIGHTLY_ONLY_RUNNER || "

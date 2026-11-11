@@ -15,8 +15,9 @@ that is missing, incomplete or older than MAX_AGE_S says nothing either way: a w
 
 Labels judged (the run's `runs-on` reads, nightly.yml):
 - decide's label: vars.CI_NIGHTLY_MINI when set, else vars.CI_NIGHTLY_ONLY_RUNNER, else glaeda-nightly-only-m4pro;
-- vars.CI_NIGHTLY_MINI_BUILDER, when CI_NIGHTLY_MINI is set (build-nightly-app's route then);
-- vars.CI_NIGHTLY_SIGN_RUNNER, when CI_NIGHTLY_MINI is set or this is a nightly-next push (the promote jobs' route).
+- vars.CI_NIGHTLY_MINI_BUILDER, when CI_NIGHTLY_MINI is set (build-nightly-app's route then), except on the cache-seed
+  schedule, which builds no app.
+vars.CI_NIGHTLY_SIGN_RUNNER routes only the promote jobs, which run in a promote dispatch this job does not run in.
 A GitHub-hosted or Blacksmith label is not ours to count and is skipped.
 
 HQ's hourly detector (cmuxterm-hq tools/fleet-reconcilers/now_runner_vars.py, docs/handbook/
@@ -39,6 +40,7 @@ MAX_AGE_S = 30 * 60  # the census refreshes every 2 min; past this it says nothi
 MAX_BYTES = 2 * 1024 * 1024
 DEDICATED = "glaeda-nightly-only-m4pro"  # leo-workspace machines/fleet-registry.json nightly_dedicated
 DEDICATED_HOSTS = "cmux7s-mac-mini and cmux15"
+CACHE_SEED_CRON = "17 */6 * * *"  # nightly.yml: the scheduled cache seed, which builds no app
 NOT_OURS = re.compile(r"^(?:ubuntu-|macos-\d|windows-|blacksmith-)|-latest$")
 ANNOTATION = re.compile(r"^::\w+ title=[^:]*::")
 
@@ -94,17 +96,17 @@ def targets(env: dict) -> list[tuple[str, str]]:
     out = [("CI_NIGHTLY_MINI", mini) if mini else ("CI_NIGHTLY_ONLY_RUNNER", only) if only
            else ("(default)", DEDICATED)]
     builder = (env.get("CI_NIGHTLY_MINI_BUILDER") or "").strip()
-    if mini and builder:
+    # build-nightly-app never runs on the 6-hourly cache-seed schedule, so its builder is not waited on there.
+    seed = env.get("GITHUB_EVENT_NAME") == "schedule" and env.get("NIGHTLY_SCHEDULE") == CACHE_SEED_CRON
+    if mini and builder and not seed:
         out.append(("CI_NIGHTLY_MINI_BUILDER", builder))
-    sign = (env.get("CI_NIGHTLY_SIGN_RUNNER") or "").strip()
-    nightly_next_push = env.get("GITHUB_REF") == "refs/heads/nightly-next" and env.get("GITHUB_EVENT_NAME") == "push"
-    if sign and (mini or nightly_next_push):
-        out.append(("CI_NIGHTLY_SIGN_RUNNER", sign))
+    # CI_NIGHTLY_SIGN_RUNNER routes only the promote jobs, which run in a promote dispatch this preflight skips: not
+    # judged here (the hourly HQ detector covers it).
     return out
 
 
 def fix(variable: str, label: str) -> str:
-    if variable.startswith("CI_NIGHTLY_MINI") or variable == "CI_NIGHTLY_SIGN_RUNNER":
+    if variable.startswith("CI_NIGHTLY_MINI"):
         return (f"if {label} is not coming back, `gh variable delete {variable} -R {REPOSITORY}`: the nightly then "
                 f"takes its default route (the dedicated nightly Macs, {DEDICATED} on {DEDICATED_HOSTS})")
     if variable == "CI_NIGHTLY_ONLY_RUNNER" and label != DEDICATED:
