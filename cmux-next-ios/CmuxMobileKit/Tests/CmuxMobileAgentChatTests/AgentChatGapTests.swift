@@ -121,6 +121,42 @@ import Testing
         #expect(calls.map(\.status) == [.completed])
     }
 
+    /// A background subagent started in an earlier turn (t0) goes on in the gap after the chat's
+    /// last turn (t1): its earlier messages and its turn stay, the gap's work and the newest
+    /// page's are added on, and it is drawn once, under t0. The gap used to start only from the
+    /// last turn's subagents, so it rebuilt this one from nothing and replaced the original.
+    @Test func aSubagentFromAnEarlierTurnKeepsItsHistoryAndTurnAcrossTheGap() {
+        let store = AgentChatStore(source: Source())
+        store.nextFrame = nil
+        store.apply(.batch([
+            .userMessage(text: "prompt t0", promptId: "p-t0", turnId: "t0", attachments: [], at: Self.at),
+            .turnStarted(turnId: "t0", at: Self.at),
+            .subagent(AgentSubagentChange(id: "bg", name: "Watcher", state: .running, at: Self.at)),
+            .subagentUpdate(subagentID: "bg", .agentMessageChunk(text: "first", messageId: "w1")),
+            .turnResult(turnId: "t0", status: .completed, errorText: nil, at: Self.at),
+        ] + Self.turn("t1")))
+        let tail: [AgentSessionEvent] = Self.turn("t5") + [
+            .subagentUpdate(subagentID: "bg", .agentMessageChunk(text: "third", messageId: "w3")),
+        ]
+        store.apply(.batch([.gapOpened(beforeTurnID: "t5")] + tail))
+        store.apply(.gapPage(Self.turn("t2") + [
+            .subagent(AgentSubagentChange(id: "bg", state: .running, at: Self.at)),
+            .subagentUpdate(subagentID: "bg", .agentMessageChunk(text: "second", messageId: "w2")),
+        ], done: true))
+
+        #expect(store.turns.map(\.id) == ["t0", "t1", "t2", "t5"])
+        let agent = try? #require(store.subagent("bg"))
+        #expect(agent?.turnID == "t0")
+        #expect(agent?.name == "Watcher")
+        let texts = agent?.items.compactMap { if case .message(_, let markdown) = $0 { markdown } else { nil } }
+        #expect(texts == ["first", "second", "third"])
+        #expect(store.subagents.filter { $0.id == "bg" }.count == 1)
+        let drawnIn = store.turns.filter { turn in
+            turn.items.contains { if case .subagents(_, let ids) = $0 { ids.contains("bg") } else { false } }
+        }.map(\.id)
+        #expect(drawnIn == ["t0"])
+    }
+
     /// A live edit of a prompt the gap put back in the queue stays: a later gap page's older
     /// edit of it does not undo it.
     @Test func aLiveQueueEditOutlastsALaterGapPage() {

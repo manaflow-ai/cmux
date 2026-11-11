@@ -1263,6 +1263,10 @@ public final class AgentChatStore {
     @ObservationIgnored private var gapLeftQueue: Set<String> = []
     @ObservationIgnored private var gapLaterQueueText: [String: String] = [:]
     @ObservationIgnored private var gapQueued: Set<String> = []
+    /// Every subagent the chat had when the gap opened, as it was then: the gap's records may
+    /// go on with one started in any earlier turn (a background agent outlives its turn), so
+    /// the filler starts from all of them, and only those the gap changed are taken back.
+    @ObservationIgnored private var gapSeedAgents: [String: AgentSubagent] = [:]
 
     private func noteNewer(_ event: AgentSessionEvent) {
         switch event {
@@ -1287,9 +1291,10 @@ public final class AgentChatStore {
         if let last = turns.last {
             // The gap's first records may continue this turn (its answer, its result).
             filler.turns = [last]
-            filler.subagents = subagents.filter { $0.turnID == last.id }
             filler.currentMessageID = currentMessageID
         }
+        filler.subagents = subagents
+        gapSeedAgents = Dictionary(subagents.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         // What this phone sent with a prompt that ran in the gap.
         filler.sentAttachments = sentAttachments
         gapFiller = filler
@@ -1393,7 +1398,11 @@ public final class AgentChatStore {
                     for event in gapNewerAgentEvents { rebuilt.applyEvent(event) }
                     rebuiltAgents = rebuilt.subagents
                 }
-                let gapAgents = Set(filler.subagents.map(\.id))
+                // The subagents the gap wrote: those it started, and those of any earlier turn
+                // whose state it changed. One it did not touch keeps what the chat shows (it may
+                // have newer state already). One the chat had keeps its own turn.
+                let gapAgents = Set(filler.subagents.filter { gapSeedAgents[$0.id] != $0 }.map(\.id))
+                let gapStarted = gapAgents.subtracting(gapSeedAgents.keys)
                 var added: [AgentSubagent] = []
                 for agent in rebuiltAgents where gapAgents.contains(agent.id) {
                     if let index = subagents.firstIndex(where: { $0.id == agent.id }) {
@@ -1407,8 +1416,8 @@ public final class AgentChatStore {
                 // turn; the gap's turn draws it now.
                 for index in (start + gapTurns.count)..<turns.count {
                     turns[index].items = turns[index].items.compactMap { item in
-                        guard case .subagents(let group, let ids) = item, ids.contains(where: { gapAgents.contains($0) }) else { return item }
-                        let kept = ids.filter { !gapAgents.contains($0) }
+                        guard case .subagents(let group, let ids) = item, ids.contains(where: { gapStarted.contains($0) }) else { return item }
+                        let kept = ids.filter { !gapStarted.contains($0) }
                         return kept.isEmpty ? nil : .subagents(id: group, ids: kept)
                     }
                 }
@@ -1432,6 +1441,7 @@ public final class AgentChatStore {
         gapLeftQueue = []
         gapLaterQueueText = [:]
         gapQueued = []
+        gapSeedAgents = [:]
         gapBeforeTurnID = nil
         isFillingGap = false
     }
