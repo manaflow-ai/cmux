@@ -11237,35 +11237,144 @@ def _forged_error_log(letters):
     return job, log
 
 
-def _same_second_headers(n):
-    """A job whose failing step prints N `##[group]Run` headers in one second (step_owners' hardest placement)."""
-    job = {"name": "job", "steps": framed_steps([("Build", "success", 3, 5), ("Tests", "failure", 20, 40)])}
-    rows = [("Build", 3, "##[group]Run make"), ("Tests", 20, "##[group]Run tests")]
-    rows += [("Tests", 21, f"##[group]Run case {i}") for i in range(n)]
-    return job, framed_log([*rows, ("Tests", 39, EXIT)])
+def _same_second_case(n):
+    """bench_aligned_starts.same_second_case: N same-second `##[group]Run x` headers over 10 workflow steps whose
+    StepNames carry those headers, so step_owners reads them with _aligned_starts (no other reading places them),
+    which must come back ambiguous. With STEP_NAMES_UNKNOWN it returned at once and timed nothing (#41399's review)."""
+    import bench_aligned_starts  # scripts/ci, on sys.path above
+    job, log, names = bench_aligned_starts.same_second_case(n, 10)
+    return job, log, {"step_names": names}
 
 
 # The excuse's public parser entry points, each on the input shape an attacker controls that makes it work hardest,
 # as BUILD(N) for growth_failure: (N, BUILD). A PR's log is attacker-shaped text read all the way through, so each
-# must cost linear in it. test_reds.plain joins once cmux#41382 (where it comes in) is on this base.
+# must cost linear in it, and each case proves it reaches the path it times by failing that path's known-bad version
+# (KNOWN_BAD_OF, AdversarialCasesReachTheirPath). The escape strip's case (test_reds.plain on unterminated OSC
+# openers, against the greedy OSC) is cmux#41390's PlainCostsLinearInItsInput until that and this are on one base.
 ADVERSARIAL = {
     "base_red_excuse.normalise_error, one forged marker (\\0 z...z \\0)": (
         1_600, lambda n: (lambda text=f"\0{'z' * n}\0 Sources/A1.swift:3 failed": excuse.normalise_error(text))),
-    "base_red_excuse.normalise_error, many forged markers": (
-        200, lambda n: (lambda text="\0zzzz\0 " * n + "Sources/A1.swift": excuse.normalise_error(text))),
-    "base_red_excuse.normalise_error, a forged marker among many paths": (
-        200, lambda n: (lambda text=" ".join(f"S/A{i}.swift" for i in range(n)) + f" \0{'z' * n}\0":
-                        excuse.normalise_error(text))),
+    "base_red_excuse.normalise_error, many paths on one line": (
+        1_000, lambda n: (lambda text=" ".join(f"S/A{i}.swift:3" for i in range(n)): excuse.normalise_error(text))),
     "base_red_excuse.unplaced_signature, a forged marker in an error line": (
         1_600, lambda n: (lambda case=_forged_error_log(n): excuse.unplaced_signature(*case))),
     "base_red_excuse.step_owners, same-second step headers": (
-        40, lambda n: (lambda case=_same_second_headers(n): excuse.step_owners(*case, **UNKNOWN))),
+        100, lambda n: (lambda case=_same_second_case(n): excuse.step_owners(case[0], case[1], **case[2]))),
     "base_red_excuse.failed_steps_log, same-second step headers": (
-        40, lambda n: (lambda case=_same_second_headers(n): excuse.failed_steps_log(*case, **UNKNOWN))),
-    "test_reds.log_lines, CSI introducers": (
-        2_000, lambda n: (lambda text="\x1b[" * n + "\x1b[1;" * n: excuse.test_reds.log_lines(text))),
+        100, lambda n: (lambda case=_same_second_case(n): excuse.failed_steps_log(case[0], case[1], **case[2]))),
 }
 
+
+
+# The known-bad versions each ADVERSARIAL case must fail, frozen verbatim: the readers a review found super-linear.
+def frozen_per_path_normalise_error(text: str) -> str:
+    """normalise_error before d86380cdbed: a str.replace per kept path over the whole line, N^2 in a line's paths."""
+    kept: list = []
+    said = excuse._sub_shas(text.replace("##[error]", "").strip(), keep=kept)
+    said = excuse.test_reds.volatile(said)
+
+    def keep_path(match):
+        kept.append(match[0])
+        return excuse._marker(len(kept) - 1)
+    said = excuse.FILE_NAME.sub(keep_path, said)
+    said = re.sub(r"\d+", "#", said)
+    for index, id_ in enumerate(kept):
+        said = said.replace(excuse._marker(index), id_)
+    return said
+
+
+def frozen_unbounded_normalise_error(text: str) -> str:
+    """normalise_error at 61a7aa848d8: every `\0letters\0` decoded, a forged one too, N^2 in its letters."""
+    kept: list = []
+    said = excuse._sub_shas(text.replace("##[error]", "").strip(), keep=kept)
+    said = excuse.test_reds.volatile(said)
+
+    def keep_path(match):
+        kept.append(match[0])
+        return excuse._marker(len(kept) - 1)
+    said = excuse.FILE_NAME.sub(keep_path, said)
+    said = re.sub(r"\d+", "#", said)
+
+    def restore(match):
+        index = excuse._marker_index(match[1])
+        return kept[index] if index < len(kept) else match[0]
+    return excuse.MARKER.sub(restore, said) if kept else said
+
+
+# The greedy OSC body #41382's review F1 found: it reads to the next BEL or ST from every unterminated `ESC ]`.
+GREEDY_OSC = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+
+
+def _frozen_mapper():
+    import bench_aligned_starts  # scripts/ci, on sys.path above
+    return unittest.mock.patch.object(excuse, "_aligned_starts", bench_aligned_starts.frozen_aligned_starts)
+
+
+KNOWN_BAD = {
+    "the unbounded marker decode": lambda: unittest.mock.patch.object(
+        excuse, "normalise_error", frozen_unbounded_normalise_error),
+    "the per-path replace": lambda: unittest.mock.patch.object(excuse, "normalise_error", frozen_per_path_normalise_error),
+    "the frozen quadratic mapper": _frozen_mapper,
+    "the greedy OSC": lambda: _patch_ansi(),
+}
+
+
+# The OSC body that eats text: `.*` reads on to the line's LAST terminator, so the text between two OSC sequences (a
+# hyperlink, then a title) goes with them. lines_of's correctness case below must fail it.
+SPANNING_OSC = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\].*(?:\x07|\x1b\\))")
+
+
+def _patch_ansi(pattern=GREEDY_OSC):
+    """PATTERN as the escape strip of every reader: base_red_excuse.ANSI and test_reds.ANSI, one object or two."""
+    stack = contextlib.ExitStack()
+    stack.enter_context(unittest.mock.patch.object(excuse.test_reds, "ANSI", pattern))
+    stack.enter_context(unittest.mock.patch.object(excuse, "ANSI", pattern))
+    return stack
+
+
+# Which known-bad version each ADVERSARIAL case must fail (AdversarialCasesReachTheirPath).
+KNOWN_BAD_OF = {
+    "base_red_excuse.normalise_error, one forged marker (\\0 z...z \\0)": "the unbounded marker decode",
+    "base_red_excuse.normalise_error, many paths on one line": "the per-path replace",
+    "base_red_excuse.unplaced_signature, a forged marker in an error line": "the unbounded marker decode",
+    "base_red_excuse.step_owners, same-second step headers": "the frozen quadratic mapper",
+    "base_red_excuse.failed_steps_log, same-second step headers": "the frozen quadratic mapper",
+}
+
+
+class AdversarialCasesReachTheirPath(unittest.TestCase):
+    """#41399's review F1 (dep-fleet-6): "both mapper scaling cases pass **UNKNOWN, so _aligned_starts returns at once
+    (no workflow headers) and never reaches the expensive path. Putting back the frozen quadratic mapper still passes
+    all four checks. ... The general rule for AdversarialInputsScale: each case has to prove it reaches the path it
+    times. Add a self-check per entry that runs the known-bad version (the frozen quadratic mapper, the greedy OSC,
+    the unbounded marker decode) and asserts the case fails it. Then a fixture that skips the hot path can't pass."
+    Each ADVERSARIAL case, with its known-bad version (KNOWN_BAD_OF) patched in, must fail growth_failure at 10x."""
+
+    def test_every_case_names_its_known_bad_version(self):
+        self.assertEqual(set(KNOWN_BAD_OF), set(ADVERSARIAL), "an ADVERSARIAL case with no known-bad version")
+        self.assertLessEqual(set(KNOWN_BAD_OF.values()), set(KNOWN_BAD))
+
+    def test_every_case_fails_its_known_bad_version(self):
+        for label, (n, build) in ADVERSARIAL.items():
+            with self.subTest(entry=label, known_bad=KNOWN_BAD_OF.get(label)):
+                with KNOWN_BAD[KNOWN_BAD_OF[label]]():
+                    failure = growth_failure(build, n, ADVERSARIAL_FACTORS[0], label, attempts=1, ceiling=60)
+                self.assertIsNotNone(failure, f"{label}: {KNOWN_BAD_OF[label]} scales linearly on this case, so the "
+                                              "case never reaches the path it times")
+
+    def test_text_between_two_osc_sequences_survives_the_strip(self):
+        """lines_of once stripped OSC escapes with a body that read past its own terminator, so two OSC sequences on
+        one line (a hyperlink round a `FAIL:` marker, then a title) ate the text between them, the marker with it. The
+        marker and the text after it must survive, and the case must reach the strip: SPANNING_OSC must eat them."""
+        osc_line = "\x1b]8;;url\x07FAIL: a\x1b]8;;\x07 text \x1b]0;t\x07"
+        log = f"build\tRun checks\t2026-11-11T10:00:00.0000000Z {osc_line}"
+        self.assertEqual(excuse.lines_of(log), ["FAIL: a text"])
+        self.assertTrue(excuse.SHELL_FAIL.match(excuse.lines_of(log)[0]), "the FAIL marker is no longer read")
+        with _patch_ansi(SPANNING_OSC):
+            eaten = excuse.lines_of(log)
+        self.assertNotEqual(eaten, ["FAIL: a text"], "the spanning OSC keeps the text too, so this case never "
+                                                    "reaches the strip it checks")
+        self.assertFalse(any(excuse.SHELL_FAIL.match(line) for line in eaten))
 
 class AdversarialInputsScale(unittest.TestCase):
     """#41220's follow-up (dep-fleet-6): "F1 follow-up (base_red_excuse.py:1082): a forged marker (a NUL, many 'z',
