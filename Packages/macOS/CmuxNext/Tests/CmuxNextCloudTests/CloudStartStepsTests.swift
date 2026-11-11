@@ -42,4 +42,44 @@ import Testing
         #expect(record.steps.map(\.name) == ["machine", "login.machine", "login.transfer", "login"])
         #expect(record.steps.map(\.ms) == [7100, 300, 1200, 1500])
     }
+
+    /// RED before: the start awaited this Mac's gateway (up to 10 s) before its approvals, and only then ran them,
+    /// its tab and the agent's start. Work beside the steps starts before them and costs only what it outlasts them.
+    @MainActor @Test func workBesideTheStepsStartsFirstAndCostsOnlyWhatItOutlastsThem() async {
+        var now = ContinuousClock.now
+        let steps = CloudStartSteps(log: { _ in }, now: { now })
+        let (began, beginning) = AsyncStream<Void>.makeStream()
+        let (released, release) = AsyncStream<Void>.makeStream()
+        let gateway = CloudStartBeside { () async -> Bool in
+            beginning.yield()
+            for await _ in released { return true }
+            return false
+        }
+        for await _ in began { break } // it runs before any step below is done
+        now += .milliseconds(700)
+        steps.done("approvals")
+        now += .milliseconds(6700)
+        steps.done("start")
+        now += .milliseconds(300) // it outlasts the steps by this much
+        release.yield()
+        #expect(await gateway.awaited(marking: "gateway", on: steps))
+        #expect(steps.recorded.map(\.step) == ["approvals", "start", "gateway"])
+        #expect(steps.recorded.map(\.ms) == [700, 6700, 300])
+    }
+
+    /// Done before the steps end: the start waits on it for nothing, and the step says 0 ms.
+    @MainActor @Test func workBesideTheStepsThatFinishedFirstAddsNothing() async {
+        var now = ContinuousClock.now
+        let steps = CloudStartSteps(log: { _ in }, now: { now })
+        let (done, finishing) = AsyncStream<Void>.makeStream()
+        let gateway = CloudStartBeside { () async -> Int in
+            finishing.yield()
+            return 7
+        }
+        for await _ in done { break }
+        now += .milliseconds(2000)
+        steps.done("start")
+        #expect(await gateway.awaited(marking: "gateway", on: steps) == 7)
+        #expect(steps.recorded.map(\.ms) == [2000, 0])
+    }
 }

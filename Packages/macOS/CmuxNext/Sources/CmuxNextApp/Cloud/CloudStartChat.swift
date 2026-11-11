@@ -119,6 +119,11 @@ struct CloudStartChat {
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.id), origin: .user)
         let folderName = URL(fileURLWithPath: chat).lastPathComponent
         report(.init(name: "machine", folder: folderName))
+        // No login step: its model calls reach this Mac's own gateway (PersonalGateway) through its edge, and this Mac
+        // copies no provider login to it. Only the first prompt needs it up: it comes up beside the machine, the copy
+        // and the approvals, and is awaited before the chat opens.
+        let gateway = CloudStartBeside { [gateway = services.cloud.gateway] in await gateway.ensureOnline(within: .seconds(10)) }
+        defer { gateway.cancel() }
         // The machine, the pin and the keys are cmux-tui's (`cmux link start-chat`, +Machine).
         let account = origin.account
         let (machine, plan) = try await self.machine(for: start, account: account, workspace: origin.workspace, cli: cli, invocation: invocation) {
@@ -127,8 +132,7 @@ struct CloudStartChat {
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
         // The account may have changed while the machine connected: copy nothing then.
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
-        _ = await services.cloud.gateway.ensureOnline(within: .seconds(10)) // No login step: its model calls reach this Mac's own gateway (PersonalGateway)
-        // through its edge, and this Mac copies no provider login to it. Remote approvals run beside the copy, awaited before the chat opens.
+        // Remote approvals run beside the copy, awaited before the chat opens.
         let size = AgentPaneCloudStart.sizeText(machine.machine.size)
         let copy: Copied = try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(machine, .checkStatus) { account == services.cloud.account } }) {
             report(.init(name: "folder", folder: folderName, machine: name, size: size))
@@ -158,6 +162,7 @@ struct CloudStartChat {
         try Self.checkAccount(account, now: services.cloud.account, listCurrent: services.cloud.hasLoadedCurrentMachines)
         report(.init(name: "opening", folder: folderName, machine: name, size: size,
                      start: .init(environmentId: plan.environmentId, setup: plan.setup)))
+        _ = await gateway.value
         let entry = AgentTabStore.registryHost(of: machine.daemon).map {
             CloudMovedChats.Entry(machineID: machine.machineID, host: $0, session: "", harness: start.harness,
                                   localRoot: folder.root, localChat: chat, remoteFolder: copy.1.folder, remoteChat: copy.1.chat)

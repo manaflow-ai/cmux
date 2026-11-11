@@ -224,6 +224,10 @@ struct CloudStartSession {
         try still(request.name ?? request.machineID ?? "")
         if let local = request.fromFolder, case .failure(let r) = await AgentPaneCloudStart.checkedFolder(local, home: NSHomeDirectory()) { throw ActionFailure(message: Self.message(r, folder: local)) } // before any machine
         let steps = CloudStartSteps(logger: services.cloud.logger)
+        // No login step: its model calls reach this Mac's own gateway through its edge. Only the first turn needs it up,
+        // so it comes up beside the machine, the link, the approvals and the agent's start, and is awaited after them.
+        let gateway = CloudStartBeside { [gateway = services.cloud.gateway] in await gateway.ensureOnline(within: .seconds(10)) }
+        defer { gateway.cancel() }
         let session = try await machine(request, invocation, account: account, byPerson: byPerson, capCard: capCard, askedBy: askedBy)
         steps.done("machine") // the list read and the take, or the create's answer
         let name = session.machine.title, id = session.machineID, agent = request.agent
@@ -236,7 +240,6 @@ struct CloudStartSession {
         try still(name)
         let copy = try await copiedIfAsked(request, to: session, account: account), cwd = copy?.chat ?? request.cwd // before the session starts in it
         try still(name)
-        _ = await services.cloud.gateway.ensureOnline(within: .seconds(10)) // No login step: its model calls reach this Mac's own gateway through its edge; up before the first turn.
         // Remote approvals turn on (an idle daemon only), awaited on every exit: the gate is never released under them.
         try await RemoteApprovalPreparations.owned({ [services] in await services.cloud.restartWithApprovalsIfIdle(session, .checkStatus) { account == services.cloud.account } }) {}
         steps.done("approvals")
@@ -291,6 +294,7 @@ struct CloudStartSession {
             try Self.failed(account, now: services.cloud.account, request.asked(machine: name), Self.startFailure(error, name: name, id: id, agent: agent))
         }
         steps.done("start")
+        _ = await gateway.awaited(marking: "gateway", on: steps) // up before the first turn; 0 ms when it came up beside the steps
         CloudStartStepRecord.current?.machine = started.phases
         // The session runs now; the result reports it. A switch during the start shows nothing. (A trajectory hook, hq#4381, goes here.)
         if revealing, invocation.allowsViewChange, account == services.cloud.account { CloudHandlers.show(anchor.id, context) }
