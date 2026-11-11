@@ -109,6 +109,7 @@ on:
       - scripts/cmux-next/base-autofix-mac-busy.sh
       - scripts/cmux-next/base-autofix-since.sh
       - scripts/cmux-next/base-autofix-changed.sh
+      - scripts/cmux-next/base-autofix-ffi-pin.sh
       - scripts/cmux-next/base-autofix-settings-landed.sh
       - scripts/cmux-next/publish-bot-head-tree.sh
       - scripts/cmux-next/autofix-areas.sh

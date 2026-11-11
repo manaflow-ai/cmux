@@ -226,7 +226,7 @@ final class SectionHeaderRowView: SidebarRowView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         performWithTheme {
-            name.setColor(Palette.textTertiary)
+            name.setColor(Palette.textSecondary)
             badge.setColor(Palette.textTertiary)
             glyph.setTint(Palette.textSecondary)
             chevron.setTint(Palette.textTertiary)
