@@ -524,35 +524,42 @@ fn probe_command(mark: &str) -> String {
          code=$(curl -sS -D \"$d/headers\" -o \"$d/body\" -w '%{{http_code}}' --max-time 60 \
          -H 'authorization: Bearer {PLACEHOLDER}' \
          'https://coderouter.cmux.internal/v1/models?client_version=0.0.0' 2>\"$d/error\"); \
-         echo \"$code\"; echo '{mark}headers'; head -c {PROBE_EXCERPT} \"$d/headers\"; echo; echo '{mark}body'; \
+         echo \"$code\"; echo '{mark}headers'; head -c {PROBE_HEADERS_READ} \"$d/headers\"; echo; echo '{mark}body'; \
          head -c {PROBE_EXCERPT} \"$d/body\"; echo; echo '{mark}error'; head -c 300 \"$d/error\""
     )
 }
 
-/// How much of the probe's answer (headers, then body) comes back to name a refusal.
+/// How much of the probe's answer comes back to name a refusal: of the header lines once filtered, and of the body.
 const PROBE_EXCERPT: usize = 1500;
+
+/// How much of the header lines is read for filtering: a long cookie, dropped, never takes the room of the headers
+/// after it (a hop's `server`, the next hop's status line).
+const PROBE_HEADERS_READ: usize = 16 * 1024;
 
 /// The start of the probe's marker lines: random per probe, so neither the answer nor a hop can write one.
 fn probe_mark() -> String {
-    use std::hash::{BuildHasher, Hash, Hasher};
-    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
-    now_ms().hash(&mut hasher);
-    format!("@@probe-{:016x}-", hasher.finish())
+    use std::hash::BuildHasher;
+    format!("@@probe-{:016x}-", std::collections::hash_map::RandomState::new().hash_one(now_ms()))
 }
 
 /// The probe's output (`mark` the start of its marker lines) as it may be printed. Every line of the header part (each
 /// hop's headers, and trailers after the body) is a header: one that can carry a credential (a cookie, an
 /// authorization, a token) is dropped with its folded continuation lines, and so is one with no name. The body and
-/// curl's error are shown as they are. Control characters other than line breaks are left out.
+/// curl's error are shown as they are. Control characters other than line breaks are left out. The header lines kept
+/// are held to PROBE_EXCERPT bytes, after filtering, and a line says when more were left out.
 fn shown_answer(out: &str, mark: &str) -> String {
     let secret = |name: &str| {
         let name = name.trim().to_ascii_lowercase();
         ["cookie", "authorization", "token", "secret", "key"].iter().any(|s| name.contains(s))
     };
     let (mut part, mut dropping) = ("", false);
+    let (mut header_bytes, mut headers_cut) = (0, false);
     let mut shown = Vec::new();
     for line in out.lines().skip(1) {
         if let Some(next) = line.strip_prefix(mark) {
+            if part == "headers" && headers_cut {
+                shown.push("[more header lines not shown]".to_owned());
+            }
             (part, dropping) = (next, false);
             continue;
         }
@@ -575,7 +582,15 @@ fn shown_answer(out: &str, mark: &str) -> String {
             // Nothing comes before the first marker; anything else would be unlooked at.
             continue;
         }
-        shown.push(line.chars().filter(|c| !c.is_control()).collect::<String>());
+        let line = line.chars().filter(|c| !c.is_control()).collect::<String>();
+        if part == "headers" {
+            header_bytes += line.len() + 1;
+            if header_bytes > PROBE_EXCERPT {
+                headers_cut = true;
+                continue;
+            }
+        }
+        shown.push(line);
     }
     shown.join("\n").trim().to_owned()
 }
@@ -775,6 +790,36 @@ mod tests {
                 && shown.contains("x-hop: gw")
                 && shown.ends_with("refused")
         );
+    }
+
+    #[test]
+    fn a_long_dropped_cookie_leaves_room_for_the_headers_after_it() {
+        // The excerpt holds the headers kept, not the raw ones: a cookie past the whole budget is dropped and the next
+        // hop's status and server still show; headers past the budget are cut with a line that says so.
+        let mark = probe_mark();
+        let cookie = "x".repeat(PROBE_EXCERPT * 2);
+        let headers = format!(
+            "HTTP/1.1 200 Connection established\r\nSet-Cookie: sid={cookie}\r\n\r\n\
+             HTTP/1.1 403 Forbidden\r\nserver: the-refusing-hop\r\n\r\n"
+        );
+        let shown = shown_answer(&probe_out(&mark, &headers, "refused"), &mark);
+        assert!(
+            shown.contains("HTTP/1.1 403 Forbidden\nserver: the-refusing-hop")
+                && !shown.contains("sid="),
+            "{shown}"
+        );
+        assert!(!shown.contains("not shown"), "{shown}");
+        let many = "x-hop: value\r\n".repeat(200);
+        let shown = shown_answer(
+            &probe_out(&mark, &format!("HTTP/1.1 403 Forbidden\r\n{many}"), "refused"),
+            &mark,
+        );
+        let header_part = shown.split("[more header lines not shown]").next().unwrap_or("");
+        assert!(
+            header_part.len() <= PROBE_EXCERPT && shown.contains("[more header lines not shown]"),
+            "{shown}"
+        );
+        assert!(shown.ends_with("refused"), "{shown}");
     }
 
     #[test]
