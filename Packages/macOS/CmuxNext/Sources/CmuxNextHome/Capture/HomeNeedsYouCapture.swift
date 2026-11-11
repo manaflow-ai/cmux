@@ -15,7 +15,7 @@ package import Foundation
 /// - The feed owner the bridge calls (``owner(_:)``), as the local daemon's feed: `feed.post`
 ///   becomes the daemon's `feed.post {item}` (its integration owner), `feed.cancel` its
 ///   `feed.withdraw {dedupe_key}`, both through `send`.
-package nonisolated final class HomeNeedsYouCapture: @unchecked Sendable { // crash-allow: every mutable field is in `state` (a Mutex)
+package nonisolated final class HomeNeedsYouCapture: Sendable {
     package static let rawSession = "acp_peer_capture"
     package static let qualifiedSession = "peer-a/acp_peer_capture"
     package static let permission = "perm-capture"
@@ -37,6 +37,7 @@ package nonisolated final class HomeNeedsYouCapture: @unchecked Sendable { // cr
     }
 
     private struct State {
+        var listenerSource: (any DispatchSourceRead)?
         var client: Int32 = -1
         var clientSource: (any DispatchSourceRead)?
         var buffer = Data()
@@ -48,7 +49,6 @@ package nonisolated final class HomeNeedsYouCapture: @unchecked Sendable { // cr
 
     package let socket: String
     private let listener: Int32
-    private let listenerSource: any DispatchSourceRead
     private let state = Mutex(State())
     /// One feed op on the app's local daemon: its name and its params as a JSON object; what it answered.
     private let send: @Sendable (String, Data) async -> String
@@ -78,23 +78,24 @@ package nonisolated final class HomeNeedsYouCapture: @unchecked Sendable { // cr
             throw POSIXError(.EADDRINUSE)
         }
         listener = fd
-        listenerSource = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .global(qos: .utility))
-        listenerSource.setEventHandler { [weak self] in self?.accepted() }
-        listenerSource.setCancelHandler { close(fd) }
-        listenerSource.resume()
+        let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: .global(qos: .utility))
+        state.withLock { $0.listenerSource = source }
+        source.setEventHandler { [weak self] in self?.accepted() }
+        source.setCancelHandler { close(fd) }
+        source.resume()
     }
 
     deinit { stop() }
 
     /// Closes the connection and the socket.
     package func stop() {
-        let source = state.withLock { state -> (any DispatchSourceRead)? in
-            defer { (state.client, state.clientSource) = (-1, nil) }
-            return state.clientSource
+        let (source, listening) = state.withLock { state -> ((any DispatchSourceRead)?, (any DispatchSourceRead)?) in
+            defer { (state.client, state.clientSource, state.listenerSource) = (-1, nil, nil) }
+            return (state.clientSource, state.listenerSource)
         }
         source?.cancel()
-        if !listenerSource.isCancelled {
-            listenerSource.cancel()
+        if let listening {
+            listening.cancel()
             unlink(socket)
         }
     }
