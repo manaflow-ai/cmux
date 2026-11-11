@@ -950,15 +950,27 @@ def _audit_live(root: Path, key: tuple[str, ...], cwd: str | None) -> bool:
     dynamic_calls (so the same relative-path resolution) that find_misses uses for that run. With the
     working directory unknown (None), where a load call points cannot be resolved, but the call itself
     is known: the entry is live only while the file has a load call that names its file from some
-    working directory (a folder on the way to it), and that run is already unverifiable."""
+    folder of the tracked tree (a finite set, so `..` paths count too), and that run is already
+    unverifiable."""
     path_ops, loads, calls = dynamic_calls(root, key[0], cwd)
     if len(key) == 2:
         if cwd is not None:
             return key[1] in loads
-        folders = key[1].split("/")[:-1]
-        return any(key[1] in dynamic_calls(root, key[0], "/".join(folders[:i]))[1] for i in range(len(folders) + 1))
+        if not any(call == "importlib.util.spec_from_file_location" for call, _, _ in calls):
+            return key[1] in dynamic_calls(root, key[0], "")[1]  # no call depends on the directory
+        return any(key[1] in dynamic_calls(root, key[0], folder)[1] for folder in _tree_folders(root))
     live_calls = {(c, t) for c, _, t in calls} | {(op[3], op[5]) for op in path_ops}
     return (key[1], normal_audit_key(key)[2]) in live_calls
+
+
+@lru_cache(maxsize=None)
+def _tree_folders(root: Path) -> tuple[str, ...]:
+    """Every folder of the tracked tree ("" for the root), from _tree_files, in a fixed order."""
+    folders = {""}
+    for rel in _tree_files(root):
+        parts = rel.split("/")[:-1]
+        folders.update("/".join(parts[: i + 1]) for i in range(len(parts)))
+    return tuple(sorted(folders))
 
 
 def stale_audit_entries(
@@ -1281,6 +1293,9 @@ def _command_name(command: list[_Tok]) -> tuple[_Tok | None, list[str]]:
     return command[at], [tok.text for tok in command[at + 1 :]]
 
 
+_OK, _FAILED, _EXEMPT = 1, 0, -1
+
+
 class _Shell:
     """Where a run step's shell is, read one logical line at a time: a repo folder, or None when this
     check cannot tell. It reads only a small grammar and gives up everywhere else, for good:
@@ -1306,17 +1321,27 @@ class _Shell:
     is one of those, so a failing branch goes on there, marked with the group's depth: if that
     group, or one around it, turns out to be left of && or ||, or after !, the mark is cleared and
     the branch is real; at the top level a marked branch is dropped. In a condition nothing is
-    marked. When a list ends, two possible directories make it
-    unknown. A ( ... ) restores the directory at its matching ), across lines; a cd in a pipeline of
+    marked. A failure bash does not exit for (left of && or ||, after !, in a condition) keeps that
+    mark in its status, so a group that ends with one does not end the step either.
+
+    errexit itself is known only while every path runs each `set -e` / `set +e`: one inside a group,
+    or after && or ||, that changes it makes it unknown, and then no failing branch is dropped. A cd
+    in a { ... } group that also holds a ! or a redirect, or with a redirect on the group, makes the
+    directory after the group unknown (a conservative rule beside the model above).
+
+    When a list ends, two possible directories make it unknown. A ( ... ) restores the directory at its matching ), across lines; a cd in a pipeline of
     two or more commands or in the background changes nothing."""
 
-    def __init__(self, cwd: str | None, root: Path, errexit: bool = True) -> None:
+    def __init__(self, cwd: str | None, root: Path, errexit: bool | None = True) -> None:
         self.root = root
-        self.errexit = errexit
-        # (cwd, ok, dies): dies is 0, or the depth of the outermost group a failure under errexit
+        self.errexit = errexit  # None: unknown
+        # (cwd, status, dies). status is _OK, _FAILED (errexit applies) or _EXEMPT (a failure bash does
+        # not exit for). dies is 0, or the depth of the outermost group a failure under errexit
         # happened in; that branch ended the step unless a group at that depth or above it turns out
         # to be left of && or ||, after ! or in a condition.
-        self.states: tuple[tuple[str | None, bool, int], ...] = ((cwd, True, 0),)
+        self.states: tuple[tuple[str | None, int, int], ...] = ((cwd, _OK, 0),)
+        self.risky = False  # this group holds a ! or a redirect
+        self.moved = False  # the group just closed held a cd
         self.op: str | None = None  # "&&" or "||" before the next pipeline, None at a list's start
         self.tail: tuple[tuple, tuple, bool] | None = None  # the list's last pipeline: (outcomes, skipped, negated)
         self.frames: tuple[tuple, ...] = ()
@@ -1349,7 +1374,7 @@ class _Shell:
         """One state per (dies) mark, or per (status, dies) with `keep_status`; two directories in one
         make it unknown."""
         out = []
-        for ok, dies in dict.fromkeys((state[1] if keep_status else True, state[2]) for state in states):
+        for ok, dies in dict.fromkeys((state[1] if keep_status else _OK, state[2]) for state in states):
             same = [s for s in states if s[2] == dies and (not keep_status or s[1] == ok)]
             out.append((self._collapse(same), ok, dies))
         return tuple(out)
@@ -1359,7 +1384,7 @@ class _Shell:
         if self.op is None:
             return self.states, ()
         want = self.op == "&&"
-        return tuple(s for s in self.states if s[1] == want), tuple(s for s in self.states if s[1] != want)
+        return tuple(s for s in self.states if (s[1] == _OK) == want), tuple(s for s in self.states if (s[1] == _OK) != want)
 
     def _in_block(self) -> bool:
         return any(frame[0] == "block" for frame in self.frames)
@@ -1423,18 +1448,21 @@ class _Shell:
         alone = len(pipe) == 1 and not background  # else each command runs in a subshell
         command, group = pipe[0]
         name, words = _command_name(command) if command else (None, [])
-        if alone and name is not None and name.text == "set":
+        if name is not None and name.text == "set":
             for flag, following in zip(words, [*words[1:], ""]):
                 if re.fullmatch(r"[-+][A-Za-z]*e[A-Za-z]*", flag) or (flag in ("-o", "+o") and following == "errexit"):
-                    self.errexit = flag.startswith("-")
+                    value = flag.startswith("-")
+                    every_path = alone and not self.frames and self.op is None and not self.ignore
+                    # One that only some paths run (in a group, after && or ||) leaves it unknown.
+                    self.errexit = value if every_path or self.errexit == value else None
         outcomes: list[tuple[str | None, bool]] = []
         for cwd, _, dies in dict.fromkeys(runs):
             if alone and group is not None:
                 outcomes += group
             elif alone and command:
-                outcomes += [(where, ok, dies) for where, ok in self._outcomes(command, cwd)]
+                outcomes += [(where, _OK if ok else _FAILED, dies) for where, ok in self._outcomes(command, cwd)]
             else:
-                outcomes += [(cwd, True, dies), (cwd, False, dies)]
+                outcomes += [(cwd, _OK, dies), (cwd, _FAILED, dies)]
         depth = len(self.frames)
         if suppressed or negated:  # errexit was off for everything in there
             outcomes = [(cwd, ok, 0 if dies > depth else dies) for cwd, ok, dies in outcomes]
@@ -1442,8 +1470,10 @@ class _Shell:
             outcomes = [state for state in outcomes if not state[2]]
         else:  # it was on in there; whether it is out here, the enclosing groups will say
             outcomes = [(cwd, ok, min(dies, depth)) for cwd, ok, dies in outcomes]
-        if negated:
-            outcomes = [(cwd, not ok, dies) for cwd, ok, dies in outcomes]
+        if negated:  # its failure is one bash does not exit for
+            outcomes = [(cwd, _EXEMPT if ok == _OK else _OK, dies) for cwd, ok, dies in outcomes]
+        elif suppressed or self.ignore:
+            outcomes = [(cwd, _EXEMPT if ok == _FAILED else ok, dies) for cwd, ok, dies in outcomes]
         self.tail = (tuple(outcomes), skipped, negated)
         self.states = tuple(dict.fromkeys([*outcomes, *skipped]))
         return True
@@ -1451,14 +1481,14 @@ class _Shell:
     def _end_list(self) -> None:
         if self.tail is not None:
             outcomes, skipped, negated = self.tail
-            if self.errexit and not self.ignore and not negated:  # the last pipeline failing ends the step
+            if self.errexit and not self.ignore and not negated:  # a failing last pipeline ends the step
                 if self.frames:  # unless a group around it turns out to be conditional: mark it
                     depth = len(self.frames)
                     outcomes = tuple(
-                        (cwd, ok, dies if ok else min(dies or depth, depth)) for cwd, ok, dies in outcomes
+                        (cwd, ok, min(dies or depth, depth) if ok == _FAILED else dies) for cwd, ok, dies in outcomes
                     )
                 else:
-                    outcomes = tuple(s for s in outcomes if s[1])
+                    outcomes = tuple(s for s in outcomes if s[1] != _FAILED)
             self.states = tuple(dict.fromkeys([*outcomes, *skipped]))
         self.tail = None
         self.ended = self._merge(self.states, keep_status=True)
@@ -1469,16 +1499,19 @@ class _Shell:
         runs = self._split()[0]
         saved = (
             self.states, self.op, self.tail, tuple(self.command), tuple(self.pipe), self.errexit, self.negate,
-            self.cds, self.ended, self.ignore,
+            self.cds, self.ended, self.ignore, self.risky,
         )
         self.frames += ((kind, saved),)
+        self.risky = False
         self.states, self.op, self.tail = self._merge(runs), None, None
         self.ended = self.states
         self.command, self.pipe, self.negate = [], [], False
 
     def _close(self) -> None:
-        kind, (states, op, tail, command, pipe, errexit, negate, cds, ended, ignore) = self.frames[-1]
+        kind, (states, op, tail, command, pipe, errexit, negate, cds, ended, ignore, risky) = self.frames[-1]
         self.frames = self.frames[:-1]
+        inner_risky, self.risky = self.risky, risky or self.risky
+        self.moved = self.cds != cds
         inner = self.ended
         start = self._merge(self._split_of(states, op))
         self.states, self.op, self.tail = states, op, tail
@@ -1488,7 +1521,9 @@ class _Shell:
             self.command = [_SUBSHELL_COMMAND]  # it leaves the directory as it was
         elif kind == "block":  # if / loop: unknown after a cd inside, else as it started
             where = {cwd if self.cds == cds else None for cwd, _, _ in start}
-            self.group = tuple((cwd, ok, dies) for cwd in where for ok in (True, False) for _, _, dies in start)
+            self.group = tuple((cwd, ok, dies) for cwd in where for ok in (_OK, _EXEMPT) for _, _, dies in start)
+        elif inner_risky and self.moved:  # a cd beside a ! or a redirect: unknown, conservatively
+            self.group = tuple((None, ok, dies) for _, ok, dies in inner)
         else:  # a { ... } group: the states its last list ended with (none when it ended the step)
             self.group = inner
 
@@ -1496,7 +1531,7 @@ class _Shell:
     def _split_of(states, op) -> tuple:
         if op is None:
             return states
-        return tuple(s for s in states if s[1] == (op == "&&"))
+        return tuple(s for s in states if (s[1] == _OK) == (op == "&&"))
 
     def feed(self, line: str, upto=None) -> str | None:
         """Read one logical line. With `upto`, stop at the first command whose text `upto` accepts and
@@ -1526,6 +1561,13 @@ class _Shell:
                 self.lost = True
                 return None
             if tok.kind == "redir":
+                self.risky = True
+                if self.group is not None and not self.command:  # on a group or block: it may not run
+                    start = self._merge(self._split()[0])
+                    if self.moved:
+                        self.group = tuple((None, ok, dies) for _, ok, dies in self.group) + ((None, _FAILED, 0),)
+                    else:
+                        self.group += tuple((cwd, _FAILED, dies) for cwd, _, dies in start)
                 previous = self.command[-1] if self.command else None
                 if previous is not None and previous.end == tok.start and previous.raw.isdigit():
                     self.command.pop()  # 2>&1: the 2 is the redirection's
@@ -1599,6 +1641,7 @@ class _Shell:
             self._close()
         elif word == "!":
             self.negate = not self.negate
+            self.risky = True
         elif word == "time":
             pass
         elif word in _GIVES_UP:
@@ -1855,6 +1898,7 @@ def find_misses(root: Path, audit: dict[tuple[str, ...], str] | None = None) -> 
     frozen_audit = frozenset(audit)
     names = NameProof(root)  # one full-tree name index per run
     _run_lines.cache_clear()  # run steps parse once per run, never from an earlier one
+    _tree_folders.cache_clear()
     memo: dict[tuple, tuple] = {}  # full_run results within this run
     misses = []
     ran_in: dict[str, set[str | None]] = {}  # file -> working directories its checked runs read it from
@@ -2256,7 +2300,7 @@ def run_bash_oracle(cases) -> tuple[Counter, list[str]]:
 # with and without -e. Every command but python is a builtin, so bash takes one path per python
 # status. Seeds are fixed, so a disagreement reproduces from its seed.
 
-GENERATED_SHELL_SEEDS = int(os.environ.get("SPARSE_SHELL_SEEDS", "5000"))
+GENERATED_SHELL_SEEDS = int(os.environ.get("SPARSE_SHELL_SEEDS", "20000"))
 _GEN_TARGETS = ("scripts/ci", "scripts", "ci", "lib", "missing", "..", "scripts/a")
 _GEN_SIMPLE = (
     "true", "false", ":", "cd {d}", "cd {d}", "cd {d}", "cd {d} > /", ": > /", "set -e", "set +e",
@@ -3640,7 +3684,7 @@ class SparseCheckoutOracleTests(unittest.TestCase):
         self.assertGreater(counts["agree"], 0, dict(counts))
 
     def test_generated_shell_programs_agree_with_bash(self) -> None:
-        # GENERATED_SHELL_SEEDS random programs of the grammar above (5000 by default), each through
+        # GENERATED_SHELL_SEEDS random programs of the grammar above (20000 by default), each through
         # bash: wherever this check gives a known directory for the python call, bash ran it there.
         import time
 
