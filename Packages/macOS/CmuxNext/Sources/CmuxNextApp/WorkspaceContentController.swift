@@ -432,7 +432,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         paneSpare.fill()
     }
 
-    func holdsContentInMotion(for pane: LayoutPaneID) -> Bool {
+    func slidesNewPaneInBeside(for pane: LayoutPaneID) -> Bool { // the shape of a panel's arrival beside a chat; no content holds
         guard let content = panes[pane]?.currentContent else { return false }
         if case .agent = content { return true }
         return false

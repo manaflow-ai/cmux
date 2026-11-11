@@ -8,19 +8,19 @@ import CmuxNextTerminalGeometry
 import CmuxNextTestSupport
 import Testing
 
-/// FRAME OWNER REFACTOR S3a (D1), the release of a spring's held content: a pane whose content keeps the larger of its
-/// start and final size through a split, close or zoom spring (the provider's `holdsContentInMotion`, true for agent
-/// panes; the host's injected rule for a host made without a provider). A landing frame that only moves the host (its
-/// size came to rest a frame before its origin) sets the held content to its rest size in that frame, and nothing laid
-/// the content out before it heard the spring land (`PaneHostView.releaseHeldContent`): a terminal in it let its
-/// surface hold go from its stale host, took its start size again and sent its start grid, and the next layout pass
-/// sent the final grid once more. The pane's content (`PaneContentView` with a real `TerminalSession`) lays out at its
-/// rest size before it hears the landing: no grid after the final one the spring's start sent, and the surface never
-/// takes its start size again.
+/// FRAME OWNER REFACTOR S3a (D1), the landing of a split, close or zoom spring: the pane's content (`PaneContentView`
+/// with a real `TerminalSession`) follows its pane in every frame, as every kind of content does (Lawrence 2026-11-11:
+/// "all must have smooth transition"; until then a host could hold its content at the rest size, the provider's rule for
+/// agent panes), and only the terminal's surface holds, at the final size the spring's start told it. A landing frame
+/// that only moves the host (its size came to rest a frame before its origin) changes no size, and the content is laid
+/// out at its rest size before it hears the spring land (`PaneHostView.releaseHeldContent`): a terminal that heard the
+/// landing in a stale host let its surface hold go there, took its start size again and sent its start grid, and the
+/// next layout pass sent the final grid once more. No grid after the final one the spring's start sent, and the surface
+/// never takes its start size again.
 ///
 /// The host is driven frame by frame as the screen presents it (`ScreenContentView.applyPresentation`): the rest
 /// offset, then the frame (laid out when its size changed), and the spring flag set on its first frame and cleared on
-/// the frame it lands at. The hold is injected (`PaneHostView.init(holdsContentInMotion:)`), as the provider's is.
+/// the frame it lands at.
 @MainActor
 @Suite(.serialized, .closesItsWindows)
 struct PaneHeldContentLandingTests {
@@ -45,7 +45,7 @@ struct PaneHeldContentLandingTests {
         let session = TerminalSession(io: io)
         let content = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("terminal"), title: "zsh")]), reveal: reveal)
         content.show(session.view)
-        let host = PaneHostView(pane: "p1", content: content, holdsContentInMotion: { true })
+        let host = PaneHostView(pane: "p1", content: content)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         let screen = NSView(frame: NSRect(x: 0, y: 0, width: 1200, height: 800))
@@ -78,13 +78,12 @@ struct PaneHeldContentLandingTests {
         host.isOnLayoutSpring = true
         host.announceRest()
         let atStart = await grids()
-        // Its near edge moves, its far edge stays: the content holds its rest size from the first frame (Leo
-        // 2026-11-05: "the main pane waits for the right pane to shift before it shifts. Like, why are you waiting?"),
-        // pinned to that edge.
+        // Its near edge moves, its far edge stays: the content has its pane's size in every frame (it waits for no
+        // landing and takes no rest size ahead of its pane).
         for x in [20.0, 50, 80] as [CGFloat] {
             Self.present(host, at: CGRect(x: x, y: 0, width: 600 - x, height: 800), rest: rest)
-            try #require(host.content.frame.size.width <= rest.width,
-                         "the content waits at its start size on a spring frame (\(host.content.frame.size), rest \(rest.size))")
+            try #require(host.content.frame == CGRect(origin: .zero, size: host.contentRect.size) && host.contentRect.width == 600 - x - 16,
+                         "the content is not at its pane's size on a spring frame (\(host.content.frame) in \(host.contentRect))")
         }
         // Its size comes to rest a frame before its origin does...
         Self.present(host, at: rest.offsetBy(dx: -1, dy: 0), rest: rest)

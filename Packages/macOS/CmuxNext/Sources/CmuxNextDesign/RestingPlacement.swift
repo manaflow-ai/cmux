@@ -18,20 +18,33 @@ public protocol RestingPlacement: NSView {
     /// gives it at the spring's start. A view that joins the content mid-spring (a split's new pane gets its
     /// terminal from the daemon's echo) asks for it here. Nil at rest or with no size change.
     var restContentSizeChange: CGSize? { get }
+    /// As ``restContentSizeChange``, from the size the content has in this frame. The two differ only in a key resize,
+    /// where the content follows its pane while its producers hold (FRAME OWNER S1/S3): a producer measures from the
+    /// size its hold began at (``restContentSizeChange``, a terminal's surface), and a view that lays out at the
+    /// content's size now (an agent chat's page moved in mid-spring) measures from this.
+    var liveRestContentSizeChange: CGSize? { get }
 }
 
 public extension RestingPlacement {
     var isOnLayoutSpring: Bool { restOffset != .zero }
     var restContentSizeChange: CGSize? { nil }
+    var liveRestContentSizeChange: CGSize? { restContentSizeChange }
 }
 
 public extension NSView {
     /// The nearest enclosing ``RestingPlacement``'s ``RestingPlacement/restContentSizeChange``: the size change
     /// this view's spring will rest at, for a view that joins mid-spring. Nil outside a spring.
-    var enclosingRestSizeChange: CGSize? {
+    var enclosingRestSizeChange: CGSize? { enclosingSpringPlacement?.restContentSizeChange }
+
+    /// The nearest enclosing ``RestingPlacement``'s ``RestingPlacement/liveRestContentSizeChange``: what a view that
+    /// has its pane content's size in this frame adds to it for the size it will rest at. Nil outside a spring.
+    var enclosingLiveRestSizeChange: CGSize? { enclosingSpringPlacement?.liveRestContentSizeChange }
+
+    /// The nearest enclosing ``RestingPlacement`` when it is on a layout spring.
+    private var enclosingSpringPlacement: (any RestingPlacement)? {
         var ancestor = superview
         while let view = ancestor {
-            if let placement = view as? RestingPlacement { return placement.isOnLayoutSpring ? placement.restContentSizeChange : nil }
+            if let placement = view as? RestingPlacement { return placement.isOnLayoutSpring ? placement : nil }
             ancestor = view.superview
         }
         return nil
