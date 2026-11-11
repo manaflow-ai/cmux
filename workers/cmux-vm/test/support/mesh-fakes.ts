@@ -149,6 +149,9 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   let storeLatencyMs = 0;
   /** Mesh store calls made so far: each is one round trip on the request's one database connection. */
   let storeCalls = 0;
+  /** Calls per store method, and extra latency for one method (a stand-in for a slow apply's read). */
+  const storeCallsOf = new Map<string, number>();
+  const methodLatencyMs = new Map<string, number>();
   const latencyLayer = Layer.effect(
     MeshStore,
     Effect.map(MeshStore, (inner) => new Proxy(inner, {
@@ -157,8 +160,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
         if (typeof value !== "function") return value;
         return (...args: ReadonlyArray<unknown>) => {
           storeCalls += 1;
+          if (typeof key === "string") storeCallsOf.set(key, (storeCallsOf.get(key) ?? 0) + 1);
           const run: unknown = Reflect.apply(value, target, args);
-          return storeLatencyMs > 0 && Effect.isEffect(run) ? Effect.zipRight(Effect.sleep(storeLatencyMs), run) : run;
+          const delayMs = storeLatencyMs + (typeof key === "string" ? methodLatencyMs.get(key) ?? 0 : 0);
+          return delayMs > 0 && Effect.isEffect(run) ? Effect.zipRight(Effect.sleep(delayMs), run) : run;
         };
       },
     })),
@@ -437,6 +442,10 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
     delayStoreCalls(ms: number) { storeLatencyMs = ms; },
     /** How many mesh store calls have been made (each is a database round trip in production). */
     storeCallCount() { return storeCalls; },
+    /** How many calls of store method `method` have been made. */
+    storeCallCountOf(method: string) { return storeCallsOf.get(method) ?? 0; },
+    /** Delays every call of store method `method` by `ms` more (0: none). */
+    delayStoreMethod(method: string, ms: number) { methodLatencyMs.set(method, ms); },
     failNetworkCreates(status: number | null) { networkCreateStatus = status; },
     loseNetworkReplies(times: number) { networkLostReplies = times; },
     hideNetworks(on: boolean) { hideNetworks = on; },
