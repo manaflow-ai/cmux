@@ -172,8 +172,9 @@ pub(super) fn validate_effect_fields(
                         || (matches!(direction, "left" | "right")
                             && !fields.contains_key("viewport_width")
                             && !fields.contains_key("row_height")
-                            && !fields.contains_key("ratio")),
-                    "bad request: fit needs direction left or right and no viewport_width, ratio or row_height"
+                            && !fields.contains_key("ratio")
+                            && !fields.contains_key(AROUND_SPLIT_FIELD)),
+                    "bad request: fit needs direction left or right and no viewport_width, ratio, row_height or around"
                 );
             }
             if let Some(width) = fields.get("viewport_width").and_then(Value::as_f64) {

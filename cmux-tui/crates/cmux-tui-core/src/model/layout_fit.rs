@@ -1,19 +1,20 @@
-//! Fitting a script's new column into the window (`pane.split` with
-//! `viewport_width` from the CLI, MCP or an SDK).
+//! Fitting a new column into the window (`pane.split` with `fit`, the
+//! CLI's `split --right --fit`, MCP `open` and the CLI's beside-the-chat
+//! placement).
 //!
 //! A screen that has never scrolled is one full-width column (width 1.0).
-//! A script that added a column beside it at `viewport_width` 0.5 made the
-//! row 1.5 viewports wide, and a second one 2.0: the person's two panes
+//! Agents used to add a column beside it at `viewport_width` 0.5, which made
+//! the row 1.5 viewports wide, and a second one 2.0: the person's panes
 //! became a sideways-scrolling strip they never asked for (Aziz 2026-11-06:
 //! "I want them to open as new panes, just not as a column that is
-//! scrollable like that"). So a script's column, on a screen whose
-//! scrolling columns fit the window, makes room: the new column gets an
-//! equal share (`1 / n` of the strip) and the columns there shrink in
-//! proportion, so the strip still sums to the window. A screen that already
-//! scrolls (the person chose that layout, or made columns wider than the
-//! window) keeps its columns and takes the new one at the asked width, as
-//! before. The app's own New Column never comes through here: it keeps its
-//! rule that a new column resizes no column (R3b).
+//! scrollable like that"). A `fit` column, on a screen whose scrolling
+//! columns fit the window, makes room: it gets an equal share (`1 / n` of
+//! the strip) and the columns there shrink in proportion, so the strip
+//! still sums to the window. A screen that already scrolls keeps its
+//! columns and takes the new one at half the window. An explicit
+//! `viewport_width` is always kept as asked, and the app's own New Column
+//! never comes through here: it keeps its rule that a new column resizes
+//! no column (R3b).
 //!
 //! Widths of scrolling columns are shares of the strip (the window minus
 //! docked columns), so "fits" means they sum to at most 1. Docked and band
@@ -40,7 +41,7 @@ impl Screen {
         sum <= 1.0 + FIT_EPSILON
     }
 
-    /// After a script inserted the column `added` into a screen that fit the
+    /// After a `fit` split inserted the column `added` into a screen that fit the
     /// window, resizes the scrolling columns so all of them fit again: the
     /// new one at `1 / n`, the others scaled to share the rest in their old
     /// proportions (equal shares when a scaled one would fall under the

@@ -30219,7 +30219,7 @@
         "constraints": [
           "ratio is finite and greater than 0 and less than 1.",
           "viewport_width requires direction right and is finite and greater than or equal to 0.1 and less than or equal to 1.",
-          "fit requires direction left or right and excludes viewport_width, ratio and row_height.",
+          "fit requires direction left or right and excludes viewport_width, ratio, row_height and around.",
           "cols and rows are paired.",
           "At most one of argv or shell is present; argv[0] is non-empty.",
           "focus defaults to false: a programmatic split never moves the user's focus unless it asks."

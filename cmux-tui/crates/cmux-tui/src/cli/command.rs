@@ -10,7 +10,7 @@ use cmux_tui_core::resource::{
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, UsageError};
-use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
+use flags::{BOOLEAN_FLAGS, SWITCH_OR_VALUE_FLAGS, usage, validate_one_of};
 
 mod agent_focus;
 #[cfg(unix)]
@@ -365,7 +365,9 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
             if name.is_empty() {
                 return Err(UsageError::new("empty flag name"));
             }
-            let flag_value = if is_boolean_flag(name) {
+            let switch = inline.is_none()
+                && flag_takes_no_value(name, args.get(index + 1).map(String::as_str));
+            let flag_value = if is_boolean_flag(name) || switch {
                 if inline.is_some() {
                     return Err(UsageError::new(format!("--{name} does not take a value")));
                 }
@@ -455,6 +457,14 @@ fn insert_creation_command(
 
 pub(super) fn is_boolean_flag(name: &str) -> bool {
     BOOLEAN_FLAGS.contains(&name)
+}
+
+/// Whether `--name` followed by `next` (the next argument, if any) is a flag
+/// without a value: a boolean flag, or a [`SWITCH_OR_VALUE_FLAGS`] one with no
+/// value word after it.
+pub(super) fn flag_takes_no_value(name: &str, next: Option<&str>) -> bool {
+    is_boolean_flag(name)
+        || (SWITCH_OR_VALUE_FLAGS.contains(&name) && next.is_none_or(|next| next.starts_with("--")))
 }
 
 fn parse_session(
@@ -878,7 +888,10 @@ fn parse_pane_strings(
             if let Some(ratio) = flags.take("ratio") {
                 insert_ratio(&mut params, "ratio", "--ratio", ratio)?;
             }
-            if flags.boolean("fit") {
+            if flags.values.contains_key("fit") {
+                if flags.take("fit").is_some() {
+                    return Err(UsageError::new("--fit does not take a value"));
+                }
                 if direction != "right" {
                     return Err(UsageError::new("--fit requires --right"));
                 }

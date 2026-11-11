@@ -36,3 +36,26 @@ fn pane_split_fit_refuses_a_width_a_ratio_or_another_direction() {
         assert!(parsed.is_err(), "{args:?} was accepted");
     }
 }
+
+#[test]
+fn fit_is_a_switch_for_split_and_takes_a_value_for_emulate() {
+    let tab = "tab_00000000000000000000000000000007";
+    let emulate = protocol(&["tab", tab, "emulate", "--fit", "16:9"]);
+    assert_eq!(operation(&emulate), "browser.tab.emulate");
+    assert_eq!(emulate.params["fit"], "16:9");
+    let inline = protocol(&["tab", tab, "emulate", "--fit=1280"]);
+    assert_eq!(inline.params["fit"], "1280");
+
+    let last = protocol(&["pane", PANE, "split", "--right", "--fit"]);
+    assert_eq!(last.params["fit"], true);
+    for args in [
+        ["pane", PANE, "split", "--right", "--fit=yes"].as_slice(),
+        ["pane", PANE, "split", "--right", "--fit", "wide"].as_slice(),
+    ] {
+        let parsed = parse(
+            &args.iter().map(|arg| (*arg).to_owned()).collect::<Vec<_>>(),
+            crate::cli::Surface::CmuxTui,
+        );
+        assert!(parsed.is_err(), "{args:?} was accepted");
+    }
+}

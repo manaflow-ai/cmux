@@ -210,6 +210,7 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         ),
         (vec!["pane", PANE, "run", "shell", "printf ok"], "pane.run"),
         (vec!["pane", PANE, "split", "--down", "--shell", "make watch"], "pane.split"),
+        (vec!["pane", PANE, "split", "--right", "--fit"], "pane.split"),
         (vec!["tab", TAB, "update", "--icon", "star.fill"], "tab.update"),
         (
             vec![
