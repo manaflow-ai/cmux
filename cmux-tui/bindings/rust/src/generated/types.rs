@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3f556312e20b74ef56908fbae3134b30b26e08d7c2cd9b7b5f9371ad8abad788.
+// cmux-tui mux protocol 12, IR 7a24f97fc9023c64975b3cf682d8547574314e365527da1ab226b82c3d3eac43.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1954,6 +1954,31 @@ pub struct ServerStatsHookQueue {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsJournalFollower {
+    pub client: u64,
+    pub connected_ms: u64,
+    pub keeps_hook_rows: bool,
+    pub keeps_report_rows: bool,
+    pub kinds: Vec<String>,
+    pub left_ms: Nullable<u64>,
+    pub max_sensitivity: Nullable<String>,
+    pub remote: bool,
+    pub stream_id: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsJournalFollowers {
+    pub followers: Vec<ServerStatsJournalFollower>,
+    pub grace_ms: u64,
+    pub hook_rows_kept: bool,
+    pub journal_hook_keeps_rows: Nullable<bool>,
+    pub keep_all_ms: u64,
+    pub report_rows_kept: bool,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsJournalWriter {
     pub batch_size: ServerStatsHistogram,
     pub batches: u64,
@@ -2070,6 +2095,8 @@ pub struct ServerStatsResult {
     pub disk: Option<ServerStatsDisk>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub hook_queue: Option<ServerStatsHookQueue>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub journal_followers: Option<ServerStatsJournalFollowers>,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub locks: Option<ServerStatsLocks>,

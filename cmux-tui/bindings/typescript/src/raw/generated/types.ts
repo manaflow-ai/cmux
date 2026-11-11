@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3f556312e20b74ef56908fbae3134b30b26e08d7c2cd9b7b5f9371ad8abad788. */
+/* cmux-tui mux protocol 12, IR 7a24f97fc9023c64975b3cf682d8547574314e365527da1ab226b82c3d3eac43. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1182,6 +1182,27 @@ export type ServerStatsHookQueue = {
   "undeliverable_events": bigint;
 };
 
+export type ServerStatsJournalFollower = {
+  "client": bigint;
+  "connected_ms": bigint;
+  "keeps_hook_rows": boolean;
+  "keeps_report_rows": boolean;
+  "kinds": Array<string>;
+  "left_ms": (bigint) | null;
+  "max_sensitivity": (string) | null;
+  "remote": boolean;
+  "stream_id": string;
+};
+
+export type ServerStatsJournalFollowers = {
+  "followers": Array<ServerStatsJournalFollower>;
+  "grace_ms": bigint;
+  "hook_rows_kept": boolean;
+  "journal_hook_keeps_rows": (boolean) | null;
+  "keep_all_ms": bigint;
+  "report_rows_kept": boolean;
+};
+
 export type ServerStatsJournalWriter = {
   "batch_size": ServerStatsHistogram;
   "batches": bigint;
@@ -1278,6 +1299,7 @@ export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "disk"?: ServerStatsDisk;
   "hook_queue"?: ServerStatsHookQueue;
+  "journal_followers"?: ServerStatsJournalFollowers;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "locks"?: ServerStatsLocks;
   "registry_lock": ServerStatsRegistryLock;
