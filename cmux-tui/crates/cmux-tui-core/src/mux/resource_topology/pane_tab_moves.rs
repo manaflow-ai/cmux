@@ -388,11 +388,7 @@ impl Mux {
                     target_screen.active_pane = target_pane_id.clone();
                     changes.push(ResourceChange::UpsertScreen(target_screen.clone()));
                     changes.push(ResourceChange::UpsertWorkspace {
-                        workspace: registry_workspace(
-                            state,
-                            target_workspace_index,
-                            registry.session_id().as_str(),
-                        ),
+                        workspace: registry_workspace(state, target_workspace_index, &mux.session),
                         position: target_workspace_index,
                         active_screen: Some(target_screen_id.clone()),
                     });

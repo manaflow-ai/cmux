@@ -43,6 +43,13 @@ WORKFLOW = ROOT / ".github/workflows/app-ffi-release.yml"
 REPIN_WORKFLOW = ROOT / ".github/workflows/app-ffi-repin.yml"
 sys.path.insert(0, str(ROOT / "tests"))
 from test_seed_derived_data import evaluate  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 SHA = "45845b2d13d794c435d31f72ea74dc0f4a5739d0"
 TAG = f"cmux-app-ffi-{SHA}"
@@ -152,11 +159,11 @@ class PublishJob(unittest.TestCase):
                                                 "workflow_changed": "true" if workflow_changed else "false"}}},
                 "vars": {}, "runner": {"temp": str(temp_path)},
             }
-            base_env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": temp, "STATE": str(state),
+            base_env = git_fixture_env.fixture_env({"PATH": f"{bin_dir}:{os.environ['PATH']}", "HOME": temp, "STATE": str(state),
                         "FAKE_CREATE": create, "FAKE_READ_FAILS": read_fails, "FAKE_CURL_FAILS": curl_fails, "GITHUB_SHA": SHA, "GITHUB_REPOSITORY": REPO,
                         "GITHUB_RUN_ID": RUN_ID, "GITHUB_SERVER_URL": "https://github.com",
                         "RUNNER_TEMP": temp, "GITHUB_OUTPUT": str(temp_path / "output"),
-                        "GITHUB_STEP_SUMMARY": str(temp_path / "summary")}
+                        "GITHUB_STEP_SUMMARY": str(temp_path / "summary")})
             base_env.update({key: render(value, context) for key, value in (job.get("env") or {}).items()})
             failed, log = False, []
             for step in job["steps"]:
@@ -645,7 +652,7 @@ class NewestPublishedRelease(unittest.TestCase):
         self.addCleanup(subprocess.run, ["rm", "-rf", str(self.temp)])
         self.origin, self.work, self.releases = self.temp / "origin.git", self.temp / "work", self.temp / "releases"
         self.releases.mkdir()
-        subprocess.run(["git", "init", "-q", "--bare", str(self.origin)], check=True)
+        git_fixture_env.init_repo(self.origin, "--bare")
         subprocess.run(["git", "init", "-q", str(self.work)], check=True)
         self.git("remote", "add", "origin", str(self.origin))
         self.commits = [self.commit(f"c{i}") for i in range(6)]
@@ -861,6 +868,71 @@ class BuildGoesAheadOfThePullRequestQueue(unittest.TestCase):
         self.assertEqual(pr[self.SMALL], ())
         nightly = cascade.cascade(["release-compile"], live, waiting, reserved=held, fresh=("release-compile",))
         self.assertEqual(nightly[self.SMALL], ("release-compile",))
+
+
+STATUS_CALL = re.compile(r"\b(success|failure|cancelled|always)\(\)")
+
+
+def run_jobs(results: dict[str, str], event: str = "push") -> dict[str, str]:
+    """Which jobs of the workflow run, given the result of the jobs named in `results`, by GitHub's job-gate rule:
+    an `if` with no status function is `success() && (if)`, and success() asks that every ancestor, not only the
+    named needs, succeeded; failure() asks that one failed. A job that runs and is not in `results` succeeds."""
+    jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+    needs = {name: ([job["needs"]] if isinstance(job.get("needs"), str) else list(job.get("needs") or ()))
+             for name, job in jobs.items()}
+    outcome: dict[str, str] = {}
+
+    def ancestors(name: str) -> set[str]:
+        found: set[str] = set()
+        for parent in needs[name]:
+            found |= {parent} | ancestors(parent)
+        return found
+
+    def decide(name: str) -> str:
+        if name not in outcome:
+            for parent in needs[name]:
+                decide(parent)
+            above = [outcome[a] for a in ancestors(name)]
+            status = {"success": all(r == "success" for r in above), "failure": "failure" in above,
+                      "cancelled": False, "always": True}
+            condition = str(jobs[name].get("if", "true")).strip()
+            if condition.startswith("${{") and condition.endswith("}}"):
+                condition = condition[3:-2]
+            if not STATUS_CALL.search(condition):
+                condition = f"success() && ({condition})"
+            condition = STATUS_CALL.sub(lambda m: "true" if status[m.group(1)] else "false", condition)
+            context = {"github": {"ref": "refs/heads/feat-cmux-next", "event_name": event,
+                                  "repository_owner": "manaflow-ai"},
+                       "needs": {p: {"result": outcome[p]} for p in needs[name]}}
+            outcome[name] = results.get(name, "success") if evaluate(condition, context) else "skipped"
+        return outcome[name]
+
+    for name in jobs:
+        decide(name)
+    return outcome
+
+
+class PlacementNeverGatesThePublish(unittest.TestCase):
+    """The build runs past its placement (it only picks a runner), so nothing after the build may wait on the
+    placement either. A downstream `if` without a status function keeps the implicit success() over every
+    ancestor, placement included: a failed placement then skipped publish and repin under a green build, and the
+    FFI pin stayed red (Codex review of cmux#40734 at 2283666f, P1)."""
+
+    def test_a_failed_placement_still_publishes_and_repins_a_good_build(self):
+        for event in ("push", "workflow_dispatch"):
+            ran = run_jobs({"placement": "failure"}, event)
+            self.assertEqual(ran["build"], "success", event)
+            for job in ("macos-cross-shadow", "publish", "repin"):
+                self.assertEqual(ran[job], "success", (event, job))
+
+    def test_a_failed_build_publishes_nothing(self):
+        for placement in ("success", "failure"):
+            ran = run_jobs({"placement": placement, "build": "failure"})
+            for job in ("macos-cross-shadow", "publish", "repin"):
+                self.assertEqual(ran[job], "skipped", (placement, job))
+
+    def test_a_failed_publish_opens_no_repin(self):
+        self.assertEqual(run_jobs({"placement": "failure", "publish": "failure"})["repin"], "skipped")
 
 
 if __name__ == "__main__":

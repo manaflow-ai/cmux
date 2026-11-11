@@ -21,6 +21,8 @@ final class SidebarListView: NSView {
     /// The model revision and options `displayed` is the full layout of (a plain reload): a one-row insert splices onto
     /// it (`spliceInsertion`). Nil after any other apply.
     var spliceBase: (revision: UInt64, options: SidebarLayoutOptions)?
+    /// The spaces the person left, each as the list drew it: a space shown again lays out no row (`SidebarSpacePage`).
+    var spacePages = SidebarSpacePages()
     /// The row the apply running now splices in (`spliceInsertion`): its only new row, nothing else added or removed.
     var splicedRow: SidebarRowKey?
     /// The row the apply running now takes out, or moves (`spliceRemoval`): its only change, no row new to the list.

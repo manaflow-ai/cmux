@@ -14,6 +14,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 
 import cmux_next_compile_revert as revert  # noqa: E402
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+import importlib.util as _git_fixture_importlib  # noqa: E402
+from os import path as _git_fixture_path  # noqa: E402
+_git_fixture_spec = _git_fixture_importlib.spec_from_file_location(
+    "git_fixture_env", _git_fixture_path.join(_git_fixture_path.dirname(_git_fixture_path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = _git_fixture_importlib.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 WORKFLOW = ROOT / ".github" / "workflows" / "cmux-next.yml"
 
@@ -124,7 +131,7 @@ class RevertStep(unittest.TestCase):
                     git("commit", "-qm", "squash")
                 sha = git("rev-parse", "HEAD")
                 done = subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=tmp,
-                                      env={"MERGE_SHA": sha, "PR": "1", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"},
+                                      env=git_fixture_env.fixture_env({"MERGE_SHA": sha, "PR": "1", "PATH": "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin"}),
                                       capture_output=True, text=True)
                 self.assertEqual(done.returncode, 0, done.stderr)
                 self.assertFalse(Path(tmp, "b").exists())
