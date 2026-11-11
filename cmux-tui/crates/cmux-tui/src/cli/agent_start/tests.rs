@@ -1868,7 +1868,7 @@ fn w6f_a_full_agent_stack_opens_the_next_agent_as_a_tab_in_its_last_pane() {
 }
 
 /// W6-F (review of 49b43fbf, finding 2): a start that does not know its
-/// caller (a `--session` call outside the caller's session socket) opens in
+/// caller (a shell outside cmux-tui: no `CMUX_TUI_TERMINAL_ID`) opens in
 /// the focused pane's space, and `agent start` focuses each new agent. The
 /// focused agent pane already is an agent column, so the second start
 /// stacks below it and no column changes width.

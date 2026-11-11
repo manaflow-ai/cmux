@@ -2,7 +2,9 @@
 //!
 //! - No `--pane` and no `--split`: a new pane in the caller's space (the
 //!   caller's pane, or outside a cmux-tui terminal the focused pane, with
-//!   the agent panes it started), [`Placement::Beside`]. `resume` without
+//!   the agent panes it started), [`Placement::Beside`]. A cmux-tui
+//!   terminal of another session is never placed by focus (agent_start.rs
+//!   `caller_terminal` refuses that start). `resume` without
 //!   either reopens the agent in the pane of its exited tab instead.
 //! - `--pane SEL`: a new tab in that pane.
 //! - `--pane SEL --split DIR`, or `--split DIR` alone: split that pane.
