@@ -161,6 +161,28 @@ class TheScannerFindsTheForms(unittest.TestCase):
             with self.subTest(finding=finding, src=src):
                 self.assertEqual(self.hits(src), [func])
 
+    def test_a_signal_that_may_be_zero_is_a_probe(self):
+        # review of cmux#41326 (F3): os.kill(*(pid, 0)), signal.SIG_DFL (whose value is 0) and aliases of it passed.
+        # Each row: (source of one kill call's module, what the lint calls it)
+        rows = [
+            ("import os\nos.kill(*(p, 0))\n", "unresolved"),
+            ("import os, signal\nos.kill(p, signal.SIG_DFL)\n", "signal 0"),
+            ("import os, signal\nos.kill(p, signal.Handlers.SIG_DFL)\n", "signal 0"),
+            ("import os\nfrom signal import SIG_DFL as D\nos.kill(p, D)\n", "signal 0"),
+            ("import os\nZ = 0\nos.kill(p, Z)\n", "signal 0"),
+            ("import os\nos.kill(p, 1 - 1)\n", "signal 0"),
+            ("import os\nos.kill(p, False)\n", "signal 0"),
+            ("import os, signal\nos.kill(p, signal.SIGTERM if c else 0)\n", "signal 0"),
+            ("import os\ndef f(sig=0):\n    os.kill(p, sig)\n", "unresolved"),
+            ("import os\nZ = 0\nZ = 9\nos.kill(p, Z)\n", "unresolved"),
+            ("import os\nos.kill(p, pick())\n", "unresolved"),
+            ("import os\nN = 9\nos.kill(p, N)\n", None),
+            ("import os, signal\nos.kill(p, signal.SIGTERM)\n", None),
+        ]
+        for src, want in rows:
+            with self.subTest(src=src):
+                self.assertEqual([k for *_, k in find_source(src)], [want] if want else [])
+
     def test_import_os_path_binds_os(self):
         # review of cmux#41365 (F1): `import os.path` binds os, but only `import os` was read, so os.kill passed
         src = ("import os.path\n"
@@ -422,10 +444,12 @@ class TheHelpers(unittest.TestCase):
         import contextlib
         live = subprocess.Popen(["sleep", "60"], start_new_session=True)
         try:
+            # cmux#41326 (F2): EPERM, or a ps that fails, says nothing: never a definite "gone"
             for refuses in (True, False):
-                with self.subTest(eperm=refuses), FakePs("exit 0"), \
-                        (RefusesGroupSignalZero() if refuses else contextlib.nullcontext()):
-                    self.assertFalse(group_died(live.pid, within=0.3), "a live group counted as gone")
+                for ps in ("exit 0", "exit 1", "echo 'ps: oops' >&2; exit 2"):
+                    with self.subTest(eperm=refuses, ps=ps), FakePs(ps), \
+                            (RefusesGroupSignalZero() if refuses else contextlib.nullcontext()):
+                        self.assertFalse(group_died(live.pid, within=0.3), "a live group counted as gone")
         finally:
             live.kill()
             live.wait()
