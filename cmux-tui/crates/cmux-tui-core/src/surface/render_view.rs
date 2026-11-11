@@ -25,7 +25,7 @@ impl Surface {
             *pty.last_attach_colors.lock().unwrap() = Some(Box::new(live_colors));
             pty.broadcast_attach_frame(AttachFrame::ColorsChanged(Arc::new(colors)));
             let generation = pty.render_generation.fetch_add(1, Ordering::AcqRel) + 1;
-            let _ = pty.build_frame_locked(&mut term, generation, false);
+            let _ = pty.build_frame_locked(&mut term, generation, true);
             pty.dirty.store(true, Ordering::Release);
         }
     }

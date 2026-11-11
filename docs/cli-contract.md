@@ -554,16 +554,20 @@ chat on the machine). Each row's `status` is the word `terminal list --agents`
 uses: `blocked`, `done` (idle with an unread notification), `working`, `idle`,
 `unknown`, or `ended` for an ended session (as in the `send` receipt; it was
 null); `state` is a deprecated alias with the same word, and an acpmux chat's
-own status is `acp_status`. The CLI does not list an ended agent of a terminal
-that closed; `--state ended` shows those rows too, and the text output ends
-with a line that says how many rows it left out. `--state` takes those words and
+own status is `acp_status`. A terminal that closed has no agent: the daemon
+deletes the agent record with the terminal, so no output lists it, `--state
+ended` included (the ended chat stays in `cmux history list --kind agent`).
+The CLI still leaves out an ended agent whose terminal the snapshot does not
+have (a daemon of an older build kept the records of closed terminals);
+`--state ended` shows those rows too, and the text output ends with a line
+that says how many rows it left out. `--state` takes those words and
 `ended` (`--state done` selected ended sessions before; that is `--state ended`
 now). It puts blocked agents first, then done, working, idle, unknown and
 ended (`--sort recent|none` for recency or the daemon's order). `agent report --state ended` reports a session
 that ended (`--state done` is an old alias of it), and its record says
 `ended`. `--json` stays
 a bare array of agents; `--json --counts` adds the counts by status, `ended` and
-`total`, and `hidden_ended`, the ended agents of closed terminals it left out
+`total`, and `hidden_ended`, the ended agents it left out
 (`{"agents": [...], "counts": {...}, "hidden_ended": 0}`).
 
 Hook providers are `codex`, `claude` (also `claude-code`), `gemini`, `opencode`

@@ -540,50 +540,50 @@ pub(crate) fn tab_conversation_wire(
     connection: &Connection,
     tab_id: &str,
 ) -> anyhow::Result<Option<Value>> {
-    let conversation = connection
-        .query_row(
-            "SELECT c.conversation, c.owner FROM resource_tabs AS t
+    let conversation = super::values::query_row_cached(
+        connection,
+        "SELECT c.conversation, c.owner FROM resource_tabs AS t
              JOIN conversation_tabs AS c ON c.browser_id = t.content_id
              WHERE t.public_id = ?1",
+        [tab_id],
+        |row| {
+            Ok(ConversationTabRecord::Conversation {
+                conversation: row.get(0)?,
+                owner: row.get(1)?,
+            })
+        },
+    )
+    .optional()?;
+    let record = match conversation {
+        Some(record) => Some(record),
+        None => super::values::query_row_cached(
+            connection,
+            "SELECT a.host, a.session, a.harness, a.host_name FROM resource_tabs AS t
+                 JOIN agent_session_tabs AS a ON a.browser_id = t.content_id
+                 WHERE t.public_id = ?1",
             [tab_id],
             |row| {
-                Ok(ConversationTabRecord::Conversation {
-                    conversation: row.get(0)?,
-                    owner: row.get(1)?,
+                Ok(ConversationTabRecord::AgentSession {
+                    host: row.get(0)?,
+                    session: row.get(1)?,
+                    harness: row.get(2)?,
+                    host_name: row.get(3)?,
                 })
             },
         )
-        .optional()?;
-    let record = match conversation {
-        Some(record) => Some(record),
-        None => connection
-            .query_row(
-                "SELECT a.host, a.session, a.harness, a.host_name FROM resource_tabs AS t
-                 JOIN agent_session_tabs AS a ON a.browser_id = t.content_id
-                 WHERE t.public_id = ?1",
-                [tab_id],
-                |row| {
-                    Ok(ConversationTabRecord::AgentSession {
-                        host: row.get(0)?,
-                        session: row.get(1)?,
-                        harness: row.get(2)?,
-                        host_name: row.get(3)?,
-                    })
-                },
-            )
-            .optional()?,
+        .optional()?,
     };
     let record = match record {
         Some(record) => Some(record),
-        None => connection
-            .query_row(
-                "SELECT p.page, p.route FROM resource_tabs AS t
+        None => super::values::query_row_cached(
+            connection,
+            "SELECT p.page, p.route FROM resource_tabs AS t
                  JOIN page_tabs AS p ON p.browser_id = t.content_id
                  WHERE t.public_id = ?1",
-                [tab_id],
-                |row| Ok(ConversationTabRecord::Page { page: row.get(0)?, route: row.get(1)? }),
-            )
-            .optional()?,
+            [tab_id],
+            |row| Ok(ConversationTabRecord::Page { page: row.get(0)?, route: row.get(1)? }),
+        )
+        .optional()?,
     };
     Ok(record.map(|record| record.wire()))
 }

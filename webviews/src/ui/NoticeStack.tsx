@@ -1,7 +1,7 @@
 // The one queue and stack for toasts (leo-workspace design/notifications.md). A surface owns one
 // queue (`createNoticeQueue`); anything may `show` into it, a host bridge included, since the queue
 // lives outside React. NoticeStack draws it bottom centre over the surface, the native toast's
-// placement (pages/overlay/toasts): newest at the bottom, at most three, a toast with the same id
+// placement (CmuxToastOverlayHost): newest at the bottom, at most three, a toast with the same id
 // replacing the old one in its slot. A toast leaves after its time; the time stops while the pointer
 // or focus is in the stack, or while the page is hidden, and starts again in full after.
 //
