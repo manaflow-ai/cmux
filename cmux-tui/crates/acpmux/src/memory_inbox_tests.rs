@@ -281,22 +281,28 @@ fn a_file_that_changed_since_it_was_read_is_left_alone() {
     assert_eq!(std::fs::read_to_string(dir.path().join("AGENTS.md")).unwrap(), "theirs\n");
 }
 
+/// The `(name, window)` pairs a swap hook should have been reached in, in order.
+#[cfg(unix)]
+fn reached(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
+    pairs.iter().map(|(name, window)| ((*name).to_owned(), (*window).to_owned())).collect()
+}
+
 #[cfg(unix)]
 #[test]
 fn an_edit_saved_between_the_checks_and_the_swap_is_kept() {
-    use crate::folder_instructions::SWAP_HOOK;
     let dir = tempfile::tempdir().unwrap();
-    // A name no other test writes: the hook is shared by every test in this process.
     let path = dir.path().join("RACE-EDIT.md");
     std::fs::write(&path, "# Mine\n").unwrap();
     let saved = path.clone();
-    *SWAP_HOOK.lock().unwrap() = Some(Box::new(move |name, window| {
+    let hook = crate::folder_instructions::on_swap(move |name, window| {
         if name == "RACE-EDIT.md" && window == "before" {
             std::fs::write(&saved, "# Mine\n\nSaved by an editor meanwhile.\n").unwrap();
         }
-    }));
+    });
     let got = write(dir.path(), "RACE-EDIT.md", &["Use pnpm, not npm.".into()]);
-    *SWAP_HOOK.lock().unwrap() = None;
+    // The save lands before the swap, so the swap finds it and swaps back.
+    assert_eq!(hook.reached(), reached(&[("RACE-EDIT.md", "before"), ("RACE-EDIT.md", "after")]));
+    drop(hook);
     assert!(got.is_err(), "{got:?}");
     assert_eq!(
         std::fs::read_to_string(&path).unwrap(),
@@ -312,17 +318,17 @@ fn an_edit_saved_between_the_checks_and_the_swap_is_kept() {
 #[cfg(unix)]
 #[test]
 fn a_file_made_between_the_checks_and_the_swap_is_kept() {
-    use crate::folder_instructions::SWAP_HOOK;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("RACE-NEW.md");
     let made = path.clone();
-    *SWAP_HOOK.lock().unwrap() = Some(Box::new(move |name, window| {
+    let hook = crate::folder_instructions::on_swap(move |name, window| {
         if name == "RACE-NEW.md" && window == "before" {
             std::fs::write(&made, "theirs\n").unwrap();
         }
-    }));
+    });
     let got = write(dir.path(), "RACE-NEW.md", &["Use pnpm, not npm.".into()]);
-    *SWAP_HOOK.lock().unwrap() = None;
+    assert_eq!(hook.reached(), reached(&[("RACE-NEW.md", "before")]));
+    drop(hook);
     assert!(got.is_err(), "{got:?}");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "theirs\n");
 }
@@ -330,12 +336,11 @@ fn a_file_made_between_the_checks_and_the_swap_is_kept() {
 #[cfg(unix)]
 #[test]
 fn a_second_save_between_the_swap_and_the_swap_back_is_kept_too() {
-    use crate::folder_instructions::SWAP_HOOK;
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("RACE-TWICE.md");
     std::fs::write(&path, "# Mine\n").unwrap();
     let saved = path.clone();
-    *SWAP_HOOK.lock().unwrap() = Some(Box::new(move |name, window| {
+    let hook = crate::folder_instructions::on_swap(move |name, window| {
         if name != "RACE-TWICE.md" {
             return;
         }
@@ -344,9 +349,10 @@ fn a_second_save_between_the_swap_and_the_swap_back_is_kept_too() {
             _ => "# Mine\n\nSecond save, over the proposed file.\n",
         };
         std::fs::write(&saved, text).unwrap();
-    }));
+    });
     let got = write(dir.path(), "RACE-TWICE.md", &["Use pnpm, not npm.".into()]);
-    *SWAP_HOOK.lock().unwrap() = None;
+    assert_eq!(hook.reached(), reached(&[("RACE-TWICE.md", "before"), ("RACE-TWICE.md", "after")]));
+    drop(hook);
     assert!(got.is_err(), "{got:?}");
     assert_eq!(std::fs::read_to_string(&path).unwrap(), "# Mine\n\nFirst save.\n");
     // The second save is still on disk, under the name the error gives.
