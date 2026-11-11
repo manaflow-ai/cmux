@@ -176,4 +176,20 @@ if missing:
     sys.exit("FAIL: imported web bundle inputs are not routed:\n  " + "\n  ".join(missing))
 PY
 
+# The toolchain part of the key is the bun webviews/package.json pins, read by the one
+# shared reader (scripts/webviews_bun_version.py): an npm entry listed first does not pick
+# it, and no bun pin stops the key instead of keying bundles to a guessed 1.4.4.
+pins="$TMP/pins"
+mkdir -p "$pins/webviews"
+identity() { env -u CMUX_WEB_BUN_VERSION CMUX_WEB_NODE_VERSION=24.22.1 python3 -I -c 'import runpy, sys; print(runpy.run_path(sys.argv[1])["toolchain_identity"](sys.argv[2]), end="")' "$KEY" "$pins" 2>&1; }
+printf '{"devEngines": {"packageManager": [{"name": "npm", "version": "10.9.2"}, {"name": "bun", "version": "1.4.5"}]}}\n' > "$pins/webviews/package.json"
+out=$(identity) || fail "npm listed first: $out"
+[[ "$out" == $'bun=1.4.5\nnode=24.22.1' ]] || fail "npm listed first must key bun 1.4.5: $out"
+printf '{"devEngines": {"packageManager": {"name": "npm", "version": "10.9.2"}}}\n' > "$pins/webviews/package.json"
+status=0; out=$(identity) || status=$?
+[[ "$status" != 0 && "$out" == *"no bun in devEngines.packageManager"* ]] || fail "no bun pin must stop the key: $status $out"
+out=$(CMUX_WEB_BUN_VERSION=1.4.6 CMUX_WEB_NODE_VERSION=24.22.1 python3 -I -c 'import runpy, sys; print(runpy.run_path(sys.argv[1])["toolchain_identity"](sys.argv[2]), end="")' "$KEY" "$pins" 2>&1) \
+  || fail "CMUX_WEB_BUN_VERSION must key without reading the pin: $out"
+[[ "$out" == $'bun=1.4.6\nnode=24.22.1' ]] || fail "CMUX_WEB_BUN_VERSION must win: $out"
+
 echo "web-bundle-key inputs: ok"

@@ -501,9 +501,11 @@ done
         self.stage_web_file("webviews")
         (web / "node_modules/.bin/vp").unlink()
         (web / "bun.lock").write_text("{}\n")
+        (web / "package.json").write_text('{"devEngines": {"packageManager": {"name": "bun", "version": "1.4.4"}}}\n')
         env = self.formatter_env(with_rustfmt=False, FAKE_VP_LOG=str(vp_log))
         bun = Path(env["PATH"]) / "bun"
         bun.write_text(f"""#!/bin/sh
+[ "$1" = --version ] && {{ echo 1.4.4; exit 0; }}
 cat > node_modules/.bin/vp <<'VP'
 {self.FAKE_VP}VP
 {shutil.which("chmod")} +x node_modules/.bin/vp
@@ -630,8 +632,8 @@ mkdir -p node_modules/.bin
         result = self.run_pre_commit(env)
         self.assertFalse(canary.exists(), result.stderr)
         self.assertIn("not an exact major.minor.patch version", result.stderr)
-        self.assertNotEqual(result.returncode, 0, "no bun: an agent commit still stops at the missing vp")
-        self.assertIn("vp is unavailable for webviews", result.stderr)
+        self.assertNotEqual(result.returncode, 0, "a refused pin refuses the commit")
+        self.assertIn("refusing to install webviews packages", result.stderr)
 
     def test_a_pinned_install_resolving_into_the_checkout_is_not_run(self):
         self.assertEqual(self.install().returncode, 0)
@@ -671,6 +673,46 @@ mkdir -p node_modules/.bin
         "no bun entry": ({"packageManager": {"name": "npm", "version": "10.9.2", "onFail": "error"}}, None),
     }
 
+    def test_a_bun_the_hook_cannot_vouch_for_refuses_the_commit(self):
+        """#41001 review: no trusted reader copy, a refused pin or no bun at the pin used to fall
+        back to PATH's bun by name. Each now refuses with the fix, and the planted PATH bun (outside
+        the checkout, so the resolver alone would let it run) never runs, --version included."""
+        self.assertEqual(self.install().returncode, 0)
+        reader = Path(self.local_hooks_path()) / "webviews_bun_version.py"
+        saved = reader.read_bytes()
+        marker = self.root / "planted-bun-ran"
+        planted = self.root / "planted-bin/bun"
+        planted.parent.mkdir(parents=True, exist_ok=True)
+        planted.write_text(f"#!/bin/sh\n: > {shlex.quote(str(marker))}\necho 1.3.0\n")
+        planted.chmod(0o755)
+        no_bun = '{"devEngines": {"packageManager": {"name": "npm", "version": "10.9.2"}}}\n'
+        for case, package_json, remove_reader, says in (
+            ("no trusted reader copy", None, True, "run scripts/install-git-hooks.sh"),
+            ("no bun entry", no_bun, False, "no bun in devEngines.packageManager"),
+            ("no bun at the pin", None, False, "install it: curl -fsSL https://bun.sh/install | bash -s bun-v1.4.4"),
+        ):
+            with self.subTest(case=case):
+                marker.unlink(missing_ok=True)
+                env = self.bootstrap_env()
+                env["PATH"] = f"{planted.parent}{os.pathsep}{env['PATH']}"
+                if package_json is not None:
+                    (self.repo / "webviews/package.json").write_text(package_json)
+                if remove_reader:
+                    reader.unlink()
+                try:
+                    result = self.run_pre_commit(env)
+                finally:
+                    reader.write_bytes(saved)
+                self.assertNotEqual(result.returncode, 0, result.stderr)
+                self.assertIn(says, result.stderr)
+                self.assertIn("refusing to install webviews packages", result.stderr)
+                self.assertNotIn("PATH's bun", result.stderr)
+                if case == "no bun at the pin":
+                    # Only the pinned candidates are asked their version; none is 1.4.4, so nothing installs.
+                    self.assertFalse((self.root / "bun.log").exists(), result.stderr)
+                else:
+                    self.assertFalse(marker.exists(), f"{case}: the planted PATH bun ran\n{result.stderr}")
+
     def test_hook_and_version_checker_read_one_bun_pin(self):
         self.assertEqual(self.install().returncode, 0)
         old_bun = self.root / "old-bun"
@@ -691,10 +733,14 @@ mkdir -p node_modules/.bin
                 finally:
                     path_bun.unlink()
                 ran = (self.root / "bun.log").read_text().splitlines() if (self.root / "bun.log").exists() else []
-                self.assertEqual(len(ran), 1, result.stderr)
-                hook = next((version for version, bun in installed.items() if ran[0] == str(bun)), None)
-                if hook is None:
-                    self.assertEqual(ran[0], str(path_bun), result.stderr)
+                if ran:
+                    self.assertEqual(len(ran), 1, result.stderr)
+                    hook = next(version for version, bun in installed.items() if ran[0] == str(bun))
+                else:
+                    # No pin it accepts: the hook installs with nothing and refuses the commit.
+                    hook = None
+                    self.assertNotEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("refusing to install webviews packages", result.stderr)
                 # The checker, on the same package.json, against a bun older than any pin: its
                 # install command names the version it wants, or it refuses the declaration.
                 checked = subprocess.run(["sh", str(self.repo / "scripts/check-webviews-bun-version.sh"), str(old_bun)],
