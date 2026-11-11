@@ -369,11 +369,6 @@ fn dispatch_exact_topology_mutation(
         // unless it asks, like `tab.create_terminal`; the user's own splits
         // never come through here (tests/agent-evals/RESULTS.md, mode 1).
         fields.entry(crate::mux::PANE_SPLIT_FOCUS_FIELD).or_insert(Value::Bool(false));
-        // A script's new column shares the window with the columns there
-        // instead of making the row scroll sideways (`Screen::fit_strip_after_insert`).
-        if fields.contains_key("viewport_width") {
-            fields.insert(crate::mux::PANE_SPLIT_FIT_FIELD.into(), Value::Bool(true));
-        }
     }
     if operation == ResourceOperation::WorkspaceCreate {
         // Likewise a programmatic `workspace.create` opens in the background

@@ -8,6 +8,9 @@
 /// cmux's custom forwarding and error text.
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `pane <p> split --right --fit`: a column that shares the window; without
+    // this it would swallow a following `--json` or `--`.
+    "fit",
     // `terminal <t> screen read --details`: the screen record's fields, not its text alone.
     "details",
     // `cloud kill-machine --confirm`: without this it would swallow a following `--json`.

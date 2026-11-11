@@ -904,6 +904,8 @@ impl Mux {
             row_height,
             focus,
         } = options;
+        // `fit` makes a column too; its width is set once the screen is known.
+        let viewport_width = viewport_width.or(fit.then_some(FIT_SCROLLING_COLUMN_WIDTH));
         let split_direction = direction
             .map(|direction| {
                 Ok(match direction {
@@ -1014,7 +1016,7 @@ impl Mux {
                 let base = base_column_id.expect("viewport column reserved a base id");
                 // `direction: "left"` (`column-left-v1`) opens the column before the target's.
                 let before = split_direction.is_some_and(|(_, before_target)| before_target);
-                // A script's column on a screen that fits the window makes room (`fit`).
+                // A `fit` column on a screen that fits the window shares it.
                 let fits = fit && screen.strip_fits_window();
                 anyhow::ensure!(
                     screen.insert_layout_column_beside(target, base, column, before),

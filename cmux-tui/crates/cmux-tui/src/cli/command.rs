@@ -878,6 +878,17 @@ fn parse_pane_strings(
             if let Some(ratio) = flags.take("ratio") {
                 insert_ratio(&mut params, "ratio", "--ratio", ratio)?;
             }
+            if flags.boolean("fit") {
+                if direction != "right" {
+                    return Err(UsageError::new("--fit requires --right"));
+                }
+                if flags.values.contains_key("viewport-width") || params.contains_key("ratio") {
+                    return Err(UsageError::new(
+                        "--fit shares the window; drop --viewport-width and --ratio",
+                    ));
+                }
+                params.insert("fit".into(), Value::Bool(true));
+            }
             if let Some(viewport_width) = flags.take("viewport-width") {
                 if direction != "right" {
                     return Err(UsageError::new("--viewport-width requires --right"));

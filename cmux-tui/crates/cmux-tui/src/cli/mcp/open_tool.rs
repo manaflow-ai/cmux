@@ -4,8 +4,8 @@
 //!
 //! Before it, "open notes.md on my left" took an agent a split, the app's `file.open`
 //! with that split's pane as `target`, and often a docs search and a layout read; a
-//! sticky column also needed a viewport column (only `pane_split` with `viewport_width`
-//! makes one) and `column_update`. Agents found that path in 0 of 4 samples
+//! sticky column also needed a viewport column (only `pane_split` with `fit` or
+//! `viewport_width` makes one) and `column_update`. Agents found that path in 0 of 4 samples
 //! (tests/tool-evals open-r16b), and every open cost 2 to 4 steps (about 20k tokens a
 //! step). This tool runs the same calls inside the server.
 
@@ -15,9 +15,6 @@ use sha2::{Digest, Sha256};
 use super::{Backend, Server, envelope, tool_error, v2_tools};
 
 pub(super) const NAME: &str = "open";
-
-/// The width a new right column takes (`crate::cli::beside::NEW_COLUMN_WIDTH`).
-const COLUMN_WIDTH: f64 = 0.5;
 
 fn stage_key(open_id: &str, phase: &str) -> String {
     let mut hash = Sha256::new();
@@ -326,7 +323,7 @@ impl<B: Backend> Server<B> {
                 let mut split = Map::new();
                 split.insert("pane".into(), json!(pane.unwrap_or("current")));
                 split.insert("direction".into(), json!("right"));
-                split.insert("viewport_width".into(), json!(COLUMN_WIDTH));
+                split.insert("fit".into(), json!(true));
                 self.split_pane(&split, open_id).map(made)
             }
             "sticky" => self.sticky_pane(arguments, open_id),
@@ -357,7 +354,7 @@ impl<B: Backend> Server<B> {
         let mut split = Map::new();
         split.insert("pane".into(), json!("current"));
         split.insert("direction".into(), json!("right"));
-        split.insert("viewport_width".into(), json!(COLUMN_WIDTH));
+        split.insert("fit".into(), json!(true));
         let pane = self.split_pane(&split, open_id)?;
         let docked = (|| {
             let screen = self.read(

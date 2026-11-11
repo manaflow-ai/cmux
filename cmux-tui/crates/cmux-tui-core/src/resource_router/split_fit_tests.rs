@@ -1,9 +1,11 @@
-//! A script's new column (`pane.split` with `viewport_width` from the CLI, MCP
-//! or an SDK) shares the window with the columns already there, so the row
-//! never becomes a sideways-scrolling strip the person did not choose (Aziz
+//! `pane.split` with `fit: true` (`cmux pane <p> split --right --fit`) makes a
+//! column that shares the window: on a screen whose columns fit it, the new
+//! column takes an equal share and the others are scaled, so the row never
+//! becomes a sideways-scrolling strip the person did not choose (Aziz
 //! 2026-11-06: an agent's two `split --right --viewport-width 0.5` made a
-//! two-viewport-wide strip). A screen that already scrolls keeps its widths,
-//! and the app's own New Column still resizes no column (R3b).
+//! two-viewport-wide strip). `viewport_width` keeps meaning exactly that width,
+//! a screen that already scrolls keeps its widths, and the app's own New Column
+//! resizes no column (R3b).
 
 use serde_json::{Value, json};
 
@@ -74,11 +76,10 @@ fn mux() -> Arc<Mux> {
 }
 
 #[test]
-fn a_scripts_columns_share_the_window_instead_of_scrolling() {
+fn fit_columns_share_the_window_instead_of_scrolling() {
     let mux = mux();
     let first = workspace(&mux, "fit-two");
-    let split =
-        |key: &str| send(&mux, json!({"pane":first,"direction":"right","viewport_width":0.5}), key);
+    let split = |key: &str| send(&mux, json!({"pane":first,"direction":"right","fit":true}), key);
     split("fit-two-a");
     assert_widths(&column_widths(&mux, &first), &[0.5, 0.5]);
     split("fit-two-b");
@@ -86,16 +87,38 @@ fn a_scripts_columns_share_the_window_instead_of_scrolling() {
 }
 
 #[test]
-fn a_screen_that_already_scrolls_keeps_its_widths() {
+fn an_explicit_viewport_width_is_kept() {
+    let mux = mux();
+    let first = workspace(&mux, "fit-explicit");
+    send(
+        &mux,
+        json!({"pane":first,"direction":"right","viewport_width":0.5}),
+        "fit-explicit-split",
+    );
+    assert_eq!(column_widths(&mux, &first), vec![1.0, 0.5]);
+}
+
+#[test]
+fn a_fit_column_on_a_screen_that_already_scrolls_keeps_the_widths() {
     let mux = mux();
     let first = workspace(&mux, "fit-scrolling");
     // The app's New Column (the person's own scrolling layout): no fit, R3b.
     mux.new_pane_right(pane_id(&mux, &first), 0.5, None).unwrap();
     assert_eq!(column_widths(&mux, &first), vec![1.0, 0.5]);
-    send(
-        &mux,
-        json!({"pane":first,"direction":"right","viewport_width":0.5}),
-        "fit-scrolling-split",
-    );
+    send(&mux, json!({"pane":first,"direction":"right","fit":true}), "fit-scrolling-split");
     assert_eq!(column_widths(&mux, &first), vec![1.0, 0.5, 0.5]);
+}
+
+#[test]
+fn fit_with_a_viewport_width_is_refused() {
+    let mux = mux();
+    let first = workspace(&mux, "fit-both");
+    let envelope = json!({
+        "protocol":"cmux.protocol/2","type":"request","id":"fit-both","operation":"pane.split",
+        "idempotency_key":"fit-both-split",
+        "params":{"machine":"current","session":"current","pane":first,"direction":"right",
+                  "fit":true,"viewport_width":0.5},
+    });
+    let response = handle_resource_message(&mux, &envelope.to_string()).unwrap();
+    assert_eq!(response["ok"], false, "{response}");
 }
