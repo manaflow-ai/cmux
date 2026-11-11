@@ -20,13 +20,17 @@ function shifted(shifts: { value: number; sources: string[] }[] | undefined): st
  * the play's own check) as `error`, and the stage fails a step whose anchors moved or whose layout
  * shifted. It also fails a frame over 33 ms or a slow settle, which on the shared CI runner time the
  * runner as much as the page (cx-mfkky): those stay in the gallery report and do not fail a test.
+ *
+ * `steps` "all" also takes the problems of a step the stage only warned about (a popup that is
+ * covered, clipped or past the viewport, where the entry does not ask for the popup-layer check):
+ * for a test whose play opens no menu that fades out under its own click.
  */
-export function playFailures(report: string | undefined): string[] {
+export function playFailures(report: string | undefined, steps: "failed" | "all" = "failed"): string[] {
   const play = JSON.parse(report ?? "{}") as PlayReport;
   if (play.error) return [play.error];
   if (!play.status || play.status === "none" || !play.steps?.length) return [`the play ran no steps: ${report}`];
   return play.steps
-    .filter((step) => step.status === "fail")
+    .filter((step) => steps === "all" || step.status === "fail")
     .flatMap((step) =>
       step.problems
         .filter((problem) => !RUNNER_TIMING.some((timing) => timing.test(problem)))

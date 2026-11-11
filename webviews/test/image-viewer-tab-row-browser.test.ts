@@ -69,12 +69,14 @@ await requireBrowserLane("image-viewer-tab-row-browser.test.ts", async () => {
           }
           expect(report.ready).toBe("1");
           // What the play did wrong, by name: its own checks (the viewer under the tab row, the name
-          // outside its bar, a dimmed image), a step that did not run, a moved anchor, a layout shift.
+          // outside its bar, a dimmed image), a step that did not run, a moved anchor, a layout shift,
+          // and a covered, clipped or off-screen popup in any step (the Gallery dialog is graded as a
+          // popup and its entry does not ask for the popup-layer check, so the stage only warns).
           // A frame over 33 ms or a slow settle times the shared CI runner as much as the page and
           // fails no behavior test (support/galleryPlay.ts); the notice still names it and its step.
           const notice = playNotice(`image-viewer-tab-row ${variant} ${colorScheme}`, report.play);
           if (notice) console.log(notice);
-          expect(playFailures(report.play)).toEqual([]);
+          expect(playFailures(report.play, "all")).toEqual([]);
         } finally {
           await page.close();
         }

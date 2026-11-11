@@ -150,6 +150,27 @@ describe("a gallery play's CI report", () => {
   test("a play that ran no steps fails", () => {
     expect(playFailures(JSON.stringify({ status: "none", steps: [] }))).toHaveLength(1);
   });
+
+  test("a test that asks for all steps fails on a warned popup problem, and still not on the runner's timing", () => {
+    const report = {
+      status: "fail",
+      steps: [
+        { step: 'click button "Open"', status: "fail", problems: ["1 frame(s) over 33 ms (longest 63.2 ms)"] },
+        {
+          step: "wait dialog",
+          status: "warn",
+          problems: [
+            "popup div.ui-dialog runs past the viewport (0,40 760x900)",
+            "settle latency 300.0 ms (limit 250 ms)",
+          ],
+        },
+      ],
+    };
+    expect(playFailures(JSON.stringify(report))).toEqual([]);
+    expect(playFailures(JSON.stringify(report), "all")).toEqual([
+      "wait dialog: popup div.ui-dialog runs past the viewport (0,40 760x900)",
+    ]);
+  });
 });
 
 describe("a gallery play's notice", () => {
