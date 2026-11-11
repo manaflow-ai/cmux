@@ -165,9 +165,21 @@ final class TerminalStatusBanner: NSView {
         case .restoring: return restoringRevealDelay
         case .disconnected(.turnedOffByOrganization, _): return nil
         case .disconnected(_, reconnecting: true): return reconnectingRevealDelay
-        case .connected, .disconnected, .exited: return nil
+        case .connected, .disconnected, .exited, .starting: return nil
         }
     }
+
+    /// How long after `status` began its label says ``overdueText(for:stall:strings:)`` instead, with
+    /// Close; nil: it never does.
+    static func overdueDelay(for status: TerminalConnectionStatus, stall: TerminalShellStall?) -> CFTimeInterval? { nil }
+
+    /// The words of a `status` that lasted past ``overdueDelay(for:stall:)``, nil when it has none.
+    static func overdueText(
+        for status: TerminalConnectionStatus, stall: TerminalShellStall? = nil, strings: ModuleResourceBundle = .terminal
+    ) -> String? { nil }
+
+    /// The title of Close in a pane that still starts.
+    static func closeTitle(strings: ModuleResourceBundle = .terminal) -> String { "" }
 
     /// The banner text, or nil while connected. An exited terminal whose
     /// host was lost (`hostLoss`) says so, followed by the owner's recorded
@@ -192,7 +204,7 @@ final class TerminalStatusBanner: NSView {
             return "\(lost) · \(detail)"
         }
         switch status {
-        case .connected:
+        case .connected, .starting:
             return nil
         case .restoring:
             return strings.text("terminal.link.restoring", defaultValue: "Restoring…")

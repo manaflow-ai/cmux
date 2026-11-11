@@ -19,6 +19,9 @@ public nonisolated enum TerminalConnectionStatus: Sendable, Equatable {
     /// A restored view has not shown its terminal yet (first attach or a
     /// retry after it failed).
     case restoring
+    /// A new view (a split, a tab) whose terminal the daemon has not confirmed yet: nothing to show
+    /// but the pane's ground. It becomes `connected` at its first replay.
+    case starting
     case disconnected(TerminalDisconnectCause, reconnecting: Bool)
     case exited
 }
@@ -38,4 +41,17 @@ public nonisolated enum TerminalHostLoss: Sendable, Equatable {
     case restartExhausted
     /// The owner's restart after a host loss failed.
     case restartFailed
+}
+
+extension TerminalConnectionStatus {
+    /// The status as diagnostics name it (the `link` of a surface in `debug.surfaces`).
+    public var diagnosticName: String {
+        switch self {
+        case .connected: "connected"
+        case .restoring: "restoring"
+        case .starting: "starting"
+        case .exited: "exited"
+        case .disconnected(let cause, let reconnecting): "disconnected:\(cause)\(reconnecting ? ":reconnecting" : "")"
+        }
+    }
 }

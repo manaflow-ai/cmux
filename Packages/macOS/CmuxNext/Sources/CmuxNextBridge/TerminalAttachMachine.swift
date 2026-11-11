@@ -106,9 +106,9 @@ public nonisolated struct TerminalAttachMachine<Link: Hashable & Sendable>: Send
     private var lastAttempt = 0
 
     /// `restoring`: the view attaches to a terminal that already runs (a
-    /// relaunch or a reopened tab), so it says `restoring` until its first
-    /// replay instead of nothing.
-    public init(initialSize: CellSize, visible: Bool = true, restoring: Bool = false) {
+    /// relaunch or a reopened tab), so it says `restoring` until its first replay instead of nothing.
+    /// `creating`: to one the daemon has not confirmed yet (a new split or tab); not used yet.
+    public init(initialSize: CellSize, visible: Bool = true, restoring: Bool = false, creating: Bool = false) {
         self.initialSize = initialSize
         self.visible = visible
         self.restoring = restoring

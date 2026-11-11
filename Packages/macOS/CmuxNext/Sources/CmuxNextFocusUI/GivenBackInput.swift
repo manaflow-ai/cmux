@@ -28,9 +28,11 @@ public final class GivenBackInput {
     ///
     /// - Parameters:
     ///   - more: Keys to hold, typed in `window`; with no `window` they are dropped.
+    ///   - terminal: The creating terminal `more` was typed in; not used yet.
     ///   - window: The window `more` was typed in, and the window `target` is in.
     ///   - target: Writes to the focused terminal of `window`; nil while there is none.
-    public func deliver(adding more: Data = Data(), window: String?, to target: (@MainActor (Data) -> Void)?) {
+    public func deliver(adding more: Data = Data(), from terminal: String? = nil, window: String?,
+                        to target: (@MainActor (Data) -> Void)?) {
         if let since, now() - since > limit { drop() }
         if !more.isEmpty, let window {
             if self.window != window { drop() }
@@ -42,6 +44,9 @@ public final class GivenBackInput {
         target(bytes)
         drop()
     }
+
+    /// The person closed the pane of creating terminal `terminal` before it started. Nothing yet.
+    public func creationClosed(terminal: String) {}
 
     private func drop() {
         bytes = Data()

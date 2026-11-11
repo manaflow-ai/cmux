@@ -46,6 +46,15 @@ final class TerminalStatusLabel {
     /// Whether a label waits out its reveal delay (diagnostics and tests).
     var isWaiting: Bool { waiting != nil }
 
+    /// Close in the label of a pane that still starts was pressed; with none set, no Close is offered.
+    var onClose: (@MainActor () -> Void)?
+
+    /// The title of the Close on screen, nil while the label offers none.
+    var closeTitle: String? { nil }
+
+    /// Presses the offered Close as a click on it does; false while none is offered (tests).
+    func pressClose() -> Bool { false }
+
     /// Shows the label for `status` (with the host loss, its cause and the daemon's stall), hides it,
     /// or waits. A label on screen stays (with the new words); a hidden one waits its status's delay
     /// first. A change while it still waits keeps the longer wait from the same start, so

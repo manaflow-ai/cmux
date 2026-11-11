@@ -20,7 +20,7 @@ public final class TerminalHostView: NSView {
     }
     /// The label over the last screen while the link is down (click-through), built the first time
     /// a label shows: a new terminal's "connected" or quick "Restoring…" builds and shows nothing.
-    private lazy var statusLabel = TerminalStatusLabel(clock: statusClock, install: { [weak self] banner in
+    lazy var statusLabel = TerminalStatusLabel(clock: statusClock, install: { [weak self] banner in
         self?.addChrome(banner, .statusLabel)
     }, didReveal: { [weak self] in self?.needsLayout = true })
     private let statusClock: any Clock<Duration>
