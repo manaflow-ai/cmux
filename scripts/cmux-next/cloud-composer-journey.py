@@ -328,6 +328,20 @@ def sweep(journey: Journey) -> list[str]:
     return left
 
 
+def composer_snapshot(journey, pane, chip):
+    """The chip text next to what the composer decided it from (the debug chat_state verb's
+    composerInputs and runPlace) and the Cloud start it sent, for a red that reads a bare "Mode"."""
+    state = journey.pane("chat_state", pane)
+    return {
+        "chip": chip,
+        "inputs": state.get("composerInputs"),
+        "run_place": state.get("runPlace"),
+        "chips": state.get("composer"),
+        "session_id": state.get("sessionId"),
+        "error": state.get("error"),
+    }
+
+
 def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, account: str, mode: str,
                   team_for_account: str, timeout: int) -> dict:
     cell = {"folder": folder_kind, "account": account, "mode": mode, "driver": "composer", "problems": []}
@@ -394,6 +408,7 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     cell["run_mode"] = run.get("runMode")
     if run.get("error") or run.get("runMode") != "cloud":
         problems.append(f"Cloud pick: {run.get('error') or run.get('runMode')}")
+        cell["run_place_at_pick"] = journey.pane("chat_state", pane).get("runPlace")
 
     # What the composer says before Return: the team it names, the Mode chip, any Cloud refusal.
     cell["team_tag"] = " ".join(journey.page_text(".acpmux-team-tag-name")).strip()
@@ -401,6 +416,7 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
         problems.append("the team tag names a team the account is not in")
     mode_chip = " ".join(journey.page_text(".acpmux-access-trigger .acpmux-mode-text")).strip()
     cell["mode_chip"] = mode_chip
+    cell["composer_before_mode"] = composer_snapshot(journey, pane, mode_chip)
     if mode_chip == "Mode":
         problems.append('the Mode chip reads a bare "Mode"')
     if mode == "bypass":
@@ -412,6 +428,7 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
             problems.append(f"Mode menu offers no Bypass permissions with Cloud picked ({clean(clicked['error'], 120)})")
         journey.pane("close_menus", pane)
         cell["mode_chip_after"] = " ".join(journey.page_text(".acpmux-access-trigger .acpmux-mode-text")).strip()
+        cell["composer_after_mode"] = composer_snapshot(journey, pane, cell["mode_chip_after"])
         if cell["mode_chip_after"] and "Bypass" not in cell["mode_chip_after"]:
             problems.append(f"the Mode chip reads {cell['mode_chip_after']!r} after picking Bypass permissions")
     said_unavailable_before = any(UNAVAILABLE in t for t in journey.page_text(".acpmux-composer, .acpmux-composer-strip"))
