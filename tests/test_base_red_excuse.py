@@ -34,6 +34,21 @@ import sys  # noqa: E402
 if str(ROOT / "scripts/ci") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts/ci"))
 import base_red_excuse as excuse  # noqa: E402
+import git_tree  # noqa: E402
+
+
+def tree_blob(tree):
+    """A GitHub.blob that reads TREE (git_tree.GitTree): a path the tree cannot serve as text is Refused as GitHub's
+    blob would be, but a blob a partial clone lacks raises NeedsFullTree, never a Refused a caller could take for a
+    missing file."""
+    def blob(repo, ref, path):
+        try:
+            return tree.text(path)
+        except git_tree.NeedsFullTree:
+            raise
+        except git_tree.Unreadable as why:
+            raise excuse.Refused(f"{repo}@{ref}: {why}") from None
+    return blob
 # Another repo's files are read with git first (excuse.git_text, a network fetch), then GraphQL. Tests read them from
 # their fakes only; SourceReads runs the real git reader against a local repository.
 REAL_GIT_TEXT = getattr(excuse, "git_text", None)
@@ -3500,9 +3515,20 @@ if args[:2] == ["api", "graphql"]:
     ref, _, path = fields["expression"].partition(":")
     found = os.path.join(os.environ["SOURCE_GH_TREE"], fields["owner"], fields["name"], ref, path)
     blob = None
-    if os.path.isfile(found):
-        blob = {"text": open(found).read(), "isBinary": False, "isTruncated": False}
-    print(json.dumps({"data": {"repository": {"object": blob}}}))
+    if os.path.islink(found):  # GitHub serves a symlink's blob: its target's name
+        blob = {"text": os.readlink(found), "isBinary": False, "isTruncated": False}
+    elif os.path.isfile(found):
+        data = open(found, "rb").read()
+        blob = {"text": None if b"\\0" in data else data.decode(), "isBinary": b"\\0" in data, "isTruncated": False}
+    parent = None
+    if "parent" in fields:
+        where = os.path.join(os.environ["SOURCE_GH_TREE"], fields["owner"], fields["name"], ref,
+                             fields["parent"].partition(":")[2])
+        if os.path.isdir(where) and not os.path.islink(where):
+            parent = {"entries": [{"name": entry, "mode": 0o120000 if os.path.islink(os.path.join(where, entry))
+                                   else 0o40000 if os.path.isdir(os.path.join(where, entry)) else 0o100644}
+                                  for entry in sorted(os.listdir(where))]}
+    print(json.dumps({"data": {"repository": {"object": blob, "parent": parent}}}))
     sys.exit(0)
 sys.stderr.write("fake gh: unexpected call " + " ".join(args) + "\\n")
 sys.exit(1)
@@ -3593,6 +3619,29 @@ class SourceReads(unittest.TestCase):
             text = excuse.source_text(HQ, "main", ".github/workflows/skills-tests.yml", excuse.GitHub())
         self.assertEqual(text, SKILLS_YML)
         self.assertEqual([call["args"][:2] for call in self.calls()], [["api", "graphql"]])
+
+    def test_graphql_follows_a_symlink_inside_the_repository_and_refuses_one_out_of_it(self):
+        workflows = self.tree / HQ / "main/.github/workflows"
+        (workflows / "linked.yml").symlink_to("skills-tests.yml")
+        (workflows / "out.yml").symlink_to("../../../../elsewhere.yml")
+        (workflows / "bin.yml").write_bytes(b"\x00\x01")
+        self.assertEqual(excuse.GitHub().blob(HQ, "main", ".github/workflows/linked.yml"), SKILLS_YML)
+        for path, said in (("out.yml", "is a symlink to ../../../../elsewhere.yml, outside the repository"),
+                           ("bin.yml", "is not a text file GitHub served (binary)"),
+                           ("none.yml", "is not a text file GitHub served (missing, or not a file)")):
+            with self.subTest(path=path), self.assertRaisesRegex(excuse.Refused, re.escape(said)):
+                excuse.GitHub().blob(HQ, "main", f".github/workflows/{path}")
+
+    def test_git_follows_a_symlink_to_its_target(self):
+        work = self.origin()
+        (work / ".github/workflows/linked.yml").symlink_to("skills-tests.yml")
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "add", ".", cwd=work)
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "link", cwd=work)
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: work.as_uri()):
+            text = excuse.source_text(HQ, "main", ".github/workflows/linked.yml", excuse.GitHub())
+        self.assertIn("From git", text)
+        self.assertEqual(self.calls(), [])
 
     def test_no_code_path_sets_the_shims_source_override(self):
         sources = [ROOT / "scripts/ci" / name for name in ("base_red_excuse.py", "main_fix_evidence.py",
@@ -4958,17 +5007,16 @@ class PackageFixedOnBase(unittest.TestCase):
         spec.loader.exec_module(cargo)
         reads = package["reads"] + excuse.GUARD_READS_DEFAULT
         github = KitFixedOnBaseGitHub(files={})
-
-        def checkout(repo, ref, path):
-            if not (ROOT / path).is_file():
-                raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
-            return (ROOT / path).read_text()
-        github.blob = checkout
+        # The commit's tree from git's objects, never the working tree: a sparse checkout (wt new leaves
+        # cmux-next-ios/ out) refused cmux-next-ios/rust/Cargo.toml as "not a text file GitHub served" (2026-11-11).
+        tree = git_tree.GitTree(ROOT)
+        self.addCleanup(tree.close)
+        github.blob = tree_blob(tree)
         crates = sorted(excuse.cargo_crates(REPO, HEAD, package["cargo_lock"], github))
         self.assertIn("cmux-tui/crates/cmux-wg", crates)
         self.assertNotIn("cmux-tui/crates/cmux-agent-pane-policy", crates)
         for crate in crates:
-            dirs, files = cargo.crate_inputs(ROOT, crate)
+            dirs, files = cargo.crate_inputs(ROOT, crate, tree)
             for path in [f"{d}/Cargo.toml" for d in dirs] + files:
                 with self.subTest(path=path):
                     self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
@@ -4976,15 +5024,113 @@ class PackageFixedOnBase(unittest.TestCase):
         # time, which no manifest shows): every one that exists must be a declared read.
         literal = re.compile(r'"((?:[\w.-]+/)+[\w.-]+)"')
         for root in ("cmux-next-ios/CmuxMobileKit", "Packages/Shared", "Packages/iOS", "vendor"):
-            for source in sorted((ROOT / root).rglob("*.swift")):
-                if root != "cmux-next-ios/CmuxMobileKit" and "Tests" in source.relative_to(ROOT).parts:
+            for source in tree.files(root, ".swift"):
+                if root != "cmux-next-ios/CmuxMobileKit" and "Tests" in source.split("/"):
                     continue  # the job runs the kit's own tests; the packages it reaches build only their sources
-                for found in literal.finditer(source.read_text(errors="replace")):
+                for found in literal.finditer(tree.text(source, errors="replace")):
                     path = found.group(1)
-                    if (ROOT / path).is_file():
-                        with self.subTest(path=path, source=source.relative_to(ROOT).as_posix()):
+                    if tree.is_file(path):
+                        with self.subTest(path=path, source=source):
                             self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
         self.assertEqual(excuse.package_reads(REPO, HEAD, package, github), package["reads"])
+
+
+class SparseTreeReads(unittest.TestCase):
+    """The class behind PackageFixedOnBase.test_the_declared_reads_cover_the_tree's red (2026-11-11): a tree reader
+    that takes every declared path for a plain text file on disk. In a sparse checkout (wt new leaves cmux-next-ios/
+    out) the commit has the path and the working tree does not, and the reader said "not a text file GitHub served".
+    git_tree.GitTree reads the commit instead; here a sparse fixture missing a declared directory, a symlink, a binary
+    file, a submodule and a partial clone each get the right answer or the right refusal."""
+
+    def git(self, *args, cwd=None):
+        done = subprocess.run(["git", *args], cwd=cwd or self.repo, capture_output=True, text=True,
+                              env=git_fixture_env.fixture_env(), stdin=subprocess.DEVNULL)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return done.stdout
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="bre-sparse-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.repo = self.tmp / "repo"
+        files = {
+            "cmux-tui/Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n[workspace.dependencies]\n'
+                                   'b = { path = "crates/b" }\n',
+            "cmux-tui/crates/a/Cargo.toml": '[package]\nname = "a"\n[dependencies]\nb = { workspace = true }\n',
+            "cmux-tui/crates/a/src/lib.rs": "",
+            "cmux-tui/crates/b/Cargo.toml": '[package]\nname = "b"\n',
+            "cmux-tui/crates/b/src/lib.rs": 'const SPEC: &str = include_str!("../../../../schemas/spec.json");\n',
+            "schemas/spec.json": "{}\n",
+            "kit/Sources/Kit.swift": 'let spec = "schemas/spec.json"\n',
+        }
+        for path, text in files.items():
+            (self.repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / path).write_text(text)
+        (self.repo / "bin.dat").write_bytes(b"PK\x00\x01binary")
+        (self.repo / "workspace.toml").symlink_to("cmux-tui/Cargo.toml")
+        (self.repo / "kit/Spec").symlink_to("../schemas")
+        (self.repo / "outside.toml").symlink_to("../elsewhere/Cargo.toml")
+        (self.repo / "loop").symlink_to("loop")
+        self.git("init", "-q", "-b", "main", str(self.repo), cwd=self.tmp)
+        self.git("add", ".")
+        self.git("update-index", "--add", "--cacheinfo", f"160000,{'a' * 40},vendored")
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "tree")
+        self.git("config", "uploadpack.allowFilter", "true")
+        # The sparse set wt new uses: top-level files and the named directories only; cmux-tui/ and kit/ are left out.
+        self.git("sparse-checkout", "set", "--no-cone", "/*", "!/*/", "/schemas/")
+        self.assertFalse((self.repo / "cmux-tui/Cargo.toml").exists(), "the fixture is sparse")
+        self.tree = git_tree.GitTree(self.repo)
+        self.addCleanup(self.tree.close)
+
+    def test_a_path_the_sparse_checkout_leaves_out_is_read_from_the_commit(self):
+        self.assertTrue(self.tree.is_file("cmux-tui/crates/a/Cargo.toml"))
+        self.assertIn('name = "a"', self.tree.text("cmux-tui/crates/a/Cargo.toml"))
+        self.assertEqual(self.tree.files("cmux-tui", ".rs"),
+                         ["cmux-tui/crates/a/src/lib.rs", "cmux-tui/crates/b/src/lib.rs"])
+        self.assertEqual(self.tree.files("kit", ".swift"), ["kit/Sources/Kit.swift"])
+
+    def test_the_classifiers_blob_reads_a_sparse_tree(self):
+        blob = tree_blob(self.tree)
+        self.assertIn("[workspace]", blob(REPO, HEAD, "cmux-tui/Cargo.toml"))
+        with self.assertRaisesRegex(excuse.Refused, "cmux-next-ios/rust/Cargo.toml is not in the tree"):
+            blob(REPO, HEAD, "cmux-next-ios/rust/Cargo.toml")
+
+    def test_crate_inputs_reads_a_sparse_tree(self):
+        spec = importlib.util.spec_from_file_location("cargo_test_verdict", ROOT / "scripts/ci/cargo_test_verdict.py")
+        cargo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cargo)
+        self.assertEqual(cargo.crate_inputs(self.repo, "cmux-tui/crates/a", self.tree),
+                         (["cmux-tui/crates/a", "cmux-tui/crates/b"], ["schemas/spec.json"]))
+        # With no tree given it reads the repository's HEAD the same way.
+        self.assertEqual(cargo.crate_inputs(self.repo, "cmux-tui/crates/a")[1], ["schemas/spec.json"])
+
+    def test_a_symlink_is_followed_inside_the_tree(self):
+        self.assertEqual(self.tree.text("workspace.toml"), self.tree.text("cmux-tui/Cargo.toml"))
+        self.assertTrue(self.tree.is_file("kit/Spec/spec.json"))  # through a symlinked directory
+        self.assertEqual(self.tree.text("kit/Spec/spec.json"), "{}\n")
+
+    def test_each_path_that_is_not_a_text_file_is_refused_by_name(self):
+        for path, said in (("bin.dat", "bin.dat is binary"),
+                           ("outside.toml", "outside.toml is a symlink to ../elsewhere/Cargo.toml, outside the tree"),
+                           ("loop", "loop is a symlink loop"),
+                           ("vendored", "vendored is a submodule"),
+                           ("cmux-tui", "cmux-tui is a directory"),
+                           ("no/such.toml", "no/such.toml is not in the tree")):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(git_tree.Unreadable, re.escape(said)):
+                    self.tree.text(path)
+                self.assertFalse(self.tree.is_file(path))
+
+    def test_a_blob_a_partial_clone_lacks_needs_a_full_tree(self):
+        partial = self.tmp / "partial"
+        self.git("clone", "-q", "--filter=blob:none", "--no-checkout", self.repo.as_uri(), str(partial),
+                 cwd=self.tmp)
+        self.git("remote", "set-url", "origin", (self.tmp / "gone").as_uri(), cwd=partial)  # no lazy fetch can answer
+        with git_tree.GitTree(partial) as tree:
+            self.assertTrue(tree.files("cmux-tui", ".toml"))  # trees are there: the paths are listed
+            with self.assertRaisesRegex(git_tree.NeedsFullTree, "this check needs a full tree"):
+                tree.text("cmux-tui/Cargo.toml")
+            with self.assertRaises(git_tree.NeedsFullTree):  # never a Refused a caller reads as a missing file
+                tree_blob(tree)(REPO, HEAD, "cmux-tui/Cargo.toml")
 
 
 class FixedOnBase(unittest.TestCase):
