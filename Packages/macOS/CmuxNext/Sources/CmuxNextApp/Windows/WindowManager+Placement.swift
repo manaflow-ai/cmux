@@ -123,7 +123,9 @@ extension WindowManager {
             // Another machine's create writes no row in this Mac's order, so the app places it. A slot whose anchor is gone takes this fallback.
             let fallback = daemon.isLocal ? (named ? nil : byDefault?.move(for: id, section: section, in: sections, home: home, catchingUp: catchingUp))
                 : byDefault?.slot(for: id, section: section, in: sections, home: home, catchingUp: catchingUp)
+            print("placement-debug: id \(id) named \(named) local \(daemon.isLocal) byDefault \(String(describing: byDefault)) slot \(String(describing: pending.slot)) fallback \(String(describing: fallback)) home \(String(describing: home)) sections \(sections.map { s in s.nodes.compactMap { n -> String? in if case let .workspace(w) = n { return w.id.rawValue } else { return "*" } } })")
             if let position = pending.slot?.position(moving: [id], section: section, in: sections) ?? fallback?.position(moving: [id], section: section, in: sections) {
+                print("placement-debug: place \(id) at \(position)")
                 bridge.place([SidebarWorkspaceID(id)], at: position, in: sections)
             }
             ActionRunScope.carrying(pending.run) { pending.then?(id, bridge) }
