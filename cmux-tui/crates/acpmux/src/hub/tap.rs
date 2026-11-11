@@ -402,8 +402,10 @@ impl Hub {
                 && !kind.ends_with(".replay")
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
                 && subagent.is_none();
-            if live_update {
-                tap_hub.before_agent_update(&tap_session, msg.params());
+            if live_update
+                && let Some(segment) = tap_hub.before_agent_update(&tap_session, msg.params())
+            {
+                super::stream::stamp_reply_segment(&mut value, &segment);
             }
             // An update that starts or ends a subagent may change the work that runs past the
             // chat's turn (`work_below.rs`).

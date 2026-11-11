@@ -697,6 +697,11 @@ pub(super) struct StreamState {
     pub(super) trailing_text: String,
     pub(super) trailing_seqs: Vec<u64>,
     pub(super) trailing_overflow: bool,
+    /// The reply segment streaming now (`stream.rs` `reply_segment`): the id stamped on each of
+    /// its `agent_message_chunk` records, until something other than its text comes between.
+    pub(super) reply_segment: Option<String>,
+    /// Reply segments started in this turn, which numbers the next one.
+    pub(super) reply_segments: u32,
 }
 
 /// An inline `/btw` side session's transcript owner: its family and the parent chat's env.
@@ -2285,6 +2290,10 @@ impl Hub {
         at: Option<u64>,
     ) -> (EventRecord, bool) {
         let mut msg = msg;
+        // A prompt (a steer) between two runs of reply text makes them two segments (`stream.rs`).
+        if dir == "mux" && kind == "user_message" {
+            self.end_reply_segment(session);
+        }
         // Off the append lock: it reads the disk.
         tool_paths::add_canonical_paths(session, kind, &mut msg);
         let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

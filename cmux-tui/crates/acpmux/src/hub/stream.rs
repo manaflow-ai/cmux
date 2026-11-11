@@ -41,11 +41,48 @@ fn codex_error(update: &Value) -> Option<(bool, Value)> {
     Some((will_retry, err.clone()))
 }
 
+/// Updates that neither end nor continue a reply segment (`reply_segment`): what a client draws
+/// beside the reply, never between two runs of its text. A thought, a tool call, a plan or a
+/// prompt between two runs of text makes them two segments, as the pane draws them.
+const SEGMENT_QUIET_UPDATES: &[&str] = &[
+    "usage_update",
+    "available_commands_update",
+    "current_mode_update",
+    "config_option_update",
+    "session_info_update",
+    "prompt_suggestion",
+];
+
+/// Stamps `segment` on a reply chunk's record, as `_meta.acpmux.segment` beside the agent's own
+/// `_meta` (a client reads it with the record's `msg.params`).
+pub(super) fn stamp_reply_segment(value: &mut Value, segment: &str) {
+    if let Some(params) = value.get_mut("params") {
+        super::merge_mux_meta(params, json!({ "segment": segment }));
+    }
+}
+
 impl Hub {
+    /// Ends the reply segment streaming now (`reply_segment`): a prompt (a steer) came between.
+    pub(super) fn end_reply_segment(&self, session: &Session) {
+        session.stream.lock().unwrap_or_else(|e| e.into_inner()).reply_segment = None;
+    }
+
     /// Called for a live agent `session/update` before it is recorded.
     /// Appends `message_superseded` ahead of the redelivered message.
-    pub(super) fn before_agent_update(&self, session: &Session, params: Option<&Value>) {
-        let Some(update) = params.and_then(|p| p.get("update")) else { return };
+    ///
+    /// Returns the reply segment of an `agent_message_chunk`: one id for every chunk of one run
+    /// of reply text (the same `messageId`, nothing but quiet updates between them), the turn's id
+    /// and the run's number in it. Stamped on each chunk's record (`stamp_reply_segment`), it names
+    /// the reply's row in a client whichever of its chunks a page of the log starts at, so a reply
+    /// a page cut is never drawn again under another id when the page before it comes in, and a
+    /// reconnect's page draws it under the id it had (Leo, 2026-11-11: "they just appear and
+    /// disappear, and then they constantly load and reload").
+    pub(super) fn before_agent_update(
+        &self,
+        session: &Session,
+        params: Option<&Value>,
+    ) -> Option<String> {
+        let update = params.and_then(|p| p.get("update"))?;
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
         if kind == "compaction" {
             let fenced = session.compaction_metadata_fenced.load(Ordering::SeqCst);
@@ -59,11 +96,24 @@ impl Hub {
         }
         let mut superseded = None;
         let mut retrying = None;
+        let mut segment = None;
+        // Read before the stream lock: the turn's lock is never taken under it.
+        let turn_id =
+            (kind == "agent_message_chunk").then(|| session.turn().map(|t| t.turn_id)).flatten();
         {
             let mut st = session.stream.lock().unwrap();
             match kind {
                 "agent_message_chunk" => {
                     let id = update.get("messageId").and_then(Value::as_str);
+                    if st.reply_segment.is_none() || id != st.open_message.as_deref() {
+                        st.reply_segments += 1;
+                        st.reply_segment = Some(format!(
+                            "{}.{}",
+                            turn_id.as_deref().unwrap_or("-"),
+                            st.reply_segments
+                        ));
+                    }
+                    segment = st.reply_segment.clone();
                     if let Some((old, notice)) = st.retry_from.take()
                         && let Some(new) = id
                         && new != old
@@ -105,8 +155,13 @@ impl Hub {
                         }
                     }
                 }
-                k if NEUTRAL_UPDATES.contains(&k) => {}
+                k if NEUTRAL_UPDATES.contains(&k) => {
+                    if !SEGMENT_QUIET_UPDATES.contains(&k) {
+                        st.reply_segment = None;
+                    }
+                }
                 _ => {
+                    st.reply_segment = None;
                     // A tool call, plan or user chunk ends the message: a
                     // later retry does not abandon it.
                     st.open_message = None;
@@ -130,6 +185,7 @@ impl Hub {
                 json!({"oldMessageId": old, "newMessageId": new, "reason": "harness_retry", "source": "codex", "notice": notice, "turnId": turn_id}),
             );
         }
+        segment
     }
 
     /// Called after a live agent `session/update` is recorded.

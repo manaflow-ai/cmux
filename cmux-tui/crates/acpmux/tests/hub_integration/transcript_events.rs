@@ -186,6 +186,43 @@ async fn live_updates_keep_agent_meta_and_event_stream_nests_them() {
 }
 
 #[tokio::test]
+async fn reply_chunks_carry_one_segment_per_run_of_text() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "segments").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-segments", None)).await.unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-segments", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let chunks: Vec<(String, String)> = find(&events, "agent_message_chunk")
+        .iter()
+        .map(|e| {
+            (
+                e.msg["params"]["update"]["content"]["text"].as_str().unwrap().to_owned(),
+                e.msg["params"]["_meta"]["acpmux"]["segment"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("no segment on {}", e.msg))
+                    .to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(chunks.len(), 10, "{chunks:?}");
+    let (first, second) = chunks.split_at(5);
+    let turns: Vec<&str> =
+        find(&events, "turn_started").iter().map(|e| e.msg["turnId"].as_str().unwrap()).collect();
+    for (turn, run) in [(turns[0], first), (turns[1], second)] {
+        let seg = |i: usize| run[i].1.as_str();
+        // One message's two chunks are one segment; a tool call, then a thought, start the next.
+        assert_eq!(seg(0), seg(1), "{run:?}");
+        assert_ne!(seg(1), seg(2), "{run:?}");
+        assert_ne!(seg(2), seg(3), "{run:?}");
+        // A usage tick between two chunks keeps them one run.
+        assert_eq!(seg(3), seg(4), "{run:?}");
+        assert!(seg(0).starts_with(turn), "{run:?} of turn {turn}");
+    }
+    // Every turn's segments are its own.
+    assert!(first.iter().all(|(_, a)| second.iter().all(|(_, b)| a != b)));
+}
+
+#[tokio::test]
 async fn codex_retry_records_message_superseded_before_the_redelivery() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "retry").await;

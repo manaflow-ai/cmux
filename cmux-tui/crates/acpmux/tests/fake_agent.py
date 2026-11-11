@@ -1269,6 +1269,21 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text[5:].strip()}}, "_meta": {"fake": {"n": 1}}}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn", "_meta": {"fake": {"done": True}}}})
         return
+    # "reply-segments" streams reply text in runs: two chunks of one message, a tool call, a
+    # chunk of the same message, a thought, a chunk with no messageId, a usage tick and a last
+    # chunk. acpmux stamps each run's chunks with one segment id (hub/stream.rs).
+    if text == "reply-segments":
+        chunk = lambda t, mid=None: update(sid, {"sessionUpdate": "agent_message_chunk", **({"messageId": mid} if mid else {}), "content": {"type": "text", "text": t}})
+        chunk("a", "m1")
+        chunk("b", "m1")
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "seg-tc", "title": "ls", "kind": "read", "status": "completed"})
+        chunk("c", "m1")
+        update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "hm"}})
+        chunk("d")
+        update(sid, {"sessionUpdate": "usage_update", "used": 10, "size": 1000})
+        chunk("e")
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "codex-retry" streams a partial message, reports a Codex stream retry,
     # then redelivers the answer under a new messageId. "codex-retry-after-tool"
     # finishes the message with a tool call before the retry notice;

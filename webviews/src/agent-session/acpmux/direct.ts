@@ -1235,6 +1235,13 @@ export function settleOptimisticPrompt(
   return rowId;
 }
 
+/// The reply segment acpmux stamped on an `agent_message_chunk` record (`_meta.acpmux.segment`,
+/// hub/stream.rs): one id for every chunk of one run of reply text, whatever page holds them.
+export function replySegment(event: EventRecord): string | undefined {
+  const segment = (event.msg as any)?.params?._meta?.acpmux?.segment;
+  return typeof segment === "string" && segment.length > 0 && segment.length <= 200 ? segment : undefined;
+}
+
 export function mergeEventRecords(...batches: EventRecord[][]): EventRecord[] {
   const bySequence = new Map<number, EventRecord>();
   for (const event of batches.flat()) bySequence.set(event.seq, event);
@@ -2231,6 +2238,33 @@ type ShownRows = {
   generation: number | undefined;
 };
 
+/// The chat a client held when its connection was lost, handed to the client the page connects
+/// next (`carriedChat`, `connect`). Leo, 2026-11-11: "it keeps showing and then hiding, and then
+/// showing and then hiding your responses, or my responses". In the app every lost connection
+/// (`onLost`) made a new client, which read the chat again from nothing: a kept tail (the page's
+/// oldest read of it) or the newest attach page alone, so the rows read since went and came back,
+/// and every reply the page cut came back under another id, remounted and faded in again. The new
+/// client starts from this instead: the same records, the same row ids and the rows on screen, and
+/// the attach of the reconnect merges into them as a reconnect of one client does (`open`'s
+/// `resumeAfter`), so a row once shown stays shown and keeps its node.
+export type CarriedChat = {
+  sessionId: string;
+  events: EventRecord[];
+  rows: readonly AcpmuxRow[];
+  generation: number | undefined;
+  peer: string | undefined;
+  summary: Record<string, any> | undefined;
+  turnOpener: EventRecord | undefined;
+  historyExhausted: boolean;
+  queue: QueuedPrompt[];
+  configSeq: number;
+  usageFromSeq: number;
+  promptRowKeys: ReadonlyMap<string, string>;
+  optimisticPromptRows: ReadonlyMap<string, string>;
+  optimisticPromptTexts: ReadonlyMap<string, string>;
+  queueAuthors: ReadonlyMap<string, Participant | null>;
+};
+
 /** Direct browser client for the authenticated acpmux WebSocket protocol. */
 /// Every native root a session summary names into `fold`: the chat's current agent session and
 /// the earlier ones acpmux retired (`retiredAgentSessionIds`), which older records still name.
@@ -2692,6 +2726,8 @@ export class AcpmuxDirectClient {
   /// The chat whose rows the last snapshot drew (the tab's chat while it is missing), those rows,
   /// and the machine and session (`createdAt`) they were proven of.
   private drawn?: ShownRows;
+  /// The chat held when the connection was lost, for the client the page connects next (`takeCarried`).
+  private carried?: CarriedChat;
   /// The rows a reset took off screen (`resetSessionState`), until the chat's next frame says
   /// whether it drew them again or replaced them (`noteReplace`).
   private cleared?: ShownRows & { cause: string };
@@ -3176,8 +3212,10 @@ export class AcpmuxDirectClient {
     openSocket?: OpenSocket,
     gitRoute?: GitRoute,
     wire?: AcpWireLog,
+    carried?: CarriedChat,
   ): Promise<AcpmuxDirectClient> {
     const client = new AcpmuxDirectClient(host, listener, onLost, openSocket, gitRoute, wire);
+    if (carried) client.resumeCarried(carried);
     try {
       await client.open();
       return client;
@@ -3185,6 +3223,72 @@ export class AcpmuxDirectClient {
       client.close();
       throw error;
     }
+  }
+
+  /// The chat this client held when its connection was lost (`CarriedChat`), once: the page hands
+  /// it to the client it connects next. Undefined when it held no attached chat.
+  takeCarried(): CarriedChat | undefined {
+    const carried = this.carried;
+    this.carried = undefined;
+    return carried;
+  }
+
+  private carryOver(): CarriedChat | undefined {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || this.events.length === 0 || this.replayThrough !== undefined) return undefined;
+    if (this.attachedGeneration !== this.selectionGeneration || this.peerCopy !== undefined) return undefined;
+    return {
+      sessionId,
+      events: [...this.events],
+      rows: this.drawn?.sessionId === sessionId ? this.drawn.rows : this.rows.sorted(),
+      generation: this.rowsGeneration,
+      peer: this.rowsPeer,
+      summary: this.provenSummary(),
+      turnOpener: this.turnOpener,
+      historyExhausted: this.historyExhausted,
+      queue: this.queue,
+      configSeq: this.configSeq,
+      usageFromSeq: this.usageFromSeq,
+      promptRowKeys: new Map(this.promptRowKeys),
+      optimisticPromptRows: new Map(this.optimisticPromptRows),
+      optimisticPromptTexts: new Map(this.optimisticPromptTexts),
+      queueAuthors: new Map(this.queueAuthors),
+    };
+  }
+
+  /// Starts this new client from the chat the lost one held (`CarriedChat`), before it opens: its
+  /// records and row ids, with the rows on screen kept as they are (`shownBefore`), so the open's
+  /// attach merges its page into them and reads only the records missed (`resumeAfter`), as a
+  /// reconnect of one client does. Only for the chat this client opens.
+  private resumeCarried(carried: CarriedChat): void {
+    if (carried.sessionId !== this.selectedSessionId || this.events.length > 0) return;
+    this.events = [...carried.events];
+    this.rowsGeneration = carried.generation;
+    this.rowsPeer = carried.peer;
+    this.summary = carried.summary;
+    this.turnOpener = carried.turnOpener;
+    this.historyExhausted = carried.historyExhausted;
+    this.queue = carried.queue;
+    this.configSeq = carried.configSeq;
+    this.usageFromSeq = carried.usageFromSeq;
+    for (const [key, value] of carried.promptRowKeys) this.promptRowKeys.set(key, value);
+    for (const [key, value] of carried.optimisticPromptRows) this.optimisticPromptRows.set(key, value);
+    for (const [key, value] of carried.optimisticPromptTexts) this.optimisticPromptTexts.set(key, value);
+    for (const [key, value] of carried.queueAuthors) this.queueAuthors.set(key, value);
+    const shown: ShownRows = {
+      sessionId: carried.sessionId,
+      rows: carried.rows,
+      peer: carried.peer,
+      generation: carried.generation,
+    };
+    this.shownBefore = shown;
+    this.rebuild();
+    // The rows on screen are the chat's, read: no load state, no fade over them.
+    this.attachedGeneration = this.selectionGeneration;
+    this.drewKeptTail = true;
+    this.drawn = shown;
+    // Kept through the reconnect's own rebuilds, until its attach draws (`noteReplace`).
+    this.shownBefore = shown;
   }
 
   private async open(): Promise<void> {
@@ -4275,6 +4379,8 @@ export class AcpmuxDirectClient {
   /// it changes nothing more.
   private connectionEnded(socket: WebSocket): void {
     this.endedSocket = socket;
+    // Taken before anything of the connection is torn down: the next client starts from it.
+    if (this.onLost) this.carried = this.carryOver();
     this.stopQuietWatch();
     this.cancelOlderPaging();
     this.handoff.disconnect();
@@ -8559,7 +8665,16 @@ export class AcpmuxDirectClient {
         (!messageId || !this.streamingAssistantMessageId || this.streamingAssistantMessageId === messageId),
       );
       if (!sameMessage) this.assistantCut = false;
-      const id = sameMessage ? this.streamingAssistant! : `assistant-${event.seq}`;
+      // A reply's row is named by the segment acpmux stamped on its chunks (`_meta.acpmux.segment`,
+      // hub/stream.rs), the same whichever of its chunks a page starts at, so a reply a page cut
+      // keeps its row (and its node) when the older page with its first chunk comes in. Older logs
+      // carry none: the first chunk read names it, as before.
+      const stamped = replySegment(event);
+      const id = sameMessage
+        ? this.streamingAssistant!
+        : stamped !== undefined && !this.rows.has(`assistant-${stamped}`)
+          ? `assistant-${stamped}`
+          : `assistant-${event.seq}`;
       this.streamGrew = sameMessage;
       // A message after the reply that was streaming when the steer went: the agent read it.
       if (!sameMessage) this.landSteer();
