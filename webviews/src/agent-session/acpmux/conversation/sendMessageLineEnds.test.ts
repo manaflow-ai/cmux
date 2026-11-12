@@ -7,6 +7,8 @@
 // input, its input on an in_progress update, then the result as a completed update).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import type { AcpmuxRow } from "../model";
+import { turnView } from "./turns";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -85,7 +87,11 @@ const sendResult = {
 };
 const say = (text: string) => ({ update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text } } });
 
-const sending = (rows: Row[]) => rows.filter((row) => row.doingSendTo !== undefined).map((row) => row.doingSendTo);
+/// What the live line of the turn names as going out, as the pane draws the chat (App.tsx `turnView`).
+const sending = (rows: Row[]) =>
+  turnView(rows as unknown as AcpmuxRow[], new Set(), { now: Date.now(), working: true })
+    .filter((row) => row.doingSendTo !== undefined)
+    .map((row) => row.doingSendTo);
 
 test("a SendMessage's live line ends when its result arrives, through a steer and a carried turn", async () => {
   const { AcpmuxDirectClient } = await import("../direct");
@@ -119,6 +125,7 @@ test("a SendMessage's live line ends when its result arrives, through a steer an
     await until(() => rows.some((row) => row.kind === "user"));
     daemon.emit(chat, sendPending);
     daemon.emit(chat, sendInput);
+    await until(() => rows.some((row) => row.kind === "activity" && JSON.stringify(row).includes(CALL)));
     await until(() => sending(rows).length > 0);
     expect(sending(rows)).toEqual([`${AGENT.slice(0, 8)}…`]);
 
