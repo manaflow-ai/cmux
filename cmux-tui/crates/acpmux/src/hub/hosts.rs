@@ -148,7 +148,7 @@ impl Hub {
             if let Some(nonce) = &b.start_nonce
                 && agent_host::liveness(&dir, &b.session_id, nonce) == Liveness::Dead
             {
-                let _ = std::fs::remove_file(&b.path);
+                let _ = crate::home_fs::remove_file(&b.path);
                 continue;
             }
             unreadable.insert(b.session_id.clone());
@@ -464,7 +464,7 @@ impl Hub {
             if let Some(record) = record {
                 agent_host::remove_artifacts(&dir, &record);
             } else if let Some(b) = bad.iter().find(|b| b.session_id == session.id) {
-                let _ = std::fs::remove_file(&b.path);
+                let _ = crate::home_fs::remove_file(&b.path);
             }
             self.append(session, "mux", "host_ended", json!({}));
         } else {

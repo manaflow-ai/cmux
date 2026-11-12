@@ -429,6 +429,149 @@ await requireBrowserLane("agent-pane-composer-dock-motion.test.ts", async () => 
         expect(report.boxRunMax).toBeLessThanOrEqual(lagging ? 16 : 12);
       });
 
+  // (a'') The reader's input wins over the rise: a wheel up while a line's growth still raises the rows
+  // at the latest row freezes them where they are painted, from the first frame after the wheel, with no
+  // jump at the cancel, and the card grows on over them. After the wheel the thread's drawn offset (the
+  // rise, or the follow chase holding what the rise drew) never moves: every row's step on screen is the
+  // reader's scroll. The lift is handed to the offset as room in the frame following stops (an offset
+  // write of the page's that moves nothing on screen); a write clipped short at the content's end would
+  // move the rows by what it lost, which stays within a pixel (layout rounds the room's fraction).
+  type Interrupt = {
+    dDrawn: number;
+    dLayout: number;
+    written: number;
+    clipped: number;
+    rowDy: number;
+    dScroll: number;
+  };
+  for (const [name] of engines)
+    for (const lagging of [false, true])
+      test(`${name}, overlay${lagging ? ", lagging" : ""}: a wheel up mid-growth freezes the rising rows`, async () => {
+        const page = await open(name, "overlay");
+        if (lagging) await lag(page, 40, 70);
+        const field = page.locator(".acpmux-composer-box .ProseMirror").first();
+        await field.click();
+        await page.keyboard.type(LINES[0]!, { delay: 8 });
+        // fixed-wait: the first line's growth (if any) plays out before the one under test.
+        await page.waitForTimeout(400);
+        const scroller = page.locator(".acpmux-scroll").first();
+        const box = (await scroller.boundingBox())!;
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 3);
+        await page.evaluate(() => {
+          const w = window as unknown as {
+            __wheel: { at: number; midGrowth: boolean } | undefined;
+            __after: Interrupt[];
+            __stop: () => void;
+          };
+          w.__wheel = undefined;
+          w.__after = [];
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const thread = document.querySelector<HTMLElement>(".acpmux-thread")!;
+          window.addEventListener(
+            "wheel",
+            () => {
+              w.__wheel ??= {
+                at: performance.now(),
+                midGrowth: thread.getAnimations().some((animation) => animation.playState === "running"),
+              };
+            },
+            { capture: true },
+          );
+          // The page's own writes to the offset: what they moved it, and what of each was clipped.
+          let written = 0;
+          let clipped = 0;
+          const own = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
+          Object.defineProperty(scroller, "scrollTop", {
+            configurable: true,
+            get: () => own.get!.call(scroller) as number,
+            set: (value: number) => {
+              const before = own.get!.call(scroller) as number;
+              own.set!.call(scroller, value);
+              const moved = (own.get!.call(scroller) as number) - before;
+              written += moved;
+              clipped = Math.max(clipped, Math.abs(Math.round(value) - before - moved));
+            },
+          });
+          // The thread's drawn offset over its layout (an inline translate, a rise's composite one).
+          const drawnY = () => {
+            const value = getComputedStyle(thread).translate;
+            return value && value !== "none" ? Number.parseFloat(value.split(" ")[1] ?? "") || 0 : 0;
+          };
+          let last: { scroll: number; drawn: number; rows: Map<Element, number> } | undefined;
+          w.__stop = window.cmuxAfterPaint(() => {
+            const view = scroller.getBoundingClientRect();
+            const scroll = own.get!.call(scroller) as number;
+            const drawn = drawnY();
+            const rows = new Map<Element, number>();
+            for (const row of scroller.querySelectorAll<HTMLElement>(".acpmux-thread > .acpmux-row")) {
+              const rect = row.getBoundingClientRect();
+              if (rect.height > 0.5 && rect.bottom > view.top && rect.top < view.bottom) rows.set(row, rect.top);
+            }
+            if (last && w.__wheel) {
+              let rowDy = 0;
+              for (const [row, top] of rows) {
+                const before = last.rows.get(row);
+                if (before !== undefined && Math.abs(top - before) > Math.abs(rowDy)) rowDy = top - before;
+              }
+              const dScroll = scroll - last.scroll;
+              const dDrawn = drawn - last.drawn;
+              // The rows' move in the content, apart from what is drawn over it.
+              const dLayout = rowDy + dScroll - dDrawn;
+              w.__after.push({ dDrawn, dLayout, written, clipped, rowDy, dScroll });
+            }
+            last = { scroll, drawn, rows };
+            written = 0;
+            clipped = 0;
+          });
+        });
+        // A new line starts a growth that raises the rows; the wheel comes while it plays.
+        await page.keyboard.press("Shift+Enter");
+        await page.waitForFunction(
+          () =>
+            document
+              .querySelector(".acpmux-thread")
+              ?.getAnimations()
+              .some((animation) => animation.playState === "running") === true,
+          undefined,
+          { polling: "raf", timeout: 2_000 },
+        );
+        await page.mouse.wheel(0, -320);
+        // fixed-wait: the growth's curve and the wheel's scroll come to rest.
+        await page.waitForTimeout(900);
+        const result = await page.evaluate(() => {
+          const w = window as unknown as {
+            __wheel: { at: number; midGrowth: boolean } | undefined;
+            __after: Interrupt[];
+            __stop: () => void;
+          };
+          w.__stop();
+          const round = (value: number) => Math.round(value * 100) / 100;
+          // A frame a row moved by other than the reader's scroll: the drawn offset moved (a rise played
+          // on, a jump at its cancel), or the handover's write was clipped by more than layout rounding.
+          const moved = w.__after.filter(({ dDrawn, clipped }) => Math.abs(dDrawn) > 0.5 || clipped > 1);
+          return {
+            midGrowth: w.__wheel?.midGrowth ?? false,
+            frames: w.__after.length,
+            rowMovedFrames: moved.length,
+            maxClipped: Math.max(0, ...w.__after.map(({ clipped }) => clipped)),
+            moved: moved
+              .slice(0, 4)
+              .map((frame) => Object.fromEntries(Object.entries(frame).map(([key, value]) => [key, round(value)]))),
+            first: w.__after
+              .slice(0, 4)
+              .map((frame) => Object.fromEntries(Object.entries(frame).map(([key, value]) => [key, round(value)]))),
+          };
+        });
+        const scrolled = await scroller.evaluate((node) => node.scrollHeight - node.clientHeight - node.scrollTop);
+        console.log(`DOCK_INTERRUPT_REPORT ${JSON.stringify({ engine: name, lagging, scrolled, ...result })}`);
+        await page.close();
+        // The wheel came while the growth still raised the rows, and the view left the latest row.
+        expect(result.midGrowth).toBe(true);
+        expect(scrolled).toBeGreaterThan(100);
+        expect(result.frames).toBeGreaterThan(20);
+        expect(result.rowMovedFrames).toBe(0);
+      });
+
   // (c) The hat's pull tab (or the hat, untucked) rides the composer's top edge in the frame the edge
   // moves, never a frame behind it, while a running turn's draft grows three lines.
   for (const [name] of engines)
