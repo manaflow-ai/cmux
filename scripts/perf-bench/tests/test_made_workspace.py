@@ -8,17 +8,26 @@ import os, sys, types, unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
+sys.path.insert(0, HERE)
 # procs.py loads /usr/lib/libproc.dylib at import (macOS only). No test here reads a process, so an empty module
-# stands in for it when the real one does not load, and the tools import on Linux too.
+# stands in for it when the real one does not load, and the tools import on Linux too. The stub is for these
+# imports only (the form of scripts/cmux-next/tests/test_perf_completeness.py): left in sys.modules, a later test's
+# `import procs` gets it in place of the real module (tests/test_script_module_loads.py names it).
+_PROCS_STUB = None
 try:
     import procs  # noqa: F401
 except OSError:
-    sys.modules["procs"] = types.ModuleType("procs")
-
-import chrome_parity as cp  # noqa: E402
-import parity_appclock as pa  # noqa: E402
-import session_real as sr  # noqa: E402
-from made_workspace import made_workspace  # noqa: E402
+    _PROCS_STUB = sys.modules["procs"] = types.ModuleType("procs")
+try:
+    import chrome_parity as cp  # noqa: E402
+    import parity_appclock as pa  # noqa: E402
+    from made_workspace import made_workspace  # noqa: E402
+finally:
+    if _PROCS_STUB is not None and sys.modules.get("procs") is _PROCS_STUB:
+        del sys.modules["procs"]
+# session_real.py: the one module object that test_session_real.py loads by path (its line 12). `import session_real`
+# here made a second object of that file, and a second load by path makes one too.
+from test_session_real import m as sr  # noqa: E402
 
 # The answer of a Release app of feat 3ee124bd63c2 on aws-m4pro-8 (2026-11-12), as the tool printed it: the tool
 # cuts an answer at 200 characters, so the end of the idempotency key and the fields after it are not here.
