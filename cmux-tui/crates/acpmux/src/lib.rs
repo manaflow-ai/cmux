@@ -155,6 +155,7 @@ pub mod pairing;
 pub mod parent_watch;
 pub mod path_canon;
 pub mod peer;
+pub mod peer_kept_tokens;
 pub mod peer_last_good;
 pub mod peer_link;
 pub mod peer_paths;

@@ -267,7 +267,15 @@ impl Peer {
     }
 
     /// The hub's last-known-good book (`peer_last_good.rs`).
+    /// It keeps the remote tokens an `ssh://` peer reads there too, and starts with those it
+    /// kept on an earlier run (`peer_kept_tokens.rs`) unless they disagree with a configured one.
     pub(crate) fn set_last_good(&self, book: Arc<crate::peer_last_good::LastGood>) {
+        if self.ssh_parts().is_some() {
+            self.read_tokens.back(book.clone(), &self.name, &self.url, |(token, peer)| {
+                self.token.as_ref().is_none_or(|t| t == token)
+                    && (self.peer_token.is_none() || self.peer_token == *peer)
+            });
+        }
         let _ = self.last_good.set(book);
     }
 
