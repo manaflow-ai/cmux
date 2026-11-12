@@ -8,14 +8,16 @@ enum MobileAuthenticatedShellPresentation: Equatable {
         connectionState: MobileConnectionState,
         hasKnownPairedMac: Bool,
         hasHiddenComputers: Bool,
-        hasSSHComputers: Bool = false
+        hasSSHComputers: Bool = false,
+        hasExternalHosts: Bool = false
     ) -> Self {
-        // SSH computers are listed in the workspace shell, so a user with
-        // only SSH computers never lands on the pair-a-Mac screen (PRD D5/D6).
+        // SSH computers and external hosts are listed in the workspace shell,
+        // so they keep the user out of the pair-a-Mac-only screen.
         if connectionState != .connected,
            !hasKnownPairedMac,
            !hasHiddenComputers,
-           !hasSSHComputers {
+           !hasSSHComputers,
+           !hasExternalHosts {
             return .disconnected
         }
         return .workspace

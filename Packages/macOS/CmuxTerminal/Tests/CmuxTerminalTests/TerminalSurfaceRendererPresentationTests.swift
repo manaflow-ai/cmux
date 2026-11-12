@@ -99,6 +99,49 @@ private func rendererReleaseWasOccluded() -> Bool
         #expect(rendererRebuildCallCount() == 1)
     }
 
+    @Test func hiddenRevealRetriesWhenTheHostedViewAttachesAfterVisibility() {
+        let registry = TerminalSurfaceRegistry()
+        let surface = makeSurface(registry: registry)
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        registry.registerRuntimeSurface(runtimeSurface, ownerId: surface.id)
+        beginRendererRealizedTracking(runtimeSurface)
+        surface.setRendererPortalVisible(false, presentationReady: true)
+        surface.installRuntimeSurfaceForTesting(runtimeSurface)
+        registerRendererCallbacksForTesting(on: surface, runtimeSurface: runtimeSurface)
+        surface.rendererRuntimeSurfaceDidCreate(presentationReady: false)
+        surface.setRendererPortalVisible(true, presentationReady: false)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        surface.paneHost.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
+        surface.surfaceView.frame = surface.paneHost.bounds
+        window.contentView?.addSubview(surface.paneHost)
+        surface.attachedView = surface.surfaceView
+        #expect(!surface.isRendererPresented)
+        defer {
+            surface.releaseSurfaceForTesting()
+            runtimeSurface.deallocate()
+            resetRendererRealizedTracking()
+            window.contentView = nil
+            window.close()
+        }
+
+        // The visibility edge ran before the hosted view had a real window.
+        // The app target's GhosttyNSView.viewDidMoveToWindow call is the
+        // attachment retry edge; this package test verifies the readiness
+        // transition it replays once usable geometry exists.
+        surface.rendererPresentationReadinessDidChange()
+        #expect(surface.renderHealth == .awaitingFrame)
+        acknowledgePresentation(on: surface)
+        #expect(surface.isRendererPresented)
+        #expect(rendererRebuildCallCount() == 1)
+    }
+
     @Test func hiddenRuntimeIsReleasedThenRebuiltOnFirstVisibility() {
         let registry = TerminalSurfaceRegistry()
         let surface = makeSurface(registry: registry)

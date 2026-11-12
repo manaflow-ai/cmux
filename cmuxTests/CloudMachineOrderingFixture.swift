@@ -31,9 +31,13 @@ final class CloudMachineOrderingFixture {
     var coordinator: CloudTreeOutlineView.Coordinator { base.coordinator }
     var pending: [MachineCreateOperation] = []
     var adoptedIDs: [String: UUID] = [:]
+    /// The live Cloud tab's shape: machines under the Cloud Machines
+    /// section, My Devices after it, no This Mac row.
+    let sectioned: Bool
     private var boards: [NSPasteboard] = []
 
-    init(ids: [String] = ["a", "b", "c", "d"]) {
+    init(ids: [String] = ["a", "b", "c", "d"], sectioned: Bool = false) {
+        self.sectioned = sectioned
         let input = input
         store = CloudMachinePinStore(defaults: base.defaults, scopeProvider: { input.scope })
         model = MachinesPanelViewModel(
@@ -42,6 +46,8 @@ final class CloudMachineOrderingFixture {
         )
         model.localWorkspacesProvider = { [] }
         coordinator.onDragStateChange = { [model] in model.setTreeDragging($0) }
+        // These fixtures drive AppKit's row proposals; lift tests begin it themselves.
+        coordinator.machineLiftEnabled = false
         coordinator.nodeActions.organize = { _, _, _ in
             Issue.record("A machine move must not reach descendant organization")
             return false
@@ -87,18 +93,31 @@ final class CloudMachineOrderingFixture {
         let local = CloudTreeNode(id: "machine:local", kind: .localMachine(
             CloudTreeLocalMachineRow(name: "This Mac", terminalCount: 0, browserCount: 0)
         ))
-        coordinator.apply(nodes: [local] + CloudTreeNodeBuilder.nodes(
+        let fleet = CloudTreeNodeBuilder.nodes(
             machines: model.sidebarMachines, pendingCreates: pending, adoptedOperationIDs: adoptedIDs,
-            snapshot: model.catalog, localWorkspaces: [], includeLocalMachine: false
-        ))
+            snapshot: model.catalog, localWorkspaces: [], includeLocalMachine: false,
+            source: sectioned ? .cloudWithDevicesSection : .cloud
+        )
+        coordinator.apply(nodes: sectioned ? fleet : [local] + fleet)
         base.container.layoutSubtreeIfNeeded()
     }
 
     func root(_ id: String) throws -> CloudTreeNode {
-        try #require(coordinator.nodes.first { $0.machineOrderID == id })
+        try #require(machines.first { $0.machineOrderID == id })
     }
 
-    var order: [String] { coordinator.nodes.compactMap(\.machineOrderID) }
+    /// The machine rows, at the root or under the Cloud Machines section.
+    var machines: [CloudTreeNode] {
+        guard sectioned else { return coordinator.nodes }
+        return coordinator.nodes.first { if case .cloudMachinesSection = $0.kind { return true }; return false }?
+            .children ?? []
+    }
+
+    var section: CloudTreeNode? {
+        coordinator.nodes.first { if case .cloudMachinesSection = $0.kind { return true }; return false }
+    }
+
+    var order: [String] { machines.compactMap(\.machineOrderID) }
 
     func begin(_ id: String) throws -> Drag {
         let source = try root(id)

@@ -252,6 +252,7 @@ describe("dashboard TestFlight screen", () => {
     ["ineligible", "An active personal Pro subscription is required for iOS TestFlight."],
     ["needs_email", "Add a verified primary email before joining iOS TestFlight."],
     ["unavailable", "TestFlight enrollment is not available right now."],
+    ["busy", "Another change to your account is in progress. Try again in a moment."],
   ] as const) {
     test(`renders ${testflight} banner`, async () => {
       const html = await renderTestflightPage({ testflight });

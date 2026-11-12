@@ -3355,7 +3355,12 @@ struct WorkspaceForkConversationContextMenuTests {
         """
             .write(to: executable, atomically: true, encoding: .utf8)
         try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+        // The probe result cache expires on the wall clock (30 s by default).
+        // This test counts probes, not expiry: a starved CI runner once took
+        // 32 s for the 130 panels, the cached result expired and the probe ran
+        // again. A TTL far past the test's length keeps the count meaningful.
         let sharedIndex = SharedLiveAgentIndex(
+            forkCapabilityProbeCache: ForkCapabilityProbeResultCache(ttl: 3_600),
             hookStoreDirectoryProvider: {
                 root.appendingPathComponent(".cmuxterm", isDirectory: true).path
             }

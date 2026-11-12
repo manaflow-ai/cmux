@@ -93,8 +93,8 @@ its trusted publisher to this repository before the first stable
 publish under the `next` dist-tag; stable relay tags take `latest`, which IS
 the production cutover flip — coordinate with the chatmux repo variable
 `CHATMUX_RELAY_PUBLISH_MODE=external-rust` so the Node publisher stands down
-first. The coordinated TUI publish and the nightly lane validate the relay
-package contract but never publish or move relay dist-tags.
+first. The coordinated TUI publish validates the relay package contract but
+never publishes or moves relay dist-tags.
 
 Do not configure or publish `cmux-relay-win32-x64` for the Rust cutover. The
 Node publisher must remain available for Windows until a tested Rust Windows
@@ -106,41 +106,6 @@ Add a PyPI Trusted Publisher for:
 - Repository: `manaflow-ai/cmux`
 - Workflow: `tui-publish-pypi.yml`
 - Environment: `pypi-tui`
-
-Nightly publishing uses the same environments. Add trusted publishers for:
-
-- npm packages:
-  - Repository: `manaflow-ai/cmux`
-  - Workflow: `cmux-tui-nightly.yml`
-  - Environment: `npm-tui`
-- PyPI project `cmux`:
-  - Repository: `manaflow-ai/cmux`
-  - Workflow: `cmux-tui-nightly.yml`
-  - Environment: `pypi-tui`
-
-## Nightly channel
-
-`.github/workflows/cmux-tui-nightly.yml` runs by manual dispatch. Automatic
-scheduling is currently paused. It always checks out `main`, derives the next stable version from the
-latest reachable `cmux-tui-vX.Y.Z` tag by bumping patch, and falls back to
-`0.9.0` when no stable TUI tag exists.
-
-Nightly versions use registry-specific prerelease forms:
-
-- npm: `<next-stable>-nightly.<YYYYMMDD>.<run-number>`, for example
-  `0.9.1-nightly.20260708.1`.
-- PyPI: `<next-stable>.dev<YYYYMMDD><run-number>`, for example
-  `0.9.1.dev202607081`.
-
-npm nightlies are published with `npm publish --provenance --tag nightly`, so
-`npx cmux@nightly` opts into the latest nightly and `npx cmux` remains on the
-stable `latest` dist-tag. PyPI nightlies are dev releases, so normal
-`uvx cmux` resolution ignores them; `uvx --prerelease allow cmux` opts in.
-
-The nightly workflow intentionally always builds and publishes a fresh run
-instead of trying to skip when `main` has not changed. The build is cheap, and a
-GitHub API lookup for the last successful nightly is more fragile than the
-extra build.
 
 ## Cutting a Stable Release
 

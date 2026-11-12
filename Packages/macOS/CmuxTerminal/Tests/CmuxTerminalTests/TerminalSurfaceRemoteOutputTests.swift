@@ -185,10 +185,50 @@ struct TerminalSurfaceRemoteOutputTests {
 
         let remote = makeSurface(
             runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)),
+            ioMode: .manualMirror,
             isRemoteTerminal: true
         )
         defer { remote.surface!.deallocate() }
         #expect(!remote.allowsAutomaticClipboardWrite)
+        remote.permitClipboardWriteForUserGesture()
+        #expect(remote.permitsClipboardWrite(contentLength: 1))
+        #expect(!remote.permitsClipboardWrite(contentLength: 1))
+        remote.permitClipboardWriteForUserGesture(writeCount: 2)
+        #expect(!remote.permitsClipboardWrite(contentLength: 0))
+        #expect(remote.permitsClipboardWrite(contentLength: 1))
+        #expect(remote.permitsClipboardWrite(contentLength: 1))
+        #expect(!remote.permitsClipboardWrite(contentLength: 1))
+        remote.permitClipboardWriteForUserGesture()
+        remote.cancelClipboardWritePermit()
+        #expect(!remote.permitsClipboardWrite(contentLength: 1))
+
+        // Cmd+C and Edit > Copy on a mirror pane copy synchronously, outside
+        // any pointer-gesture window, and must still reach the clipboard (#17472)
+        // without spending or creating an allowance for later remote OSC 52.
+        let other = makeSurface(
+            runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)),
+            ioMode: .manualMirror,
+            isRemoteTerminal: true
+        )
+        defer { other.surface!.deallocate() }
+        let userCopyAdmitted = remote.withUserInitiatedClipboardWriteIntent {
+            remote.permitsClipboardWrite(contentLength: 1)
+        }
+        #expect(userCopyAdmitted)
+        #expect(!remote.permitsClipboardWrite(contentLength: 1))
+        let otherSurfaceAdmitted = remote.withUserInitiatedClipboardWriteIntent {
+            other.permitsClipboardWrite(contentLength: 1)
+        }
+        #expect(!otherSurfaceAdmitted)
+        #expect(remote.requiresClipboardReadGesture)
+        if let callbackContext = remote.surfaceCallbackContext?.takeUnretainedValue() {
+            let sawUserCopyIntent = remote.withUserInitiatedClipboardWriteIntent {
+                callbackContext.hasUserInitiatedClipboardWriteIntent
+            }
+            #expect(sawUserCopyIntent)
+        } else {
+            Issue.record("Remote test surface did not install a callback context")
+        }
 
         let cloud = makeSurface(
             runtimeSurfaceBits: UInt(bitPattern: UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)),
@@ -199,9 +239,27 @@ struct TerminalSurfaceRemoteOutputTests {
         #expect(cloud.allowsAutomaticClipboardWrite)
     }
 
+    @Test
+    @MainActor
+    func remoteClipboardWriteGrantCanBeRevokedOnALiveSurface() {
+        let runtimeSurface = UnsafeMutableRawPointer.allocate(byteCount: 8, alignment: 8)
+        let remote = makeSurface(
+            runtimeSurfaceBits: UInt(bitPattern: runtimeSurface),
+            isRemoteTerminal: true
+        )
+        defer { remote.surface!.deallocate() }
+
+        #expect(!remote.allowsAutomaticClipboardWrite)
+        remote.setAllowsRemoteClipboardWrites(true)
+        #expect(remote.allowsAutomaticClipboardWrite)
+        remote.setAllowsRemoteClipboardWrites(false)
+        #expect(!remote.allowsAutomaticClipboardWrite)
+    }
+
     @MainActor
     private func makeSurface(
         runtimeSurfaceBits: UInt,
+        ioMode: TerminalSurfaceIOMode = .exec,
         isRemoteTerminal: Bool = false,
         allowsRemoteClipboardWrites: Bool = false
     ) -> TerminalSurface {
@@ -215,6 +273,7 @@ struct TerminalSurfaceRemoteOutputTests {
             tabId: UUID(),
             context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
             configTemplate: nil,
+            ioMode: ioMode,
             isRemoteTerminal: isRemoteTerminal,
             allowsRemoteClipboardWrites: allowsRemoteClipboardWrites,
             dependencies: TerminalSurfaceRuntimeDependencies(

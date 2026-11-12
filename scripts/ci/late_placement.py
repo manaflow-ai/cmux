@@ -110,8 +110,31 @@ def late_jobs(*, macos: str | None, cli: str | None, full_suite: str | None, uni
     return plan.after
 
 
-def root_for(xcode_app: str | None) -> str:
-    """The std root label for admission's Xcode; "" when no owned pool pins it."""
+def root_for(xcode_app: str | None, selected_root: str | None = None,
+             admission_runner: str | None = None) -> str:
+    """The selected owned root label, or the office root for admission's Xcode.
+
+    A namespaced headless pool must keep its post-admission jobs in that
+    namespace. ``selected_root`` is the picker's root output; the Xcode-only
+    fallback preserves the historical office route for callers that do not
+    have it.
+    """
+    for raw in (selected_root, admission_runner):
+        candidate = (raw or "").strip()
+        if not candidate:
+            continue
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, list) and parsed:
+                candidate = str(parsed[0]).strip()
+        except (TypeError, ValueError):
+            pass
+        if pool.root_pool_label(candidate):
+            return candidate
+        if pool.persistent(candidate):
+            root = pool.root_label(candidate)
+            if root:
+                return root
     std = [label for label in pool.owned_pools(xcode_app) if label.startswith("glaeda-std-")]
     return pool.root_label(std[0]) if std else ""
 
@@ -225,7 +248,8 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
                      unit_selectors=env.get("UNIT_SELECTORS"))
     if not jobs:
         return {}, "no job runs after compile admission"
-    root = root_for(env.get("ADMISSION_XCODE_APP"))
+    root = root_for(env.get("ADMISSION_XCODE_APP"), env.get("ADMISSION_ROOT"),
+                    env.get("ADMISSION_RUNNER"))
     if not root:
         return {}, f"no owned pool runs admission's Xcode ({env.get('ADMISSION_XCODE_APP') or 'unknown'})"
     if runners is None:

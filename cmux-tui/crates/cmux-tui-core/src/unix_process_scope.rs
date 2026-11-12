@@ -12,6 +12,14 @@
 //! an expired command deadline returns to the caller while the tracker keeps
 //! the inactive scope and advances through bounded scan chunks.
 
+// Platform arms: Linux uses pidfd and /proc; macOS uses libproc (proc_listpids,
+// proc_pidinfo, proc_signal_with_audittoken) and sandbox-exec. Every other Unix,
+// including iOS, takes the portable arm below: plain kill(2) on the recorded
+// PID, no process scanning, and a PID-only identity. iOS is deliberately not
+// treated as "Apple" here: libproc and its private signalling entry point are
+// not in the iOS SDK, so widening the macOS arm to the vendor makes the static
+// library unlinkable, and the in-process iOS client never spawns a process, so
+// the portable arm's weaker identity guarantee costs nothing there.
 use std::collections::{HashMap, HashSet};
 use std::ffi::OsStr;
 use std::fs::OpenOptions;
@@ -914,10 +922,12 @@ fn file_marker_for_fd(fd: libc::c_int) -> io::Result<FileMarker> {
     }
     // SAFETY: fstat(2) initialized the structure after returning success.
     let stat = unsafe { stat.assume_init() };
-    #[cfg(target_os = "macos")]
+    // `st_dev` is a signed 32-bit `dev_t` on every Apple target and a `u64`
+    // elsewhere.
+    #[cfg(target_vendor = "apple")]
     let device = u64::try_from(stat.st_dev)
         .map_err(|_| io::Error::other("file marker device is out of range"))?;
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(target_vendor = "apple"))]
     let device = stat.st_dev;
     let inode = stat.st_ino;
     Ok(FileMarker { device, inode })
@@ -1297,7 +1307,7 @@ fn scan_registered_processes(
 #[repr(C)]
 struct ProcFileInfo {
     _open_flags: u32,
-    _status: u32,
+    status: u32,
     _offset: libc::off_t,
     _file_type: i32,
     _guard_flags: u32,
@@ -1337,7 +1347,7 @@ unsafe extern "C" {
 #[cfg(target_os = "macos")]
 #[repr(C)]
 struct VnodeFdInfo {
-    _file: ProcFileInfo,
+    file: ProcFileInfo,
     vnode: libc::vnode_info,
 }
 
@@ -1354,6 +1364,8 @@ fn mac_process_file_markers(
     remaining: &mut usize,
 ) -> MacFileMarkerScan {
     const PROC_PIDFDVNODEINFO: libc::c_int = 1;
+    // proc_fileinfo.fi_status bit for a descriptor that exec closes.
+    const PROC_FP_CLEXEC: u32 = 2;
     let empty = || MacFileMarkerScan { markers: Vec::new(), next_fd: None };
     let Ok(pid_int) = libc::c_int::try_from(pid) else { return empty() };
     let bytes =
@@ -1405,6 +1417,12 @@ fn mac_process_file_markers(
             }
             // SAFETY: proc_pidfdinfo initialized the full structure.
             let info = unsafe { info.assume_init() };
+            // A concurrent fork temporarily sees every CLOEXEC marker in the
+            // parent until exec closes it. Only configure()'s explicitly
+            // inherited descriptor grants scope ownership.
+            if info.file.status & PROC_FP_CLEXEC != 0 {
+                return None;
+            }
             Some(FileMarker {
                 device: u64::from(info.vnode.vi_stat.vst_dev),
                 inode: info.vnode.vi_stat.vst_ino,
@@ -1521,6 +1539,10 @@ fn scan_registered_processes(
 fn process_identity(pid: u32) -> Option<ProcessIdentity> {
     Some(ProcessIdentity { pid, started: 0 })
 }
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "unix_process_scope/tests/mac_clexec.rs"]
+mod mac_clexec_tests;
 
 #[cfg(test)]
 mod tests {

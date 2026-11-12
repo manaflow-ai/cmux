@@ -18,6 +18,16 @@ private final class FakeWKInspectorUndoResponderView: NSView {
     override var acceptsFirstResponder: Bool { true }
 }
 
+private final class BrowserReturnContentResponder: NSView {
+    private(set) var receivedKeyCodes: [UInt16] = []
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func keyDown(with event: NSEvent) {
+        receivedKeyCodes.append(event.keyCode)
+    }
+}
+
 private final class BrowserUndoMenuActionSpy: NSObject {
     private(set) var invoked = false
 
@@ -69,6 +79,84 @@ private func uninstallCmuxUnitTestCmuxWebViewKeyDownOverride() {
 
 @Suite(.serialized)
 final class CmuxWebViewKeyDownReentryTests {
+    @Test(arguments: [UInt16(36), 76], [NSEvent.ModifierFlags(), .shift, .command])
+    @MainActor
+    func browserReturnFromContentResponderReachesOwningWebView(
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags
+    ) throws {
+        try withHookedBrowserKeyDownWindow { window, keyDownEvents in
+            let webView = try #require(window.firstResponder as? CmuxWebView)
+            let contentResponder = BrowserReturnContentResponder(frame: webView.bounds)
+            webView.addSubview(contentResponder)
+            #expect(window.makeFirstResponder(contentResponder))
+            let event = try #require(makeKeyDownEvent(
+                key: "\r",
+                modifiers: modifiers,
+                keyCode: keyCode,
+                windowNumber: window.windowNumber
+            ))
+
+            #expect(window.performKeyEquivalent(with: event))
+            #expect(keyDownEvents().map(\.keyCode) == [keyCode])
+            #expect(contentResponder.receivedKeyCodes.isEmpty)
+            #expect(window.firstResponder === contentResponder)
+        }
+    }
+
+    @Test
+    @MainActor
+    func browserReturnDoesNotRouteToPageWhenWebInspectorResponderIsFocused() throws {
+        try withHookedBrowserKeyDownWindow { window, keyDownEvents in
+            let webView = try #require(window.firstResponder as? CmuxWebView)
+            let inspectorView = FakeWKInspectorUndoResponderView(
+                frame: NSRect(x: 0, y: 0, width: 32, height: 20)
+            )
+            webView.addSubview(inspectorView)
+            #expect(window.makeFirstResponder(inspectorView))
+
+            let event = try #require(makeKeyDownEvent(
+                key: "\r",
+                modifiers: [],
+                keyCode: 36,
+                windowNumber: window.windowNumber
+            ))
+
+            _ = window.performKeyEquivalent(with: event)
+
+            #expect(keyDownEvents().isEmpty)
+            #expect(window.firstResponder === inspectorView)
+        }
+    }
+
+    @Test
+    @MainActor
+    func browserReturnConsumesOnlyItsOwnSynchronousReplay() throws {
+        try withHookedBrowserKeyDownWindow { window, _ in
+            let webView = try #require(window.firstResponder as? CmuxWebView)
+            let event = try #require(makeKeyDownEvent(
+                key: "\r",
+                modifiers: [],
+                keyCode: 36,
+                windowNumber: window.windowNumber
+            ))
+            var deliveries = 0
+            var replayHandled = false
+            cmuxUnitTestCmuxWebViewKeyDownHook = { currentWebView, forwardedEvent in
+                guard currentWebView === webView else { return false }
+                deliveries += 1
+                replayHandled = webView.withBrowserWebKitKeyDownDispatch {
+                    window.performKeyEquivalent(with: forwardedEvent)
+                }
+                return true
+            }
+
+            #expect(window.performKeyEquivalent(with: event))
+            #expect(deliveries == 1)
+            #expect(replayHandled)
+        }
+    }
+
     @Test
     @MainActor
     func printableOptionTextRoutesToBrowserKeyDownOnce() throws {

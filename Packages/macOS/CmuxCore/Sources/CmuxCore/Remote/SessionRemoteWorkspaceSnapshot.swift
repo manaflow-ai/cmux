@@ -25,6 +25,13 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
     public var identityFile: String?
     /// Durable `-o` SSH options captured from the live configuration.
     public var sshOptions: [String]
+    /// The SSH agent socket the connection authenticated with. cmux keys its
+    /// shared SSH master by this agent, so a restore needs it to reach the
+    /// master its open logged in; absent in snapshots written before it.
+    public var agentSocketPath: String? = nil
+    /// Whether the saved agent socket was an explicit override, including an
+    /// explicit empty value that disables inherited agent forwarding.
+    public var agentSocketPathOverrideIsSet: Bool? = nil
     /// Whether remote PTY sessions outlive their local terminal surface.
     public var preserveAfterTerminalExit: Bool?
     /// Whether daemon bootstrap is skipped (pre-baked Cloud VM images).
@@ -46,6 +53,8 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
         port: Int? = nil,
         identityFile: String? = nil,
         sshOptions: [String] = [],
+        agentSocketPath: String? = nil,
+        agentSocketPathOverrideIsSet: Bool? = nil,
         preserveAfterTerminalExit: Bool? = nil,
         skipDaemonBootstrap: Bool? = nil,
         relayPort: Int? = nil,
@@ -60,6 +69,8 @@ public struct SessionRemoteWorkspaceSnapshot: Codable, Equatable, Sendable {
         self.port = port
         self.identityFile = identityFile
         self.sshOptions = sshOptions
+        self.agentSocketPath = agentSocketPath
+        self.agentSocketPathOverrideIsSet = agentSocketPathOverrideIsSet
         self.preserveAfterTerminalExit = preserveAfterTerminalExit
         self.skipDaemonBootstrap = skipDaemonBootstrap
         self.relayPort = relayPort

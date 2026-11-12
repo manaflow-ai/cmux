@@ -74,10 +74,13 @@ struct ComputerUseHelperStaging {
     nonisolated func install(
         nested: URL,
         destination: URL,
-        directory: URL
+        directory: URL,
+        acceptsCopy: (URL) -> Bool = { _ in true }
     ) -> URL? {
         do {
-            return try installVerified(nested: nested, destination: destination, directory: directory)
+            return try installVerified(
+                nested: nested, destination: destination, directory: directory, acceptsCopy: acceptsCopy
+            )
         } catch is CancellationError {
             return nil
         } catch {
@@ -87,7 +90,14 @@ struct ComputerUseHelperStaging {
     }
 
     /// Performs the transaction while preserving the filesystem error for callers.
-    nonisolated func installVerified(nested: URL, destination: URL, directory: URL) throws -> URL {
+    /// `acceptsCopy` re-checks the staged copy itself before publication, so a
+    /// source replaced after its trust check (an app update) is never published.
+    nonisolated func installVerified(
+        nested: URL,
+        destination: URL,
+        directory: URL,
+        acceptsCopy: (URL) -> Bool = { _ in true }
+    ) throws -> URL {
         try ComputerUseHelperDirectory(fileManager: fileManager)
             .withExclusiveAccess(to: directory, createIfMissing: true) {
                 try Task.checkCancellation()
@@ -102,12 +112,26 @@ struct ComputerUseHelperStaging {
                 try makeDirectoriesWritable(at: temporary)
                 try releaseCopiedHelperFromQuarantine(at: temporary)
                 try Task.checkCancellation()
-                guard isCurrent(nested: nested, destination: temporary) else {
+                guard isCurrent(nested: nested, destination: temporary), acceptsCopy(temporary) else {
                     throw CocoaError(.fileReadCorruptFile)
                 }
                 try publish(temporary: temporary, destination: destination)
                 return destination
             }
+    }
+
+    /// Removes the published helper (an untrusted ad-hoc copy) under the
+    /// install lease. Returns whether nothing remains at `destination`.
+    @discardableResult
+    nonisolated func removeInstalled(destination: URL, directory: URL) -> Bool {
+        do {
+            return try ComputerUseHelperDirectory(fileManager: fileManager)
+                .withExclusiveAccess(to: directory, createIfMissing: false) {
+                    removeStagedBundle(at: destination)
+                }
+        } catch {
+            return modeBits(at: destination) == nil
+        }
     }
 
     /// Removes orphaned hidden staging bundles in the helper directory.

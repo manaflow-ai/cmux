@@ -285,6 +285,59 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    @Test("terminal.paste to an owned remote surface is forwarded")
+    func allowsAliasedTerminalPaste() throws {
+        let workspace = UUID()
+        let surface = UUID()
+        try withServer(
+            workspaceAliases: [workspace: workspace],
+            surfaceAliases: [surface: surface]
+        ) { port, unixServer in
+            for submitKey in ["none", "return"] {
+                let exchange = try runPolicyRelayExchange(
+                    port: port,
+                    relayID: relayID,
+                    tokenHex: tokenHex,
+                    commandLine: """
+                    {"id":"paste-\(submitKey)","method":"terminal.paste","params":{"workspace_id":"\(workspace.uuidString)","surface_id":"\(surface.uuidString)","text":"line one\\nline two","submit_key":"\(submitKey)"}}
+                    """
+                )
+                #expect(exchange.responseLines.first?["ok"] as? Bool == true, "\(submitKey): \(exchange.rawResponse)")
+            }
+            #expect(unixServer.requests.count == 2)
+        }
+    }
+
+    @Test("terminal.paste with command params, fallback selectors, or other submit keys is denied")
+    func deniesUnsafeTerminalPaste() throws {
+        let workspace = UUID()
+        let surface = UUID()
+        try withServer(
+            workspaceAliases: [workspace: workspace],
+            surfaceAliases: [surface: surface]
+        ) { port, unixServer in
+            let target = #""workspace_id":"\#(workspace.uuidString)","surface_id":"\#(surface.uuidString)""#
+            for params in [
+                #"{\#(target),"text":"x","submit_key":"none","command":"touch /tmp/pwned"}"#,
+                #"{\#(target),"text":"x","submit_key":"none","initial_command":"touch /tmp/pwned"}"#,
+                #"{\#(target),"text":"x","submit_key":"none","window_id":"window:1"}"#,
+                #"{\#(target),"text":"x","submit_key":"ctrl+enter"}"#,
+                #"{\#(target),"text":"x"}"#,
+                #"{\#(target),"text":7,"submit_key":"none"}"#,
+                #"{"workspace_id":"\#(workspace.uuidString)","surface_id":17,"text":"x","submit_key":"none"}"#,
+            ] {
+                let request = #"{"id":"paste-deny","method":"terminal.paste","params":\#(params)}"#
+                let exchange = try runPolicyRelayExchange(
+                    port: port,
+                    relayID: relayID,
+                    tokenHex: tokenHex,
+                    commandLine: request
+                )
+                expectDenial(exchange, unixServer, request)
+            }
+        }
+    }
+
     @Test("methods outside the relay allowlist are denied")
     func deniesNonAllowlistedMethod() throws {
         try withServer { port, unixServer in
@@ -491,10 +544,35 @@ struct RemoteCLIRelayPolicyTests {
         }
     }
 
+    /// A relayed `create_for_target` with `effects` reaches the local socket with the override intact.
+    @Test("notification.create_for_target carrying an effects override is forwarded")
+    func allowsNotificationCreateForTargetWithEffects() throws {
+        let localWorkspace = UUID()
+        let localSurface = UUID()
+        try withServer(
+            workspaceAliases: [localWorkspace: localWorkspace],
+            surfaceAliases: [localSurface: localSurface]
+        ) { port, unixServer in
+            let exchange = try runPolicyRelayExchange(
+                port: port,
+                relayID: relayID,
+                tokenHex: tokenHex,
+                commandLine: """
+                {"id":"p15","method":"notification.create_for_target","params":{"workspace_id":"\(localWorkspace.uuidString)","surface_id":"\(localSurface.uuidString)","title":"Done","effects":{"desktop":false}}}
+                """
+            )
+            #expect(exchange.responseLines.first?["ok"] as? Bool == true)
+            #expect(unixServer.requests.count == 1)
+            let forwarded = try #require(unixServer.requests.first)
+            #expect(String(decoding: forwarded, as: UTF8.self).contains("\"effects\":{\"desktop\":false}"))
+        }
+    }
+
     @Test("relay does not learn ownership from unsolicited create responses")
-    func createdSurfaceIsImmediatelyUsable() throws {
-        // The package relay never treats response fields as an ownership grant;
-        // the app's live workspace gate must authorize every follow-up request.
+    func createdSurfaceIsNotOwnedByResponse() throws {
+        // The package relay never treats response fields as an ownership grant:
+        // a surface ID that is absent from the alias map is refused before the
+        // local socket, even when a prior response named it.
         let workspaceAlias = (remote: UUID(), local: UUID())
         let createdSurface = UUID()
         let createResponse = Data("""
@@ -513,11 +591,7 @@ struct RemoteCLIRelayPolicyTests {
                 {"id":"c2","method":"surface.send_text","params":{"surface_id":"\(createdSurface.uuidString)","text":"ls\\n"}}
                 """
             )
-            #expect(
-                send.responseLines.first?["ok"] as? Bool == true,
-                "the created surface must be drivable immediately: \(send.rawResponse)"
-            )
-            #expect(unixServer.requests.count == 1)
+            expectDenial(send, unixServer, "unowned created surface")
         }
     }
 

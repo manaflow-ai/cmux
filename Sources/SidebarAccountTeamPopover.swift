@@ -1,4 +1,5 @@
 import AppKit
+import CMUXMobileCore
 import CmuxAppKitSupportUI
 import CmuxSettingsUI
 import SwiftUI
@@ -98,7 +99,7 @@ struct SidebarAccountMenuButton: View {
             )
         })
         .safeHelp(buttonTitle)
-        .accessibilityLabel(buttonTitle)
+        .hintableAccessibilityLabel(buttonTitle, isEnabled: accountFlow?.isWorkingOnAuth != true)
         .accessibilityIdentifier("SidebarAccountMenuButton")
     }
 }
@@ -152,13 +153,13 @@ private struct SidebarAccountPopover: View {
                 }
                 .accessibilityIdentifier("SidebarAccountSignInButton")
             }
-            if accountFlow?.isProUpgradeAvailable == true {
+            if let offer = accountFlow?.upgradeOffer {
                 if accountFlow?.currentIdentity == nil {
                     Divider()
                         .padding(.vertical, 4)
                 }
                 accountMenuRow(
-                    title: String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…"),
+                    title: ProUpgradePresenter.upgradeMenuTitle(for: offer),
                     systemImage: "sparkles"
                 ) {
                     dismiss()
@@ -167,6 +168,16 @@ private struct SidebarAccountPopover: View {
                 .accessibilityIdentifier("SidebarAccountUpgradeButton")
             }
             if accountFlow?.currentIdentity != nil {
+                // Same as the Cloud team menu: the browser opens on the sign-in
+                // page's account chooser, and the app follows whichever is picked.
+                accountMenuRow(
+                    title: String(localized: "cloud.teamPicker.switchAccount", defaultValue: "Switch Account…"),
+                    systemImage: "person.2"
+                ) {
+                    dismiss()
+                    Task { await accountFlow?.switchAccount() }
+                }
+                .accessibilityIdentifier("SidebarAccountSwitchAccountButton")
                 accountMenuRow(
                     title: String(localized: "settings.account.signOut", defaultValue: "Sign Out"),
                     systemImage: "rectangle.portrait.and.arrow.right"

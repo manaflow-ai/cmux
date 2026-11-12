@@ -3,9 +3,8 @@ import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
-/// Surfaces from several teams can be open at once. Team is never an input to
-/// the drop rule: a Cloud workspace belongs to one machine, and a machine
-/// belongs to one team, so the machine check already excludes every other team.
+/// Terminals and displays retain their machine boundary. Browser tabs remain
+/// portable while retaining their original resource identity and access route.
 @Suite("Surface ownership across teams")
 struct SurfaceOwnershipPolicyCrossTeamTests {
     private let teamAMachine = SurfaceMachineID.cloud("vm-team-a")
@@ -20,6 +19,18 @@ struct SurfaceOwnershipPolicyCrossTeamTests {
         #expect(teamAWorkspace.rejection(for: [teamAMachine, teamBMachine]) == .cloudMachineMismatch)
         let teamBTerminal = SurfaceResourceID(machine: teamBMachine, kind: .terminal, key: "term_b")
         #expect(teamAWorkspace.rejection(for: [teamBTerminal]) == .cloudMachineMismatch)
+    }
+
+    @Test("Browser resources are portable, but cannot carry a foreign terminal through the gate")
+    func portableBrowsers() {
+        let policy = SurfaceOwnershipPolicy(cloudMachine: teamAMachine)
+        for machine in [SurfaceMachineID.local, teamAMachine, teamBMachine] {
+            let browser = SurfaceResourceID(machine: machine, kind: .browser, key: "browser")
+            #expect(policy.rejection(for: [browser]) == nil)
+            let terminal = SurfaceResourceID(machine: teamBMachine, kind: .terminal, key: "terminal")
+            #expect(policy.rejection(for: [browser, terminal]) == .cloudMachineMismatch)
+        }
+        #expect(policy.rejection(for: [SurfaceResourceID]()) == .cloudMachineMismatch)
     }
 
     @Test("A local workspace accepts surfaces from every team")

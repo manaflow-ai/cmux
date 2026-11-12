@@ -40,6 +40,19 @@ struct CloudDisplayCatalogTests {
         #expect(service.snapshot?.displays.first?.id == "display:1")
     }
 
+    @Test("Creation sends one guest exec without a discovery round trip first")
+    func creationNeedsNoPriorDiscovery() async throws {
+        var commands: [String] = []
+        let service = CloudDisplayCoordinator { command, _ in
+            commands.append(command)
+            return .init(exitCode: 0, stdout: Self.isCreate(command) ? created : initial, stderr: "")
+        }
+        let result = try await service.create()
+        #expect(commands.count == 1 && Self.isCreate(commands[0]))
+        #expect(result.created == "display:2")
+        #expect(service.isAvailable)
+    }
+
     @Test("Account/provider retirement prevents a delayed display reply from publishing")
     func retiredCreationCannotPublish() async throws {
         let started = CloudLinkFirstValue<Bool>()
@@ -277,8 +290,8 @@ struct CloudDisplayCatalogTests {
         return await started.result == true
     }
 
-    /// Every guest command first runs `list` as a readiness probe (#13196,
-    /// 178d35e5da), so only the final action line tells a creation apart.
+    /// Every guest command first waits for `list` to succeed as a readiness
+    /// probe (#13196, #17132), so only the final action line tells a creation apart.
     private static func isCreate(_ command: String) -> Bool {
         command.contains("\"$path\" create --request-id ")
     }
@@ -288,7 +301,8 @@ struct CloudDisplayCatalogTests {
         let request = UUID()
         let create = CloudGuestDisplayScript.command(action: "create", requestID: request)
         let list = CloudGuestDisplayScript.command(action: "list")
-        #expect(create.contains("\"$path\" list > /dev/null 2>&1 || exit 1"))
+        #expect(create.contains("if \"$path\" list > /dev/null 2>&1; then"))
+        #expect(create.contains("[ \"$service_ready\" = 1 ] || exit 1"))
         #expect(create.contains("\"$path\" create --request-id \(request.uuidString.lowercased())"))
         #expect(Self.isCreate(create) && !Self.isCreate(list))
     }

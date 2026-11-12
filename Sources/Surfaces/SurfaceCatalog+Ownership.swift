@@ -77,7 +77,8 @@ extension SurfaceCatalog {
 
     func ownershipRejection(for resources: [SurfaceResourceID], policy: SurfaceOwnershipPolicy) -> SurfaceTransferRejection? {
         guard policy.cloudMachine != nil else { return nil }
-        return policy.rejection(for: resources.map(machineOwningResource))
+        guard !resources.isEmpty else { return policy.rejection(for: nil) }
+        return resources.compactMap { policy.rejection(for: machineOwningResource($0), kind: $0.kind) }.first
     }
 
     /// A legacy SSH projection is catalogued by its local PTY, while the live

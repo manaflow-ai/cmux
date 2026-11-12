@@ -63,6 +63,8 @@ public struct AgentFeedFullTextPreviewView: View {
             }
         } notifications: {
             NavigationStack { Text(verbatim: "Notifications").toolbar { rootToolbar } }
+        } cloud: {
+            NavigationStack { Text(verbatim: "Cloud").toolbar { rootToolbar } }
         } search: {
             MobilePrimarySearchNavigationStack(path: .constant([]), selection: $selectedTab,
                                                searchCoordinator: searchCoordinator) {
@@ -88,7 +90,7 @@ public struct AgentFeedFullTextPreviewView: View {
     }
 
     private var rootToolbar: some ToolbarContent {
-        WorkspaceRootToolbarContent(openSettings: {}, openDevices: {}, title: "All Computers",
+        WorkspaceRootToolbarContent(openSettings: {}, openDevices: {}, openChief: nil, title: "All Computers",
                                     isLoading: false, selection: .all, select: { _ in },
                                     machines: [], showAddDevice: nil)
     }

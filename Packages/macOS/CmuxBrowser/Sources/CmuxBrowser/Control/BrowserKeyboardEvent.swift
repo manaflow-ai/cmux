@@ -35,7 +35,7 @@ public struct BrowserKeyboardEvent: Equatable, Sendable {
         }
     }
 
-    private init(key: String, code: String, legacyKeyCode: Int, location: Int = 0) {
+    init(key: String, code: String, legacyKeyCode: Int, location: Int = 0) {
         self.key = key
         self.code = code
         self.legacyKeyCode = legacyKeyCode

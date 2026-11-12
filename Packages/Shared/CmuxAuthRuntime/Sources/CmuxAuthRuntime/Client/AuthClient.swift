@@ -134,6 +134,8 @@ public enum AuthClientError: Error, Equatable, Sendable {
     case teamNotAvailable
     /// The requested team name is empty after trimming.
     case invalidTeamName
+    /// The signed-in user could not be read, so membership is unknown.
+    case userUnavailable
 }
 
 public extension AuthClient {

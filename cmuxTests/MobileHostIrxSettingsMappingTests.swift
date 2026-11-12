@@ -1,4 +1,5 @@
 import CMUXMobileCore
+import CmuxAuthRuntime
 import CmuxIrxTransport
 import Foundation
 import Testing
@@ -12,6 +13,37 @@ import Testing
 /// Pure-projection coverage for the irx-backed Settings Networking snapshot
 /// (`MobileHostIrxRuntime+SettingsControl`).
 struct MobileHostIrxSettingsMappingTests {
+    @Test func teamScopedDeviceClientRejectsSelectorChangeDuringRollback() {
+        let session = AuthenticatedSessionIdentity(generation: 7, accountID: "account")
+
+        #expect(!MobileHostIrxRuntime.isDeviceClientScopeCurrent(
+            currentSession: session, resolvedTeamID: "team-b", identity: session,
+            teamID: "team-a", accountDirectoryEnabled: false))
+        #expect(MobileHostIrxRuntime.isDeviceClientScopeCurrent(
+            currentSession: session, resolvedTeamID: "team-b", identity: session,
+            teamID: "team-a", accountDirectoryEnabled: true))
+    }
+
+    @Test func hostScopeSurvivesSameAccountTeamSelection() {
+        let session = AuthenticatedSessionIdentity(generation: 7, accountID: "account")
+        let active = AuthenticatedTeamScope(session: session, teamID: "team-a", generation: 1)
+        let selected = AuthenticatedTeamScope(session: session, teamID: "team-b", generation: 2)
+
+        #expect(MobileHostIrxRuntime.retainsHostScope(
+            activeScope: active, selectedScope: selected, currentSession: session,
+            memberTeamIDs: ["team-a", "team-b"], accountDirectoryEnabled: true))
+        #expect(!MobileHostIrxRuntime.retainsHostScope(
+            activeScope: active, selectedScope: selected, currentSession: session,
+            memberTeamIDs: ["team-a", "team-b"], accountDirectoryEnabled: false))
+        #expect(!MobileHostIrxRuntime.retainsHostScope(
+            activeScope: active, selectedScope: selected,
+            currentSession: AuthenticatedSessionIdentity(generation: 8, accountID: "account"),
+            memberTeamIDs: ["team-a", "team-b"], accountDirectoryEnabled: true))
+        #expect(!MobileHostIrxRuntime.retainsHostScope(
+            activeScope: active, selectedScope: selected, currentSession: session,
+            memberTeamIDs: ["team-b"], accountDirectoryEnabled: true))
+    }
+
     @Test func forgetRecoveryRestartsOnceAndWaitsForRestoredEnrollment() {
         let identity = V2Identity(appNamespace: "cmux", buildTag: "test", deviceID: "mac",
             environment: "test", projectID: "project", teamID: "team", userID: "owner")

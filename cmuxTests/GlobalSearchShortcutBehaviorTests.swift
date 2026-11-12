@@ -39,8 +39,10 @@ extension GlobalSearchShortcutBehaviorTests {
         let window = try makeMainWindow(appDelegate: appDelegate)
         defer { closeWindow(window, appDelegate: appDelegate) }
 
+        // Plain Command-U: no default claims it (Command-J is click-by-hint
+        // since #19338), so setShortcut keeps it.
         let shortcut = StoredShortcut(
-            key: "j",
+            key: "u",
             command: true,
             shift: false,
             option: false,
@@ -58,9 +60,9 @@ extension GlobalSearchShortcutBehaviorTests {
 
         NSApp.sendEvent(
             try makeKeyDownEvent(
-                key: "j",
+                key: "u",
                 modifiers: [.command],
-                keyCode: 38,
+                keyCode: 32,
                 windowNumber: popoverWindow.windowNumber
             )
         )

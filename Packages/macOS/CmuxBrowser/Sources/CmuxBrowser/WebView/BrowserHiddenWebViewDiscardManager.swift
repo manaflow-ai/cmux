@@ -32,7 +32,9 @@ public final class BrowserHiddenWebViewDiscardManager {
     private var systemSleepObserverCenter: NotificationCenter?
     private let policyDefaults: UserDefaults
     private var policyState: BrowserHiddenWebViewDiscardPolicy.ResolvedPolicy
-    private var scheduleGeneration: UInt64 = 0
+    // Timer work and sleep/wake ingress are serialized by AppKit's main thread.
+    // Publish invalidation before hopping to MainActor so queued timers cannot win.
+    nonisolated(unsafe) private var scheduleGeneration: UInt64 = 0
 
     public init(policyDefaults: UserDefaults = .standard) {
         self.policyDefaults = policyDefaults
@@ -42,8 +44,10 @@ public final class BrowserHiddenWebViewDiscardManager {
     /// Sleep/wake state used to keep a hidden-webview discard from running in
     /// the fragile window right after system wake
     /// (https://github.com/manaflow-ai/cmux/issues/5261).
-    private(set) var isSystemSleeping = false
-    private(set) var lastSystemWakeAt: Date?
+    // NSWorkspace notifications use the main queue; actor callers also use that
+    // thread. Only this synchronous snapshot crosses the framework callback seam.
+    nonisolated(unsafe) private(set) var isSystemSleeping = false
+    nonisolated(unsafe) private(set) var lastSystemWakeAt: Date?
 
     public private(set) var isDiscardedForMemory: Bool = false
     public private(set) var discardedAt: Date?
@@ -174,7 +178,7 @@ public final class BrowserHiddenWebViewDiscardManager {
         let timer = DispatchSource.makeTimerSource(queue: .main)
         timer.schedule(deadline: .now() + remaining)
         timer.setEventHandler { [weak self] in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak self] in
                 guard let self else { return }
                 guard !self.isSystemSleeping else { return }
                 guard self.scheduleGeneration == generation else { return }
@@ -255,28 +259,38 @@ public final class BrowserHiddenWebViewDiscardManager {
         guard systemSleepObservers.isEmpty else { return }
         systemSleepObserverCenter = center
         systemSleepObservers = [
-            // Synchronous main-actor delivery (no Task hop): a countdown with
-            // milliseconds of mach time left must see isSystemSleeping before
-            // its timer can fire.
             center.addObserver(
                 forName: NSWorkspace.willSleepNotification,
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.noteSystemWillSleep()
-                }
+                self?.receiveSystemSleepTransition(isSleeping: true)
             },
             center.addObserver(
                 forName: NSWorkspace.didWakeNotification,
                 object: nil,
                 queue: .main
             ) { [weak self] _ in
-                MainActor.assumeIsolated {
-                    self?.noteSystemDidWake()
-                }
+                self?.receiveSystemSleepTransition(isSleeping: false)
             }
         ]
+    }
+
+    /// Publishes the main-thread notification barrier before deferred timer work.
+    private nonisolated func receiveSystemSleepTransition(isSleeping: Bool) {
+        let now = Date()
+        isSystemSleeping = isSleeping
+        if !isSleeping { lastSystemWakeAt = now }
+        scheduleGeneration &+= 1
+        let generation = scheduleGeneration
+        Task { @MainActor [weak self] in
+            guard let self, self.scheduleGeneration == generation else { return }
+            if isSleeping {
+                self.noteSystemWillSleep()
+            } else {
+                self.noteSystemDidWake(now: now)
+            }
+        }
     }
 
     public func noteSystemWillSleep() {

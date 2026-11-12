@@ -196,4 +196,98 @@ struct CloudFileExplorerBehaviorTests {
             try await provider.listDirectory(path: "/home/cmux", showHidden: true)
         }
     }
+
+    @Test
+    func cloudMutationCommandsPassQuotedPathsAsArguments() {
+        let name = "-it's $HOME \u{E9}.txt"
+        let command = CloudFileExplorerService.mutationCommand(
+            operation: "rename",
+            path: "/home/cmux/a.txt",
+            destinationPath: "/home/cmux/\(name)"
+        )
+        #expect(command.hasPrefix("python3 -c '"))
+        #expect(command.hasSuffix(
+            #" 'rename' '/home/cmux/a.txt' '/home/cmux/-it'\''s $HOME \#u{E9}.txt'"#
+        ))
+        #expect(command.contains("EXISTS = 73"))
+        #expect(command.contains("DENIED = 77"))
+        #expect(command.contains("os.O_CREAT | os.O_EXCL"))
+        #expect(command.contains("except FileExistsError:\n    sys.exit(EXISTS)"))
+        #expect(command.contains("except PermissionError:\n    sys.exit(DENIED)"))
+
+        let create = CloudFileExplorerService.mutationCommand(
+            operation: "create_file",
+            path: "/home/cmux/new",
+            destinationPath: nil
+        )
+        #expect(create.hasSuffix(" 'create_file' '/home/cmux/new'"))
+    }
+
+    @Test
+    func cloudMutationExitStatusesBecomeSpecificErrors() async {
+        let runner = CloudFileExplorerCommandRunnerFixture()
+        let provider = CloudVMFileExplorerProvider(
+            vmID: "vivid-newt",
+            displayTarget: "vivid-newt",
+            isAvailable: true,
+            commandRunner: runner
+        )
+        runner.responses = [{ command in
+            if command.hasSuffix(" 'create_file' '/home/cmux/taken'") {
+                return VMExecResult(exitCode: 73, stdout: "", stderr: "")
+            }
+            if command.hasSuffix(" 'create_directory' '/home/cmux/locked'") {
+                return VMExecResult(exitCode: 77, stdout: "", stderr: "")
+            }
+            if command.hasSuffix(" 'delete' '/home/cmux/broken'") {
+                return VMExecResult(exitCode: 74, stdout: "", stderr: "")
+            }
+            return nil
+        }]
+
+        await #expect(throws: FileExplorerError.mutationTargetExists) {
+            try await provider.createFile(path: "/home/cmux/taken")
+        }
+        await #expect(throws: FileExplorerError.mutationPermissionDenied) {
+            try await provider.createDirectory(path: "/home/cmux/locked")
+        }
+        await #expect(throws: FileExplorerError.mutationFailed) {
+            try await provider.delete(path: "/home/cmux/broken")
+        }
+    }
+
+    @Test
+    func cloudMutationsUseTheBoundVmCommandRunner() async throws {
+        let runner = CloudFileExplorerCommandRunnerFixture()
+        let provider = CloudVMFileExplorerProvider(
+            vmID: "vivid-newt",
+            displayTarget: "vivid-newt",
+            isAvailable: true,
+            commandRunner: runner
+        )
+
+        try await provider.createDirectory(path: "/home/cmux/new-folder")
+        try await provider.createFile(path: "/home/cmux/new-folder/new-file")
+        try await provider.rename(
+            path: "/home/cmux/new-folder/new-file",
+            to: "/home/cmux/new-folder/renamed-file"
+        )
+        try await provider.copy(
+            path: "/home/cmux/new-folder/renamed-file",
+            to: "/home/cmux/new-folder/renamed-file copy"
+        )
+        try await provider.delete(path: "/home/cmux/new-folder")
+
+        #expect(!provider.supportsTrash)
+        #expect(runner.calls.count == 5)
+        #expect(runner.calls.allSatisfy { $0.vmID == "vivid-newt" && $0.timeoutMs == 30_000 })
+        #expect(runner.calls[0].command.contains("create_directory"))
+        #expect(runner.calls[1].command.contains("create_file"))
+        #expect(runner.calls[2].command.contains("rename"))
+        #expect(runner.calls[3].command.hasSuffix(
+            " 'copy' '/home/cmux/new-folder/renamed-file' '/home/cmux/new-folder/renamed-file copy'"
+        ))
+        #expect(runner.calls[4].command.contains("delete"))
+        #expect(runner.calls[2].command.contains("renamed-file"))
+    }
 }

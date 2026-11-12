@@ -124,7 +124,9 @@ try {
   const hostname = `cmux-smoke-${friendlyPublicationLabel()}.cmux.sh`;
   const reconciled = await run(provider.reconcileTlsRule(null, { hostname, providerVmId: vmId, port: 3000 }));
   cleanup.push(async () => {
-    const swept = await run(provider.deleteTlsRulesForHostnames([hostname]));
+    const swept = await run(provider.deletePublicationTlsRules([{
+      hostname, providerVmId: vmId, providerTlsRuleId: reconciled.rule.tlsRuleId, hostnameClaimed: true,
+    }]));
     const remaining = (await client.tls.rules.list({ limit: 100 })).rules.filter((r) => r.domain === hostname).length;
     log("cleanup", { sweptRules: swept, remainingForHostname: remaining });
   });

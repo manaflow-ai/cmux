@@ -4,7 +4,7 @@ import { createTranslator } from "use-intl/core";
 import { comparePages } from "../app/lib/compare-pages";
 import { blogPostsForLocale } from "../app/[locale]/components/blog-posts";
 import robots from "../app/robots";
-import sitemap from "../app/sitemap";
+import { sitemapEntries as sitemap } from "../app/sitemap";
 import { legalMetadata } from "../app/[locale]/(legal)/legal-metadata";
 import middleware from "../proxy";
 import {
@@ -535,6 +535,25 @@ describe("SEO metadata helpers", () => {
             messages.nightly.subtitle,
           ],
           [messages.nightly.metaTitle, messages.nightly.title],
+        ),
+        auditedRow(
+          "/next",
+          landingPageSeoCopy(
+            locale,
+            messageLookup(messages.next),
+            siteMeta,
+            {
+              complete: ["description", "subtitle"],
+              context: ["title"],
+            },
+          ),
+          [
+            messages.next.metaDescription,
+            messages.next.title,
+            messages.next.description,
+            messages.next.subtitle,
+          ],
+          [messages.next.metaTitle, messages.next.title],
         ),
         auditedRow(
           "/guides",

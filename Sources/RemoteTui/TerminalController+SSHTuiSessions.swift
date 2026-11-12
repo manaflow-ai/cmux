@@ -34,8 +34,8 @@ extension TerminalController {
             do {
                 let provider = try coordinator.provider(connection: SSHTuiConnection(configuration: configuration))
                 if all, !listedMachines.insert(provider.machine).inserted { continue }
-                guard await provider.refreshCurrentGraph(force: false) else {
-                    throw CloudMachineLink.LinkError.spawnFailed(provider.info.linkFailureMessage)
+                guard await provider.refreshCurrentGraphResolvingEqualCursorConflict() else {
+                    throw CloudMachineLink.LinkError.failureMessage(provider.info.linkFailureMessage)
                 }
                 let remoteWorkspace = workspace.cloudVMBinding?.remoteWorkspaceID
                 for resource in catalog.authoritativeSnapshot.resources(on: provider.machine) where resource.kind == .terminal {

@@ -6,15 +6,19 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { poweredByHeader, securityHeaderRules } from "./security-headers";
 import { directDevBackendHost } from "./app/lib/direct-dev-backend-origin";
+import { isPlatformDownloadAvailable } from "./app/lib/download";
+import {
+  isDocsZoneDeployment,
+  nightlyDocsOrigin as configuredNightlyDocsOrigin,
+  releaseDocsOrigin as configuredReleaseDocsOrigin,
+} from "./app/lib/docs-channel";
 
 const withNextIntl = createNextIntlPlugin("./i18n/request.ts");
 const webRoot = path.dirname(fileURLToPath(import.meta.url));
 const docsChannel = process.env.CMUX_DOCS_CHANNEL;
-const isDocsZone = docsChannel === "release" || docsChannel === "nightly";
-const releaseDocsOrigin =
-  process.env.CMUX_RELEASE_DOCS_ORIGIN ?? "https://cmux-docs-release.vercel.app";
-const nightlyDocsOrigin =
-  process.env.CMUX_NIGHTLY_DOCS_ORIGIN ?? "https://cmux-docs-nightly.vercel.app";
+const isDocsZone = isDocsZoneDeployment();
+const releaseDocsOrigin = configuredReleaseDocsOrigin();
+const nightlyDocsOrigin = configuredNightlyDocsOrigin();
 // The embedded browser reaches a dev server through its per-instance
 // Tailscale Serve hostname. Published development VMs also use generated
 // `*.cmux.sh` hostnames. Next.js blocks cross-origin HMR and RSC resources
@@ -112,6 +116,11 @@ const nextConfig: NextConfig = {
     }
     return {
       beforeFiles: [
+        // Universal links for the cmux iOS app (app/api/apple-app-site-association).
+        {
+          source: "/.well-known/apple-app-site-association",
+          destination: "/api/apple-app-site-association",
+        },
         {
           source: "/_docs-assets/release/:path*",
           destination: `${releaseDocsOrigin}/:path*`,
@@ -183,7 +192,25 @@ const nextConfig: NextConfig = {
         },
       ]),
     );
-    return [...(isDocsZone ? [] : baseNightlyMoves), ...agentRedirects];
+    // While Linux is waitlist-only, /linux (linked from older posts and the
+    // cmux Browser README) is a real 307 to /browser, whose Linux card takes
+    // waitlist signups. Temporary, so it lifts when Linux ships again.
+    const linuxWaitlistRedirects = isPlatformDownloadAvailable("linux")
+      ? []
+      : exts.flatMap((ext) => [
+          { source: `/linux${ext}`, destination: "/browser", permanent: false },
+          { source: `/en/linux${ext}`, destination: "/browser", permanent: false },
+          {
+            source: `/${localePrefix}/linux${ext}`,
+            destination: "/:locale/browser",
+            permanent: false,
+          },
+        ]);
+    return [
+      ...(isDocsZone ? [] : baseNightlyMoves),
+      ...agentRedirects,
+      ...(isDocsZone ? [] : linuxWaitlistRedirects),
+    ];
   },
   async headers() {
     const channelSecurityHeaders =

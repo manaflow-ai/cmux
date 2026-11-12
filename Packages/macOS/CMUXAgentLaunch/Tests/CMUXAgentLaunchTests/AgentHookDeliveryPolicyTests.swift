@@ -55,6 +55,57 @@ struct AgentHookDeliveryPolicyTests {
             <= Double(AgentHookDeliveryPolicy.declaredTimeoutSeconds))
     }
 
+    /// #20186: a forked Claude inherited another pane's agent PID, so its
+    /// SessionStart was routed to the ancestor's pane and rebound that pane.
+    @Test("An inherited agent PID on another terminal yields to the hook's agent")
+    func inheritedAgentPIDOnAnotherTerminalYieldsToInvocationAgent() {
+        let terminals: [Int: Int64] = [4_242: 0x1001, 4_343: 0x1002]
+        #expect(policy.hookAgentPID(
+            environmentPID: 4_242,
+            invocationAgentPID: 4_343,
+            controllingTerminal: { terminals[$0] }
+        ) == 4_343)
+    }
+
+    @Test("An exported agent PID on the hook's terminal is kept")
+    func exportedAgentPIDOnSameTerminalIsKept() {
+        // A launcher shim can keep the exported PID while the agent runs as
+        // its child on the same terminal; that PID still names the pane.
+        let terminals: [Int: Int64] = [4_242: 0x1001, 4_343: 0x1001]
+        #expect(policy.hookAgentPID(
+            environmentPID: 4_242,
+            invocationAgentPID: 4_343,
+            controllingTerminal: { terminals[$0] }
+        ) == 4_242)
+    }
+
+    @Test("Without terminal evidence the exported agent PID is kept")
+    func missingTerminalEvidenceKeepsExportedPID() {
+        // An exited exported PID, or a hook run without a terminal, gives no
+        // evidence that the exported PID belongs to another pane.
+        let terminals: [Int: Int64] = [4_343: 0x1002]
+        #expect(policy.hookAgentPID(
+            environmentPID: 4_242,
+            invocationAgentPID: 4_343,
+            controllingTerminal: { terminals[$0] }
+        ) == 4_242)
+        #expect(policy.hookAgentPID(
+            environmentPID: 4_242,
+            invocationAgentPID: 4_343,
+            controllingTerminal: { $0 == 4_242 ? 0x1001 : nil }
+        ) == 4_242)
+        #expect(policy.hookAgentPID(
+            environmentPID: nil,
+            invocationAgentPID: 4_343,
+            controllingTerminal: { _ in nil }
+        ) == 4_343)
+        #expect(policy.hookAgentPID(
+            environmentPID: 4_242,
+            invocationAgentPID: nil,
+            controllingTerminal: { _ in 0x1001 }
+        ) == 4_242)
+    }
+
     @Test("Agent names produce stable ASCII PID environment keys")
     func pidEnvironmentKey() {
         #expect(policy.pidEnvironmentVariable(agentName: "claude") == "CMUX_CLAUDE_PID")

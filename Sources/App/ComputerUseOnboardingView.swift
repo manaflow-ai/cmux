@@ -26,6 +26,7 @@ struct ComputerUseOnboardingView: View {
     @State private var refreshInFlight = false
     @State private var permissionCheckArmed = false
     @State private var helperAppURL: URL?
+    @State private var helperUnavailableInThisBuild = false
     @State private var initialPermissionFlowStarted = false
     @State private var permissionSetupInFlight = false
     private var directCaptureReady: Bool { runtimeService.onboardingIsComplete }
@@ -295,6 +296,18 @@ struct ComputerUseOnboardingView: View {
                 ),
                 detail: screenshotsCardDetail
             )
+            if helperUnavailableInThisBuild {
+                // No Developer ID signed helper: this build installs nothing
+                // and offers nothing for a grant (ComputerUseHelperTrust).
+                Text(String(
+                    localized: "computerUse.onboarding.helperUnavailable",
+                    defaultValue: "Computer Use is unavailable in this dev build. Install cmux NIGHTLY to use it."
+                ))
+                .font(.system(size: 12.5))
+                .foregroundStyle(overviewSecondaryText)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -578,6 +591,7 @@ struct ComputerUseOnboardingView: View {
     private func refreshHelperPresentation() {
         let url = runtimeService.helperAppURL
         helperAppURL = url
+        helperUnavailableInThisBuild = runtimeService.helperUnavailableInThisBuild
     }
 
     private func applyPermissions(

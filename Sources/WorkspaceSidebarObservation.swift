@@ -199,7 +199,7 @@ extension View {
 }
 
 private struct SidebarImmediateObservationState: Equatable {
-    let customTitle: String?
+    let titleRevision: UInt64
     let customDescription: String?
     let isPinned: Bool
     let isMuted: Bool
@@ -207,6 +207,7 @@ private struct SidebarImmediateObservationState: Equatable {
     let latestConversationMessage: String?
     let latestSubmittedMessage: String?
     let latestSubmittedAt: Date?
+    let panelPrompts: [UUID: SidebarPanelPromptState]
     let taskStatusOverride: WorkspaceTaskStatusOverride?
     let statusHidden: Bool
     let checklist: [WorkspaceChecklistItem]
@@ -220,6 +221,7 @@ private struct SidebarObservationState: Equatable {
     let panelDirectoryDisplayLabels: [UUID: String]
     let directoryChangeRevision: UInt64
     let statusEntries: [String: SidebarStatusEntry]
+    let agentUsage: [String: SidebarAgentUsage]
     let metadataBlocks: [String: SidebarMetadataBlock]
     let logEntries: [SidebarLogEntry]
     let progress: SidebarProgressState?
@@ -251,17 +253,22 @@ extension Workspace {
         // Combine exposes up to four-way convenience publishers. Compose the
         // extra fields explicitly so adding a row-affecting property does not
         // require a non-existent ``CombineLatest5`` specialization.
-        let workspaceFields = Publishers.CombineLatest4(
-            $customTitle,
+        // `setCustomTitle` writes customTitle before title. Observing
+        // `$customTitle` here would forward a leading event while title still
+        // has its old value, so the committed title publisher is the single
+        // rename invalidation source.
+        let workspaceFields = Publishers.CombineLatest3(
+            sidebarTitleDidChangePublisher,
             $customDescription,
-            $isPinned,
-            $customColor
+            $isPinned
         )
+        .combineLatest($customColor)
         .combineLatest($isMuted)
-        let conversationFields = Publishers.CombineLatest3(
+        let conversationFields = Publishers.CombineLatest4(
             $latestConversationMessage,
             $latestSubmittedMessage,
-            $latestSubmittedAt
+            $latestSubmittedAt,
+            sidebarMetadata.panelPromptsPublisher
         )
         // Todo state is row-affecting (status pill, checklist progress) but
         // lives in its own sub-model, so fold its publishers in here the same
@@ -276,14 +283,15 @@ extension Workspace {
             .combineLatest(conversationFields, todoFields)
             .map { workspaceFields, conversationFields, todoFields in
                 SidebarImmediateObservationState(
-                    customTitle: workspaceFields.0.0,
-                    customDescription: workspaceFields.0.1,
-                    isPinned: workspaceFields.0.2,
+                    titleRevision: workspaceFields.0.0.0,
+                    customDescription: workspaceFields.0.0.1,
+                    isPinned: workspaceFields.0.0.2,
                     isMuted: workspaceFields.1,
-                    customColor: workspaceFields.0.3,
+                    customColor: workspaceFields.0.1,
                     latestConversationMessage: conversationFields.0,
                     latestSubmittedMessage: conversationFields.1,
                     latestSubmittedAt: conversationFields.2,
+                    panelPrompts: conversationFields.3,
                     taskStatusOverride: todoFields.0,
                     statusHidden: todoFields.1,
                     checklist: todoFields.2
@@ -347,11 +355,15 @@ extension Workspace {
             gitFields,
             remoteFields
         )
-            .combineLatest($listeningPorts, sidebarMetadata.panelDirectoryDisplayLabelsPublisher)
+            .combineLatest(
+                $listeningPorts,
+                sidebarMetadata.panelDirectoryDisplayLabelsPublisher,
+                sidebarMetadata.agentUsagePublisher
+            )
             .combineLatest(directoryChangeRevision)
             .compactMap { [weak self] values, directoryChangeRevision -> SidebarObservationState? in
                 guard let self else { return nil }
-                let (groupedFields, listeningPorts, panelDirectoryDisplayLabels) = values
+                let (groupedFields, listeningPorts, panelDirectoryDisplayLabels, agentUsage) = values
                 let workspaceFields = groupedFields.0
                 let metadataFields = groupedFields.1
                 let gitFields = groupedFields.2
@@ -364,6 +376,7 @@ extension Workspace {
                     panelDirectoryDisplayLabels: panelDirectoryDisplayLabels,
                     directoryChangeRevision: directoryChangeRevision,
                     statusEntries: metadataFields.0,
+                    agentUsage: agentUsage,
                     metadataBlocks: metadataFields.1,
                     logEntries: metadataFields.2,
                     progress: metadataFields.3,

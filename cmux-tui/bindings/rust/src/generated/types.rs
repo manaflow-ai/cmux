@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 8956ad6492bfd776f7c94fa11ba79b6fe23de0a0df61c6baf782d7d0ecf1f4cd.
+// cmux-tui mux protocol 12, IR 93af6692f7f686eafe3bfcb03c01e8570f8cf4dfa8a84ad93824ed07160b504d.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -23,6 +23,9 @@ pub struct AgentRecord {
     pub session: Nullable<String>,
     pub source: AgentSource,
     pub state: AgentState,
+    /// What the person sees: \`working\`, \`blocked\`, \`done\` (the agent finished a turn and no client has shown its tab since; \`state\` is \`idle\` then), \`idle\` or \`unknown\`; null for an ended session (\`state\` \`done\`). Reading never clears \`done\`; a frontend's tab acknowledgement does. Absent from older daemons: use \`state\`.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub status: Optional<AgentState>,
     pub surface: Id,
     pub updated_at_ms: u64,
 }
@@ -602,6 +605,8 @@ pub struct MintTerminalRendererResult {
     pub incarnation: String,
     pub protocol_version: u16,
     pub rights: u32,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub supports_viewer_size_priority: Option<bool>,
     pub terminal_id: String,
     pub token: String,
     pub ttl_ms: u64,

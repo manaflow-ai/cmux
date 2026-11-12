@@ -9,6 +9,10 @@ extension SurfaceCatalog {
             ? cloudPlacementCoordinator.projectionInCurrentWorkspace(projection)
             : projection
         insertSupersedingLocalPlaceholder(resolved)
+        if resolved.resource.kind == .browser,
+           let browser = SurfacePaneFactory.browserPanel(panelID: resolved.panelID, in: resolved.workspaceID) {
+            cloudBrowserDocumentDidChange(browser)
+        }
         // Recording or restoring a daemon tab never replays a remote move; its
         // recorded coordinates are reconciled against the accepted graph.
         guard resolved.isLocalWorkspaceView else { return }

@@ -361,7 +361,8 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
     public func sendRequestAndAuthenticatedHostStatus(
         _ requestData: Data,
         timeoutNanoseconds: UInt64? = nil,
-        hostStatusTimeoutNanoseconds: @Sendable () -> UInt64? = { nil }
+        hostStatusTimeoutNanoseconds: @Sendable () -> UInt64? = { nil },
+        acceptCombinedHostStatus: Bool = false
     ) async throws -> (response: Data, hostStatusResponse: Data) {
         guard let request = try JSONSerialization.jsonObject(with: requestData) as? [String: Any],
               Self.requestRequiresAuth(request) else {
@@ -371,6 +372,12 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             requestData,
             timeoutNanoseconds: timeoutNanoseconds
         )
+        if acceptCombinedHostStatus,
+           let combinedHostStatus = Self.combinedHostStatusResponse(
+               in: authorized.response
+           ) {
+            return (authorized.response, combinedHostStatus)
+        }
         let hostStatusTimeout = hostStatusTimeoutNanoseconds()
         if hostStatusTimeout == 0 {
             throw MobileShellConnectionError.requestTimedOut
@@ -381,6 +388,22 @@ public final class MobileCoreRPCClient: MobileSyncing, Sendable {
             hostStatusStackToken: authorized.stackAccessToken
         )
         return (authorized.response, hostStatus.response)
+    }
+
+    /// Extracts the authenticated host proof included in a v2 workspace-list
+    /// response. Older Macs omit this field, so callers continue with the
+    /// separate host-status request.
+    private static func combinedHostStatusResponse(in data: Data) -> Data? {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let hostStatus = object["host_status"] as? [String: Any],
+              JSONSerialization.isValidJSONObject(hostStatus) else {
+            return nil
+        }
+        guard let encoded = try? JSONSerialization.data(withJSONObject: hostStatus),
+              (try? MobileHostStatusResponse.decode(encoded)) != nil else {
+            return nil
+        }
+        return encoded
     }
 
     private func sendRequestOperation(

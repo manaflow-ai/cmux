@@ -166,8 +166,11 @@ static int preparePlainText(NSDictionary *request, NSData * __autoreleasing *pay
         return 65;
     }
 
-    if (![request[@"mode"] isKindOfClass:NSDictionary.class] ||
-        request[@"mode"][@"paste"] == nil ||
+    NSDictionary *mode = [request[@"mode"] isKindOfClass:NSDictionary.class]
+        ? request[@"mode"] : nil;
+    BOOL isNativePaste = mode[@"paste"] != nil;
+    BOOL isPlainTextRead = mode[@"plainText"] != nil;
+    if (mode == nil || (!isNativePaste && !isPlainTextRead) ||
         ![request[@"destination"] isKindOfClass:NSDictionary.class] ||
         request[@"destination"][@"terminal"] == nil ||
         request[@"snapshotMaximumByteCount"] != nil) {
@@ -181,17 +184,19 @@ static int preparePlainText(NSDictionary *request, NSData * __autoreleasing *pay
 
     NSArray<NSPasteboardType> *types = pasteboard.types ?: @[];
     BOOL hasPlainText = NO;
+    // A terminal-initiated read must never promote an image or file flavor
+    // into a transfer; it only asks this resident reader for text.
     BOOL hasRichText = [types containsObject:NSPasteboardTypeHTML] ||
         [types containsObject:NSPasteboardTypeRTF] ||
         [types containsObject:NSPasteboardTypeRTFD];
     for (NSPasteboardType type in types) {
-        if (hasDisallowedType(type)) {
+        if (isNativePaste && hasDisallowedType(type)) {
             return kIneligibleStatus;
         }
         hasPlainText = hasPlainText || isPlainTextType(type);
     }
     if (!hasPlainText) {
-        return kIneligibleStatus;
+        return isPlainTextRead ? 0 : kIneligibleStatus;
     }
 
     NSMutableArray<NSPasteboardType> *preferredTypes = [NSMutableArray arrayWithObject:kUTF8PlainTextType];
@@ -214,7 +219,7 @@ static int preparePlainText(NSDictionary *request, NSData * __autoreleasing *pay
         return 0;
     }
     if (text == nil) {
-        if (hasRichText) {
+        if (isNativePaste && hasRichText) {
             return kIneligibleStatus;
         }
         return 0;
@@ -223,7 +228,7 @@ static int preparePlainText(NSDictionary *request, NSData * __autoreleasing *pay
     // Match PasteboardTextFidelity.shouldInspectRichTextForPlainTextLoss:
     // the full worker can recover characters lost by the plain-text exporter.
     // U+FFFD or a run of "?" marks lost characters; isolated "?" is content.
-    if (hasRichText) {
+    if (isNativePaste && hasRichText) {
         unichar previous = 0;
         for (NSUInteger index = 0; index < text.length; index++) {
             unichar character = [text characterAtIndex:index];

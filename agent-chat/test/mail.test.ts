@@ -1,5 +1,8 @@
-import { InMemoryMailBroker, MailConflictError, MailFanoutError, MailUnknownParentError, createMail } from "../mail";
-import { test } from "bun:test";
+import { JsonlMailJournal, InMemoryMailBroker, MailConflictError, MailFanoutError, MailUnknownParentError, createMail } from "../mail";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { expect, test } from "bun:test";
 
 test("mail broker append, threading, delivery, and fan-out", () => {
 const broker = new InMemoryMailBroker();
@@ -184,6 +187,77 @@ test("append stays idempotent when a retry reorders the recipients", () => {
     if (!(error instanceof MailConflictError)) throw error;
   }
   console.log("mail recipient-order assertions passed");
+});
+
+
+test("JSONL journal replays queued mail and delivery receipts", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cmux-mail-journal-"));
+  const path = join(root, "mail.jsonl");
+  try {
+    const first = await JsonlMailJournal.open(path);
+    const appended = first.publish({ id: "persisted", sender: "codex", recipients: ["review"], body: "check this" });
+    await first.flush();
+    const delivered = first.markDelivered(appended.envelope.id, "review");
+    await first.flush();
+    const second = await JsonlMailJournal.open(path);
+    const row = second.inbox("review")[0];
+    if (!row || row.envelope.body !== "check this" || row.delivery.state !== "delivered" || row.delivery.attempts !== delivered.attempts) throw new Error(`journal replay lost mail state: ${JSON.stringify(row)}`);
+    if (!second.append({ id: "persisted", sender: "codex", recipients: ["review"], body: "check this" }).duplicate) throw new Error("replayed append should remain idempotent");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("JSONL journal rejects malformed receipts with a line number", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cmux-mail-journal-invalid-"));
+  const path = join(root, "mail.jsonl");
+  try {
+    const message = {
+      kind: "message",
+      envelope: {
+        id: "m",
+        threadId: "m",
+        kind: "message",
+        sender: "codex",
+        recipients: ["review"],
+        body: "hello",
+        contentType: "text/plain",
+        createdAt: 1,
+        references: [],
+        attachments: [],
+        metadata: {},
+      },
+      deliveries: [{ messageId: "m", recipient: "review", state: "queued", attempts: 0, updatedAt: 1 }],
+    };
+    const malformedDelivery = { kind: "delivery", receipt: { messageId: "m", recipient: "review", state: "delivered" } };
+    await writeFile(path, `${JSON.stringify(message)}\n${JSON.stringify(malformedDelivery)}\n`);
+    await expect(JsonlMailJournal.open(path)).rejects.toThrow("line 2");
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("broker restore validates all receipts before committing the envelope", () => {
+  const broker = new InMemoryMailBroker();
+  const envelope = createMail({ id: "atomic", sender: "codex", recipients: ["review", "qa"], body: "hello", createdAt: 1 });
+  try {
+    broker.restore(envelope, [{ messageId: "atomic", recipient: "review", state: "queued", attempts: 0, updatedAt: 1 }]);
+    throw new Error("restore should reject an incomplete receipt map");
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("missing delivery receipt")) throw error;
+  }
+  if (broker.get("atomic") || broker.list().length !== 0) throw new Error("failed restore must not partially commit");
+});
+
+test("journal stops accepting mutations after a write failure", async () => {
+  const root = await mkdtemp(join(tmpdir(), "cmux-mail-journal-write-failure-"));
+  const path = join(root, "mail.jsonl");
+  try {
+    const journal = await JsonlMailJournal.open(path);
+    await rm(root, { recursive: true, force: true });
+    await writeFile(root, "not a directory");
+    journal.append({ id: "first", sender: "codex", recipients: ["review"], body: "first" });
+    await expect(journal.flush()).rejects.toThrow();
+    if (!journal.get("first")) throw new Error("the failed write should still be observable for diagnostics");
+    expect(() => journal.append({ id: "second", sender: "codex", recipients: ["review"], body: "second" })).toThrow("mail journal is unavailable");
+    if (journal.get("second")) throw new Error("journal accepted a mutation after its write failed");
+  } finally { await rm(root, { recursive: true, force: true }); }
 });
 
 export {};

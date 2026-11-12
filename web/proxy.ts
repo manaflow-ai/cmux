@@ -3,12 +3,15 @@ import { localeMiddleware } from "./i18n/middleware";
 import { preferredLocaleFromAcceptLanguage } from "./i18n/accept-language";
 import { routing } from "./i18n/routing";
 import { isAgentPageVariantPath } from "./app/lib/agent-page-paths";
+import { isDocsPathname, isDocsZoneDeployment } from "./app/lib/docs-channel";
+import { docsLinkFallback } from "./app/lib/docs-link-fallbacks";
 import {
   fallbackContentRequestForPathname,
   featureWorkflowContentLocales,
   featureWorkflowDocRequestForPathname,
   hasFallbackContent,
   managedPoliciesDocsLocales,
+  cloudSecurityDocsLocales,
   remoteTmuxDocsLocales,
 } from "./i18n/locale-availability";
 import { buildAlternateLinkHeader } from "./i18n/seo";
@@ -169,12 +172,16 @@ function handleHostAndMachineRoutes(
   // The public site only routes docs traffic to the release/nightly origins.
   // Locale handling belongs to those origins; rewriting it here first causes
   // the origin to normalize the path back through the router in a loop.
-  const docsChannel = process.env.CMUX_DOCS_CHANNEL;
-  const isDocsOrigin = docsChannel === "release" || docsChannel === "nightly";
-  const isDocsPath = /^\/(?:[a-z]{2}(?:-[A-Z]{2})?\/)?docs(?:\/|$)/u.test(
-    pathname,
-  );
-  if (!isDocsOrigin && isDocsPath) {
+  if (!isDocsZoneDeployment() && isDocsPathname(pathname)) {
+    // A docs link that shipped in What's New but has no page goes to the
+    // nearest live page (docs-link-fallbacks.ts says why it never shadows one).
+    const fallback = docsLinkFallback(pathname);
+    if (fallback) {
+      // A plain URL: NextURL would put back the request's trailing slash.
+      const url = new URL(request.url);
+      url.pathname = fallback;
+      return NextResponse.redirect(url, 307);
+    }
     return NextResponse.next();
   }
 
@@ -462,6 +469,25 @@ function handleLegalAndDocsRoutes(
     url.pathname = "/en/docs/managed-policies";
     return NextResponse.rewrite(url);
   }
+
+  const cloudSecurityMatch = pathname.match(
+    /^\/([a-z]{2}(?:-[A-Z]{2})?)\/docs\/cloud-security\/?$/,
+  );
+  if (
+    cloudSecurityMatch &&
+    !cloudSecurityDocsLocales.includes(
+      cloudSecurityMatch[1] as (typeof cloudSecurityDocsLocales)[number],
+    )
+  ) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/docs/cloud-security";
+    return NextResponse.redirect(url, 301);
+  }
+  if (pathname === "/docs/cloud-security" || pathname === "/docs/cloud-security/") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/en/docs/cloud-security";
+    return NextResponse.rewrite(url);
+  }
   return undefined;
 }
 
@@ -634,6 +660,7 @@ function isCoderouterLandingPath(pathname: string): boolean {
 
 export const config = {
   matcher: [
-    "/((?!api|v1|_next|_vercel|agent-page-variant|authorize|handler).*)",
+    // `.well-known` (the iOS app's AASA file) must not get a locale redirect.
+    "/((?!api|v1|_next|_vercel|agent-page-variant|authorize|handler|\\.well-known).*)",
   ],
 };

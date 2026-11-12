@@ -423,7 +423,7 @@ extension MobileShellComposite {
                 replaceable: false,
                 viewportPolicy: .natural,
                 endSequence: endSequence,
-                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery()
+                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery(surfaceID: surfaceID)
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
@@ -474,7 +474,7 @@ extension MobileShellComposite {
         deliverTerminalOutput(
             TerminalOutputDelivery(
                 theme: frame,
-                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery()
+                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery(surfaceID: surfaceID)
             ),
             surfaceID: surfaceID,
             bypassReplayBarrier: bypassReplayBarrier
@@ -488,7 +488,7 @@ extension MobileShellComposite {
                 replaceable: true,
                 replacementScope: .viewportPolicy,
                 viewportPolicy: policy,
-                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery()
+                requiresVerifiedReplay: requiresVerifiedReplayForUnclassifiedDelivery(surfaceID: surfaceID)
             ),
             surfaceID: surfaceID
         )

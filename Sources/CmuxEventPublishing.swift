@@ -1,7 +1,100 @@
 import Foundation
 import CMUXAgentLaunch
+import CmuxSidebar
 
 extension CmuxEventBus {
+    /// Keeps each status snapshot event below the event stream's 16 KiB line
+    /// limit. OSC 7501 record ids are limited to 128 bytes, so 32 records leave
+    /// room for the event envelope and addressed record as well.
+    private static let programStatusRecordsPerEvent = 32
+
+    /// Publishes one OSC 7501 change together with the terminal's current
+    /// records. Consumers can apply a report or clear without polling the
+    /// sidebar projection.
+    func publishProgramStatusChanged(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        report: ProgramStatusReport,
+        store: ProgramStatusRecordStore
+    ) {
+        publishProgramStatusChanged(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            payload: ProgramStatusChangedPayload(report: report, store: store)
+        )
+    }
+
+    /// Publishes a lifecycle cleanup together with the terminal's current
+    /// records. Lifecycle changes use the same event and snapshot shape as
+    /// OSC reports so consumers never need a second synchronization path.
+    func publishProgramStatusChanged(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        event: ProgramStatusChange,
+        store: ProgramStatusRecordStore
+    ) {
+        publishProgramStatusChanged(
+            workspaceId: workspaceId,
+            surfaceId: surfaceId,
+            payload: ProgramStatusChangedPayload(event: event, store: store)
+        )
+    }
+
+    /// Converts the package-owned payload into the event bus's JSON-compatible
+    /// dictionary representation and publishes it to terminal subscribers.
+    ///
+    /// Each chunk is a separate event. Consumers must discard every chunk for
+    /// a `snapshot_id` when the stream reports `slow_consumer` or
+    /// `ack.resume.gap`, then wait for the next complete snapshot. There is no
+    /// dedicated program-status snapshot query; the next complete status event
+    /// is the recovery point.
+    private func publishProgramStatusChanged(
+        workspaceId: UUID,
+        surfaceId: UUID,
+        payload: ProgramStatusChangedPayload
+    ) {
+        let records = payload.records.map(Self.programStatusRecordPayload)
+        let chunks: [[[String: Any]]] = records.isEmpty
+            ? [[]]
+            : stride(from: 0, to: records.count, by: Self.programStatusRecordsPerEvent).map { start in
+                Array(records[start..<min(start + Self.programStatusRecordsPerEvent, records.count)])
+            }
+        let snapshotID = UUID().uuidString
+
+        for (index, recordsChunk) in chunks.enumerated() {
+            publish(
+                name: "program_status.changed",
+                category: "terminal",
+                source: "terminal.program_status",
+                workspaceId: workspaceId.uuidString,
+                surfaceId: surfaceId.uuidString,
+                payload: [
+                    "event": payload.event.rawValue,
+                    "id": payload.id ?? NSNull(),
+                    "record": payload.record.map(Self.programStatusRecordPayload) ?? NSNull(),
+                    "records": recordsChunk,
+                    "records_total": records.count,
+                    "snapshot_id": snapshotID,
+                    "snapshot_index": index,
+                    "snapshot_count": chunks.count
+                ]
+            )
+        }
+    }
+
+    /// Converts one safe package snapshot to a Foundation dictionary.
+    private static func programStatusRecordPayload(
+        _ record: ProgramStatusRecordSnapshot
+    ) -> [String: Any] {
+        [
+            "id": record.id,
+            "state": record.state.rawValue,
+            "kind": record.kind.rawValue,
+            "progress": record.progress ?? NSNull(),
+            "updated_seq": record.updatedSequence
+        ]
+    }
+
     func publishWorkspaceCreated(
         workspaceId: UUID,
         title: String,

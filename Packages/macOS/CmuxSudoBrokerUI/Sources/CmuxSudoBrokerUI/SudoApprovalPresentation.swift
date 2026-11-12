@@ -16,18 +16,50 @@ public final class SudoApprovalPresentation {
 
     private var decisionIsPending = false
     @ObservationIgnored private let messages: SudoApprovalViewMessages
+    @ObservationIgnored private let scriptAnnotation: SudoInvisibleTextAnnotator.Annotation
+    @ObservationIgnored private let metadataAnnotations: [SudoInvisibleTextAnnotator.Annotation]
 
     init(
         snapshot: SudoPendingRequest,
-        messages: SudoApprovalViewMessages = SudoApprovalViewMessages()
+        messages: SudoApprovalViewMessages = SudoApprovalViewMessages(),
+        annotator: SudoInvisibleTextAnnotator = SudoInvisibleTextAnnotator()
     ) {
         request = snapshot.request
         script = snapshot.script
         phase = snapshot.phase
         self.messages = messages
+        // Annotations are display copies only; `script` stays byte-identical to the
+        // reviewed snapshot that the broker stages and binds by digest.
+        scriptAnnotation = annotator.annotate(snapshot.script)
+        metadataAnnotations = [
+            snapshot.request.id,
+            snapshot.request.reason,
+            snapshot.request.requesterCommand,
+            snapshot.request.currentDirectory,
+        ].map(annotator.annotate)
     }
 
-    var windowTitle: String { messages.windowTitle(requestID: request.id) }
+    /// The script with hidden and direction-changing characters rendered as visible markers.
+    var displayScript: String { scriptAnnotation.display }
+    var displayRequestID: String { metadataAnnotations[0].display }
+    var displayReason: String { metadataAnnotations[1].display }
+    var displayWorkingDirectory: String { metadataAnnotations[3].display }
+
+    /// The number of hidden characters across the script and request metadata.
+    var hiddenCharacterCount: Int {
+        scriptAnnotation.hiddenCharacterCount
+            + metadataAnnotations.reduce(0) { $0 + $1.hiddenCharacterCount }
+    }
+
+    var containsHiddenCharacters: Bool { hiddenCharacterCount > 0 }
+
+    var hiddenCharacterWarning: String {
+        messages.hiddenCharacterWarning(count: hiddenCharacterCount)
+    }
+
+    var hiddenCharacterBadge: String { messages.hiddenCharacterBadge }
+
+    var windowTitle: String { messages.windowTitle(requestID: displayRequestID) }
     var heading: String { messages.heading }
     var warning: String { messages.warning }
     var requestIDLabel: String { messages.requestIDLabel }
@@ -41,7 +73,7 @@ public final class SudoApprovalPresentation {
 
     var requesterSummary: String {
         messages.requester(
-            command: request.requesterCommand,
+            command: metadataAnnotations[2].display,
             processIdentifier: request.requesterPid
         )
     }

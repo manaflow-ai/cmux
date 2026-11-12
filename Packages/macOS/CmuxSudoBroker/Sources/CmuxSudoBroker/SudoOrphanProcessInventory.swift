@@ -38,6 +38,10 @@ struct SudoOrphanProcessInventory: Sendable {
 
     private func approvedScriptPath(arguments: [String]) -> String? {
         let prompt = SudoAuthenticationOutputDetector.passwordPrompt
+        if let path = stagedExecutorScriptPath(arguments: arguments, prompt: prompt) {
+            return path
+        }
+        // Recover commands left by the former unstaged-helper protocol.
         if arguments.count == 14,
            arguments[0...7].elementsEqual([
                "/usr/bin/script", "-q", "/dev/null", "/usr/bin/sudo", "-k",
@@ -82,5 +86,53 @@ struct SudoOrphanProcessInventory: Sendable {
             return arguments[1]
         }
         return nil
+    }
+
+    /// Matches the root-staged executor protocol at each layer of its process tree.
+    private func stagedExecutorScriptPath(arguments: [String], prompt: String) -> String? {
+        // hidden command, byte count, deadline, approved path, script digest, token
+        let executorArgumentCount = 6
+        let stagingCount = SudoHelperStagingCommand.prefixCount
+        let scriptPrefix = [
+            "/usr/bin/script", "-q", "/dev/null", "/usr/bin/sudo", "-k", "-S", "-p", prompt,
+        ]
+        let sudoPrefix = ["/usr/bin/sudo", "-k", "-S", "-p", prompt]
+        let candidates: [Int] = [
+            scriptPrefix.count + stagingCount,
+            sudoPrefix.count + stagingCount,
+            stagingCount,
+            1,
+        ]
+        for executorIndex in candidates {
+            guard arguments.count == executorIndex + executorArgumentCount,
+                  arguments[executorIndex] == SudoPrivilegedExecutor.hiddenCommand else {
+                continue
+            }
+            let prefix = Array(arguments[..<executorIndex])
+            let matchesLayer: Bool
+            switch executorIndex {
+            case scriptPrefix.count + stagingCount:
+                matchesLayer = Array(prefix.prefix(scriptPrefix.count)) == scriptPrefix
+                    && isStagingPrefix(Array(prefix.dropFirst(scriptPrefix.count)))
+            case sudoPrefix.count + stagingCount:
+                matchesLayer = Array(prefix.prefix(sudoPrefix.count)) == sudoPrefix
+                    && isStagingPrefix(Array(prefix.dropFirst(sudoPrefix.count)))
+            case stagingCount:
+                matchesLayer = isStagingPrefix(prefix)
+            default:
+                matchesLayer = true
+            }
+            if matchesLayer {
+                return arguments[executorIndex + 3]
+            }
+        }
+        return nil
+    }
+
+    private func isStagingPrefix(_ prefix: [String]) -> Bool {
+        prefix.count == SudoHelperStagingCommand.prefixCount
+            && prefix[0] == SudoHelperStagingCommand.shell
+            && prefix[1] == "-c"
+            && prefix[3] == SudoHelperStagingCommand.argumentZero
     }
 }

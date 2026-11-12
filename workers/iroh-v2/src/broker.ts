@@ -36,7 +36,12 @@ export interface BrokerDependencies {
 export interface BrokerResult {
   readonly response: ControlResponse;
   readonly session?: BrokerSession;
-  readonly changed?: { revision: number; revokedDeviceRecordId?: string; revokedDeviceRecoverable?: boolean; permissionUserId?: string };
+  /**
+   * `deviceRecordId` names the device row a registration or metadata change
+   * wrote. It is internal: TeamControl uses it only for the best-effort account
+   * directory notice and never sends it to a team socket.
+   */
+  readonly changed?: { revision: number; revokedDeviceRecordId?: string; revokedDeviceRecoverable?: boolean; permissionUserId?: string; deviceRecordId?: string };
   readonly close?: boolean;
 }
 
@@ -264,7 +269,7 @@ export class TeamBroker {
         if (request.metadata.platform !== record.descriptor.metadata.platform) throw new OperationError("identity_mismatch", 409);
         if (canonicalJSON(record.descriptor.metadata) === canonicalJSON(request.metadata)) return this.completed(request.requestId, record.revision);
         const changed = this.dependencies.store.updateMetadata(session.identity, request.metadata, now);
-        return { ...this.completed(request.requestId, changed.revision), changed: { revision: changed.revision } };
+        return { ...this.completed(request.requestId, changed.revision), changed: { revision: changed.revision, deviceRecordId: changed.deviceRecordId } };
       }
       case "device.revoke.v1": {
         const target = this.manageableDevice(session, request.deviceRecordId);
@@ -349,7 +354,7 @@ export class TeamBroker {
     const result = this.dependencies.store.commitRegistration({ ...commit, now: this.dependencies.now() });
     return {
       response: { schemaId: "device.registered.v1", requestId: request.requestId, device: result.device },
-      ...(result.idempotent ? {} : { changed: { revision: result.device.revision } }),
+      ...(result.idempotent ? {} : { changed: { revision: result.device.revision, deviceRecordId: result.device.deviceRecordId } }),
     };
   }
 

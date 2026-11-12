@@ -125,9 +125,7 @@ final class NativeSSHControlMasterReapCoordinator {
             sharingOptions: sharingOptions
         )
         let resolvedOptions = resolver.replacingControlPath(
-            in: sharingOptions.mergingDefaults(
-                into: configuration.sshOptions
-            ),
+            in: configuration.mergingConnectionSharingDefaults(sharingOptions),
             with: resolvedControlPath
         )
         let probeRequest = RemoteProcessRequest(

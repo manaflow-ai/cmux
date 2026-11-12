@@ -21,6 +21,7 @@ let useStubDb = false;
 let accountMutationLockActive = false;
 let accountMutationTransactionCount = 0;
 let accountMutationOperationId: string | null = null;
+let concurrentLeaseOperationId: string | null = null;
 let ascMutationLockStates: boolean[] = [];
 let eligibilityMutationLockStates: boolean[] = [];
 
@@ -29,8 +30,9 @@ function stubSelect() {
     from: (table: unknown) => ({
       where: () => ({
         limit: async () =>
-          table === accountMutationLeases && accountMutationOperationId
-            ? [{ operationId: accountMutationOperationId }]
+          table === accountMutationLeases &&
+          (concurrentLeaseOperationId ?? accountMutationOperationId)
+            ? [{ operationId: concurrentLeaseOperationId ?? accountMutationOperationId }]
             : [],
       }),
     }),
@@ -172,6 +174,7 @@ describe("TestFlight route", () => {
     accountMutationLockActive = false;
     accountMutationTransactionCount = 0;
     accountMutationOperationId = null;
+    concurrentLeaseOperationId = null;
     ascMutationLockStates = [];
     eligibilityMutationLockStates = [];
     captureAscError.mockClear();
@@ -400,6 +403,63 @@ describe("TestFlight route", () => {
       "https://cmux.test/dashboard/testflight?testflight=error",
     );
     expect(getUser).not.toHaveBeenCalled();
+    expect(ascFetch).not.toHaveBeenCalled();
+  });
+
+  test("redirects busy without reporting when another account mutation holds the lease", async () => {
+    concurrentLeaseOperationId = "concurrent-billing-webhook";
+
+    const response = await postAction("join");
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/testflight?testflight=busy",
+    );
+    expect(captureAscError).not.toHaveBeenCalled();
+    expect(isTestflightEligible).not.toHaveBeenCalled();
+    expect(ascFetch).not.toHaveBeenCalled();
+  });
+
+  test("reports a lease lost after enrollment instead of redirecting busy", async () => {
+    let eligibilityChecks = 0;
+    mockImplementation(isTestflightEligible, async () => {
+      eligibilityChecks += 1;
+      if (eligibilityChecks === 1) return true;
+      // A concurrent mutation takes the lease after ASC enrollment, so the
+      // compensation refresh loses it.
+      concurrentLeaseOperationId = "concurrent-billing-webhook";
+      return false;
+    });
+
+    const response = await postAction("join");
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/testflight?testflight=error",
+    );
+    expect(ascFetch).toHaveBeenCalledWith(
+      "/v1/betaTesters",
+      expect.objectContaining({ method: "POST" }),
+    );
+    expect(captureAscError).toHaveBeenCalledTimes(1);
+  });
+
+  test("redirects busy when lease contention arrives as an error cause", async () => {
+    mockImplementation(isTestflightEligible, async () => {
+      const { AccountDeletionUserMutationInProgressError } = await import(
+        "../services/account/deletionLock"
+      );
+      throw new Error("eligibility check failed", {
+        cause: new AccountDeletionUserMutationInProgressError("user_123"),
+      });
+    });
+
+    const response = await postAction("join");
+
+    expect(response.headers.get("location")).toBe(
+      "https://cmux.test/dashboard/testflight?testflight=busy",
+    );
+    expect(captureAscError).not.toHaveBeenCalled();
     expect(ascFetch).not.toHaveBeenCalled();
   });
 

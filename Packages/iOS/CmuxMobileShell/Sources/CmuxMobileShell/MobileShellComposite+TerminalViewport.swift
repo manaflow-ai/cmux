@@ -190,9 +190,30 @@ extension MobileShellComposite {
         // Demonstration surfaces answer the viewport report locally with the
         // phone's own natural grid: there is no Mac to negotiate with, and a
         // nil answer would put the mounted view into its bounded
-        // retryViewportReport loop. Placed before the replay-barrier prearm
-        // below so no barrier is ever armed against a demo surface (a
-        // lingering barrier would gate the engine's output).
+        // retryViewportReport loop. External hosts also answer locally, but
+        // their grid must be sent to the owning Cloud source. Check that
+        // owner before the generic locally-served branch.
+        if externalHostOwnsSurface(surfaceID) {
+            reportedTerminalViewportSizesBySurfaceID[surfaceID] = reportedGrid
+            effectiveViewportSizesBySurfaceID[surfaceID] = reportedGrid
+            handleExternalHostViewportReport(
+                surfaceID: surfaceID,
+                columns: columns,
+                rows: rows
+            )
+            recordAppEvent(
+                .terminalViewportReportSucceeded,
+                correlationID: surfaceID,
+                count: columns * rows
+            )
+            finishPreparation()
+            return (
+                columns: columns,
+                rows: rows,
+                renderEpoch: nil,
+                renderRevisionFloor: nil
+            )
+        }
         if locallyServedOwnsSurface(surfaceID) {
             // A tmux pane keeps its layout size: grant that grid so a pinned
             // (letterboxed) surface is not resized to the phone's.

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "8956ad6492bfd776f7c94fa11ba79b6fe23de0a0df61c6baf782d7d0ecf1f4cd";
+inline constexpr std::string_view kProtocolIrSha256 = "93af6692f7f686eafe3bfcb03c01e8570f8cf4dfa8a84ad93824ed07160b504d";
 
 struct AgentRecord;
 enum class AgentReportSource;
@@ -151,6 +151,7 @@ struct WaitForResult;
 struct Workspace;
 struct WorkspaceMutationResult;
 struct ZoomPaneResult;
+struct AckTabNotificationsRequest;
 struct ApplyLayoutRequest;
 struct AttachSurfaceRequest;
 struct BrowserActivateRequest;
@@ -353,6 +354,16 @@ enum class BrowserStateEventStatus;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
 
+struct Id {
+    std::uint64_t value{};
+    friend bool operator==(const Id&, const Id&) = default;
+};
+
+struct AckTabNotificationsRequest {
+    Id surface{};
+    friend bool operator==(const AckTabNotificationsRequest&, const AckTabNotificationsRequest&) = default;
+};
+
 enum class AgentSource {
     plugin,
     detected,
@@ -366,11 +377,6 @@ enum class AgentState {
     idle,
     done,
     unknown,
-};
-
-struct Id {
-    std::uint64_t value{};
-    friend bool operator==(const Id&, const Id&) = default;
 };
 
 struct AgentChangedEvent {
@@ -387,6 +393,7 @@ struct AgentRecord {
     std::optional<std::string> session{};
     AgentSource source{};
     AgentState state{};
+    Field<AgentState> status{};
     Id surface{};
     std::uint64_t updated_at_ms{};
     friend bool operator==(const AgentRecord&, const AgentRecord&) = default;
@@ -1729,6 +1736,7 @@ struct MintTerminalRendererResult {
     std::string incarnation{};
     std::uint16_t protocol_version{};
     std::uint32_t rights{};
+    std::optional<bool> supports_viewer_size_priority{};
     std::string terminal_id{};
     std::string token{};
     std::uint64_t ttl_ms{};
@@ -3804,6 +3812,12 @@ template <>
 struct Codec<ZoomPaneResult> {
     static Result<Json> encode(const ZoomPaneResult& value);
     static Result<ZoomPaneResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<AckTabNotificationsRequest> {
+    static Result<Json> encode(const AckTabNotificationsRequest& value);
+    static Result<AckTabNotificationsRequest> decode(const Json& value);
 };
 
 template <>

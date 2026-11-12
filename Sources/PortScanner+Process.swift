@@ -335,7 +335,8 @@ extension PortScanner {
         workspaceIds: Set<UUID>
     ) async -> (
         ownershipByPID: [Int: Set<UUID>],
-        completenessByWorkspace: [UUID: PortScanCompleteness]
+        completenessByWorkspace: [UUID: PortScanCompleteness],
+        rootPIDs: Set<Int>
     ) {
         guard !capturedOwnershipByPID.isEmpty else {
             let rootValidation = validateAgentRoots(rootsByWorkspace)
@@ -345,7 +346,8 @@ extension PortScanner {
                     rootValidation.completenessByWorkspace,
                     [:],
                     workspaceIds: workspaceIds
-                )
+                ),
+                Self.agentRootPIDs(in: rootValidation.values)
             )
         }
         let currentProcessScan = await readProcessParents()
@@ -375,7 +377,24 @@ extension PortScanner {
                 completenessByWorkspace[workspaceId] = .incomplete
             }
         }
-        return (identityValidation.ownershipByPID, completenessByWorkspace)
+        // Roots that passed the final root validation and whose identity also
+        // survived the revalidation above, for callers that must not badge an
+        // agent root's own listeners while still tracking its general PID
+        // ownership (e.g. completeness evidence). A PID that changed hands
+        // between those two reads, or that was recycled by an unrelated
+        // process earlier, is no longer the root and is not in this set.
+        let identityValidatedRootPIDs = Self.agentRootPIDs(in: finalRootValidation.values)
+            .intersection(identityValidation.ownershipByPID.keys)
+        return (identityValidation.ownershipByPID, completenessByWorkspace, identityValidatedRootPIDs)
+    }
+
+    /// The union of tracked agent root PIDs across all scanned workspaces.
+    static func agentRootPIDs(in rootsByWorkspace: [UUID: Set<AgentPortRootIdentity>]) -> Set<Int> {
+        rootsByWorkspace.values.reduce(into: Set<Int>()) { result, roots in
+            for root in roots {
+                result.insert(root.pid)
+            }
+        }
     }
 
     func combineAgentCompleteness(

@@ -14,6 +14,7 @@ import {
   listVmTunnels,
   readVmTunnel,
   revokeVmAccessGrant,
+  revokeVmTunnel,
   type VmTunnelDescriptor,
 } from "../../../../services/vms/workflows";
 import { runVmRoute } from "../../../../services/vms/routeWorkflow";
@@ -42,6 +43,10 @@ import {
 
 /** Provider display names are short; a long one is the caller's mistake, not a reason to fail. */
 const MAX_DEVICE_NAME_LENGTH = 63;
+
+// Mirrors VM_ROUTE_DEADLINES (services/vms/routeDeadline.ts): work past the
+// route's answer deadline continues through after() until this limit.
+export const maxDuration = 300;
 
 export async function POST(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
@@ -99,7 +104,7 @@ export async function POST(request: Request): Promise<Response> {
         sessionIssuedAt: login.issuedAt,
         clientPublicKey,
         ...membership,
-      }), { request });
+      }), { request, deadline: { operation: "tunnelEnroll" } });
       if (!enrolled.ok) return enrolled.response;
       const tunnel = enrolled.value;
       setSpanAttributes(span, {
@@ -182,6 +187,26 @@ export async function DELETE(request: Request): Promise<Response> {
 
       const url = new URL(request.url);
       const body = await parseLenientObjectBody(request);
+      const roleRevocation = roleRevocationFromRequest(url, body);
+      if (!roleRevocation.ok) return roleRevocation.response;
+      if (roleRevocation.value) {
+        const { deviceFingerprint, tunnelPurpose } = roleRevocation.value;
+        const provider = providerFromRequest(request, body);
+        if (!provider.ok) return provider.response;
+        setSpanAttributes(span, {
+          "cmux.vm.provider": provider.id,
+          "cmux.vm.tunnel.device": deviceFingerprint,
+          "cmux.vm.tunnel.purpose": tunnelPurpose,
+        });
+        const result = await runVmRoute(revokeVmTunnel({
+          userId: user.id,
+          provider: provider.id,
+          deviceFingerprint,
+          tunnelPurpose,
+        }), { request, deadline: { operation: "tunnelRevoke" } });
+        if (!result.ok) return result.response;
+        return jsonResponse(result.value);
+      }
       let deviceId: string | undefined;
       try {
         deviceId = optionalClientIdentifier(
@@ -202,11 +227,36 @@ export async function DELETE(request: Request): Promise<Response> {
         userId: user.id,
         accessGrantId: accessGrantId ?? undefined,
         deviceId,
-      }), { request });
+      }), { request, deadline: { operation: "tunnelRevoke" } });
       if (!result.ok) return result.response;
       return jsonResponse(result.value);
     },
   );
+}
+
+type RoleRevocationResult =
+  | { readonly ok: true; readonly value: { readonly deviceFingerprint: string; readonly tunnelPurpose: "terminal" | "browser" } | null }
+  | { readonly ok: false; readonly response: Response };
+
+function roleRevocationFromRequest(
+  url: URL,
+  body: Record<string, unknown>,
+): RoleRevocationResult {
+  let deviceFingerprint: string | undefined;
+  try {
+    deviceFingerprint = optionalClientIdentifier(
+      url.searchParams.get("deviceFingerprint") ?? body.deviceFingerprint ?? body.device_fingerprint,
+      "deviceFingerprint",
+    );
+  } catch (err) {
+    return { ok: false, response: invalidDeviceFingerprint(err) };
+  }
+  if (!deviceFingerprint) return { ok: true, value: null };
+  const rawTunnelPurpose =
+    url.searchParams.get("tunnelPurpose") ?? body.tunnelPurpose ?? body.tunnel_purpose;
+  const tunnelPurpose = parseTunnelPurpose(rawTunnelPurpose) ?? (rawTunnelPurpose == null ? "browser" : null);
+  if (!tunnelPurpose) return { ok: false, response: invalidTunnelPurpose() };
+  return { ok: true, value: { deviceFingerprint, tunnelPurpose } };
 }
 
 /**

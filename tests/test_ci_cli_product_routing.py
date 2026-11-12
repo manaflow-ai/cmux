@@ -81,12 +81,12 @@ class CLIProductRoutingTests(unittest.TestCase):
         for macos in ("false", "true"):
             inputs = dict(macos=macos, cli="true", full_suite="false", compile_admitted="true", release_build="false")
             needs = {name: {"result": "skipped"} for name in job["needs"]}
-            for name in ("macos-compile-admission", "cli-product-tests"):
+            for name in ("macos-compile-admission", "cli-product-tests", "cli-regressions"):
                 needs[name]["result"] = "success"
             env = dict(MACOS_INPUTS=json.dumps(inputs), MACOS_NEEDS=json.dumps(needs))
             result = run_step(job, "Check routed macOS jobs", env)
             self.assertEqual(result.returncode, 0, result.stderr)
-            for name in ("macos-compile-admission", "cli-product-tests"):
+            for name in ("macos-compile-admission", "cli-product-tests", "cli-regressions"):
                 for outcome in ("skipped", "failure", "cancelled"):
                     broken = {key: dict(value) for key, value in needs.items()}
                     broken[name]["result"] = outcome
@@ -94,8 +94,8 @@ class CLIProductRoutingTests(unittest.TestCase):
                     result = run_step(job, "Check routed macOS jobs", env)
                     self.assertNotEqual(result.returncode, 0, (macos, name, outcome))
 
-    def test_outer_tests_gate_requires_targeted_workflow(self):
-        job = self.caller["tests"]
+    def test_outer_platform_gate_requires_targeted_workflow(self):
+        job = self.caller["ci-status"]
         step = next(step for step in job["steps"] if "macos_work_required" in step.get("run", ""))
         for macos in ("false", "true"):
             for outcome in ("success", "skipped", "failure", "cancelled"):

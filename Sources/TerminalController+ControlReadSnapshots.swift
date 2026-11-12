@@ -59,7 +59,9 @@ extension TerminalController {
         socketReadSnapshotStore.publish(
             ControlReadSnapshot(generation: nextGeneration, responses: responses)
         )
-        controlCommandCoordinator.markHandleTopologyRefreshCompleted()
+        if AppDelegate.shared?.didCompleteInitialSessionRestore == true {
+            controlCommandCoordinator.markHandleTopologyRefreshCompleted()
+        }
     }
 }
 

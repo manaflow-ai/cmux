@@ -19,9 +19,17 @@ extension TerminalSurface {
     /// Queues a name from ``manualInputKeyName(for:)`` behind earlier Ghostty input.
     @MainActor
     public func enqueueManualInputNamedKey(_ name: String) -> Bool {
+        enqueueManualInputBytes(TerminalManualInput.namedKey(name).manualIOData)
+    }
+
+    /// Queues raw manual input behind earlier remote output and transport-owned keys.
+    ///
+    /// - Parameter data: Bytes to deliver without paste framing or key encoding.
+    /// - Returns: Whether the live manual-I/O lane accepted the bytes.
+    @MainActor
+    public func enqueueManualInputBytes(_ data: Data) -> Bool {
         guard ioMode.usesManualIO, manualInputHandler != nil, let surface else { return false }
-        let frame = TerminalManualInput.namedKey(name).manualIOData
-        return remoteOutputLane.enqueueTextInput(frame, to: surface)
+        return remoteOutputLane.enqueueTextInput(data, to: surface)
     }
 
     @MainActor
@@ -52,6 +60,7 @@ extension TerminalSurface {
     /// Notifies the current panel owner after explicit terminal input is accepted.
     @MainActor
     public func didAcceptExplicitInput() {
+        paneHost.terminalSurfaceDidAcceptExplicitInput()
         onExplicitInput?()
     }
 

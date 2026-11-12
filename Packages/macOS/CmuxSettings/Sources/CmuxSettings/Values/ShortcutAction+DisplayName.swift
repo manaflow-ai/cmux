@@ -15,7 +15,13 @@ extension ShortcutAction {
         case .toggleFullScreen: return "Toggle Full Screen"
         case .quit: return "Quit cmux"
         case .toggleSidebar: return "Toggle Left Sidebar"
+        case .focusSidebar:
+            return String(localized: "shortcut.focusSidebar.label", defaultValue: "Focus Sidebar")
+        case .showWindowHints:
+            return String(localized: "shortcut.showWindowHints.label", defaultValue: "Click by Hint")
         case .newTab: return "New Workspace"
+        case .newLocalWorkspace:
+            return String(localized: "shortcut.newLocalWorkspace.label", defaultValue: "New Local Workspace")
         case .newBrowserWorkspace:
             return String(localized: "shortcut.newBrowserWorkspace.label", defaultValue: "New Browser Workspace")
         case .newCloudWorkspace:
@@ -29,11 +35,14 @@ extension ShortcutAction {
         case .goToWorkspace: return "Go to Workspace…"
         case .commandPalette: return String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")
         case .agentInbox: return String(localized: "shortcut.agentInbox.label", defaultValue: "Show Agent Inbox")
+        case .openChief: return String(localized: "shortcut.openChief.label", defaultValue: "Open Chief")
         case .commandPaletteNext: return "Command Palette: Next"
         case .commandPalettePrevious: return "Command Palette: Previous"
         case .sendFeedback: return "Send Feedback"
         case .showNotifications: return "Show Notifications"
         case .jumpToUnread: return "Jump to Latest Unread"
+        case .jumpToLastPrompt:
+            return String(localized: "shortcut.jumpToLastPrompt.label", defaultValue: "Jump to Last Prompt")
         case .toggleUnread: return "Toggle Unread"
         case .markOldestUnreadAndJumpNext: return "Mark as Oldest Unread and Jump to Next Latest Unread"
         case .markAllNotificationsRead:
@@ -119,6 +128,8 @@ extension ShortcutAction {
             return String(localized: "shortcut.focusPreviousPane.label", defaultValue: "Focus Previous Pane")
         case .focusNextPane:
             return String(localized: "shortcut.focusNextPane.label", defaultValue: "Focus Next Pane")
+        case .focusPaneByNumber:
+            return String(localized: "shortcut.focusPaneByNumber.label", defaultValue: "Focus Pane 1…9")
         case .splitRight: return "Split Right"
         case .splitDown: return "Split Down"
         case .newPaneAutoLayout:

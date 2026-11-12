@@ -44,6 +44,38 @@ struct TerminalPlainTextPasteStartupTests {
     }
 
     @MainActor
+    @Test("terminal initiated plain-text reads do not require the full app worker")
+    func terminalPlainTextDoesNotRequireAppWorker() async throws {
+        let pasteboard = NSPasteboard(
+            name: .init("cmux-tests-terminal-plain-startup-\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        defer {
+            pasteboard.clearContents()
+            pasteboard.releaseGlobally()
+        }
+        #expect(pasteboard.setString("terminal initiated text", forType: .string))
+        #expect(pasteboard.setString("<p>rich companion</p>", forType: .html))
+        let helperURL = try bundledHelper()
+        let client = TerminalPastePreparationWorkerClient(
+            executableURL: URL(fileURLWithPath: "/usr/bin/false"),
+            pasteboardService: TerminalPasteboardService(),
+            plainTextExecutableURL: helperURL
+        )
+
+        let result = try await client.prepare(TerminalPastePreparationRequest(
+            pasteboard: TerminalPasteboardReadRequest(pasteboard: pasteboard),
+            mode: .plainText,
+            destination: .terminal
+        ))
+        guard case .terminal(.insertText(let received)) = result else {
+            Issue.record("Expected the lightweight worker to serve terminal text")
+            return
+        }
+        #expect(received == "terminal initiated text")
+    }
+
+    @MainActor
     // Mixed rich + plain text takes the plain-text helper (#14121). Only a
     // plain export that lost characters still needs the full worker, which can
     // recover them from the rich flavor.

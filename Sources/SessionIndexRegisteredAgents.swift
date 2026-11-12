@@ -380,7 +380,17 @@ extension SessionIndexStore {
         offset: Int,
         limit: Int
     ) async -> [SessionEntry] {
-        await loadFileBackedRegisteredAgentEntries(
+        if registration.isBuiltInMuse {
+            return loadMuseEntries(
+                registration: registration,
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit,
+                errorBag: ErrorBag()
+            )
+        }
+        return await loadFileBackedRegisteredAgentEntries(
             registration: registration,
             needle: needle,
             cwdFilter: cwdFilter,
@@ -398,6 +408,16 @@ extension SessionIndexStore {
         errorBag: ErrorBag = ErrorBag(),
         ampSessionRepository: any AmpHookSessionReading
     ) async -> [SessionEntry] {
+        if registration.isBuiltInMuse {
+            return loadMuseEntries(
+                registration: registration,
+                needle: needle,
+                cwdFilter: cwdFilter,
+                offset: offset,
+                limit: limit,
+                errorBag: errorBag
+            )
+        }
         if case .cmuxHookStore = registration.sessionIdSource {
             return await loadCmuxHookStoreEntries(
                 registration: registration,

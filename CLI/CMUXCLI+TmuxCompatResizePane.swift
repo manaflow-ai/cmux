@@ -29,6 +29,14 @@ extension CMUXCLI {
         let pixelFrame = pane?["pixel_frame"] as? [String: Any]
         let paneExtent = (pixelFrame?[dimensionKey] as? NSNumber)?.doubleValue
             ?? pixelFrame?[dimensionKey] as? Double
+        let currentFraction: Double? = {
+            guard horizontal,
+                  let paneExtent,
+                  let containerExtent,
+                  paneExtent > 0,
+                  containerExtent > 0 else { return nil }
+            return paneExtent / containerExtent
+        }()
         let targetPoints: Double?
         if isPercentage, let containerExtent, containerExtent > 0 {
             targetPoints = containerExtent * Double(target) / 100
@@ -41,6 +49,19 @@ extension CMUXCLI {
         } else {
             targetPoints = nil
         }
+        if isPercentage,
+           target == 30,
+           let currentFraction,
+           let shouldApply = try? tmuxShouldApplyMainVerticalLeaderWidth(
+                workspaceId: workspaceId,
+                paneId: paneId,
+                currentFraction: currentFraction,
+                targetFraction: 0.30,
+                client: client
+           ),
+           !shouldApply {
+            return
+        }
         var params: [String: Any] = [
             "workspace_id": workspaceId,
             "pane_id": paneId,
@@ -52,6 +73,51 @@ extension CMUXCLI {
         }
         params[isPercentage ? "target_percentage" : "target_cells"] = target
         _ = try client.sendV2(method: "pane.resize", params: params)
+    }
+
+    /// Claude's main-vertical flow repeats `resize-pane -x 30%` after every
+    /// teammate. Remember the first automatic width and treat later repeats as
+    /// layout bookkeeping, while adopting a width changed by the user.
+    private func tmuxShouldApplyMainVerticalLeaderWidth(
+        workspaceId: String,
+        paneId: String,
+        currentFraction: Double,
+        targetFraction: Double,
+        client: SocketClient
+    ) throws -> Bool {
+        let store = try loadTmuxCompatStore()
+        guard let layout = store.mainVerticalLayouts[workspaceId],
+              let mainSurfaceId = try? tmuxCanonicalSurfaceId(
+                    layout.mainSurfaceId,
+                    workspaceId: workspaceId,
+                    client: client
+              ),
+              let mainPaneId = try? tmuxPaneIdForSurface(
+                    workspaceId: workspaceId,
+                    surfaceId: mainSurfaceId,
+                    client: client
+              ),
+              mainPaneId == paneId else {
+            return true
+        }
+
+        var shouldApply = true
+        try withLockedTmuxCompatStore { store in
+            guard var currentLayout = store.mainVerticalLayouts[workspaceId] else { return }
+            let epsilon = 0.02
+            if abs(targetFraction - 0.30) <= epsilon,
+               let remembered = currentLayout.mainPaneWidthFraction {
+                if abs(currentFraction - remembered) > epsilon {
+                    currentLayout.mainPaneWidthFraction = currentFraction
+                    store.mainVerticalLayouts[workspaceId] = currentLayout
+                }
+                shouldApply = false
+                return
+            }
+            currentLayout.mainPaneWidthFraction = targetFraction
+            store.mainVerticalLayouts[workspaceId] = currentLayout
+        }
+        return shouldApply
     }
 
     func tmuxResizePaneByCells(

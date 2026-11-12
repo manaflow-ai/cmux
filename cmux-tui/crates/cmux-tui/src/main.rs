@@ -9,19 +9,27 @@
 #[cfg(unix)]
 mod agent_browser_provider;
 mod agent_hook_install;
+#[cfg(unix)]
+mod agent_session_context;
 mod app;
+mod attention;
 mod browser_input;
+#[cfg(unix)]
+mod claude_plugin;
 #[cfg(unix)]
 mod claude_wrapper;
 mod cli;
 mod client_log;
 #[cfg(unix)]
 mod coderouter_usage;
+#[cfg(unix)]
+mod codex_wrapper;
 mod config;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;
+mod host_notify;
 mod keys;
 mod layout_undo;
 mod local_owner;
@@ -33,6 +41,8 @@ mod machine_provider_client;
 #[cfg(unix)]
 mod machine_provider_runtime;
 mod machine_runtime;
+#[cfg(unix)]
+mod own_build_helpers;
 mod plugin_manager;
 mod process_diagnostics;
 #[cfg(target_os = "linux")]
@@ -62,10 +72,15 @@ mod remote_cli {
     }
 }
 #[cfg(unix)]
+mod remote_doctor;
+#[cfg(unix)]
 mod remote_runtime;
+#[cfg(unix)]
+mod remote_trust;
 mod session;
 mod sidebar_files;
 mod sidebar_projection;
+mod sidebar_status;
 mod ui;
 
 #[cfg(target_os = "linux")]
@@ -211,6 +226,49 @@ pub(crate) fn wait_for_shutdown_signal() {
         }
         return;
     }
+}
+
+/// Blocks until a termination signal arrives, without consuming the wake
+/// byte, so every other shutdown waiter still sees it. Returns at once when
+/// no signal handler is installed.
+#[cfg(unix)]
+pub(crate) fn wait_for_shutdown_signal_peek() {
+    let reader = SIGNAL_WAKE_READER.load(Ordering::Acquire);
+    while reader >= 0 && !shutdown_requested() {
+        let mut pollfd = libc::pollfd { fd: reader, events: libc::POLLIN, revents: 0 };
+        // SAFETY: `reader` is the process-lifetime wake descriptor.
+        let polled = unsafe { libc::poll(&mut pollfd, 1, -1) };
+        if polled > 0 {
+            return;
+        }
+        if polled < 0 && io::Error::last_os_error().kind() != io::ErrorKind::Interrupted {
+            return;
+        }
+    }
+}
+
+/// Async `wait_for_shutdown_signal_peek`: waits for the wake descriptor to
+/// become readable without reading it.
+#[cfg(unix)]
+pub(crate) async fn wait_for_shutdown_signal_peek_async() -> io::Result<()> {
+    if shutdown_requested() {
+        return Ok(());
+    }
+    let reader = SIGNAL_WAKE_READER.load(Ordering::Acquire);
+    if reader < 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::NotConnected,
+            "shutdown wake reader unavailable",
+        ));
+    }
+    let duplicate = unsafe { libc::dup(reader) };
+    if duplicate < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let stream = unsafe { UnixStream::from_raw_fd(duplicate) };
+    let stream = tokio::net::UnixStream::from_std(stream)?;
+    stream.readable().await?;
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -532,6 +590,9 @@ struct Args {
     agent_browser_provider: bool,
     owner_host_fg: Option<cmux_tui_core::Rgb>,
     owner_host_bg: Option<cmux_tui_core::Rgb>,
+    /// `--terminal-reap-grace-seconds`: the owner ends a terminal that has had
+    /// no tab for this long. `None`: the owner reaps no terminal.
+    terminal_reap_grace: Option<std::time::Duration>,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -634,6 +695,7 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         agent_browser_provider: false,
         owner_host_fg: None,
         owner_host_bg: None,
+        terminal_reap_grace: None,
     };
     let mut args = args.into_iter().peekable();
     while let Some(arg) = args.next() {
@@ -770,6 +832,21 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                 );
                 out.remote = true;
             }
+            "--terminal-reap-grace-seconds" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "--terminal-reap-grace-seconds needs a value".to_string())?;
+                let seconds = value
+                    .parse::<u64>()
+                    .map_err(|_| "--terminal-reap-grace-seconds must be an integer".to_string())?;
+                let grace = cmux_tui_core::validate_terminal_reap_grace(
+                    std::time::Duration::from_secs(seconds),
+                )
+                .map_err(|error| error.to_string())?;
+                if out.terminal_reap_grace.replace(grace).is_some() {
+                    return Err("--terminal-reap-grace-seconds may be supplied only once".into());
+                }
+            }
             "--remote-resume-lease-seconds" => {
                 let value = args
                     .next()
@@ -859,11 +936,11 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             // adapter instead of starting an unrelated Chrome process.
             "--agent-browser-provider" => out.agent_browser_provider = true,
             "-h" | "--help" => {
-                print!("{}", usage());
+                print!("{}", cli::with_program_name(&usage(), &cli::program_name()));
                 client_log::exit(0);
             }
             "-V" | "--version" => {
-                println!("cmux {}", version_string());
+                println!("{} {}", cli::program_name(), version_string());
                 client_log::exit(0);
             }
             other => return Err(format!("unknown argument {other:?}")),
@@ -1310,6 +1387,17 @@ fn rewrite_server_start(args: &mut Vec<String>) {
     }
 }
 
+const STARTUP_SWITCH_OPTIONS: &[&str] = &[
+    "--ephemeral",
+    "--cloud",
+    "--headless",
+    "--ws-insecure-bind",
+    "--remote",
+    "--remote-ws-insecure-bind",
+    "--remote-ws-trusted-carrier",
+    "--iroh",
+];
+
 const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--socket",
     "--session",
@@ -1329,6 +1417,7 @@ const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--remote-link-socket",
     "--remote-admin-socket",
     "--remote-resume-lease-seconds",
+    "--terminal-reap-grace-seconds",
     "--relay",
     "--relay-slot",
     "--relay-ticket",
@@ -1418,14 +1507,7 @@ fn is_cli_invocation(args: &[String]) -> bool {
         }
         match value {
             "--json" | "--jsonl" | "--quiet" => index += 1,
-            "--ephemeral"
-            | "--cloud"
-            | "--headless"
-            | "--ws-insecure-bind"
-            | "--remote"
-            | "--remote-ws-insecure-bind"
-            | "--remote-ws-trusted-carrier"
-            | "--iroh" => index += 1,
+            value if STARTUP_SWITCH_OPTIONS.contains(&value) => index += 1,
             "-h" | "--help" | "help" => return true,
             "attach" => return false,
             value if cli::is_public_scope(value) => return true,
@@ -1588,6 +1670,12 @@ fn run_main() {
         let args = std::env::args_os().skip(1).collect::<Vec<_>>();
         if let Some(wrapper_args) = claude_wrapper::invocation(&args) {
             client_log::exit(claude_wrapper::run(wrapper_args));
+        }
+        if let Some(wrapper_args) = codex_wrapper::invocation(&args) {
+            client_log::exit(codex_wrapper::run(wrapper_args));
+        }
+        if agent_session_context::invocation(&args) {
+            client_log::exit(agent_session_context::run());
         }
     }
     // Pin the launch directory before any subsystem can move the process:
@@ -2103,17 +2191,14 @@ fn run_server(
     if args.agent_browser_provider {
         agent_browser_provider::configure_surface_options(&mut surface_options)?;
     }
-    if let Some(helper) = agent_hook_install::runtime_helper_path() {
-        surface_options
-            .extra_env
-            .push(("CMUX_TUI_HOOK".into(), helper.to_string_lossy().into_owned()));
-    }
-    // `claude` resolves to a shim that adds the session's agent hooks, even
-    // under launchers with their own settings and config directory.
+    // `claude` and `codex` resolve to shims that add the session's agent
+    // hooks (even under launchers with their own settings and config
+    // directory), and the hooks run this build's helper. Codex runs its hooks
+    // in a shared daemon that cannot see the terminal's environment, so only
+    // its shim routes them. All three are this build's own, never the copies
+    // another install on this machine wrote.
     #[cfg(unix)]
-    if let Some(path) = claude_wrapper::pane_path() {
-        surface_options.extra_env.push(("PATH".into(), path));
-    }
+    own_build_helpers::configure_pane(&mut surface_options);
 
     let state_root = if args.ephemeral {
         None
@@ -2210,6 +2295,27 @@ fn run_server(
                 start_local_owner_event_loop(&mux)
             }
         });
+    // The socket answers `identify` as soon as it is bound. The reaper
+    // thread starts before the bind, held: `identify` lists
+    // `terminal-reaper-active-v1` from the bind, the thread runs its first
+    // pass only once this owner holds the session (released below), and a
+    // failed bind or later startup step drops it, which ends the thread and
+    // the advertisement.
+    let held_terminal_reaper = match args.terminal_reap_grace {
+        Some(grace) => match mux.set_terminal_reap_grace(grace).and_then(|()| {
+            cmux_tui_core::prepare_terminal_reaper(&mux).map_err(anyhow::Error::from)
+        }) {
+            Ok(held) => Some(held),
+            Err(error) => {
+                crate::client_log::stderr_log!(
+                    "startup",
+                    "cmux-tui: unplaced terminal reaper unavailable: {error}"
+                );
+                None
+            }
+        },
+        None => None,
+    };
     let pending_server = match cmux_tui_core::server::serve_paused(mux.clone(), args.socket.clone())
     {
         Ok(server) => server,
@@ -2218,6 +2324,15 @@ fn run_server(
             return Err(error);
         }
     };
+    // Tests: hold the startup between the bind and the rest, so a test can
+    // identify while the owner starts (`restart_host_leak.rs`).
+    #[cfg(debug_assertions)]
+    if let Some(delay) = std::env::var("CMUX_TUI_TEST_STARTUP_DELAY_AFTER_BIND_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        std::thread::sleep(std::time::Duration::from_millis(delay.min(10_000)));
+    }
 
     #[cfg(unix)]
     let remote_runtime = if args.remote {
@@ -2300,6 +2415,11 @@ fn run_server(
     // other host resolves no source and gets no poller.
     #[cfg(unix)]
     let machine_usage_poller = coderouter_usage::start_poller(Arc::downgrade(&mux));
+    // Ends terminals that have had no tab placement for the reap grace
+    // period (`terminal-reaper-active-v1`). Only an owner started with
+    // `--terminal-reap-grace-seconds` reaps; without it a closed tab's
+    // terminal runs until `terminal close` or the end of the session.
+    let terminal_reaper = held_terminal_reaper.map(cmux_tui_core::HeldTerminalReaper::release);
     // Closes terminals whose idle-close policy (`set-terminal-idle-policy`)
     // has elapsed with no attached view.
     let idle_terminal_reaper = match cmux_tui_core::start_idle_terminal_reaper(
@@ -2358,6 +2478,9 @@ fn run_server(
     };
     let owner_event_result = owner_event_loop.map_or(Ok(()), LocalOwnerEventLoop::finish);
     if let Some(reaper) = idle_terminal_reaper {
+        reaper.stop();
+    }
+    if let Some(reaper) = terminal_reaper {
         reaper.stop();
     }
     #[cfg(unix)]
@@ -2992,27 +3115,47 @@ where
         socket_path.display()
     );
     // Keep the process alive; the control socket drives everything and
-    // the mux reaps exited surfaces itself.
-    let events = mux.subscribe();
-    loop {
-        if shutdown_requested() || mux.daemon_shutdown_requested() {
-            break;
-        }
-        if remote_runtime_finished() {
-            break;
-        }
-        match events.recv_timeout(std::time::Duration::from_millis(250)) {
-            Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                std::thread::park_timeout(std::time::Duration::from_millis(250));
-            }
-        }
+    // the mux reaps exited surfaces itself. The loop blocks until a signal,
+    // a daemon shutdown request or the end of the remote runtime wakes it;
+    // it used to wake every 250 ms (and on every terminal output event) to
+    // re-check these flags.
+    mux.set_daemon_shutdown_waker(wake_headless);
+    #[cfg(unix)]
+    {
+        // Peek, not read: other shutdown waiters (remote runtime, browser
+        // proxy) consume the same wake byte.
+        let _ = std::thread::Builder::new().name("headless-signal-wait".into()).spawn(|| {
+            wait_for_shutdown_signal_peek();
+            wake_headless();
+        });
+    }
+    let (lock, wake) = &HEADLESS_WAKE;
+    let mut generation = lock.lock().unwrap();
+    while !(shutdown_requested() || mux.daemon_shutdown_requested() || remote_runtime_finished()) {
+        generation = wake.wait(generation).unwrap();
     }
     Ok(())
 }
 
+/// Wakes `run_headless`. Callers set their flag first; the wait re-checks
+/// every flag under this lock, so no wake is lost.
+static HEADLESS_WAKE: (std::sync::Mutex<u64>, std::sync::Condvar) =
+    (std::sync::Mutex::new(0), std::sync::Condvar::new());
+
+pub(crate) fn wake_headless() {
+    let (lock, wake) = &HEADLESS_WAKE;
+    let mut generation = lock.lock().unwrap();
+    *generation = generation.wrapping_add(1);
+    wake.notify_all();
+}
+
 fn usage_exit(msg: &str) -> ! {
-    crate::client_log::stderr_log!("startup", "cmux: {msg}\n\n{}", usage());
+    let program = cli::program_name();
+    crate::client_log::stderr_log!(
+        "startup",
+        "{program}: {msg}\n\n{}",
+        cli::with_program_name(&usage(), &program)
+    );
     client_log::exit(2);
 }
 

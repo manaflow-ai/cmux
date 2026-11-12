@@ -39,6 +39,13 @@ extension Workspace {
     /// Hands a device provider the native pane without requiring a Cloud
     /// attachment object. Device mirrors share the optimistic reservation path,
     /// but their attachment status has a different type from Cloud VMs.
+    ///
+    /// Adoption binds the pane; it does not retire the request. As with
+    /// `adoptReservedCloudTerminalPane`, the reservation stays pending until its
+    /// owner calls `completeReservedCloudTerminalPane`. The owner checks that its
+    /// reservation is still pending after the projection returns, so retiring it
+    /// here made a successful adoption look like a closed pane and tore down the
+    /// workspace a device workspace row had just opened.
     func adoptPendingDeviceTerminalPane(
         _ reservation: CloudTerminalPaneReservation,
         machine: SurfaceMachineID,
@@ -50,8 +57,9 @@ extension Workspace {
               reservation.boundResourceID == resource.id,
               cloudPendingCreations[reservation.panelID] === reservation,
               let panel = panels[reservation.panelID] as? TerminalPanel,
-              panel.surface.ioMode == .manualMirror else { return nil }
-        cloudPendingCreations.removeValue(forKey: reservation.panelID)
+              panel.surface.ioMode == .manualMirror,
+              // A pane binds one mirror session; a second adoption must not replace it.
+              panel.deviceAttachment == nil else { return nil }
         return (id, panel.id, panel.surface)
     }
 
@@ -98,7 +106,8 @@ extension Workspace {
         guard let panel = makeRemoteTmuxPanePanel(
             onInput: { input in relay.send(input) },
             keyNameResolver: Self.reservationKeyNameResolver(for: projection.resource.machine),
-            allowsRemoteClipboardWrites: projection.resource.machine.cloudMachineID != nil
+            allowsRemoteClipboardWrites: sshClipboardWriteTrustStore
+                .allowsRemoteClipboardWrites(for: projection.resource.machine)
         ) else { return nil }
         panel.surface.setManualIONoReflow(false)
         do {
@@ -144,7 +153,8 @@ extension Workspace {
         guard let panel = makeRemoteTmuxPanePanel(
             onInput: { input in relay.send(input) },
             keyNameResolver: Self.reservationKeyNameResolver(for: machine),
-            allowsRemoteClipboardWrites: machine.cloudMachineID != nil
+            allowsRemoteClipboardWrites: sshClipboardWriteTrustStore
+                .allowsRemoteClipboardWrites(for: machine)
         ) else { return nil }
         panel.surface.setManualIONoReflow(false)
         let reservation = CloudTerminalPaneReservation(
@@ -199,6 +209,7 @@ extension Workspace {
     func completeReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, adoptedPanelID: UUID) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         cloudPendingCreations.removeValue(forKey: reservation.panelID)
+        reservation.closeAttachHandshake()
         if let resource = SurfaceCatalog.shared.resource(forPanel: adoptedPanelID) {
             reservation.creationReceipt.finish(.success(resource))
         }
@@ -223,6 +234,7 @@ extension Workspace {
     func failReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation, error: Error) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         reservation.creationReceipt.finish(.failure(error))
+        reservation.closeAttachHandshake()
         let failure = CloudPaneCreationFailure(machine: reservation.machine, error: error, context: CloudOperationContext.current)
         setCloudMaterializationFailure(
             surfaceID: reservation.panelID,
@@ -250,6 +262,7 @@ extension Workspace {
     /// the machine already created stays alive, like closing any other pane.
     func cancelReservedCloudTerminalPane(panelID: UUID) {
         guard let reservation = cloudPendingCreations.removeValue(forKey: panelID) else { return }
+        reservation.closeAttachHandshake()
         reservation.inputRelay.discard()
         reservation.creationReceipt.finish(.failure(CloudDiagnosticFailure.placement))
         let cancel = reservation.cancel
@@ -264,6 +277,7 @@ extension Workspace {
     func discardReservedCloudTerminalPane(_ reservation: CloudTerminalPaneReservation) {
         guard cloudPendingCreations[reservation.panelID] === reservation else { return }
         cloudPendingCreations.removeValue(forKey: reservation.panelID)
+        reservation.closeAttachHandshake()
         reservation.inputRelay.discard()
         reservation.creationReceipt.finish(.failure(CloudDiagnosticFailure.placement))
         let cancel = reservation.cancel

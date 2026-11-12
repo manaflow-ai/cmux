@@ -1,11 +1,11 @@
 import CmuxCloudTui
+import CmuxAuthRuntime
 import CmuxMobileHost
 import CryptoKit
 import CmuxSettings
 import Darwin
 import Foundation
 import Security
-
 /// This Mac's membership in the user's private Cloud VM network.
 ///
 /// Every Cloud VM the user owns sits on one provider-side private network, and
@@ -350,7 +350,7 @@ public struct VMTunnelManager: Sendable {
     /// the server replaced the tunnel's keys to match this Mac's current
     /// keypair (a reinstall that minted a new one); the address on the network
     /// is preserved either way.
-    public func enroll(client: VMClient, deviceName: String? = nil) async throws -> LocalTunnelState {
+    public func enroll(client: VMClient, deviceName: String? = nil, allowWhenCloudDisabled: Bool = false, expectedTeamScope: AuthenticatedTeamScope? = nil) async throws -> LocalTunnelState {
         let keys = try keypair()
         let fingerprint = try deviceFingerprint()
         let endpoint = try await client.enrollTunnel(
@@ -364,7 +364,7 @@ public struct VMTunnelManager: Sendable {
             architecture: Self.architecture,
             cmuxVersion: MobileHostBuildIdentity.current().appVersion,
             cmuxBuild: MobileHostBuildIdentity.current().appBuild,
-            cmuxChannel: Self.cmuxChannel()
+            cmuxChannel: Self.cmuxChannel(), allowWhenCloudDisabled: allowWhenCloudDisabled, expectedTeamScope: expectedTeamScope
         )
         // The provider may return broad 10/8 and fd00::/8 routes. Narrow them
         // to this owner's network so production and Dev interfaces can install

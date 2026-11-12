@@ -11,7 +11,7 @@ cmux hooks setup --agent <agent>
 cmux hooks uninstall <agent>
 ```
 
-Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kimi`, `kiro`, `rovodev` (or `rovo`), `copilot`, `codebuddy`, `factory`, and `qoder`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
+Supported agent names are `codex`, `grok`, `opencode`, `pi`, `omp`, `campfire`, `amp`, `cursor`, `gemini`, `kiro`, `antigravity` (or `agy`), `rovodev` (or `rovo`), `hermes-agent`, `copilot`, `codebuddy`, `factory`, `qoder`, `kimi`, and `muse`. `cmux hooks setup` skips agents whose binary is not on `PATH` and prints a summary.
 
 ## Remote hosts
 
@@ -40,14 +40,19 @@ Inside tmux, these hooks report to the cmux workspace attached to the tmux sessi
 | Amp | `amp` | `~/.config/amp/plugins/cmux-session.ts` | `amp threads continue <id>` | none |
 | Cursor CLI | `cursor-agent` | `~/.cursor/hooks.json` | `cursor-agent --resume <id>` | beforeShellExecution |
 | Gemini | `gemini` | `~/.gemini/settings.json` | `gemini --resume <id>` | PreToolUse |
-| Kiro CLI | `kiro-cli` | `~/.kiro/agents/cmux.json` or `$KIRO_HOME/agents/cmux.json` | `kiro-cli chat --resume-id <id>` | preToolUse, postToolUse |
+| Kiro CLI | `kiro-cli` | `~/.kiro/agents/cmux.json` or `$KIRO_HOME/agents/cmux.json`; with `--global` (Kiro CLI V3 only), `~/.kiro/hooks/cmux.json` or `$KIRO_HOME/hooks/cmux.json` | `kiro-cli chat --resume-id <id>` | preToolUse, postToolUse (agent config only) |
 | Rovo Dev | `acli` | `~/.rovodev/config.yml` | `acli rovodev run --restore <id>` | none |
-| Copilot | `copilot` | `~/.copilot/config.json` | `copilot --resume <id>` | PreToolUse |
+| Copilot | `copilot` | `~/.copilot/hooks/cmux.json` or `$COPILOT_HOME/hooks/cmux.json` | `copilot --resume <id>` | preToolUse |
 | CodeBuddy | `codebuddy` | `~/.codebuddy/settings.json` | `codebuddy --resume <id>` | PreToolUse |
 | Factory | `droid` | `~/.factory/settings.json` | `droid --resume <id>` | PreToolUse |
 | Qoder | `qodercli` | `~/.qoder/settings.json` | `qodercli --resume <id>` | PreToolUse |
-| Kimi Code | `kimi` | `~/.kimi-code/config.toml` or `~/.kimi/config.toml` | not yet | PreToolUse, PostToolUse |
+| Kimi Code | `kimi` | `~/.kimi-code/config.toml` or `~/.kimi/config.toml` | `kimi --resume <id>` | PreToolUse, PostToolUse |
+| Muse Code | `muse` | `~/.config/muse/settings.json` or `$XDG_CONFIG_HOME/muse/settings.json` | `muse resume <id>` | none |
 | Antigravity | `agy` | `~/.gemini/config/hooks.json` (`cmux` hook group) | `agy --conversation <id>` | none |
+
+Kimi Code resumes with the captured executable and working directory, preserving supported
+model and configuration options. Prompts, old session selectors, and noninteractive commands
+are omitted by the sanitizer described below.
 
 OpenCode also supports project-local Feed installation:
 
@@ -204,7 +209,7 @@ notification bridge, rebinding, and hibernation integration for that process.
 | --- | --- | --- |
 | Codex | `CODEX_HOME` | `CMUX_CODEX_HOOKS_DISABLED=1` |
 | Grok | `GROK_HOME` | `CMUX_GROK_HOOKS_DISABLED=1` |
-| OpenCode | `OPENCODE_CONFIG_DIR` | `CMUX_OPENCODE_HOOKS_DISABLED=1` |
+| OpenCode | `OPENCODE_CONFIG_DIR`, then `XDG_CONFIG_HOME`; `OPENCODE_DB`, then `XDG_DATA_HOME`, for the sessions database. A restored session replays these, `OPENCODE_CONFIG` and `XDG_STATE_HOME` when they are absolute paths | `CMUX_OPENCODE_HOOKS_DISABLED=1` |
 | Pi | `PI_CODING_AGENT_DIR` | `CMUX_PI_HOOKS_DISABLED=1` |
 | OMP | `OMP_AGENT_DIR` for the full agent directory, then `PI_CODING_AGENT_DIR`; otherwise `PI_CONFIG_DIR` for the config root | `CMUX_OMP_HOOKS_DISABLED=1` |
 | Campfire | `CAMPFIRE_CODING_AGENT_DIR` | `CMUX_CAMPFIRE_HOOKS_DISABLED=1` |
@@ -213,12 +218,15 @@ notification bridge, rebinding, and hibernation integration for that process.
 | Gemini | none | `CMUX_GEMINI_HOOKS_DISABLED=1` |
 | Kiro CLI | `KIRO_HOME` | `CMUX_KIRO_HOOKS_DISABLED=1` |
 | Kimi Code | `KIMI_CODE_HOME`, `KIMI_SHARE_DIR` | `CMUX_KIMI_HOOKS_DISABLED=1` |
+| Muse Code | `XDG_CONFIG_HOME` | `CMUX_MUSE_HOOKS_DISABLED=1` stops the `muse` wrapper from installing hooks; Muse hides cmux variables from hooks, so run `cmux hooks muse uninstall` to turn installed hooks off |
 | Rovo Dev | none | `CMUX_ROVODEV_HOOKS_DISABLED=1` |
 | Copilot | `COPILOT_HOME` | `CMUX_COPILOT_HOOKS_DISABLED=1` |
 | CodeBuddy | `CODEBUDDY_CONFIG_DIR` | `CMUX_CODEBUDDY_HOOKS_DISABLED=1` |
 | Factory | none | `CMUX_FACTORY_HOOKS_DISABLED=1` |
 | Qoder | `QODER_CONFIG_DIR` | `CMUX_QODER_HOOKS_DISABLED=1` |
 | Antigravity | none | `CMUX_ANTIGRAVITY_HOOKS_DISABLED=1` |
+
+Muse Code runs hooks through the user's login shell with a cleared environment, so the cmux `muse` wrapper installs each hook as a `#!/bin/sh` script under `~/.cmux/hooks/muse/` that carries the installing cmux CLI and socket and finds the terminal from the Muse process, like Grok. Muse sessions appear in Vault from Muse's own `session-index.db`.
 
 Pi uses Pi's extension system, not the legacy Pi hooks API. The installed extension is auto-discovered from `~/.pi/agent/extensions/` or `$PI_CODING_AGENT_DIR/extensions/`.
 
@@ -227,6 +235,8 @@ OMP uses OMP's native extension system. OMP native extension discovery scans `${
 Campfire ships this integration natively: current campfire versions include a built-in cmux bridge, so no install step is needed (like Claude Code via the cmux wrapper) — `cmux hooks campfire install` exists for older campfire versions, and the installed extension defers to the native bridge when both are present. Campfire embeds vanilla Pi under a `.campfire` white-label, so its extension discovery scans `${CAMPFIRE_CODING_AGENT_DIR:-~/.campfire/agent}/extensions/`. The cmux extension records only the HOST role (`CAMPFIRE_SESSION_ROLE=host`); a joiner is an ephemeral view whose argv carries the invite URL — a capability token that is never persisted or replayed. The extension also subscribes to campfire's in-process observer bridge and surfaces driver-actionable collaborative moments (a joiner waiting in the lobby, a capability ask) as cmux notifications.
 
 Kiro stores hooks inside agent configuration files. The cmux installer creates or updates a `cmux` agent config with lifecycle, tool, and completion hooks; merge the generated `hooks` block into another Kiro agent config if you want the same cmux notifications on that agent.
+
+Kiro CLI V3 (`kiro-cli --v3`) also loads [global hook files](https://kiro.dev/docs/configuration/) from `~/.kiro/hooks/` for every agent. `cmux hooks setup kiro --global` writes `cmux.json` there (under `$KIRO_HOME/hooks/` when `KIRO_HOME` is set, matching the agent config) with session start, prompt submit, stop and session end hooks, plus the [agent message](agent-messages.md) hooks, so V3 sessions report to cmux and receive messages without `--agent cmux`. `cmux hooks uninstall kiro --global` removes cmux's entries and deletes the file when nothing else is in it; `cmux hooks uninstall` without `--global` leaves it in place. The global file is for V3: Kiro CLI 2.x and earlier ignore that directory, so keep the default install and `--agent cmux` there. Outside a cmux terminal it does nothing. It has no Feed permission bridge, because a global `PreToolUse` hook would gate tools for every agent; Feed approvals still need `--agent cmux`. V3 adds a [SessionStart or UserPromptSubmit hook's stdout to the model context](https://kiro.dev/docs/hooks/actions/), and a [Stop hook's stdout can keep the agent working](https://kiro.dev/docs/hooks/types/). The lifecycle hooks therefore discard their output, the message hooks print only a waiting message, and every hook exits 0. V3 [merges hooks from every scope](https://kiro.dev/docs/configuration/), so with both installs a `--agent cmux` session on V3 can report each lifecycle event twice; setup prints a note when it finds both.
 
 Kiro Feed verbosity follows **Settings > Automation > Kiro Notification Level** or `automation.kiroNotificationLevel` in `cmux.json`. `minimal` keeps actionable approval cards only, `standard` also keeps mutating tool events, and `verbose` keeps every Kiro tool event.
 

@@ -34,6 +34,11 @@ public struct AgentPIDProcessIdentity: Equatable, Hashable, Sendable {
         self = snapshot.identity
     }
 
+    /// Whether this process generation started strictly before `other`.
+    public func started(before other: AgentPIDProcessIdentity) -> Bool {
+        (startSeconds, startMicroseconds) < (other.startSeconds, other.startMicroseconds)
+    }
+
     /// Reads identity and ancestry from one kernel snapshot so callers do not
     /// accidentally combine a reused pid with metadata from different process
     /// generations. Zombies are rejected just as in `init?(pid:)`.

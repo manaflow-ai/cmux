@@ -10,6 +10,7 @@ import Foundation
 /// from `TerminalNotificationQueue.swift` for the file-length budget.
 
 extension TerminalController {
+    /// Delivers a trusted notification now, following its surface to the workspace that currently owns it unless the caller confined the target.
     @discardableResult
     func deliverNotificationSynchronously(
         tabId: UUID,
@@ -22,7 +23,8 @@ extension TerminalController {
         soundContext: NotificationSoundOverrideContext? = nil,
         correlationKey: String? = nil,
         retargetsToLiveSurfaceOwner: Bool = true,
-        origin: TerminalNotificationOrigin = .local
+        origin: TerminalNotificationOrigin = .local,
+        effects: TerminalNotificationPolicyEffectsPatch? = nil
     ) -> UUID? {
         let target: (tabId: UUID, surfaceId: UUID?)
         if retargetsToLiveSurfaceOwner {
@@ -68,7 +70,8 @@ extension TerminalController {
             correlationKey: correlationKey,
             agent: agent,
             soundContext: soundContext,
-            origin: origin
+            origin: origin,
+            effects: effects
         )
     }
 }
@@ -147,7 +150,8 @@ extension TerminalNotificationStore {
             isFocusedPanel: request.isFocusedPanel,
             agent: request.agent,
             soundContext: request.soundContext,
-            origin: request.origin
+            origin: request.origin,
+            effects: request.effects
         )
     }
 }

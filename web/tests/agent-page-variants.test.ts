@@ -4,7 +4,7 @@ import {
   resolveAgentPageVariant,
   variantPathForPage,
 } from "../app/lib/agent-page-paths";
-import sitemap from "../app/sitemap";
+import { sitemapEntries as sitemap } from "../app/sitemap";
 import {
   featureWorkflowContentLocales,
   featureWorkflowDocPathForRequest,

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 
 import {
+  AdminGrantConflictError,
   type AdminGrantablePlanId,
   AdminInvalidEmailError,
   createPendingEmailGrant,
@@ -76,8 +77,17 @@ async function createEmailGrant(
       canonicalizeEmailForMatching(user.email) === canonical,
   );
   if (matches.length === 1) {
-    const user = await setManualPlanGrant({ targetUserId: matches[0]!.id, plan, admin });
-    return adminJsonResponse({ user });
+    try {
+      const user = await setManualPlanGrant({ targetUserId: matches[0]!.id, plan, admin });
+      return adminJsonResponse({ user });
+    } catch (error) {
+      // A double-submitted form races its own first grant for the account
+      // lease; the users route answers the same conflict with 409.
+      if (error instanceof AdminGrantConflictError) {
+        return adminJsonResponse({ error: "mutation_in_progress" }, 409);
+      }
+      throw error;
+    }
   }
   if (matches.length > 1) {
     return adminJsonResponse({ error: "ambiguous_email" }, 409);

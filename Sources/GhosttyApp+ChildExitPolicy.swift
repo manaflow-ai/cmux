@@ -36,8 +36,16 @@ extension GhosttyApp {
             // Avoid re-entrant close/deinit while Ghostty dispatches this callback.
             DispatchQueue.main.async {
                 runtimeSurface.markShellExited()
+                if keepSurfaceVisible, let surface = runtimeSurface.surface {
+                    Self.dropExitedChildModes(surface)
+                }
                 guard let app = AppDelegate.shared else { return }
                 guard GhosttyApp.terminalSurfaceRegistry.surface(id: runtimeSurface.id) === runtimeSurface else { return }
+                if let tabId, let surfaceId,
+                   let manager = app.tabManagerFor(tabId: tabId) ?? app.tabManager,
+                   let workspace = manager.tabs.first(where: { $0.id == tabId }) {
+                    workspace.dropTransientProgramStatus(panelId: surfaceId)
+                }
                 if !keepSurfaceVisible,
                    let surfaceId,
                    app.closeWindowDockRuntimeSurface(surfaceId: surfaceId, force: true) {
@@ -58,6 +66,18 @@ extension GhosttyApp {
         // Returning false lets Ghostty render its detailed abnormal-exit text
         // and, by Ghostty's contract, retain the dead surface for inspection.
         return !keepSurfaceVisible
+    }
+
+    /// A child that died with mouse reporting, focus reports, bracketed paste
+    /// or application cursor keys on leaves its kept pane capturing the mouse
+    /// instead of selecting.
+    /// Its alternate screen stays: Ghostty's exit text is drawn on it.
+    private static func dropExitedChildModes(_ surface: ghostty_surface_t) {
+        let reset = "\u{1B}[?9l\u{1B}[?1000l\u{1B}[?1002l\u{1B}[?1003l\u{1B}[?1005l"
+            + "\u{1B}[?1006l\u{1B}[?1015l\u{1B}[?1016l\u{1B}[?1004l\u{1B}[?2004l\u{1B}[?1l"
+        reset.withCString { bytes in
+            ghostty_surface_process_output(surface, bytes, UInt(reset.utf8.count))
+        }
     }
 
     private func abnormalCommandExitRuntimeMilliseconds() -> UInt32 {

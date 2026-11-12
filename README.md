@@ -122,6 +122,25 @@ brew upgrade --cask cmux
 
 On first launch, macOS may ask you to confirm opening an app from an identified developer. Click **Open** to proceed.
 
+### Shell completion
+
+The Homebrew cask installs completions for zsh, bash, and fish. Start a new shell after installing. If they don't load, make sure Homebrew's completion directories are wired into your shell (see [Homebrew's shell completion docs](https://docs.brew.sh/Shell-Completion)).
+
+If you installed cmux another way, add the matching line to your shell startup file, then start a new shell:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
+
 ## Why cmux?
 
 I run a lot of Claude Code and Codex sessions in parallel. I was using Ghostty with a bunch of split panes, and relying on native macOS notifications to know when an agent needed me. But Claude Code's notification body is always just "Claude is waiting for your input" with no context, and with enough tabs open I couldn't even read the titles anymore.
@@ -159,7 +178,9 @@ For shell watcher churn and managed-Mac process audit volume, see the supported
 
 | Shortcut | Action |
 |----------|--------|
-| ⌘ N | New workspace |
+| ⌘ N | New local workspace |
+| ⌘ Y | New Cloud workspace on the last usable Cloud context; opens New Cloud Machine when none is available |
+| ⌘ ⇧ Y | New Cloud machine |
 | ⌘ 1–8 | Jump to workspace 1–8 |
 | ⌘ 9 | Jump to last workspace |
 | ⌃ ⌘ ] | Next workspace |
@@ -271,7 +292,8 @@ cmux does not checkpoint arbitrary live process state. Ordinary terminals,
 tmux, vim, shells, and unsupported terminal apps reopen as normal terminals.
 For live detach/reattach across cmux quit, crashes, and updates, opt in to the
 local tmux owner with `cmux local-tmux`; see [`docs/local-tmux.md`](docs/local-tmux.md)
-for its lifecycle and machine-sleep limits.
+for its lifecycle and machine-sleep limits. zellij users can use `cmux local-zellij`
+instead; see [`docs/local-zellij.md`](docs/local-zellij.md).
 
 Supported agent sessions can resume when hooks have saved a native session ID.
 Install hooks after installing the agent CLI so its binary is on `PATH`:
@@ -377,7 +399,7 @@ macOS only, for now. cmux is a native Swift + AppKit app.
 
 ### Is there an iOS app?
 
-Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. Early access is included with [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition). See the [iOS docs](https://cmux.com/docs/ios).
+Yes, in beta. Pair your iPhone with your Mac from the Mobile Connect window and attach to your terminals from your phone, with optional forwarding of terminal notifications. It ships on TestFlight as cmux BETA. Early access is included with [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro). See the [iOS docs](https://cmux.com/docs/ios).
 
 ### What coding agents does cmux work with?
 
@@ -437,7 +459,7 @@ Yes, cmux is free to use. The source code is available on [GitHub](https://githu
 
 ### How can I support cmux?
 
-cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux is free and open source, and always will be. If you want to back development and get early access to what's next, including cmux AI, the iOS app, and Cloud VMs, check out [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro).
 
 ### I have a feature request or found a bug?
 
@@ -482,18 +504,11 @@ Ways to get involved:
   <img src="./docs/assets/wechat-community-qr.jpg" alt="WeChat QR code to join the cmux community" width="240" />
 </p>
 
-## Founder's Edition
+## cmux Pro
 
 cmux is free, open source, and always will be. If you'd like to support development and get early access to what's coming next:
 
-**[Get Founder's Edition](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Prioritized feature requests/bug fixes**
-- **Early access: cmux AI that gives you context on every workspace, tab and panel**
-- **Early access: iOS app with terminals synced between desktop and phone**
-- **Early access: Cloud VMs**
-- **Early access: Voice mode**
-- **My personal iMessage/WhatsApp**
+**[Get cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## Install
 

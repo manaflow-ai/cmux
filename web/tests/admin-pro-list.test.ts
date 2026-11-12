@@ -16,6 +16,7 @@ import {
   resolveStripeTeamNames,
   scanManualTeamGrants,
   scanManualUserGrants,
+  scanTeamDeals,
   type ProListDb,
   type ProListStackApp,
 } from "../services/admin/proList";
@@ -123,19 +124,19 @@ describe("Pro roster", () => {
 
   test("lists open pending grants", async () => {
     const db = fakeDb(new Map([[adminPlanGrants, [
-      { id: "g1", email: "a@example.com", plan: "pro", grantedByEmail: "lawrence@manaflow.ai", createdAt: new Date("2026-09-02T00:00:00Z") },
+      { id: "g1", email: "a@example.com", plan: "pro", grantedByEmail: "admin@manaflow.ai", createdAt: new Date("2026-09-02T00:00:00Z") },
     ]]]));
     expect(await listAllPendingEmailGrants({ db })).toEqual({
       truncated: false,
       rows: [
-        { id: "g1", email: "a@example.com", plan: "pro", grantedByEmail: "lawrence@manaflow.ai", createdAt: "2026-09-02T00:00:00.000Z" },
+        { id: "g1", email: "a@example.com", plan: "pro", grantedByEmail: "admin@manaflow.ai", createdAt: "2026-09-02T00:00:00.000Z" },
       ],
     });
   });
 
   test("scans the user directory page by page and keeps only paid manual overrides", async () => {
     const users = [
-      { id: "u1", primaryEmail: "a@example.com", primaryEmailVerified: true, isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "pro" }, serverMetadata: { cmuxAdminPlanGrant: { plan: "pro", byUserId: "admin-1", byEmail: "lawrence@manaflow.ai", at: "2026-09-02T00:00:00.000Z" } } },
+      { id: "u1", primaryEmail: "a@example.com", primaryEmailVerified: true, isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "pro" }, serverMetadata: { cmuxAdminPlanGrant: { plan: "pro", byUserId: "admin-1", byEmail: "admin@manaflow.ai", at: "2026-09-02T00:00:00.000Z" } } },
       { id: "u2", primaryEmail: "b@example.com", primaryEmailVerified: true, isAnonymous: false, clientReadOnlyMetadata: { cmuxPlan: "pro" }, serverMetadata: {} },
       { id: "u3", primaryEmail: "c@example.com", primaryEmailVerified: false, isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "free" }, serverMetadata: {} },
       { id: "u4", primaryEmail: "d@example.com", primaryEmailVerified: false, isAnonymous: false, clientReadOnlyMetadata: { cmuxVmPlan: "Founders" }, serverMetadata: {} },
@@ -145,7 +146,7 @@ describe("Pro roster", () => {
     const first = await scanManualUserGrants(null, { app, pageSize: 3 });
     expect(first.scanned).toBe(3);
     expect(first.nextCursor).toBe("3");
-    expect(first.rows.map((row) => [row.userId, row.plan, row.lastGrant?.byEmail ?? null])).toEqual([["u1", "pro", "lawrence@manaflow.ai"]]);
+    expect(first.rows.map((row) => [row.userId, row.plan, row.lastGrant?.byEmail ?? null])).toEqual([["u1", "pro", "admin@manaflow.ai"]]);
     const second = await scanManualUserGrants(first.nextCursor, { app, pageSize: 3 });
     expect(second.scanned).toBe(2);
     expect(second.nextCursor).toBeNull();
@@ -163,6 +164,29 @@ describe("Pro roster", () => {
     ] });
     const page = await scanManualTeamGrants(null, { app });
     expect(page.rows.map((row) => [row.teamId, row.plan])).toEqual([["t1", "team"]]);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  test("scans teams for custom deals: limits, or only a label and price", async () => {
+    const app = fakeApp({ teams: [
+      {
+        id: "t1",
+        displayName: "Tecorien",
+        clientReadOnlyMetadata: { cmuxVmPlan: "team", cmuxEntitlementOverride: { maxActiveVms: 40, poolVcpus: 320 } },
+        serverMetadata: { cmuxEntitlementDealTerms: { planLabel: "Enterprise", monthlyPriceCents: 80_000 } },
+      },
+      { id: "t2", displayName: "Plain", clientReadOnlyMetadata: { cmuxVmPlan: "team" }, serverMetadata: {} },
+      {
+        id: "t3",
+        displayName: "Terms only",
+        clientReadOnlyMetadata: {},
+        serverMetadata: { cmuxEntitlementDealTerms: { planLabel: "Pilot", monthlyPriceCents: null } },
+      },
+    ] });
+    const page = await scanTeamDeals(null, { app });
+    expect(page.scanned).toBe(3);
+    expect(page.rows.map((row) => [row.team.id, row.override?.maxActiveVms, row.override?.planLabel, row.override?.monthlyPriceCents]))
+      .toEqual([["t1", 40, "Enterprise", 80_000], ["t3", null, "Pilot", null]]);
     expect(page.nextCursor).toBeNull();
   });
 

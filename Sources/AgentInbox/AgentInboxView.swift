@@ -405,7 +405,7 @@ struct AgentInboxView: View {
             replyText = ""
             replyError = nil
         } catch {
-            replyError = String(localized: "agentInbox.reply.failed", defaultValue: "Couldn’t send reply. Try again.")
+            replyError = AgentMessageCenter.blockedMessage(for: error) ?? String(localized: "agentInbox.reply.failed", defaultValue: "Couldn’t send reply. Try again.")
         }
         replySubmissionGate.finish()
     }
@@ -464,7 +464,6 @@ private struct AgentInboxRow: View {
     let isSelected: Bool
     let onSelect: () -> Void
     let onActivate: () -> Void
-
     var body: some View {
         Button(action: onActivate) {
             HStack(alignment: .top, spacing: 10) {
@@ -535,6 +534,7 @@ private extension AgentMessageDeliveryState {
         case .queued: return String(localized: "agentInbox.state.queued", defaultValue: "Queued")
         case .delivered: return String(localized: "agentInbox.state.delivered", defaultValue: "Delivered")
         case .read: return String(localized: "agentInbox.state.read", defaultValue: "Read")
+        case .failed: return String(localized: "agentInbox.state.failed", defaultValue: "Not delivered")
         }
     }
 }

@@ -4,7 +4,7 @@ extension CMUXCLI {
     private static let ompExtensionMarker = "cmux-omp-session-extension-marker"
     private static let ompExtensionFilename = "cmux-omp-session.ts"
     private static let ompExtensionSource = #"""
-// cmux-omp-session-extension-marker v2
+// cmux-omp-session-extension-marker v4
 // Bridges OMP session lifecycle events into cmux's restorable session store.
 // Installed by `cmux hooks omp install` or `cmux hooks setup`.
 // DO NOT EDIT MANUALLY. cmux upgrades this file in place.
@@ -21,17 +21,21 @@ function firstString(...values: unknown[]): string | null {
   return null;
 }
 
-function resolveExecutable(name: string): string {
+function resolveExecutable(name: string): string | null {
+  // A launch path already identifies the executable; never replace it with
+  // another installation found through PATH.
+  if (path.isAbsolute(name)) return name;
+  if (name.includes(path.sep)) return path.resolve(name);
   const pathEnv = process.env.PATH || "";
   for (const dir of pathEnv.split(path.delimiter)) {
     if (!dir) continue;
-    const candidate = path.join(dir, name);
+    const candidate = path.resolve(dir, name);
     try {
       fs.accessSync(candidate, fs.constants.X_OK);
       if (fs.statSync(candidate).isFile()) return candidate;
     } catch (_) {}
   }
-  return name;
+  return null;
 }
 
 function looksLikeOmpExecutable(value: string): boolean {
@@ -53,14 +57,24 @@ function looksLikeJavaScriptRuntime(value: string): boolean {
   return base === "node" || base === "bun" || base === "deno" || base === "tsx" || base === "ts-node";
 }
 
-function normalizedLaunchArgv(): string[] {
+function normalizedLaunchArgv(): string[] | null {
   const raw = Array.isArray(process.argv) ? process.argv.map((value) => String(value)) : [];
-  if (raw.length === 0) return [resolveExecutable("omp")];
-  if (looksLikeOmpExecutable(raw[0])) return raw;
-  if (raw.length > 1 && (looksLikeOmpScript(raw[1]) || looksLikeJavaScriptRuntime(raw[0]))) {
-    return [resolveExecutable("omp"), ...raw.slice(2)];
+  if (raw.length === 0) {
+    const executable = resolveExecutable("omp");
+    return executable ? [executable] : null;
   }
-  return [resolveExecutable("omp"), ...raw.slice(1)];
+  if (looksLikeOmpExecutable(raw[0])) {
+    const executable = resolveExecutable(raw[0]);
+    return executable ? [executable, ...raw.slice(1)] : null;
+  }
+  if (raw.length > 1 && (looksLikeOmpScript(raw[1]) || looksLikeJavaScriptRuntime(raw[0]))) {
+    const executable = resolveExecutable(
+      looksLikeOmpExecutable(raw[1]) || looksLikeOmpScript(raw[1]) ? raw[1] : "omp"
+    );
+    return executable ? [executable, ...raw.slice(2)] : null;
+  }
+  const executable = resolveExecutable("omp");
+  return executable ? [executable, ...raw.slice(1)] : null;
 }
 
 function base64NulSeparated(values: string[]): string {
@@ -77,10 +91,12 @@ function hookEnvironment(cwd: string): NodeJS.ProcessEnv {
   env.CMUX_OMP_PID = String(process.pid);
   if (!env.CMUX_AGENT_LAUNCH_ARGV_B64) {
     const argv = normalizedLaunchArgv();
-    env.CMUX_AGENT_LAUNCH_KIND = "omp";
-    env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0] || resolveExecutable("omp");
-    env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated(argv);
-    env.CMUX_AGENT_LAUNCH_CWD = cwd || process.cwd();
+    if (argv) {
+      env.CMUX_AGENT_LAUNCH_KIND = "omp";
+      env.CMUX_AGENT_LAUNCH_EXECUTABLE = argv[0];
+      env.CMUX_AGENT_LAUNCH_ARGV_B64 = base64NulSeparated(argv);
+      env.CMUX_AGENT_LAUNCH_CWD = cwd || process.cwd();
+    }
   }
   return env;
 }

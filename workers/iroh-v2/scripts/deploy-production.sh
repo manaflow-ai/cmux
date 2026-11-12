@@ -87,30 +87,6 @@ sys.exit(0 if before == after else 1)
 PY_SAME_DEPLOYMENT
 }
 
-check_pending_migration() {
-  python3 - "$1" wrangler.jsonc <<'PY_MIGRATION'
-import json, pathlib, sys
-try:
-    version = json.loads(pathlib.Path(sys.argv[1]).read_text())
-    config = json.loads(pathlib.Path(sys.argv[2]).read_text())
-    production = config.get("env", {}).get("production", {})
-    migrations = production.get("migrations", config.get("migrations", []))
-    latest = migrations[-1].get("tag") if migrations else None
-    current = version.get("migration_tag")
-    if current is None:
-        resources = version.get("resources", {})
-        for resource_name in ("script", "script_runtime"):
-            resource = resources.get(resource_name, {})
-            if isinstance(resource, dict) and resource.get("migration_tag") is not None:
-                current = resource["migration_tag"]
-                break
-    if latest is not None and current != latest:
-        raise ValueError("pending Durable Object migration")
-except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError, IndexError):
-    sys.exit(1)
-sys.exit(0)
-PY_MIGRATION
-}
 
 python3 - "$probe_dir" "$expected_project" "$environment" "$foreign_environment" "$foreign_project" <<'PY_PAYLOADS'
 import json, pathlib, sys, uuid
@@ -201,10 +177,16 @@ if ! wrangler versions view "$previous_version" --env "$environment" --name "$wo
   echo "refusing production deploy: could not read the active Worker version" >&2
   exit 1
 fi
-if ! check_pending_migration "$probe_dir/previous-version.json"; then
-  echo "refusing production deploy: pending Durable Object migration requires a dedicated migration rollout" >&2
-  exit 1
-fi
+# A pending Durable Object migration is refused unless the operator names it in
+# IROH_V2_APPLY_MIGRATION and the policy accepts it as one additive SQLite class
+# (see README "Durable Object migration rollout"). Status 10 means it will run.
+migration_plan=0
+bun scripts/rollout-policy.ts migration "$environment" "$probe_dir/previous-version.json" || migration_plan=$?
+case "$migration_plan" in
+  0) ;;
+  10) echo "migration rollout: automatic rollback is disabled because Workers cannot roll back across a Durable Object migration" >&2 ;;
+  *) echo "refusing production deploy: pending Durable Object migration requires a dedicated migration rollout" >&2; exit 1 ;;
+esac
 
 read_health() {
   curl -sS --connect-timeout 10 --max-time 30 --max-filesize 65536 \
@@ -227,6 +209,9 @@ PY_STAGING
   wrangler versions view "$staging_version" --env staging --name cmux-v2-staging --json >"$probe_dir/staging-version.json"
   staging_status="$(curl -sS --connect-timeout 10 --max-time 30 --max-filesize 65536 \
     -o "$probe_dir/staging-health.json" -w '%{http_code}' https://cmux-v2-staging.debussy.workers.dev/v2/health)"
+  if (( migration_plan == 10 )); then
+    bun scripts/rollout-policy.ts migrated staging "$probe_dir/staging-version.json"
+  fi
   bun scripts/rollout-policy.ts post staging "$probe_dir/staging-version.json" "$probe_dir/staging-health.json" "$staging_status" "$probe_dir/staging-version.json" "${source_revision_vars##*:}"
   wrangler deployments status --env staging --name cmux-v2-staging --json >"$probe_dir/staging-after.json"
   python3 - "$probe_dir/staging-deployment.json" "$probe_dir/staging-after.json" <<'PY_STABLE'
@@ -268,7 +253,9 @@ if (( post_result == 0 )); then
 fi
 if (( post_result )); then
   rollback_safe=0
-  if (( post_result == 1 )); then
+  if (( migration_plan == 10 )); then
+    echo "migration rollout verification failed; rollback is not possible across the Durable Object migration, so fix forward with a new guarded deploy" >&2
+  elif (( post_result == 1 )); then
     rollback_current="$probe_dir/rollback-current.json"
     rollback_version="$probe_dir/rollback-current.version"
     rollback_identity="$probe_dir/rollback-current.identity"
@@ -297,7 +284,7 @@ PY_MARKER
     else
       echo "production scope verification failed and automatic rollback failed; inspect the Worker immediately" >&2
     fi
-  else
+  elif (( migration_plan != 10 )); then
     echo "production scope verification failed; active deployment changed, so rollback was skipped" >&2
   fi
   exit 1

@@ -5,7 +5,8 @@
  *
  * Each machine gets a fresh run directory under /var/lib/cmux-tui-upgrade with
  * the pinned install command (`cmuxTuiInstallCommand`, the exact command the
- * image bake runs) and the guest script `scripts/cloud-vm/cmux-tui-upgrade.sh`,
+ * image bake runs), the current state-mount helper, and the guest script
+ * `scripts/cloud-vm/cmux-tui-upgrade.sh`,
  * which runs detached as root, holds a per-machine lock, and writes one result
  * line. This runner only starts the script and polls the result; the guest
  * script owns every safety check and the rollback.
@@ -27,7 +28,7 @@ import { Freestyle } from "freestyle";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { readImageManifest } from "./devbox-image-common";
+import { CMUX_TUI_STATE_MOUNT_HELPER_PATH, readImageManifest } from "./devbox-image-common";
 import { cmuxTuiInstallCommand, parseCmuxTuiManifest, shellQuote } from "../services/vms/drivers/cmuxTuiDaemon";
 
 const argValues = (name: string): string[] =>
@@ -40,6 +41,10 @@ const POLL_INTERVAL_MS = 15_000;
 const POLL_DEADLINE_MS = 30 * 60_000;
 const guestScript = readFileSync(
   path.join(path.dirname(fileURLToPath(import.meta.url)), "cloud-vm/cmux-tui-upgrade.sh"),
+  "utf8",
+);
+const stateMountScript = readFileSync(
+  path.join(path.dirname(fileURLToPath(import.meta.url)), "../services/vms/images/devbox/cmux-tui-state-mount"),
   "utf8",
 );
 
@@ -94,7 +99,8 @@ const launch = [
   `mkdir -p ${runDir}`,
   writeFileCommand(`${runDir}/install.cmd`, cmuxTuiInstallCommand(source)),
   writeFileCommand(`${runDir}/upgrade.sh`, guestScript),
-  `(setsid nohup sh ${runDir}/upgrade.sh ${source.sha256} ${source.commit} ${runDir} </dev/null >/dev/null 2>&1 &)`,
+  writeFileCommand(`${runDir}/state-mount.sh`, stateMountScript),
+  `(setsid nohup sh ${runDir}/upgrade.sh ${source.sha256} ${source.commit} ${runDir} ${CMUX_TUI_STATE_MOUNT_HELPER_PATH} </dev/null >/dev/null 2>&1 &)`,
   "echo launched",
 ].join(" && ");
 

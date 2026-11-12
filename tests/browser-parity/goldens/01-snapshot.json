@@ -1,0 +1,19 @@
+{
+  "oracle": {},
+  "cmux": {
+    "full": "title: Parity Fixture\nurl: PRIMARY/\n- navigation \"Main\" [ref=e1]:\n  - link \"Home\" [ref=e2]\n  - link \"Docs\" [ref=e3]\n- main:\n  - heading \"Sign up\" [level=1]\n  - textbox \"Email\" [ref=e4] [placeholder=\"you@x.com\"]\n  - checkbox \"Accept terms\" [ref=e5]\n  - combobox \"Plan\" [ref=e6] [options: Free, Pro, Team]: \"Pro\"\n  - textbox \"Bio\" [ref=e7]: \"hi\"\n  - button \"Create account\" [ref=e8]\n  - button \"Disabled\" [ref=e9] [disabled]\n  - list:\n    - listitem: \"One\"\n    - listitem: \"Two\"\n  - text: \"Plain bold text.\"\n  - img \"Logo\"\n  - button \"Far away\" [ref=e10]",
+    "prints-tree-first": true,
+    "interactive": "title: Parity Fixture\nurl: PRIMARY/\n- navigation \"Main\" [ref=e1]:\n  - link \"Home\" [ref=e2]\n  - link \"Docs\" [ref=e3]\n- main:\n  - heading \"Sign up\" [level=1]\n  - textbox \"Email\" [ref=e4] [placeholder=\"you@x.com\"]\n  - checkbox \"Accept terms\" [ref=e5]\n  - combobox \"Plan\" [ref=e6] [options: Free, Pro, Team]: \"Pro\"\n  - textbox \"Bio\" [ref=e7]: \"hi\"\n  - button \"Create account\" [ref=e8]\n  - button \"Disabled\" [ref=e9] [disabled]\n  - button \"Far away\" [ref=e10]",
+    "scoped-ref": "title: Parity Fixture\nurl: PRIMARY/\n- navigation \"Main\" [ref=e1]:\n  - link \"Home\" [ref=e2]\n  - link \"Docs\" [ref=e3]",
+    "scoped-locator": "title: Parity Fixture\nurl: PRIMARY/\n- textbox \"Email\" [ref=e4] [placeholder=\"you@x.com\"]\n- checkbox \"Accept terms\" [ref=e5]\n- combobox \"Plan\" [ref=e6] [options: Free, Pro, Team]: \"Pro\"\n- textbox \"Bio\" [ref=e7]: \"hi\"\n- button \"Create account\" [ref=e8]\n- button \"Disabled\" [ref=e9] [disabled]",
+    "options": [
+      "  - combobox \"Plan\" [ref=e6]: \"Pro\"",
+      "    - option \"Free\"",
+      "    - option \"Pro\" [selected]",
+      "    - option \"Team\""
+    ],
+    "max-chars": "title: Parity Fixture\nurl: PRIMARY/\n- navigation \"Main\" [ref=e1]:\n  - link \"Home\" [ref=e2]\n  - link \"Docs\" [ref=e3]\n- main:\n  - … 1 more line\n  - textbox \"Email\" [ref=e4] [placeholder=\"you@x.com\"]\n  - checkbox \"Accept terms\" [ref=e5]\n  - … 10 more lines (5 refs)\n# condensed to 226 of 516 characters (5 of 10 refs not shown): snapshot(ref) prints a region, snapshot({ viewport: true }) what is on screen, snapshot(locator, { maxChars: Infinity }) or .tree everything",
+    "max-chars-tree-complete": true,
+    "page-arg": true
+  }
+}

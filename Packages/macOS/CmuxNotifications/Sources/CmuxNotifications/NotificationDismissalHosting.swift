@@ -60,6 +60,11 @@ public protocol NotificationDismissalHosting: AnyObject {
     /// default) the legacy workspace-visibility withdraw is preserved.
     var suppressOnlyFocusedSurface: Bool { get }
 
+    /// Whether terminal typing should flash the pane after dismissing its
+    /// notification. The app setting defaults to the legacy flashing behavior;
+    /// turning it off gives typing the calmer dismissal feedback.
+    var paneFlashOnTyping: Bool { get }
+
     // MARK: Workspace indicator reads
 
     /// Whether the panel carries a manually-set unread indicator.

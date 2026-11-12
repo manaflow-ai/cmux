@@ -9,7 +9,13 @@ protocol RemoteTuiLinkManaging: Sendable {
     func status(machineID: String) async -> CloudMachineLinkManager.LinkStatus?
     func privateAddresses(for machineID: String) async -> [String]
     func setPrivateAddresses(_ addresses: [String], for machineID: String) async
-    func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint
+    func browserProxy(machineID: String, remoteNetwork: Bool) async throws -> CloudBrowserProxyEndpoint
+}
+
+extension RemoteTuiLinkManaging {
+    func browserProxy(machineID: String) async throws -> CloudBrowserProxyEndpoint {
+        try await browserProxy(machineID: machineID, remoteNetwork: false)
+    }
 }
 
 extension CloudMachineLinkManager: RemoteTuiLinkManaging {}

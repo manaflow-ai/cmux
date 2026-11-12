@@ -13,6 +13,7 @@ import CMUXAgentLaunch
 @Suite(.serialized)
 struct CMUXCLIForkVerbRegressionTests {
     private final class BundleToken {}
+
     @Test
     func snapshotForkVerbUsesNativeAndRegistrationForkArgv() throws {
         let sessionID = "fork-session"
@@ -291,6 +292,67 @@ struct CMUXCLIForkVerbRegressionTests {
             workspace.restoredAgentSnapshotsByPanelId[forkPanelID]?.sessionId
                 == snapshot.sessionId
         )
+    }
+
+    @Test
+    func cliForkVerbSeedsClaudeTranscriptBeforeLaunching() throws {
+        let fileManager = FileManager.default
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("cmux-fork-claude-wire-\(UUID().uuidString)", isDirectory: true)
+        let config = root.appendingPathComponent("claude-config", isDirectory: true)
+        let source = root.appendingPathComponent("source", isDirectory: true)
+        let destination = root.appendingPathComponent("destination", isDirectory: true)
+        let executable = root.appendingPathComponent("claude", isDirectory: false)
+        let marker = root.appendingPathComponent("claude-output", isDirectory: false)
+        let sessionID = "cli-fork-session"
+        try fileManager.createDirectory(at: source, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: destination, withIntermediateDirectories: true)
+        let sourceProject = config.appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(ClaudeProjectSlug().slug(forWorkingDirectory: source.path), isDirectory: true)
+        try fileManager.createDirectory(at: sourceProject, withIntermediateDirectories: true)
+        try Data("{\"type\":\"user\"}\n".utf8)
+            .write(to: sourceProject.appendingPathComponent("\(sessionID).jsonl"))
+        let sourceSidecar = sourceProject.appendingPathComponent(sessionID, isDirectory: true)
+        try fileManager.createDirectory(at: sourceSidecar, withIntermediateDirectories: true)
+        try Data("{\"state\":\"fixture\"}".utf8)
+            .write(to: sourceSidecar.appendingPathComponent("state.json"))
+        try "#!/bin/sh\nprintf 'launched\\n' > \"$FORK_TEST_MARKER\"\n"
+            .write(to: executable, atomically: true, encoding: .utf8)
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+        defer { try? fileManager.removeItem(at: root) }
+
+        let surfaceID = UUID().uuidString.lowercased()
+        let responseData = try JSONSerialization.data(withJSONObject: [
+            "ok": true,
+            "result": [
+                "restore_record": [
+                    "mode": "resumeAgent", "kind": "claude", "checkpoint_id": sessionID,
+                    "working_directory": source.path,
+                    "environment": ["CLAUDE_CONFIG_DIR": config.path],
+                    "launch_command": [
+                        "arguments": [executable.path], "executable_path": executable.path,
+                        "working_directory": source.path, "environment": [:]
+                    ],
+                    "prepared_fork_arguments": [executable.path, "--resume", sessionID, "--fork-session"],
+                    "fork_arguments_working_directory": destination.path
+                ]
+            ]
+        ])
+        let socketPath = "/tmp/cmux-fork-claude-wire-\(UUID().uuidString.prefix(8)).sock"
+        let responder = try UnixSocketResponder(path: socketPath, response: String(decoding: responseData, as: UTF8.self))
+        defer { responder.stop() }
+        let home = try isolatedCLIHome()
+        defer { try? fileManager.removeItem(at: home) }
+        var environment = isolatedCLIEnvironment(socketPath: socketPath, home: home)
+        environment["FORK_TEST_MARKER"] = marker.path
+        environment["PATH"] = "/usr/bin:/bin"
+        let result = try runCLI(arguments: ["fork", "--surface", surfaceID, "claude", sessionID], environment: environment)
+        #expect(result.status == 0, Comment(rawValue: result.description))
+        #expect(fileManager.fileExists(atPath: marker.path))
+        let targetProject = config.appendingPathComponent("projects", isDirectory: true)
+            .appendingPathComponent(ClaudeProjectSlug().slug(forWorkingDirectory: destination.path), isDirectory: true)
+        #expect(fileManager.fileExists(atPath: targetProject.appendingPathComponent("\(sessionID).jsonl").path))
+        #expect(fileManager.fileExists(atPath: targetProject.appendingPathComponent(sessionID).appendingPathComponent("state.json").path))
     }
 
     @Test

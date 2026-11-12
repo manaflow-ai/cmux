@@ -13,4 +13,5 @@ public enum GhosttyTerminalOptionKey: String, CaseIterable, Sendable {
     case backgroundBlur = "background-blur"
     case macosOptionAsAlt = "macos-option-as-alt"
     case scrollbackLimit = "scrollback-limit"
+    case middleClickAction = "middle-click-action"
 }

@@ -65,6 +65,25 @@ final class MainWindowHostingView<Content: View>: NSHostingView<Content> {
         super.setFrameSize(size)
     }
 
+    /// See ``MainWindowHitTestMutationMonitor`` (CMUXTERM-MACOS-41RH). Tests
+    /// replace it to observe reports without Sentry.
+    var hitTestMutationMonitor = MainWindowHitTestMutationMonitor()
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        hitTestMutationMonitor.walk { super.hitTest(point) }
+    }
+
+    override func willRemoveSubview(_ subview: NSView) {
+        if hitTestMutationMonitor.isWalking {
+            hitTestMutationMonitor.subviewWillBeRemoved(
+                subview,
+                subviewCount: subviews.count,
+                eventType: NSApp?.currentEvent?.type
+            )
+        }
+        super.willRemoveSubview(subview)
+    }
+
     required init(rootView: Content) {
         super.init(rootView: rootView)
         // Belt with the suspenders above: keep the hosting view from creating
@@ -318,9 +337,8 @@ final class CmuxMainWindow: NSWindow {
     ///
     /// Declaring `.fullScreenPrimary` here makes native fullscreen reachable
     /// regardless of the OS's implicit default. It is idempotent where AppKit
-    /// would have granted it anyway. `.fullScreenDisallowsTiling` is also set
-    /// permanently so macOS Full Screen Tile does not trap cmux in a managed
-    /// tile Space that breaks Mission Control and horizontal Space swipes.
+    /// would have granted it anyway. Fullscreen tiling is controlled by the
+    /// window creation path when a window is spawned from native fullscreen.
     override init(
         contentRect: NSRect,
         styleMask: NSWindow.StyleMask,
@@ -343,9 +361,8 @@ final class CmuxMainWindow: NSWindow {
 
     /// Returns `base` guaranteed to carry `.fullScreenPrimary` (and never
     /// `.fullScreenNone`) so a cmux main window can always enter a native
-    /// fullscreen Space, plus `.fullScreenDisallowsTiling` so AppKit does not
-    /// route the window into macOS Full Screen Tile. Pure and `nonisolated` so
-    /// it can be unit-tested without constructing a window; see
+    /// fullscreen Space. Pure and `nonisolated` so it can be unit-tested
+    /// without constructing a window; see
     /// ``init(contentRect:styleMask:backing:defer:)`` for why declaring the
     /// capability explicitly is required.
     nonisolated static func canonicalCollectionBehavior(
@@ -357,7 +374,6 @@ final class CmuxMainWindow: NSWindow {
         // suppressed.
         behavior.remove(.fullScreenNone)
         behavior.insert(.fullScreenPrimary)
-        behavior.insert(.fullScreenDisallowsTiling)
         return behavior
     }
 

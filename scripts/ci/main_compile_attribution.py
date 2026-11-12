@@ -359,16 +359,21 @@ def attribute(window: list[str], states: Mapping[str, State], files_of=changed_f
         commits = list(reversed(window[order[sha]:lo]))
         errors = [state.errors[key] for key in appeared]
         brk = Break(older if older_state is not None else None, sha, commits, errors, state)
+        top, scores = suspects(commits, errors, files_of, text_of)
         # A green commit before it confirms. After a red one, errors a first break hid (a module that never
         # compiled) can surface at the commit that fixes it without being its doing, so a red base confirms
-        # only a commit that edits a file the new errors are in.
-        brk.confirmed = len(commits) == 1 and older_state is not None and (
-            older_state.state == "green" or bool(suspects(commits, errors, files_of, text_of)[1].get(commits[0]) == 2))
+        # only a commit that edits a file the new errors are in. A one-merge
+        # range after a green base needs the same direct-file evidence: the
+        # first known red merge may be unrelated to an error that was already
+        # present in an unobserved commit.
+        direct_file_match = len(commits) == 1 and scores.get(commits[0]) == 2
+        brk.confirmed = len(commits) == 1 and older_state is not None and direct_file_match
         if brk.confirmed:
             brk.culprits = [{"sha": commits[0]}]
         else:
-            top, _ = suspects(commits, errors, files_of, text_of)
-            brk.culprits = [{"sha": s} for s in top]
+            # A lone symbol match is suggestive only in a genuinely ambiguous
+            # range. With one candidate it is safer to report unattributed.
+            brk.culprits = [] if len(commits) == 1 else [{"sha": s} for s in top]
             brk.probes = [c for c in commits if c != sha and
                           (c not in states or states[c].state not in ("green", "red"))]
         breaks.append(brk)
@@ -586,7 +591,9 @@ def already_fixing(prs: Iterable[Mapping], culprit_pr: int, merged_at: str | Non
 
 def command_analyze(args: argparse.Namespace) -> int:
     token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN") or ""
-    gh = GitHub(os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux"), token)
+    # READ_TOKEN: an App's, with its own budget; the analysis only reads.
+    gh = GitHub(os.environ.get("GITHUB_REPOSITORY", "manaflow-ai/cmux"), token,
+                read_token=os.environ.get("READ_TOKEN") or "")
     head = args.head or git("rev-parse", "HEAD")
     report = analyze(Source(gh), gh, head, args.log_wait)
     target = fix_target(report)
@@ -623,7 +630,7 @@ def command_analyze(args: argparse.Namespace) -> int:
             handle.write(f"probes={' '.join(report['probes'])}\n")
             handle.write(f"fix={'true' if fix and not fix.get('skip') else 'false'}\n")
     print(summary(report))
-    print(f"GitHub API calls: {gh.calls}")
+    print(f"GitHub API calls: {gh.calls} (read token: {gh.read_calls})")
     return 0
 
 

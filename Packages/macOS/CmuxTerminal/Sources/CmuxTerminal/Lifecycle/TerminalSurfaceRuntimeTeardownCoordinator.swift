@@ -183,6 +183,8 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
     ///     released on the main actor after the free completes.
     ///   - byteTeeLease: The retained PTY tee lease, released on the main
     ///     actor after the free completes.
+    ///   - displayLayer: Ghostty's renderer layer, whose display callback is
+    ///     detached on the main actor before the free is scheduled.
     ///   - beforeFree: An asynchronous fence awaited before `freeSurface` is
     ///     scheduled. Defaults to an already-complete fence.
     ///   - freeSurface: The free operation; defaults to
@@ -197,6 +199,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         callbackContext: Unmanaged<GhosttySurfaceCallbackContext>?,
         manualIOContext: Unmanaged<TerminalManualIOWriteBox>?,
         byteTeeLease: (any TerminalByteTeeLease)?,
+        displayLayer: TerminalSurfaceRuntimeDisplayLayer? = nil,
         beforeFree: @escaping @Sendable () async -> Void = {},
         executionLane: TerminalSurfaceRuntimeTeardownExecutionLane = .boundedClose,
         isolatedHibernationReservation:
@@ -215,6 +218,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: byteTeeLease,
+            displayLayer: displayLayer,
             beforeFree: beforeFree,
             freeSurface: freeSurface,
             completion: completion
@@ -248,7 +252,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
                 // and IO joins are surface-owned, so separate surfaces may tear down
                 // concurrently. This bounds blocked native workers at two without
                 // letting one stuck pane strand another admitted pane.
-                await Self.invalidateRuntimeClipboardRequestsBeforeFree(request)
+                await Self.prepareMainActorStateBeforeFree(request)
                 Task {
                     await self.observeTimeout(id: request.id)
                 }
@@ -276,7 +280,7 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         case .boundedClose:
             break
         }
-        await Self.invalidateRuntimeClipboardRequestsBeforeFree(request)
+        await Self.prepareMainActorStateBeforeFree(request)
         queuedCloseRequests.append(request)
         startAvailableCloseTeardowns()
     }
@@ -350,16 +354,21 @@ public actor TerminalSurfaceRuntimeTeardownCoordinator {
         startAvailableCloseTeardowns()
     }
 
-    private nonisolated static func invalidateRuntimeClipboardRequestsBeforeFree(
+    /// Retires main-actor state that can still reach the native surface,
+    /// strictly before its free is scheduled: pending clipboard requests, and
+    /// the renderer layer's display callback, which Core Animation invokes on
+    /// the main thread and which `ghostty_surface_free` leaves pointing at the
+    /// renderer it frees (#17483).
+    private nonisolated static func prepareMainActorStateBeforeFree(
         _ request: TerminalSurfaceRuntimeTeardownRequest
     ) async {
-        if request.callbackContext != nil {
-            await MainActor.run {
-                request.callbackContext?.takeUnretainedValue()
-                    .invalidateRuntimeClipboardRequests(
-                        completingNativeRequests: true
-                    )
-            }
+        guard request.callbackContext != nil || request.displayLayer != nil else { return }
+        await MainActor.run {
+            request.displayLayer?.detachRendererDisplayCallback()
+            request.callbackContext?.takeUnretainedValue()
+                .invalidateRuntimeClipboardRequests(
+                    completingNativeRequests: true
+                )
         }
     }
 

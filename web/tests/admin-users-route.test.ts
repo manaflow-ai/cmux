@@ -218,7 +218,7 @@ const { GET: GET_PRO_USERS } = await import("../app/api/admin/pro-users/route");
 const { GET: GET_PRO_SCAN } = await import("../app/api/admin/pro-users/scan/route");
 
 const adminUser = () =>
-  stackUser({ id: "admin-1", primaryEmail: "lawrence@manaflow.ai" });
+  stackUser({ id: "admin-1", primaryEmail: "admin@manaflow.ai" });
 
 function getRequest(query: string) {
   return new NextRequest(`https://cmux.com/api/admin/users?q=${encodeURIComponent(query)}`);
@@ -273,7 +273,7 @@ describe("admin users route", () => {
   test("GET returns 401 for signed-out and anonymous callers", async () => {
     currentUser = null;
     expect((await GET(getRequest("pat"))).status).toBe(401);
-    currentUser = stackUser({ id: "anon", primaryEmail: "lawrence@manaflow.ai", isAnonymous: true });
+    currentUser = stackUser({ id: "anon", primaryEmail: "admin@manaflow.ai", isAnonymous: true });
     expect((await GET(getRequest("pat"))).status).toBe(401);
     expect(listUsers).not.toHaveBeenCalled();
   });
@@ -314,7 +314,7 @@ describe("admin users route", () => {
       email: "sam.future@example.com",
       plan: "pro",
       grantedByUserId: "admin-1",
-      grantedByEmail: "lawrence@manaflow.ai",
+      grantedByEmail: "admin@manaflow.ai",
       appliedAt: null,
       revokedAt: null,
       createdAt: new Date("2026-09-02T00:00:00.000Z"),
@@ -379,7 +379,7 @@ describe("admin users route", () => {
     expect(target.serverMetadata.cmuxAdminPlanGrant).toMatchObject({
       plan: "pro",
       byUserId: "admin-1",
-      byEmail: "lawrence@manaflow.ai",
+      byEmail: "admin@manaflow.ai",
     });
   });
 
@@ -471,7 +471,7 @@ describe("admin email grants route", () => {
     expect(body.pendingGrant).not.toHaveProperty("unclearedUserIds");
     expect(body.unclearedUserIds).toEqual([]);
     expect(pendingGrantRows).toHaveLength(1);
-    expect(pendingGrantRows[0]).toMatchObject({ grantedByUserId: "admin-1", grantedByEmail: "lawrence@manaflow.ai" });
+    expect(pendingGrantRows[0]).toMatchObject({ grantedByUserId: "admin-1", grantedByEmail: "admin@manaflow.ai" });
 
     const revoked = await DELETE_EMAIL_GRANTS(
       postRequest({ grantId: body.pendingGrant.id }, {}, "/api/admin/email-grants", "DELETE"),

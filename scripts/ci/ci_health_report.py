@@ -41,14 +41,17 @@ import argparse
 import dataclasses
 import datetime as dt
 import gzip
+import http.client
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +68,7 @@ from runner_label_policy import (  # noqa: E402
     PolicyUnreadable,
     drifted_runner_variables,
 )
+import actions_cache_report as cache_report  # noqa: E402
 
 
 API = "https://api.github.com"
@@ -97,6 +101,10 @@ SKIPPED_WORKFLOW_RATIO = 0.90
 SKIPPED_WORKFLOW_MIN_RUNS = 20
 CANCELLED_MACOS_WASTE_MINUTES = 5.0
 REPEATED_FAILURE_MIN_HEADS = 3
+# The events whose runs are never superseded: a base branch failing on commit after commit is the main-broken
+# signal itself. Every other run that links a pull request (pull_request, pull_request_target, workflow_run,
+# review and comment events) is judged by that pull request's head.
+NEVER_SUPERSEDED_EVENTS = frozenset({"push", "schedule"})
 UNCHANGED_TREE_MIN_RUNS = 2
 
 START_MARKER = "<!-- ci-health-report:start -->"
@@ -244,6 +252,10 @@ class JobRow:
     branch: str
     event: str
     fork: bool
+    # The pull requests into this repository the run belongs to, by number, from its `pull_requests` link
+    # (empty for a fork's run, whose link GitHub leaves empty, and for a deleted head repository). A pull
+    # request's identity is its number, never its branch name: a branch can be renamed or shared by forks.
+    prs: tuple[int, ...] = ()
 
 
 def never_got_a_runner(job: Mapping[str, Any]) -> bool:
@@ -254,6 +266,34 @@ def never_got_a_runner(job: Mapping[str, Any]) -> bool:
     `runner_id: null` instead and no start time, so it is not matched here.
     """
     return job.get("runner_id") == 0 and not job.get("runner_name") and not job.get("steps")
+
+
+def link_repo(pull: Mapping[str, Any], side: str = "base") -> str:
+    """The `side` ("base" or "head") repository of a `pull_requests` entry, as lower-case owner/name ("" when
+    unknown).
+
+    GitHub's run listing names it by `repo.url` (api.github.com/repos/OWNER/NAME); a fuller payload has
+    `full_name`. A bare `name` is not an identity: another owner's fork can share it."""
+    repo = (pull.get(side) or {}).get("repo") or {}
+    full = str(repo.get("full_name") or "")
+    if not full:
+        url = str(repo.get("url") or "")
+        if "/repos/" in url:
+            full = url.split("/repos/", 1)[1].strip("/")
+    return full.lower() if full.count("/") == 1 else ""
+
+
+def pull_links(run: Mapping[str, Any], repo: str) -> list[Mapping[str, Any]]:
+    """The run's `pull_requests` entries that are this run's own pull requests: into `repo` (full owner/name),
+    with a number, and whose head repository is the run's head repository. GitHub also links a push or
+    dispatch run to any fork pull request whose head commit matches; its head repository is the fork, so
+    it is never taken for the run's own. A run whose head repository is unknown has no links."""
+    head_repo = str(((run.get("head_repository") or {}).get("full_name")) or "").lower()
+    if not head_repo:
+        return []
+    return [pull for pull in run.get("pull_requests") or ()
+            if isinstance(pull, Mapping) and isinstance(pull.get("number"), int)
+            and link_repo(pull) == repo.lower() and link_repo(pull, "head") == head_repo]
 
 
 def job_rows(run: Mapping[str, Any], jobs: Iterable[Mapping[str, Any]], repo: str) -> list[JobRow]:
@@ -296,6 +336,7 @@ def job_rows(run: Mapping[str, Any], jobs: Iterable[Mapping[str, Any]], repo: st
                 branch=str(run.get("head_branch") or ""),
                 event=str(run.get("event") or ""),
                 fork=fork,
+                prs=tuple(pull["number"] for pull in pull_links(run, repo)),
             )
         )
     return rows
@@ -455,20 +496,79 @@ class RepeatedFailure:
     branches: tuple[str, ...]
 
 
+def pull_request_heads(runs: Iterable[Mapping[str, Any]], repo: str) -> dict[int, str]:
+    """Each pull request's current head, by pull request number, from the window's runs.
+
+    GitHub fills a run's `pull_requests[].head.sha` with the pull request's head
+    when the run is read, on old runs too (on manaflow-ai/cmux 2026-10-28, runs
+    for a superseded head listed the pull request's newer head), so it names the
+    head the pull request has now. A link with no head sha falls back to the
+    head_sha of that pull request's newest run (by creation, then id). Runs with
+    no link (a fork's, a deleted head repository's) name no head: a branch name
+    is never an identity. Every linked run says where its pull request is, push
+    and schedule runs too (only `superseded` exempts their rows). Only links into
+    `repo` (full owner/name) count, so a
+    pull request of the same number in another repository never names this one's
+    head.
+    """
+    linked: dict[int, str] = {}
+    newest: dict[int, tuple[tuple[str, int], str]] = {}
+    for run in runs:
+        stamp = (str(run.get("created_at") or ""), int(run.get("id") or 0))
+        sha = str(run.get("head_sha") or "")
+        for pull in pull_links(run, repo):
+            number = pull["number"]
+            head = str(((pull.get("head") or {}).get("sha")) or "")
+            if head:
+                linked[number] = head
+            if sha and (number not in newest or stamp > newest[number][0]):
+                newest[number] = (stamp, sha)
+    return {**{number: sha for number, (_, sha) in newest.items()}, **linked}
+
+
+def superseded(row: JobRow, heads: Mapping[int, str]) -> bool:
+    """A pull request job whose head is no longer that pull request's head.
+
+    Its red says nothing about the pull request as it is (2026-10-28: 22 CLA
+    policy guard "identity mismatch" reds were stale events for heads already
+    replaced, and every one of those pull requests was green at its head).
+    Push and schedule runs are never superseded here: a base branch failing on
+    commit after commit is the main-broken signal itself. A job is matched to
+    its pull requests by number only; one with no pull request link (a fork's
+    run, a deleted head repository's) is never superseded. A run that several
+    pull requests share is superseded only when every one of them is known and
+    has moved past it: it is still current for any that has not.
+    """
+    if row.event in NEVER_SUPERSEDED_EVENTS or not row.prs:
+        return False
+    return all(number in heads and heads[number] != row.head_sha for number in row.prs)
+
+
 def repeated_job_failures(
-    rows: Iterable[JobRow], min_heads: int = REPEATED_FAILURE_MIN_HEADS
+    rows: Iterable[JobRow],
+    min_heads: int = REPEATED_FAILURE_MIN_HEADS,
+    runs: Iterable[Mapping[str, Any]] | None = None,
+    repo: str = "",
 ) -> list[RepeatedFailure]:
     """One job failing across unrelated heads: main is broken, not a PR.
 
     Grouping by head SHA is what makes it a main signal. A single PR failing
     the same job ten times is one author's problem; the same job failing on
     heads that share nothing is everybody's.
+
+    With `runs` (the window's runs) and `repo` (the repository the rows were
+    read from, owner/name), a pull request failure counts only at that pull
+    request's current head (`superseded`): one pull request pushed four times is
+    one head, not four.
     """
+    current = pull_request_heads(runs, repo) if runs is not None and repo else {}
     heads: dict[tuple[str, str], set[str]] = defaultdict(set)
     branches: dict[tuple[str, str], set[str]] = defaultdict(set)
     counts: dict[tuple[str, str], int] = defaultdict(int)
     for row in rows:
         if row.bucket != "failure":
+            continue
+        if superseded(row, current):
             continue
         key = (row.workflow, row.job)
         heads[key].add(row.head_sha)
@@ -957,6 +1057,7 @@ def render_report(
     now: dt.datetime,
     api_calls: int,
     limit: int = 12,
+    cache_section: Sequence[str] = (),
 ) -> str:
     """The whole report as markdown; identical in the step summary and the issue."""
     lines: list[str] = []
@@ -1063,8 +1164,10 @@ def render_report(
         lines.append("_None in the sample._")
     lines.append("")
 
-    repeated = repeated_job_failures(current.rows)
+    repeated = repeated_job_failures(current.rows, runs=current.runs, repo=repo)
     lines.append(f"**Same job failing across ≥{REPEATED_FAILURE_MIN_HEADS} unrelated heads (main-broken signal)**")
+    lines.append("")
+    lines.append("_A pull request's failure counts only at its current head._")
     lines.append("")
     if repeated:
         lines.append("| Workflow / job | distinct heads | failures | branches |")
@@ -1145,6 +1248,7 @@ def render_report(
         f"{fork_minutes:.0f} runner minutes."
     )
     lines.append("")
+    lines += list(cache_section)
     lines.append(
         "_This report only measures. Cancelling wasted demand is the queue janitor's job "
         "(`scripts/ci/queue_janitor.py`). Thresholds and what to do when one trips: "
@@ -1206,6 +1310,8 @@ class GitHub:
     def __init__(self, token: str, repo: str) -> None:
         self.repo = repo
         self.calls = 0
+        # Jobs whose log was longer than job_log's cap and was read cut short.
+        self.truncated_logs: set[int] = set()
         self.headers = {
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {token}",
@@ -1296,6 +1402,82 @@ class GitHub:
                 break
         return jobs
 
+    def caches(self, max_pages: int) -> list[dict[str, Any]]:
+        """The repository's GitHub cache entries, largest first."""
+        entries: list[dict[str, Any]] = []
+        for page in range(1, max_pages + 1):
+            query = urllib.parse.urlencode(
+                {"per_page": 100, "page": page, "sort": "size_in_bytes", "direction": "desc"}
+            )
+            batch = self.request("GET", f"/repos/{self.repo}/actions/caches?{query}").get("actions_caches") or []
+            entries.extend(batch)
+            if len(batch) < 100:
+                break
+        return entries
+
+    def cache_usage(self) -> dict[str, Any]:
+        return self.request("GET", f"/repos/{self.repo}/actions/cache/usage")
+
+    def job_log(self, job_id: int, max_bytes: int = 32 * 1024 * 1024) -> str:
+        """One job's log. The API answers with a redirect to signed blob storage,
+        which is fetched without the token: the token must not leave GitHub.
+        A log longer than `max_bytes` is cut there and its job lands in
+        `truncated_logs`."""
+        self.calls += 1
+        endpoint = f"/repos/{self.repo}/actions/jobs/{job_id}/logs"
+
+        class NoRedirect(urllib.request.HTTPRedirectHandler):
+            def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+                return None
+
+        opener = urllib.request.build_opener(NoRedirect)
+        request = urllib.request.Request(API + endpoint, headers=self.headers, method="GET")
+        location = ""
+        try:
+            with opener.open(request, timeout=60) as response:
+                raw = response.read(max_bytes + 1)
+                if response.headers.get("Content-Encoding") == "gzip":
+                    try:
+                        inflater = zlib.decompressobj(wbits=31)
+                        text = inflater.decompress(raw, max_bytes + 1)
+                    except zlib.error as error:
+                        raise RuntimeError(f"GET {endpoint} sent a bad gzip body ({error})") from error
+                    if len(raw) > max_bytes and not inflater.eof:
+                        self.truncated_logs.add(job_id)  # the compressed body passed the cap
+                    raw = text
+                return self._cap_log(job_id, raw, max_bytes)
+        except urllib.error.HTTPError as error:
+            if error.code not in (301, 302, 303, 307, 308):
+                remaining = error.headers.get("x-ratelimit-remaining") if error.headers else None
+                if error.code in (403, 429) and remaining == "0":
+                    raise RateLimited(f"rate limited on {endpoint} ({error.code})") from error
+                raise RuntimeError(f"GET {endpoint} failed ({error.code})") from error
+            location = error.headers.get("Location") or ""
+        except urllib.error.URLError as error:
+            raise RuntimeError(f"GET {endpoint} failed ({error.reason})") from error
+        except (OSError, http.client.HTTPException) as error:  # a timeout or a cut connection
+            raise RuntimeError(f"GET {endpoint} failed ({type(error).__name__})") from error
+        if not location.startswith("https://"):
+            raise RuntimeError(f"GET {endpoint} redirected nowhere usable")
+        blob = urllib.request.Request(location, headers={"User-Agent": self.headers["User-Agent"]})
+        try:
+            with urllib.request.urlopen(blob, timeout=120) as response:
+                return self._cap_log(job_id, response.read(max_bytes + 1), max_bytes)
+        # The signed blob URL is a credential, and these notes are published:
+        # name the status or the error class, never the URL.
+        except urllib.error.HTTPError as error:
+            raise RuntimeError(f"job {job_id} log download failed ({error.code})") from error
+        except urllib.error.URLError as error:
+            raise RuntimeError(f"job {job_id} log download failed ({type(error.reason).__name__})") from error
+        except (OSError, http.client.HTTPException) as error:
+            raise RuntimeError(f"job {job_id} log download failed ({type(error).__name__})") from error
+
+    def _cap_log(self, job_id: int, raw: bytes, max_bytes: int) -> str:
+        if len(raw) > max_bytes:
+            self.truncated_logs.add(job_id)
+            raw = raw[:max_bytes]
+        return raw.decode("utf-8", errors="replace")
+
     def issue(self, number: int) -> dict[str, Any]:
         return self.request("GET", f"/repos/{self.repo}/issues/{number}")
 
@@ -1328,6 +1510,8 @@ def collect_window(
     jobs_per_workflow: int,
     window_slices: int,
     linux_only: frozenset[str],
+    cache_jobs: list[tuple[str, str, int]] | None = None,
+    cache_setup_only: set[int] | None = None,
 ) -> WindowMetrics:
     runs, slices, partial = github.runs_in_window(window, max_run_pages, window_slices)
     runs.sort(key=lambda run: str(run.get("created_at") or ""), reverse=True)
@@ -1347,8 +1531,77 @@ def collect_window(
             break
         sampled += 1
         rows.extend(job_rows(run, jobs, repo))
+        if cache_jobs is not None and cache_log_candidate(run, repo):
+            for job in jobs:
+                rank = cache_report.is_cache_job(job) if job.get("id") else cache_report.NOT_CACHE_JOB
+                if rank == cache_report.NOT_CACHE_JOB:
+                    continue
+                cache_jobs.append((workflow_name(run), str(job.get("name") or ""), int(job["id"])))
+                if rank == cache_report.SETUP_ONLY_JOB and cache_setup_only is not None:
+                    cache_setup_only.add(int(job["id"]))
     return build_metrics(
         window=window, runs=runs, rows=rows, sampled_runs=sampled, partial=partial, slices=slices
+    )
+
+
+def cache_log_candidate(run: Mapping[str, Any], repo: str) -> bool:
+    """A fork's run can add steps that print forged cache lines, so only this
+    repository's own runs feed the restore sample."""
+    head = ((run.get("head_repository") or {}).get("full_name")) or ""
+    return bool(head) and not is_fork_run(run, repo)
+
+
+# What a read can raise: RuntimeError (RateLimited included) from GitHub's
+# wrappers, and a raw timeout or cut connection.
+CACHE_READ_ERRORS = (RuntimeError, OSError, http.client.HTTPException)
+# Log reads stop once this much time has gone, so the section can never take the
+# job past its timeout (each signed-blob read can take up to two minutes).
+CACHE_LOG_BUDGET_S = 300.0
+
+
+def collect_cache_section(
+    github: GitHub,
+    cache_jobs: Sequence[tuple[str, str, int]],
+    *,
+    log_sample: int,
+    setup_only: Collection[int] = (),
+    budget_s: float = CACHE_LOG_BUDGET_S,
+    clock: Callable[[], float] = time.monotonic,
+) -> list[str]:
+    """The Actions cache section: the GitHub store, and restores from a bounded
+    sample of job logs. A failed read leaves a note, never a failed report."""
+    notes: list[str] = []
+    store = None
+    try:
+        entries = github.caches(cache_report.MAX_STORE_PAGES)
+    except CACHE_READ_ERRORS as error:
+        notes.append(f"GitHub cache store not read: {error}")
+    else:
+        usage = None
+        try:
+            usage = github.cache_usage()
+        except CACHE_READ_ERRORS as error:
+            notes.append(f"GitHub cache usage not read, so the store figures are the listed entries only: {error}")
+        store = cache_report.summarize_store(entries, usage)
+    sampled: list[tuple[str, int, list[cache_report.CacheEvent]]] = []
+    deadline = clock() + budget_s
+    for workflow, _job, job_id in cache_report.choose_log_jobs(cache_jobs, log_sample, setup_only):
+        if clock() >= deadline:
+            notes.append(f"log sampling stopped after {len(sampled)} jobs: the {budget_s:.0f}s budget ran out")
+            break
+        try:
+            text = github.job_log(job_id)
+        except RateLimited as error:
+            notes.append(f"log sampling stopped after {len(sampled)} jobs: {error}")
+            break
+        except CACHE_READ_ERRORS as error:
+            notes.append(f"a log was skipped: {error}")
+            continue
+        sampled.append((workflow, job_id, cache_report.parse_job_log(text)))
+    for job_id in sorted(getattr(github, "truncated_logs", ())):
+        notes.append(f"job {job_id} log was cut at the read cap; restores after the cut are not counted")
+    return cache_report.render_section(
+        store, cache_report.aggregate_restores(sampled), sampled_logs=len(sampled), notes=notes
     )
 
 
@@ -1409,8 +1662,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_job_listings = args.max_job_listings if args.max_job_listings is not None else env_int("MAX_JOB_LISTINGS", DEFAULT_MAX_JOB_LISTINGS)
         jobs_per_workflow = args.jobs_per_workflow if args.jobs_per_workflow is not None else env_int("JOBS_PER_WORKFLOW", DEFAULT_JOBS_PER_WORKFLOW)
         window_slices = args.window_slices if args.window_slices is not None else env_int("WINDOW_SLICES", AUTO_WINDOW_SLICES)
+        cache_log_jobs = env_int("CACHE_LOG_JOBS", cache_report.DEFAULT_LOG_SAMPLE)
     except ValueError:
         print("ci-health-report: window and cap settings must be integers", file=sys.stderr)
+        return 2
+    if not 0 <= cache_log_jobs <= 60:
+        print("ci-health-report: cache log jobs must be 0..60", file=sys.stderr)
         return 2
     if window_hours < 1 or not 1 <= max_run_pages <= 100 or not 0 <= max_job_listings <= 400:
         print("ci-health-report: window must be >= 1h, run pages 1..100, job listings 0..400", file=sys.stderr)
@@ -1429,10 +1686,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     current_window, previous_window = windows(now, window_hours)
     linux_only = linux_only_workflow_paths(args.workflows_dir)
 
+    cache_jobs: list[tuple[str, str, int]] = []
+    cache_setup_only: set[int] = set()
     current = collect_window(
         github, current_window, repo=args.repo, max_run_pages=max_run_pages,
         max_job_listings=max_job_listings, jobs_per_workflow=jobs_per_workflow,
-        window_slices=window_slices, linux_only=linux_only,
+        window_slices=window_slices, linux_only=linux_only, cache_jobs=cache_jobs,
+        cache_setup_only=cache_setup_only,
     )
     # The previous window only has to carry the headline comparison, so it gets
     # a smaller share of the call budget.
@@ -1442,7 +1702,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         window_slices=window_slices, linux_only=linux_only,
     )
 
-    report = render_report(current, previous, repo=args.repo, now=now, api_calls=github.calls)
+    cache_section = collect_cache_section(
+        github, cache_jobs, log_sample=cache_log_jobs, setup_only=cache_setup_only
+    )
+    report = render_report(
+        current, previous, repo=args.repo, now=now, api_calls=github.calls, cache_section=cache_section
+    )
     print(report)
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as handle:

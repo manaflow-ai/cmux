@@ -18,7 +18,7 @@ describe("billing alert checks", () => {
     const summary = await runBillingAlertChecks({
       now: new Date("2026-09-10T06:00:00.000Z"),
       sendAlert,
-      countWebhookErrors: async () => ({ count: 2, types: ["checkout.session.completed"], latest: "Stack Auth user lookup exceeded its bounded page budget" }),
+      countWebhookErrors: async () => ({ count: 2, types: ["checkout.session.completed"], latest: "Stack Auth user lookup exceeded its bounded page budget", eventIds: [] }),
       countUnsentPurchaseEmails: async () => 0,
     });
     expect(summary.webhookErrors).toEqual({ triggered: true, count: 2 });
@@ -29,12 +29,29 @@ describe("billing alert checks", () => {
     expect(sent[0]?.body).toContain("bounded page budget");
   });
 
+  test("the webhook alert names the failing events and passes the retryable grace cutoff", async () => {
+    const { sent, sendAlert } = recorder();
+    const cutoffs: Date[] = [];
+    await runBillingAlertChecks({
+      now: new Date("2026-09-10T06:00:00.000Z"),
+      sendAlert,
+      countWebhookErrors: async (_since, retryableBefore) => {
+        cutoffs.push(retryableBefore);
+        return { count: 1, types: ["customer.subscription.created"], latest: "retryable: Another account mutation is still in progress.", eventIds: ["evt_1"] };
+      },
+      countUnsentPurchaseEmails: async () => 0,
+    });
+    expect(cutoffs).toEqual([new Date("2026-09-10T05:45:00.000Z")]);
+    expect(sent[0]?.body).toContain("evt_1");
+    expect(sent[0]?.body).not.toContain("no entitlement");
+  });
+
   test("unsent purchase emails older than the grace period warn once per run", async () => {
     const { sent, sendAlert } = recorder();
     const summary = await runBillingAlertChecks({
       now: new Date("2026-09-10T06:00:00.000Z"),
       sendAlert,
-      countWebhookErrors: async () => ({ count: 0, types: [], latest: null }),
+      countWebhookErrors: async () => ({ count: 0, types: [], latest: null, eventIds: [] }),
       countUnsentPurchaseEmails: async () => 3,
     });
     expect(summary.unsentPurchaseEmails).toEqual({ triggered: true, count: 3 });
@@ -47,7 +64,7 @@ describe("billing alert checks", () => {
     const summary = await runBillingAlertChecks({
       now: new Date("2026-09-10T06:00:00.000Z"),
       sendAlert,
-      countWebhookErrors: async () => ({ count: 0, types: [], latest: null }),
+      countWebhookErrors: async () => ({ count: 0, types: [], latest: null, eventIds: [] }),
       countUnsentPurchaseEmails: async () => 0,
     });
     expect(sent).toHaveLength(0);

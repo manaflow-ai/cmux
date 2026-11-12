@@ -3,8 +3,8 @@ import { TeamApiError } from "./errors";
 import { TEAM_ADMIN_PERMISSION } from "./permissions";
 import { databaseTeamInviteStore, type TeamInviteStore, type TeamLockDb, withTeamAdminLock } from "./repository";
 import { defaultTeamSeatSync, type TeamSeatSync } from "./seatSync";
-import { defaultTeamStackApp, withStackDeadline, type TeamStackApp } from "./stack";
-import type { TeamRole } from "./types";
+import { defaultTeamStackApp, withStackDeadline, type StackTeamMember, type TeamStackApp } from "./stack";
+import type { TeamMember, TeamRole } from "./types";
 
 export type MemberMutationDependencies = {
   readonly stack?: TeamStackApp;
@@ -12,6 +12,11 @@ export type MemberMutationDependencies = {
   readonly lock?: <T>(teamId: string, operation: (db?: TeamLockDb) => Promise<T>) => Promise<T>;
   readonly store?: TeamInviteStore;
   readonly seats?: TeamSeatSync;
+  /**
+   * Re-read the team inside the lock. Defaults to the caller's membership
+   * view; a cmux operator (not a member) passes its own loader.
+   */
+  readonly loadAccess?: (teamId: string, stack: TeamStackApp) => Promise<TeamAccess | null>;
 };
 
 /**
@@ -27,10 +32,27 @@ async function withFreshTeam<T>(
   const stack = dependencies.stack ?? defaultTeamStackApp();
   const lock = dependencies.lock ?? withTeamAdminLock;
   return lock(access.team.id, async (db) => {
-    const fresh = await loadTeamAccess(access.userId, access.team.id, stack);
+    const fresh = dependencies.loadAccess
+      ? await dependencies.loadAccess(access.team.id, stack)
+      : await loadTeamAccess(access.userId, access.team.id, stack);
     if (!fresh) throw new TeamApiError("team_not_found", 403);
     return operation(fresh, stack, db);
   });
+}
+
+/**
+ * The roster's member shape. Every reply that carries a member uses this, so
+ * a client can decode one the same way wherever it came from.
+ */
+export function toTeamMember(access: TeamAccess, member: StackTeamMember, role: TeamRole = memberRole(access, member.id)): TeamMember {
+  return {
+    userId: member.id,
+    displayName: member.teamProfile?.displayName ?? member.displayName ?? null,
+    email: member.primaryEmail ?? null,
+    profileImageUrl: member.teamProfile?.profileImageUrl ?? member.profileImageUrl ?? null,
+    role,
+    isViewer: member.id === access.userId,
+  };
 }
 
 /** Throw `last_admin` when removing `userId`'s admin role would leave none. */
@@ -46,22 +68,25 @@ export async function changeMemberRole(
   targetUserId: string,
   role: TeamRole,
   dependencies: MemberMutationDependencies = {},
-): Promise<{ userId: string; role: TeamRole }> {
+): Promise<TeamMember> {
   return withFreshTeam(access, dependencies, async (fresh, stack) => {
     if (fresh.role !== "admin") throw new TeamApiError("forbidden", 403);
-    if (!fresh.members.some((member) => member.id === targetUserId)) {
+    const target = fresh.members.find((member) => member.id === targetUserId);
+    if (!target) {
       throw new TeamApiError("member_not_found", 404);
     }
     const current = memberRole(fresh, targetUserId);
-    if (current === role) return { userId: targetUserId, role };
+    // The requested role, not `memberRole(fresh, ...)`: `fresh` is a snapshot
+    // taken before the grant below, so it still reports the old role.
+    if (current === role) return toTeamMember(fresh, target, role);
     if (role === "member") assertNotLastAdmin(fresh, targetUserId);
     await withStackDeadline(async () => {
-      const target = await stack.getUser(targetUserId);
-      if (!target) throw new Error("team member user not found");
-      if (role === "admin") await target.grantPermission(fresh.team, TEAM_ADMIN_PERMISSION);
-      else await target.revokePermission(fresh.team, TEAM_ADMIN_PERMISSION);
+      const user = await stack.getUser(targetUserId);
+      if (!user) throw new Error("team member user not found");
+      if (role === "admin") await user.grantPermission(fresh.team, TEAM_ADMIN_PERMISSION);
+      else await user.revokePermission(fresh.team, TEAM_ADMIN_PERMISSION);
     });
-    return { userId: targetUserId, role };
+    return toTeamMember(fresh, target, role);
   });
 }
 

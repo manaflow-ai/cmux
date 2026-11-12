@@ -27,7 +27,7 @@ jobs:
     name: Prune expired cache archives
     # The bucket credentials only ever run main's copy of this script.
     if: ${{ github.ref == 'refs/heads/main' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     # Only main may use the R2 write credentials (see #14147).
     environment: ${{ github.ref == 'refs/heads/main' && 'ci-cache-writer' || '' }}
@@ -44,7 +44,8 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
           R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
           R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
-          PRUNE_DELETE: ${{ (inputs.delete || vars.CI_R2_CACHE_PRUNE_DELETE == '1') && 'true' || 'false' }}
+          # A dispatch decides by its input alone; the variable governs scheduled runs.
+          PRUNE_DELETE: ${{ ((github.event_name == 'workflow_dispatch' && inputs.delete) || (github.event_name == 'schedule' && vars.CI_R2_CACHE_PRUNE_DELETE == '1')) && 'true' || 'false' }}
         run: |
           set -euo pipefail
           args=(--endpoint-url "$R2_ENDPOINT" --bucket "$R2_BUCKET")

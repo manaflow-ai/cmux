@@ -69,7 +69,7 @@ struct CmuxTuiSurfaceProviderRegistryPollingTests {
         registry.start(catalog: SurfaceCatalog())
         #expect(registry.isPolling == false)
 
-        // Settings › Beta Features › Cloud Machines turned on.
+        // Cloud activation marker turned on.
         allowed.isOn = true
         center.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
         #expect(await waitUntil { registry.isPolling })

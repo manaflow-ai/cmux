@@ -34,6 +34,8 @@ protocol SurfaceProvider: AnyObject {
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?) async throws -> SurfaceResource
     /// Retries of one UI intent carry the same id so a remote mutation can replay its receipt.
     func createTerminal(command: [String]?, cwd: String?, name: String?, remoteWorkspaceID: String?, request: CloudTerminalCreationRequest) async throws -> SurfaceResource
+    /// Create a browser in a remote workspace and return its committed daemon resource.
+    func createBrowser(url: URL, name: String?, remoteWorkspaceID: String?, screenID: String?, paneID: String?, idempotencyKey: String?, correlationKey: String?) async throws -> SurfaceResource
     /// Read the live working directory of a terminal's foreground process. Remote
     /// providers use this when a shortcut creates a sibling terminal; providers that
     /// cannot inspect a process return nil and preserve their normal daemon fallback.
@@ -47,6 +49,10 @@ protocol SurfaceProvider: AnyObject {
     /// already published. Their panes are placeholders until the provider
     /// materializes them, and no later publish is guaranteed to follow.
     func projectionsRestored()
+    /// Rebind only projections that became resolvable during the latest publication.
+    /// The default keeps providers that do not maintain a targeted reprojection path compatible.
+    /// Rebinds only the restored resources that became available in a publication.
+    func projectionsRestored(resources: Set<SurfaceResourceID>)
     /// End a terminal on this machine (the process and its remote tab). Providers that
     /// cannot (the local machine) throw `SurfaceCatalogError.unsupported`.
     func closeTerminal(_ id: SurfaceResourceID) async throws
@@ -91,6 +97,10 @@ extension SurfaceProvider {
         try await createTerminal(command: command, cwd: cwd, name: name, remoteWorkspaceID: remoteWorkspaceID)
     }
 
+    func createBrowser(url: URL, name: String?, remoteWorkspaceID: String?, screenID: String?, paneID: String?, idempotencyKey: String?, correlationKey: String?) async throws -> SurfaceResource {
+        throw SurfaceCatalogError.unsupported("browsers on \(machine)")
+    }
+
     /// Legacy providers predate the capability bit and are assumed to support
     /// previews until their concrete implementation says otherwise.
     var supportsPortPreviews: Bool { true }
@@ -104,6 +114,8 @@ extension SurfaceProvider {
     }
 
     func projectionsRestored() {}
+
+    func projectionsRestored(resources: Set<SurfaceResourceID>) { projectionsRestored() }
 
     func materialize(_ resource: SurfaceResource, remoteView: SurfaceRemoteView?, at destination: SurfaceDestination, focus: Bool) async throws -> SurfaceProjection {
         try await materialize(resource, at: destination, focus: focus)

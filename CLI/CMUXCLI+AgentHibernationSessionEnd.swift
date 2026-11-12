@@ -89,8 +89,9 @@ extension ClaudeHookSessionRecord {
 
 extension CMUXCLI {
     /// Asks the app whether this hook belongs to a pre-signaled hibernation
-    /// generation. Unknown methods are treated as a negative answer so older
-    /// app builds retain their existing cleanup behavior.
+    /// generation, or to a local agent from a previous app instance. Unknown
+    /// methods are treated as a negative answer so older app builds retain
+    /// their existing cleanup behavior.
     func shouldPreserveClaudeSessionEndForHibernation(
         mappedSession: ClaudeHookSessionRecord?,
         parsedInput: ClaudeHookParsedInput,
@@ -112,6 +113,10 @@ extension CMUXCLI {
             "pid": pid,
             "pid_start_seconds": processIdentity.startSeconds,
             "pid_start_microseconds": processIdentity.startMicroseconds,
+            // A relayed PID names a remote process; only a local one can be
+            // ordered against the app's own launch.
+            "local_process": !client.isRelayBacked
+                && environment[agentHookRelayOriginEnvironmentKey] != "1",
         ]
         do {
             let result = try client.sendV2(

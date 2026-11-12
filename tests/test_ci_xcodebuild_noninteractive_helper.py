@@ -593,6 +593,47 @@ def main() -> int:
         )
         return 1
 
+    # xcodebuild's own verdict line means it is writing the result bundle;
+    # the post-test deadline restarts once there instead of cutting the write.
+    with tempfile.TemporaryDirectory() as finalize_dir:
+        finalized = Path(finalize_dir) / "Info.plist"
+        finalizing_child = textwrap.dedent(
+            f"""
+            import time
+            from pathlib import Path
+
+            print("Test Suite 'Selected tests' passed at now", flush=True)
+            time.sleep(1.4)
+            print("** TEST EXECUTE SUCCEEDED **", flush=True)
+            time.sleep(1.4)
+            Path({str(finalized)!r}).write_text("finalized")
+            """
+        )
+        finalizing_result = subprocess.run(
+            [sys.executable, str(HELPER), sys.executable, "-c", finalizing_child],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=15,
+            env={
+                **os.environ,
+                "CMUX_XCODEBUILD_NONINTERACTIVE_POST_TEST_TIMEOUT_SECONDS": "2",
+            },
+        )
+        if (
+            finalizing_result.returncode != 0
+            or not finalized.exists()
+            or "printed its verdict" not in finalizing_result.stdout
+        ):
+            print(finalizing_result.stdout, end="")
+            print(finalizing_result.stderr, end="", file=sys.stderr)
+            print(
+                "FAIL: post-test timeout stopped xcodebuild while it finalized the result bundle "
+                f"(exit {finalizing_result.returncode})"
+            )
+            return 1
+
     mixed_framework_child = textwrap.dedent(
         """
         import time

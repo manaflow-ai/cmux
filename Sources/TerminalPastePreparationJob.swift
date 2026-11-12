@@ -18,5 +18,7 @@ struct TerminalPastePreparationJob {
     >
     var phase: Phase = .preparing
     var deadlineTask: Task<Void, Never>?
+    /// Identifies `deadlineTask`; an expiry from a replaced task is ignored.
+    var deadlineGeneration = UUID()
     var operationTask: Task<Void, Never>?
 }

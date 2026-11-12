@@ -34,6 +34,62 @@ def run_runner(package: pathlib.Path, env: dict[str, str]) -> subprocess.Complet
 
 
 class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
+    def test_a_local_dependency_in_an_empty_submodule_is_populated_first(self) -> None:
+        """Fleet ci-steps check the ref out with every submodule deinitialized, so
+        CmuxAppKitSupportUI (through CmuxWorkspaces' .package(path: vendor/bonsplit))
+        failed at `swift test list`: vendor/bonsplit/Package.swift doesn't exist
+        (step 97793621e02e, 2026-10-12). Only submodules a local dependency reaches
+        are populated; ghostty is not."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp = pathlib.Path(temp_dir)
+            git_env = os.environ.copy()
+            git_env.update(
+                GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@example.com",
+                GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@example.com",
+                GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="protocol.file.allow", GIT_CONFIG_VALUE_0="always",
+            )
+
+            def git(*args: str, cwd: pathlib.Path) -> None:
+                subprocess.run(["git", *args], cwd=cwd, env=git_env, check=True, capture_output=True)
+
+            for name in ("dep", "big"):
+                source = temp / name
+                source.mkdir()
+                git("init", "-q", cwd=source)
+                (source / "Package.swift").write_text(f"// {name}\n", encoding="utf-8")
+                git("add", "-A", cwd=source)
+                git("commit", "-qm", name, cwd=source)
+            repo = temp / "repo"
+            repo.mkdir()
+            git("init", "-q", cwd=repo)
+            git("submodule", "add", "-q", f"file://{temp / 'dep'}", "vendor/dep", cwd=repo)
+            git("submodule", "add", "-q", f"file://{temp / 'big'}", "big", cwd=repo)
+            for name, deps in (("App", ['"../Lib"']), ("Lib", ['"../../vendor/dep"'])):
+                package = repo / "Packages" / name
+                package.mkdir(parents=True)
+                lines = "".join(f"        .package(path: {d}),\n" for d in deps)
+                (package / "Package.swift").write_text(f"let package = Package(\n    dependencies: [\n{lines}    ]\n)\n", encoding="utf-8")
+            git("add", "-A", cwd=repo)
+            git("commit", "-qm", "repo", cwd=repo)
+            git("submodule", "deinit", "-q", "-f", "--all", cwd=repo)
+
+            fake_swift = temp / "bin" / "swift"
+            fake_swift.parent.mkdir()
+            fake_swift.write_text(
+                "#!/usr/bin/env bash\n"
+                f"root={repo}\n"
+                "[ -f \"$root/vendor/dep/Package.swift\" ] || { echo \"error: $root/vendor/dep/Package.swift doesn't exist\" >&2; exit 1; }\n"
+                "[ ! -f \"$root/big/Package.swift\" ] || { echo 'error: populated big, which no package reaches' >&2; exit 1; }\n"
+                "if [ \"$1 $2\" = 'test list' ]; then echo 'ExampleTests.Suite/testOne()'; exit 0; fi\n"
+                "echo 'Test run with 1 test passed after 0.001 seconds.'\n",
+                encoding="utf-8",
+            )
+            fake_swift.chmod(0o755)
+            env = git_env.copy()
+            env["PATH"] = f"{fake_swift.parent}:{env['PATH']}"
+            completed = run_runner(repo / "Packages" / "App", env)
+            self.assertEqual(completed.returncode, 0, completed.stdout)
+
     def test_success_exit_requires_completed_nonzero_execution(self) -> None:
         for output in (
             "Test run with 0 tests passed after 0.001 seconds.",

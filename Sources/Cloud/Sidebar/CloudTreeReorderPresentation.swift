@@ -29,6 +29,7 @@ final class CloudTreeReorderPresentation {
         if let sequence, let destination, destination.sequence != sequence { return }
         destination = nil
         indicator.isHidden = true
+        indicator.removeFromSuperview()
     }
 
     /// Recomputes the indicator position after outline rows change.

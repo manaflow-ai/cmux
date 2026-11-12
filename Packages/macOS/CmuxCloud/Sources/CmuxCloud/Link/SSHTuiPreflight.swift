@@ -8,9 +8,16 @@ import Foundation
 /// `ssh … true` returns OpenSSH's diagnostic in seconds instead. With connection
 /// sharing configured it also opens the master the carrier then multiplexes over.
 public struct SSHTuiPreflight: Sendable {
-    public init(connection: SSHTuiConnection, commands: any CommandRunning = CommandRunner(), timeout: TimeInterval = 30) {
+    /// Creates a prompt-free SSH route check.
+    ///
+    /// - Parameters:
+    ///   - connection: The SSH route and captured child environment to check.
+    ///   - commands: An injected command runner for tests, or `nil` to run with
+    ///     the connection's captured environment.
+    ///   - timeout: The maximum time allowed for the route check.
+    public init(connection: SSHTuiConnection, commands: (any CommandRunning)? = nil, timeout: TimeInterval = 30) {
         self.connection = connection
-        self.commands = commands
+        self.commands = commands ?? CommandRunner()
         self.timeout = timeout
     }
 
@@ -18,6 +25,7 @@ public struct SSHTuiPreflight: Sendable {
     private let commands: any CommandRunning
     private let timeout: TimeInterval
 
+    /// Runs the prompt-free route check and reports OpenSSH's typed outcome.
     public func run() async throws {
         var arguments = connection.preflightArguments
         var executable = arguments.removeFirst()
@@ -25,6 +33,15 @@ public struct SSHTuiPreflight: Sendable {
         // passed the same way the carrier receives it.
         if let agent = connection.configuration.agentSocketPath {
             arguments = ["SSH_AUTH_SOCK=" + agent, executable] + arguments
+            executable = "/usr/bin/env"
+        } else if let agent = connection.sshProcessEnvironment["SSH_AUTH_SOCK"],
+                  !agent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            // Pin an inherited agent captured with the route so preflight and
+            // the carrier cannot select different credentials.
+            arguments = ["SSH_AUTH_SOCK=" + agent, executable] + arguments
+            executable = "/usr/bin/env"
+        } else if connection.configuration.agentSocketPathOverrideIsSet {
+            arguments = ["-u", "SSH_AUTH_SOCK", executable] + arguments
             executable = "/usr/bin/env"
         }
         let result = await commands.run(

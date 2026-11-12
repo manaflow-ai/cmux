@@ -2,6 +2,7 @@
 import CmuxMobileBrowserStream
 import CmuxMobileCamera
 import CmuxMobileSimulatorStream
+import CmuxMobileSupport
 import CmuxMobileTerminal
 
 /// The view classes Sentry session replay must always mask, on top of its
@@ -25,6 +26,7 @@ public struct MobileSessionReplayMasking {
     public var maskedViewClasses: [AnyClass] {
         [
             GhosttySurfaceView.self,
+            MobileReplayPrivacyMaskView.self,
             SimStreamDisplayView.self,
             CameraPreviewHostView.self,
         ] + browserMasking.maskedViewClasses

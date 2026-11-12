@@ -86,6 +86,13 @@ final class SidebarWorkspaceTableViewImpl: NSTableView {
         }
     }
 
+    /// Focus Sidebar hands this list the keyboard: arrows step workspaces,
+    /// Return and Escape go back to the selected workspace.
+    override func keyDown(with event: NSEvent) {
+        if AppDelegate.shared?.handleSidebarKeyboardKey(event, in: self) == true { return }
+        super.keyDown(with: event)
+    }
+
     override func menu(for event: NSEvent) -> NSMenu? {
         let row = row(at: convert(event.locationInWindow, from: nil))
         guard row < 0 else { return super.menu(for: event) }

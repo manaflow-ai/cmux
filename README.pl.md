@@ -69,7 +69,7 @@ Pasek boczny pokazuje gałąź git, status/numer powiązanego PR, katalog robocz
 <tr>
 <td width="40%" valign="middle">
 <h3>SSH</h3>
-<code>cmux ssh user@remote</code> tworzy przestrzeń roboczą dla zdalnej maszyny. Panele przeglądarki kierowane są przez zdalną sieć, więc localhost po prostu działa. Przeciągnij obraz do sesji zdalnej, aby przesłać go przez scp.
+<code>cmux ssh user@remote</code> tworzy przestrzeń roboczą dla zdalnej maszyny. Przekaż <code>--command 'omp "investigate auth"'</code>, aby raz uruchomić polecenie początkowe w jej pierwszym zdalnym terminalu. Panele przeglądarki kierowane są przez zdalną sieć, więc localhost po prostu działa. Przeciągnij obraz do sesji zdalnej, aby przesłać go przez scp.
 </td>
 <td width="60%">
 <img src="./docs/assets/ssh.png" alt="cmux SSH" width="100%" />
@@ -120,6 +120,25 @@ brew upgrade --cask cmux
 
 Przy pierwszym uruchomieniu macOS może poprosić o potwierdzenie otwarcia aplikacji od zidentyfikowanego dewelopera. Kliknij **Otwórz**, aby kontynuować.
 
+### Uzupełnianie w powłoce
+
+Cask Homebrew instaluje uzupełnianie dla zsh, bash i fish. Po instalacji uruchom nową powłokę. Jeśli się nie ładuje, sprawdź, czy katalogi uzupełniania Homebrew są podpięte do Twojej powłoki (zobacz [dokumentację uzupełniania w powłoce Homebrew](https://docs.brew.sh/Shell-Completion)).
+
+Jeśli zainstalowałeś cmux w inny sposób, dodaj odpowiedni wiersz do pliku startowego swojej powłoki, a potem uruchom nową powłokę:
+
+```zsh
+autoload -Uz compinit && compinit
+eval "$(cmux completion zsh)"
+```
+
+```bash
+eval "$(cmux completion bash)"
+```
+
+```fish
+cmux completion fish | source
+```
+
 ## Dlaczego cmux?
 
 Uruchamiam wiele sesji Claude Code i Codex równolegle. Używałem Ghostty z masą podzielonych paneli i polegałem na natywnych powiadomieniach macOS, żeby wiedzieć, kiedy agent mnie potrzebuje. Ale treść powiadomienia Claude Code to zawsze tylko „Claude is waiting for your input" bez kontekstu, a przy wystarczającej liczbie otwartych kart nie mogłem nawet przeczytać tytułów.
@@ -152,7 +171,9 @@ Więcej informacji o konfiguracji cmux znajdziesz w [naszej dokumentacji](https:
 
 | Skrót | Akcja |
 |----------|--------|
-| ⌘ N | Nowa przestrzeń robocza |
+| ⌘ N | Nowy lokalny obszar roboczy |
+| ⌘ Y | Nowy obszar roboczy Cloud w ostatnim dostępnym kontekście Cloud; otwiera New Cloud Machine, gdy żaden nie jest dostępny |
+| ⌘ ⇧ Y | Nowa maszyna Cloud |
 | ⌘ 1–8 | Przejdź do przestrzeni roboczej 1–8 |
 | ⌘ 9 | Przejdź do ostatniej przestrzeni roboczej |
 | ⌃ ⌘ ] | Następna przestrzeń robocza |
@@ -363,7 +384,7 @@ Tak, cmux jest darmowy w użyciu. Kod źródłowy jest dostępny na [GitHub](htt
 
 ### Jak mogę wesprzeć cmux?
 
-cmux jest darmowy i open source, i zawsze taki będzie. Jeśli chcesz wesprzeć rozwój i uzyskać wczesny dostęp do tego, co nadchodzi, w tym cmux AI, aplikacji iOS i Cloud VMs, sprawdź [cmux Founders Edition](https://github.com/manaflow-ai/cmux#founders-edition).
+cmux jest darmowy i open source, i zawsze taki będzie. Jeśli chcesz wesprzeć rozwój i uzyskać wczesny dostęp do tego, co nadchodzi, w tym cmux AI, aplikacji iOS i Cloud VMs, sprawdź [cmux Pro](https://cmux.com/api/billing/checkout?plan=pro).
 
 ### Mam prośbę o funkcję lub znalazłem błąd?
 
@@ -403,18 +424,11 @@ Sposoby zaangażowania się:
   <img src="./docs/assets/wechat-community-qr.jpg" alt="Kod QR WeChat do dołączenia do społeczności cmux" width="240" />
 </p>
 
-## Edycja Założycielska
+## cmux Pro
 
 cmux jest darmowy, open source i zawsze taki będzie. Jeśli chcesz wesprzeć rozwój i uzyskać wczesny dostęp do nadchodzących funkcji:
 
-**[Zdobądź Edycję Założycielską](https://buy.stripe.com/3cI00j2Ld0it5OU33r5EY0q)**
-
-- **Priorytetowe prośby o funkcje/poprawki błędów**
-- **Wczesny dostęp: cmux AI, które daje Ci kontekst każdej przestrzeni roboczej, karty i panelu**
-- **Wczesny dostęp: aplikacja iOS z terminalami synchronizowanymi między komputerem a telefonem**
-- **Wczesny dostęp: maszyny wirtualne w chmurze**
-- **Wczesny dostęp: tryb głosowy**
-- **Mój osobisty iMessage/WhatsApp**
+**[Zdobądź cmux Pro](https://cmux.com/api/billing/checkout?plan=pro)**
 
 ## Licencja
 

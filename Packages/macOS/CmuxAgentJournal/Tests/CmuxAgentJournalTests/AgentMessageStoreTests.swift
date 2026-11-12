@@ -268,7 +268,7 @@ struct AgentMessageStoreTests {
     func deferredMessagesAreRecipientOnlyAndPollerBound() throws {
         let store = AgentMessageStore(fileURL: nil)
         let intended = try store.append(draft(to: "surface-b", senderSurfaceId: "surface-a"))
-        _ = try store.append(draft(to: "surface-c", senderSurfaceId: "surface-b", body: "not for surface-b"))
+        _ = try store.append(draft(to: "surface-c", body: "not for surface-b", senderSurfaceId: "surface-b"))
         _ = store.poll(recipientSurfaceId: "surface-b", pollerKey: "poller-1", register: true)
 
         #expect(store.deferredMessages(recipientSurfaceId: "surface-b", pollerKey: "poller-1")?.messages.map(\.id) == [intended.id])

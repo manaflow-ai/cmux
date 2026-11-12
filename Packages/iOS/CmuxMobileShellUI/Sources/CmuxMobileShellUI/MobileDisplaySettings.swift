@@ -29,14 +29,16 @@ public final class MobileDisplaySettings {
     private static let showMissingFilesKey = "cmux.mobile.showMissingFiles"
     private static let terminalFolderTapEnabledKey = "cmux.mobile.terminalFolderTapEnabled"
     private static let useLegacyTerminalSizingKey = "cmux.mobile.useLegacyTerminalSizing"
+    private static let handoffTerminalSizingWhenInactiveKey = "cmux.mobile.handoffTerminalSizingWhenInactive"
     private static let workspacePreviewLineCountKey = "cmux.mobile.workspacePreviewLineCount"
     private static let unreadIndicatorLeftShiftKey = "cmux.mobile.debug.unreadIndicatorLeftShift.v2"
     private static let unreadBadgeDiameterKey = "cmux.mobile.debug.unreadBadgeDiameter.v1"
     private static let feedReplacesNotificationsKey = "cmux.mobile.debug.feedReplacesNotifications.v1"
+    private static let feedBubbleQuotesKey = "cmux.mobile.feedBubbleQuotes.v1"
+    private static let legacyFeedBubbleQuotesKey = "cmux.mobile.debug.feedBubbleQuotes.v1"
     #if DEBUG
     private static let taskComposerShellIconVariantKey = "cmux.mobile.debug.taskComposerShellIconVariant.v1"
     private static let taskComposerFullLiquidGlassKey = "cmux.mobile.debug.taskComposerFullLiquidGlass.v1"
-    private static let feedBubbleQuotesKey = "cmux.mobile.debug.feedBubbleQuotes.v1"
     #endif
 
     /// The preview line counts the "Preview Lines" setting offers.
@@ -78,6 +80,13 @@ public final class MobileDisplaySettings {
         didSet { defaults.set(feedShowsTab, forKey: Self.feedShowsTabKey) }
     }
 
+    /// Whether Feed quotes and recorded replies use the iMessage-style bubble
+    /// treatment. Defaults to `true` for every build; DEBUG keeps the Settings
+    /// toggle for local A/B comparisons with the original leading-bar layout.
+    var feedBubbleQuotes: Bool {
+        didSet { defaults.set(feedBubbleQuotes, forKey: Self.feedBubbleQuotesKey) }
+    }
+
     /// Whether the alternate-screen sizing notice is shown. Defaults to `true`.
     /// The notice's "Don't Show Again" action sets this to `false`; mutating
     /// this writes through to the injected ``UserDefaults``.
@@ -105,6 +114,18 @@ public final class MobileDisplaySettings {
     /// injected ``UserDefaults``.
     public var useLegacyTerminalSizing: Bool {
         didSet { defaults.set(useLegacyTerminalSizing, forKey: Self.useLegacyTerminalSizingKey) }
+    }
+
+    /// Whether an inactive iPhone releases its terminal viewport so a Mac can
+    /// take the grid. Defaults to `false`, preserving the host policy and the
+    /// last confirmed grid across a background/foreground transition.
+    public var handoffTerminalSizingWhenInactive: Bool {
+        didSet {
+            defaults.set(
+                handoffTerminalSizingWhenInactive,
+                forKey: Self.handoffTerminalSizingWhenInactiveKey
+            )
+        }
     }
 
     /// Whether cmux emits app-owned haptic feedback. Defaults to `true`.
@@ -186,15 +207,6 @@ public final class MobileDisplaySettings {
         }
     }
 
-    /// Persisted CMUX Labs switch for comparing Feed quotes drawn as
-    /// iMessage-style outlined bubbles against the original leading-bar
-    /// quotes. On by default in DEBUG so dogfood sees the new treatment.
-    var feedBubbleQuotes: Bool {
-        didSet {
-            defaults.set(feedBubbleQuotes, forKey: Self.feedBubbleQuotesKey)
-        }
-    }
-
     /// DEBUG-only override forcing the rebuilt keyboard dock path on this
     /// device (iOS ≤26; legacy is the shipping default), exposed in
     /// Settings > Developer for keyboard-pinning A/B dogfood. Terminal hosts
@@ -215,8 +227,6 @@ public final class MobileDisplaySettings {
     var taskComposerShellIconVariant: TaskComposerShellIconVariant { .current }
     /// The Labs-only treatment is unavailable in production builds.
     var taskComposerFullLiquidGlass: Bool { false }
-    /// Production builds keep the shipping leading-bar quotes.
-    var feedBubbleQuotes: Bool { false }
     #endif
 
     /// Creates the display settings, seeding stored values from `defaults`.
@@ -234,10 +244,16 @@ public final class MobileDisplaySettings {
         self.feedReplacesNotifications = defaults.object(
             forKey: Self.feedReplacesNotificationsKey
         ) as? Bool ?? true
+        self.feedBubbleQuotes = defaults.object(forKey: Self.feedBubbleQuotesKey) as? Bool
+            ?? defaults.object(forKey: Self.legacyFeedBubbleQuotesKey) as? Bool
+            ?? true
         self.showAltScreenNotice = defaults.object(forKey: Self.showAltScreenNoticeKey) as? Bool ?? true
         self.showMissingFiles = defaults.bool(forKey: Self.showMissingFilesKey)
         self.terminalFolderTapEnabled = defaults.object(forKey: Self.terminalFolderTapEnabledKey) as? Bool ?? true
         self.useLegacyTerminalSizing = defaults.object(forKey: Self.useLegacyTerminalSizingKey) as? Bool ?? false
+        self.handoffTerminalSizingWhenInactive = defaults.object(
+            forKey: Self.handoffTerminalSizingWhenInactiveKey
+        ) as? Bool ?? false
         self.hapticFeedbackEnabled = haptics.isEnabled
         self.terminalScrollbackRows = MobileTerminalScrollbackPreference.resolve(from: defaults)
         let storedPreviewLines = defaults.object(forKey: Self.workspacePreviewLineCountKey) as? Int
@@ -261,9 +277,6 @@ public final class MobileDisplaySettings {
         self.taskComposerFullLiquidGlass = defaults.object(
             forKey: Self.taskComposerFullLiquidGlassKey
         ) as? Bool ?? false
-        self.feedBubbleQuotes = defaults.object(
-            forKey: Self.feedBubbleQuotesKey
-        ) as? Bool ?? true
         self.forceRebuildKeyboardDock = defaults.cmuxForceRebuildKeyboardDock
         #endif
     }

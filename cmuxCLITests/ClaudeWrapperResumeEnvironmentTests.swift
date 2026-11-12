@@ -6,7 +6,16 @@ import Testing
 @Suite struct ClaudeWrapperResumeEnvironmentTests {
     @Test func bundledClaudeWrapperScrubsSessionIdentityAndPreservesTrustBypassOnResume() throws {
         let fileManager = FileManager.default
-        let repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        // CI consumers run products compiled under another root; the restore
+        // step aliases this checkout at $CMUX_CI_RUNTIME_SOURCE_ROOT/src.
+        let repoRoot: URL
+        if let runtimeRoot = ProcessInfo.processInfo.environment["CMUX_CI_RUNTIME_SOURCE_ROOT"],
+           !runtimeRoot.isEmpty {
+            repoRoot = URL(fileURLWithPath: runtimeRoot, isDirectory: true)
+                .appendingPathComponent("src", isDirectory: true)
+        } else {
+            repoRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+        }
         let wrapperURL = repoRoot.appendingPathComponent("Resources/bin/cmux-claude-wrapper", isDirectory: false)
         #expect(
             fileManager.isExecutableFile(atPath: wrapperURL.path),

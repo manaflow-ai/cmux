@@ -25,4 +25,10 @@ public struct CloseWarningKinds: OptionSet, Sendable, Hashable {
 
     /// An active foreground process requires a warning regardless of settings.
     public static let safety = CloseWarningKinds(rawValue: 1 << 4)
+
+    /// `app.warnBeforeClosingAgentSession`: an agent session that is mid-turn.
+    public static let agentSession = CloseWarningKinds(rawValue: 1 << 5)
+
+    /// `app.alwaysConfirmWorkspaceClose`: every workspace close, idle or not.
+    public static let alwaysConfirmWorkspace = CloseWarningKinds(rawValue: 1 << 6)
 }

@@ -4,11 +4,20 @@ import { buildAlternates, seoDescription } from "@/i18n/seo";
 import { Link } from "@/i18n/navigation";
 import { SiteHeader } from "@/app/[locale]/components/site-header";
 import { DOWNLOAD_CONFIRMATION_HREF } from "@/app/lib/download";
+import {
+  AGENT_ALLOWED_PARAMS,
+  AGENT_REQUIRED_PARAMS,
+  agentLink,
+  agentLinkModel,
+  agentReference,
+} from "./deeplink-agent";
 
 type SearchValue = string | string[] | undefined;
 type SearchParams = Record<string, SearchValue>;
 
-type LinkKind = "ssh" | "prompt" | "rules";
+type LinkKind = "ssh" | "prompt" | "rules" | "agent";
+
+const LINK_KINDS: readonly LinkKind[] = ["ssh", "prompt", "rules", "agent"];
 
 const definitions: Record<
   LinkKind,
@@ -46,14 +55,17 @@ const definitions: Record<
     exampleHref:
       "/deeplink/rules?name=freestyle&text=Prefer%20small%20PRs",
   },
+  agent: {
+    allowedParams: AGENT_ALLOWED_PARAMS,
+    requiredParams: AGENT_REQUIRED_PARAMS,
+    exampleHref:
+      "/deeplink/agent?harness=claude&session=example-session&host=devbox&name=Rivetmoss&message=example-message",
+  },
 };
 
 function canonicalKind(rawKind: string): LinkKind | null {
   if (rawKind === "rule") return "rules";
-  if (rawKind === "ssh" || rawKind === "prompt" || rawKind === "rules") {
-    return rawKind;
-  }
-  return null;
+  return LINK_KINDS.find((kind) => kind === rawKind) ?? null;
 }
 
 function firstString(value: SearchValue): string | null {
@@ -254,12 +266,70 @@ function nativeHref(kind: LinkKind, params: SearchParams) {
   return `cmux://${kind}${queryString ? `?${queryString}` : ""}`;
 }
 
+/** Every reason a link cannot open, by kind of problem. */
+type LinkIssues = {
+  unsupported: string[];
+  duplicates: string[];
+  conflicts: string[];
+  invalid: string[];
+  missing: string[];
+};
+
+/** The message each kind of problem shows, in the order the page reports them. */
+const ISSUE_MESSAGES = {
+  unsupported: "unsupportedParams",
+  duplicates: "duplicateParams",
+  conflicts: "conflictingParams",
+  invalid: "invalidParams",
+  missing: "missingParams",
+} as const;
+
+/** The kinds that carry a command: every parameter has to be known and valid. */
+function strictIssues(kind: LinkKind, params: SearchParams): LinkIssues {
+  const definition = definitions[kind];
+  return {
+    unsupported: unsupportedParams(params, definition.allowedParams),
+    duplicates: duplicatedParams(params, definition.allowedParams),
+    conflicts: conflictingParams(kind, params),
+    invalid: uniqueParamNames(invalidParams(kind, params)),
+    missing: missingParams(params, definition.requiredParams),
+  };
+}
+
+/** The first problem the page reports, and the names it names. */
+function firstIssue(issues: LinkIssues) {
+  for (const [field, message] of Object.entries(ISSUE_MESSAGES)) {
+    const names = issues[field as keyof LinkIssues];
+    if (names.length > 0) return { message, params: names.join(", ") };
+  }
+  return { message: ISSUE_MESSAGES.missing, params: "" };
+}
+
+async function AgentDetails({ params }: { params: SearchParams }) {
+  // Shows only fields of a fully validated link (agentLinkModel), as text.
+  const model = agentLinkModel(params);
+  if (!model) return null;
+  const t = await getTranslations("deeplink.agent");
+  const rows = (["name", "host", "harness"] as const).flatMap((field) => {
+    const value = model[field];
+    return value ? [{ field, value }] : [];
+  });
+  return (
+    <ul className="mt-2 text-[14px] text-muted">
+      {rows.map(({ field, value }) => (
+        <li key={field}>{t(`${field}Label`, { value })}</li>
+      ))}
+    </ul>
+  );
+}
+
 export function generateStaticParams() {
   return [
     { kind: "ssh" },
     { kind: "prompt" },
     { kind: "rules" },
     { kind: "rule" },
+    { kind: "agent" },
   ];
 }
 
@@ -294,31 +364,39 @@ export default async function DeeplinkPage({
   const t = await getTranslations("deeplink");
   const resolvedSearchParams = (await searchParams) ?? {};
   const definition = definitions[kind];
-  const unsupported = unsupportedParams(
-    resolvedSearchParams,
-    definition.allowedParams,
-  );
-  const duplicates = duplicatedParams(resolvedSearchParams, definition.allowedParams);
-  const conflicts = conflictingParams(kind, resolvedSearchParams);
-  const invalid = uniqueParamNames(invalidParams(kind, resolvedSearchParams));
-  const missing = missingParams(resolvedSearchParams, definition.requiredParams);
-  const href = nativeHref(kind, resolvedSearchParams);
-  const canOpen =
-    unsupported.length === 0 &&
-    duplicates.length === 0 &&
-    conflicts.length === 0 &&
-    invalid.length === 0 &&
-    missing.length === 0;
-  const errorMessage =
-    unsupported.length > 0
-      ? t("unsupportedParams", { params: unsupported.join(", ") })
-      : duplicates.length > 0
-        ? t("duplicateParams", { params: duplicates.join(", ") })
-        : conflicts.length > 0
-          ? t("conflictingParams", { params: conflicts.join(", ") })
-          : invalid.length > 0
-            ? t("invalidParams", { params: invalid.join(", ") })
-            : t("missingParams", { params: missing.join(", ") });
+  // An agent link is an address, not a command: a parameter cmux does not know,
+  // or a hint it cannot use, is ignored by name and the session still opens
+  // (schemas/deeplinks/agent-link.json). The other kinds carry commands and stay strict.
+  const agent = kind === "agent" ? agentLink(resolvedSearchParams) : null;
+  // A private reference in place of a session: say what it is, offer no Open.
+  const reference =
+    agent && !agent.model ? agentReference(resolvedSearchParams) : null;
+  const issues: LinkIssues = agent
+    ? {
+        unsupported: [],
+        duplicates: agent.duplicates,
+        conflicts: [],
+        invalid: agent.invalid,
+        missing: agent.missing,
+      }
+    : strictIssues(kind, resolvedSearchParams);
+  // Never echo unvalidated input into a link.
+  const href = agent
+    ? (agent.model?.href ?? "cmux://agent")
+    : nativeHref(kind, resolvedSearchParams);
+  const canOpen = agent
+    ? agent.model !== null
+    : Object.values(issues).every((names) => names.length === 0);
+  // Only when the link opens: the sentence says the session still opens, and a
+  // link that cannot open shows the one problem the reader has to fix instead.
+  const ignoredMessage =
+    canOpen && agent && agent.ignored.length > 0
+      ? t("ignoredParams", { params: agent.ignored.join(", ") })
+      : null;
+  const issue = firstIssue(issues);
+  const errorMessage = reference
+    ? t("agent.reference")
+    : t(issue.message, { params: issue.params });
 
   return (
     <div className="min-h-screen">
@@ -344,8 +422,17 @@ export default async function DeeplinkPage({
             <p className="mt-1 text-[15px] text-muted">
               {t(`${kind}.intro`)}
             </p>
+            {kind === "agent" ? (
+              <AgentDetails params={resolvedSearchParams} />
+            ) : null}
           </div>
         </div>
+
+        {ignoredMessage ? (
+          <div className="mb-4 rounded-lg border border-border bg-code-bg px-4 py-3 text-[14px] text-muted">
+            {ignoredMessage}
+          </div>
+        ) : null}
 
         {canOpen ? (
           <div className="mb-6 flex flex-wrap gap-3">
@@ -369,18 +456,22 @@ export default async function DeeplinkPage({
           </div>
         )}
 
-        <div className="rounded-lg border border-border">
-          <div className="border-b border-border px-4 py-3 text-[13px] font-medium text-muted">
-            {t("nativeURL")}
-          </div>
-          <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed">
-            <code>{href}</code>
-          </pre>
-        </div>
+        {reference ? null : (
+          <>
+            <div className="rounded-lg border border-border">
+              <div className="border-b border-border px-4 py-3 text-[13px] font-medium text-muted">
+                {t("nativeURL")}
+              </div>
+              <pre className="overflow-x-auto p-4 text-[13px] leading-relaxed">
+                <code>{href}</code>
+              </pre>
+            </div>
 
-        <p className="mt-5 text-[14px] leading-6 text-muted">
-          {canOpen ? t(`${kind}.fallback`) : t("fixParams")}
-        </p>
+            <p className="mt-5 text-[14px] leading-6 text-muted">
+              {canOpen ? t(`${kind}.fallback`) : t("fixParams")}
+            </p>
+          </>
+        )}
 
         <p className="mt-6 text-[14px] leading-6 text-muted">
           {t("examplePrefix")}{" "}

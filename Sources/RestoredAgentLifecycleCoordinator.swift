@@ -268,14 +268,22 @@ final class RestoredAgentLifecycleCoordinator {
         return snapshotsByPanelId[panelId]
     }
 
-    /// The restore selector for the matching structured session is queued but
-    /// no shell callback has started it yet.
-    func hasQueuedRestoreIntent(
+    /// cmux queued the restore selector for the matching structured session,
+    /// and the shell has not returned to its prompt since: either no callback
+    /// has started it yet, or shell integration reports it still running. The
+    /// command phase ends at promptIdle, so this is cmux-authored restore
+    /// intent, not generic shell activity.
+    func hasInFlightRestoreIntent(
         panelId: UUID,
         matching snapshot: SessionRestorableAgentSnapshot?
     ) -> Bool {
-        guard resumeStatesByPanelId[panelId] == .awaitingAutoResumeCommand,
-              let queuedSnapshot = queuedRestoreSnapshotsByPanelId[panelId],
+        switch resumeStatesByPanelId[panelId] {
+        case .awaitingAutoResumeCommand, .autoResumeCommandRunning:
+            break
+        case .manualResumeAvailable, .observedAgentCommandRunning, .completedAgentExit, nil:
+            return false
+        }
+        guard let queuedSnapshot = queuedRestoreSnapshotsByPanelId[panelId],
               let snapshot else {
             return false
         }

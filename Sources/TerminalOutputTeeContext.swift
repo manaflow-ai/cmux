@@ -2,13 +2,15 @@ import CmuxTerminalCore
 import Foundation
 import os
 
-/// Per-surface state owned by libghostty's serialized PTY read callback.
+/// Per-surface state owned by libghostty's PTY read callback.
 ///
-/// SAFETY: libghostty invokes a surface's tee callback serially on that
-/// surface's IO read thread. After initialization, only that callback mutates
-/// `detectors`; other threads receive copied value identifiers after a match.
+/// Manual-I/O surfaces can invoke their tee callback from more than one
+/// thread: remote output is parsed on the surface's output lane while a
+/// resize can synchronously parse control bytes on the main actor. Protect
+/// detector state across both callback paths; other threads receive copied
+/// value identifiers after a match.
 final class TerminalOutputTeeContext: @unchecked Sendable {
-    private struct DetectorBinding {
+    struct DetectorBinding {
         let agentID: String
         var detector: PromptLineTurnDetector
         var forwardedRevision: UInt64 = 0
@@ -47,7 +49,9 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     let scrollbackCheckpointFlags: TerminalScrollbackOutputFlags
     private let clock = ContinuousClock()
     private let notificationHandler: PromptTurnNotificationHandler
-    private var detectors: [DetectorBinding]
+    private(set) var detectors: [DetectorBinding]
+    // Tee callbacks are synchronous C callbacks; an actor hop would let detector chunks reorder.
+    let detectorsLock = OSAllocatedUnfairLock(initialState: ())
     private let forwardQueue = OSAllocatedUnfairLock(initialState: ForwardQueue())
 
     init(
@@ -74,6 +78,9 @@ final class TerminalOutputTeeContext: @unchecked Sendable {
     }
 
     func consume(_ bytes: UnsafeBufferPointer<UInt8>) {
+        detectorsLock.lock()
+        defer { detectorsLock.unlock() }
+
         let now = clock.now
         for index in detectors.indices {
             if let confirmation = detectors[index].detector.pendingConfirmation,

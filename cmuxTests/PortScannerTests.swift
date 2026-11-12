@@ -859,6 +859,10 @@ struct PortScannerPortRetirementTests {
     /// the late-burst test covers. The gap only has to outlast the scanner's own
     /// hop from the fifth timer to that lookup, not a test-task wakeup.
     private static let fastLateBurstOffsets: [TimeInterval] = [0.05, 0.15, 0.3, 0.45, 0.6, 1.6]
+    /// A burst of one scan: the three scans a kick owes arrive as follow-up
+    /// bursts a few milliseconds apart, then scanning stops. That gives a test
+    /// a scanner it can tell is idle (`waitForScansToSettle`).
+    private static let singleScanBurstOffsets: [TimeInterval] = [0.01]
     /// The compressed stand-in for the production 200ms coalesce step. No test
     /// here kicks repeatedly while it waits, so nothing is racing this window:
     /// each kick is issued once and the scanner's own guarantee of
@@ -873,6 +877,225 @@ struct PortScannerPortRetirementTests {
         #expect(PortScanner.defaultCoalesceDelay == 0.2)
         #expect(Self.fastBurstOffsets.count == PortScanner.defaultBurstOffsets.count)
         #expect(Self.fastLateBurstOffsets.count == PortScanner.defaultBurstOffsets.count)
+    }
+
+    /// An agent binary such as Claude Code running fullscreen becomes the
+    /// panel's foreground process, so its own loopback sandbox-proxy listeners
+    /// must never badge the panel, while a dev server it launches as a child
+    /// keeps its badge.
+    @Test("An agent root's own ports never badge its panel, but its child dev server keeps its badge")
+    func agentRootOwnPortsExcludedFromPanelBadgeButChildPortsKept() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyName = "ttys910"
+        let rootPID = 9001
+        let childPID = 9002
+        let rootPorts: Set<Int> = [55936, 55937]
+        let childPort = 5173
+        let rootIdentity = AgentPIDProcessIdentity(pid: pid_t(rootPID), startSeconds: 1, startMicroseconds: 0)
+        let childIdentity = AgentPIDProcessIdentity(pid: pid_t(childPID), startSeconds: 2, startMicroseconds: 0)
+        let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: rootIdentity)
+        let scanner = PortScanner(
+            processTable: AgentRootPanelProcessTable(ttyName: ttyName, rootPID: rootPID, childPID: childPID),
+            processIdentityProvider: { pid in
+                switch Int(pid) {
+                case rootPID: rootIdentity
+                case childPID: childIdentity
+                default: nil
+                }
+            },
+            processPresenceProvider: { _ in .present },
+            listeningPortsProvider: { pid in
+                switch Int(pid) {
+                case rootPID: .ports(rootPorts)
+                case childPID: .ports([childPort])
+                default: .ports([])
+                }
+            },
+            ttySessionIdentityProvider: { _ in sessionIdentity },
+            burstOffsets: Self.fastBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
+        )
+        let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+        let agentPublishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+
+        await MainActor.run {
+            scanner.onPortsUpdated = { publishedWorkspaceId, publishedPanelId, ports in
+                guard publishedWorkspaceId == workspaceId, publishedPanelId == panelId else { return }
+                publishedPorts.withLock { $0.append(ports) }
+            }
+            scanner.onAgentPortsUpdated = { publishedWorkspaceId, ports in
+                guard publishedWorkspaceId == workspaceId else { return false }
+                agentPublishedPorts.withLock { $0.append(ports) }
+                return true
+            }
+            scanner.registerTTY(workspaceId: workspaceId, panelId: panelId, ttyName: ttyName)
+            scanner.refreshAgentPorts(
+                workspaceId: workspaceId,
+                agentRoots: [AgentPortRootIdentity(pid: rootPID, processIdentity: rootIdentity)]
+            )
+        }
+        scanner.kick(workspaceId: workspaceId, panelId: panelId)
+
+        let didPublishChildPort = await Self.waitForPublication(
+            in: publishedPorts,
+            matching: { $0.contains(childPort) },
+            pollInterval: .milliseconds(25)
+        )
+        try #require(didPublishChildPort, "the child dev server's port was never published")
+        let didPublishAgentChildPort = await Self.waitForPublication(
+            in: agentPublishedPorts,
+            matching: { $0.contains(childPort) },
+            pollInterval: .milliseconds(25)
+        )
+        try #require(didPublishAgentChildPort, "the child dev server's port never reached the agent's ports")
+
+        let publications = publishedPorts.withLock { $0 }
+        #expect(publications.contains([childPort]))
+        #expect(
+            publications.allSatisfy { Set($0).isDisjoint(with: rootPorts) },
+            "the agent root's own sandbox proxy ports must never badge the panel"
+        )
+        // The agent's own port list is a second route for the same listeners:
+        // the panel scan and the agent-only scan each join ports to roots.
+        let agentPublications = agentPublishedPorts.withLock { $0 }
+        #expect(agentPublications.contains([childPort]))
+        #expect(
+            agentPublications.allSatisfy { Set($0).isDisjoint(with: rootPorts) },
+            "the agent root's own sandbox proxy ports must never reach the agent's ports"
+        )
+    }
+
+    /// Whether a listener badges its panel depends on which processes are
+    /// agent roots, so a root registered after the panel's last scan leaves
+    /// the root's ports badged until something else kicks the panel.
+    @Test("A root registered after the panel's scans settle takes its own ports off the badge")
+    func agentRootRegisteredLaterTakesItsPortsOffTheBadge() async throws {
+        let fixture = AgentRootPanelFixture(ttyName: "ttys912", rootPID: 9201, childPID: 9202)
+        let scanner = fixture.makeScanner(
+            burstOffsets: Self.singleScanBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
+        )
+        let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+        await fixture.registerPanel(on: scanner, recording: publishedPorts)
+        scanner.kick(workspaceId: fixture.workspaceId, panelId: fixture.panelId)
+
+        // Nothing marks the root yet, so its listeners badge like any other.
+        let sawEveryPort = await Self.waitForPublication(
+            in: publishedPorts,
+            matching: { Set($0) == fixture.allPorts },
+            pollInterval: .milliseconds(25)
+        )
+        try #require(sawEveryPort, "the unregistered root's ports never badged the panel")
+        let settled = await Self.waitForScansToSettle(fixture.processTable)
+        try #require(settled, "the panel's scans never settled")
+
+        let publishedBefore = publishedPorts.withLock { $0.count }
+        await fixture.setRootRegistered(true, on: scanner)
+
+        let didTakeRootPortsOff = await Self.waitForPublication(
+            in: publishedPorts,
+            after: publishedBefore,
+            matching: { $0 == [fixture.childPort] },
+            timeout: .seconds(5),
+            pollInterval: .milliseconds(25)
+        )
+        #expect(didTakeRootPortsOff, "registering the root never rescanned its panel")
+    }
+
+    /// The mirror case: a root that stops being one is an ordinary process
+    /// again, so its listeners go back on the badge without another command.
+    @Test("A root removed after the panel's scans settle puts its ports back on the badge")
+    func agentRootRemovedLaterPutsItsPortsBackOnTheBadge() async throws {
+        let fixture = AgentRootPanelFixture(ttyName: "ttys913", rootPID: 9301, childPID: 9302)
+        let scanner = fixture.makeScanner(
+            burstOffsets: Self.singleScanBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
+        )
+        let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+        await fixture.registerPanel(on: scanner, recording: publishedPorts)
+        await fixture.setRootRegistered(true, on: scanner)
+        scanner.kick(workspaceId: fixture.workspaceId, panelId: fixture.panelId)
+
+        let sawChildPortOnly = await Self.waitForPublication(
+            in: publishedPorts,
+            matching: { $0 == [fixture.childPort] },
+            pollInterval: .milliseconds(25)
+        )
+        try #require(sawChildPortOnly, "the registered root's ports were not excluded")
+        let settled = await Self.waitForScansToSettle(fixture.processTable)
+        try #require(settled, "the panel's scans never settled")
+
+        let publishedBefore = publishedPorts.withLock { $0.count }
+        await fixture.setRootRegistered(false, on: scanner)
+
+        let didPutRootPortsBack = await Self.waitForPublication(
+            in: publishedPorts,
+            after: publishedBefore,
+            matching: { Set($0) == fixture.allPorts },
+            timeout: .seconds(5),
+            pollInterval: .milliseconds(25)
+        )
+        #expect(didPutRootPortsBack, "removing the root never rescanned its panel")
+    }
+
+    /// Exclusion keys off identity, not the raw PID. If the tracked root exits
+    /// and the OS recycles its PID for an ordinary process before the next
+    /// `refreshAgentPorts` update, that process still badges.
+    @Test("A recycled agent-root PID keeps badging its panel once its identity no longer matches")
+    func recycledAgentRootPIDKeepsBadgingPanel() async throws {
+        let workspaceId = UUID()
+        let panelId = UUID()
+        let ttyName = "ttys911"
+        let recycledPID = 9101
+        let unrelatedChildPID = 9102
+        let recycledPort = 4444
+        let recordedRootIdentity = AgentPIDProcessIdentity(pid: pid_t(recycledPID), startSeconds: 1, startMicroseconds: 0)
+        let liveIdentity = AgentPIDProcessIdentity(pid: pid_t(recycledPID), startSeconds: 99, startMicroseconds: 0)
+        let childIdentity = AgentPIDProcessIdentity(pid: pid_t(unrelatedChildPID), startSeconds: 2, startMicroseconds: 0)
+        let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: liveIdentity)
+        let scanner = PortScanner(
+            processTable: AgentRootPanelProcessTable(
+                ttyName: ttyName,
+                rootPID: recycledPID,
+                childPID: unrelatedChildPID
+            ),
+            processIdentityProvider: { pid in
+                switch Int(pid) {
+                case recycledPID: liveIdentity
+                case unrelatedChildPID: childIdentity
+                default: nil
+                }
+            },
+            processPresenceProvider: { _ in .present },
+            listeningPortsProvider: { pid in
+                Int(pid) == recycledPID ? .ports([recycledPort]) : .ports([])
+            },
+            ttySessionIdentityProvider: { _ in sessionIdentity },
+            burstOffsets: Self.fastBurstOffsets,
+            coalesceDelay: Self.fastCoalesceDelay
+        )
+        let publishedPorts = OSAllocatedUnfairLock(initialState: [[Int]]())
+
+        await MainActor.run {
+            scanner.onPortsUpdated = { publishedWorkspaceId, publishedPanelId, ports in
+                guard publishedWorkspaceId == workspaceId, publishedPanelId == panelId else { return }
+                publishedPorts.withLock { $0.append(ports) }
+            }
+            scanner.registerTTY(workspaceId: workspaceId, panelId: panelId, ttyName: ttyName)
+            scanner.refreshAgentPorts(
+                workspaceId: workspaceId,
+                agentRoots: [AgentPortRootIdentity(pid: recycledPID, processIdentity: recordedRootIdentity)]
+            )
+        }
+        scanner.kick(workspaceId: workspaceId, panelId: panelId)
+
+        let didPublishRecycledPIDPort = await Self.waitForPublication(
+            in: publishedPorts,
+            matching: { $0 == [recycledPort] },
+            pollInterval: .milliseconds(25)
+        )
+        #expect(didPublishRecycledPIDPort, "an unrelated process reusing a stale agent-root PID must still badge its panel")
     }
 
     /// The scan is not free, so hiding the ports detail has to stop it running,
@@ -1194,6 +1417,35 @@ struct PortScannerPortRetirementTests {
         #expect(didPublishListeningPort, "the full-path TTY never received its listener")
     }
 
+    /// Waits until the process table has gone `quiet` without a read. The
+    /// schedule of `singleScanBurstOffsets` puts scans tens of milliseconds
+    /// apart, so half a second of silence is the end of the scans a kick owes,
+    /// not a gap between two of them. Call it only after a scan has run.
+    private static func waitForScansToSettle(
+        _ processTable: AgentRootPanelProcessTable,
+        quiet: Duration = .milliseconds(500),
+        timeout: Duration = .seconds(20)
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        var lastReadCount = processTable.readCount
+        var lastChange = ContinuousClock.now
+        while ContinuousClock.now < deadline {
+            do {
+                try await Task.sleep(for: .milliseconds(50))
+            } catch {
+                return false
+            }
+            let readCount = processTable.readCount
+            if readCount != lastReadCount {
+                lastReadCount = readCount
+                lastChange = ContinuousClock.now
+            } else if ContinuousClock.now - lastChange >= quiet {
+                return true
+            }
+        }
+        return false
+    }
+
     /// Polls rather than sleeping a fixed interval, since the scan burst runs
     /// on real timers whose spacing shifts under load. The deadline bounds only
     /// the failure path: a satisfied predicate returns immediately.
@@ -1327,6 +1579,129 @@ private final class PortLifecycleProcessTable: PortProcessTableReading, @uncheck
 
     func parentsByPID() async -> (values: [Int: Int], completeness: PortScanCompleteness) {
         ([pid: 1], .complete)
+    }
+}
+
+/// A terminal panel whose foreground process is an agent root, with a second
+/// process on the same TTY that is the root's child. A real child launched
+/// without redirection inherits the controlling terminal, so both PIDs sit on
+/// the panel's TTY and both can listen.
+private final class AgentRootPanelProcessTable: PortProcessTableReading, @unchecked Sendable {
+    // Safe: the TTY and PIDs never change and `reads` is only touched under
+    // its lock.
+    private let ttyName: String
+    private let rootPID: Int
+    private let childPID: Int
+    private let reads = OSAllocatedUnfairLock(initialState: 0)
+
+    init(ttyName: String, rootPID: Int, childPID: Int) {
+        self.ttyName = ttyName
+        self.rootPID = rootPID
+        self.childPID = childPID
+    }
+
+    /// Process-table reads so far, of either kind.
+    var readCount: Int { reads.withLock { $0 } }
+
+    func processesOnTerminals(
+        named ttyNames: [String]
+    ) async -> (values: [Int: String], completeness: PortScanCompleteness) {
+        reads.withLock { $0 += 1 }
+        guard Set(ttyNames).contains(ttyName) else { return ([:], .complete) }
+        let canonicalName = PortScanner.canonicalTTYName(ttyName)
+        return ([rootPID: canonicalName, childPID: canonicalName], .complete)
+    }
+
+    func parentsByPID() async -> (values: [Int: Int], completeness: PortScanCompleteness) {
+        reads.withLock { $0 += 1 }
+        return ([rootPID: 1, childPID: rootPID], .complete)
+    }
+}
+
+/// One panel whose foreground process is an agent root, with a child dev
+/// server beside it. Both listen, so a scan can only tell them apart by
+/// whether the root is registered.
+private struct AgentRootPanelFixture {
+    let workspaceId = UUID()
+    let panelId = UUID()
+    let rootPID: Int
+    let childPID: Int
+    let rootPorts: Set<Int> = [55936, 55937]
+    let childPort = 5173
+    let processTable: AgentRootPanelProcessTable
+    private let ttyName: String
+    private let rootIdentity: AgentPIDProcessIdentity
+    private let childIdentity: AgentPIDProcessIdentity
+
+    var allPorts: Set<Int> { rootPorts.union([childPort]) }
+
+    init(ttyName: String, rootPID: Int, childPID: Int) {
+        self.ttyName = ttyName
+        self.rootPID = rootPID
+        self.childPID = childPID
+        self.processTable = AgentRootPanelProcessTable(ttyName: ttyName, rootPID: rootPID, childPID: childPID)
+        self.rootIdentity = AgentPIDProcessIdentity(pid: pid_t(rootPID), startSeconds: 1, startMicroseconds: 0)
+        self.childIdentity = AgentPIDProcessIdentity(pid: pid_t(childPID), startSeconds: 2, startMicroseconds: 0)
+    }
+
+    func makeScanner(burstOffsets: [TimeInterval], coalesceDelay: TimeInterval) -> PortScanner {
+        let rootPID = rootPID
+        let childPID = childPID
+        let rootPorts = rootPorts
+        let childPort = childPort
+        let rootIdentity = rootIdentity
+        let childIdentity = childIdentity
+        let sessionIdentity = TerminalTTYSessionIdentity(processIdentity: rootIdentity)
+        return PortScanner(
+            processTable: processTable,
+            processIdentityProvider: { pid in
+                switch Int(pid) {
+                case rootPID: rootIdentity
+                case childPID: childIdentity
+                default: nil
+                }
+            },
+            processPresenceProvider: { _ in .present },
+            listeningPortsProvider: { pid in
+                switch Int(pid) {
+                case rootPID: .ports(rootPorts)
+                case childPID: .ports([childPort])
+                default: .ports([])
+                }
+            },
+            ttySessionIdentityProvider: { _ in sessionIdentity },
+            burstOffsets: burstOffsets,
+            coalesceDelay: coalesceDelay
+        )
+    }
+
+    /// Registers the panel's TTY and records every list of ports published for it.
+    func registerPanel(
+        on scanner: PortScanner,
+        recording publishedPorts: OSAllocatedUnfairLock<[[Int]]>
+    ) async {
+        let workspaceId = workspaceId
+        let panelId = panelId
+        let ttyName = ttyName
+        await MainActor.run {
+            scanner.onPortsUpdated = { publishedWorkspaceId, publishedPanelId, ports in
+                guard publishedWorkspaceId == workspaceId, publishedPanelId == panelId else { return }
+                publishedPorts.withLock { $0.append(ports) }
+            }
+            scanner.registerTTY(workspaceId: workspaceId, panelId: panelId, ttyName: ttyName)
+        }
+    }
+
+    /// Registers or removes the workspace's agent root, as an agent session
+    /// starting or ending does.
+    func setRootRegistered(_ registered: Bool, on scanner: PortScanner) async {
+        let workspaceId = workspaceId
+        let roots: Set<AgentPortRootIdentity> = registered
+            ? [AgentPortRootIdentity(pid: rootPID, processIdentity: rootIdentity)]
+            : []
+        await MainActor.run {
+            scanner.refreshAgentPorts(workspaceId: workspaceId, agentRoots: roots)
+        }
     }
 }
 

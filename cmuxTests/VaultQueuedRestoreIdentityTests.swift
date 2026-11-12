@@ -154,6 +154,9 @@ struct VaultQueuedRestoreIdentityTests {
         let terminal = try #require(persisted.panels.first?.terminal)
 
         #expect(terminal.agent?.sessionId == queuedAgent.sessionId)
+        // The shell callback moved the queued restore into its command phase;
+        // cmux's own restore for this session is still in flight, so it stays
+        // running intent even without process evidence (#17475).
         #expect(terminal.wasAgentRunning == true)
     }
 

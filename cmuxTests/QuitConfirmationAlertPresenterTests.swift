@@ -21,6 +21,66 @@ private final class TerminateRequestRecorder {
 @MainActor
 @Suite
 struct QuitConfirmationAlertPresenterTests {
+    @Test
+    func dirtyWorkspaceScanRunsOnlyForUnconfirmedUserDirtyOnlyQuits() {
+        #expect(
+            AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: false,
+                buildFlavor: .stable,
+                confirmQuitMode: .dirtyOnly,
+                quitReason: .user
+            )
+        )
+        #expect(
+            !AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: false,
+                buildFlavor: .stable,
+                confirmQuitMode: .always,
+                quitReason: .user
+            )
+        )
+        #expect(
+            !AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: false,
+                buildFlavor: .stable,
+                confirmQuitMode: .never,
+                quitReason: .user
+            )
+        )
+        #expect(
+            !AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: true,
+                buildFlavor: .stable,
+                confirmQuitMode: .dirtyOnly,
+                quitReason: .user
+            )
+        )
+        #expect(
+            !AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: false,
+                buildFlavor: .dev,
+                confirmQuitMode: .dirtyOnly,
+                quitReason: .user
+            )
+        )
+        #expect(
+            !AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: false,
+                buildFlavor: .stable,
+                confirmQuitMode: .dirtyOnly,
+                quitReason: .sessionEnd
+            )
+        )
+        #expect(
+            !AppDelegate.shouldEvaluateQuitConfirmationDirtyWorkspaces(
+                isQuitWarningConfirmed: false,
+                buildFlavor: .stable,
+                confirmQuitMode: .dirtyOnly,
+                quitReason: .updateRelaunch
+            )
+        )
+    }
+
     /// Regression coverage for issue #10788: `simulate_shortcut cmd+q` arrives
     /// inside the debug socket's `DispatchQueue.main.sync` hop, so terminating
     /// synchronously from there deadlocks the app — `applicationShouldTerminate`

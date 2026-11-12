@@ -18,7 +18,7 @@ public struct ComputerAccessMenuItems: View {
     ///   - incomingAccessEnabled: Whether other devices may connect to this Mac.
     ///   - discoveryManaged: Whether administrator policy disables discovery.
     ///   - incomingAccessManaged: Whether administrator policy disables incoming access.
-    ///   - unavailable: Whether Cloud/Beta availability disables both controls.
+    ///   - unavailable: Whether Cloud availability disables both controls.
     ///   - identifierPrefix: Accessibility namespace for the containing surface.
     ///   - setDiscovery: Persists the selected discovery preference.
     ///   - setIncomingAccess: Persists the selected incoming access preference.

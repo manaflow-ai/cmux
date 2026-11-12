@@ -247,6 +247,31 @@ struct KeyboardShortcutContextSwiftTests {
         #expect(manager.calls == ["browser"])
     }
 
+    /// Regression coverage for https://github.com/manaflow-ai/cmux/issues/1456.
+    @MainActor
+    @Test("view zoom route changes the focused terminal's font size")
+    func viewZoomRouteChangesTheFocusedTerminalFontSize() {
+        let manager = ZoomRouteRecordingTabManager(browserResult: nil, textPreviewResult: nil, terminalResult: true)
+
+        #expect(manager.zoomInFocusedBrowserOrTextFilePreview())
+        #expect(manager.zoomOutFocusedBrowserOrTextFilePreview())
+        #expect(manager.resetZoomFocusedBrowserOrTextFilePreview())
+        #expect(manager.calls == [
+            "terminal:increase_font_size:1",
+            "terminal:decrease_font_size:1",
+            "terminal:reset_font_size",
+        ])
+    }
+
+    @MainActor
+    @Test("view zoom route keeps a focused browser ahead of the terminal")
+    func viewZoomRouteKeepsAFocusedBrowserAheadOfTheTerminal() {
+        let manager = ZoomRouteRecordingTabManager(browserResult: false, textPreviewResult: nil, terminalResult: true)
+
+        #expect(!manager.zoomInFocusedBrowserOrTextFilePreview())
+        #expect(manager.calls == ["browser"])
+    }
+
     @MainActor
     @Test("view zoom route propagates unhandled browser result when text preview target is absent")
     func viewZoomRoutePropagatesUnhandledBrowserResultWhenTextPreviewTargetIsAbsent() {
@@ -507,10 +532,19 @@ private final class ZoomRouteRecordingTabManager: TabManager {
     private let textPreviewResult: Bool?
     var calls: [String] = []
 
-    init(browserResult: Bool?, textPreviewResult: Bool?) {
+    private let terminalResult: Bool?
+
+    init(browserResult: Bool?, textPreviewResult: Bool?, terminalResult: Bool? = nil) {
         self.browserResult = browserResult
         self.textPreviewResult = textPreviewResult
+        self.terminalResult = terminalResult
         super.init(autoWelcomeIfNeeded: false)
+    }
+
+    override func performFocusedTerminalFontSizeAction(_ action: String) -> Bool? {
+        guard let terminalResult else { return nil }
+        calls.append("terminal:\(action)")
+        return terminalResult
     }
 
     override func performFocusedBrowserZoom(_ action: (BrowserPanel) -> Bool) -> Bool? {

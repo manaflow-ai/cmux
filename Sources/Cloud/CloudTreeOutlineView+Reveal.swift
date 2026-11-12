@@ -59,7 +59,7 @@ extension CloudTreeOutlineView.Coordinator {
     /// `scrollRowToVisible` accepts a partially visible row. Reveals need the
     /// whole row visible so a newly selected workspace is not clipped at the
     /// viewport edge after fractional row-height rounding.
-    private func scrollRowFullyIntoView(_ row: Int, in outlineView: NSOutlineView) {
+    func scrollRowFullyIntoView(_ row: Int, in outlineView: NSOutlineView) {
         guard row >= 0 else { return }
         let rowRect = outlineView.rect(ofRow: row)
         if !outlineView.visibleRect.contains(rowRect) {

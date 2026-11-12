@@ -192,7 +192,7 @@ extension SimulatorWorkerClientTests {
             ),
             sleeper: ContinuousSimulatorWorkerSleeper()
         )
-        weak let weakClient = client
+        weak var weakClient = client
         await client?.send(.releaseInputs)
         for _ in 0..<10_000 where !FileManager.default.fileExists(atPath: marker.path) {
             await Task.yield()

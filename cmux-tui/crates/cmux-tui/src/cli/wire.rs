@@ -12,7 +12,7 @@ use cmux_tui_core::resource::{
 use ratatui::buffer::CellWidth;
 use serde_json::{Value, json};
 
-use super::command::{RequestPlan, WireOperation, random_prefixed};
+use super::command::{RequestPlan, ResponseView, WireOperation, random_prefixed};
 use super::{GlobalArgs, OutputMode, UsageError};
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
@@ -26,11 +26,14 @@ const SESSION_JOURNAL_PROTOCOL_MAXIMUM: u64 = cmux_tui_core::server::PROTOCOL_VE
 
 pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     if plan.stream && global.output == OutputMode::Json {
-        eprintln!("cmux: streams require --jsonl, --quiet, or human output");
+        eprintln!(
+            "{}: streams require --jsonl, --quiet, or human output",
+            crate::cli::program_name()
+        );
         return 2;
     }
     let Some(params) = plan.params.as_object_mut() else {
-        eprintln!("cmux: request params are not an object");
+        eprintln!("{}: request params are not an object", crate::cli::program_name());
         return 2;
     };
     if let Some(machine) = &global.machine
@@ -46,18 +49,18 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let request = match request_value(&plan) {
         Ok(request) => request,
         Err(error) => {
-            eprintln!("cmux: {error}");
+            eprintln!("{}: {error}", crate::cli::program_name());
             return 2;
         }
     };
     let encoded = match serde_json::to_vec(&request) {
         Ok(encoded) if encoded.len() <= MAX_MESSAGE_BYTES => encoded,
         Ok(_) => {
-            eprintln!("cmux: request exceeds the 4 MiB protocol limit");
+            eprintln!("{}: request exceeds the 4 MiB protocol limit", crate::cli::program_name());
             return 2;
         }
         Err(error) => {
-            eprintln!("cmux: cannot encode request: {error}");
+            eprintln!("{}: cannot encode request: {error}", crate::cli::program_name());
             return 2;
         }
     };
@@ -67,7 +70,11 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
     let (socket, socket_is_derived) = match resolve_socket_with_origin(&global) {
         Ok(resolved) => resolved,
         Err(_) => {
-            eprintln!("cmux: {}", crate::localization::catalog().startup.invalid_session_name);
+            eprintln!(
+                "{}: {}",
+                crate::cli::program_name(),
+                crate::localization::catalog().startup.invalid_session_name
+            );
             return 2;
         }
     };
@@ -102,6 +109,76 @@ pub(super) fn run(global: GlobalArgs, mut plan: RequestPlan) -> i32 {
         return 3;
     }
     run_response(&mut reader, &global, &plan, &request_id)
+}
+
+/// Send one non-stream request and return its result, or the error as JSON
+/// (`{code, message}`; a daemon error as the daemon wrote it), for a client
+/// command that reads or chains requests instead of printing one result
+/// (`cli/attention.rs`). Routing and session injection match [`run`].
+pub(super) fn fetch(global: &GlobalArgs, mut plan: RequestPlan) -> Result<Value, Value> {
+    let local = |code: &str, message: String| json!({"code": code, "message": message});
+    if let Some(params) = plan.params.as_object_mut() {
+        if let Some(machine) = &global.machine
+            && params.get("machine").is_none_or(|value| value.as_str() == Some("current"))
+        {
+            params.insert("machine".into(), Value::String(machine.clone()));
+        }
+        if let Some(session) = &global.session
+            && params.get("session").is_none_or(|value| value.as_str() == Some("current"))
+        {
+            params.insert("session".into(), Value::String(session.clone()));
+        }
+    }
+    let request = request_value(&plan).map_err(|error| local("usage.invalid", error.0))?;
+    let request_id = request
+        .get("id")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| local("internal", "request has no id".into()))?;
+    let encoded = serde_json::to_vec(&request)
+        .map_err(|error| local("internal", format!("cannot encode request: {error}")))?;
+    let (socket, socket_is_derived) = resolve_socket_with_origin(global).map_err(|_| {
+        local(
+            "usage.invalid",
+            crate::localization::catalog().startup.invalid_session_name.to_string(),
+        )
+    })?;
+    let stream = cmux_tui_core::server::connect_session_socket(&socket, socket_is_derived)
+        .map_err(|error| {
+            local(
+                "transport.unavailable",
+                format!("cannot connect to session socket {}: {error}", socket.display()),
+            )
+        })?;
+    let mut reader = BufReader::new(stream);
+    let _ = reader.get_mut().set_read_timeout(response_read_timeout(&plan, false));
+    reader
+        .get_mut()
+        .write_all(&encoded)
+        .and_then(|()| reader.get_mut().write_all(b"\n"))
+        .and_then(|()| reader.get_mut().flush())
+        .map_err(|error| local("transport.failed", format!("transport error: {error}")))?;
+    loop {
+        let value = read_envelope(&mut reader, false)
+            .map_err(|error| local("transport.failed", error))?
+            .ok_or_else(|| local("transport.failed", "transport closed before response".into()))?;
+        if value.get("type").and_then(Value::as_str) != Some("response") {
+            continue;
+        }
+        let response: ResponseEnvelope = serde_json::from_value(value).map_err(|error| {
+            local("protocol.invalid", format!("invalid response envelope: {error}"))
+        })?;
+        response.validate().map_err(|error| local("protocol.invalid", error.message))?;
+        if response.id.as_str() != request_id {
+            continue;
+        }
+        return match (response.ok, response.result, response.error) {
+            (true, Some(result), _) => Ok(result),
+            (_, _, Some(error)) => Err(serde_json::to_value(error)
+                .unwrap_or_else(|_| local("internal", "unreadable error".into()))),
+            _ => Err(local("protocol.invalid", "response has no result".into())),
+        };
+    }
 }
 
 #[cfg(unix)]
@@ -142,12 +219,12 @@ fn require_server_capability(
     capability: &'static str,
 ) -> Result<(), i32> {
     let request_id = random_request_id().map_err(|error| {
-        eprintln!("cmux: {error}");
+        eprintln!("{}: {error}", crate::cli::program_name());
         2
     })?;
     let request = json!({"id":request_id,"cmd":"identify"});
     let encoded = serde_json::to_vec(&request).map_err(|error| {
-        eprintln!("cmux: cannot encode capability request: {error}");
+        eprintln!("{}: cannot encode capability request: {error}", crate::cli::program_name());
         2
     })?;
     reader
@@ -236,7 +313,7 @@ fn response_read_timeout(plan: &RequestPlan, signal_interrupt_armed: bool) -> Op
     Some(Duration::from_secs(10))
 }
 
-fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
+pub(super) fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
     let class = plan.operation.class();
     let mut request = json!({
         "protocol": PROTOCOL,
@@ -263,7 +340,7 @@ fn random_request_id() -> Result<String, UsageError> {
     random_prefixed("request")
 }
 
-fn random_idempotency_key() -> Result<String, UsageError> {
+pub(super) fn random_idempotency_key() -> Result<String, UsageError> {
     random_prefixed("mutation")
 }
 
@@ -324,6 +401,12 @@ fn run_response(
                 }
                 let result = response.result.expect("validated result");
                 if !plan.stream {
+                    if global.output == OutputMode::Human
+                        && plan.view == ResponseView::ScreenText
+                        && let Some(text) = result.get("text").and_then(Value::as_str)
+                    {
+                        return print_screen_text(text);
+                    }
                     let code = print_success(&result, global.output);
                     return if code == 0 { success_exit_code(plan, &result) } else { code };
                 }
@@ -395,7 +478,7 @@ fn run_response(
                     return print_operation_error(&error, global.output);
                 }
                 let message = end.recovery.unwrap_or_else(|| "stream ended with an error".into());
-                eprintln!("{message}");
+                eprintln!("{}", sanitize_human_block(&message));
                 return 1;
             }
             _ => {
@@ -454,6 +537,20 @@ fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
         WireOperation::Typed(cmux_tui_core::resource::ResourceOperation::TerminalWait)
     ) && result.get("matched") == Some(&Value::Bool(false));
     i32::from(unmatched_wait)
+}
+
+/// `terminal <t> screen read` as plain text: the screen's rows as they show,
+/// without trailing blank rows, then one newline.
+fn print_screen_text(text: &str) -> i32 {
+    let mut stdout = io::stdout().lock();
+    let shown = text.trim_end_matches(['\n', ' ']);
+    match writeln!(stdout, "{shown}").and_then(|()| stdout.flush()) {
+        Ok(()) => 0,
+        Err(error) => {
+            eprintln!("stdout error: {error}");
+            3
+        }
+    }
 }
 
 fn print_success(value: &Value, output: OutputMode) -> i32 {
@@ -535,23 +632,32 @@ pub(super) fn print_local_error(error: &Value, output: OutputMode, exit_code: i3
             eprintln!();
         }
         OutputMode::Quiet | OutputMode::Human => {
-            let message =
-                error.get("message").and_then(Value::as_str).unwrap_or("operation failed");
-            eprintln!("{message}");
-            if let Some(candidates) = error
-                .get("details")
-                .and_then(|details| details.get("candidates"))
-                .and_then(Value::as_array)
-            {
-                for candidate in candidates {
-                    if let Some(candidate) = candidate.as_str() {
-                        eprintln!("  {candidate}");
-                    }
-                }
-            }
+            let text = human_error_lines(error);
+            eprint!("{}", super::with_program_name(&text, &super::program_name()));
         }
     }
     exit_code
+}
+
+/// Render an operation error for human-readable stderr. The message and any
+/// candidate names can carry remote-supplied text, so they get the same
+/// visible sanitizing as human stdout.
+fn human_error_lines(error: &Value) -> String {
+    let message = error.get("message").and_then(Value::as_str).unwrap_or("operation failed");
+    let mut text = sanitize_human_block(message);
+    text.push('\n');
+    if let Some(candidates) =
+        error.get("details").and_then(|details| details.get("candidates")).and_then(Value::as_array)
+    {
+        for candidate in candidates {
+            if let Some(candidate) = candidate.as_str() {
+                text.push_str("  ");
+                text.push_str(&sanitize_human_cell(candidate));
+                text.push('\n');
+            }
+        }
+    }
+    text
 }
 
 pub(super) fn print_local_success(value: &Value, output: OutputMode) -> i32 {
@@ -608,7 +714,8 @@ fn append_human(value: &Value, output: &mut String) {
     match value {
         Value::Null => {}
         Value::String(value) => {
-            output.push_str(value);
+            let value = sanitize_human_block(value);
+            output.push_str(&value);
             if !value.ends_with('\n') {
                 output.push('\n');
             }
@@ -724,23 +831,74 @@ fn flatten_human_object(
         if let Value::Object(nested) = value {
             flatten_human_object(Some(&path), nested, rows);
         } else {
-            rows.push((path, human_cell(value)));
+            rows.push((sanitize_human_cell(&path), human_cell(value)));
         }
     }
+}
+
+/// Visible placeholder for characters a terminal could interpret as part of
+/// a control or escape sequence. Remote-supplied strings (browser titles,
+/// terminal titles set by programs, workspace and notification names) flow
+/// into human output and must render as inert text.
+const CONTROL_PLACEHOLDER: char = '\u{fffd}';
+
+/// C0 controls, DEL, C1 controls, and the Unicode line and paragraph
+/// separators. Written raw, any of these can alter terminal state or break
+/// the line structure of human output. Callers decide which whitespace
+/// controls keep a meaning before falling through to this check.
+fn is_terminal_control(ch: char) -> bool {
+    matches!(ch, '\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}' | '\u{2028}' | '\u{2029}')
+}
+
+/// Sanitize a single-line human cell. CR and LF keep the visible `\n` escape
+/// so multi-line values stay on one table row; every other control character,
+/// including TAB, becomes a placeholder so the cell-width padding stays
+/// correct. Width math must always use the sanitized string.
+pub(super) fn sanitize_human_cell(value: &str) -> String {
+    let mut sanitized = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\r' | '\n' => sanitized.push_str("\\n"),
+            ch if is_terminal_control(ch) => sanitized.push(CONTROL_PLACEHOLDER),
+            ch => sanitized.push(ch),
+        }
+    }
+    sanitized
+}
+
+/// Sanitize multi-line human text (top-level strings, error messages). LF and
+/// TAB keep their meaning, CRLF collapses to LF, and a lone CR becomes a
+/// placeholder because it can rewrite the current line.
+fn sanitize_human_block(value: &str) -> String {
+    let mut sanitized = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\n' | '\t' => sanitized.push(ch),
+            '\r' if chars.peek() == Some(&'\n') => {}
+            ch if is_terminal_control(ch) => sanitized.push(CONTROL_PLACEHOLDER),
+            ch => sanitized.push(ch),
+        }
+    }
+    sanitized
 }
 
 fn human_cell(value: &Value) -> String {
     match value {
         Value::Null => "-".to_string(),
-        Value::String(value) => value.replace(['\r', '\n'], "\\n"),
+        Value::String(value) => sanitize_human_cell(value),
         Value::Bool(value) => value.to_string(),
         Value::Number(value) => value.to_string(),
-        value => serde_json::to_string(value).expect("JSON value serialization cannot fail"),
+        // serde_json escapes C0 controls but writes C1 controls and the
+        // Unicode separators raw, so the serialized form needs the same pass.
+        value => sanitize_human_cell(
+            &serde_json::to_string(value).expect("JSON value serialization cannot fail"),
+        ),
     }
 }
 
 fn human_header(key: &str) -> String {
-    key.replace('_', " ").to_uppercase()
+    sanitize_human_cell(&key.replace('_', " ").to_uppercase())
 }
 
 fn human_key_rank(key: &str) -> usize {
@@ -795,6 +953,7 @@ mod tests {
             params: json!({}),
             idempotency_key: None,
             stream: false,
+            view: ResponseView::Full,
         }
     }
 
@@ -862,6 +1021,7 @@ mod tests {
             params: json!({"initial_content":"empty"}),
             idempotency_key: None,
             stream: false,
+            view: ResponseView::Full,
         };
         assert!(request_value(&mutation).unwrap().get("idempotency_key").is_some());
 
@@ -870,6 +1030,7 @@ mod tests {
             params: json!({}),
             idempotency_key: None,
             stream: false,
+            view: ResponseView::Full,
         };
         assert!(request_value(&read).unwrap().get("idempotency_key").is_none());
     }
@@ -940,6 +1101,147 @@ mod tests {
     }
 
     #[test]
+    fn human_cells_disarm_escape_sequences_in_remote_titles() {
+        // A remote-supplied title (browser page, terminal program) must not
+        // reach the invoking terminal as a live escape sequence. Here the
+        // payload is an OSC title change.
+        let output = human_text(&json!([
+            {"id":"b_1","title":"page\u{1b}]0;owned\u{7}title"}
+        ]));
+        assert!(!output.contains('\u{1b}'), "raw ESC in {output:?}");
+        assert!(!output.contains('\u{7}'), "raw BEL in {output:?}");
+        assert_eq!(output, "ID   TITLE\nb_1  page\u{fffd}]0;owned\u{fffd}title\n");
+    }
+
+    #[test]
+    fn human_cells_disarm_osc52_clipboard_payloads() {
+        // OSC 52 writes the clipboard on supporting terminals; the sequence
+        // must render as inert text.
+        let output = human_text(&json!([
+            {"id":"b_1","title":"\u{1b}]52;c;aGVsbG8=\u{7}"}
+        ]));
+        assert!(!output.contains("\u{1b}]52"), "live OSC 52 in {output:?}");
+        assert_eq!(output, "ID   TITLE\nb_1  \u{fffd}]52;c;aGVsbG8=\u{fffd}\n");
+    }
+
+    #[test]
+    fn human_rows_replace_c1_and_del_controls_with_placeholders() {
+        // C1 controls (CSI, DCS, OSC) and DEL are control bytes even without
+        // a leading ESC on terminals that accept 8-bit controls.
+        let output = human_text(&json!({"title":"a\u{9b}31mb\u{90}c\u{9d}d\u{7f}e"}));
+        assert_eq!(output, "title  a\u{fffd}31mb\u{fffd}c\u{fffd}d\u{fffd}e\n");
+    }
+
+    #[test]
+    fn human_cells_replace_unicode_line_separators() {
+        let output = human_text(&json!([{"id":"w","name":"x\u{2028}y\u{2029}z"}]));
+        assert_eq!(output, "ID  NAME\nw   x\u{fffd}y\u{fffd}z\n");
+    }
+
+    #[test]
+    fn human_cells_keep_the_visible_newline_escape_for_cr_and_lf() {
+        let output = human_text(&json!([{"id":"s_1","title":"line1\r\nline2"}]));
+        assert_eq!(output, "ID   TITLE\ns_1  line1\\n\\nline2\n");
+    }
+
+    #[test]
+    fn human_cells_replace_tabs_so_column_math_stays_aligned() {
+        let output = human_text(&json!([{"id":"x","title":"a\tb"}]));
+        assert_eq!(output, "ID  TITLE\nx   a\u{fffd}b\n");
+    }
+
+    #[test]
+    fn human_headers_and_keys_cannot_carry_control_sequences() {
+        let table = human_text(&json!([{"id":"x","bad\u{1b}key":"v"}]));
+        assert_eq!(table, "ID  BAD\u{fffd}KEY\nx   v\n");
+        let object = human_text(&json!({"k\u{1b}ey":"v"}));
+        assert_eq!(object, "k\u{fffd}ey  v\n");
+    }
+
+    #[test]
+    fn human_nested_values_disarm_c1_controls_after_json_serialization() {
+        // serde_json escapes C0 controls but writes C1 controls raw, so the
+        // serialized fallback cell needs the same sanitizing as plain strings.
+        let output = human_text(&json!([{"id":"x","tags":["a\u{85}b"]}]));
+        assert!(!output.contains('\u{85}'), "raw C1 NEL in {output:?}");
+        assert_eq!(output, "ID  TAGS\nx   [\"a\u{fffd}b\"]\n");
+    }
+
+    #[test]
+    fn human_top_level_strings_keep_newlines_but_disarm_controls() {
+        assert_eq!(
+            human_text(&json!("line1\nline2\u{1b}[2Jline3")),
+            "line1\nline2\u{fffd}[2Jline3\n"
+        );
+        assert_eq!(human_text(&json!("crlf\r\nkept")), "crlf\nkept\n");
+        assert_eq!(human_text(&json!("overwrite\rspoof")), "overwrite\u{fffd}spoof\n");
+        assert_eq!(human_text(&json!("tab\tkept")), "tab\tkept\n");
+    }
+
+    #[test]
+    fn human_string_lists_disarm_controls_per_line() {
+        let output = human_text(&json!(["a\u{1b}b", "plain"]));
+        assert_eq!(output, "a\u{fffd}b\nplain\n");
+    }
+
+    #[test]
+    fn human_output_keeps_plain_unicode_text_unchanged() {
+        let output = human_text(&json!({"title":"日本語 🚀 ｶﾞ title"}));
+        assert_eq!(output, "title  日本語 🚀 ｶﾞ title\n");
+    }
+
+    #[test]
+    fn human_error_text_disarms_control_sequences() {
+        let error = json!({
+            "code": "operation.failed",
+            "message": "no workspace named b\u{1b}]0;owned\u{7}ad",
+            "details": {"candidates": ["work\u{9b}space", "plain"]},
+            "retryable": false
+        });
+        let text = human_error_lines(&error);
+        assert!(!text.contains('\u{1b}'), "raw ESC in {text:?}");
+        assert!(!text.contains('\u{9b}'), "raw C1 CSI in {text:?}");
+        assert_eq!(
+            text,
+            "no workspace named b\u{fffd}]0;owned\u{fffd}ad\n  work\u{fffd}space\n  plain\n"
+        );
+    }
+
+    #[test]
+    fn sanitizers_cover_every_control_range() {
+        let controls =
+            ('\u{0}'..='\u{1f}').chain('\u{7f}'..='\u{9f}').chain(['\u{2028}', '\u{2029}']);
+        for ch in controls {
+            let cell = sanitize_human_cell(&format!("a{ch}b"));
+            assert!(!cell.contains(ch), "cell kept {ch:?}: {cell:?}");
+            let block = sanitize_human_block(&format!("a{ch}b"));
+            if matches!(ch, '\n' | '\t') {
+                assert_eq!(block, format!("a{ch}b"));
+            } else {
+                assert!(!block.contains(ch), "block kept {ch:?}: {block:?}");
+            }
+        }
+        assert_eq!(sanitize_human_cell("plain ascii"), "plain ascii");
+        assert_eq!(sanitize_human_block("plain ascii"), "plain ascii");
+    }
+
+    #[test]
+    fn json_output_keeps_remote_title_bytes_intact() {
+        // JSON modes rely on JSON escaping, not visible sanitizing: C0
+        // controls are escaped, C1 controls and separator characters stay in
+        // the encoded text, and the exact title survives a round-trip for
+        // machine consumers.
+        let title = "a\u{1b}]52;c;aGk=\u{7}b\u{9b}c\u{2028}d";
+        let encoded = serde_json::to_string(&json!({"title": title})).expect("titles encode");
+        assert!(!encoded.contains('\u{1b}'));
+        assert!(!encoded.contains('\u{7}'));
+        assert!(encoded.contains('\u{9b}'));
+        assert!(encoded.contains('\u{2028}'));
+        let decoded: Value = serde_json::from_str(&encoded).expect("titles decode");
+        assert_eq!(decoded["title"].as_str(), Some(title));
+    }
+
+    #[test]
     fn terminal_wait_transport_timeout_follows_the_operation_timeout() {
         for operation in [ResourceOperation::TerminalWait, ResourceOperation::TerminalWaitExit] {
             let bounded = RequestPlan {
@@ -947,6 +1249,7 @@ mod tests {
                 params: json!({"timeout_ms":"5000"}),
                 idempotency_key: None,
                 stream: false,
+                view: ResponseView::Full,
             };
             assert_eq!(response_read_timeout(&bounded, false), Some(Duration::from_secs(7)));
 
@@ -962,6 +1265,7 @@ mod tests {
             params: json!({}),
             idempotency_key: None,
             stream: true,
+            view: ResponseView::Full,
         };
         assert_eq!(response_read_timeout(&stream, false), Some(Duration::from_millis(250)));
         assert_eq!(response_read_timeout(&stream, true), None);
@@ -982,6 +1286,7 @@ mod tests {
                     params: json!({}),
                     idempotency_key: Some("input-error".into()),
                     stream: false,
+                    view: ResponseView::Full,
                 };
                 for (reason, expected) in [
                     ("terminal_input_too_large", catalog.terminal_input.too_large),
@@ -1019,6 +1324,7 @@ mod tests {
                 params: json!({}),
                 idempotency_key: Some("reload-owner-stopped".into()),
                 stream: false,
+                view: ResponseView::Full,
             };
             let mut error = json!({
                 "code":"operation.failed",

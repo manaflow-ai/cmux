@@ -7,6 +7,13 @@ import CmuxMobileBrowserStream
 #endif
 
 extension WorkspaceDetailView {
+    /// Cloud workspaces use the device's System VPN for private addresses.
+    /// They share the native browser chrome but do not expose a paired-Mac
+    /// browser stream or a per-host SOCKS route.
+    var isCloudWorkspace: Bool {
+        store.externalHostID(ofWorkspace: workspace.id) != nil
+    }
+
     /// The SSH computer behind this workspace, or `nil` for Mac workspaces.
     var sshHostID: UUID? {
         let computers = store.sshComputers
@@ -71,7 +78,7 @@ extension WorkspaceDetailView {
     func onDeviceModePicker(_ browser: BrowserSurfaceState) -> MobileBrowserModePicker? {
         // A Mac workspace's native browser that is not routed through the
         // Mac (an older Mac's fallback pane) keeps no switch.
-        guard browserServerRoute != nil else { return nil }
+        guard browserServerRoute != nil || isCloudWorkspace else { return nil }
         let panels = browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue)
         let target = panels.first { $0.panelID == browser.linkedStreamPanelID } ?? panels.first
         return MobileBrowserModePicker(
@@ -107,11 +114,13 @@ extension WorkspaceDetailView {
         let unavailable: [MobileBrowserMode: String]
         if sshHostID != nil {
             unavailable = [:]
+        } else if isCloudWorkspace {
+            unavailable = [:]
         } else {
             unavailable = macOnDeviceUnavailableReason.map { [.onDevice: $0] } ?? [:]
         }
         return MobileBrowserModePicker(current: .streamed, unavailable: unavailable) { mode in
-            guard mode == .onDevice, browserServerRoute != nil else { return }
+            guard mode == .onDevice, browserServerRoute != nil || isCloudWorkspace else { return }
             openStreamPanelOnDevice(stream.id, url: stream.url)
         }
     }
@@ -119,7 +128,8 @@ extension WorkspaceDetailView {
     /// Opens a streamed tab "On iPhone" when that was its last mode.
     /// Returns whether it did.
     func openStreamPanelOnDeviceIfPreferred(_ panelID: String) -> Bool {
-        guard browserServerRoute != nil, browserStore.prefersOnDevice(panelID: panelID) else { return false }
+        guard (browserServerRoute != nil || isCloudWorkspace),
+              browserStore.prefersOnDevice(panelID: panelID) else { return false }
         let url = browserStreamStore.panels(in: workspace.rpcWorkspaceID.rawValue)
             .first { $0.panelID == panelID }?.url
         openStreamPanelOnDevice(panelID, url: url)

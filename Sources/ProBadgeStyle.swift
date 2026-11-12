@@ -253,11 +253,12 @@ struct ProBadgeLabel: View {
 
 /// The Pro badge: renders the active ``ProBadgeStyle`` and opens the shared
 /// pricing destination. On hover the capsule widens to reveal a dismiss X
-/// inside it. Gated on the pro-upgrade-ui feature flag.
+/// inside it. The local dismissal preference controls visibility.
 struct ProBadgeView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.sidebarReadabilityBackdrop) private var readabilityBackdrop
     @State private var isHovered = false
+    var actions = ProBadgeActions()
 
     private var helpTitle: String {
         String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…")
@@ -268,8 +269,7 @@ struct ProBadgeView: View {
     }
 
     var body: some View {
-        if CmuxFeatureFlags.shared.isProUpgradeUIEnabled,
-           !ProBadgeStyleStore.shared.isDismissed {
+        if !ProBadgeStyleStore.shared.isDismissed {
             let style = ProBadgeStyleStore.shared.current
             let foreground = ProBadgePalette.foreground(
                 for: style,
@@ -277,20 +277,21 @@ struct ProBadgeView: View {
             )
             HStack(spacing: 0) {
                 Button {
-                    ProUpgradePresenter.present(source: .sidebarBadge)
+                    actions.upgrade()
                 } label: {
                     ProBadgeContent(style: style)
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
                 .safeHelp(helpTitle)
-                .accessibilityLabel(helpTitle)
+                .hintableAccessibilityLabel(helpTitle)
                 .accessibilityIdentifier("ProBadgeButton")
 
                 // The X is always laid out; only its container width animates,
                 // so it's revealed by the widening capsule (clipped) rather
                 // than fading or sliding on its own.
                 Button {
+                    actions.dismissed()
                     withAnimation(.easeOut(duration: 0.15)) {
                         ProBadgeStyleStore.shared.isDismissed = true
                     }
@@ -312,6 +313,7 @@ struct ProBadgeView: View {
             }
             .modifier(ProBadgeCapsule(style: style, isHovered: isHovered))
             .frame(height: 22, alignment: .center)
+            .onAppear { actions.appeared() }
             .onHover { hovering in
                 withAnimation(.easeOut(duration: 0.15)) {
                     isHovered = hovering

@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import os
 import socketserver
 import subprocess
 import tempfile
@@ -12,6 +11,7 @@ import threading
 from pathlib import Path
 
 from claude_teams_test_utils import resolve_cmux_cli
+from fake_socket_env import cli_environment, unwrap_capability
 
 
 PROFILE_ID = "11111111-1111-4111-8111-111111111111"
@@ -21,6 +21,7 @@ SURFACE_ID = "22222222-2222-4222-8222-222222222222"
 class FakeCmuxState:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict[str, object]]] = []
+        self.enveloped = 0
 
     def handle(self, method: str, params: dict[str, object]) -> dict[str, object]:
         self.calls.append((method, params))
@@ -83,7 +84,11 @@ class FakeCmuxState:
 class FakeCmuxHandler(socketserver.StreamRequestHandler):
     def handle(self) -> None:
         while line := self.rfile.readline():
-            request = json.loads(line.decode("utf-8"))
+            raw = line.decode("utf-8")
+            bare = unwrap_capability(raw)
+            if bare != raw:
+                self.server.state.enveloped += 1  # type: ignore[attr-defined]
+            request = json.loads(bare)
             try:
                 result = self.server.state.handle(  # type: ignore[attr-defined]
                     request["method"],
@@ -105,10 +110,8 @@ class ThreadedUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamSer
     state: FakeCmuxState
 
 
-def run_cli(cli: str, socket_path: str, arguments: list[str]) -> str:
-    environment = dict(os.environ)
-    for key in ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
-        environment.pop(key, None)
+def run_cli(cli: str, socket_path: str, arguments: list[str], **overrides: str) -> str:
+    environment = cli_environment(**overrides)
     result = subprocess.run(
         [cli, "--socket", socket_path, *arguments],
         capture_output=True,
@@ -130,9 +133,7 @@ def assert_cli_fails(
     arguments: list[str],
     expected_message: str,
 ) -> None:
-    environment = dict(os.environ)
-    for key in ["CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"]:
-        environment.pop(key, None)
+    environment = cli_environment()
     result = subprocess.run(
         [cli, "--socket", socket_path, *arguments],
         capture_output=True,
@@ -178,8 +179,11 @@ def main() -> int:
                 cli,
                 socket_path,
                 ["browser", "open", "https://example.com", "--profile", "Work Profile"],
+                CMUX_SOCKET_CAPABILITY="synthetic-test-capability",
             )
             assert_last_call(state, "browser.open_split", "Work Profile")
+            if state.enveloped == 0:
+                raise AssertionError("the CLI sent no capability envelope, so unwrap_capability went unexercised")
 
             run_cli(
                 cli,

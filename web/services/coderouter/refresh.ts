@@ -30,6 +30,14 @@ export class CodeRouterRefreshBusy extends Error {
 
 export class CodeRouterCredentialBroken extends Error {
   readonly _tag = "CodeRouterCredentialBroken";
+
+  constructor(
+    message: string,
+    /** True when the refresher already reported this failure. */
+    readonly reported = false,
+  ) {
+    super(message);
+  }
 }
 
 export type FreshCredentialInput = {
@@ -52,6 +60,8 @@ export type CredentialRefreshDependencies = {
   readonly fail: typeof failRefreshLease;
   readonly isTerminal: typeof isTerminalRefreshError;
   readonly failureCode: typeof refreshFailureCode;
+  /** Defaults to the shared coderouter failure reporter. */
+  readonly report?: typeof reportCoderouterFailure;
 };
 
 export function createCredentialRefresher(
@@ -105,10 +115,7 @@ export function createCredentialRefresher(
       // refreshed and rotated the token immediately before this lease.
       const current = await dependencies.read(input.teamId, input.accountId, input.signal);
       throwIfAborted(input.signal);
-      if (
-        !input.force &&
-        credentialExpiryMs(current.credential) > Date.now() + REFRESH_SKEW_MS
-      ) {
+      if (currentCredentialSuffices(input, current)) {
         await dependencies.release(input.accountId, leaseId, input.signal);
         throwIfAborted(input.signal);
         return current.credential;
@@ -143,24 +150,56 @@ export function createCredentialRefresher(
         await dependencies.release(input.accountId, leaseId, input.signal).catch(() => undefined);
         throw error;
       }
-      const terminal = dependencies.isTerminal(error);
-      reportCoderouterFailure("provider_refresh", error, {
-        provider: currentProvider(before.credential),
-        terminal,
-      });
-      await dependencies.fail(
-        input.accountId,
-        leaseId,
-        terminal,
-        dependencies.failureCode(error),
-        input.signal,
-      ).catch(() => undefined);
-      if (terminal) {
-        throw new CodeRouterCredentialBroken("provider refresh token is no longer usable");
-      }
-      throw error;
+      return await failRefresh(dependencies, input, leaseId, before.credential, error);
     }
   };
+}
+
+/**
+ * Whether the lease winner can return the stored credential without a
+ * provider refresh. A forced refresh answers a token the provider rejected;
+ * if another request already rotated past that revision, its token is used
+ * instead of spending another refresh-token rotation.
+ */
+function currentCredentialSuffices(
+  input: FreshCredentialInput,
+  current: { readonly envelope: EncryptedCredential; readonly credential: CodeRouterCredential },
+): boolean {
+  if (input.force) {
+    return input.expectedRevision > 0 && current.envelope.credentialRevision > input.expectedRevision;
+  }
+  return credentialExpiryMs(current.credential) > Date.now() + REFRESH_SKEW_MS;
+}
+
+async function failRefresh(
+  dependencies: CredentialRefreshDependencies,
+  input: FreshCredentialInput,
+  leaseId: string,
+  credential: CodeRouterCredential,
+  error: unknown,
+): Promise<never> {
+  const terminal = dependencies.isTerminal(error);
+  const failureCode = dependencies.failureCode(error);
+  // A revoked sign-in (logout, password change, or a refresh token rotated by
+  // another client) is marked broken below and the dashboard asks the team to
+  // reconnect it: the tenant's state to fix, not an operator page. Other
+  // terminal codes, such as `invalid_client`, stay operator errors.
+  (dependencies.report ?? reportCoderouterFailure)("provider_refresh", error, {
+    provider: currentProvider(credential),
+    terminal,
+    failure_code: safeFailureCode(failureCode),
+  }, terminal && isRevokedSignInCode(failureCode) ? { fault: "tenant" } : {});
+  await dependencies.fail(
+    input.accountId,
+    leaseId,
+    terminal,
+    failureCode,
+    input.signal,
+  ).catch(() => undefined);
+  if (terminal) {
+    throw new CodeRouterCredentialBroken("provider refresh token is no longer usable", true);
+  }
+  throw error;
 }
 
 /**
@@ -335,6 +374,21 @@ export function isTerminalRefreshError(error: unknown): boolean {
   return error instanceof CodexOwnerMismatch || error instanceof ProviderRefreshError &&
     (error.status === 400 || error.status === 401) &&
     /invalid|expired|reused|revoked|not_found/i.test(error.code);
+}
+
+/**
+ * Codes that mean the provider revoked this sign-in. OpenAI answers
+ * `refresh_token_expired`, `refresh_token_reused`, or
+ * `refresh_token_invalidated` (logout or password change), the same set the
+ * Codex CLI maps to expired, exhausted, and revoked.
+ */
+function isRevokedSignInCode(code: string): boolean {
+  return /invalid_grant|expired|reused|invalidated|revoked|credential_owner_mismatch/i.test(code);
+}
+
+/** Provider error codes are short identifiers; keep only that shape in telemetry. */
+function safeFailureCode(code: string): string {
+  return /^[a-z0-9_.-]{1,64}$/i.test(code) ? code : "unrecognized";
 }
 
 function refreshFailureCode(error: unknown): string {

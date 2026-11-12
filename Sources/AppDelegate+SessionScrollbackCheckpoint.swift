@@ -155,6 +155,7 @@ extension AppDelegate {
                 let observation = restorableAgentIndex.entryForStablePanel(
                     workspaceId: transfer?.sessionRestoreWorkspaceId ?? dock.workspaceId,
                     panelId: panelId,
+                    stableSurfaceId: terminal.stableSurfaceId,
                     revalidateProcessEvidence: false
                 )
                 let agentWasRunning = dock.sessionAgentWasRunning(
@@ -195,6 +196,7 @@ extension AppDelegate {
                     let observation = restorableAgentIndex.entryForStablePanel(
                         workspaceId: workspace.id,
                         panelId: panelId,
+                        stableSurfaceId: terminal.stableSurfaceId,
                         revalidateProcessEvidence: false
                     )
                     let agentWasRunning = workspace.sessionAgentWasRunning(

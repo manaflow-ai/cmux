@@ -26,7 +26,7 @@ struct TerminalOutputScannerTests {
 
     @Test func operatingSystemCommandsAreIgnorableWithEitherTerminator() {
         #expect(scan("\u{1B}]133;D;0\u{7}") == [.ignorable])
-        #expect(scan("\u{1B}]7;file:///home/leo\u{1B}\\") == [.ignorable])
+        #expect(scan("\u{1B}]7;file:///home/dev\u{1B}\\") == [.ignorable])
     }
 
     @Test func anEscapeEndsAStringSequenceAndStartsTheNextOne() {

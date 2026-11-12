@@ -103,10 +103,10 @@ struct TokenRefreshAlgorithmTests {
     
     @Test("Should consider token with long expiry AND recent issue as fresh")
     func tokenWithLongExpiryAndRecentIssueIsFresh() {
-        // Token must BOTH: expire in >20s AND be issued <75s ago
+        // Fresh until the token is within the refresh lead of its expiry.
         let now = Int(Date().timeIntervalSince1970)
-        let iat = now - 10 // Issued 10 seconds ago (<75s) ✓
-        let exp = now + 3600 // Expires in 1 hour (>20s) ✓
+        let iat = now - 10
+        let exp = now + 3600 // Expires in 1 hour, far outside the lead
         
         let payloadJson = "{\"exp\":\(exp),\"iat\":\(iat),\"sub\":\"test\"}"
         let payloadBase64 = Data(payloadJson.utf8).base64EncodedString()
@@ -117,16 +117,15 @@ struct TokenRefreshAlgorithmTests {
         let header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
         let jwt = "\(header).\(payloadBase64).signature"
         
-        // Both conditions met, so token is fresh
         #expect(isTokenFreshEnough(jwt) == true)
     }
     
-    @Test("Should consider token fresh only when BOTH conditions met")
+    @Test("Should cap the refresh lead at half a short token lifetime")
     func tokenFreshWhenBothConditionsMet() {
-        // Token must BOTH: expire in >20s AND be issued <75s ago
+        // 90 s lifetime caps the lead at 45 s; 60 s remain, so still fresh.
         let now = Int(Date().timeIntervalSince1970)
-        let iat = now - 30 // Issued 30 seconds ago (<75s) ✓
-        let exp = now + 60 // Expires in 60 seconds (>20s) ✓
+        let iat = now - 30
+        let exp = now + 60
         
         // Manually construct JWT payload
         let payloadJson = "{\"exp\":\(exp),\"iat\":\(iat),\"sub\":\"test\"}"
@@ -138,16 +137,14 @@ struct TokenRefreshAlgorithmTests {
         let header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
         let jwt = "\(header).\(payloadBase64).signature"
         
-        // Both conditions met, so token is fresh
         #expect(isTokenFreshEnough(jwt) == true)
     }
     
-    @Test("Should not consider token fresh if only recently issued")
+    @Test("Should not consider token fresh inside the 20 s floor")
     func tokenNotFreshIfOnlyRecentlyIssued() {
-        // Token issued recently but expires soon
         let now = Int(Date().timeIntervalSince1970)
-        let iat = now - 30 // Issued 30 seconds ago (<75s) ✓
-        let exp = now + 10 // Expires in 10 seconds (<20s) ✗
+        let iat = now - 30
+        let exp = now + 10 // Expires in 10 seconds, inside the floor
         
         let payloadJson = "{\"exp\":\(exp),\"iat\":\(iat),\"sub\":\"test\"}"
         let payloadBase64 = Data(payloadJson.utf8).base64EncodedString()
@@ -158,16 +155,16 @@ struct TokenRefreshAlgorithmTests {
         let header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
         let jwt = "\(header).\(payloadBase64).signature"
         
-        // Only one condition met, should refresh
         #expect(isTokenFreshEnough(jwt) == false)
     }
     
-    @Test("Should not consider token fresh if only has long expiry")
+    @Test("Should not consider token fresh inside the refresh lead")
     func tokenNotFreshIfOnlyLongExpiry() {
-        // Token has long expiry but was issued long ago
+        // The default 60 s lead applies (half the 140 s lifetime is 70 s);
+        // only 40 s remain.
         let now = Int(Date().timeIntervalSince1970)
-        let iat = now - 100 // Issued 100 seconds ago (>75s) ✗
-        let exp = now + 60 // Expires in 60 seconds (>20s) ✓
+        let iat = now - 100
+        let exp = now + 40
         
         let payloadJson = "{\"exp\":\(exp),\"iat\":\(iat),\"sub\":\"test\"}"
         let payloadBase64 = Data(payloadJson.utf8).base64EncodedString()
@@ -178,7 +175,6 @@ struct TokenRefreshAlgorithmTests {
         let header = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
         let jwt = "\(header).\(payloadBase64).signature"
         
-        // Only one condition met, should refresh
         #expect(isTokenFreshEnough(jwt) == false)
     }
     

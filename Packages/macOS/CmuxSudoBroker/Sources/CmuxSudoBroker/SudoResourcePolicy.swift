@@ -16,6 +16,8 @@ struct SudoResourcePolicy: Sendable, Equatable {
     let maximumAuditBytes: Int
     let retainedAuditBytes: Int
     let privilegedCleanupGraceSeconds: TimeInterval
+    /// Upper bound on a bundled helper snapshot copied into the root staging directory.
+    let maximumHelperBytes: Int
 
     init(
         maximumScriptBytes: Int = 256 * 1_024,
@@ -29,7 +31,8 @@ struct SudoResourcePolicy: Sendable, Equatable {
         maximumResultBytes: Int = 2 * 1_024 * 1_024,
         maximumAuditBytes: Int = 1 * 1_024 * 1_024,
         retainedAuditBytes: Int = 512 * 1_024,
-        privilegedCleanupGraceSeconds: TimeInterval = 10
+        privilegedCleanupGraceSeconds: TimeInterval = 10,
+        maximumHelperBytes: Int = 256 * 1_024 * 1_024
     ) {
         self.maximumScriptBytes = maximumScriptBytes
         self.maximumPendingRequestCount = maximumPendingRequestCount
@@ -43,5 +46,6 @@ struct SudoResourcePolicy: Sendable, Equatable {
         self.maximumAuditBytes = maximumAuditBytes
         self.retainedAuditBytes = retainedAuditBytes
         self.privilegedCleanupGraceSeconds = privilegedCleanupGraceSeconds
+        self.maximumHelperBytes = max(1, maximumHelperBytes)
     }
 }

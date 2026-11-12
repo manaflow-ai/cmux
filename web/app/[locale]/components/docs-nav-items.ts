@@ -4,6 +4,7 @@ import {
   type DocsChannel,
 } from "@/app/lib/docs-channel";
 import {
+  cloudSecurityDocsLocales,
   fallbackContentLocales,
   featureWorkflowContentLocales,
   managedPoliciesDocsLocales,
@@ -135,6 +136,12 @@ export const navItems: NavEntry[] = [
       { titleKey: "cloudMachines", href: "/docs/cloud/machines" },
       { titleKey: "cloudWorkspaces", href: "/docs/cloud/workspaces" },
       { titleKey: "cloudNetworking", href: "/docs/cloud/networking" },
+      {
+        titleKey: "cloudSecurity",
+        href: "/docs/cloud-security",
+        locales: cloudSecurityDocsLocales,
+        contentLocales: cloudSecurityDocsLocales,
+      },
       { titleKey: "cloudCli", href: "/docs/cloud/cli" },
       { titleKey: "cloudTroubleshooting", href: "/docs/cloud/troubleshooting" },
     ],

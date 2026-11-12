@@ -168,6 +168,8 @@ import Testing
         #expect(panel.surface.respawnInitialEnvironmentOverrides == [
             "CMUX_TASK_PROMPT": "",
             "GOOD": "value",
+            // Every terminal carries its own stable surface identity.
+            "CMUX_STABLE_SURFACE_ID": panel.stableSurfaceId.uuidString,
         ])
     }
 

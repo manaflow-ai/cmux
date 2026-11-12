@@ -270,7 +270,7 @@ enum AgentInboxProjection {
             workspaceTitle: workspaceTitle,
             agentName: agentName,
             state: message.state,
-            isUnread: message.state != .read,
+            isUnread: message.state == .queued || message.state == .delivered,
             title: title,
             preview: message.body,
             promptText: nil,

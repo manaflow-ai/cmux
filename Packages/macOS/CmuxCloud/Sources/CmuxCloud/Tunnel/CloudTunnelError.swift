@@ -20,7 +20,7 @@ public enum CloudTunnelError: Error, CustomStringConvertible, Equatable {
     /// `start` ran before a VPN configuration was saved; a programming error
     /// in the coordinator's sequencing, surfaced rather than trapped.
     case configurationNotInstalled
-    /// `Settings › Beta Features › Cloud Machines` is off (or a managed
+    /// Cloud activation is off (or a managed
     /// profile disables Cloud): the app must not enroll, install, or start.
     case cloudMachinesOff
     /// The account has no Cloud machine yet; the tunnel has nothing to reach.
@@ -77,7 +77,7 @@ public enum CloudTunnelError: Error, CustomStringConvertible, Equatable {
         case .cloudMachinesOff:
             return String(
                 localized: "cloudTunnel.error.cloudMachinesOff",
-                defaultValue: "Cloud Machines is turned off. Turn it on in Settings › Beta Features, then retry."
+                defaultValue: "Cloud Machines is turned off. Open the Cloud tab and enable Cloud, then retry."
             )
         case .disabledByPolicy:
             return String(localized: "cloud.managed.tunnelDisabled", defaultValue: "Cloud private-network access is disabled by your organization.")

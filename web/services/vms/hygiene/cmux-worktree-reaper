@@ -1,0 +1,370 @@
+#!/usr/bin/env bash
+# cmux-worktree-reaper: remove agent worktrees whose owner is gone. Clean,
+# fully pushed worktrees go with a plain `git worktree remove`. A worktree
+# with work in it (uncommitted, untracked or unpushed) is held and reported,
+# unless --backup is given: then its work is pushed to a wip/ branch, read
+# back with ls-remote, and only then removed.
+#
+# Usage: cmux-worktree-reaper [--apply] [--backup] [--show-files] [--root DIR]...
+#          [--ttl-hours N] [--max-untracked-mb N] [--remote NAME]
+#        cmux-worktree-reaper mark DIR [SESSION]   write the owner marker
+#        cmux-worktree-reaper keep DIR [REASON]    never reclaim this worktree
+#        cmux-worktree-reaper unkeep DIR
+#
+# For every git worktree (not main checkouts) of each repository found
+# directly under a root (default ~/Projects), it decides:
+#   live     the owner is alive: its marker's pid runs, a Claude session in
+#            ~/.claude/sessions with a live pid works there, any process has
+#            its cwd, a file or its binary inside, or anything in it (outside
+#            build output) or its transcript changed within --ttl-hours (3).
+#   keep     someone pinned it (keep): never reclaimed, only reported.
+#   skip     ambiguous: locked, a rebase/merge/cherry-pick/bisect in
+#            progress, a dirty submodule, too many untracked bytes, no
+#            remote to back up to, a repository nested inside that is not a
+#            submodule, or a gitignored file outside build output and caches
+#            (a remove would delete it and a backup never carries it).
+#            Reported, never touched.
+#   reap     the owner is gone and nothing is unpushed: `git worktree remove`
+#            takes the worktree and its build output. Branches, stashes and
+#            the main checkout stay.
+#   hold     the owner is gone but there is work. Reported, never touched,
+#            without --backup. --show-files lists what a backup would hold.
+#   backup   with --backup: the work is committed from a copy of the index
+#            (the worktree and its index are not changed). Gitignored files
+#            are never included. The backup is refused when a file looks
+#            like a secret (name or content) or gitleaks finds one, and when
+#            gitleaks is not installed. Otherwise it is pushed to
+#            wip/<session>/<branch>, read back, and the worktree removed.
+# Report-only unless --apply. Every action is appended to
+# ~/.local/state/cmux-worktree-reaper/log.jsonl.
+#
+# Owner marker: <worktree gitdir>/cmux-owner, key=value lines (session, pid,
+# host, created). It lives in the git dir, so it never shows as a change.
+
+set -u
+export LC_ALL=C
+# Never prompt from a timer: no credential or ssh questions.
+export GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND="${GIT_SSH_COMMAND:-ssh -o BatchMode=yes}"
+# Timers and hooks may run without HOME; bash resolves ~ from the passwd entry.
+HOME="${HOME:-$(cd ~ 2>/dev/null && pwd)}"
+
+mode=report
+roots=()
+ttl_hours=3
+max_untracked_mb=200
+remote=origin
+do_backup=0
+show_files=0
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/cmux-worktree-reaper"
+host="$(hostname -s 2>/dev/null || hostname)"
+
+case "${1:-}" in
+  keep|unkeep)
+    dir="${2:?usage: cmux-worktree-reaper keep|unkeep DIR [REASON]}"
+    gitdir="$(git -C "$dir" rev-parse --absolute-git-dir)" || exit 1
+    if [ "$1" = keep ]; then
+      printf 'reason=%s\nby=%s\nat=%s\n' "${3:-kept}" "${USER:-$(id -un)}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$gitdir/cmux-keep"
+    else
+      rm -f "$gitdir/cmux-keep"
+    fi
+    exit 0 ;;
+esac
+
+if [ "${1:-}" = mark ]; then
+  dir="${2:?usage: cmux-worktree-reaper mark DIR [SESSION]}"
+  gitdir="$(git -C "$dir" rev-parse --absolute-git-dir)" || exit 1
+  {
+    echo "session=${3:-${CMUX_AGENT_SESSION_ID:-${CLAUDE_SESSION_ID:-unknown}}}"
+    echo "pid=${PPID}"
+    echo "host=$host"
+    echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  } > "$gitdir/cmux-owner"
+  exit 0
+fi
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --apply) mode=apply ;;
+    --backup) do_backup=1 ;;
+    --show-files) show_files=1 ;;
+    --root) shift; [ -n "${1:-}" ] || { echo "--root needs a directory" >&2; exit 2; }; roots+=("$1") ;;
+    --ttl-hours) shift; ttl_hours="${1:-}" ;;
+    --max-untracked-mb) shift; max_untracked_mb="${1:-}" ;;
+    --remote) shift; remote="${1:-}" ;;
+    -h|--help) sed -n '2,42p' "$0"; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+for n in "$ttl_hours" "$max_untracked_mb"; do
+  case "$n" in *[!0-9]*|"") echo "--ttl-hours and --max-untracked-mb are whole numbers" >&2; exit 2 ;; esac
+done
+[ "$(id -u)" = 0 ] && { echo "refusing to run as root" >&2; exit 3; }
+[ ${#roots[@]} -eq 0 ] && roots=("$HOME/Projects")
+
+mkdir -p "$state_dir"
+log="$state_dir/log.jsonl"
+exec 9> "$state_dir/run.lock"
+if command -v flock >/dev/null 2>&1; then flock -n 9 || { echo "another run holds the lock" >&2; exit 4; }; fi
+
+json() { local s="$1"; s="${s//\\/\\\\}"; s="${s//\"/\\\"}"; s="${s//$'\n'/\\n}"; s="${s//$'\t'/\\t}"; printf '"%s"' "$s"; }
+logline() { # action path detail
+  printf '{"at":%s,"host":%s,"mode":%s,"action":%s,"path":%s,"detail":%s}\n' \
+    "$(json "$(date -u +%Y-%m-%dT%H:%M:%SZ)")" "$(json "$host")" "$(json "$mode")" \
+    "$(json "$1")" "$(json "$2")" "$(json "${3:-}")" >> "$log"
+}
+report() { printf '%-6s %-9s %s  %s\n' "$1" "$2" "$3" "${4:-}"; }
+
+# Paths processes work in, hold open or run from; with no way to see them,
+# every worktree counts as live.
+held="$state_dir/held"
+if [ -d /proc/self/fd ]; then
+  for p in /proc/[0-9]*; do
+    readlink "$p/cwd" 2>/dev/null; readlink "$p/exe" 2>/dev/null
+    for fd in "$p"/fd/*; do readlink "$fd" 2>/dev/null; done
+  done | grep '^/' | sort -u > "$held"
+elif command -v lsof >/dev/null 2>&1; then
+  lsof -n -F n 2>/dev/null | sed -n 's/^n//p' | grep '^/' | sort -u > "$held"
+else
+  echo "no /proc and no lsof: cannot tell live worktrees; nothing to do" >&2; exit 5
+fi
+# This run holds its own lock file open, so an empty list means the scan failed.
+[ -s "$held" ] || { echo "could not list open files: cannot tell live worktrees; nothing to do" >&2; exit 5; }
+listed_under() { HP="$1" awk 'BEGIN{p=ENVIRON["HP"]} $0==p || index($0,p"/")==1 {f=1; exit} END{exit !f}' "$2"; }
+
+# Live Claude sessions: "<sessionId>\t<cwd>" for each ~/.claude/sessions file whose pid runs.
+claude_live="$state_dir/claude-live"
+: > "$claude_live"
+for f in "$HOME"/.claude/sessions/*.json; do
+  [ -f "$f" ] || continue
+  python3 - "$f" >> "$claude_live" 2>/dev/null <<'PY'
+import json, os, sys
+d = json.load(open(sys.argv[1]))
+pid, cwd, sid = d.get("pid"), d.get("cwd"), d.get("sessionId", "")
+try:
+    os.kill(int(pid), 0)
+except Exception:
+    sys.exit(0)
+if cwd:
+    print(f"{sid}\t{os.path.realpath(cwd)}")
+PY
+done
+
+recent_change() { # dir: anything outside build output changed within the TTL
+  [ -n "$(find "$1" -xdev \( -name .git -o -name target -o -name node_modules -o -name .build \
+      -o -name DerivedData -o -name .next -o -name .turbo \) -prune -o \
+      -mmin "-$((ttl_hours * 60))" -print 2>/dev/null | head -n 1)" ]
+}
+
+transcript_dir() { printf '%s/.claude/projects/%s' "$HOME" "$(printf '%s' "$1" | sed 's/[^A-Za-z0-9]/-/g')"; }
+
+owner_session() { # wt gitdir
+  local s
+  s="$(sed -n 's/^session=//p' "$2/cmux-owner" 2>/dev/null | head -n 1)"
+  [ -n "$s" ] && [ "$s" != unknown ] && { echo "$s"; return; }
+  s="$(ls -t "$(transcript_dir "$1")"/*.jsonl 2>/dev/null | head -n 1)"
+  [ -n "$s" ] && { s="${s##*/}"; echo "${s%.jsonl}"; return; }
+  echo "unknown-${1##*/}"
+}
+
+live_reason() { # wt gitdir -> prints a reason when live
+  local wt="$1" gitdir="$2" pid t
+  pid="$(sed -n 's/^pid=//p' "$gitdir/cmux-owner" 2>/dev/null | head -n 1)"
+  if [ -n "$pid" ] && [ "$(sed -n 's/^host=//p' "$gitdir/cmux-owner" | head -n 1)" = "$host" ] \
+     && kill -0 "$pid" 2>/dev/null; then echo "owner-pid:$pid"; return; fi
+  if HP="$wt" awk -F'\t' 'BEGIN{p=ENVIRON["HP"]} $2==p || index($2,p"/")==1 {f=1; exit} END{exit !f}' "$claude_live"; then
+    echo "claude-session"; return
+  fi
+  listed_under "$wt" "$held" && { echo "process-inside"; return; }
+  t="$(transcript_dir "$wt")"
+  if [ -d "$t" ] && [ -n "$(find "$t" -maxdepth 2 -mmin "-$((ttl_hours * 60))" -print 2>/dev/null | head -n 1)" ]; then
+    echo "transcript-recent"; return
+  fi
+  for f in HEAD index logs/HEAD; do
+    [ -n "$(find "$gitdir/$f" -mmin "-$((ttl_hours * 60))" -print 2>/dev/null)" ] && { echo "git-recent"; return; }
+  done
+  recent_change "$wt" && { echo "files-recent"; return; }
+}
+
+skip_reason() { # wt gitdir
+  local wt="$1" gitdir="$2" f
+  [ -f "$gitdir/locked" ] && { echo locked; return; }
+  for f in rebase-merge rebase-apply MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD BISECT_LOG; do
+    [ -e "$gitdir/$f" ] && { echo "in-progress:$f"; return; }
+  done
+  git -C "$wt" submodule status --recursive 2>/dev/null | grep -q '^+' && { echo "submodule-moved"; return; }
+  if git -C "$wt" submodule foreach --quiet --recursive 'test -z "$(git status --porcelain)" || echo dirty' 2>/dev/null | grep -q dirty; then
+    echo "submodule-dirty"; return
+  fi
+  git -C "$wt" remote get-url "$remote" >/dev/null 2>&1 || { echo "no-remote:$remote"; return; }
+  holds_other "$wt" && { echo "holds-another-worktree"; return; }
+  f="$(nested_repo "$wt")"; [ -n "$f" ] && { echo "nested-repo:$f"; return; }
+  f="$(ignored_work "$wt")"; [ -n "$f" ] && { echo "ignored-file:$f"; return; }
+}
+
+# A repository inside the worktree that is not one of its submodules: neither
+# a backup (git add stores only a gitlink) nor a remove would keep its work.
+nested_repo() { # wt
+  local wt="$1" d rel
+  while IFS= read -r -d '' d; do
+    rel="${d#"$wt"/}"; rel="${rel%/.git}"
+    git -C "$wt" ls-files --error-unmatch -s -- "$rel" 2>/dev/null | grep -q '^160000' && continue
+    echo "$rel"; return
+  done < <(find "$wt" -mindepth 2 \( -name node_modules -o -name target -o -name .build \
+      -o -name DerivedData \) -prune -o -name .git -print0 -prune 2>/dev/null)
+}
+
+# Gitignored files outside build output and caches. A remove deletes them
+# and a backup never carries them, so they keep the worktree.
+ignored_work() { # wt
+  git -C "$1" ls-files -o -i --exclude-standard --directory 2>/dev/null | awk '
+    { n = split($0, part, "/"); keep = 0
+      for (i = 1; i <= n; i++) {
+        c = part[i]
+        if (c ~ /^(node_modules|target|\.build|DerivedData|\.next|\.turbo|dist|build|out|coverage|__pycache__|\.pytest_cache|\.mypy_cache|\.ruff_cache|\.venv|venv|\.gradle|\.parcel-cache|\.svelte-kit|\.nuxt|\.cache|\.zig-cache|zig-out|\.swiftpm|\.DS_Store)$/ || c ~ /\.(log|pyc|o|tsbuildinfo)$/) keep = 1
+      }
+      if (!keep) { print; exit } }'
+}
+
+untracked_kb() {
+  git -C "$1" ls-files -o --exclude-standard -z 2>/dev/null \
+    | (cd "$1" && xargs -0 -r du -sk -- 2>/dev/null) | awk '{s+=$1} END{print s+0}'
+}
+
+# Files a backup would carry: changed and untracked (gitignored files never),
+# plus files touched by commits not on the remote. "<status> <path>" lines.
+backup_files() { # wt
+  git -C "$1" status --porcelain --untracked-files=all 2>/dev/null
+  git -C "$1" log --format= --name-status HEAD --not --remotes="$remote" 2>/dev/null \
+    | awk -F'\t' 'NF>1 {print "C  " $NF}'
+}
+
+# Names and contents that look like credentials. Prints the first hit.
+secret_pattern='(-----BEGIN [A-Z ]*PRIVATE KEY-----|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|sk-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35})'
+# Scans every commit the push would publish: all of $sha not on the remote.
+secret_hit() { # wt sha
+  local wt="$1" sha="$2" f
+  while IFS= read -r f; do
+    case "${f##*/}" in
+      .env|.env.*|*.pem|*.key|*.p12|*.pfx|id_rsa*|id_ed25519*|id_ecdsa*|*credentials*|*.keystore|.netrc|.npmrc|.pypirc)
+        case "${f##*/}" in .env.example|.env.sample|.env.template) ;; *) echo "name:$f"; return ;; esac ;;
+    esac
+    if git -C "$wt" cat-file -p "$sha:$f" 2>/dev/null | head -c 2000000 | grep -Eq "$secret_pattern"; then
+      echo "content:$f"; return
+    fi
+  done < <(git -C "$wt" log --format= --name-only --no-renames --diff-filter=AM "$sha" --not --remotes="$remote" 2>/dev/null | awk 'NF && !seen[$0]++')
+  command -v gitleaks >/dev/null 2>&1 || { echo "no-gitleaks"; return; }
+  if ! gitleaks git --no-banner --log-level error --redact --log-opts="$sha --not --remotes=$remote" "$wt" >/dev/null 2>&1; then
+    echo "gitleaks"; return
+  fi
+}
+
+# Commit the worktree's state from a copy of its index, secret-scan it and
+# push it. Prints the pushed sha and ref; on refusal prints "refused <why>".
+backup() { # wt gitdir branchname session
+  local wt="$1" gitdir="$2" branch="$3" session="$4" idx tree sha ref head hit
+  head="$(git -C "$wt" rev-parse HEAD)" || return 1
+  idx="$(mktemp "$state_dir/index.XXXXXX")" || return 1
+  cp "$gitdir/index" "$idx" 2>/dev/null || { rm -f "$idx"; return 1; }
+  # add -A honors .gitignore and info/exclude; ignored files are never staged.
+  if ! GIT_INDEX_FILE="$idx" git -C "$wt" add -A >/dev/null 2>&1; then rm -f "$idx"; return 1; fi
+  tree="$(GIT_INDEX_FILE="$idx" git -C "$wt" write-tree)" || { rm -f "$idx"; return 1; }
+  rm -f "$idx"
+  if [ "$tree" = "$(git -C "$wt" rev-parse "HEAD^{tree}")" ]; then
+    sha="$head"
+  else
+    sha="$(git -C "$wt" -c user.name="cmux worktree reaper" -c user.email="reaper@cmux.invalid" \
+      commit-tree "$tree" -p "$head" -m "wip backup of $wt (session $session, $host)")" || return 1
+  fi
+  hit="$(secret_hit "$wt" "$sha")"
+  [ -n "$hit" ] && { echo "refused $hit"; return 2; }
+  ref="refs/heads/wip/$session/$branch"
+  git -C "$wt" push -q "$remote" "$sha:$ref" </dev/null >/dev/null 2>&1 || return 1
+  [ "$(git -C "$wt" ls-remote "$remote" "$ref" </dev/null | awk '{print $1}')" = "$sha" ] || return 1
+  echo "$sha $ref"
+}
+
+# Every checkout and worktree path, so a worktree that holds another one
+# (git worktree remove would take both) is never removed.
+all_checkouts="$state_dir/checkouts"
+for root in "${roots[@]}"; do
+  for main in "$root"/*/; do
+    [ -d "${main%/}/.git" ] || continue
+    git -C "${main%/}" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p'
+  done
+done | sort -u > "$all_checkouts"
+holds_other() { HP="$1" awk 'BEGIN{p=ENVIRON["HP"]} index($0,p"/")==1 {f=1; exit} END{exit !f}' "$all_checkouts"; }
+
+for root in "${roots[@]}"; do
+  for main in "$root"/*/; do
+    main="${main%/}"
+    [ -d "$main/.git" ] || continue
+    git -C "$main" worktree prune 2>/dev/null
+    git -C "$main" worktree list --porcelain 2>/dev/null | awk '/^worktree /{sub(/^worktree /,""); print}' |
+    while IFS= read -r wt; do
+      [ "$wt" = "$main" ] && continue
+      [ -d "$wt" ] || continue
+      wt="$(cd -P "$wt" && pwd -P)"
+      case "$wt" in "$HOME"/*) ;; *) continue ;; esac
+      [ "$(stat -c %u "$wt" 2>/dev/null || stat -f %u "$wt")" = "$(id -u)" ] || continue
+      gitdir="$(git -C "$wt" rev-parse --absolute-git-dir 2>/dev/null)" || continue
+      # A main checkout (its git dir is the common dir) is never a candidate.
+      [ "$gitdir" = "$(git -C "$wt" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" ] && continue
+      if [ -f "$gitdir/cmux-keep" ]; then
+        report keep "$(sed -n 's/^reason=//p' "$gitdir/cmux-keep" | head -n 1 | cut -c1-40)" "$wt"; continue
+      fi
+      why="$(live_reason "$wt" "$gitdir")"
+      if [ -n "$why" ]; then report live "$why" "$wt"; continue; fi
+      why="$(skip_reason "$wt" "$gitdir")"
+      if [ -n "$why" ]; then report skip "$why" "$wt"; logline skip "$wt" "$why"; continue; fi
+      session="$(owner_session "$wt" "$gitdir" | tr -c 'A-Za-z0-9._\n-' '-')"
+      branch="$(git -C "$wt" symbolic-ref -q --short HEAD 2>/dev/null || echo "detached-$(git -C "$wt" rev-parse --short HEAD)")"
+      dirty="$(git -C "$wt" status --porcelain --untracked-files=all 2>/dev/null | head -n 1)"
+      unpushed="$(git -C "$wt" rev-list -n 1 HEAD --not --remotes="$remote" 2>/dev/null)"
+      size="$(du -skx "$wt" 2>/dev/null | awk '{printf "%.1fG", $1/1048576}')"
+      work=""
+      [ -n "$dirty" ] && work="changes"
+      [ -n "$unpushed" ] && work="${work:+$work+}unpushed"
+      if [ -n "$dirty" ] && [ "$(untracked_kb "$wt")" -gt $((max_untracked_mb * 1024)) ]; then
+        report skip untracked "$wt" "untracked files over ${max_untracked_mb} MB"; logline skip "$wt" untracked-too-big; continue
+      fi
+      if [ -n "$work" ] && { [ "$do_backup" = 0 ] || [ "$mode" = report ]; }; then
+        report hold "$work" "$wt" "$size, session $session, branch $branch"
+        [ "$mode" = apply ] && logline hold "$wt" "$work"
+        if [ "$show_files" = 1 ]; then
+          backup_files "$wt" | sort -u > "$state_dir/files"
+          sed -n '1,40s/^/         /p' "$state_dir/files"
+          n="$(wc -l < "$state_dir/files" | tr -d ' ')"
+          [ "$n" -gt 40 ] && echo "         ... $((n - 40)) more files"
+          echo "         unpushed commits: $(git -C "$wt" rev-list --count HEAD --not --remotes="$remote" 2>/dev/null)"
+        fi
+        continue
+      fi
+      if [ "$mode" = report ]; then
+        report reap clean "$wt" "$size, session $session, branch $branch"
+        continue
+      fi
+      pushed=""
+      if [ -n "$work" ]; then
+        pushed="$(backup "$wt" "$gitdir" "$branch" "$session")"; rc=$?
+        if [ $rc -eq 2 ]; then
+          report hold secret "$wt" "${pushed#refused }; backup refused, kept"; logline backup-refused "$wt" "${pushed#refused }"; continue
+        elif [ $rc -ne 0 ]; then
+          report FAIL backup "$wt" "backup push failed; kept"; logline backup-failed "$wt" "$branch"; continue
+        fi
+        logline backed-up "$wt" "$pushed"
+      fi
+      # Re-check keep and liveness right before removing.
+      [ -f "$gitdir/cmux-keep" ] && { report keep late "$wt"; continue; }
+      [ -n "$(live_reason "$wt" "$gitdir")" ] && { report live late "$wt"; continue; }
+      # Only a backed-up worktree is removed with --force; a clean one gets a
+      # plain remove, which refuses if anything changed since the check.
+      if git -C "$main" worktree remove ${pushed:+--force} "$wt" >/dev/null 2>&1; then
+        report reaped "${work:-clean}" "$wt" "$size${pushed:+, backup $pushed}"; logline removed "$wt" "$size ${pushed:-}"
+      else
+        report FAIL remove "$wt"; logline remove-failed "$wt" ""
+      fi
+    done
+  done
+done
+df -h "${roots[0]}" 2>/dev/null | tail -n 1

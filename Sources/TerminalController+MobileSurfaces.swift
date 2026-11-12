@@ -28,6 +28,9 @@ extension TerminalController {
             return .extensionBrowser
         case .workspaceTodo:
             return .todo
+        case .coderouterGuide:
+            // Phones without a native renderer show the fallback card.
+            return MobileSurfaceKind(rawValue: "coderouterGuide")
         case .notifications:
             // Notifications use the open-vocabulary fallback until the phone
             // provides a native renderer for this panel kind.
@@ -44,6 +47,9 @@ extension TerminalController {
             return MobileSurfaceKind(rawValue: "accountSignIn")
         case .cloudVPNSetup:
             return MobileSurfaceKind(rawValue: "cloudVPNSetup")
+        case .chief:
+            // Open vocabulary: phones show the fallback card until they render Chief natively.
+            return MobileSurfaceKind(rawValue: "chief")
         }
     }
 

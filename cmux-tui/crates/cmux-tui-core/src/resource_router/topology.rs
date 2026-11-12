@@ -331,11 +331,18 @@ fn dispatch_exact_topology_mutation(
 ) -> Result<Value, ResourceError> {
     let mutation = mutation(&request.envelope)?;
     let expected_revision = expected_revision(&request.fields)?;
+    let mut fields = request.fields;
+    if operation == ResourceOperation::ScreenCreate {
+        // A caller's `screen.create` keeps the focused screen (socket focus
+        // policy), so an attached TUI does not jump to the new screen; the
+        // caller passes `focus: true` to show it.
+        fields.entry(crate::mux::SCREEN_CREATE_FOCUS_FIELD).or_insert(Value::Bool(false));
+    }
     let commit = mux
         .resource_topology_operation(
             operation,
             request.selectors,
-            request.fields,
+            fields,
             expected_revision,
             &mutation,
         )
@@ -2132,5 +2139,154 @@ mod tests {
         )
         .unwrap();
         assert_eq!(focused_workspace["value"]["focused"], true);
+    }
+
+    #[test]
+    fn tab_create_terminal_in_workspace_adds_a_selected_tab_to_its_focused_pane() {
+        let mux = mux();
+        let created = terminal_workspace(&mux, "workspace-tab");
+        let workspace = created["value"]["workspace_id"].as_str().unwrap().to_string();
+        let first_pane = created["value"]["pane_id"].as_str().unwrap().to_string();
+        let split = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::PaneSplit,
+                selectors(None, None, Some(&first_pane), None),
+                json!({"direction":"right","ratio":0.5}),
+                Some("workspace-tab-split"),
+            ),
+        )
+        .unwrap();
+        let second_pane = split["value"]["pane_id"].as_str().unwrap().to_string();
+
+        // Focus each pane in turn so the target cannot be the newest pane by
+        // coincidence.
+        for (round, pane) in [&first_pane, &second_pane, &first_pane].into_iter().enumerate() {
+            let focus_key = format!("workspace-tab-focus-{round}");
+            let create_key = format!("workspace-tab-create-{round}");
+            dispatch(
+                &mux,
+                parsed(
+                    ResourceOperation::PaneFocus,
+                    selectors(None, None, Some(pane), None),
+                    json!({}),
+                    Some(&focus_key),
+                ),
+            )
+            .unwrap();
+            let tab = dispatch(
+                &mux,
+                parsed(
+                    ResourceOperation::TabCreateTerminal,
+                    selectors(Some(&workspace), None, None, None),
+                    json!({"name":"phone tab"}),
+                    Some(&create_key),
+                ),
+            )
+            .unwrap();
+            assert_eq!(tab["value"]["kind"], "terminal");
+            assert_eq!(tab["value"]["workspace_id"], workspace);
+            assert_eq!(tab["value"]["pane_id"], *pane, "round {round}");
+            let tab_id = tab["value"]["tab_id"].as_str().unwrap();
+            let snapshot = dispatch(
+                &mux,
+                parsed(
+                    ResourceOperation::TabGet,
+                    selectors(None, None, None, Some(tab_id)),
+                    json!({}),
+                    None,
+                ),
+            )
+            .unwrap();
+            assert_eq!(snapshot["focused"], true, "round {round}: the new tab is selected");
+        }
+        mux.shutdown();
+    }
+
+    fn capture_diagnostics(mux: &Mux) -> Arc<Mutex<Vec<String>>> {
+        let diagnostics = Arc::new(Mutex::new(Vec::new()));
+        let sink = diagnostics.clone();
+        assert!(mux.set_diagnostic_reporter(Arc::new(move |message| {
+            sink.lock().unwrap().push(message.to_string());
+        })));
+        diagnostics
+    }
+
+    fn reports(diagnostics: &[String], operation: &str, key: &str, cause: &str) -> usize {
+        diagnostics
+            .iter()
+            .filter(|message| {
+                message.contains(operation) && message.contains(key) && message.contains(cause)
+            })
+            .count()
+    }
+
+    #[test]
+    fn an_indeterminate_close_reports_its_cause_to_the_daemon_log() {
+        let mux = mux();
+        let created = terminal_workspace(&mux, "close-cause");
+        let tab = created["value"]["tab_id"].as_str().unwrap().to_string();
+        let diagnostics = capture_diagnostics(&mux);
+        mux.reject_resource_effect_commits_for_test();
+        let request = || {
+            parsed(
+                ResourceOperation::TabClose,
+                selectors(None, None, None, Some(&tab)),
+                json!({}),
+                Some("tab-close-cause"),
+            )
+        };
+
+        assert_eq!(dispatch(&mux, request()).unwrap_err().code, "mutation.indeterminate");
+        assert_eq!(dispatch(&mux, request()).unwrap_err().code, "mutation.indeterminate");
+
+        let diagnostics = diagnostics.lock().unwrap().clone();
+        assert_eq!(
+            reports(
+                &diagnostics,
+                "tab.close",
+                "tab-close-cause",
+                "injected outcome commit failure"
+            ),
+            1,
+            "the daemon log has no cause for the indeterminate close: {diagnostics:?}"
+        );
+        assert_eq!(
+            reports(&diagnostics, "tab.close", "tab-close-cause", "an earlier attempt"),
+            1,
+            "the daemon log has no cause for the indeterminate replay: {diagnostics:?}"
+        );
+        mux.shutdown();
+    }
+
+    #[test]
+    fn an_indeterminate_creation_reports_its_cause_to_the_daemon_log() {
+        let mux = mux();
+        let diagnostics = capture_diagnostics(&mux);
+        mux.reject_resource_effect_commits_for_test();
+
+        let error = dispatch(
+            &mux,
+            parsed(
+                ResourceOperation::WorkspaceCreate,
+                session_selectors(),
+                json!({"initial_content":"terminal","name":"create-cause"}),
+                Some("workspace-create-cause"),
+            ),
+        )
+        .unwrap_err();
+
+        assert_eq!(error.code, "mutation.indeterminate");
+        let diagnostics = diagnostics.lock().unwrap().clone();
+        assert!(
+            reports(
+                &diagnostics,
+                "workspace.create",
+                "workspace-create-cause",
+                "injected outcome commit failure"
+            ) >= 1,
+            "the daemon log has no cause for the indeterminate creation: {diagnostics:?}"
+        );
+        mux.shutdown();
     }
 }

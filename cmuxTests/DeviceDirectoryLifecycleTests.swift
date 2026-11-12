@@ -227,6 +227,117 @@ struct DeviceDirectoryLifecycleTests {
         #expect(directory.records.isEmpty, "Owning a Mac does not mean it has enabled Mac-to-Mac discovery")
     }
 
+    /// A registry over one discovered Mac whose session scope the test drives.
+    private final class TeamSwitchHarness {
+        var identity: AuthenticatedSessionIdentity? = AuthenticatedSessionIdentity(generation: 1, accountID: "test")
+        var teamID: String? = "team-a"
+        var directories: [DeviceDirectory] = []
+        var retainsAcrossTeamChanges = true
+    }
+
+    private func makeTeamSwitchRegistry(defaults: UserDefaults, clock: SidebarTestManualClock,
+                                        harness: TeamSwitchHarness) -> DeviceSurfaceProviderRegistry {
+        let peer = DeviceDiscoveredMac(bindingID: "binding-peer", deviceID: "peer", tag: "test",
+            displayName: "Peer", endpointID: try! CmxIrohPeerIdentity(endpointID: String(repeating: "b", count: 64)),
+            pathHints: [], controlPlaneSupportsMacPeers: true)
+        return DeviceSurfaceProviderRegistry(
+            notificationCenter: NotificationCenter(),
+            sessionScope: { _ in (harness.identity, harness.teamID) },
+            allowsAutomaticConnections: { true },
+            retainsAcrossTeamChanges: { harness.retainsAcrossTeamChanges },
+            makeDirectory: { _, _, teamID, _, client in
+                let directory = makeDirectory(defaults: defaults, clock: clock, teamID: teamID,
+                    automaticClient: client, serviceURL: { nil })
+                // Every directory starts out having discovered the peer once,
+                // standing in for the account directory's authenticated read.
+                directory.adopt(DeviceDirectory.CarriedState(records: [], registryDevices: [],
+                    authenticatedMacs: [peer], owners: [:], ownersKnown: false, hasLoadedRegistry: true))
+                harness.directories.append(directory)
+                return directory
+            },
+            isFeatureEnabled: { true }
+        )
+    }
+
+    @Test("A team switch keeps every My Devices row, provider, and directory")
+    func teamSwitchKeepsRows() async throws {
+        let suite = "DevicesTeamSwitch-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let clock = SidebarTestManualClock()
+        let harness = TeamSwitchHarness()
+        let registry = makeTeamSwitchRegistry(defaults: defaults, clock: clock, harness: harness)
+        let catalog = SurfaceCatalog()
+        registry.configure(auth: makeAuth(defaults: defaults), catalog: catalog, authorization: UnpairedDevices())
+        let instance = SurfaceDeviceInstanceID(deviceID: "peer", tag: "test")
+        let provider = try #require(registry.provider(for: instance))
+        let directoryBefore = try #require(registry.directory)
+        let rowsBefore = registry.directory?.records ?? []
+        #expect(!rowsBefore.isEmpty)
+
+        harness.teamID = "team-b"
+        registry.evaluate()
+
+        // Same provider object, still registered, rows visible at once.
+        #expect(registry.provider(for: instance) === provider)
+        #expect(registry.providerCount == 1)
+        #expect(registry.directory?.records == rowsBefore)
+        #expect(registry.directory?.hasLoadedRegistry == true)
+        #expect(harness.directories.count == 1)
+        #expect(registry.directory === directoryBefore)
+        harness.identity = nil
+        registry.evaluate()
+        await clock.waitUntilIdle()
+    }
+
+    @Test("When the account directory is off, a team switch rebuilds its team scope")
+    func teamSwitchRebuildsWithoutAccountDirectory() async throws {
+        let suite = "DevicesTeamSwitchOff-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let clock = SidebarTestManualClock()
+        let harness = TeamSwitchHarness()
+        harness.retainsAcrossTeamChanges = false
+        let registry = makeTeamSwitchRegistry(defaults: defaults, clock: clock, harness: harness)
+        registry.configure(auth: makeAuth(defaults: defaults), catalog: SurfaceCatalog(), authorization: UnpairedDevices())
+        let instance = SurfaceDeviceInstanceID(deviceID: "peer", tag: "test")
+        let provider = try #require(registry.provider(for: instance))
+
+        harness.teamID = "team-b"
+        registry.evaluate()
+
+        #expect(registry.provider(for: instance) !== provider)
+        #expect(harness.directories.count == 2)
+        harness.identity = nil
+        registry.evaluate()
+        await clock.waitUntilIdle()
+    }
+
+    @Test("An account switch or sign-out still clears every row and provider")
+    func accountSwitchClearsRows() async throws {
+        let suite = "DevicesAccountSwitch-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let clock = SidebarTestManualClock()
+        let harness = TeamSwitchHarness()
+        let registry = makeTeamSwitchRegistry(defaults: defaults, clock: clock, harness: harness)
+        registry.configure(auth: makeAuth(defaults: defaults), catalog: SurfaceCatalog(), authorization: UnpairedDevices())
+        let instance = SurfaceDeviceInstanceID(deviceID: "peer", tag: "test")
+        let provider = try #require(registry.provider(for: instance))
+
+        harness.identity = AuthenticatedSessionIdentity(generation: 2, accountID: "test")
+        registry.evaluate()
+        // A rebuild: the old provider is gone and a new one serves the row.
+        #expect(registry.provider(for: instance) !== provider)
+        #expect(harness.directories.count == 2)
+
+        harness.identity = nil
+        registry.evaluate()
+        #expect(registry.directory == nil)
+        #expect(registry.providerCount == 0)
+        await clock.waitUntilIdle()
+    }
+
     private func makeDirectory(
         defaults: UserDefaults,
         clock: SidebarTestManualClock,

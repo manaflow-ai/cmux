@@ -86,7 +86,7 @@ jobs:
       # Post-merge publication is off the PR critical path, so its two macOS
       # Rust legs run on the background lane (free GitHub-hosted capacity)
       # unless a dispatch names a runner. See docs/ci-runners.md.
-      macos_runner: ${{ inputs.macos_runner || vars.MACOS_RUNNER_BACKGROUND || 'macos-15' }}
+      macos_runner: ${{ inputs.macos_runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_BACKGROUND || 'blacksmith-6vcpu-macos-15' }}
 
   publish:
     # R2 upload credentials only. A commit-addressed cmux-tui build is not a
@@ -100,7 +100,7 @@ jobs:
     # main-push or manual dispatch.
     if: github.event_name != 'pull_request'
     needs: build
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404","blacksmith-16vcpu-ubuntu-2404","blacksmith-32vcpu-ubuntu-2404"]'), vars.LINUX_RUNNER) && vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
       contents: read

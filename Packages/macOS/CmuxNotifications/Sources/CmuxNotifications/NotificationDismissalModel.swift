@@ -240,7 +240,7 @@ public final class NotificationDismissalModel: NotificationDismissing {
                 host.storeClearFocusedReadIndicator(workspaceId: workspaceId, surfaceId: surfaceId)
             }
         }
-        if let targetPanelId {
+        if let targetPanelId, context.flashesOnDismiss(flashOnTyping: host.paneFlashOnTyping) {
             if hasUnreadNotification || hasFocusedIndicator {
                 host.workspaceTriggerNotificationDismissFlash(workspaceId: workspaceId, panelId: targetPanelId)
             } else if didDismissUnreadIndicator {

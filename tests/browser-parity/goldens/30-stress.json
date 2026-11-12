@@ -1,0 +1,30 @@
+{
+  "oracle": {
+    "list-count": 5000,
+    "list-last": "Item 4999",
+    "table-rows": 10001,
+    "table-cell": "open 9990",
+    "select-option": [
+      "4999"
+    ],
+    "select-value": "4999",
+    "select-many": [
+      "3",
+      "4998"
+    ],
+    "shadow-last": "Shadow 1999",
+    "shadow-count": 2000,
+    "frame-cross": "Frame 28",
+    "frame-nested": "Frame 29.1",
+    "virtual-row": "Row 5000"
+  },
+  "cmux": {
+    "list-printed-within-budget": true,
+    "list-tree-complete": 5000,
+    "list-condensed-note": true,
+    "list-cut-line": "- … N more listitem (N refs): snapshot(\"eN\")",
+    "list-cut-ref-resolves": "Item 4000",
+    "list-all": true,
+    "select-inline": "  - combobox \"Pick\" [ref=e5002] [options: Option 0, Option 1, Option 2, Option 3, Option 4, Option 5, Option 6, Option 7, Option 8, Option 9, +4990 more]: \"Option 0\""
+  }
+}

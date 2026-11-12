@@ -22,4 +22,8 @@ public struct CloudMachineCreateOperation: Identifiable, Equatable, Sendable {
     public internal(set) var createdMachineID: String?
     /// The current lifecycle phase.
     public internal(set) var phase: Phase = .running
+    /// The server's refusal code for the failure in ``phase``, carried apart
+    /// from its display text so no message can change which actions a failed
+    /// row offers. Nil while running, after success, or for other failures.
+    public internal(set) var refusalCode: String?
 }

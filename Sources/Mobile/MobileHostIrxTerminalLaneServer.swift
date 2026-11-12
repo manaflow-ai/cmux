@@ -20,7 +20,7 @@ enum MobileHostIrxTerminalLaneServer {
     /// What the lane does after one input frame.
     private enum InputOutcome {
         /// Keep reading. The acknowledgement, if any, goes back to the phone.
-        case `continue`(MobileTerminalInputAcknowledgement?)
+        case `continue`(MobileTerminalInputAcknowledgement?, accepted: Bool)
         /// Send the acknowledgement, then close the lane as a protocol error.
         case close(MobileTerminalInputAcknowledgement?)
     }
@@ -54,12 +54,19 @@ enum MobileHostIrxTerminalLaneServer {
     /// that surface's output stream first (keystroke echo).
     typealias InteractiveSurfaceObserver = @Sendable (UUID) async -> Void
 
+    /// Called after an input frame was accepted and written (or queued) for
+    /// the bound terminal. This is deliberately separate from
+    /// ``InteractiveSurfaceObserver``: opening an input lane and receiving a
+    /// duplicate or refused frame must not make the phone the sizing owner.
+    typealias AcceptedInputObserver = @Sendable (UUID) async -> Void
+
     static func serve(
         resourceID: String,
         cursor: UInt64?,
         stream: CmxIrohBidirectionalStream,
         journal: IrxJournal,
-        onInteractiveSurface: @escaping InteractiveSurfaceObserver = { _ in }
+        onInteractiveSurface: @escaping InteractiveSurfaceObserver = { _ in },
+        onAcceptedInput: @escaping AcceptedInputObserver = { _ in }
     ) async {
         guard let surfaceID = terminalSurfaceID(resourceID),
             await MainActor.run(body: {
@@ -95,7 +102,8 @@ enum MobileHostIrxTerminalLaneServer {
                     stream: stream,
                     writer: writer,
                     journal: journal,
-                    onInteractiveSurface: onInteractiveSurface
+                    onInteractiveSurface: onInteractiveSurface,
+                    onAcceptedInput: onAcceptedInput
                 )
             }
             if await group.next() == true {
@@ -116,7 +124,8 @@ enum MobileHostIrxTerminalLaneServer {
         resourceID: String,
         stream: CmxIrohBidirectionalStream,
         journal: IrxJournal,
-        onInteractiveSurface: @escaping InteractiveSurfaceObserver = { _ in }
+        onInteractiveSurface: @escaping InteractiveSurfaceObserver = { _ in },
+        onAcceptedInput: @escaping AcceptedInputObserver = { _ in }
     ) async {
         guard let surfaceID = terminalSurfaceID(resourceID),
             await MainActor.run(body: {
@@ -146,7 +155,8 @@ enum MobileHostIrxTerminalLaneServer {
                 stream: stream,
                 writer: writer,
                 journal: journal,
-                onInteractiveSurface: onInteractiveSurface
+                onInteractiveSurface: onInteractiveSurface,
+                onAcceptedInput: onAcceptedInput
             )
         } catch is CancellationError {
             await stream.sendStream.reset(errorCode: 0)
@@ -263,7 +273,8 @@ enum MobileHostIrxTerminalLaneServer {
         stream: CmxIrohBidirectionalStream,
         writer: EnvelopeWriter,
         journal: IrxJournal,
-        onInteractiveSurface: InteractiveSurfaceObserver
+        onInteractiveSurface: InteractiveSurfaceObserver,
+        onAcceptedInput: AcceptedInputObserver
     ) async -> Bool {
         var buffer = Data()
         do {
@@ -282,7 +293,8 @@ enum MobileHostIrxTerminalLaneServer {
                 {
                     await onInteractiveSurface(surfaceID)
                     switch await deliverInput(input, surfaceID: surfaceID) {
-                    case .continue(let acknowledgement):
+                    case .continue(let acknowledgement, let accepted):
+                        if accepted { await onAcceptedInput(surfaceID) }
                         if let acknowledgement {
                             try await writer.send(
                                 .inputAcknowledgement(acknowledgement)
@@ -341,7 +353,7 @@ enum MobileHostIrxTerminalLaneServer {
             ) {
                 return acknowledgement.status == .surfaceMismatch
                     ? .close(acknowledgement)
-                    : .continue(acknowledgement)
+                    : .continue(acknowledgement, accepted: false)
             }
             guard
                 let surface = GhosttyApp.terminalSurfaceRegistry.terminalSurface(
@@ -361,11 +373,13 @@ enum MobileHostIrxTerminalLaneServer {
             let acknowledgement = applier.complete(input.delivery, result: result)
             switch result {
             case .sent, .queued:
-                return .continue(acknowledgement)
+                return .continue(acknowledgement, accepted: true)
             case .inputQueueFull:
                 // Identified input is resent by the phone after a busy
                 // acknowledgement, so the lane survives a full queue.
-                return input.delivery == nil ? .close(nil) : .continue(acknowledgement)
+                return input.delivery == nil
+                    ? .close(nil)
+                    : .continue(acknowledgement, accepted: false)
             case .surfaceUnavailable, .processExited:
                 return .close(acknowledgement)
             }

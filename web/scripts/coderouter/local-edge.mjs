@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // Local stand-in for the Freestyle TLS egress edge, for verifying the coderouter
 // model plane end to end on one machine: it terminates TLS with a private CA,
-// OVERWRITES the signed `x-cmux-authorization` header on new VM rules, or the
-// legacy route-token plus VM-id headers for old VM rules, like the real
+// OVERWRITES the signed `x-cmux-authorization` header and its compatibility
+// bearer/route-token/VM-id headers on new VM rules, or the legacy route-token
+// plus VM-id headers for old VM rules, like the real
 // edge does, and re-originates to a coderouter
 // origin (a local `bun dev`, a tunnel, or a preview). Real agent CLIs (codex,
 // claude, pi, curl) then run against it with placeholder keys, exactly as a
@@ -119,6 +120,9 @@ const server = https.createServer({ key: readFileSync(leafKey), cert: readFileSy
       headers["x-coderouter-route-token"] = routeToken;
       headers["x-cmux-vm-id"] = vmId;
     } else {
+      headers.authorization = `Bearer ${routeToken}`;
+      headers["x-coderouter-route-token"] = routeToken;
+      headers["x-cmux-vm-id"] = vmId;
       headers[VM_AUTHORIZATION_HEADER] = `Bearer ${routeToken}`;
     }
   }

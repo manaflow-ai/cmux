@@ -70,7 +70,7 @@ public struct CloudPortsStatusPresentation: Equatable, Sendable {
         case .notRequested:
             return Self.routeNote
         case .loading:
-            return String(localized: "cloudTree.ports.loading.detail", defaultValue: "Checking services through cmux’s authenticated Cloud link. No system VPN is needed.")
+            return ""
         case .available:
             return Self.routeNote
         case .loopbackOnly:

@@ -7,6 +7,7 @@ import {
   MAX_PRICING_USD,
   PRO_PRICING_USD,
   TEAM_PRICING_USD,
+  type BillingInterval,
 } from "../../services/billing/plans";
 import { CheckoutButton } from "./checkout-navigation";
 import {
@@ -48,12 +49,12 @@ export function PricingView({
   return children;
 }
 
-const PLAN_PRICES = {
-  go: GO_PRICING_USD.month,
-  pro: PRO_PRICING_USD.month,
-  max: MAX_PRICING_USD.month,
-  team: TEAM_PRICING_USD.month,
-} as const;
+function planPrice(plan: PricingPlan, interval: BillingInterval) {
+  if (plan === "pro" || plan === "max") {
+    return { pro: PRO_PRICING_USD, max: MAX_PRICING_USD }[plan][interval];
+  }
+  return { go: GO_PRICING_USD, max: MAX_PRICING_USD, team: TEAM_PRICING_USD }[plan].month;
+}
 
 const PLAN_CTA_EVENTS = {
   go: "cmuxterm_go_cta_clicked",
@@ -68,6 +69,7 @@ export function PricingCheckoutButton({
   children,
   location,
   plan = "pro",
+  interval = "month",
   size = "default",
 }: {
   href: string;
@@ -76,9 +78,10 @@ export function PricingCheckoutButton({
   children: ReactNode;
   location: string;
   plan?: PricingPlan;
+  interval?: BillingInterval;
   size?: PricingActionSize;
 }) {
-  const pricing = PLAN_PRICES[plan];
+  const pricing = planPrice(plan, interval);
   return (
     <CheckoutButton
       href={pricingDestination(href, location, requiresSignIn)}
@@ -100,7 +103,7 @@ export function PricingCheckoutButton({
           posthog.capture("cmuxterm_pricing_sign_in_required", {
             plan,
             location,
-            interval: "month",
+            interval: plan === "pro" || plan === "max" ? interval : "month",
             currency: "usd",
             billed_amount_usd: pricing.billedAmount,
           });
@@ -113,7 +116,7 @@ export function PricingCheckoutButton({
           plan,
           checkout: !requiresSignIn,
           auth_required: requiresSignIn,
-          interval: "month",
+          interval: plan === "pro" || plan === "max" ? interval : "month",
           currency: "usd",
           billed_amount_usd: pricing.billedAmount,
           monthly_equivalent_usd: pricing.monthlyEquivalent,

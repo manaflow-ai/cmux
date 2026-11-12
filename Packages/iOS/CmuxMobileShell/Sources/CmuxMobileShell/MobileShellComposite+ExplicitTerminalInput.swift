@@ -53,6 +53,9 @@ extension MobileShellComposite {
         ) {
             return settlement == .delivered
         }
+        if handleExternalHostTerminalInput(text, surfaceID: terminalID.rawValue) {
+            return true
+        }
         guard terminalAllowsTraffic(surfaceID: terminalID.rawValue) else { return false }
         let target = workspaceMutationTarget(for: workspaceID)
         guard let client = target.client else { return false }

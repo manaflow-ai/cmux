@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# ~/.local/bin/gh-merge-green after scripts/install-gh-merge-green.sh install.
+#
+# Runs scripts/gh-merge-green from the tested origin/main snapshot this file
+# lives in, never from a live working checkout. An in-place edit of the
+# snapshot is restored from git before running. A newer origin/main is
+# installed in the background, after its tests pass, for the next run.
+set -euo pipefail
+
+self="${BASH_SOURCE[0]}"
+while [ -L "$self" ]; do
+  link_dir="$(cd -- "$(dirname -- "$self")" && pwd)"
+  self="$(readlink "$self")"
+  case "$self" in /*) ;; *) self="$link_dir/$self" ;; esac
+done
+snap="$(cd -- "$(dirname -- "$self")/.." && pwd -P)"
+installer="$snap/scripts/install-gh-merge-green.sh"
+export GH_MERGE_GREEN_HOME="${GH_MERGE_GREEN_HOME:-$(dirname -- "$(dirname -- "$snap")")}"
+# The snapshot is a detached worktree; the checkout auto-update in
+# scripts/gh-merge-green must not try to move it.
+export GH_MERGE_GREEN_NO_AUTO_UPDATE=1
+
+pinned_paths=(scripts/gh-merge-green scripts/ci scripts/gh-merge-green-pinned scripts/install-gh-merge-green.sh)
+diff_status=0
+git -C "$snap" diff --quiet HEAD -- "${pinned_paths[@]}" 2>/dev/null || diff_status=$?
+if [ "$diff_status" -gt 1 ]; then
+  printf 'gh-merge-green: cannot verify the pinned install %s against git (git diff exited %s); reinstall with: %s install --force\n' \
+    "$snap" "$diff_status" "$installer" >&2
+  exit 1
+fi
+if [ "$diff_status" = 1 ]; then
+  printf 'gh-merge-green: warning: the pinned install %s was edited in place; restoring it from git. Change gh-merge-green in a worktree and land it on main instead.\n' "$snap" >&2
+  if ! "$installer" repair "$snap" >&2; then
+    printf 'gh-merge-green: cannot restore %s; reinstall with: %s install --force\n' "$snap" "$installer" >&2
+    exit 1
+  fi
+fi
+
+if [ -f "$GH_MERGE_GREEN_HOME/failed" ]; then
+  printf 'gh-merge-green: warning: origin/main %s failed the gh-merge-green tests, so this run uses %s (see %s/update.log)\n' \
+    "$(cut -c1-10 "$GH_MERGE_GREEN_HOME/failed")" "$(git -C "$snap" rev-parse --short HEAD 2>/dev/null || echo "$snap")" "$GH_MERGE_GREEN_HOME" >&2
+fi
+
+case "${1:-}" in
+  -h|--help) ;;
+  *) "$installer" update --background --if-stale "${GH_MERGE_GREEN_UPDATE_INTERVAL:-600}" >/dev/null 2>&1 || true ;;
+esac
+
+exec "$snap/scripts/gh-merge-green" "$@"

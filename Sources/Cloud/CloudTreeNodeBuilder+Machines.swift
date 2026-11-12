@@ -16,9 +16,11 @@ extension CloudTreeNodeBuilder {
         includeLocalMachine: Bool = CloudTreeNodeBuilder.includesLocalMachine,
         source: CloudTreeMachineSource = .cloud,
         devicesSection: CloudTreeDevicesSection = .init(),
+        coderouter: CloudTreeCoderouterSection = .init(),
         showsCloudVPNWarning: Bool = false,
         canCreateCloudMachine: Bool = false,
         cloudMachinesUsage: CloudMachinesUsage? = nil,
+        cloudMachinesRefresh: CloudTreeSectionRefresh? = nil,
         now: Date = .now,
         resourceNodeBuilder: CloudTreeMachineResourceNodeBuilder = .init()
     ) -> [CloudTreeNode] {
@@ -77,6 +79,7 @@ extension CloudTreeNodeBuilder {
         // Device machines have no cloud id and are never fleet rows.
         for info in snapshot.machines where !info.id.isLocal {
             guard let id = info.id.cloudMachineID, !seen.contains(id) else { continue }
+            let catalogOnlyConnecting = machines.isEmpty && info.linkState == .connecting
             let placeholderSnapshot = MachineSnapshot(
                 id: id,
                 provider: "",
@@ -93,7 +96,7 @@ extension CloudTreeNodeBuilder {
                 kind: .machine(placeholderSnapshot, info),
                 children: cloudChildren(
                     machine: info.id,
-                    machineSnapshot: placeholderSnapshot,
+                    machineSnapshot: catalogOnlyConnecting ? nil : placeholderSnapshot,
                     info: info,
                     snapshot: snapshot,
                     projectionIndex: projectionIndex,
@@ -103,7 +106,9 @@ extension CloudTreeNodeBuilder {
                 ),
                 isPinned: pinnedMachineIDs.contains(id)
             ))
-            nodes.last?.resourceSection = section
+            if !catalogOnlyConnecting {
+                nodes.last?.resourceSection = section
+            }
         }
         if source.groupsDevicesUnderSection {
             let cloudChildren = nodes.isEmpty
@@ -112,15 +117,17 @@ extension CloudTreeNodeBuilder {
                     kind: .placeholder(
                         machine: .cloud("cloud-machines-section"),
                         CloudTreePlaceholder(
-                            text: String(localized: "machines.empty.create", defaultValue: "New Machine"),
-                            style: .createMachine
+                            text: String(localized: "machines.empty.none", defaultValue: "No cloud machines yet"),
+                            style: .empty
                         )
                     )
                 )]
                 : nodes
             nodes = [CloudTreeNode(
                 id: "cloud-machines-section",
-                kind: .cloudMachinesSection(canCreateMachine: canCreateCloudMachine, usage: cloudMachinesUsage),
+                kind: .cloudMachinesSection(
+                    canCreateMachine: canCreateCloudMachine, usage: cloudMachinesUsage, refresh: cloudMachinesRefresh
+                ),
                 children: cloudChildren
             )]
         }
@@ -132,6 +139,37 @@ extension CloudTreeNodeBuilder {
                 section: devicesSection
             ))
         }
+        // Keep CodeRouter immediately below My Devices so account management
+        // stays alongside the two account-scoped machine sections.
+        nodes.append(coderouterNode(coderouter))
         return nodes
+    }
+
+    /// One group per account type: every type CodeRouter can add, then any
+    /// other type the team already has. Each addable group gets its New Account
+    /// row from `CloudTreeCreateActionBuilder`. Account rows are snapshots;
+    /// credentials never enter the tree.
+    static func coderouterNode(_ section: CloudTreeCoderouterSection) -> CloudTreeNode {
+        let byProvider = Dictionary(grouping: section.accounts, by: \.provider)
+        let others = byProvider.keys.filter { !$0.canAdd }.sorted { $0.id < $1.id }
+        let groups = (CoderouterProvider.addable + others).map { provider in
+            let accounts = byProvider[provider] ?? []
+            let groupID = "coderouter-section/\(provider.id)"
+            return CloudTreeNode(
+                id: groupID,
+                kind: .coderouterProviderGroup(provider, count: accounts.count),
+                children: accounts.map { account in
+                    CloudTreeNode(id: "\(groupID)/account/\(account.id)", kind: .coderouterAccount(account))
+                }
+            )
+        }
+        return CloudTreeNode(
+            id: "coderouter-section",
+            kind: .coderouterSection(
+                count: section.accounts.count,
+                refresh: CloudTreeSectionRefresh(isRefreshing: section.isRefreshing)
+            ),
+            children: groups
+        )
     }
 }

@@ -31,12 +31,15 @@ extension Array where Element == CuratedSettingEntry {
                 title: String(localized: "settings.automation.agentAutoResume", defaultValue: "Auto-Resume Agents After Errors"),
                 detailText: String(localized: "settings.automation.agentAutoResume.subtitle", defaultValue: "Send “continue” when an agent's turn ends on a retryable error such as model capacity or a dropped connection."),
                 paths: ["automation.agentAutoResume"],
-                synonyms: String(
-                    localized: "settings.search.alias.setting.automation.agent-error-auto-resume",
-                    defaultValue: "automation.agentAutoResume auto resume continue retry capacity overloaded agent error"
-                ),
+                synonyms: String(localized: "settings.search.alias.setting.automation.agent-error-auto-resume", defaultValue: "automation.agentAutoResume auto resume continue retry capacity overloaded agent error"),
                 anchorPath: "automation.agentAutoResume"
             ),
+            .init(section: .automation, id: "agent-messages", title: String(localized: "settings.automation.agentMessages", defaultValue: "Agent Messages", bundle: .module), paths: ["agentMessages.enabled"], synonyms: "Agent Messages agentMessages.enabled agent message inbox communication mute disable off send deliver"),
+            .init(section: .automation, id: "chief", title: String(localized: "settings.automation.chief", defaultValue: "Chief", bundle: .module), paths: ["chief.enabled"], synonyms: "Chief chief.enabled home agent assistant imessage messages hide show disable off"),
+            .init(section: .automation, id: "chief-harness", title: String(localized: "settings.automation.chief.harness", defaultValue: "Chief Harness", bundle: .module), paths: ["chief.harness"], synonyms: "Chief Harness chief.harness home agent claude code codex provider"),
+            .init(section: .automation, id: "chief-model", title: String(localized: "settings.automation.chief.model", defaultValue: "Chief Model", bundle: .module), paths: ["chief.model"], synonyms: "Chief Model chief.model home agent model opus sonnet gpt"),
+            .init(section: .automation, id: "chief-effort", title: String(localized: "settings.automation.chief.effort", defaultValue: "Chief Effort", bundle: .module), paths: ["chief.effort"], synonyms: "Chief Effort chief.effort home agent reasoning effort thinking low medium high"),
+            .init(section: .automation, id: "chief-dangerous-permissions", title: String(localized: "settings.automation.chief.dangerousPermissions", defaultValue: "Skip permission prompts", bundle: .module), paths: ["chief.dangerouslySkipPermissions"], synonyms: "Skip permission prompts chief.dangerouslySkipPermissions bypass approval cards dangerous full access yolo"),
             .init(section: .automation, id: "canonical-agent-scratch", title: String(localized: "settings.automation.canonicalAgentScratch", defaultValue: "Canonical Agent Scratch"), synonyms: "Canonical Agent Scratch automation.canonicalAgentScratch agent artifacts temporary files cleanup retention claude codex opencode storage"),
             .init(section: .automation, id: "cursor", title: String(localized: "settings.automation.cursor", defaultValue: "Cursor Integration"), synonyms: "Cursor Integration automation.cursorIntegration cursor ide agent hooks notifications"),
             .init(section: .automation, id: "gemini", title: String(localized: "settings.automation.gemini", defaultValue: "Gemini CLI Integration"), synonyms: "Gemini CLI Integration automation.geminiIntegration gemini cli google agent hooks notifications"),
@@ -73,12 +76,8 @@ extension Array where Element == CuratedSettingEntry {
                 title: String(localized: "settings.app.focusHistoryIncludesPanesAndTabs", defaultValue: "Include Panes and Tabs in Focus History"),
                 synonyms: "app.focusHistoryIncludesPanesAndTabs focus history back forward panes tabs workspaces only navigation"
             ),
-            .init(
-                section: .app,
-                id: "equalize-splits-on-create",
-                title: String(localized: "settings.app.equalizeSplitsOnCreate", defaultValue: "Equalize Splits on Create"),
-                synonyms: "app.equalizeSplitsOnCreate equalize balance distribute even equal split pane size new split"
-            ),
+            .equalizeSplitsOnCreate,
+            .equalizeSplitsOnDividerDoubleClick,
             .init(section: .app, id: "file-drops", title: String(localized: "settings.app.fileDrop.defaultBehavior", defaultValue: "File Drops"), synonyms: "File Drops drag drop files finder path text terminal editor split preview shift"),
             .init(section: .app, id: "preferred-editor", title: String(localized: "settings.app.preferredEditor", defaultValue: "Open Files With"), synonyms: "Open Files With app.preferredEditor editor open file code vscode visual studio zed sublime subl cursor"),
             .init(section: .app, id: "supported-file-previews", title: String(localized: "settings.app.openSupportedFilesInCmux", defaultValue: "Open Supported Files in cmux"), synonyms: "Open Supported Files in cmux app.openSupportedFilesInCmux cmd click file preview pdf image video audio quicklook quick look editor external"),
@@ -122,8 +121,10 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "telemetry", title: String(localized: "settings.app.telemetry", defaultValue: "Send anonymous telemetry"), synonyms: "Send anonymous telemetry app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
             .init(section: .app, id: "warn-before-quit", title: String(localized: "settings.app.warnBeforeQuit", defaultValue: "Warn Before Quit"), synonyms: "Warn Before Quit app.confirmQuit quit confirmation command-q cmd-q exit close app"),
             .init(userFacing: catalog.app.warnBeforeClosingTab),
+            .init(userFacing: catalog.app.warnBeforeClosingAgentSession),
             .init(section: .app, id: "warn-before-closing-tab-x-button", title: String(localized: "settings.app.warnBeforeClosingTabXButton", defaultValue: "Warn Before Tab Close Button"), synonyms: "Warn Before Tab Close Button app.warnBeforeClosingTabXButton x button close tab confirmation terminal surface"),
             .init(userFacing: catalog.app.warnBeforeClosingWorkspace),
+            .init(userFacing: catalog.app.alwaysConfirmWorkspaceClose),
             .init(userFacing: catalog.app.warnBeforeClosingWindow),
             .init(userFacing: catalog.app.hideTabCloseButton),
             .init(userFacing: catalog.app.renameSelectsExistingName),
@@ -146,6 +147,9 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .app, id: "show-menu-bar", title: String(localized: "settings.app.showInMenuBar", defaultValue: "Show in Menu Bar"), synonyms: "Show in Menu Bar notifications.showInMenuBar menubar menu bar status item tray extra"),
             .init(section: .app, id: "unread-pane-ring", title: String(localized: "settings.notifications.paneRing.title", defaultValue: "Unread Pane Ring"), synonyms: "Unread Pane Ring notifications.unreadPaneRing blue border unread ring notification pane outline"),
             .init(section: .app, id: "pane-flash", title: String(localized: "settings.notifications.paneFlash.title", defaultValue: "Pane Flash"), synonyms: "Pane Flash notifications.paneFlash flash blink highlight pane notification pulse"),
+            .init(section: .app, id: "pane-flash-double-blink", title: String(localized: "settings.notifications.paneFlashDoubleBlink.title", defaultValue: "Double Blink"), synonyms: "Double Blink notifications.paneFlashDoubleBlink pane flash blink twice pulse"),
+            .init(section: .app, id: "pane-flash-on-typing", title: String(localized: "settings.notifications.paneFlashOnTyping.title", defaultValue: "Flash While Typing"), synonyms: "Flash While Typing notifications.paneFlashOnTyping pane flash typing terminal interaction notification pulse"),
+            .init(section: .app, id: "pane-flash-theme-color", title: String(localized: "settings.notifications.paneFlashThemeColor.title", defaultValue: "Use Theme Foreground"), synonyms: "Use Theme Foreground notifications.paneFlashThemeColor pane flash terminal theme foreground"),
             .init(
                 section: .app,
                 id: "agent-permission-prompt",
@@ -194,6 +198,14 @@ extension Array where Element == CuratedSettingEntry {
                 synonyms: "terminal.scrollSpeed scroll speed multiplier wheel mouse trackpad sensitivity faster slower"
             ),
             .init(section: .terminal, id: "copy-on-select", title: String(localized: "settings.terminal.copyOnSelect", defaultValue: "Copy on Selection"), synonyms: "Copy on Selection terminal.copyOnSelect copy on selection select clipboard mouse double click triple click iterm"),
+            .init(
+                section: .terminal,
+                id: "copy-confirmation",
+                title: String(localized: "settings.terminal.showCopyConfirmation", defaultValue: "Show Copy Confirmation"),
+                detailText: String(localized: "settings.terminal.showCopyConfirmation.subtitle", defaultValue: "Briefly shows “Copied to clipboard” at the bottom of a terminal when selecting text copies it."),
+                paths: ["terminal.showCopyConfirmation"],
+                synonyms: "terminal.showCopyConfirmation copy confirmation copied clipboard feedback indicator toast popup copy on selection select mouse"
+            ),
             .init(section: .terminal, id: "text-editing-gestures", title: String(localized: "settings.terminal.textEditingGestures", defaultValue: "Text Editing Gestures"), synonyms: "Text Editing Gestures terminal.textEditingGestures text editing gestures option alt word line kill readline emacs keybindings command arrow delete"),
             .init(
                 section: .terminal,
@@ -316,6 +328,7 @@ extension Array where Element == CuratedSettingEntry {
             .init(section: .sidebarAppearance, id: "show-notification-message", title: String(localized: "settings.app.showNotificationMessage", defaultValue: "Show Notification Message in Sidebar"), synonyms: "Show Notification Message in Sidebar sidebar.showNotificationMessage latest message unread notification text sidebar"),
             .init(section: .sidebarAppearance, id: "notification-message-line-limit", title: String(localized: "settings.app.notificationMessageLineLimit", defaultValue: "Notification Preview Lines"), synonyms: "sidebar.notificationMessageLineLimit notification message preview lines limit sidebar"),
             .init(section: .sidebarAppearance, id: "show-branch-directory", title: String(localized: "settings.app.showBranchDirectory", defaultValue: "Show Branch + Directory in Sidebar"), synonyms: "Show Branch + Directory in Sidebar sidebar.showBranchDirectory git branch cwd path directory folder repo sidebar"),
+            .init(section: .sidebarAppearance, id: "show-cloud-device-icons", title: String(localized: "settings.app.showCloudDeviceIcons", defaultValue: "Show Cloud and Device Icons in Sidebar"), synonyms: "Show Cloud and Device Icons in Sidebar sidebar.showCloudDeviceIcons cloud device computer icon remote workspace"),
             .init(section: .sidebarAppearance, id: "show-pull-requests", title: String(localized: "settings.app.showPullRequests", defaultValue: "Show Pull Requests in Sidebar"), synonyms: "Show Pull Requests in Sidebar sidebar.showPullRequests pr mr review github gitlab bitbucket pull request merge request"),
             .init(section: .sidebarAppearance, id: "watch-git-status", title: String(localized: "settings.app.watchGitStatus", defaultValue: "Watch Git Status in Sidebar"), synonyms: "Watch Git Status in Sidebar sidebar.watchGitStatus git status branch watcher index lock"),
             .init(section: .sidebarAppearance, id: "make-pr-clickable", title: String(localized: "settings.app.makeSidebarPullRequestClickable", defaultValue: "Make Sidebar PR Clickable"), synonyms: "Make Sidebar PR Clickable sidebar.makePullRequestsClickable clickable pull requests pr mr reviews links select workspace row"),
@@ -432,23 +445,13 @@ extension Array where Element == CuratedSettingEntry {
 
             // Beta
             .init(section: .betaFeatures, id: "feed", title: String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), synonyms: "Feed feed right sidebar agent decisions permissions questions approval beta unstable"),
-            .init(
-                section: .betaFeatures,
-                id: "cloudMachines",
-                title: String(localized: "settings.betaFeatures.cloudMachines", defaultValue: "Cloud Machines"),
-                detailText: String(localized: "settings.betaFeatures.cloudMachines.subtitle", defaultValue: "Adds Cloud Machines to the right sidebar, Settings, the command palette, and the new workspace menu. Cloud Machines also require a remote rollout; with this off, the Cloud tunnel and fleet polling stay off."),
-                paths: ["cloud.beta.machines.enabled"],
-                synonyms: "cloud machines vm virtual machine right sidebar persistent computer beta unstable"
-            ),
-            .init(
-                section: .betaFeatures,
-                id: "conversationSidebar",
-                title: String(localized: "settings.betaFeatures.conversationSidebar", defaultValue: "Conversation Sidebar"),
-                paths: ["sidebar.beta.conversations.enabled"],
-                synonyms: "Conversation Sidebar conversations agent sessions Claude Codex OpenCode history beta"
-            ),
+            .init(section: .betaFeatures, id: "conversationSidebar", title: String(localized: "settings.betaFeatures.conversationSidebar", defaultValue: "Conversation Sidebar"), paths: ["sidebar.beta.conversations.enabled"], synonyms: "Conversation Sidebar conversations agent sessions Claude Codex OpenCode history beta"),
+            .init(section: .betaFeatures, id: "click-by-hint", title: String(localized: "settings.betaFeatures.clickByHint", defaultValue: "Click by Hint"), paths: ["windowHints.beta.enabled"], synonyms: "Click by Hint hint hints labels keyboard vimium cmd j preview beta"),
             .init(section: .betaFeatures, id: "customSidebars", title: String(localized: "settings.betaFeatures.customSidebars", defaultValue: "Custom Sidebars"), synonyms: "Custom Sidebars custom sidebars swift json interpreted vibe beta unstable"),
             .init(section: .betaFeatures, id: "remoteTmux", title: String(localized: "settings.betaFeatures.remoteTmux", defaultValue: "Remote tmux"), synonyms: "Remote tmux remote tmux ssh control mode -CC mirror session window pane sidebar workspace beta unstable"),
+            .init(section: .betaFeatures, id: "remoteTmuxNewWorkspaceOnHost", title: String(localized: "settings.betaFeatures.remoteTmuxNewWorkspaceOnHost", defaultValue: "New Workspace on the remote host"), synonyms: String(localized: "settings.search.alias.setting.betaFeatures.remote-tmux-new-workspace-on-host", defaultValue: "New Workspace on the remote host new workspace remote tmux session host local workspace mirror beta unstable")),
+            .init(section: .betaFeatures, id: "remoteTmuxOriginColors", title: String(localized: "settings.betaFeatures.remoteTmuxOriginColors", defaultValue: "Remote host colors"), synonyms: String(localized: "settings.search.alias.setting.betaFeatures.remote-tmux-origin-colors", defaultValue: "Remote host colors remote host colors origin color tint per-host server workspace sidebar row tab beta unstable")),
+            .init(section: .betaFeatures, id: "remoteTmuxOriginHostTitles", title: String(localized: "settings.betaFeatures.remoteTmuxOriginHostTitles", defaultValue: "Remote host names on duplicate titles"), synonyms: String(localized: "settings.search.alias.setting.betaFeatures.remote-tmux-origin-host-titles", defaultValue: "Remote host names on duplicate titles hostname server duplicate same title collision workspace sidebar row beta unstable")),
             .init(
                 section: .betaFeatures,
                 id: "workspace-todo-controls",
@@ -525,6 +528,13 @@ extension Array where Element == CuratedSettingEntry {
                 detailText: String(localized: "settings.browser.askWhereToSaveDownloads.subtitle", defaultValue: "When off, browser downloads save directly to Downloads without a save panel."),
                 synonyms: String(localized: "settings.search.alias.setting.browser.ask-where-to-save-downloads", defaultValue: "browser.askWhereToSaveDownloads downloads save panel folder attachments files pdf gmail")
             ),
+            .init(
+                section: .browser,
+                id: "link-hover-url",
+                title: String(localized: "settings.browser.showLinkHoverURL", defaultValue: "Show Link URLs on Hover"),
+                detailText: String(localized: "settings.browser.showLinkHoverURL.subtitle", defaultValue: "Shows a link's destination at the bottom of a browser pane while the pointer is over it or it has keyboard focus."),
+                synonyms: String(localized: "settings.search.alias.setting.browser.link-hover-url", defaultValue: "browser.showLinkHoverURL link hover url destination address status bar preview")
+            ),
             .init(section: .browser, id: "terminal-links", title: String(localized: "settings.browser.openTerminalLinks", defaultValue: "Open Terminal Links in cmux Browser"), synonyms: "Open Terminal Links in cmux Browser browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),
             .init(section: .browser, id: "intercept-open", title: String(localized: "settings.browser.interceptOpen", defaultValue: "Intercept open http(s) in Terminal"), synonyms: "Intercept open http(s) in Terminal browser.interceptTerminalOpenCommandInCmuxBrowser open command http https url terminal intercept"),
             .init(section: .browser, id: "host-whitelist", title: String(localized: "settings.browser.hostWhitelist", defaultValue: "Hosts to Open in Embedded Browser"), synonyms: "Hosts to Open in Embedded Browser browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser"),
@@ -565,6 +575,8 @@ extension Array where Element == CuratedSettingEntry {
             // Workspace colors
             .init(section: .workspaceColors, id: "indicator", title: String(localized: "settings.workspaceColors.indicator", defaultValue: "Workspace Color Indicator"), synonyms: "Workspace Color Indicator workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
             .init(section: .workspaceColors, id: "subtle-selection", title: String(localized: "settings.workspaceColors.subtleSelection", defaultValue: "Subtle Selection Highlight"), synonyms: "Subtle Selection Highlight workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent"),
+            .init(section: .workspaceColors, id: "brighten-dark-mode", title: String(localized: "settings.workspaceColors.brightenInDarkMode", defaultValue: "Brighten Colors in Dark Mode"), synonyms: "Brighten Colors in Dark Mode workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color"),
+            .init(section: .workspaceColors, id: "unselected-fill-opacity", title: String(localized: "settings.workspaceColors.unselectedFillOpacity", defaultValue: "Unselected Fill Opacity"), synonyms: "Unselected Fill Opacity workspaceColors.unselectedFillOpacity opacity transparency alpha solid fill unselected inactive workspace row color dull faded strength"),
             .init(section: .workspaceColors, id: "selection", title: String(localized: "settings.workspaceColors.selectionColor", defaultValue: "Selection Highlight"), synonyms: "Selection Highlight workspaceColors.selectionColor selected workspace color highlight background active tab"),
             .init(section: .workspaceColors, id: "badge", title: String(localized: "settings.workspaceColors.notificationBadgeColor", defaultValue: "Notification Badge"), synonyms: "Notification Badge workspaceColors.notificationBadgeColor unread notification badge color dot count"),
             .init(
@@ -583,12 +595,11 @@ extension Array where Element == CuratedSettingEntry {
 
             // Reset
             .init(section: .reset, id: "reset-all", title: String(localized: "settings.reset.resetAll", defaultValue: "Reset All Settings"), synonyms: "Reset All Settings factory reset restore defaults clear preferences"),
-        ])) + terminalGhosttyOptionEntries
+        ])) + terminalGhosttyOptionEntries + sidebarAgentUsageEntries
     }
 
     private static var keyboardShortcutActionSynonyms: String {
-        ShortcutAction.allCases
-            .filter { $0 != .showHideAllWindows }
+        ShortcutAction.settingsVisibleActions
             .map(\.displayName)
             .joined(separator: " ")
     }

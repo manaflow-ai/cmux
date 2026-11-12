@@ -1,3 +1,4 @@
+import CMUXAgentLaunch
 import Foundation
 
 struct VaultObservedAgentProcess: Sendable {
@@ -23,6 +24,10 @@ struct VaultObservedAgentProcess: Sendable {
         if !processName.isEmpty { names.append(processName) }
         if let processPath, !processPath.isEmpty { names.append((processPath as NSString).lastPathComponent) }
         if let first = arguments.first, !first.isEmpty { names.append((first as NSString).lastPathComponent) }
+        // Muse's launcher execs a versioned `muse-bin-<version>` binary.
+        if names.contains(where: { MuseExecutableName($0).isVersionedBinary }) {
+            names.append(MuseExecutableName.launcher)
+        }
         var seen = Set<String>()
         return names.filter { seen.insert($0).inserted }
     }

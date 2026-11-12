@@ -126,3 +126,47 @@ ordinary Mac/iOS protocol responses are unchanged. `bun run drift:check` compare
 the canonical production Worker with `origin/main`. Missing health, wrong scope,
 unknown provenance and missing rules fail. The scheduled production-drift workflow
 reports drift; merging code does not deploy production.
+
+## Account Mac directory
+
+`AccountControl` is one Durable Object per Stack user (name `user:<userId>`)
+holding the Macs that user published from any team. `/v2/account/socket` and
+`/v2/account/requests` accept only an `IrohTicket`; the user comes from the
+signed ticket, and every open or request carries a device proof over
+`cmux-iroh-v2-account-request`. Team objects stay the authority: each directory
+read re-checks every row against its team through the read-only
+`TeamControl.accountMacRecords` RPC, and a read that overlaps a revocation
+notice retries or answers `resync_required`. Team frames, rules and storage
+are unchanged; `test/fixtures/team-wire-golden.json` pins them.
+
+Revocation reaches the account object two ways. TeamControl sends a
+best-effort notice (three immediate attempts) after a Mac row changes, and
+every inbound admission the account directory grants lapses within
+`ACCOUNT_INBOUND_GRANT_SECONDS` (5 minutes), so a lost notice cannot keep a
+revoked Mac admitted longer than that. A durable outbox would need team
+storage and an alarm in TeamControl, which this feature deliberately leaves
+unchanged.
+
+Known costs: a directory read makes one RPC per distinct team among the
+user's Macs (at most 16) and fails retryably if any is unavailable. A Mac row
+change sends one RPC to the owner's AccountControl; an owner who never used
+the account directory gets no account storage from it.
+
+### Durable Object migration rollout
+
+The guarded deploy refuses any pending Durable Object migration. To apply the
+one additive `iroh-v2-account-control-1` migration (it only creates the
+`AccountControl` SQLite class), name it explicitly, staging first:
+
+```sh
+IROH_V2_APPLY_MIGRATION=iroh-v2-account-control-1 CLOUDFLARE_ACCOUNT_ID=0c1675e0def6de1ab3a50a4e17dc5656 bun run deploy:staging
+IROH_V2_APPLY_MIGRATION=iroh-v2-account-control-1 CLOUDFLARE_ACCOUNT_ID=0c1675e0def6de1ab3a50a4e17dc5656 bun run deploy:production
+```
+
+`scripts/rollout-policy.ts` accepts the flag only when that tag is the single
+pending migration and only adds a class the policy treats as additive. It
+never renames, deletes or transfers a class. Production also requires staging
+to already run the migration. All other guards still apply. Workers cannot
+roll back across a migration, so this run disables automatic rollback and a
+failed verification means fixing forward with another guarded deploy. Once
+both lanes run the tag, ordinary guarded deploys need no flag.

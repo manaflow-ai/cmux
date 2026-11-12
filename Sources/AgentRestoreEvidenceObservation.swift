@@ -9,8 +9,8 @@ struct AgentRestoreEvidenceObservation: Sendable {
     #else
     @Sendable
     #endif
-    nonisolated func wait(process: AgentPIDProcessIdentity?, paths: [String]) async {
-        await wait(processes: process.map { [$0] } ?? [], paths: paths)
+    nonisolated func wait(process: AgentPIDProcessIdentity?, paths: [String], timeout: TimeInterval = 8) async {
+        await wait(processes: process.map { [$0] } ?? [], paths: paths, timeout: timeout)
     }
 
     /// Waits for any supplied process generation or watched path to change.
@@ -23,10 +23,13 @@ struct AgentRestoreEvidenceObservation: Sendable {
     #endif
     nonisolated func wait(
         processes: [AgentPIDProcessIdentity],
-        paths: [String]
+        paths: [String],
+        timeout: TimeInterval = 8
     ) async {
         guard processes.allSatisfy({ AgentPIDProcessIdentity(pid: $0.pid) == $0 }) else { return }
-        let observation = AgentRestoreEvidenceSubscription(processes: processes, paths: paths)
+        let observation = AgentRestoreEvidenceSubscription(
+            processes: processes, paths: paths, deadline: .now() + timeout
+        )
         defer { observation.cancel() }
         // Close the registration race without ever accepting a reused PID.
         guard processes.allSatisfy({ AgentPIDProcessIdentity(pid: $0.pid) == $0 }) else { return }

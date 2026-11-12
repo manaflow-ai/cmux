@@ -397,9 +397,11 @@ cmux vpn up
 
 In cmux, Settings → Browser shows the enable toggle disabled with
 "Managed by your organization", Settings → Mobile shows "Remote control from
-the iOS app is disabled by your organization.", and Settings → Beta Features
-shows the Cloud Machines toggle disabled with "Managed by your organization"
-while the Cloud settings section and the right-sidebar Cloud tab are hidden.
+the iOS app is disabled by your organization." Cloud's right-sidebar tab and
+Settings section remain discoverable only when the rollout is available; a
+managed `DisableCloud` profile reports that Cloud is unavailable and does not
+offer activation or VPN setup. The Beta Features page no longer owns a Cloud
+toggle.
 The telemetry toggle (Settings → App), the Computer Use toggle, and the
 Custom Sidebars toggle lock the same way under their keys, and
 "Check for Updates…" explains the managed state under `DisableAutoUpdate`.

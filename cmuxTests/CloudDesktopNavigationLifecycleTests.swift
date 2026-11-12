@@ -145,7 +145,8 @@ struct CloudDesktopNavigationLifecycleTests {
             fixture.app.selectedID = fixture.app.other.id
             let before = fixture.app.other.bonsplitController.treeSnapshot()
             try fixture.app.activate(try fixture.app.poolNode())
-            await fixture.app.waitForOpen()
+            // The ownership hint rejects synchronously; no operation starts.
+            #expect(fixture.app.completions == 0)
             #expect(fixture.app.failures == [SurfaceTransferRejection.cloudMachineMismatch.message])
             #expect(fixture.app.catalog.projections.isEmpty)
             #expect(fixture.app.other.bonsplitController.treeSnapshot() == before)

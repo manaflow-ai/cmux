@@ -41,6 +41,15 @@
 //   let v2RelayResponse = try? JSONDecoder().decode(V2RelayResponse.self, from: jsonData)
 //   let v2RevokedResponse = try? JSONDecoder().decode(V2RevokedResponse.self, from: jsonData)
 //   let v2TicketResponse = try? JSONDecoder().decode(V2TicketResponse.self, from: jsonData)
+//   let v2AccountChangedResponse = try? JSONDecoder().decode(V2AccountChangedResponse.self, from: jsonData)
+//   let v2AccountDirectoryRequest = try? JSONDecoder().decode(V2AccountDirectoryRequest.self, from: jsonData)
+//   let v2AccountDirectoryResponse = try? JSONDecoder().decode(V2AccountDirectoryResponse.self, from: jsonData)
+//   let v2AccountDirectory = try? JSONDecoder().decode(V2AccountDirectory.self, from: jsonData)
+//   let v2AccountPublishRequest = try? JSONDecoder().decode(V2AccountPublishRequest.self, from: jsonData)
+//   let v2AccountPublishedResponse = try? JSONDecoder().decode(V2AccountPublishedResponse.self, from: jsonData)
+//   let v2AccountReadyResponse = try? JSONDecoder().decode(V2AccountReadyResponse.self, from: jsonData)
+//   let v2AccountWithdrawRequest = try? JSONDecoder().decode(V2AccountWithdrawRequest.self, from: jsonData)
+//   let v2AccountWithdrawnResponse = try? JSONDecoder().decode(V2AccountWithdrawnResponse.self, from: jsonData)
 //   let v2Platform = try? JSONDecoder().decode(V2Platform.self, from: jsonData)
 
 //
@@ -1325,5 +1334,283 @@ public struct V2TicketResponse: Codable, Equatable, Sendable {
 
 public enum V2TicketResponseSchemaID: String, Codable, Equatable, Sendable {
     case ticketResultV1 = "ticket.result.v1"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2AccountChangedResponse
+public struct V2AccountChangedResponse: Codable, Equatable, Sendable {
+    public let revision: Int
+    public let schemaID: V2AccountChangedResponseSchemaID
+    public let userID: String
+
+    public enum CodingKeys: String, CodingKey {
+        case revision = "revision"
+        case schemaID = "schemaId"
+        case userID = "userId"
+    }
+
+    public init(revision: Int, schemaID: V2AccountChangedResponseSchemaID, userID: String) {
+        self.revision = revision
+        self.schemaID = schemaID
+        self.userID = userID
+    }
+}
+
+public enum V2AccountChangedResponseSchemaID: String, Codable, Equatable, Sendable {
+    case accountChangedV1 = "account.changed.v1"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2AccountDirectoryRequest
+public struct V2AccountDirectoryRequest: Codable, Equatable, Sendable {
+    public let cursor: String?
+    public let haveRevision: Int?
+    public let requestID: String
+    public let schemaID: V2AccountDirectoryRequestSchemaID
+
+    public enum CodingKeys: String, CodingKey {
+        case cursor = "cursor"
+        case haveRevision = "haveRevision"
+        case requestID = "requestId"
+        case schemaID = "schemaId"
+    }
+
+    public init(cursor: String? = nil, haveRevision: Int? = nil, requestID: String, schemaID: V2AccountDirectoryRequestSchemaID) {
+        self.cursor = cursor
+        self.haveRevision = haveRevision
+        self.requestID = requestID
+        self.schemaID = schemaID
+    }
+}
+
+public enum V2AccountDirectoryRequestSchemaID: String, Codable, Equatable, Sendable {
+    case accountDirectoryV1 = "account.directory.v1"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2AccountDirectoryResponse
+public struct V2AccountDirectoryResponse: Codable, Equatable, Sendable {
+    public let directory: V2AccountDirectory
+    public let requestID: String
+    public let schemaID: V2AccountDirectoryResponseSchemaID
+
+    public enum CodingKeys: String, CodingKey {
+        case directory = "directory"
+        case requestID = "requestId"
+        case schemaID = "schemaId"
+    }
+
+    public init(directory: V2AccountDirectory, requestID: String, schemaID: V2AccountDirectoryResponseSchemaID) {
+        self.directory = directory
+        self.requestID = requestID
+        self.schemaID = schemaID
+    }
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2AccountDirectory
+public struct V2AccountDirectory: Codable, Equatable, Sendable {
+    public let inboundMacs: [V2InboundPeerPermission]
+    public let issuedAt: Int
+    public let macs: [V2DeviceRecord]
+    public let nextCursor: String?
+    public let permissionExpiresAt: Int
+    public let relayURLs: [String]
+    public let revision: Int
+    public let rules: [String]
+    public let userID: String
+
+    public enum CodingKeys: String, CodingKey {
+        case inboundMacs = "inboundMacs"
+        case issuedAt = "issuedAt"
+        case macs = "macs"
+        case nextCursor = "nextCursor"
+        case permissionExpiresAt = "permissionExpiresAt"
+        case relayURLs = "relayURLs"
+        case revision = "revision"
+        case rules = "rules"
+        case userID = "userId"
+    }
+
+    public init(inboundMacs: [V2InboundPeerPermission], issuedAt: Int, macs: [V2DeviceRecord], nextCursor: String? = nil, permissionExpiresAt: Int, relayURLs: [String], revision: Int, rules: [String], userID: String) {
+        self.inboundMacs = inboundMacs
+        self.issuedAt = issuedAt
+        self.macs = macs
+        self.nextCursor = nextCursor
+        self.permissionExpiresAt = permissionExpiresAt
+        self.relayURLs = relayURLs
+        self.revision = revision
+        self.rules = rules
+        self.userID = userID
+    }
+}
+
+public enum V2AccountDirectoryResponseSchemaID: String, Codable, Equatable, Sendable {
+    case accountDirectoryResultV1 = "account.directory.result.v1"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2AccountPublishRequest
+public struct V2AccountPublishRequest: Codable, Equatable, Sendable {
+    public let requestID: String
+    public let schemaID: V2AccountPublishRequestSchemaID
+
+    public enum CodingKeys: String, CodingKey {
+        case requestID = "requestId"
+        case schemaID = "schemaId"
+    }
+
+    public init(requestID: String, schemaID: V2AccountPublishRequestSchemaID) {
+        self.requestID = requestID
+        self.schemaID = schemaID
+    }
+}
+
+public enum V2AccountPublishRequestSchemaID: String, Codable, Equatable, Sendable {
+    case accountPublishV1 = "account.publish.v1"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2AccountPublishedResponse
+public struct V2AccountPublishedResponse: Codable, Equatable, Sendable {
+    public let device: V2DeviceRecord
+    public let requestID: String
+    public let revision: Int
+    public let schemaID: V2AccountPublishedResponseSchemaID
+
+    public enum CodingKeys: String, CodingKey {
+        case device = "device"
+        case requestID = "requestId"
+        case revision = "revision"
+        case schemaID = "schemaId"
+    }
+
+    public init(device: V2DeviceRecord, requestID: String, revision: Int, schemaID: V2AccountPublishedResponseSchemaID) {
+        self.device = device
+        self.requestID = requestID
+        self.revision = revision
+        self.schemaID = schemaID
+    }
+}
+
+public enum V2AccountPublishedResponseSchemaID: String, Codable, Equatable, Sendable {
+    case accountPublishedV1 = "account.published.v1"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2AccountReadyResponse
+public struct V2AccountReadyResponse: Codable, Equatable, Sendable {
+    public let requestID: String
+    public let revision: Int
+    public let schemaID: V2AccountReadyResponseSchemaID
+    public let sessionID: String
+
+    public enum CodingKeys: String, CodingKey {
+        case requestID = "requestId"
+        case revision = "revision"
+        case schemaID = "schemaId"
+        case sessionID = "sessionId"
+    }
+
+    public init(requestID: String, revision: Int, schemaID: V2AccountReadyResponseSchemaID, sessionID: String) {
+        self.requestID = requestID
+        self.revision = revision
+        self.schemaID = schemaID
+        self.sessionID = sessionID
+    }
+}
+
+public enum V2AccountReadyResponseSchemaID: String, Codable, Equatable, Sendable {
+    case accountReadyV1 = "account.ready.v1"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2AccountWithdrawRequest
+public struct V2AccountWithdrawRequest: Codable, Equatable, Sendable {
+    public let requestID: String
+    public let schemaID: V2AccountWithdrawRequestSchemaID
+
+    public enum CodingKeys: String, CodingKey {
+        case requestID = "requestId"
+        case schemaID = "schemaId"
+    }
+
+    public init(requestID: String, schemaID: V2AccountWithdrawRequestSchemaID) {
+        self.requestID = requestID
+        self.schemaID = schemaID
+    }
+}
+
+public enum V2AccountWithdrawRequestSchemaID: String, Codable, Equatable, Sendable {
+    case accountWithdrawV1 = "account.withdraw.v1"
+}
+
+//
+// Hashable or Equatable:
+// The compiler will not be able to synthesize the implementation of Hashable or Equatable
+// for types that require the use of JSONAny, nor will the implementation of Hashable be
+// synthesized for types that have collections (such as arrays or dictionaries).
+
+// MARK: - V2AccountWithdrawnResponse
+public struct V2AccountWithdrawnResponse: Codable, Equatable, Sendable {
+    public let requestID: String
+    public let revision: Int
+    public let schemaID: V2AccountWithdrawnResponseSchemaID
+
+    public enum CodingKeys: String, CodingKey {
+        case requestID = "requestId"
+        case revision = "revision"
+        case schemaID = "schemaId"
+    }
+
+    public init(requestID: String, revision: Int, schemaID: V2AccountWithdrawnResponseSchemaID) {
+        self.requestID = requestID
+        self.revision = revision
+        self.schemaID = schemaID
+    }
+}
+
+public enum V2AccountWithdrawnResponseSchemaID: String, Codable, Equatable, Sendable {
+    case accountWithdrawnV1 = "account.withdrawn.v1"
 }
 

@@ -1206,6 +1206,98 @@ final class KoreanIMEReturnCommitRegressionTests: XCTestCase {
 }
 
 @MainActor
+final class VietnameseIMEBackspaceRegressionTests: XCTestCase {
+    func testBackspaceCommitsPreeditThenDeletesOneCharacter() async {
+        await AppContextSerialGate.withExclusiveAppContext {
+            _ = NSApplication.shared
+
+            let surface = TerminalSurface(
+                tabId: UUID(),
+                context: GHOSTTY_SURFACE_CONTEXT_SPLIT,
+                configTemplate: nil,
+                workingDirectory: nil
+            )
+            let hostedView = surface.hostedView
+
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 360, height: 240),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            defer {
+                GhosttyNSView.debugGhosttySurfaceKeyEventObserver = nil
+                surface.releaseHostedSurfaceForTesting()
+                window.orderOut(nil)
+            }
+
+            guard let contentView = window.contentView else {
+                XCTFail("Expected content view")
+                return
+            }
+
+            hostedView.frame = contentView.bounds
+            hostedView.autoresizingMask = [.width, .height]
+            contentView.addSubview(hostedView)
+
+            window.makeKeyAndOrderFront(nil)
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            hostedView.setVisibleInUI(true)
+            hostedView.setActive(true)
+            _ = await AppKitTestEventPump().waitUntil(timeout: .seconds(5)) { surface.surface != nil }
+            XCTAssertNotNil(surface.surface, "Expected native surface before dispatching composed input")
+
+            guard let view = findGhosttyNSView(in: hostedView) else {
+                XCTFail("Expected hosted GhosttyNSView")
+                return
+            }
+
+            view.setMarkedText("iêt", selectedRange: NSRange(location: 3, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+
+            // macOS Vietnamese Telex on Backspace: commit the preedit, then request deleteBackward:.
+            installCJKIMEInterpretKeyEventsSwizzle()
+            cjkIMEInterpretKeyEventsHook = { candidateView, _ in
+                guard candidateView === view else { return false }
+                candidateView.insertText("iêt", replacementRange: NSRange(location: NSNotFound, length: 0))
+                candidateView.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+                return true
+            }
+            defer { cjkIMEInterpretKeyEventsHook = nil }
+
+            var presses: [(keycode: UInt32, text: String?)] = []
+            GhosttyNSView.debugGhosttySurfaceKeyEventObserver = { keyEvent in
+                guard keyEvent.action == GHOSTTY_ACTION_PRESS else { return }
+                presses.append((keyEvent.keycode, keyEvent.text.map { String(cString: $0) }))
+            }
+
+            guard let event = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber,
+                context: nil,
+                characters: "\u{7f}",
+                charactersIgnoringModifiers: "\u{7f}",
+                isARepeat: false,
+                keyCode: 51
+            ) else {
+                XCTFail("Failed to create Backspace event")
+                return
+            }
+
+            window.makeFirstResponder(view)
+            view.keyDown(with: event)
+
+            XCTAssertFalse(view.hasMarkedText())
+            XCTAssertEqual(presses.map(\.text), ["iêt", nil], "Committed preedit must reach the terminal before the Backspace")
+            XCTAssertEqual(presses.last?.keycode, 51, "The Backspace requested via deleteBackward: must be forwarded without text")
+        }
+    }
+}
+
+@MainActor
 final class KoreanIMEMarkedTextLeakRegressionTests: XCTestCase {
     func testKeyDownDoesNotLeakJamoWhileMarkedTextIsActive() async {
         await AppContextSerialGate.withExclusiveAppContext {
@@ -1900,6 +1992,159 @@ final class GhosttyKeyEquivalentRegressionTests: XCTestCase {
             XCTAssertFalse(
                 capturedHex.contains("1b5b") || capturedHex.contains("39393b"),
                 "PTY input must not contain a CSI-u escape sequence"
+            )
+        }
+    }
+
+    // MARK: - Leftover Modes From A Killed Program
+
+    /// A raw-mode child that writes the PTY input bytes it reads, as hex, to
+    /// `<script>.capture` once input goes idle.
+    private func ptyInputCaptureScript() -> String {
+        """
+        import os
+        from pathlib import Path
+        import select
+        import sys
+        import termios
+        import time
+        import tty
+
+        fd = 0
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            Path(__file__ + ".ready").write_text("ready")
+            data = bytearray()
+            if select.select([sys.stdin], [], [], 4.0)[0]:
+                data.extend(os.read(fd, 64))
+                deadline = time.monotonic() + 2.0
+                idle_deadline = time.monotonic() + 0.5
+                while time.monotonic() < deadline and time.monotonic() < idle_deadline:
+                    if select.select([sys.stdin], [], [], 0.05)[0]:
+                        data.extend(os.read(fd, 64))
+                        idle_deadline = time.monotonic() + 0.5
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+        capture = Path(__file__ + ".capture.pending")
+        capture.write_text(data.hex())
+        capture.replace(__file__ + ".capture")
+        """
+    }
+
+    func testMouseMovesAtThePromptAfterAKilledMouseTrackingProgramWriteNoReports() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let base = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-mouse-reset-\(UUID().uuidString)")
+            let scriptURL = base.appendingPathExtension("py")
+            let wrapperURL = base.appendingPathExtension("sh")
+            let readyURL = scriptURL.appendingPathExtension("ready")
+            let captureURL = scriptURL.appendingPathExtension("capture")
+            defer {
+                for url in [scriptURL, wrapperURL, readyURL, captureURL,
+                            scriptURL.appendingPathExtension("capture.pending")] {
+                    try? FileManager.default.removeItem(at: url)
+                }
+            }
+            let integrationPath = SwiftTestingAssertions.sourceURL()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("Resources/shell-integration/cmux-zsh-integration.zsh")
+                .path
+            try ptyInputCaptureScript().write(to: scriptURL, atomically: true, encoding: .utf8)
+            // A TUI turns on any-motion SGR mouse reports and is SIGKILLed;
+            // then the shell's prompt hook runs on the same PTY, then a child
+            // records what the next mouse moves and key write to PTY input.
+            let wrapper = """
+            /bin/sh -c 'printf "\\033[?1003h\\033[?1006h"; kill -9 $$'
+            /bin/zsh -f -c 'source "$1" >/dev/null 2>&1; _cmux_reset_terminal_leftover_modes' prompt "$2"
+            exec /usr/bin/python3 "$1"
+            """
+            try wrapper.write(to: wrapperURL, atomically: true, encoding: .utf8)
+
+            let hostedTerminal = try await makeHostedTerminalWindow(
+                initialCommand: "/bin/sh \(shellSingleQuoted(wrapperURL.path)) "
+                    + "\(shellSingleQuoted(scriptURL.path)) \(shellSingleQuoted(integrationPath))"
+            )
+            let window = hostedTerminal.window
+            defer {
+                hostedTerminal.surface.releaseHostedSurfaceForTesting()
+                window.orderOut(nil)
+            }
+
+            let childReady = await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) {
+                FileManager.default.fileExists(atPath: readyURL.path)
+            }
+            XCTAssertTrue(childReady, "Expected the byte-capture child to enter raw mode")
+            guard childReady else { return }
+            await AppKitTestEventPump().drain()
+
+            for point in [NSPoint(x: 40, y: 40), NSPoint(x: 90, y: 70), NSPoint(x: 140, y: 100)] {
+                let moved = try XCTUnwrap(NSEvent.mouseEvent(
+                    with: .mouseMoved,
+                    location: point,
+                    modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    eventNumber: 0,
+                    clickCount: 0,
+                    pressure: 0
+                ))
+                hostedTerminal.surfaceView.mouseMoved(with: moved)
+            }
+            let sent = hostedTerminal.hostedView.debugSendSyntheticKeyPressAndReleaseForUITest(
+                characters: "c",
+                charactersIgnoringModifiers: "c",
+                keyCode: 8
+            )
+            XCTAssertTrue(sent, "Expected ordinary c keyDown to be dispatched through ghostty_surface_key")
+
+            let captured = await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) {
+                FileManager.default.fileExists(atPath: captureURL.path)
+            }
+            XCTAssertTrue(captured, "Expected the PTY child to publish its captured bytes")
+            guard captured else { return }
+            let capturedHex = try String(contentsOf: captureURL, encoding: .utf8)
+            XCTAssertEqual(
+                capturedHex,
+                "63",
+                "Mouse moves at the prompt must write nothing to PTY input; only the typed c"
+            )
+        }
+    }
+
+    func testAKeptExitedTerminalStopsCapturingTheMouse() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
+            let scriptURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-mouse-exit-\(UUID().uuidString).sh")
+            defer { try? FileManager.default.removeItem(at: scriptURL) }
+            // Exits fast enough to count as abnormal, so the pane stays open.
+            try "printf '\\033[?1003h\\033[?1006h'\nexit 3\n"
+                .write(to: scriptURL, atomically: true, encoding: .utf8)
+
+            let hostedTerminal = try await makeHostedTerminalWindow(
+                initialCommand: "/bin/sh \(shellSingleQuoted(scriptURL.path))"
+            )
+            let window = hostedTerminal.window
+            defer {
+                hostedTerminal.surface.releaseHostedSurfaceForTesting()
+                window.orderOut(nil)
+            }
+            let nativeSurface = try XCTUnwrap(hostedTerminal.surface.surface)
+
+            let exited = await AppKitTestEventPump().waitUntil(timeout: .seconds(10)) {
+                ghostty_surface_process_exited(nativeSurface)
+            }
+            XCTAssertTrue(exited, "Expected the child to exit")
+            guard exited else { return }
+            let released = await AppKitTestEventPump().waitUntil(timeout: .seconds(3)) {
+                !ghostty_surface_mouse_captured(nativeSurface)
+            }
+            XCTAssertTrue(
+                released,
+                "A kept exited terminal must stop capturing the mouse its dead child left captured"
             )
         }
     }

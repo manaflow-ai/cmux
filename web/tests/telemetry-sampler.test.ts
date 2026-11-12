@@ -292,4 +292,16 @@ describe("always-kept operational routes", () => {
     expect(isPriorityPath("/api/stripe/webhooks-other")).toBe(false);
     expect(isPriorityPath("/api/devices/iroh/register")).toBe(false);
   });
+
+  test("account deletion and its resume cron are always kept", () => {
+    const neverSample = buildCmuxTraceSampler({ CMUX_OTEL_BASE_SAMPLE_RATIO: "0" });
+    const decide = (name: string, attributes: Record<string, string>) =>
+      neverSample.shouldSample(otelContext.active(), "0af7651916cd43dd8448eb211c80319c", name, 1, attributes, [])
+        .decision;
+    expect(decide("DELETE /api/account", { "http.route": "/api/account" })).toBe(
+      SamplingDecision.RECORD_AND_SAMPLED,
+    );
+    expect(decide("GET /api/account", {})).toBe(SamplingDecision.RECORD_AND_SAMPLED);
+    expect(isPriorityPath("/api/accounts")).toBe(false);
+  });
 });

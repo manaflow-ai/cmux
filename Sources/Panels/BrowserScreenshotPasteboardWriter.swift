@@ -60,10 +60,9 @@ struct BrowserScreenshotPasteboardWriter: Sendable {
         ) else {
             throw BrowserScreenshotError.invalidImageRepresentation
         }
-        return try await encode(
-            cgImage,
-            verticallyFlip: bitmapImage != nil
-        )
+        // `NSBitmapImageRep.cgImage` and AppKit's snapshot reps are both
+        // top-row-first, so the encoder must never reorder rows (#18793).
+        return try await encode(cgImage)
     }
 
     #if compiler(>=6.2)
@@ -72,14 +71,10 @@ struct BrowserScreenshotPasteboardWriter: Sendable {
     @Sendable
     #endif
     nonisolated private func encode(
-        _ source: CGImage,
-        verticallyFlip: Bool
+        _ source: CGImage
     ) async throws -> BrowserScreenshotEncodedImage {
         try Task.checkCancellation()
-        let bounded = try boundedImage(
-            source,
-            verticallyFlip: verticallyFlip
-        )
+        let bounded = try boundedImage(source)
         try Task.checkCancellation()
         return BrowserScreenshotEncodedImage(
             png: try encodedData(for: bounded, type: UTType.png.identifier),
@@ -87,10 +82,7 @@ struct BrowserScreenshotPasteboardWriter: Sendable {
         )
     }
 
-    private nonisolated func boundedImage(
-        _ source: CGImage,
-        verticallyFlip: Bool
-    ) throws -> CGImage {
+    private nonisolated func boundedImage(_ source: CGImage) throws -> CGImage {
         guard maximumPixelCount > 0,
               source.width > 0,
               source.height > 0 else {
@@ -120,11 +112,8 @@ struct BrowserScreenshotPasteboardWriter: Sendable {
                 height -= 1
             }
         }
-        let oriented = verticallyFlip
-            ? try verticallyFlippedImage(source)
-            : source
         guard width != source.width || height != source.height else {
-            return oriented
+            return source
         }
         guard let colorSpace = source.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB),
               let context = CGContext(
@@ -140,56 +129,13 @@ struct BrowserScreenshotPasteboardWriter: Sendable {
         }
         context.interpolationQuality = .high
         context.draw(
-            oriented,
+            source,
             in: CGRect(x: 0, y: 0, width: width, height: height)
         )
         guard let bounded = context.makeImage() else {
             throw BrowserScreenshotError.invalidImageRepresentation
         }
         return bounded
-    }
-
-    private nonisolated func verticallyFlippedImage(_ source: CGImage) throws -> CGImage {
-        guard let sourceData = source.dataProvider?.data,
-              source.bytesPerRow > 0,
-              source.height > 0 else {
-            throw BrowserScreenshotError.invalidImageRepresentation
-        }
-        let byteCount = source.bytesPerRow.multipliedReportingOverflow(by: source.height)
-        guard !byteCount.overflow,
-              CFDataGetLength(sourceData) >= byteCount.partialValue else {
-            throw BrowserScreenshotError.invalidImageRepresentation
-        }
-        var flipped = Data(count: byteCount.partialValue)
-        flipped.withUnsafeMutableBytes { destination in
-            guard let destinationBase = destination.baseAddress,
-                  let sourceBase = CFDataGetBytePtr(sourceData) else { return }
-            for row in 0..<source.height {
-                memcpy(
-                    destinationBase.advanced(by: row * source.bytesPerRow),
-                    sourceBase.advanced(by: (source.height - row - 1) * source.bytesPerRow),
-                    source.bytesPerRow
-                )
-            }
-        }
-        guard let provider = CGDataProvider(data: flipped as CFData),
-              let colorSpace = source.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB),
-              let image = CGImage(
-                width: source.width,
-                height: source.height,
-                bitsPerComponent: source.bitsPerComponent,
-                bitsPerPixel: source.bitsPerPixel,
-                bytesPerRow: source.bytesPerRow,
-                space: colorSpace,
-                bitmapInfo: source.bitmapInfo,
-                provider: provider,
-                decode: source.decode,
-                shouldInterpolate: source.shouldInterpolate,
-                intent: source.renderingIntent
-              ) else {
-            throw BrowserScreenshotError.invalidImageRepresentation
-        }
-        return image
     }
 
     private nonisolated func encodedData(for image: CGImage, type: String) throws -> Data {

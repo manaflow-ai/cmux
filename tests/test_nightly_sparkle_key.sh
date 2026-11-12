@@ -6,6 +6,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 PICK="$ROOT_DIR/scripts/ci/nightly-sparkle-key.sh"
 WORKFLOW="$ROOT_DIR/.github/workflows/nightly.yml"
+# The published nightly's Sparkle deltas: auto-resume-nightly-notarization.yml generate-deltas.
+DELTAS="$ROOT_DIR/.github/workflows/auto-resume-nightly-notarization.yml"
 
 expect() {
   # expect <want> <selector> <channel> [nightly-key]
@@ -37,13 +39,13 @@ if grep -Eq '^ +SPARKLE_PRIVATE_KEY: \$\{\{ secrets\.' "$WORKFLOW"; then
   echo "FAIL: nightly.yml passes SPARKLE_PRIVATE_KEY directly; use scripts/ci/nightly-sparkle-key.sh"
   exit 1
 fi
-if [ "$(grep -c 'SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"' "$WORKFLOW")" -ne 2 ]; then
-  echo "FAIL: nightly.yml must derive the embedded key and sign the appcast through the helper"
+if [ "$(grep -c 'SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"' "$WORKFLOW")" -lt 2 ]; then
+  echo "FAIL: nightly.yml must derive the embedded key and sign every appcast through the helper"
   exit 1
 fi
 
-if ! grep -Fq 'drop-previous-nightlies-with-other-sparkle-key.sh previous-nightlies "$SPARKLE_PUBLIC_KEY"' "$WORKFLOW"; then
-  echo "FAIL: the appcast step must drop previous nightlies signed for another key before building deltas"
+if ! grep -Fq 'drop-previous-nightlies-with-other-sparkle-key.sh' "$DELTAS" || ! grep -Fq 'nightly-delta/previous "$SPARKLE_PUBLIC_KEY"' "$DELTAS"; then
+  echo "FAIL: the post-publication delta step must drop previous nightlies signed for another key before building deltas"
   exit 1
 fi
 

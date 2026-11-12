@@ -27,6 +27,15 @@ struct CloudPlacementCoordinatorTests {
         )
     }
 
+    private static func browser(_ key: String, view: SurfaceRemoteView) -> SurfaceResource {
+        SurfaceResource(
+            id: SurfaceResourceID(machine: machine, kind: .browser, key: key),
+            title: key, detail: nil, lifecycle: .running, agent: nil,
+            remoteWorkspace: view.workspace, remoteViews: [view], port: nil,
+            url: "https://example.com/\(key)"
+        )
+    }
+
     /// Installs the daemon graph before exercising reconciliation. The catalog deliberately
     /// ignores a remote observation that was never accepted as its current cloud state.
     private static func install(
@@ -104,6 +113,147 @@ struct CloudPlacementCoordinatorTests {
         let projection = catalog.projection(forPanel: panel)
         #expect(projection?.workspaceID == bound)
         #expect(projection?.remoteWorkspaceID == "ws_api" && projection?.remoteTabID == "tab_1")
+    }
+
+    @Test func aCloudBrowserSidebarMoveUpdatesEveryViewerProjection() async {
+        let (catalog, provider) = Self.harness(bound: UUID())
+        let browser = Self.browser(
+            "docs",
+            view: SurfaceRemoteView(tabID: "tab_docs", workspace: Self.main)
+        )
+        catalog.replaceResources([browser], on: Self.machine)
+        let first = UUID(), second = UUID()
+        for workspaceID in [first, second] {
+            catalog.record(SurfaceProjection(
+                resource: browser.id,
+                workspaceID: workspaceID,
+                panelID: UUID(),
+                remoteWorkspaceID: Self.main.id,
+                remoteTabID: "tab_docs"
+            ))
+        }
+
+        let task = catalog.cloudPlacementCoordinator.moveRemoteTab(
+            resource: browser.id,
+            tabID: "tab_docs",
+            intoRemoteWorkspace: Self.api.id,
+            catalog: catalog,
+            provider: provider,
+            onFailure: { error in Issue.record("browser move failed: \(error)") }
+        )
+        await task.value
+
+        #expect(provider.moved.map { "\($0.tab)->\($0.workspace)" } == ["tab_docs->ws_api"])
+        #expect(catalog.projections.filter { $0.resource == browser.id }.allSatisfy {
+            $0.remoteWorkspaceID == Self.api.id && $0.remoteTabID == "tab_docs"
+        })
+    }
+
+    @Test func aCloudBrowserSidebarMoveKeepsNativeDocumentsAndOtherTabs() async {
+        let (catalog, provider) = Self.harness(bound: UUID())
+        let other = SurfaceRemoteWorkspace(id: "ws_other", name: "other", index: 2, focused: false)
+        var browser = Self.browser("docs", view: SurfaceRemoteView(tabID: "tab_docs", workspace: Self.main))
+        browser.remoteViews?.append(SurfaceRemoteView(tabID: "tab_other", workspace: other))
+        catalog.replaceResources([browser], on: Self.machine)
+        let dragged = SurfaceProjection(
+            resource: browser.id, workspaceID: UUID(), panelID: UUID(),
+            remoteWorkspaceID: Self.main.id, remoteTabID: "tab_docs"
+        )
+        let untouched = SurfaceProjection(
+            resource: browser.id, workspaceID: UUID(), panelID: UUID(),
+            remoteWorkspaceID: other.id, remoteTabID: "tab_other"
+        )
+        catalog.record(dragged)
+        catalog.record(untouched)
+        let document = SurfaceCatalog.CloudBrowserDocument(
+            url: URL(string: "https://example.com/navigated")!, title: "Navigated",
+            remoteTabID: "tab_docs", revision: 1
+        )
+        catalog.cloudBrowserDocuments[browser.id] = [dragged.panelID: document]
+
+        let task = catalog.cloudPlacementCoordinator.moveRemoteTab(
+            resource: browser.id,
+            tabID: "tab_docs",
+            intoRemoteWorkspace: Self.api.id,
+            catalog: catalog,
+            provider: provider,
+            onFailure: { error in Issue.record("browser move failed: \(error)") }
+        )
+        await task.value
+
+        // Re-placing a view is not closing it: the page the user navigated to survives.
+        #expect(catalog.cloudBrowserDocuments[browser.id]?[dragged.panelID]?.url == document.url)
+        let moved = catalog.projection(forPanel: dragged.panelID)
+        #expect(moved?.remoteWorkspaceID == Self.api.id && moved?.remoteTabID == "tab_docs")
+        #expect(catalog.projection(forPanel: untouched.panelID) == untouched)
+    }
+
+    @Test func aCloudBrowserDroppedIntoItsMachinesWorkspaceOpensAsANewBrowserAtItsCurrentPage() {
+        let mirrored = UUID(), viewer = UUID()
+        let (catalog, _) = Self.harness(bound: mirrored)
+        let other = SurfaceRemoteWorkspace(id: "ws_other", name: "other", index: 2, focused: false)
+        var browser = Self.browser("docs", view: SurfaceRemoteView(tabID: "tab_docs", workspace: Self.main))
+        browser.remoteViews?.append(SurfaceRemoteView(tabID: "tab_other", workspace: other))
+        let terminal = Self.terminal("term_1", views: [SurfaceRemoteView(tabID: "tab_1", workspace: Self.main)])
+        catalog.replaceResources([browser, terminal], on: Self.machine)
+        let docsPanel = UUID(), otherPanel = UUID()
+        let navigated = URL(string: "https://example.com/navigated")!
+        catalog.cloudBrowserDocuments[browser.id] = [
+            docsPanel: SurfaceCatalog.CloudBrowserDocument(
+                url: navigated, title: "Navigated", remoteTabID: "tab_docs", revision: 1
+            ),
+            otherPanel: SurfaceCatalog.CloudBrowserDocument(
+                url: URL(string: "https://example.com/other")!, title: "Other", remoteTabID: "tab_other", revision: 2
+            ),
+        ]
+        let dragged = SurfaceResourceGroup(
+            title: "docs",
+            placements: [SurfaceResourcePlacement(resource: browser.id, remoteView: browser.remoteViews?.first)]
+        )
+
+        // The machine cannot place one daemon tab twice, so a drop into a workspace
+        // mirrored to that machine is a new browser at the dragged view's page.
+        #expect(catalog.cloudBrowserCopyURL(for: dragged, intoWorkspace: mirrored) == navigated)
+        // A viewer workspace keeps showing the dragged tab itself.
+        #expect(catalog.cloudBrowserCopyURL(for: dragged, intoWorkspace: viewer) == nil)
+        #expect(catalog.cloudBrowserCopyURL(for: SurfaceResourceGroup(single: terminal), intoWorkspace: mirrored) == nil)
+        #expect(catalog.cloudBrowserCopyURL(
+            for: SurfaceResourceGroup(title: "both", resources: [browser.id, terminal.id]),
+            intoWorkspace: mirrored
+        ) == nil)
+        #expect(catalog.cloudBrowserCopyURL(
+            for: SurfaceResourceGroup(
+                title: "main", placements: dragged.placements,
+                remoteWorkspaceID: Self.main.id, representsWorkspace: true
+            ),
+            intoWorkspace: mirrored
+        ) == nil)
+    }
+
+    @Test func aCloudBrowserSidebarMoveIgnoresAReplacedProvidersReply() async {
+        let (catalog, provider) = Self.harness(bound: UUID())
+        let browser = Self.browser("docs", view: SurfaceRemoteView(tabID: "tab_docs", workspace: Self.main))
+        catalog.replaceResources([browser], on: Self.machine)
+        let original = SurfaceProjection(
+            resource: browser.id, workspaceID: UUID(), panelID: UUID(),
+            remoteWorkspaceID: Self.main.id, remoteTabID: "tab_docs"
+        )
+        catalog.record(original)
+        let replacement = CloudPlacementTestProvider(machine: Self.machine)
+        provider.beforeMutation = { catalog.register(replacement) }
+
+        let task = catalog.cloudPlacementCoordinator.moveRemoteTab(
+            resource: browser.id,
+            tabID: "tab_docs",
+            intoRemoteWorkspace: Self.api.id,
+            catalog: catalog,
+            provider: provider,
+            onFailure: { error in Issue.record("browser move failed: \(error)") }
+        )
+        await task.value
+
+        #expect(catalog.projection(forPanel: original.panelID) == original)
+        #expect(replacement.moved.isEmpty)
     }
 
     @Test func aViewlessTerminalMovedIntoTheMirroredWorkspaceIsProjectedThere() async {

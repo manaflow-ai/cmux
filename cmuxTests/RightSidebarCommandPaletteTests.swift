@@ -1,4 +1,6 @@
 import CmuxCommandPalette
+import CmuxSidebar
+import CmuxWorkspaces
 import Foundation
 import XCTest
 
@@ -9,6 +11,38 @@ import XCTest
 #endif
 
 final class RightSidebarCommandPaletteTests: XCTestCase {
+    @MainActor
+    func testCustomSidebarDataContextIncludesWorkspaceGroups() throws {
+        let group = WorkspaceGroup(
+            id: UUID(),
+            name: "Work",
+            isCollapsed: true,
+            isPinned: false,
+            anchorWorkspaceId: UUID(),
+            customColor: "#FF8800",
+            iconSymbol: "briefcase.fill"
+        )
+
+        let context = ContentView.customSidebarDataContext(
+            workspaces: [],
+            workspaceGroups: [group],
+            selectedWorkspaceId: nil,
+            selectedWorkspaceTitle: "",
+            totalUnreadCount: 0,
+            now: Date(timeIntervalSince1970: 0)
+        )
+
+        let groups = try XCTUnwrap(context["groups"]?.iterationValues)
+        XCTAssertEqual(groups.count, 1)
+        XCTAssertEqual(groups[0].member("id"), .string(group.id.uuidString))
+        XCTAssertEqual(groups[0].member("name"), .string("Work"))
+        XCTAssertEqual(groups[0].member("collapsed"), .bool(true))
+        XCTAssertEqual(groups[0].member("pinned"), .bool(false))
+        XCTAssertEqual(groups[0].member("anchorId"), .string(group.anchorWorkspaceId.uuidString))
+        XCTAssertEqual(groups[0].member("color"), .string("#FF8800"))
+        XCTAssertEqual(groups[0].member("icon"), .string("briefcase.fill"))
+    }
+
     func testStoredLegacyDockOptOutDoesNotHideDockCommand() throws {
         let defaults = UserDefaults.standard
         let key = "rightSidebar.beta.dock.enabled"
@@ -50,6 +84,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         }
     }
 
+    @MainActor
     func testCommandPaletteIncludesDefaultRightSidebarModes() throws {
         try withSavedBetaFeatureDefaults {
             let defaults = UserDefaults.standard
@@ -81,24 +116,20 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
                 XCTAssertTrue(contribution.enablement(context))
             }
 
-            // Files/Find/Vault and the graduated Dock are always present;
-            // Machines follows the Cloud Machines beta toggle (pinned off above).
+            // Files/Find/Vault, the graduated Dock, and the Cloud tab are
+            // discoverable before the local activation marker is set.
             let machinesAvailable = RightSidebarMode.machines.isAvailable()
-            XCTAssertFalse(machinesAvailable)
-            XCTAssertEqual(contributions.count, 4)
+            XCTAssertTrue(machinesAvailable)
+            XCTAssertEqual(contributions.count, 5)
             XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.feed)])
             XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.dock)])
-            XCTAssertNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])
+            XCTAssertNotNil(contributionsByID[ContentView.commandPaletteRightSidebarModeCommandID(.machines)])
         }
     }
 
     @MainActor
     func testCommandPaletteRightSidebarActionsUseModeShortcutActions() {
         withSavedBetaFeatureDefaults {
-            let definition = CmuxFeatureFlags.cloudMachinesFlag
-            let previousOverride = CmuxFeatureFlags.shared.overrideValue(for: definition)
-            CmuxFeatureFlags.shared.setOverride(true, for: definition)
-            defer { CmuxFeatureFlags.shared.setOverride(previousOverride, for: definition) }
             let defaults = UserDefaults.standard
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)

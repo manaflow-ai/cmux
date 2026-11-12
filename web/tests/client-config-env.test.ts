@@ -31,6 +31,12 @@ const requiredRelayProductionEnv = {
   CMUX_RELAY_TOKEN_RATE_LIMIT_ID: "relay-token-rule",
 };
 
+// Origin returned with CodeRouter handoff route tokens; deployed
+// non-preview runtimes require it (app/env.ts).
+const requiredCoderouterProductionEnv = {
+  CMUX_CODEROUTER_PUBLIC_ORIGIN: "https://cmux.example.com",
+};
+
 const requiredSubrouterDeploymentEnv = {
   SUBROUTER_ADMIN_TOKEN: "test-legacy-subrouter-admin",
   SUBROUTER_STACK_TENANT_DELETE_TOKEN: "0123456789abcdef0123456789abcdef",
@@ -58,6 +64,7 @@ describe("client config env validation", () => {
       ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
     });
     expect(without.status).toBe(0);
     expect(without.stderr).not.toContain("CODEROUTER_HOSTED_PRO_REQUIRED");
@@ -71,6 +78,7 @@ describe("client config env validation", () => {
       ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
       CODEROUTER_HOSTED_PRO_REQUIRED: "1",
       SUBROUTER_ENFORCE_STACK_PERMISSIONS: "1",
       SUBROUTER_ALLOWED_TEAM_IDS: "team-a",
@@ -82,6 +90,7 @@ describe("client config env validation", () => {
     // A retired override would pin checkout to a grandfathered Price, so the
     // deployment must fail loudly rather than sell at the old amount.
     const retired = [
+      ["STRIPE_STARTER_MONTHLY_20_PRICE_ID", "STRIPE_STARTER_MONTHLY_15_PRICE_ID"],
       ["STRIPE_PRO_MONTHLY_PRICE_ID", "STRIPE_PRO_MONTHLY_50_PRICE_ID"],
       ["STRIPE_PRO_YEARLY_PRICE_ID", "STRIPE_PRO_YEARLY_480_PRICE_ID"],
       ["STRIPE_PRO_YEARLY_288_PRICE_ID", "STRIPE_PRO_YEARLY_480_PRICE_ID"],
@@ -102,8 +111,11 @@ describe("client config env validation", () => {
   test("accepts the current Stripe price overrides", async () => {
     const result = await importEnv({
       ...requiredEnv,
+      STRIPE_STARTER_MONTHLY_15_PRICE_ID: "price_starter_15",
       STRIPE_PRO_MONTHLY_50_PRICE_ID: "price_pro_50",
       STRIPE_PRO_YEARLY_480_PRICE_ID: "price_pro_480",
+      STRIPE_MAX_MONTHLY_200_PRICE_ID: "price_max_200",
+      STRIPE_MAX_YEARLY_1920_PRICE_ID: "price_max_1920",
       STRIPE_TEAM_MONTHLY_60_PRICE_ID: "price_team_60",
       STRIPE_TEAM_YEARLY_576_PRICE_ID: "price_team_576",
     });
@@ -123,10 +135,29 @@ describe("client config env validation", () => {
       ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...relayEnv,
+      ...requiredCoderouterProductionEnv,
     });
 
     expect(result.status).toBe(0);
     expect(result.stderr).not.toContain("RATE_LIMIT_ID");
+  });
+
+  test("production requires the CodeRouter public origin", async () => {
+    const base = {
+      ...requiredEnv,
+      VERCEL: "1",
+      VERCEL_ENV: "production",
+      CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
+      CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
+      ...requiredSubrouterDeploymentEnv,
+      ...requiredIrohProductionEnv,
+      ...requiredRelayProductionEnv,
+    };
+    const missing = await importEnv(base);
+    expect(missing.status).not.toBe(0);
+    expect(missing.stderr).toContain("CMUX_CODEROUTER_PUBLIC_ORIGIN");
+    const withPath = await importEnv({ ...base, CMUX_CODEROUTER_PUBLIC_ORIGIN: "https://cmux.example.com/v1" });
+    expect(withPath.status).not.toBe(0);
   });
 
   test("accepts explicit Vercel production deployments with both limiter ids", async () => {
@@ -139,6 +170,7 @@ describe("client config env validation", () => {
       ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
     });
 
     expect(result.status).toBe(0);
@@ -154,6 +186,7 @@ describe("client config env validation", () => {
       ...hostedSubrouterEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
     });
 
     expect(result.status).toBe(0);
@@ -181,6 +214,7 @@ describe("client config env validation", () => {
       ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
     });
 
     expect(result.status).toBe(0);
@@ -196,6 +230,7 @@ describe("client config env validation", () => {
       ...requiredSubrouterDeploymentEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
     });
 
     expect(result.status).toBe(0);
@@ -215,6 +250,7 @@ describe("client config env validation", () => {
         requiredIrohProductionEnv.CMUX_IROH_GRANT_VERIFICATION_KEYS_JSON,
       ...requiredSubrouterDeploymentEnv,
       ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
     });
 
     expect(result.status).toBe(0);
@@ -225,6 +261,7 @@ describe("client config env validation", () => {
       ...requiredEnv,
       ...requiredIrohProductionEnv,
       ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
       VERCEL: "1",
       VERCEL_ENV: "production",
       CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: "client-config-rule",
@@ -328,6 +365,7 @@ describe("client config env validation", () => {
       CMUX_ANALYTICS_RATE_LIMIT_ID: "analytics-rule",
       ...requiredSubrouterDeploymentEnv,
       ...requiredRelayProductionEnv,
+      ...requiredCoderouterProductionEnv,
       CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: "1",
       CMUX_IROH_MINT_URL: "http://localhost:49152/api/relay-token",
     });

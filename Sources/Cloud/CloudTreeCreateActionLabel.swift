@@ -5,6 +5,7 @@ import SwiftUI
 struct CloudTreeCreateActionLabel: View {
     let action: CloudTreeCreateAction
     let style: CloudTreeStyle
+    var isHovered = false
 
     var body: some View {
         CloudTreeLeafRow(
@@ -13,7 +14,7 @@ struct CloudTreeCreateActionLabel: View {
             tint: .secondary,
             title: action.title,
             titleWeight: .regular,
-            titleDimmed: true
+            titleDimmed: !isHovered
         )
     }
 }

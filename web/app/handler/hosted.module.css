@@ -1,0 +1,36 @@
+/*
+ * The hosted handler pages spin Radix's circular-arrow icon. Redraw that one
+ * element in place as cmux's spinner (a fine arc on a faint track) so the
+ * loading states match the sign-in screens. Nothing else on those pages is
+ * touched, and nothing is overlaid.
+ */
+.hosted :global(.stack-scope:has(> svg.animate-spin)) {
+  display: inline-grid;
+  place-items: center;
+}
+
+.hosted :global(.stack-scope:has(> svg.animate-spin) > svg) {
+  display: none;
+}
+
+.hosted :global(.stack-scope:has(> svg.animate-spin))::before {
+  content: "";
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  border: 1.5px solid color-mix(in srgb, var(--muted) 25%, transparent);
+  border-top-color: var(--muted);
+  animation: hosted-spin 0.8s linear infinite;
+}
+
+@keyframes hosted-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hosted :global(.stack-scope:has(> svg.animate-spin))::before {
+    animation: none;
+  }
+}

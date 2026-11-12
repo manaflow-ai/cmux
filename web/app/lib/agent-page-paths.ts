@@ -13,6 +13,7 @@ import {
   jobsContentLocales,
   featureWorkflowContentLocales,
   managedPoliciesDocsLocales,
+  cloudSecurityDocsLocales,
   remoteTmuxDocsLocales,
 } from "../../i18n/locale-availability";
 import { genericCodingAgents } from "../../i18n/coding-agents";
@@ -230,6 +231,11 @@ export const agentReadablePages = [
     title: "Managed Policies (MDM)",
     locales: managedPoliciesDocsLocales,
   },
+  {
+    path: "/docs/cloud-security",
+    title: "Cloud Security",
+    locales: cloudSecurityDocsLocales,
+  },
   { path: "/docs/ios", title: "iOS App" },
   {
     path: "/docs/agent-integrations/claude-code-teams",
@@ -256,7 +262,9 @@ export const agentReadablePages = [
   { path: "/community", title: "Community" },
   { path: "/wall-of-love", title: "Wall of Love" },
   { path: "/nightly", title: "Nightly" },
+  { path: "/next", title: "cmux NEXT NIGHTLY" },
   { path: "/assets", title: "Brand Assets" },
+  { path: "/art", title: "Art" },
   { path: "/guides", title: "Guides" },
   { path: "/compare", title: "Compare cmux" },
   ...agentReadableComparePages,

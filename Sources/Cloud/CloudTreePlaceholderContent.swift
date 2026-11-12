@@ -28,6 +28,10 @@ struct CloudTreePlaceholderContent: View {
                         weight: .medium,
                         tint: Color(nsColor: .secondaryLabelColor)
                     )
+                case .empty:
+                    // Keeps the icon column so the text lines up with the
+                    // rows it stands in for, like "No other devices yet".
+                    Color.clear
                 case .dimmed:
                     CmuxSystemSymbolImage(
                         systemName: "moon.zzz",
@@ -39,7 +43,7 @@ struct CloudTreePlaceholderContent: View {
             }
             .frame(width: max(style.iconSlot, 12))
             Text(placeholder.text)
-                .cmuxFont(size: style.detailSize + 1, design: style.fontDesign)
+                .cmuxFont(size: placeholder.style == .empty ? style.detailSize : style.detailSize + 1, design: style.fontDesign)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)

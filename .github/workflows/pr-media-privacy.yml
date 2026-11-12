@@ -1,0 +1,153 @@
+name: PR media privacy
+
+# Every default clone fetches the public pr-media branch, and many tools write
+# captures to it (cmux-next-media.yml tours, nightly.yml reels,
+# scripts/pr-media.py, scripts/showcase-publish.py, the UI fuzzer, HQ tools).
+# Captures from the fleet minis have shown terminal prompts (`cmux@<host>`),
+# the Inspector's machine name and the capture account's home path.
+# scripts/pr-media.py and the fuzzer run the same check before they push; this
+# gate sits on the branch itself, so it also covers every other writer and the
+# media a Linux writer could not read.
+#
+# `check` costs one `git ls-remote` per tick: it compares the pr-media tip with
+# refs/pr-media-privacy/scanned, the last tip this workflow scanned, and starts
+# nothing else when they match. When the tip has moved, `scan` OCRs the files
+# added or modified since the marker (scripts/ci/pr_media_ocr.swift, Apple
+# Vision, so it runs on macOS) and matches them with
+# scripts/ci/pr_media_privacy.py: generic fleet patterns plus the personal
+# names in the PR_MEDIA_PRIVATE_TERMS secret, which no output ever echoes.
+#
+# Hits owned by an agent are removed in one ordinary commit on top of the tip,
+# pushed with a lease (history is never rewritten; pr-media-prune.yml's weekly
+# squash drops the blobs later). A numeric folder is that pull request's media,
+# removable only when its author is in the PR_MEDIA_AGENT_AUTHORS variable;
+# nightly-next/ and fuzz/ are bots' own. A teammate's file, any other folder,
+# or an author the one GraphQL lookup cannot name is reported and kept. The
+# marker then advances to the scanned tip, and the run fails whenever anything
+# was found, so the run page (annotations and the job summary) is the signal.
+# It never comments on, labels or sets statuses on pull requests or issues.
+#
+# The first run, with no marker, records the tip without scanning, so files
+# already on the branch are not flagged wholesale.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: pr-media-privacy
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Has pr-media moved since the last scan
+    if: ${{ github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/main' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      changed: ${{ steps.refs.outputs.changed }}
+      scanned: ${{ steps.refs.outputs.scanned }}
+    steps:
+      - name: Compare the tip with the scanned marker
+        id: refs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          refs="$(git ls-remote "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git" \
+            refs/heads/pr-media refs/pr-media-privacy/scanned)"
+          tip="$(awk '$2 == "refs/heads/pr-media" { print $1 }' <<<"$refs")"
+          scanned="$(awk '$2 == "refs/pr-media-privacy/scanned" { print $1 }' <<<"$refs")"
+          changed=false
+          if [ -n "$tip" ] && [ "$tip" != "$scanned" ]; then changed=true; fi
+          echo "pr-media ${tip:-missing}, scanned ${scanned:-never}: changed=$changed"
+          {
+            echo "changed=$changed"
+            echo "scanned=$scanned"
+          } >> "$GITHUB_OUTPUT"
+
+  scan:
+    name: Scan new pr-media files for private names
+    needs: check
+    if: ${{ needs.check.outputs.changed == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          sparse-checkout: |
+            .xcode-version
+            scripts/select-ci-xcode.sh
+            scripts/ci/xcode-pins.txt
+            scripts/ci/pr_media_privacy.py
+            scripts/ci/pr_media_ocr.*
+          sparse-checkout-cone-mode: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Build the OCR tool
+        run: swiftc -O scripts/ci/pr_media_ocr.swift -o "$RUNNER_TEMP/pr-media-ocr"
+
+      - name: Fetch the tip and the scanned marker
+        id: fetch
+        env:
+          SCANNED: ${{ needs.check.outputs.scanned }}
+        run: |
+          set -euo pipefail
+          # Trees only; the scanner reads the blobs of changed files on demand.
+          refspecs=(+refs/heads/pr-media:refs/remotes/origin/pr-media)
+          if [ -n "$SCANNED" ]; then
+            refspecs+=(+refs/pr-media-privacy/scanned:refs/pr-media-privacy/scanned)
+          fi
+          git fetch --no-tags --filter=blob:none --depth=1 origin "${refspecs[@]}"
+          from=""
+          if [ -n "$SCANNED" ]; then from="$(git rev-parse refs/pr-media-privacy/scanned)"; fi
+          {
+            echo "to=$(git rev-parse refs/remotes/origin/pr-media)"
+            echo "from=$from"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Scan and remove agent-owned hits
+        id: scan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          PR_MEDIA_PRIVATE_TERMS: ${{ secrets.PR_MEDIA_PRIVATE_TERMS }}
+          PR_MEDIA_AGENT_AUTHORS: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
+          FROM: ${{ steps.fetch.outputs.from }}
+          TO: ${{ steps.fetch.outputs.to }}
+        run: |
+          set -uo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          set +e
+          python3 scripts/ci/pr_media_privacy.py --repo . --from "${FROM:-empty}" --to "$TO" \
+            --ocr "$RUNNER_TEMP/pr-media-ocr" --apply --report "$RUNNER_TEMP/pr-media-privacy.json"
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          # 2 is bad input, 3 a crash: keep the marker so the next run tries again.
+          if [ "$status" -gt 1 ]; then exit "$status"; fi
+
+      - name: Advance the scanned marker
+        env:
+          MARKER: ${{ steps.scan.outputs.marker || steps.fetch.outputs.to }}
+        run: |
+          set -euo pipefail
+          # Hits were removed or reported above; the next run scans from here. The marker is
+          # the gate's own removal commit when that sits right on the scanned tip.
+          git push --force origin "$MARKER:refs/pr-media-privacy/scanned"
+
+      - name: Fail when private names were found
+        if: ${{ steps.scan.outputs.status != '0' }}
+        run: |
+          echo "::error title=pr-media privacy::Private names were found on pr-media, or a file could not be read; see the annotations and the job summary."
+          exit 1

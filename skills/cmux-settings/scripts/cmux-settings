@@ -693,6 +693,7 @@ def supported_paths_from_source(source: Path) -> list[str]:
         "workspaceColors.",
         "sidebarAppearance.",
         "automation.",
+        "agentMessages.",
         "browser.",
         "markdown.",
         "fileEditor.",

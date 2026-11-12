@@ -11,7 +11,7 @@ const priceSchema = z.object({
   interval: z.enum(["month", "year"]),
 });
 
-const billingManagementSchema = z.enum(["stripe", "none"]);
+const billingManagementSchema = z.enum(["stripe", "external", "none"]);
 
 export const teamBillingViewSchema = z.discriminatedUnion("status", [
   z.object({
@@ -33,6 +33,15 @@ export const teamBillingViewSchema = z.discriminatedUnion("status", [
     memberCount: z.number().nullable(),
     overSeat: z.boolean(),
     paymentPastDue: z.boolean(),
+    enterprise: z.object({
+      label: z.string(),
+      monthlyPriceUsd: z.number().nullable(),
+      maxActiveVms: z.number().nullable(),
+      poolVcpus: z.number().nullable(),
+      poolMemoryMb: z.number().nullable(),
+      maxMemoryMb: z.number(),
+      maxVcpus: z.number(),
+    }).nullable(),
   }),
   z.object({ status: z.literal("personal") }),
   z.object({ status: z.literal("not_found"), teamId: z.string() }),
@@ -44,6 +53,9 @@ const personalBillingSchema = z.object({
     isPro: z.boolean(),
     planId: z.string(),
     billingManagement: billingManagementSchema,
+    billingSource: z.enum(["stripe", "apple", "none"]),
+    manageUrl: z.string().nullable(),
+    foundersEdition: z.boolean(),
   }),
   subscription: z.object({
     plan: z.string().nullable(),

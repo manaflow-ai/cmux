@@ -1,26 +1,28 @@
 import Bonsplit
 import Foundation
 
-/// One lifetime for native row drags, with projection capability only for
-/// terminal/display sources. Folder organization works even with no resources.
+/// One lifetime for native row drags, with projection capability for eligible
+/// leaves and remote workspace groups. Folder organization works even with no
+/// resources, and local workspace groups stay reorder-only.
 @MainActor
 enum CloudTreeDragRegistration {
     case organization(UUID)
     case projection(UUID, TabDragTransferRegistration, TabDragTransferRegistry)
 
     init?(node: CloudTreeNode, registry: TabDragTransferRegistry?) {
-        if (node.canOrganize || node.canReorderMachine) && !node.isDragSource {
-            self = .organization(UUID())
-            return
-        }
-        guard node.isDragSource, let group = node.dragGroup,
-              let lead = group.resources.first, let registry else { return nil }
-        let id = SurfaceResourceDragRegistry.shared.register(group)
-        guard let registration = SurfaceResourceDragPayload(group: group, leadKind: lead.kind, dragID: id).register(with: registry) else {
+        if node.isDragSource, let group = node.dragGroup,
+           let lead = group.resources.first, let registry {
+            let id = SurfaceResourceDragRegistry.shared.register(group)
+            if let registration = SurfaceResourceDragPayload(group: group, leadKind: lead.kind, dragID: id).register(with: registry) {
+                self = .projection(id, registration, registry)
+                return
+            }
             SurfaceResourceDragRegistry.shared.discard(id: id)
-            return nil
         }
-        self = .projection(id, registration, registry)
+        // Sidebar organization remains available even when the pane projection
+        // registry is unavailable or rejects a remote workspace's registration.
+        guard node.canOrganize || node.canReorderMachine else { return nil }
+        self = .organization(UUID())
     }
 
     var id: UUID {

@@ -92,9 +92,11 @@ public final class MobileReleaseGateUIProbe {
         if row.select() {
             rows.removeAll()
         } else {
-            measured.removeAll()
+            // Cached rows can render before their Mac transport is connected.
+            // Keep the observed appearance time and retry selection when the
+            // live row is updated, instead of discarding the evidence and
+            // measuring only the slower authenticated snapshot.
             phase = .awaitingSelection
-            rows.removeValue(forKey: id)
         }
     }
 

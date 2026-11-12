@@ -171,6 +171,23 @@ class ReportTests(unittest.TestCase):
         self.assertEqual(plan("success", False, False), "none")
         self.assertEqual(plan("cancelled", True, False), "none")
 
+    def test_a_repeat_red_run_edits_its_last_report(self):
+        jobs = [{"name": "macos / packages"}]
+        failures = [{"kind": "test", "file": "Foo.swift", "line": 3, "test": "FooTests.testBar"}]
+        signature = MODULE.red_signature(jobs, failures)
+        body = MODULE.failure_body(run(), jobs, "", failures, signature)
+        bot = {"id": 5, "user": {"login": "github-actions[bot]"}, "body": body}
+        self.assertEqual(MODULE.repeat_report([bot], signature), 5)
+        # Different failures, a human reply after it, or a lookalike from someone else post anew.
+        other = MODULE.red_signature(jobs, [{**failures[0], "test": "FooTests.testBaz"}])
+        self.assertNotEqual(other, signature)
+        self.assertIsNone(MODULE.repeat_report([bot], other))
+        self.assertIsNone(MODULE.repeat_report([bot, {"id": 6, "user": {"login": "leo"}, "body": "on it"}], signature))
+        self.assertIsNone(MODULE.repeat_report([{**bot, "user": {"login": "someone"}}], signature))
+        self.assertIsNone(MODULE.repeat_report([], signature))
+        # The signature ignores the run, so the next run of the same failures matches.
+        self.assertEqual(MODULE.red_signature(list(jobs), list(failures)), signature)
+
     def test_failure_body_lists_failing_jobs_and_run(self):
         jobs = MODULE.failing_jobs([
             {"name": "macos / app-host (1)", "conclusion": "failure", "html_url": "https://x/1"},
@@ -183,6 +200,28 @@ class ReportTests(unittest.TestCase):
         self.assertIn("macos / app-host (1)", body)
         self.assertIn("macos / packages", body)
         self.assertNotIn("app-host (2)", body)
+
+    def test_failure_body_lists_concrete_failures_and_the_data_prs_read(self):
+        sys.path.insert(0, str(SCRIPT.parent))
+        import classify_failures
+
+        failures = [
+            {**classify_failures.failure("compile", "Sources/AppDelegate.swift", 20553,
+                                         message="cannot find type 'UpdateRelaunchBlockers' in scope"),
+             "job": "macos / macOS compile admission"},
+            {**classify_failures.failure("test", "CloudTreeOneMachineManyWorkspacesTests.swift", 212, "keeps rows",
+                                         "Expectation failed"), "job": "macos / app-host unit tests (2/7)"},
+        ]
+        body = MODULE.failure_body(run(html_url="https://run/1"), [], "", failures)
+        self.assertIn("Failures in the job logs:", body)
+        self.assertIn("- compile error in `Sources/AppDelegate.swift:20553` "
+                      "`cannot find type 'UpdateRelaunchBlockers' in scope` (macos / macOS compile admission)", body)
+        self.assertIn("- `CloudTreeOneMachineManyWorkspacesTests.swift:212` `keeps rows`", body)
+        data = classify_failures.parse_main_failures([body])
+        self.assertEqual(data["keys"], sorted(classify_failures.failure_key(f) for f in failures))
+        # A red run whose logs named nothing still records that, so a PR does not match a stale list.
+        self.assertEqual(classify_failures.parse_main_failures([MODULE.failure_body(run(), [], "", [])])["keys"], [])
+        self.assertNotIn("cmux-main-failures", MODULE.failure_body(run(), []))
 
     def test_failure_body_carries_the_attribution_section(self):
         body = MODULE.failure_body(run(), [], "### New since `abc`\n\nrow\n")
@@ -212,7 +251,8 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("workflows: [CI]", self.text)
 
     def test_dispatches_ci_on_main(self):
-        self.assertIn("gh workflow run ci.yml --repo \"$GITHUB_REPOSITORY\" --ref main", self.text)
+        self.assertIn('gh api -X POST "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/dispatches"', self.text)
+        self.assertIn("-f ref=main -F return_run_details=true", self.text)
         self.assertIn("steps.gate.outputs.dispatch == 'true'", self.text)
 
     def test_a_completed_full_suite_run_dispatches_the_next(self):
@@ -224,15 +264,11 @@ class WorkflowWiringTests(unittest.TestCase):
         self.assertIn("COMPLETED_SHA: ${{ github.event.workflow_run.head_sha }}", dispatch)
         self.assertIn('--completed-sha "$COMPLETED_SHA"', dispatch)
 
-    def dispatch_step(self, newest):
+    def dispatch_step(self, answer):
         step = self.text.split("      - name: Dispatch CI on main\n", 1)[1].split("\n  report:\n", 1)[0]
         script = textwrap.dedent(step.split("        run: |\n", 1)[1])
         with tempfile.TemporaryDirectory() as directory:
-            listing = f'echo "{newest}"' if newest else "exit 1"
-            fake_gh(directory, f'[ "$1" = workflow ] && exit 0\n{listing}\n')
-            sleep = pathlib.Path(directory) / "sleep"
-            sleep.write_text("#!/bin/sh\n")
-            sleep.chmod(0o755)
+            fake_gh(directory, f'echo "{answer}"\n' if answer is not None else "exit 1\n")
             return subprocess.run(
                 ["bash", "-euo", "pipefail", "-c", script],
                 env={**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"],
@@ -240,14 +276,17 @@ class WorkflowWiringTests(unittest.TestCase):
                 capture_output=True, text=True, timeout=10,
             )
 
-    def test_the_dispatch_step_waits_until_its_run_is_listed(self):
-        self.assertEqual(self.dispatch_step("2999-01-01T00:00:00Z").returncode, 0)
-        # An older run, or a lookup that keeps failing, never passes for the new one.
-        for newest in ("2020-01-01T00:00:00Z", None):
-            with self.subTest(newest=newest):
-                result = self.dispatch_step(newest)
-                self.assertEqual(result.returncode, 1)
-                self.assertIn("was not listed", result.stdout)
+    def test_the_dispatch_step_needs_the_run_it_created(self):
+        self.assertEqual(self.dispatch_step("https://github.com/test/repo/actions/runs/1").returncode, 0)
+        # A dispatch that names no run, or fails, never passes for a run in flight.
+        result = self.dispatch_step("")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("returned no run", result.stdout)
+        self.assertNotEqual(self.dispatch_step(None).returncode, 0)
+
+    def test_the_dispatch_step_does_not_poll(self):
+        step = self.text.split("      - name: Dispatch CI on main\n", 1)[1].split("\n  report:\n", 1)[0]
+        self.assertNotIn("sleep", step)
 
     def test_branch_lookup_failure_still_dispatches(self):
         gate = self.text.split("        id: gate\n", 1)[1].split("      - name: Dispatch CI", 1)[0]

@@ -1,7 +1,8 @@
 public import Foundation
 
 /// Delivery state of one agent message. A message only moves forward through
-/// these states: queued, then delivered, then read.
+/// these states: queued, then delivered, then read. A queued message that
+/// can no longer be delivered moves to failed instead, which is final.
 public enum AgentMessageDeliveryState: String, Codable, Sendable, CaseIterable {
     /// Stored by cmux and not yet handed to the recipient agent.
     case queued
@@ -9,18 +10,24 @@ public enum AgentMessageDeliveryState: String, Codable, Sendable, CaseIterable {
     case delivered
     /// The recipient finished a turn after delivery, or a human opened it.
     case read
+    /// Never delivered: messages were turned off for the recipient while the
+    /// message waited. ``AgentMessage/failureReason`` says why.
+    case failed
 
     fileprivate var rank: Int {
         switch self {
         case .queued: return 0
         case .delivered: return 1
         case .read: return 2
+        case .failed: return 3
         }
     }
 
-    /// True when moving from `self` to `next` goes forward.
+    /// True when moving from `self` to `next` goes forward. Only a queued
+    /// message can fail: one already shown to its agent stays delivered or read.
     public func canAdvance(to next: AgentMessageDeliveryState) -> Bool {
-        next.rank > rank
+        if next == .failed { return self == .queued }
+        return next.rank > rank
     }
 }
 
@@ -50,6 +57,8 @@ public struct AgentMessage: Codable, Sendable, Equatable, Identifiable {
     /// `claude.wake` or `codex.prompt-submit`.
     public internal(set) var deliveredVia: String?
     public internal(set) var readAt: Date?
+    /// Set when the message failed: an ``AgentMessageBlock/reason`` code.
+    public internal(set) var failureReason: String?
 
     public init(
         id: String,
@@ -65,7 +74,8 @@ public struct AgentMessage: Codable, Sendable, Equatable, Identifiable {
         state: AgentMessageDeliveryState = .queued,
         deliveredAt: Date? = nil,
         deliveredVia: String? = nil,
-        readAt: Date? = nil
+        readAt: Date? = nil,
+        failureReason: String? = nil
     ) {
         self.id = id
         self.threadId = threadId
@@ -81,6 +91,7 @@ public struct AgentMessage: Codable, Sendable, Equatable, Identifiable {
         self.deliveredAt = deliveredAt
         self.deliveredVia = deliveredVia
         self.readAt = readAt
+        self.failureReason = failureReason
     }
 }
 
@@ -113,6 +124,43 @@ public struct AgentMessageDraft: Sendable, Equatable {
         self.body = body
         self.threadId = threadId
         self.inReplyTo = inReplyTo
+    }
+}
+
+/// What a recipient opt-out applies to.
+public enum AgentMessageRecipientScope: String, Codable, Sendable, CaseIterable {
+    /// One surface (the agent running in it).
+    case surface
+    /// Every surface in a workspace.
+    case workspace
+}
+
+/// Why messages to a recipient are turned off.
+public enum AgentMessageBlock: Sendable, Equatable {
+    /// Agent messages are off for the whole app (`agentMessages.enabled`).
+    case messagesDisabled
+    /// The recipient surface turned messages off.
+    case recipientDisabled(surfaceId: String)
+    /// The recipient's workspace turned messages off.
+    case workspaceDisabled(workspaceId: String)
+
+    /// Stable code stored as a failed message's ``AgentMessage/failureReason``.
+    public var reason: String {
+        switch self {
+        case .messagesDisabled: return "messages_disabled"
+        case .recipientDisabled: return "recipient_disabled"
+        case .workspaceDisabled: return "workspace_disabled"
+        }
+    }
+}
+
+/// The store refused a message because messages are turned off for its
+/// recipient. Nothing was stored.
+public struct AgentMessageBlockedError: Error, Equatable, Sendable {
+    public let block: AgentMessageBlock
+
+    public init(block: AgentMessageBlock) {
+        self.block = block
     }
 }
 

@@ -11,6 +11,7 @@ extension CmuxTuiSurfaceProvider {
         case remotePlacementUnavailable(String)
         case remoteTabNotFound(String)
         case terminalNotCreated(String)
+        case browserNotCreated
         /// The terminal's process already ended on the machine.
         case terminalExited(String)
         /// The daemon did not answer the resolver within the bounded retries.
@@ -33,7 +34,13 @@ extension CmuxTuiSurfaceProvider {
             case .machineAsleep(let id):
                 return "\(id) is asleep; open it (`cmux vm shell \(id)`) to wake it before listing its terminals."
             case .noWorkspaceOnMachine(let id):
-                return "\(id) has no cmux-tui workspace yet."
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.noWorkspaceOnMachine",
+                        defaultValue: "%@ has no remote workspace yet."
+                    ),
+                    id
+                )
             case .remoteWorkspaceNotFound(let id):
                 return String(
                     format: String(
@@ -59,7 +66,15 @@ extension CmuxTuiSurfaceProvider {
                     id
                 )
             case .terminalNotCreated(let detail):
-                return "cmux-tui did not report the new terminal: \(detail)"
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.terminalNotCreated",
+                        defaultValue: "The Cloud service did not report the new terminal: %@"
+                    ),
+                    Self.sanitizedDetail(detail)
+                )
+            case .browserNotCreated:
+                return String(localized: "cloud.browser.creationUnavailable", defaultValue: "Cloud browsers are unavailable on this machine. Refresh the machine and retry.")
             case .terminalExited(let id):
                 return String(
                     format: String(
@@ -78,12 +93,18 @@ extension CmuxTuiSurfaceProvider {
                     failure.localizedDescription
                 )
             case .invalidSnapshot(let id):
-                return "cmux-tui returned an unversioned or malformed session snapshot for \(id)."
+                return String(
+                    format: String(
+                        localized: "cloudTree.error.invalidSnapshot",
+                        defaultValue: "The Cloud service returned an unversioned or malformed session snapshot for %@."
+                    ),
+                    id
+                )
             case .snapshotOnly(let id):
                 return String(
                     format: String(
                         localized: "cloudTree.error.snapshotOnly",
-                        defaultValue: "%@ uses an older cmux-tui protocol. Refresh it to enable live sync and rename operations."
+                        defaultValue: "%@ uses an older Cloud protocol. Refresh it to enable live sync and rename operations."
                     ),
                     id
                 )
@@ -119,6 +140,11 @@ extension CmuxTuiSurfaceProvider {
                     defaultValue: "cmux could not build a local address for this port forward."
                 )
             }
+        }
+
+        private static func sanitizedDetail(_ detail: String) -> String {
+            let serviceName = String(localized: "cloud.service.name", defaultValue: "Cloud service")
+            return detail.replacingOccurrences(of: "cmux-tui", with: serviceName, options: [.caseInsensitive])
         }
     }
 

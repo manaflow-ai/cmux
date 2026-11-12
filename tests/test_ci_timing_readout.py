@@ -75,6 +75,43 @@ class CriticalPathTests(unittest.TestCase):
         self.assertFalse(jobs["web"].fresh)
         self.assertFalse(jobs["browser"].ran)
 
+    def test_setup_and_cleanup_exclude_runner_bookends(self):
+        raw = job(
+            "bookended",
+            0,
+            10,
+            100,
+            steps=[
+                ("Set up job", 10, 25),
+                ("Set up runner", 25, 35),
+                ("Checkout", 30, 40),
+                ("Complete job", 80, 100),
+            ],
+        )
+        measured = readout.Job(raw)
+        self.assertEqual(measured.setup_seconds, 20)
+        self.assertEqual(measured.cleanup_seconds, 60)
+        self.assertEqual(measured.steps(), [("Checkout", 10)])
+
+    def test_setup_and_cleanup_are_unknown_without_workflow_steps(self):
+        raw = job(
+            "runner-only",
+            0,
+            10,
+            100,
+            steps=[("Set up job", 10, 25), ("Complete job", 80, 100)],
+        )
+        measured = readout.Job(raw)
+        self.assertIsNone(measured.setup_seconds)
+        self.assertIsNone(measured.cleanup_seconds)
+
+        malformed = job("malformed-step", 0, 10, 100)
+        malformed["steps"] = [{"name": None, "started_at": at(20), "completed_at": at(30)}]
+        measured = readout.Job(malformed)
+        self.assertEqual(measured.steps(), [])
+        self.assertIsNone(measured.setup_seconds)
+        self.assertIsNone(measured.cleanup_seconds)
+
 
 class ReadoutTests(unittest.TestCase):
     def test_readout_with_history(self):
@@ -85,7 +122,9 @@ class ReadoutTests(unittest.TestCase):
         self.assertIn("macOS compile admission 5m00s (p9", headline)
         self.assertIn("app-host unit tests (2/3) queued 4m00s (above p90) + 8m39s", headline)
         self.assertNotIn("tests 3s", headline)  # roll-ups stay in the table only
+        self.assertIn("| critical path | where | queue | run | runner setup | runner cleanup |", text)
         self.assertIn("| macos / macOS compile admission | mini cmux14 | 9s |", text)
+        self.assertIn("| macos / macOS compile admission | mini cmux14 | 9s | 5m00s | 0s | 1m00s |", text)
         self.assertIn("| p92 (p50 4m00s, p90 4m40s) | 5m00s vs 4m00s ↑ |", text)
         self.assertIn("| macOS compile admission | Compile app-host test product | 3m40s | p92 (p50 2m30s, p90 3m20s) |", text)
         self.assertIn("**4m00s (>p99), above p90**", text)
@@ -94,6 +133,7 @@ class ReadoutTests(unittest.TestCase):
         self.assertEqual(readout.short_name("guards / workflow-guard-tests / ci"), "workflow-guard-tests / ci")
         self.assertIn("1 job reused from an earlier attempt", text)
         self.assertNotIn("—", text)
+        self.assertIn("setup is runner start to first workflow step", text)
 
     def test_readout_without_history(self):
         text = readout.build_readout(JOBS, None, "pr", stats_note="stats unreachable: URLError")
@@ -113,7 +153,7 @@ class ReadoutTests(unittest.TestCase):
             if j["name"] == "macos / macOS compile admission":
                 j["conclusion"] = "cancelled"
         text = readout.build_readout(jobs, STATS, "pr")
-        self.assertIn("| macos / macOS compile admission | mini cmux14 | 9s | 5m00s | - |", text)
+        self.assertIn("| macos / macOS compile admission | mini cmux14 | 9s | 5m00s | 0s | 1m00s | - |", text)
         self.assertNotIn("Compile app-host test product | 3m40s | p", text)
 
     def test_nothing_ran(self):

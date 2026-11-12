@@ -63,6 +63,84 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Antigravity resumes the captured conversation and preserves launch options")
+    func antigravityResumeUsesConversationID() {
+        #expect(
+            AgentResumeArgv().builtInKind(
+                kind: "antigravity",
+                sessionId: "conversation-123",
+                executablePath: "/Users/example/.local/bin/agy",
+                arguments: [
+                    "/Users/example/.local/bin/agy",
+                    "--dangerously-skip-permissions",
+                    "--add-dir",
+                    "/tmp/extra repo",
+                ]
+            ) == [
+                "/Users/example/.local/bin/agy",
+                "--conversation",
+                "conversation-123",
+                "--dangerously-skip-permissions",
+                "--add-dir",
+                "/tmp/extra repo",
+            ]
+        )
+    }
+
+    @Test("Antigravity restore renders through its per-surface wrapper and preserves a custom binary")
+    func antigravityRestoreUsesWrapperShim() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        let executable = "/opt/Antigravity Preview/bin/agy"
+        let parts = AgentResumeArgv().builtInKind(
+            kind: "antigravity",
+            sessionId: "conversation-123",
+            executablePath: executable,
+            arguments: [executable, "--dangerously-skip-permissions"]
+        )!
+
+        let rendered = AgentResumeArgv().renderedPortableManagedResumeShellCommand(
+            parts: parts,
+            kind: "antigravity",
+            quote: quote
+        )
+        let fallback = "\"$([ -x \"${CMUX_AGY_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_AGY_WRAPPER_SHIM\" || printf '%s' '/opt/Antigravity Preview/bin/agy')\""
+        #expect(rendered == "/bin/sh -c '" + (fallback + " '--conversation' 'conversation-123' '--dangerously-skip-permissions'").replacingOccurrences(of: "'", with: "'\\''") + "'")
+        #expect(
+            AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
+                kind: "antigravity",
+                executablePath: executable,
+                arguments: [executable]
+            ) == ["CMUX_CUSTOM_ANTIGRAVITY_PATH": executable]
+        )
+    }
+
+    @Test("Antigravity alias executable names use the managed wrapper")
+    func antigravityAliasExecutableUsesWrapper() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        let executable = "/opt/Antigravity Preview/bin/antigravity"
+        let parts = AgentResumeArgv().builtInKind(
+            kind: "antigravity",
+            sessionId: "conversation-123",
+            executablePath: executable,
+            arguments: [executable, "--dangerously-skip-permissions"]
+        )!
+
+        let rendered = AgentResumeArgv().renderedPortableManagedResumeShellCommand(
+            parts: parts,
+            kind: "antigravity",
+            quote: quote
+        )
+        #expect(rendered.contains("CMUX_AGY_WRAPPER_SHIM"))
+        #expect(rendered.contains("/opt/Antigravity Preview/bin/antigravity"))
+        #expect(
+            AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
+                kind: "antigravity",
+                executablePath: executable,
+                arguments: [executable]
+            ) == ["CMUX_CUSTOM_ANTIGRAVITY_PATH": executable]
+        )
+    }
+
     @Test("OpenCode resume drops internal TUI settings selector")
     func opencodeResumeDropsInternalTUISettingsSelector() {
         #expect(
@@ -192,6 +270,51 @@ struct AgentResumeArgvTests {
                 executablePath: nil,
                 arguments: ["cmux", "codex-teams", "-c", "check_for_update_on_startup=true"]
             ) == .resolved(["cmux", "codex-teams", "resume", "SID", "-c", "check_for_update_on_startup=true"])
+        )
+    }
+
+    @Test("Codex Teams remote resume and fork drop the unsupported permission override")
+    func codexTeamsRemoteResumeAndForkDropUnsupportedPermissionOverride() {
+        let appServerURL = "ws://127.0.0.1:4242"
+        let bypassFlag = "--dangerously-bypass-approvals-and-sandbox"
+        let builder = AgentResumeArgv()
+
+        #expect(
+            builder.codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["resume", "THREAD", bypassFlag, "--model", "gpt-5"]
+            ) == ["resume", "--remote", appServerURL, "THREAD", "--model", "gpt-5"]
+        )
+        #expect(
+            builder.codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["fork", "THREAD", "--model", "gpt-5", bypassFlag]
+            ) == ["fork", "--remote", appServerURL, "THREAD", "--model", "gpt-5"]
+        )
+        #expect(
+            builder.codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["resume", "THREAD", "--", bypassFlag]
+            ) == ["resume", "--remote", appServerURL, "THREAD", "--", bypassFlag]
+        )
+        #expect(
+            builder.codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["fork", "THREAD", "--", bypassFlag]
+            ) == ["fork", "--remote", appServerURL, "THREAD", "--", bypassFlag]
+        )
+    }
+
+    @Test("Codex Teams fresh remote launches preserve the permission override")
+    func codexTeamsFreshRemoteLaunchPreservesPermissionOverride() {
+        let appServerURL = "ws://127.0.0.1:4242"
+        let bypassFlag = "--dangerously-bypass-approvals-and-sandbox"
+
+        #expect(
+            AgentResumeArgv().codexTeamsRootArguments(
+                appServerURL: appServerURL,
+                commandArgs: ["--model", "gpt-5", bypassFlag]
+            ) == ["--remote", appServerURL, "--model", "gpt-5", bypassFlag]
         )
     }
 
@@ -610,6 +733,13 @@ struct AgentResumeArgvTests {
                 quote: quote
             ) == "'/Applications/cmux.app/Contents/Resources/bin/cmux' 'codex-teams' 'resume' 'SID'"
         )
+        // Captured absolute executables stay explicit so custom Codex installs are preserved.
+        #expect(
+            AgentResumeArgv.renderedPortableCodexResumeShellCommand(
+                parts: ["/opt/team/codex", "resume", "SID"],
+                quote: quote
+            ) == "'/opt/team/codex' 'resume' 'SID'"
+        )
     }
 
     @Test("Only the executable position takes the wrapper token, after a bare or absolute env prefix")
@@ -629,6 +759,24 @@ struct AgentResumeArgvTests {
                 parts: ["sr", "codex", "resume", "SID"],
                 quote: quote
             ) == ["'sr'", "'codex'", "'resume'", "'SID'"]
+        )
+        #expect(
+            AgentResumeArgv.renderingCodexWrapperExecutable(
+                parts: ["/opt/team/codex", "resume", "SID"],
+                quote: quote
+            ) == ["'/opt/team/codex'", "'resume'", "'SID'"]
+        )
+    }
+
+    @Test("Managed rendering preserves absolute Hermes executables")
+    func managedRenderingPreservesAbsoluteHermesExecutable() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        #expect(
+            AgentResumeArgv().renderedPortableManagedResumeShellCommand(
+                parts: ["/opt/team/hermes", "--resume", "SID"],
+                kind: "hermes-agent",
+                quote: quote
+            ) == "'/opt/team/hermes' '--resume' 'SID'"
         )
     }
 }

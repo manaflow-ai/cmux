@@ -25,7 +25,7 @@ struct TmuxWorkspacePaneOverlayView: View {
             TimelineView(TmuxWorkspacePaneFlashTimelineSchedule(startDate: flashStartedAt)) { timeline in
                 overlayCanvas(timelineDate: timeline.date, attentionColor: attentionColor)
                     .onChange(of: timeline.date) { _, date in
-                        if date.timeIntervalSince(flashStartedAt) >= FocusFlashPattern.duration {
+                        if date.timeIntervalSince(flashStartedAt) >= FocusFlashPattern.current.duration {
                             completedFlashStartedAt = flashStartedAt
                         }
                     }
@@ -42,7 +42,7 @@ struct TmuxWorkspacePaneOverlayView: View {
               let flashStartedAt else { return false }
         guard completedFlashStartedAt != flashStartedAt,
               ringPath(for: flashRect) != nil else { return false }
-        return Date() <= flashStartedAt.addingTimeInterval(FocusFlashPattern.duration)
+        return Date() <= flashStartedAt.addingTimeInterval(FocusFlashPattern.current.duration)
     }
 
     /// Clips the active border to the drawable canvas so its bottom and right
@@ -66,14 +66,14 @@ struct TmuxWorkspacePaneOverlayView: View {
                   let flashStartedAt,
                   let timelineDate else { return }
             let elapsed = timelineDate.timeIntervalSince(flashStartedAt)
-            let opacity = FocusFlashPattern.opacity(at: elapsed)
+            let opacity = FocusFlashPattern.current.opacity(at: elapsed)
             guard opacity > 0.001 else { return }
             drawFlashRing(
                 in: &context,
                 rect: flashRect,
                 opacity: opacity,
                 reason: flashReason ?? .notificationArrival,
-                color: attentionColor
+                color: Color(nsColor: workspaceAttentionColor.flashNSColor)
             )
         }
     }
@@ -155,7 +155,7 @@ struct TmuxWorkspacePaneFlashTimelineSchedule: TimelineSchedule {
         let interval = mode == .lowFrequency ? 1.0 / 10.0 : 1.0 / 60.0
         return Entries(
             nextDate: firstDate,
-            endDate: startDate.addingTimeInterval(FocusFlashPattern.duration),
+            endDate: startDate.addingTimeInterval(FocusFlashPattern.current.duration),
             interval: interval
         )
     }

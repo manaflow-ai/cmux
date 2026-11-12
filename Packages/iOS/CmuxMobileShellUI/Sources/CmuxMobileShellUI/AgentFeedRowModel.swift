@@ -2,6 +2,36 @@
 import CmuxMobileShellModel
 import Foundation
 
+/// Reuses derived row presentations when a refreshed snapshot keeps the same
+/// item revision. Feed snapshots are full retained histories, so rebuilding
+/// every presentation for one new event makes the main actor do work
+/// proportional to the entire history.
+private struct AgentFeedRowModelCacheKey: Equatable, Sendable {
+    /// `updatedAt` is the Mac's revision for the immutable event payload.
+    /// Local fields below can change without a new Mac event revision.
+    let updatedAt: Date
+    let status: MobileAgentFeedItemStatus
+    let connectionStatus: MobileMacConnectionStatus
+    let macDisplayName: String
+    let workspaceTitle: String?
+    let surfaceTitle: String?
+    let requestID: String?
+    let userReply: String?
+    let triagedNeedsInput: Bool?
+
+    init(item: MobileAgentFeedItem) {
+        updatedAt = item.updatedAt
+        status = item.status
+        connectionStatus = item.connectionStatus
+        macDisplayName = item.macDisplayName
+        workspaceTitle = item.workspaceTitle
+        surfaceTitle = item.surfaceTitle
+        requestID = item.requestID
+        userReply = item.userReply
+        triagedNeedsInput = item.triagedNeedsInput
+    }
+}
+
 /// One Feed row prepared outside `body`: the immutable item plus every
 /// derived string the row renders, so row bodies do no string work during
 /// scroll (the same discipline as `NotificationFeedRowModel`).
@@ -10,9 +40,11 @@ struct AgentFeedRowModel: Identifiable, Equatable, Sendable {
     let presentation: AgentFeedRowPresentation
     /// Metadata-only events are excluded before SwiftUI builds a list row.
     let hasVisibleContent: Bool
+    private let equalityKey: AgentFeedRowModelCacheKey
 
     init(item: MobileAgentFeedItem) {
         self.item = item
+        equalityKey = AgentFeedRowModelCacheKey(item: item)
         let presentation = AgentFeedRowPresentation(item: item)
         self.presentation = presentation
         hasVisibleContent = (item.kind == .todos && presentation.headline != nil)
@@ -29,7 +61,51 @@ struct AgentFeedRowModel: Identifiable, Equatable, Sendable {
 
     /// `presentation` is a pure derivation of `item`.
     nonisolated static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.item == rhs.item
+        lhs.equalityKey == rhs.equalityKey
+    }
+}
+
+private struct AgentFeedRowModelCacheEntry: Sendable {
+    let key: AgentFeedRowModelCacheKey
+    let model: AgentFeedRowModel
+}
+
+struct AgentFeedRowModelCache: Sendable {
+    private var modelsByID: [MobileAgentFeedItemID: AgentFeedRowModelCacheEntry] = [:]
+    private(set) var lastRebuiltCount = 0
+
+    mutating func update(items: [MobileAgentFeedItem]) -> [AgentFeedRowModel] {
+        update(items: items, stopIfCancelled: { false }) ?? []
+    }
+
+    mutating func update(
+        items: [MobileAgentFeedItem],
+        stopIfCancelled: @Sendable () -> Bool
+    ) -> [AgentFeedRowModel]? {
+        var nextModelsByID: [MobileAgentFeedItemID: AgentFeedRowModelCacheEntry] = [:]
+        nextModelsByID.reserveCapacity(items.count)
+
+        var models: [AgentFeedRowModel] = []
+        models.reserveCapacity(items.count)
+        var rebuiltCount = 0
+
+        for item in items {
+            guard !stopIfCancelled() else { return nil }
+            let model: AgentFeedRowModel
+            let key = AgentFeedRowModelCacheKey(item: item)
+            if let cached = modelsByID[item.id], cached.key == key {
+                model = cached.model
+            } else {
+                model = AgentFeedRowModel(item: item)
+                rebuiltCount += 1
+            }
+            models.append(model)
+            nextModelsByID[item.id] = AgentFeedRowModelCacheEntry(key: key, model: model)
+        }
+
+        modelsByID = nextModelsByID
+        lastRebuiltCount = rebuiltCount
+        return models
     }
 }
 

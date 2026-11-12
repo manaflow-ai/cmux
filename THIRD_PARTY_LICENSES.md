@@ -389,6 +389,37 @@ has no runtime CDN dependency.
 
 ---
 
+## Browser REPL Runtime Assets
+
+cmux bundles these files under `Resources/browser-repl/vendor/` for the
+`cmux browser repl` runtime and its page agent.
+
+### Playwright (injected script and locator helpers)
+
+- **Version:** 1.57.0 (`playwright-core`)
+- **License:** Apache License 2.0
+- **Copyright:** Copyright (c) Microsoft Corporation
+- **Source:** https://github.com/microsoft/playwright
+- **Files:** `vendor/playwright-injected.js` (the generated `injectedScriptSource`
+  bundle, unmodified) and `vendor/playwright-locator-utils.js` (functions from
+  `lib/utils/isomorphic/locatorUtils.js` and `stringUtils.js`, re-wrapped as a
+  plain script)
+
+Playwright's NOTICE: "Playwright. Copyright (c) Microsoft Corporation. This
+software contains code derived from the Puppeteer project
+(https://github.com/puppeteer/puppeteer), available under the Apache 2.0
+license (https://github.com/puppeteer/puppeteer/blob/master/LICENSE)."
+
+### acorn
+
+- **Version:** 8.16.0
+- **License:** MIT License
+- **Copyright:** Copyright (C) 2012-2022 by various contributors
+- **Source:** https://github.com/acornjs/acorn
+- **Files:** `vendor/acorn.js` (`dist/acorn.js`, unmodified)
+
+---
+
 ## Shared License Texts
 
 MIT-licensed components above are distributed under the MIT License text

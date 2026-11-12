@@ -12,6 +12,10 @@ if [[ ! "$revision" =~ ^[0-9a-fA-F]{40}$ ]]; then
   exit 2
 fi
 if ! git cat-file -e "${revision}^{commit}" 2>/dev/null; then
-  git -c protocol.version=2 fetch --no-tags --depth=1 origin "$revision"
+  # Depth 1 only in a shallow checkout (CI's): in a full clone --depth writes
+  # .git/shallow and truncates history for every worktree sharing it.
+  depth=()
+  [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+  git -c protocol.version=2 fetch --no-tags ${depth[@]+"${depth[@]}"} origin "$revision"
 fi
 git cat-file -e "${revision}^{commit}"

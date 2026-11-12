@@ -126,7 +126,7 @@ const irohMinterUrl = z.string().url().superRefine((value, context) => {
     });
   }
 });
-const publicationAuthOrigin = z.string().url().superRefine((value, context) => {
+const bareHttpsOrigin = (name: string) => z.string().url().superRefine((value, context) => {
   let parsed: URL | null = null;
   try {
     parsed = new URL(value);
@@ -146,15 +146,46 @@ const publicationAuthOrigin = z.string().url().superRefine((value, context) => {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       message:
-        "CMUX_VM_PUBLICATION_AUTH_ORIGIN must be a bare https:// origin with no path, query, or credentials",
+        `${name} must be a bare https:// origin with no path, query, or credentials`,
     });
   }
 });
+const publicationAuthOrigin = bareHttpsOrigin("CMUX_VM_PUBLICATION_AUTH_ORIGIN");
+const publicationForwardAuthOrigin = z.preprocess(
+  (value) => typeof value === "string" && value.trim() === "" ? undefined : value,
+  bareHttpsOrigin("CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN").optional(),
+);
 const irohBindingLimit = z.string().regex(/^[1-9][0-9]{0,3}$/).superRefine((value, context) => {
   if (Number(value) > 4_096) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       message: "Iroh binding limits must not exceed 4096",
+    });
+  }
+});
+const coderouterPublicOrigin = z.string().url().superRefine((value, context) => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "CMUX_CODEROUTER_PUBLIC_ORIGIN must be a valid origin",
+    });
+    return;
+  }
+  if (
+    url.protocol !== "https:" ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        "CMUX_CODEROUTER_PUBLIC_ORIGIN must be an origin-only HTTPS URL",
     });
   }
 });
@@ -195,12 +226,22 @@ export const env = createEnv({
     CMUX_ANALYTICS_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Team invite, invite-link, team-create, join, and accept routes.
     CMUX_TEAM_INVITE_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Cloud VM firewall rule create and delete, per signed-in user.
+    CMUX_VM_FIREWALL_RATE_LIMIT_ID: z.string().min(1).optional(),
     // Native ingress gates run before Stack verification, so provider outages
     // cannot turn reconnect/readiness fan-out into an auth-request storm.
     CMUX_PUSH_RATE_LIMIT_ID: z.string().min(1).optional(),
     CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: z.string().min(1).optional(),
-    // The deployed handoff route fails closed when this limiter is absent.
+    // Native app and CodeRouter handoff routes fail closed when this limiter
+    // (and the existing feedback fallback) is absent.
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: z.string().min(1).optional(),
+    // Canonical origin returned with CodeRouter route tokens. Deployed
+    // non-preview runtimes must set this; handoff exchange never trusts a
+    // forwarded/request host in production.
+    CMUX_CODEROUTER_PUBLIC_ORIGIN: requireVercelNonPreviewValue(
+      "CMUX_CODEROUTER_PUBLIC_ORIGIN",
+      coderouterPublicOrigin,
+    ),
     STACK_SECRET_SERVER_KEY: z.string().min(1),
     // APNs push (iOS notifications). Optional: the app boots without them; the
     // push route returns a clear "not configured" error until they are set.
@@ -225,6 +266,16 @@ export const env = createEnv({
     // unavailable.
     STRIPE_SECRET_KEY: z.string().min(1).optional(),
     STRIPE_WEBHOOK_SECRET: z.string().min(1).optional(),
+    // iOS in-app purchases (docs/billing/ios-in-app-purchases.md). Read by
+    // services/billing/apple/config.ts. Without the key, transactions are
+    // still verified but not refreshed from the App Store Server API.
+    APPLE_IAP_KEY_ID: z.string().min(1).optional(),
+    APPLE_IAP_ISSUER_ID: z.string().min(1).optional(),
+    APPLE_IAP_PRIVATE_KEY: z.string().min(1).optional(),
+    APPLE_IAP_BUNDLE_IDS: z.string().min(1).optional(),
+    APPLE_IAP_APP_APPLE_ID: z.string().regex(/^\d+$/).optional(),
+    APPLE_IAP_SANDBOX_ENTITLEMENTS: z.string().min(1).optional(),
+    APPLE_IAP_ONLINE_CHECKS: z.enum(["0", "1"]).optional(),
     // Svix signing secret (`whsec_...`) for the Stack Auth webhook endpoint
     // `/api/webhooks/stack`. Optional: when unset the route answers 503 and
     // team removal is enforced only by the reconcile cron.
@@ -247,7 +298,12 @@ export const env = createEnv({
     ),
     STRIPE_PRO_YEARLY_480_PRICE_ID: z.string().min(1).optional(),
     STRIPE_MAX_MONTHLY_200_PRICE_ID: z.string().min(1).optional(),
-    STRIPE_GO_MONTHLY_10_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_MAX_YEARLY_1920_PRICE_ID: z.string().min(1).optional(),
+    STRIPE_STARTER_MONTHLY_20_PRICE_ID: retiredEnvValue(
+      "STRIPE_STARTER_MONTHLY_20_PRICE_ID",
+      "STRIPE_STARTER_MONTHLY_15_PRICE_ID",
+    ),
+    STRIPE_STARTER_MONTHLY_15_PRICE_ID: z.string().min(1).optional(),
     // Optional pin for the Pro <-> Max portal configuration; otherwise the
     // configuration is found by its metadata (see services/billing/stripe.ts).
     STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: z.string().min(1).optional(),
@@ -288,6 +344,10 @@ export const env = createEnv({
     // pushed to Freestyle as the account-wide forward-auth target. It is never
     // derived from a request; protected publications fail closed without it.
     CMUX_VM_PUBLICATION_AUTH_ORIGIN: publicationAuthOrigin.optional(),
+    // Optional origin Freestyle calls for forward-auth when it differs from
+    // the sign-in origin, e.g. a tunnel to a development stack the edge can't
+    // reach. Unset in production: the auth origin serves both.
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN: publicationForwardAuthOrigin.optional(),
     // Zone generated Cloud VM publication hostnames are minted under
     // (<random>.<zone>). The CMUX Freestyle account must own it: verify the
     // zone, CNAME `*` to the Freestyle edge, delegate `_acme-challenge`, and
@@ -386,6 +446,10 @@ export const env = createEnv({
     // Server-to-worker authentication for revision publication. Native clients
     // hold only their Stack access token and can never mint invalidations.
     CMUX_CONNECTIVITY_INVALIDATION_SECRET: z.string().min(32).max(512).optional(),
+    // Server-to-worker authentication for Cloud machine list (`vms` sync)
+    // publication. Must equal the presence Worker's VMS_PUBLISHER_SECRET.
+    // Optional: unset skips publication and the Mac list keeps polling.
+    CMUX_PRESENCE_VMS_PUBLISHER_SECRET: z.string().min(32).max(512).optional(),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: localDevelopmentOptIn(
       "CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER",
     ),
@@ -440,12 +504,16 @@ export const env = createEnv({
     CMUX_CLIENT_CONFIG_RATE_LIMIT_ID: trimEnv(process.env.CMUX_CLIENT_CONFIG_RATE_LIMIT_ID),
     CMUX_ANALYTICS_RATE_LIMIT_ID: trimEnv(process.env.CMUX_ANALYTICS_RATE_LIMIT_ID),
     CMUX_TEAM_INVITE_RATE_LIMIT_ID: trimEnv(process.env.CMUX_TEAM_INVITE_RATE_LIMIT_ID),
+    CMUX_VM_FIREWALL_RATE_LIMIT_ID: trimEnv(process.env.CMUX_VM_FIREWALL_RATE_LIMIT_ID),
     CMUX_PUSH_RATE_LIMIT_ID: trimEnv(process.env.CMUX_PUSH_RATE_LIMIT_ID),
     CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_DEVICE_REGISTRY_RATE_LIMIT_ID,
     ),
     CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID: trimEnv(
       process.env.CMUX_APP_SESSION_HANDOFF_RATE_LIMIT_ID,
+    ),
+    CMUX_CODEROUTER_PUBLIC_ORIGIN: trimEnv(
+      process.env.CMUX_CODEROUTER_PUBLIC_ORIGIN,
     ),
     CMUX_APNS_KEY_P8: trimEnv(process.env.CMUX_APNS_KEY_P8),
     CMUX_APNS_KEY_ID: trimEnv(process.env.CMUX_APNS_KEY_ID),
@@ -458,6 +526,13 @@ export const env = createEnv({
     CMUX_PRO_FROM_EMAIL: trimEnv(process.env.CMUX_PRO_FROM_EMAIL),
     STRIPE_SECRET_KEY: trimEnv(process.env.STRIPE_SECRET_KEY),
     STRIPE_WEBHOOK_SECRET: trimEnv(process.env.STRIPE_WEBHOOK_SECRET),
+    APPLE_IAP_KEY_ID: trimEnv(process.env.APPLE_IAP_KEY_ID),
+    APPLE_IAP_ISSUER_ID: trimEnv(process.env.APPLE_IAP_ISSUER_ID),
+    APPLE_IAP_PRIVATE_KEY: trimEnv(process.env.APPLE_IAP_PRIVATE_KEY),
+    APPLE_IAP_BUNDLE_IDS: trimEnv(process.env.APPLE_IAP_BUNDLE_IDS),
+    APPLE_IAP_APP_APPLE_ID: trimEnv(process.env.APPLE_IAP_APP_APPLE_ID),
+    APPLE_IAP_SANDBOX_ENTITLEMENTS: trimEnv(process.env.APPLE_IAP_SANDBOX_ENTITLEMENTS),
+    APPLE_IAP_ONLINE_CHECKS: trimEnv(process.env.APPLE_IAP_ONLINE_CHECKS),
     STACK_WEBHOOK_SECRET: trimEnv(process.env.STACK_WEBHOOK_SECRET),
     STRIPE_PRO_MONTHLY_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_PRICE_ID),
     STRIPE_PRO_MONTHLY_50_PRICE_ID: trimEnv(process.env.STRIPE_PRO_MONTHLY_50_PRICE_ID),
@@ -467,7 +542,9 @@ export const env = createEnv({
     ),
     STRIPE_PRO_YEARLY_480_PRICE_ID: trimEnv(process.env.STRIPE_PRO_YEARLY_480_PRICE_ID),
     STRIPE_MAX_MONTHLY_200_PRICE_ID: trimEnv(process.env.STRIPE_MAX_MONTHLY_200_PRICE_ID),
-    STRIPE_GO_MONTHLY_10_PRICE_ID: trimEnv(process.env.STRIPE_GO_MONTHLY_10_PRICE_ID),
+    STRIPE_MAX_YEARLY_1920_PRICE_ID: trimEnv(process.env.STRIPE_MAX_YEARLY_1920_PRICE_ID),
+    STRIPE_STARTER_MONTHLY_20_PRICE_ID: trimEnv(process.env.STRIPE_STARTER_MONTHLY_20_PRICE_ID),
+    STRIPE_STARTER_MONTHLY_15_PRICE_ID: trimEnv(process.env.STRIPE_STARTER_MONTHLY_15_PRICE_ID),
     STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID: trimEnv(
       process.env.STRIPE_PERSONAL_PLAN_SWITCH_PORTAL_CONFIGURATION_ID,
     ),
@@ -497,6 +574,10 @@ export const env = createEnv({
     CMUX_VM_PUBLICATION_AUTH_ORIGIN: trimEnv(
       process.env.CMUX_VM_PUBLICATION_AUTH_ORIGIN,
     ),
+    // Blank (as in .env.example) means unset, not an invalid origin.
+    CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN: trimEnv(
+      process.env.CMUX_VM_PUBLICATION_FORWARD_AUTH_ORIGIN,
+    ) || undefined,
     CMUX_VM_PUBLICATION_GENERATED_DOMAIN: trimEnv(
       process.env.CMUX_VM_PUBLICATION_GENERATED_DOMAIN,
     ),
@@ -535,6 +616,9 @@ export const env = createEnv({
     CMUX_PRESENCE_BASE_URL: trimEnv(process.env.CMUX_PRESENCE_BASE_URL),
     CMUX_CONNECTIVITY_INVALIDATION_SECRET: trimEnv(
       process.env.CMUX_CONNECTIVITY_INVALIDATION_SECRET,
+    ),
+    CMUX_PRESENCE_VMS_PUBLISHER_SECRET: trimEnv(
+      process.env.CMUX_PRESENCE_VMS_PUBLISHER_SECRET,
     ),
     CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER: trimEnv(
       process.env.CMUX_IROH_DEV_ALLOW_INSECURE_LOOPBACK_MINTER,

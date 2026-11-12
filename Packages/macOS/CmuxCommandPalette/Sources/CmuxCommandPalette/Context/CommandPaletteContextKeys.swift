@@ -15,6 +15,24 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
 
     /// Whether a workspace is selected.
     public static let hasWorkspace = CommandPaletteContextKeys(rawValue: "workspace.hasSelection")
+    /// Whether the selected workspace is owned by a managed Cloud machine.
+    ///
+    /// The app sets this key from the workspace's explicit managed Cloud VM
+    /// identity. Generic SSH and other remote workspaces intentionally do not
+    /// set it; legacy managed Cloud SSH workspaces do.
+    public static let workspaceIsCloud = CommandPaletteContextKeys(rawValue: "workspace.isCloud")
+    /// Whether the selected Cloud VM has a server-provided capability snapshot.
+    public static let cloudVMCapabilitiesKnown = CommandPaletteContextKeys(rawValue: "workspace.cloudVM.capabilitiesKnown")
+    /// Whether the selected Cloud VM supports fork.
+    public static let cloudVMSupportsFork = CommandPaletteContextKeys(rawValue: "workspace.cloudVM.supportsFork")
+    /// Whether the selected Cloud VM supports checkpoint or template promotion.
+    public static let cloudVMSupportsSnapshot = CommandPaletteContextKeys(rawValue: "workspace.cloudVM.supportsSnapshot")
+    /// Whether the selected Cloud VM supports restoring a checkpoint.
+    public static let cloudVMSupportsRestore = CommandPaletteContextKeys(rawValue: "workspace.cloudVM.supportsRestore")
+    /// Whether the selected Cloud VM can provide port previews.
+    public static let cloudVMSupportsPorts = CommandPaletteContextKeys(rawValue: "workspace.cloudVM.supportsPorts")
+    /// Whether the selected Cloud VM permits control-plane command execution.
+    public static let cloudVMSupportsExec = CommandPaletteContextKeys(rawValue: "workspace.cloudVM.supportsExec")
     /// Selected workspace display name.
     public static let workspaceName = CommandPaletteContextKeys(rawValue: "workspace.name")
     /// Whether the workspace has a custom name.
@@ -97,6 +115,9 @@ public struct CommandPaletteContextKeys: Hashable, Sendable {
     public static let authSignedIn = CommandPaletteContextKeys(rawValue: "auth.signedIn")
     /// Whether an auth operation is in flight.
     public static let authWorking = CommandPaletteContextKeys(rawValue: "auth.working")
+    /// The plan tier the upgrade command offers (`pro` or `max`), absent
+    /// when the account is on the top tier or its plan is not yet known.
+    public static let accountUpgradeOffer = CommandPaletteContextKeys(rawValue: "account.upgradeOffer")
     /// Whether the Computer Use UX and its onboarding actions are available.
     public static let computerUseUXEnabled = CommandPaletteContextKeys(rawValue: "computerUse.uxEnabled")
 

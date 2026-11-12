@@ -49,11 +49,33 @@ import Testing
             messageLine(role: "user", content: "<environment_context>cwd: /tmp</environment_context>"),
             messageLine(role: "user", content: "<user_instructions>be terse</user_instructions>"),
             messageLine(role: "user", content: "<subagent_notification>done</subagent_notification>"),
+            messageLine(role: "user", content: "# AGENTS.md instructions for /repo\n<INSTRUCTIONS>be terse</INSTRUCTIONS>"),
             messageLine(role: "user", content: "Actual user question about flaky tests")
         ]
         let messages = engine.extractCodexMessages(fromRolloutLines: lines)
         #expect(messages.count == 1)
         #expect(messages[0].text == "Actual user question about flaky tests")
+    }
+
+    @Test func htmlLikeConversationTextIsNotMistakenForInjectedContext() {
+        let lines = [
+            messageLine(role: "user", content: "<Button> does not render in dark mode"),
+            messageLine(role: "user", content: "</div> is unbalanced in this file"),
+            messageLine(role: "user", content: "<permissions-panel> is misaligned"),
+            messageLine(role: "user", content: "<permissions> is misaligned"),
+            messageLine(role: "user", content: "# AGENTS.md instructions are missing"),
+            messageLine(role: "assistant", content: "<environment_context> is the wrapper I found")
+        ]
+        let messages = engine.extractCodexMessages(fromRolloutLines: lines)
+
+        #expect(messages == [
+            AutoNamingTranscriptMessage(role: "user", text: "<Button> does not render in dark mode"),
+            AutoNamingTranscriptMessage(role: "user", text: "</div> is unbalanced in this file"),
+            AutoNamingTranscriptMessage(role: "user", text: "<permissions-panel> is misaligned"),
+            AutoNamingTranscriptMessage(role: "user", text: "<permissions> is misaligned"),
+            AutoNamingTranscriptMessage(role: "user", text: "# AGENTS.md instructions are missing"),
+            AutoNamingTranscriptMessage(role: "assistant", text: "<environment_context> is the wrapper I found")
+        ])
     }
 
     @Test func missingOrEmptyRolloutYieldsNoContext() {

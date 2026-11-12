@@ -175,7 +175,8 @@ struct SudoReviewRegressionTests {
             directoryIdentity: try SudoDirectoryIdentity(path: pending.request.currentDirectory),
             deadline: pending.request.approvalDeadline.addingTimeInterval(
                 SudoBroker.executionGraceSeconds
-            )
+            ),
+            reviewedScriptSHA256: SudoSHA256.hex(Data(pending.script.utf8))
         )
         try Data(pending.script.utf8).write(to: fixture.store.approvedScriptURL(id: request.id))
         let encoder = JSONEncoder()
@@ -354,6 +355,7 @@ struct SudoReviewRegressionTests {
         #expect(throws: (any Error).self) {
             try receiver.withReceivedDescriptor(
                 expectedByteCount: 1,
+                expectedSHA256: SudoSHA256.hex(Data([0])),
                 deadline: Date.now.addingTimeInterval(0.05)
             ) { _ in }
         }

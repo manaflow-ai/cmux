@@ -25,6 +25,7 @@ extension ControlCommandCoordinator {
             return surfaceCurrent(request.params, context: context)
         case "surface.focus":
             return surfaceFocus(request.params)
+        case "surface.jump_to_last_prompt": return surfaceJumpToLastPrompt()
         case "surface.split":
             return surfaceSplit(request.params)
         case "surface.respawn":
@@ -297,33 +298,7 @@ extension ControlCommandCoordinator {
         }
         let resolution = context?.controlSurfaceFocus(routing: routing, surfaceID: surfaceID)
             ?? .tabManagerUnavailable
-        switch resolution {
-        case .tabManagerUnavailable:
-            return .err(code: "unavailable", message: "TabManager not available", data: nil)
-        case .workspaceNotFound:
-            return .err(code: "not_found", message: "Workspace not found", data: nil)
-        case .surfaceNotFound(let id):
-            return .err(
-                code: "not_found",
-                message: "Surface not found",
-                data: .object(["surface_id": .string(id.uuidString)])
-            )
-        case .dockUnavailable(let message):
-            return .err(
-                code: "unavailable",
-                message: message,
-                data: .object(["surface_id": .string(surfaceID.uuidString)])
-            )
-        case .focused(let windowID, let workspaceID, let focusedSurfaceID):
-            return .ok(.object([
-                "workspace_id": .string(workspaceID.uuidString),
-                "workspace_ref": ref(.workspace, workspaceID),
-                "surface_id": .string(focusedSurfaceID.uuidString),
-                "surface_ref": ref(.surface, focusedSurfaceID),
-                "window_id": orNull(windowID?.uuidString),
-                "window_ref": ref(.window, windowID),
-            ]))
-        }
+        return surfaceFocusResult(resolution, requestedSurfaceID: surfaceID)
     }
 
     // MARK: - split
@@ -527,11 +502,20 @@ extension ControlCommandCoordinator {
             return .err(code: "unavailable", message: "TabManager not available", data: nil)
         }
 
+        let profileKeys = ["profile", "profile_id", "profile_name"]
+
         let inputs = ControlSurfaceCreateInputs(
             typeRaw: string(params, "type"),
             providerRaw: string(params, "provider_id") ?? string(params, "provider"),
             rendererRaw: string(params, "renderer_kind") ?? string(params, "renderer"),
             urlRaw: string(params, "url"),
+            profileRaw: string(params, "profile")
+                ?? string(params, "profile_id")
+                ?? string(params, "profile_name"),
+            hasInvalidProfileParam: profileKeys.contains {
+                hasNonNull(params, $0) && string(params, $0) == nil
+            },
+            hasMultipleProfileParams: profileKeys.filter { hasNonNull(params, $0) }.count > 1,
             workingDirectory: optionalTrimmedRawString(params, "working_directory"),
             initialCommand: optionalTrimmedRawString(params, "initial_command"),
             initialInput: nonBlankRawString(params, "initial_input"),
@@ -569,6 +553,21 @@ extension ControlCommandCoordinator {
         case .dockConflictingRoutingSelectors(let message): return .err(code: "invalid_params", message: message, data: nil)
         case .browserDisabled(let outcome):
             return browserDisabledResult(outcome)
+        case .invalidBrowserProfile(let selector, let message, let candidates):
+            var data: [String: JSONValue] = ["profile": .string(selector)]
+            if !candidates.isEmpty {
+                data["candidates"] = .array(candidates.map { candidate in
+                    .object([
+                        "id": .string(candidate.id.uuidString),
+                        "name": .string(candidate.displayName),
+                    ])
+                })
+            }
+            return .err(
+                code: "invalid_params",
+                message: message,
+                data: .object(data)
+            )
         case .workspaceNotFound:
             return .err(code: "not_found", message: "Workspace not found", data: nil)
         case .paneNotFound:
@@ -669,6 +668,12 @@ extension ControlCommandCoordinator {
                 code: "confirmation_required",
                 message: context.controlSurfaceCloseStrings().confirmationRequired,
                 data: .object(["surface_id": .string(id.uuidString)])
+            )
+        case .denied(let id, let message):
+            return .err(
+                code: "denied",
+                message: message,
+                data: .object(["surface_id": .string(id.uuidString), "reason": .string("browser_repl_tab")])
             )
         case .closeFailed(let id):
             return .err(

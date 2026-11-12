@@ -603,6 +603,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.10.9",
+ "subtle",
  "time",
  "tokio",
  "tokio-tungstenite",
@@ -697,6 +698,7 @@ dependencies = [
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
+ "cmux-test-exec",
  "cmux-tui-core",
  "cmux-tui-source-watch",
  "cmux-wg",
@@ -773,13 +775,22 @@ dependencies = [
  "cmux-remote",
  "cmux-remote-protocol",
  "cmux-tui-core",
+ "cmux-wg",
  "getrandom 0.3.4",
  "ghostty-vt",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "url",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-test-exec"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -793,6 +804,7 @@ dependencies = [
  "cmux-pty",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-test-exec",
  "cmux-tui-cdp",
  "cmux-tui-core",
  "cmux-tui-machine-agent-protocol",
@@ -2608,6 +2620,7 @@ dependencies = [
  "reqwest",
  "rustls",
  "rustls-pki-types",
+ "rustls-platform-verifier",
  "serde",
  "serde_bytes",
  "strum",

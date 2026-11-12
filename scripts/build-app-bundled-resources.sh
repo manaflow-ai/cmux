@@ -20,8 +20,12 @@ CMUX_GHOSTTY_ZSH_SRC="${SRCROOT}/ghostty/src/shell-integration/zsh/ghostty-integ
 BUILD_GHOSTTY_HELPER="${SRCROOT}/scripts/build-ghostty-cli-helper.sh"
 GHOSTTY_HELPER_DEST="${BIN_DEST}/ghostty"
 BUILD_CMUX_CUA="${SRCROOT}/scripts/build-cmux-cua.sh"
-CMUX_CUA_DEST="${BIN_DEST}/cmux-cua"
-CMUX_CUA_LICENSE_DEST="${BIN_DEST}/cmux-cua-LICENSE.md"
+APPLY_CMUX_CUA_PATCH="${SRCROOT}/scripts/apply-cmux-cua-patch.sh"
+CMUX_CUA_PATCH="${SRCROOT}/scripts/cmux-cua-codex-delivery-mode.patch"
+# The cmux-cua engine ships once, as the Computer Use helper's executable.
+# Builds before that also copied it, with its license, into Resources/bin.
+LEGACY_CMUX_CUA_CLIENT="${BIN_DEST}/cmux-cua"
+LEGACY_CMUX_CUA_LICENSE="${BIN_DEST}/cmux-cua-LICENSE.md"
 CMUX_CUA_HELPER_APP="${DEST}/../Library/cmux Computer Use.app"
 CMUX_CUA_HELPER_OWNER_MARKER="${CMUX_CUA_HELPER_APP}/Contents/Resources/.cmux-cua-managed-helper"
 CMUX_CUA_HELPER_EXEC="${CMUX_CUA_HELPER_APP}/Contents/MacOS/cmux-cua"
@@ -133,8 +137,6 @@ output_fingerprint() {
     hash_tree "$TERMINFO_DEST"
     hash_tree "$CMUX_SHELL_DEST"
     hash_tree "$GHOSTTY_HELPER_DEST"
-    hash_tree "$CMUX_CUA_DEST"
-    hash_tree "$CMUX_CUA_LICENSE_DEST"
     if [ -d "$CMUX_CUA_HELPER_APP" ]; then
       hash_tree "$CMUX_CUA_HELPER_APP"
     else
@@ -146,9 +148,11 @@ output_fingerprint() {
 # SwiftPM places a package's processed resource bundle beside the app's other
 # resources. The bundled CLI lives one directory deeper in Resources/bin, and
 # Bundle.module resolves relative to that executable's resource directory.
-# Keep a real copy beside the CLI so package resources work when the CLI is
-# invoked directly from the app bundle. This is intentionally generic: adding
-# resources to another package must not require another packaging allowlist.
+# Link each bundle beside the CLI to the app's copy, so package resources work
+# when the CLI is invoked directly from the app bundle and ship only once. The
+# links are relative and stay inside the bundle, so code signing seals them as
+# links. This is intentionally generic: adding resources to another package
+# must not require another packaging allowlist.
 hash_swiftpm_resource_bundles() {
   local directory="$1" bundle
   [ -d "$directory" ] || return 0
@@ -165,14 +169,18 @@ sync_swiftpm_resource_bundles() {
     [ -d "$source" ] || continue
     name="${source##*/}"
     destination="$BIN_DEST/$name"
-    mkdir -p "$destination"
-    rsync -a --delete "$source/" "$destination/"
+    if [ -L "$destination" ] && [ "$(readlink "$destination")" = "../$name" ]; then
+      continue
+    fi
+    # Replace a real copy left by an older build.
+    rm -rf "$destination"
+    ln -s "../$name" "$destination"
   done
 
-  # Remove copies of package bundles that disappeared from the app resource
+  # Remove links to package bundles that disappeared from the app resource
   # directory, while leaving unrelated helper directories in Resources/bin.
   for destination in "$BIN_DEST"/*.bundle; do
-    [ -d "$destination" ] || continue
+    [ -d "$destination" ] || [ -L "$destination" ] || continue
     name="${destination##*/}"
     [ -d "$DEST/$name" ] || rm -rf "$destination"
   done
@@ -199,6 +207,8 @@ fingerprint="$({
   hash_tree "${SRCROOT}/scripts/build-app-bundled-resources.sh"
   hash_tree "$BUILD_GHOSTTY_HELPER"
   hash_tree "$BUILD_CMUX_CUA"
+  hash_tree "$APPLY_CMUX_CUA_PATCH"
+  hash_tree "$CMUX_CUA_PATCH"
   hash_tree "$GHOSTTY_SRC"
   hash_tree "$FALLBACK_GHOSTTY"
   hash_tree "$TERMINFO_SRC"
@@ -214,16 +224,15 @@ fingerprint="$({
 output_fingerprint_value="$(output_fingerprint)"
 
 helper_output_ok=true
-if [[ "$DEST" == *.app/Contents/Resources ]] && {
-  [ ! -d "$CMUX_CUA_HELPER_APP" ] ||
+if [ ! -d "$CMUX_CUA_HELPER_APP" ] ||
   [ ! -f "$CMUX_CUA_HELPER_APP/Contents/Info.plist" ] ||
   [ ! -f "$CMUX_CUA_HELPER_OWNER_MARKER" ] ||
-  [ ! -x "$CMUX_CUA_HELPER_EXEC" ]
-}; then
+  [ ! -x "$CMUX_CUA_HELPER_EXEC" ] ||
+  [ -e "$LEGACY_CMUX_CUA_CLIENT" ]; then
   helper_output_ok=false
 fi
-if [ -f "$STAMP" ] && [ -x "$GHOSTTY_HELPER_DEST" ] && [ -x "$CMUX_CUA_DEST" ] \
-  && [ "$helper_output_ok" = true ] && [ -f "$CMUX_CUA_LICENSE_DEST" ] \
+if [ -f "$STAMP" ] && [ -x "$GHOSTTY_HELPER_DEST" ] \
+  && [ "$helper_output_ok" = true ] \
   && [ -d "$GHOSTTY_DEST" ] && [ -d "$TERMINFO_DEST" ] \
   && [ -d "$CMUX_SHELL_DEST" ] && [ -f "$INFO_PLIST" ] \
   && [ -f "$OUTPUT_MANIFEST" ] \
@@ -234,6 +243,7 @@ if [ -f "$STAMP" ] && [ -x "$GHOSTTY_HELPER_DEST" ] && [ -x "$CMUX_CUA_DEST" ] \
   exit 0
 fi
 mkdir -p "$BIN_DEST" "$LIBEXEC_DEST"
+rm -f "$LEGACY_CMUX_CUA_CLIENT" "$LEGACY_CMUX_CUA_LICENSE"
 sync_swiftpm_resource_bundles
 if [ -d "$GHOSTTY_SRC" ]; then
   mkdir -p "$GHOSTTY_DEST"
@@ -310,9 +320,11 @@ if [ ! -x "$BUILD_CMUX_CUA" ]; then
   echo "error: missing cmux-cua build script at $BUILD_CMUX_CUA" >&2
   exit 1
 fi
-"$BUILD_CMUX_CUA" --output "$CMUX_CUA_DEST" --archs "${ARCHS:-}"
-if [ ! -x "$CMUX_CUA_DEST" ]; then
-  echo "error: cmux-cua was not created at $CMUX_CUA_DEST" >&2
+# The standalone build output is scratch; only the helper bundle ships.
+"$BUILD_CMUX_CUA" --output "${DERIVED_FILE_DIR}/cmux-cua/cmux-cua" \
+  --helper-app "$CMUX_CUA_HELPER_APP" --archs "${ARCHS:-}"
+if [ ! -x "$CMUX_CUA_HELPER_EXEC" ]; then
+  echo "error: cmux-cua was not created at $CMUX_CUA_HELPER_EXEC" >&2
   exit 1
 fi
 update_commit

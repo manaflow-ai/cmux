@@ -205,10 +205,18 @@ extension FileExplorerStore {
 
     static func path(_ candidate: String, isContainedIn root: String) -> Bool {
         guard !root.isEmpty else { return false }
-        if root == "/" {
-            return candidate.hasPrefix("/")
+        var normalizedRoot = root
+        while normalizedRoot.count > 1, normalizedRoot.hasSuffix("/") {
+            normalizedRoot.removeLast()
         }
-        return candidate == root || candidate.hasPrefix(root + "/")
+        var normalizedCandidate = candidate
+        while normalizedCandidate.count > 1, normalizedCandidate.hasSuffix("/") {
+            normalizedCandidate.removeLast()
+        }
+        if normalizedRoot == "/" {
+            return normalizedCandidate.hasPrefix("/")
+        }
+        return normalizedCandidate == normalizedRoot || normalizedCandidate.hasPrefix(normalizedRoot + "/")
     }
 
     private static func normalizedRootPath(_ path: String?) -> String? {

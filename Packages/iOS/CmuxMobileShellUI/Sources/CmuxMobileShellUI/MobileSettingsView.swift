@@ -1,6 +1,7 @@
 #if os(iOS)
 import CMUXMobileCore
 import CmuxAuthRuntime
+import CmuxMobileBillingUI
 import CmuxMobileDiagnostics
 import CmuxMobileShell
 import CmuxMobileShellModel
@@ -91,6 +92,12 @@ struct MobileSettingsView: View {
         return NavigationStack {
             Form {
                 MobileSettingsAccountSection(signOut: signOut)
+
+                // Plan and App Store subscription, for a signed-in account.
+                // Renders nothing when the host injected no billing model.
+                if authManager.isAuthenticated {
+                    MobileSettingsPlanSection()
+                }
 
                 // Directly under the account card so release notices stay
                 // discoverable after their one-time launch sheet is
@@ -299,6 +306,22 @@ struct MobileSettingsView: View {
                         }
                     }
                     .accessibilityIdentifier("MobileSettingsLegacyTerminalSizingToggle")
+
+                    Toggle(isOn: $displaySettings.handoffTerminalSizingWhenInactive) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(L10n.string(
+                                "mobile.settings.handoffTerminalSizing",
+                                defaultValue: "Hand Off Terminal Sizing When Inactive"
+                            ))
+                            Text(L10n.string(
+                                "mobile.settings.handoffTerminalSizing.description",
+                                defaultValue: "Let the Mac choose the terminal size while this app is in the background."
+                            ))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("MobileSettingsHandoffTerminalSizingToggle")
 
                     Button {
                         showingShortcuts = true
@@ -700,16 +723,22 @@ struct MobileSettingsView: View {
             .sheet(isPresented: $showingOnboarding) {
                 // Re-entry never writes first-run progress. The final scene reads
                 // live connection state and can reopen pairing from offline Settings.
+                let demonstrationPolicy = OnboardingDemonstrationAccountPolicy(
+                    isDemonstrationAccount: authManager.currentUser?.demonstrationContentEnabled == true
+                )
                 OnboardingFlowView(
                     initialStage: .agents,
                     context: .replay,
                     isAuthenticated: true,
-                    connectionPhase: OnboardingConnectionPhase(
+                    connectionPhase: demonstrationPolicy.connectionPhase(OnboardingConnectionPhase(
                         isMacReady: store?.connectionState == .connected,
                         isSearching: store?.isReconnectingStoredMac == true,
                         didFinishSearch: store?.didFinishStoredMacReconnectAttempt == true
+                    )),
+                    connectionMethod: demonstrationPolicy.connectionMethod(
+                        connectionMethodStore?.method ?? .automatic
                     ),
-                    connectionMethod: connectionMethodStore?.method ?? .automatic,
+                    offersConnectionMethodChoice: demonstrationPolicy.offersConnectionMethodChoice,
                     keepAwakeOffer: OnboardingKeepAwakeOfferSource().offer(from: store),
                     onSelectConnectionMethod: { connectionMethodStore?.method = $0 },
                     onEnablePush: {

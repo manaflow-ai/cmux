@@ -67,7 +67,8 @@ public enum VMRequestOutcome: Sendable, Equatable {
     /// No HTTP response: DNS, connect, TLS, timeout, or a local precondition.
     case transportFailure(kind: VMTransportFailureKind, detail: String)
 
-    var isSuccess: Bool {
+    /// Whether the server answered below 400.
+    public var isSuccess: Bool {
         if case .response(let status, _, _) = self { return status < 400 }
         return false
     }
@@ -149,7 +150,8 @@ public enum VMRequestFailureSeverity: String, Sendable {
 /// - a Sentry breadcrumb for every request and a Sentry event for failures
 ///   (5xx and transport failures are `error`, 4xx are `warning`);
 /// - PostHog `cmux_cloud_vm_request` for every failure and for the successes a
-///   user waits on (create, attach, base open, ...), with the duration.
+///   user waits on (create, attach, base open, ...), with the duration;
+/// - an injected record observer, which the app maps to product funnel events.
 ///
 /// The app injects the PostHog and Sentry sinks (`VMClientTelemetry+Live.swift`);
 /// the defaults drop events so tests and previews report nothing.
@@ -166,11 +168,13 @@ public final class VMClientTelemetry: @unchecked Sendable {
     public typealias Capture = @Sendable (String, [String: Any]) -> Void
     public typealias SentryCapture = @Sendable (String, VMRequestFailureSeverity, [String: Any]) -> Void
     public typealias Breadcrumb = @Sendable (String, [String: Any]) -> Void
+    public typealias RecordObserver = @Sendable (VMRequestTelemetryRecord) -> Void
 
     private let logger = Logger(subsystem: "com.cmuxterm.app", category: "CloudVM")
     private let capturePostHog: Capture
     private let captureSentry: SentryCapture
     private let addBreadcrumb: Breadcrumb
+    private let observeRecord: RecordObserver
     private let now: @Sendable () -> Date
     private let channel: String
     private let lock = NSLock()
@@ -181,12 +185,14 @@ public final class VMClientTelemetry: @unchecked Sendable {
         capturePostHog: @escaping Capture = { _, _ in },
         captureSentry: @escaping SentryCapture = { _, _, _ in },
         addBreadcrumb: @escaping Breadcrumb = { _, _ in },
+        observeRecord: @escaping RecordObserver = { _ in },
         now: @escaping @Sendable () -> Date = { Date() },
         channel: String = BuildFlavor.current.rawValue
     ) {
         self.capturePostHog = capturePostHog
         self.captureSentry = captureSentry
         self.addBreadcrumb = addBreadcrumb
+        self.observeRecord = observeRecord
         self.now = now
         self.channel = channel
     }
@@ -209,6 +215,9 @@ public final class VMClientTelemetry: @unchecked Sendable {
 
     public func record(_ record: VMRequestTelemetryRecord) {
         log(record)
+        // Unthrottled: product analytics derives funnel events (machine
+        // created, plan limit hit) from every outcome and dedupes itself.
+        observeRecord(record)
         addBreadcrumb(
             "\(record.operation) \(record.outcome.isSuccess ? "ok" : "failed")",
             Self.breadcrumbData(record)

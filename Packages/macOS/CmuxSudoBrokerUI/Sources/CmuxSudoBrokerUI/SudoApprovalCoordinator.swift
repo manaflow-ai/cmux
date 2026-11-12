@@ -135,6 +135,17 @@ public final class SudoApprovalCoordinator {
         }
     }
 
+    /// Starts broker shutdown without making an AppKit termination callback wait for it.
+    ///
+    /// The broker only owns observation and recovery tasks; a process that is
+    /// terminating must not hold up session persistence while those tasks join.
+    public func stopInBackgroundForTermination() {
+        cancelForImmediateTermination()
+        Task { @MainActor [weak self] in
+            await self?.stop()
+        }
+    }
+
     /// Applies the user's approval through the shared broker mutation path.
     ///
     /// - Parameter id: The reviewed request identifier.

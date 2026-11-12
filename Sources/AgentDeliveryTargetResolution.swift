@@ -1,4 +1,5 @@
 import AppKit
+import CmuxCore
 import Darwin
 import Foundation
 /// Live delivery-target resolution for agent hook events.
@@ -24,41 +25,6 @@ import Foundation
 /// method; in-app notification delivery reaches it through
 /// `agentNotificationDeliveryTarget` so stale-addressed notifications are
 /// retargeted rather than dropped or misfiled.
-struct AgentDeliveryTargetCandidate: Equatable {
-    let workspaceId: UUID
-    let surfaceId: UUID
-}
-/// Resolves live pid evidence under the requested trust policy.
-///
-/// The default combines controlling-TTY and start-time-keyed environment
-/// evidence, preserving the delivery-time behavior for nested PTYs. Hook
-/// persistence requests ``AgentProcessBindingResolution/controllingTTY``:
-/// inherited `CMUX_SURFACE_ID` is the claim being verified there, so it cannot
-/// also corroborate itself.
-nonisolated func agentDeliveryTargetCombining(
-    ttyTarget: AgentDeliveryTargetCandidate?,
-    envTarget: AgentDeliveryTargetCandidate?,
-    resolution: AgentProcessBindingResolution = .corroborated
-) -> AgentDeliveryTargetCandidate? {
-    if resolution == .controllingTTY { return ttyTarget }
-    guard let ttyTarget else { return envTarget }
-    if let envTarget, envTarget.surfaceId != ttyTarget.surfaceId { return nil }
-    return ttyTarget
-}
-/// Pure core of the pid → surface lookup: the unique surface whose pty device
-/// matches the process's controlling terminal. Multiple matches (tty device
-/// reuse across mirrors) or none refuse to guess.
-nonisolated func agentDeliveryTargetMatchingTTYDevice(
-    _ ttyDevice: Int64,
-    surfaceTTYDevices: [(workspaceId: UUID, surfaceId: UUID, ttyDevice: Int64)]
-) -> AgentDeliveryTargetCandidate? {
-    let matches = surfaceTTYDevices.filter { $0.ttyDevice == ttyDevice }
-    guard let first = matches.first,
-          matches.allSatisfy({ $0.workspaceId == first.workspaceId && $0.surfaceId == first.surfaceId }) else {
-        return nil
-    }
-    return AgentDeliveryTargetCandidate(workspaceId: first.workspaceId, surfaceId: first.surfaceId)
-}
 /// Live identity of a process: its controlling-terminal device
 /// (`proc_bsdinfo.e_tdev`) and its start-time-keyed scope cache key. nil when
 /// the process is gone.
@@ -70,6 +36,78 @@ nonisolated func agentLiveProcessIdentity(pid: pid_t) -> (ttyDevice: Int64?, sco
     guard size == expectedSize else { return nil }
     let device = Int64(info.e_tdev)
     return (device > 0 ? device : nil, CmuxTopProcessSnapshot.scopeCacheKey(from: info))
+}
+
+/// Darwin-backed process inspector kept behind the package's pure handoff
+/// protocol. It reads only kernel/process state and never AppKit ownership.
+private struct LiveAgentDeliveryProcessInspector: AgentDeliveryProcessInspector {
+    /// Reads the process identity twice around scope extraction to bind all
+    /// returned facts to one birth-time key.
+    nonisolated func inspect(
+        pid: Int32,
+        resolution: AgentProcessBindingResolution
+    ) -> AgentDeliveryProcessEvidence {
+        guard let identity = agentLiveProcessIdentity(pid: pid) else {
+            return AgentDeliveryProcessEvidence(
+                isLive: false,
+                ttyDevice: nil,
+                scope: nil,
+                scopeCacheKey: nil
+            )
+        }
+        guard resolution == .corroborated else {
+            guard let revalidatedIdentity = agentLiveProcessIdentity(pid: pid),
+                  revalidatedIdentity.scopeCacheKey == identity.scopeCacheKey else {
+                return AgentDeliveryProcessEvidence(
+                    isLive: false,
+                    ttyDevice: nil,
+                    scope: nil,
+                    scopeCacheKey: nil
+                )
+            }
+            return AgentDeliveryProcessEvidence(
+                isLive: true,
+                identityValidated: true,
+                ttyDevice: identity.ttyDevice,
+                scope: nil,
+                scopeCacheKey: identity.scopeCacheKey
+            )
+        }
+        let scope: CmuxTopProcessScope?
+        switch CmuxTopProcessSnapshot.cmuxScopeProbe(
+            for: Int(pid),
+            expectedCacheKey: identity.scopeCacheKey
+        ) {
+        case .resolved(let resolvedScope): scope = resolvedScope
+        case .unavailable: scope = nil
+        }
+        guard let revalidatedIdentity = agentLiveProcessIdentity(pid: pid),
+              revalidatedIdentity.scopeCacheKey == identity.scopeCacheKey else {
+            return AgentDeliveryProcessEvidence(
+                isLive: false,
+                ttyDevice: nil,
+                scope: nil,
+                scopeCacheKey: nil
+            )
+        }
+        return AgentDeliveryProcessEvidence(
+            isLive: true,
+            identityValidated: true,
+            ttyDevice: identity.ttyDevice,
+            scope: scope,
+            scopeCacheKey: identity.scopeCacheKey
+        )
+    }
+}
+
+/// Reads process identity and optional cmux scope without touching main-actor
+/// state. The scope probe is keyed to process start time so a reused PID can
+/// never lend its environment to a later request.
+nonisolated func agentDeliveryProcessEvidence(
+    pid: pid_t,
+    resolution: AgentProcessBindingResolution
+) -> AgentDeliveryProcessEvidence {
+    LiveAgentDeliveryProcessInspector().inspect(pid: pid, resolution: resolution)
 }
 @MainActor
 extension Workspace {
@@ -235,44 +273,37 @@ extension DockSplitStore {
 
 @MainActor
 extension AppDelegate {
-    /// The live pane that owns the given agent process right now: the
-    /// process's controlling tty matched against every surface's pty device
-    /// (unique-match only), with the exact live process's start-time-keyed
-    /// `CMUX_SURFACE_ID` environment re-homed through
-    /// `notificationSurfaceOwner` as a nested-PTY fallback. Disagreement fails
-    /// closed.
+    /// Main-actor half of live process resolution. All synchronous process
+    /// inspection is supplied by the socket worker as immutable evidence.
     func liveAgentDeliveryTarget(
-        forAgentPID pid: pid_t,
-        resolution: AgentProcessBindingResolution = .corroborated
+        for evidence: AgentDeliveryProcessEvidence,
+        resolution: AgentProcessBindingResolution
     ) -> AgentDeliveryTargetCandidate? {
-        guard let identity = agentLiveProcessIdentity(pid: pid) else { return nil }
-
+        // The socket path validates the process birth-time key on its worker
+        // lane immediately after the MainActor ownership hop. Do not compare
+        // the evidence key with itself here: that would make the freshness
+        // check tautological and allow a reused PID to borrow stale routing
+        // facts. Synchronous in-process callers receive evidence whose
+        // inspector has already revalidated the key before this ownership
+        // lookup.
+        guard evidence.isLive,
+              evidence.identityValidated,
+              evidence.scopeCacheKey != nil else { return nil }
         var ttyTarget: AgentDeliveryTargetCandidate?
-        if let ttyDevice = identity.ttyDevice {
-            // Read the lifecycle-cached Ghostty PTY so shell integration is not
-            // required; fresh runtime reports remain a nested-PTY fallback.
+        if let ttyDevice = evidence.ttyDevice {
             ttyTarget = agentDeliveryTargetMatchingTTYDevice(
                 ttyDevice,
                 surfaceTTYDevices: liveAgentDeliveryTTYBindings()
             )
         }
-        if resolution == .controllingTTY {
-            return ttyTarget
-        }
+        guard resolution == .corroborated else { return ttyTarget }
 
-        let processScope: CmuxTopProcessScope?
-        switch CmuxTopProcessSnapshot.cmuxScopeProbe(
-            for: Int(pid),
-            expectedCacheKey: identity.scopeCacheKey
-        ) {
-        case .resolved(let scope): processScope = scope
-        case .unavailable: processScope = nil
-        }
         var envTarget: AgentDeliveryTargetCandidate?
-        if let envSurfaceId = processScope?.surfaceID,
+        if let scope = evidence.scope,
+           let envSurfaceId = scope.surfaceID,
            let owner = liveSurfaceOwner(
                surfaceID: envSurfaceId,
-               preferredTabID: processScope?.workspaceID
+               preferredTabID: scope.workspaceID
            ) {
             envTarget = AgentDeliveryTargetCandidate(
                 workspaceId: owner.tabID,
@@ -285,6 +316,20 @@ extension AppDelegate {
             envTarget: envTarget,
             resolution: resolution
         )
+    }
+
+    /// The live pane that owns the given agent process right now: the
+    /// process's controlling tty matched against every surface's pty device
+    /// (unique-match only), with the exact live process's start-time-keyed
+    /// `CMUX_SURFACE_ID` environment re-homed through
+    /// `notificationSurfaceOwner` as a nested-PTY fallback. Disagreement fails
+    /// closed.
+    func liveAgentDeliveryTarget(
+        forAgentPID pid: pid_t,
+        resolution: AgentProcessBindingResolution = .corroborated
+    ) -> AgentDeliveryTargetCandidate? {
+        let evidence = agentDeliveryProcessEvidence(pid: pid, resolution: resolution)
+        return liveAgentDeliveryTarget(for: evidence, resolution: resolution)
     }
 
     /// Current local terminal ownership across both workspace splits and Docks.
@@ -358,7 +403,10 @@ extension TerminalController {
     /// - `{workspace_id}`: existence check only (`source: "workspace"`).
     /// - `{tty_name, tty_resolution: "reported_tty"}`: a relay-authenticated
     ///   remote workspace's unique fresh TTY report (`source: "tty"`).
-    func v2AgentResolveDeliveryTarget(params: [String: Any]) -> V2CallResult {
+    func v2AgentResolveDeliveryTarget(
+        params: [String: Any],
+        precomputedProcessEvidence: AgentDeliveryProcessEvidence? = nil
+    ) -> V2CallResult {
         let claimedWorkspaceId = v2UUID(params, "workspace_id")
         let claimedSurfaceId = v2UUID(params, "surface_id")
         let pidResolution: AgentProcessBindingResolution
@@ -447,10 +495,19 @@ extension TerminalController {
                     data: nil
                 )
             }
-            if let target = appDelegate.liveAgentDeliveryTarget(
-                forAgentPID: agentPid,
-                resolution: pidResolution
-            ) {
+            let target: AgentDeliveryTargetCandidate?
+            if let precomputedProcessEvidence {
+                target = appDelegate.liveAgentDeliveryTarget(
+                    for: precomputedProcessEvidence,
+                    resolution: pidResolution
+                )
+            } else {
+                target = appDelegate.liveAgentDeliveryTarget(
+                    forAgentPID: agentPid,
+                    resolution: pidResolution
+                )
+            }
+            if let target {
                 return .ok([
                     "workspace_id": target.workspaceId.uuidString,
                     "surface_id": target.surfaceId.uuidString,

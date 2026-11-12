@@ -8,3 +8,8 @@
 if [ -n "${CMUX_CALLER_PATH:-}" ]; then
   export PATH="${PATH%:/usr/bin:/bin:/usr/sbin:/sbin}:${CMUX_CALLER_PATH}"
 fi
+
+# Prevent dyld misaligned Mach-O LINKEDIT string pool crashes on macOS 27+ when host
+# proc-macro dylibs or build scripts are stripped during cargo --release builds.
+export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP="${CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP:-none}"
+

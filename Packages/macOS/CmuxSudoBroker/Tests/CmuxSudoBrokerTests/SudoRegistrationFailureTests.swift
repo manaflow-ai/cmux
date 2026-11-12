@@ -59,6 +59,7 @@ struct SudoRegistrationFailureTests {
                 ),
                 reviewedScriptReader: SudoReviewedScriptReader(descriptor: descriptor),
                 expectedParentExecutableURL: parentURL,
+                helperResolver: StaticSudoHelperResolver(),
                 messages: .testMessages,
                 now: { now }
             )

@@ -605,7 +605,7 @@ enum BrowserScreenshotWebViewSnapshotter {
         }
 
         let timer = Timer(timeInterval: timeout, repeats: false) { _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor in
                 finish(.failure(BrowserScreenshotError.automationTimedOut))
             }
         }
@@ -1120,26 +1120,20 @@ private final class BrowserScreenshotExpectedURLWaiter: @unchecked Sendable {
 
         urlObservation = webView.observe(\.url, options: [.new]) { [weak self] _, _ in
             guard let self else { return }
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    self.finishIfReady()
-                }
+            Task { @MainActor [weak self] in
+                self?.finishIfReady()
             }
         }
         loadingObservation = webView.observe(\.isLoading, options: [.new]) { [weak self] _, _ in
             guard let self else { return }
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    self.finishIfReady()
-                }
+            Task { @MainActor [weak self] in
+                self?.finishIfReady()
             }
         }
         let timer = Timer(timeInterval: timeout, repeats: false) { [weak self] _ in
             guard let self else { return }
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    self.finish(.failure(BrowserScreenshotError.emptySnapshot))
-                }
+            Task { @MainActor [weak self] in
+                self?.finish(.failure(BrowserScreenshotError.emptySnapshot))
             }
         }
         timeoutTimer = timer

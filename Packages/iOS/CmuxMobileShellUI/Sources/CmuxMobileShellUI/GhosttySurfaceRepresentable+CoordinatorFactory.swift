@@ -8,6 +8,7 @@ extension GhosttySurfaceRepresentable {
             surfaceID: surfaceID,
             store: store,
             terminalPresentationIsActive: terminalPresentationIsActive,
+            handoffTerminalSizingWhenInactive: handoffTerminalSizingWhenInactive,
             artifactFilesEnabled: artifactFilesEnabled,
             terminalFolderTapEnabled: terminalFolderTapEnabled,
             terminalFilesChipEnabled: terminalFilesChipEnabled,

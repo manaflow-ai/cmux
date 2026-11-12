@@ -18,19 +18,43 @@ const daemonAssets = [
   "cmuxd-remote-manifest.json",
 ];
 
-test("a DMG and appcast without SSH daemon assets is an incomplete release (#12648)", () => {
+const appAssets = [
+  "cmux-macos.dmg",
+  "cmux-macos-arm64.dmg",
+  "cmux-macos-x86_64.dmg",
+  "appcast.xml",
+  "appcast-arm64.xml",
+  "appcast-x86_64.xml",
+];
+
+test("stable ships thin DMGs and per-architecture feeds as immutable assets", () => {
+  for (const name of appAssets) {
+    assert.ok(IMMUTABLE_RELEASE_ASSETS.includes(name), name);
+  }
+  // A release that only has the universal build is incomplete, not done.
   const result = evaluateReleaseAssetGuard({
-    existingAssetNames: ["cmux-macos.dmg", "appcast.xml"],
+    existingAssetNames: ["cmux-macos.dmg", "appcast.xml", ...daemonAssets],
+  });
+  assert.equal(result.guardState, RELEASE_ASSET_GUARD_STATE.PARTIAL);
+  assert.deepEqual(
+    new Set(result.missingImmutableAssets),
+    new Set(["cmux-macos-arm64.dmg", "cmux-macos-x86_64.dmg", "appcast-arm64.xml", "appcast-x86_64.xml"]),
+  );
+});
+
+test("DMGs and appcasts without SSH daemon assets are an incomplete release (#12648)", () => {
+  const result = evaluateReleaseAssetGuard({
+    existingAssetNames: appAssets,
   });
   assert.equal(result.guardState, RELEASE_ASSET_GUARD_STATE.PARTIAL);
   assert.equal(result.shouldSkipBuildAndUpload, false);
   assert.deepEqual(new Set(result.missingImmutableAssets), new Set(daemonAssets));
 });
 
-for (const missing of daemonAssets) {
+for (const missing of [...appAssets.slice(1), ...daemonAssets]) {
   test(`a release missing ${missing} cannot be treated as complete`, () => {
     const result = evaluateReleaseAssetGuard({
-      existingAssetNames: ["cmux-macos.dmg", "appcast.xml", ...daemonAssets]
+      existingAssetNames: [...appAssets, ...daemonAssets]
         .filter((name) => name !== missing),
     });
     assert.equal(result.guardState, RELEASE_ASSET_GUARD_STATE.PARTIAL);

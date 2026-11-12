@@ -32,6 +32,9 @@ final class MobilePrimarySearchCoordinator {
     }
 
     func synchronizeSelection(_ selection: MobilePrimaryTab) {
+        if (selection == .cloud || selection == .home), isPresented {
+            cancelPresentedSearch()
+        }
         guard let selectedScope = selection.searchScope else { return }
         guard scope != selectedScope else { return }
         scope = selectedScope
@@ -254,12 +257,16 @@ final class MobilePrimarySearchCoordinator {
 extension MobilePrimaryTab {
     var searchScope: MobilePrimarySearchScope? {
         switch self {
+        case .home:
+            nil
         case .workspaces:
             .workspaces
         case .notifications:
             .notifications
         case .feed:
             .feed
+        case .cloud:
+            nil
         case .search:
             nil
         }

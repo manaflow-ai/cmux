@@ -30,13 +30,22 @@ const SCRIPTS: &[Script] = &[
         path: "zsh/.zshenv",
         contents: include_str!("../../../../ghostty/src/shell-integration/zsh/.zshenv"),
     },
+    // The cmux-tui additions run after the user's startup files: zsh's
+    // integration body runs from `.zshenv` and registers a preexec hook, and
+    // the bash script sources the startup files before its own setup.
     Script {
         path: "zsh/ghostty-integration",
-        contents: include_str!("../../../../ghostty/src/shell-integration/zsh/ghostty-integration"),
+        contents: concat!(
+            include_str!("../../../../ghostty/src/shell-integration/zsh/ghostty-integration"),
+            include_str!("shell_integration/agent-shims.zsh"),
+        ),
     },
     Script {
         path: "bash/ghostty.bash",
-        contents: include_str!("../../../../ghostty/src/shell-integration/bash/ghostty.bash"),
+        contents: concat!(
+            include_str!("../../../../ghostty/src/shell-integration/bash/ghostty.bash"),
+            include_str!("shell_integration/agent-shims.bash"),
+        ),
     },
     Script {
         path: "bash/bash-preexec.sh",
@@ -48,7 +57,19 @@ const SCRIPTS: &[Script] = &[
             "../../../../ghostty/src/shell-integration/fish/vendor_conf.d/ghostty-shell-integration.fish"
         ),
     },
+    // Ghostty's fish script ends with `exit`, so the cmux-tui addition is its
+    // own vendor file; fish reads every `vendor_conf.d` file at startup.
+    Script {
+        path: "fish/vendor_conf.d/cmux-tui-agent-shims.fish",
+        contents: include_str!("shell_integration/cmux-tui-agent-shims.fish"),
+    },
 ];
+
+/// The directory holding cmux-tui's `codex` and `claude` shims. Integrated
+/// shells move it back to the front of PATH after the user's startup files
+/// (and before each command), so a startup file that prepends the directory
+/// of the real agent cannot bypass the shim and its per-terminal hooks.
+pub const AGENT_SHIMS_ENV: &str = "CMUX_TUI_AGENT_SHIMS";
 
 /// Opt-out: `CMUX_TUI_SHELL_INTEGRATION=none` launches shells unmodified.
 const OPT_OUT_ENV: &str = "CMUX_TUI_SHELL_INTEGRATION";

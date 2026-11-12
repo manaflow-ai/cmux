@@ -142,15 +142,23 @@ class ReceiptTests(unittest.TestCase):
         self.assertIn("CLA Assistant (failure)", loud.body)
         self.assertFalse(loud.unverified)
 
-    def test_the_existing_receipt_comment_is_found_by_its_marker_on_a_bot_comment(self):
-        bot, person = {"login": "github-actions"}, {"login": "someone"}
-        comments = [
-            {"databaseId": 1, "body": "hi", "author": bot},
-            {"databaseId": 3, "body": f"quoting\n{MODULE.MARKER}", "author": person},
-            {"databaseId": 7, "body": f"old\n{MODULE.MARKER}", "author": bot},
+    def test_the_receipt_is_the_receipt_line_of_the_status_comment(self):
+        # An old receipt (its marker last) is edited into the status comment; other lines stay.
+        calls, comments = [], [
+            {"id": 3, "body": f"old\n{MODULE.MARKER}", "user": {"login": "github-actions[bot]"}},
+            {"id": 5, "body": f"quoting\n{MODULE.MARKER}", "user": {"login": "someone"}},
         ]
-        self.assertEqual(MODULE.existing_comment(comments), 7)
-        self.assertIsNone(MODULE.existing_comment(comments[:2]))
+
+        def api(method, path, payload):
+            if method == "GET":
+                return comments
+            calls.append((method, path))
+            comments[0]["body"] = payload["body"]
+            return None
+        body = MODULE.receipt(snapshot(run("ci-status", required=True))).body
+        MODULE.pr_status.upsert("o/r", 7, "receipt", body, legacy=MODULE.MARKER, api=api, sleep=lambda _: None)
+        self.assertEqual(calls, [("PATCH", "/repos/o/r/issues/comments/3")])
+        self.assertEqual(MODULE.pr_status.parse(comments[0]["body"]), {"receipt": body})
 
     def test_check_names_are_inert_markdown(self):
         result = MODULE.receipt(snapshot(
@@ -178,7 +186,7 @@ class WorkflowTests(unittest.TestCase):
         checkout = self.job["steps"][0]["with"]
         self.assertEqual(checkout["ref"], "${{ github.workflow_sha }}")
         self.assertFalse(checkout["persist-credentials"])
-        self.assertEqual(checkout["sparse-checkout"], "scripts/ci/merge_receipt.py")
+        self.assertEqual(checkout["sparse-checkout"].split(), ["scripts/ci/merge_receipt.py", "scripts/ci/pr_status.py"])
         text = WORKFLOW.read_text(encoding="utf-8")
         self.assertNotIn("pull_request.head", text)
 

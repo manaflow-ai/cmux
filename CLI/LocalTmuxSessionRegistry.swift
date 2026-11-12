@@ -72,12 +72,17 @@ struct LocalTmuxSessionRegistry {
         self.fileManager = fileManager
     }
 
+    /// The registry at `~/.cmux/<directoryName>`, or at the path in
+    /// `overrideVariable` when set. local-zellij keeps its records in the
+    /// same format under its own directory.
     static func live(
+        directoryName: String = "local-tmux",
+        overrideVariable: String = "CMUX_LOCAL_TMUX_STATE_DIR",
         environment: [String: String] = ProcessInfo.processInfo.environment,
         fileManager: FileManager = .default
     ) -> LocalTmuxSessionRegistry {
         let root: URL
-        if let override = environment["CMUX_LOCAL_TMUX_STATE_DIR"],
+        if let override = environment[overrideVariable],
            !override.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             root = URL(
                 fileURLWithPath: NSString(string: override).expandingTildeInPath,
@@ -86,7 +91,7 @@ struct LocalTmuxSessionRegistry {
         } else {
             root = fileManager.homeDirectoryForCurrentUser
                 .appendingPathComponent(".cmux", isDirectory: true)
-                .appendingPathComponent("local-tmux", isDirectory: true)
+                .appendingPathComponent(directoryName, isDirectory: true)
         }
         return LocalTmuxSessionRegistry(rootURL: root, fileManager: fileManager)
     }
@@ -122,6 +127,31 @@ struct LocalTmuxSessionRegistry {
             state.sessions.removeAll { $0.id == record.id }
             state.sessions.append(record)
             state.sessions.sort { $0.createdAt < $1.createdAt }
+        }
+    }
+
+    /// Records where a session was last attached, on the record as it is
+    /// now. Only attachment fields change, so a delayed attach cannot restore
+    /// a name or binding the record has since moved away from. Returns
+    /// `false` without writing when the record was removed meanwhile, for
+    /// example by a close that ran while the attach waited on the app.
+    @discardableResult
+    func recordAttachment(
+        id: UUID,
+        workspaceID: String?,
+        workspaceTitle: String?,
+        surfaceID: String?
+    ) throws -> Bool {
+        try ensureSecureStorage()
+        return try withLockedState { state in
+            guard let index = state.sessions.firstIndex(where: { $0.id == id }) else {
+                return false
+            }
+            state.sessions[index].workspaceID = workspaceID
+            state.sessions[index].workspaceTitle = workspaceTitle
+            state.sessions[index].surfaceID = surfaceID
+            state.sessions[index].updatedAt = Date.now.timeIntervalSince1970
+            return true
         }
     }
 

@@ -14,7 +14,7 @@ public import CoreGraphics
 public struct SidePanelWidthFit: Equatable, Sendable {
     /// The narrowest terminal area the window keeps, in points: a prompt and
     /// about 25 columns at the default font. Two full-width panels
-    /// (240 + 276) plus this still fit a half-screen window on a 1470 pt
+    /// (240 + 295) plus this still fit a half-screen window on a 1470 pt
     /// display.
     public static let minimumTerminalWidth: CGFloat = 200
 

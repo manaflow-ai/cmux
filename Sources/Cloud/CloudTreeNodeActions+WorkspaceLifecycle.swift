@@ -36,7 +36,9 @@ extension CloudTreeNodeActions {
         existingWorkspace: SurfaceRemoteWorkspace? = nil,
         existingTerminal: SurfaceResource? = nil,
         existingRemoteView: SurfaceRemoteView? = nil,
+        existingReservation: CloudTerminalPaneReservation? = nil,
         host suppliedHost: CloudWorkspaceCreationHost? = nil,
+        resolveExistingWorkspace: CloudWorkspaceCreationOperation.ResolveExistingWorkspace? = nil,
         validateOperation: @escaping @MainActor () throws -> Void = { try Task.checkCancellation() },
         reuseFailedCreation: Bool = false
     ) async throws -> (
@@ -59,6 +61,8 @@ extension CloudTreeNodeActions {
             provider: provider, name: name, focus: focus, host: host, reuseFailedCreation: reuseFailedCreation,
             existingWorkspace: existingWorkspace, existingTerminal: existingTerminal,
             existingRemoteView: existingRemoteView,
+            resolveExistingWorkspace: resolveExistingWorkspace,
+            existingReservation: existingReservation,
             validateOperation: validateOperation
         )
     }

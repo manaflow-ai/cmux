@@ -27,6 +27,10 @@ public enum ControlPaneBreakResolution: Sendable, Equatable {
     /// "Failed to create workspace for detached surface", `data: nil`). The
     /// legacy body rolled the detached surface back before returning.
     case createWorkspaceFailed
+    /// The surface is a browser tab a browser REPL session drives or typed a
+    /// secret into, which other socket clients may not close, move or
+    /// reload (legacy `denied`). Carries the surface id and the message.
+    case denied(UUID, message: String)
     /// The destination pane could not be resolved after the move (legacy
     /// `internal_error` / "Failed to resolve destination pane for detached
     /// surface", `data: {"workspace_id": …, "surface_id": …}`). Carries the new

@@ -1,0 +1,59 @@
+--- a/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift
++++ b/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarView.swift
+@@ -88,7 +88,7 @@
+     var renderGeneration: Int { generation }
+     private var scale: CGFloat { document.window?.backingScaleFactor ?? 2 }
+     private let cache = SidebarBitmapCache()
+-    private let avatars = SidebarAvatarCache()
++    let avatars = SidebarAvatarCache() // cmux: internal, the pin drag draws its tile
+     private let textCache = SidebarTextCache()
+     private let timeFormatter = ConversationTimeFormatter(yesterday: SidebarStrings.yesterday)
+     private var bellSecondary: CGImage?, bellSelected: CGImage?, failedGlyph: CGImage?, failedSelected: CGImage?
+@@ -96,7 +96,10 @@
+     private var pending: Set<SidebarBitmapKey> = []
+     private var rowLayers: [Int: SidebarRowLayer] = [:]
+     private var pool: [SidebarRowLayer] = []
+-    private var tileLayers: [SidebarRowLayer] = []
++    // cmux: readable by the pin drag (Cmux/SidebarPinDragging.swift).
++    private(set) var tileLayers: [SidebarRowLayer] = []
++    // cmux: the pin drag in progress (Cmux/SidebarPinDrag.swift).
++    let pinDragState = SidebarPinDragState()
+     private let menuRing = CALayer()
+     private var lastVisible: Range<Int> = 0..<0
+     private var lastTop: CGFloat = 0
+@@ -677,6 +680,7 @@
+         layoutDocument()
+         tile(force: true)
+         updateAccessibility()
++        pinDragDidReload() // cmux: a drag follows the new data; a drop lands
+     }
+ 
+     // MARK: Geometry
+@@ -797,7 +801,7 @@
+ 
+     private func clipMoved() { tile(force: false) }  // no selector
+ 
+-    private var renderContext: SidebarRenderContext {
++    var renderContext: SidebarRenderContext { // cmux: internal, the pin drag draws its tile
+         SidebarRenderContext(metrics: metrics, palette: palette, scale: scale,
+                              space: document.window?.screen?.colorSpace?.cgColorSpace ?? SidebarDraw.p3, generation: generation,
+                              bellSecondary: bellSecondary, bellSelected: bellSelected,
+@@ -1734,7 +1738,9 @@
+         if let c = controller, c.swipeClick(at: point(event)) { return }
+         guard let c = controller, let h = c.hit(point(event)), let s = c.summary(h) else { return } // a stale hit selects nothing
+         c.highlight(s.id, reveal: false)
+-        if case let .tile(t) = h { c.tileDragBegan(t, at: point(event)) }
++        // cmux: press and drag a tile or row (Cmux/SidebarPinDragging.swift: reorder, pin and unpin
++        // by drag, Escape cancels), a superset of MessagesLab's tile reorder (tileDragBegan).
++        c.trackPinDrag(from: event, in: self)
+     }
+     override func mouseDragged(with event: NSEvent) { controller?.tileDragMoved(to: point(event)) }
+     override func mouseUp(with event: NSEvent) { controller?.tileDragEnded(at: point(event)) }
+@@ -1746,6 +1752,7 @@
+         default: interpretKeyEvents([event])
+         }
+     }
++    override func cancelOperation(_ sender: Any?) { controller?.cancelPinDrag() } // cmux: Escape reaching the list ends a pin drag
+     override func moveDown(_ sender: Any?) { controller?.moveSelection(1) }
+     override func moveUp(_ sender: Any?) { controller?.moveSelection(-1) }
+     /// Typing a letter in the list starts a search (as a source list's type-select would).

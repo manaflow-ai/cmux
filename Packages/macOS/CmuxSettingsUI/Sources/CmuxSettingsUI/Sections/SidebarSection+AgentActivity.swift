@@ -4,6 +4,8 @@ import SwiftUI
 extension SidebarSection {
     @ViewBuilder
     var agentActivityRows: some View {
+        agentUsageRow
+
         SettingsCardRow(
             configurationReview: .json("sidebar.showAgentActivity"),
             String(localized: "settings.app.showAgentActivity", defaultValue: "Show Loading Spinner"),

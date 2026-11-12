@@ -106,6 +106,27 @@ struct CloudBrowserProxyIntegrationTests {
         await model.retire()
     }
 
+    @Test("a remote-network Cloud page applies its authenticated proxy to every domain")
+    func remoteNetworkCloudNavigationUsesAllDomainProxy() async throws {
+        let server = try CloudBrowserProxyTestServer(address: "10.16.0.14", marker: "remote-network")
+        try await server.start()
+        defer { server.stop() }
+        let panel = BrowserPanel(workspaceId: UUID(), websiteDataStore: .nonPersistent())
+        defer { panel.close() }
+        let access = model(server: server, route: .remoteBrowser)
+        let url = try await prepare(panel: panel, model: access, server: server)
+        #expect(panel.websiteDataStore.proxyConfigurations.first?.matchDomains.isEmpty == true)
+        _ = panel.navigate(to: url)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !panel.cloudAccess.showsPage && ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(panel.cloudAccess.showsPage)
+        #expect(try await panel.webView.evaluateJavaScript("document.body.dataset.machine") as? String == server.marker)
+        #expect(server.requests.contains { $0.host == "\(server.address):8000" })
+        await access.retire()
+    }
+
     @Test("Cloud websites keep the pane background while styles load, then restore normal page rendering",
           arguments: ["/ordinary", "/vnc.html"])
     func genericWebsiteLoadingBackground(path: String) async throws {
@@ -401,7 +422,10 @@ struct CloudBrowserProxyIntegrationTests {
         }
     }
 
-    private func model(server: CloudBrowserProxyTestServer) -> CloudPortAccessModel {
+    private func model(
+        server: CloudBrowserProxyTestServer,
+        route: CloudPortAccessRoute = .browserProxy
+    ) -> CloudPortAccessModel {
         CloudPortAccessModel(
             target: CloudPortForwardTarget(host: server.address, port: 8000),
             coordinator: nil,
@@ -411,6 +435,7 @@ struct CloudBrowserProxyIntegrationTests {
                 return 1
             },
             stopForward: {},
+            route: route,
             startBrowserProxy: { server.endpoint }
         )
     }

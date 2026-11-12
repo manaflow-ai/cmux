@@ -26,6 +26,42 @@ struct CloudMachineCreateCoordinatorTests {
         )
     }
 
+    @Test("A failed create keeps the launcher's refusal code, and a retry clears it")
+    func refusalCodeTravelsWithTheFailure() throws {
+        let owner = makeOwner()
+        let attempt = owner.reserve(request())
+        let id = attempt.operationID
+        let failed = owner.finish(CloudMachineCreateCompletion(
+            succeeded: false, wasCancelled: false, output: "",
+            failureOutput: "Shown text (HTTP 402: vm_active_limit_exceeded)",
+            machineID: nil, workspaceID: nil, refusalCode: "vm_resource_pool_exceeded"
+        ), from: attempt)
+        #expect(owner.projection.operations.first?.refusalCode == "vm_resource_pool_exceeded")
+        #expect(failed.finished?.operation.refusalCode == "vm_resource_pool_exceeded")
+        let retry = try #require(owner.retry(id))
+        #expect(owner.projection.operations.first?.refusalCode == nil)
+        _ = owner.finish(CloudMachineCreateCompletion(
+            succeeded: false, wasCancelled: false, output: "", failureOutput: "Limit",
+            machineID: nil, workspaceID: nil, refusalCode: "vm_active_limit_exceeded"
+        ), from: retry)
+        #expect(owner.projection.operations.first?.refusalCode == "vm_active_limit_exceeded")
+        let last = try #require(owner.retry(id))
+        _ = owner.finish(completion(success: false), from: last)
+        #expect(owner.projection.operations.first?.refusalCode == nil)
+    }
+
+    @Test("A machine that exists but failed to open keeps no create refusal code")
+    func openFailureCarriesNoRefusalCode() {
+        let owner = makeOwner()
+        let attempt = owner.reserve(request())
+        _ = owner.finish(CloudMachineCreateCompletion(
+            succeeded: false, wasCancelled: false, output: "", failureOutput: "Open failed",
+            machineID: "vm-1", workspaceID: nil, refusalCode: "vm_resource_pool_exceeded"
+        ), from: attempt)
+        #expect(owner.projection.operations.first?.createdMachineID == "vm-1")
+        #expect(owner.projection.operations.first?.refusalCode == nil)
+    }
+
     @Test func pendingExistsBeforeDelayedCreateResponse() {
         let owner = makeOwner()
         let request = request()

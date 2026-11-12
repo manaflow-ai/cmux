@@ -41,7 +41,7 @@ RAW_MEDIA_URL = re.compile(
     r"https?://(?:"
     r"raw\.githubusercontent\.com/(?P<raw_repo>[^/\s]+)/(?P<raw_name>[^/\s]+)/"
     r"(?:refs/heads/)?pr-media/|"
-    r"github\.com/(?P<web_repo>[^/\s]+/[^/\s]+)/raw/(?:refs/heads/)?pr-media/"
+    r"github\.com/(?P<web_repo>[^/\s]+/[^/\s]+)/(?:raw|blob)/(?:refs/heads/)?pr-media/"
     r")(?P<path>[^\s<>\"')]+)", re.IGNORECASE,
 )
 

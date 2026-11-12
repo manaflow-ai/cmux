@@ -12,6 +12,7 @@ final class MainWindowController: ReleasingWindowController {
     var shouldRetireZoomIntentForProgrammaticResize: ((CmuxMainWindow) -> Bool) = { _ in true }
 
     private var isFullScreenTransitionInProgress = false
+    private var clearsFullscreenTilingOptOutOnPresentation = false
 
 #if DEBUG
     private func logWindowEvent(_ event: String, notification: Notification) {
@@ -24,7 +25,25 @@ final class MainWindowController: ReleasingWindowController {
 #endif
 
     override func managedWindowWillClose(_ window: NSWindow) {
+        clearFullscreenTilingOptOutIfNeeded(window)
         onClose?(window)
+    }
+
+    /// Temporarily keeps a newly-created window out of the source fullscreen
+    /// Space until AppKit reports that the window has become active.
+    func disallowFullscreenTilingUntilPresentation() {
+        guard let window else { return }
+        window.collectionBehavior.insert(.fullScreenDisallowsTiling)
+        clearsFullscreenTilingOptOutOnPresentation = true
+    }
+
+    /// Returns whether a new window needs a transient fullscreen tiling opt-out
+    /// while it is being presented from a native fullscreen source.
+    static func shouldTemporarilyDisallowFullscreenTiling(
+        sourceWindow: NSWindow?,
+        restoringSessionWindow: Bool
+    ) -> Bool {
+        !restoringSessionWindow && sourceWindow?.styleMask.contains(.fullScreen) == true
     }
 
     func windowWillEnterFullScreen(_ notification: Notification) {
@@ -86,27 +105,31 @@ final class MainWindowController: ReleasingWindowController {
         handleGeometryChange(notification)
     }
 
-#if DEBUG
-    func windowDidMiniaturize(_ notification: Notification) {
-        logWindowEvent("didMiniaturize", notification: notification)
-    }
-
     func windowDidBecomeKey(_ notification: Notification) {
+#if DEBUG
         logWindowEvent("didBecomeKey", notification: notification)
+#endif
+        clearFullscreenTilingOptOutIfNeeded(notification.object as? NSWindow)
     }
 
     func windowDidResignKey(_ notification: Notification) {
+#if DEBUG
         logWindowEvent("didResignKey", notification: notification)
+#endif
     }
 
     func windowDidBecomeMain(_ notification: Notification) {
+#if DEBUG
         logWindowEvent("didBecomeMain", notification: notification)
+#endif
+        clearFullscreenTilingOptOutIfNeeded(notification.object as? NSWindow)
     }
 
     func windowDidResignMain(_ notification: Notification) {
+#if DEBUG
         logWindowEvent("didResignMain", notification: notification)
-    }
 #endif
+    }
 
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         let shouldClose = shouldClose?(sender) ?? true
@@ -183,5 +206,15 @@ final class MainWindowController: ReleasingWindowController {
             return
         }
         placedWindow.recordUserPlacement()
+    }
+
+    private func clearFullscreenTilingOptOutIfNeeded(_ changedWindow: NSWindow?) {
+        guard clearsFullscreenTilingOptOutOnPresentation,
+              let window,
+              changedWindow === window else {
+            return
+        }
+        window.collectionBehavior.remove(.fullScreenDisallowsTiling)
+        clearsFullscreenTilingOptOutOnPresentation = false
     }
 }

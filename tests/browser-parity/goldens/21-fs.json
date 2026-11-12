@@ -1,0 +1,54 @@
+{
+  "oracle": {
+    "read": "hello world",
+    "read-buffer": true,
+    "readdir": [
+      "sub"
+    ],
+    "readdir-types": [
+      [
+        "sub",
+        true
+      ]
+    ],
+    "stat": [
+      11,
+      true
+    ],
+    "exists": [
+      true,
+      false
+    ],
+    "rename-copy": [
+      false,
+      "hello world"
+    ],
+    "cwd": true,
+    "promises": "promised",
+    "import-same": [
+      true,
+      true,
+      true,
+      true
+    ],
+    "import-promises": true,
+    "temp": "temp ok",
+    "temp-removed": false,
+    "path": [
+      "b/c.txt",
+      "y",
+      ".gz",
+      true
+    ],
+    "buffer": [
+      "aMOpbGxv",
+      "hi",
+      "6162"
+    ],
+    "enoent": "ENOENT"
+  },
+  "cmux": {
+    "outside": "EACCES",
+    "outside-write": "EACCES"
+  }
+}

@@ -20,6 +20,8 @@ public struct CloudTelemetrySpan: Codable, Sendable, Equatable, Identifiable {
     public var droppedCount: Int?
     var sourceFile: String?
     var sourceLine: Int?
+    /// Set only on sign-in service rate-limit records.
+    public var auth: CloudTelemetryAuthAttributes?
     public var id: String { eventId }
 
     public init(

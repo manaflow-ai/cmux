@@ -16,13 +16,16 @@ struct SidebarWorkspaceRowSuspensionTests {
         SidebarWorkspaceSnapshotBuilder.Snapshot(
             presentationKey: SidebarWorkspaceSnapshotFactory.presentationKey(
                 settings: SidebarTabItemSettingsSnapshot(defaults: UserDefaults(suiteName: UUID().uuidString)!),
-                showsAgentActivity: false
+                showsAgentActivity: false,
+                customColorHex: nil
             ),
             title: "Workspace",
             customDescription: customDescription,
             isPinned: false,
             isMuted: false,
-            customColorHex: nil, cloudWorkspaceLabel: nil,
+            customColorHex: nil,
+            hasManualCustomColor: false,
+            cloudWorkspaceLabel: nil,
             remoteWorkspaceSidebarText: nil,
             remoteConnectionStatusText: "",
             remoteStateHelpText: "",

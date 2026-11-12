@@ -19,6 +19,12 @@ use crate::workspace_registry::{
 };
 use crate::{ResolvedResourcePath, ResourceSelectors, ResourceTarget, SurfaceKind};
 
+/// `screen.create`'s `focus` field: whether the new screen becomes its
+/// workspace's focused screen. The resource router sends `false` when a
+/// caller omits it; the daemon's and the user's own new screens omit it and
+/// focus the new screen.
+pub(crate) const SCREEN_CREATE_FOCUS_FIELD: &str = "focus";
+
 #[derive(Clone, Copy)]
 struct LayoutMutationContext<'a> {
     coalesce: Option<LayoutMutationKey>,
@@ -322,6 +328,11 @@ impl Mux {
                 });
             }
             ResourceCreationPreparation::Blocked { idempotency_key, operation } => {
+                self.report_resource_effect_indeterminate(
+                    &idempotency_key,
+                    &operation,
+                    BLOCKED_CREATION_CAUSE,
+                );
                 return Err(anyhow::Error::new(resource_effect_indeterminate(
                     &idempotency_key,
                     &operation,
@@ -1815,7 +1826,7 @@ impl Mux {
                     root: Node::Leaf(target_pane),
                     active_pane: target_pane,
                     zoomed_pane: None,
-                    zellij_auto_layout: Some(vec![target_pane]),
+                    creation_order_auto_layout: Some(vec![target_pane]),
                     viewport_splits: Default::default(),
                     viewport_base_width: None,
                     layout_columns: Vec::new(),
@@ -2311,7 +2322,7 @@ impl Mux {
                         let target = &mut state.workspaces[workspace].screens[screen];
                         let before = target.layout_snapshot_for_coalescing_change(coalesce);
                         target.root = layout.root;
-                        target.zellij_auto_layout = layout.zellij_auto_layout;
+                        target.creation_order_auto_layout = layout.creation_order_auto_layout;
                         target.viewport_splits = layout.viewport_splits;
                         target.viewport_base_width = layout.viewport_base_width;
                         target.layout_columns = layout.layout_columns;
@@ -2500,9 +2511,17 @@ impl Mux {
                 }
                 ResourceEffectOutcome::Failure(error) => Err(anyhow::Error::new(error)),
             },
-            ResourceEffectPreparation::Indeterminate => Err(anyhow::Error::new(
-                resource_effect_indeterminate(&mutation.id, &operation_name),
-            )),
+            ResourceEffectPreparation::Indeterminate => {
+                self.report_resource_effect_indeterminate(
+                    &mutation.id,
+                    &operation_name,
+                    crate::resource_api::EARLIER_ATTEMPT_CAUSE,
+                );
+                Err(anyhow::Error::new(resource_effect_indeterminate(
+                    &mutation.id,
+                    &operation_name,
+                )))
+            }
             ResourceEffectPreparation::Execute { .. } => {
                 let intent = self.mark_resource_effect_executing(
                     &mutation.id,
@@ -2524,29 +2543,21 @@ impl Mux {
                                 format!("{error:#}"),
                                 json!({"idempotency_key":mutation.id}),
                             );
-                            if self
-                                .commit_resource_effect(
-                                    &mutation.id,
-                                    &operation_name,
-                                    fingerprint,
-                                    &ResourceEffectOutcome::Failure(error.clone()),
-                                    None,
-                                )
-                                .is_ok()
-                            {
-                                return Err(anyhow::Error::new(error));
-                            } else {
-                                let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                                return Err(anyhow::Error::new(resource_effect_indeterminate(
-                                    &mutation.id,
-                                    &operation_name,
-                                )));
-                            }
+                            return Err(self.commit_topology_failure_or_indeterminate(
+                                &mutation.id,
+                                &operation_name,
+                                fingerprint,
+                                error,
+                            ));
                         }
                     };
                     drop(_creation_fence);
                     drop(_creation_handoff);
                     return Ok(self.finish_resource_close(committed));
+                }
+                #[cfg(test)]
+                if let Some(hook) = self.topology_effect_before_execute.lock().unwrap().clone() {
+                    hook();
                 }
                 let result = match self.execute_resource_topology_effect(operation, &intent) {
                     Ok(result) => result,
@@ -2556,24 +2567,12 @@ impl Mux {
                             .is_some_and(|error| error.code == "confirmation.required") =>
                     {
                         let error = error.downcast_ref::<ResourceError>().expect("checked").clone();
-                        let outcome = ResourceEffectOutcome::Failure(error.clone());
-                        if self
-                            .commit_resource_effect(
-                                &mutation.id,
-                                &operation_name,
-                                fingerprint,
-                                &outcome,
-                                None,
-                            )
-                            .is_ok()
-                        {
-                            return Err(anyhow::Error::new(error));
-                        }
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        return Err(anyhow::Error::new(resource_effect_indeterminate(
+                        return Err(self.commit_topology_failure_or_indeterminate(
                             &mutation.id,
                             &operation_name,
-                        )));
+                            fingerprint,
+                            error,
+                        ));
                     }
                     Err(error)
                         if operation == ResourceOperation::ScreenLayoutUndo
@@ -2588,66 +2587,42 @@ impl Mux {
                                 format!("{error:#}"),
                                 json!({"idempotency_key":mutation.id}),
                             );
-                            if self
-                                .commit_resource_effect(
-                                    &mutation.id,
-                                    &operation_name,
-                                    fingerprint,
-                                    &ResourceEffectOutcome::Failure(error.clone()),
-                                    None,
-                                )
-                                .is_ok()
-                            {
-                                return Err(anyhow::Error::new(error));
-                            }
-                            let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                            return Err(anyhow::Error::new(resource_effect_indeterminate(
-                                &mutation.id,
-                                &operation_name,
-                            )));
-                        };
-                        let actual = match self
-                            .workspace_registry
-                            .lock()
-                            .unwrap()
-                            .resource_topology_snapshot()
-                        {
-                            Ok(snapshot) => snapshot.revision,
-                            Err(_) => {
-                                let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                                return Err(anyhow::Error::new(resource_effect_indeterminate(
-                                    &mutation.id,
-                                    &operation_name,
-                                )));
-                            }
-                        };
-                        let error = ResourceError::revision_conflict(expected, actual);
-                        if self
-                            .commit_resource_effect(
+                            return Err(self.commit_topology_failure_or_indeterminate(
                                 &mutation.id,
                                 &operation_name,
                                 fingerprint,
-                                &ResourceEffectOutcome::Failure(error.clone()),
-                                None,
-                            )
-                            .is_ok()
-                        {
-                            return Err(anyhow::Error::new(error));
-                        }
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        return Err(anyhow::Error::new(resource_effect_indeterminate(
+                                error,
+                            ));
+                        };
+                        // The read is its own statement: its registry guard ends here,
+                        // before an Err arm that marks the effect indeterminate (and so
+                        // locks the registry again).
+                        let snapshot =
+                            self.workspace_registry.lock().unwrap().resource_topology_snapshot();
+                        let actual = match snapshot {
+                            Ok(snapshot) => snapshot.revision,
+                            Err(error) => {
+                                return Err(self.indeterminate_topology_effect(
+                                    &mutation.id,
+                                    &operation_name,
+                                    &format!("the topology revision could not be read: {error:#}"),
+                                ));
+                            }
+                        };
+                        let error = ResourceError::revision_conflict(expected, actual);
+                        return Err(self.commit_topology_failure_or_indeterminate(
                             &mutation.id,
                             &operation_name,
-                        )));
+                            fingerprint,
+                            error,
+                        ));
                     }
-                    Err(_error) => {
-                        #[cfg(test)]
-                        eprintln!("resource topology effect execution failed: {_error:#}");
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        return Err(anyhow::Error::new(resource_effect_indeterminate(
+                    Err(error) => {
+                        return Err(self.indeterminate_topology_effect(
                             &mutation.id,
                             &operation_name,
-                        )));
+                            &format!("the effect failed: {error:#}"),
+                        ));
                     }
                 };
                 match self.commit_full_resource_effect_projection(
@@ -2657,18 +2632,56 @@ impl Mux {
                     result,
                 ) {
                     Ok(commit) => Ok(commit),
-                    Err(_error) => {
-                        #[cfg(test)]
-                        eprintln!("resource topology effect projection commit failed: {_error:#}");
-                        let _ = self.mark_resource_effect_indeterminate(&mutation.id);
-                        Err(anyhow::Error::new(resource_effect_indeterminate(
-                            &mutation.id,
-                            &operation_name,
-                        )))
-                    }
+                    Err(error) => Err(self.indeterminate_topology_effect(
+                        &mutation.id,
+                        &operation_name,
+                        &format!("the outcome commit failed: {error:#}"),
+                    )),
                 }
             }
         }
+    }
+
+    /// Commits `error` as the effect's failed outcome. When that commit
+    /// fails, the effect is indeterminate, and the daemon log gets both the
+    /// failure and the commit error.
+    fn commit_topology_failure_or_indeterminate(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        fingerprint: &Value,
+        error: ResourceError,
+    ) -> anyhow::Error {
+        match self.commit_resource_effect(
+            idempotency_key,
+            operation,
+            fingerprint,
+            &ResourceEffectOutcome::Failure(error.clone()),
+            None,
+        ) {
+            Ok(_) => anyhow::Error::new(error),
+            Err(commit_error) => self.indeterminate_topology_effect(
+                idempotency_key,
+                operation,
+                &format!(
+                    "the effect failed ({}: {}) and its failure outcome commit failed: {commit_error:#}",
+                    error.code, error.message
+                ),
+            ),
+        }
+    }
+
+    /// Marks a topology effect indeterminate and logs `cause`, so the daemon
+    /// log says why the response is `mutation.indeterminate`.
+    fn indeterminate_topology_effect(
+        &self,
+        idempotency_key: &str,
+        operation: &str,
+        cause: &str,
+    ) -> anyhow::Error {
+        self.report_resource_effect_indeterminate(idempotency_key, operation, cause);
+        let _ = self.mark_resource_effect_indeterminate(idempotency_key);
+        anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2775,6 +2788,7 @@ impl Mux {
         expected_generation: Option<&str>,
         expected_terminal_revision: Option<u64>,
         mutation: &WorkspaceMutation,
+        guard: TerminalCloseGuard,
     ) -> anyhow::Result<Option<TerminalCloseResult>> {
         let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
         let _creation_fence = self.resource_creation_execution.lock().unwrap();
@@ -2799,6 +2813,31 @@ impl Mux {
             return Ok(None);
         };
         let mut state = self.state.lock().unwrap();
+        if guard.requires_unplaced() {
+            // The registry lock serializes placement commits and the creation
+            // fence excludes a creation between runtime and placement, so
+            // this check cannot race a new view of the terminal.
+            let placed = !state
+                .placements_of_content(&ContentPublicId::Terminal(public_id.clone()))
+                .is_empty()
+                || state.terminal_catalog.get(&public_id).is_some_and(|runtime| {
+                    state.surfaces.values().any(|view| view.shares_terminal_runtime(runtime))
+                });
+            if placed {
+                return Err(TerminalCloseGuardFailed::Placed.into());
+            }
+            if guard.requires_detached()
+                && state
+                    .terminal_catalog
+                    .get(&public_id)
+                    .is_some_and(|runtime| self.terminal_view_attached(runtime.id))
+            {
+                return Err(TerminalCloseGuardFailed::Attached.into());
+            }
+            if guard.requires_detached() && self.daemon_handoff_in_progress() {
+                return Err(TerminalCloseGuardFailed::HandingOff.into());
+            }
+        }
         let durable_host = registry.terminal_host_id(&public_id)?.ok_or_else(|| {
             terminal_close_state_error(format!("terminal {public_id} has no durable host"))
         })?;
@@ -3574,6 +3613,11 @@ impl Mux {
                 Ok(ResourcePatchCommit { revision, result: created_path, replayed: true })
             }
             ResourceCreationPreparation::Blocked { idempotency_key, operation } => {
+                self.report_resource_effect_indeterminate(
+                    &idempotency_key,
+                    &operation,
+                    BLOCKED_CREATION_CAUSE,
+                );
                 Err(anyhow::Error::new(resource_effect_indeterminate(&idempotency_key, &operation)))
             }
             ResourceCreationPreparation::Failed { error, .. } => Err(anyhow::Error::new(error)),
@@ -3597,6 +3641,7 @@ impl Mux {
                         eprintln!("correlated resource creation failed: {error:#}");
                         let failure = resource_creation_failure(&recovery, &error);
                         return creation_settlement_result(
+                            self,
                             self.settle_resource_creation(recovery, Some(failure))?,
                             &idempotency_key,
                             &operation_name,
@@ -3617,6 +3662,7 @@ impl Mux {
                         );
                         let failure = resource_creation_failure(&recovery, &error);
                         creation_settlement_result(
+                            self,
                             self.settle_resource_creation(recovery, Some(failure))?,
                             &idempotency_key,
                             &operation_name,
@@ -3685,15 +3731,17 @@ impl Mux {
                     created_path,
                 ) {
                     Ok(commit) => Ok(ResourceCreationSettlement::Created(commit)),
-                    Err(_) => {
+                    Err(error) => {
                         if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
                             return Ok(settlement);
                         }
                         if recovery.interrupted {
                             return Ok(ResourceCreationSettlement::Pending);
                         }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        Ok(ResourceCreationSettlement::Indeterminate)
+                        self.indeterminate_creation(
+                            &recovery,
+                            &format!("the created resource's outcome commit failed: {error:#}"),
+                        )
                     }
                 }
             }
@@ -3717,30 +3765,43 @@ impl Mux {
                     None,
                 ) {
                     Ok(_) => Ok(ResourceCreationSettlement::NotApplied(error)),
-                    Err(_) => {
+                    Err(commit_error) => {
                         if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
                             return Ok(settlement);
                         }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        Ok(ResourceCreationSettlement::Indeterminate)
+                        self.indeterminate_creation(
+                            &recovery,
+                            &format!(
+                                "the creation did not apply ({}: {}) and its failure outcome \
+                                 commit failed: {commit_error:#}",
+                                error.code, error.message
+                            ),
+                        )
                     }
                 }
             }
             ResourceCreationEvidence::Ambiguous => {
                 self.rollback_interrupted_workspace_creation(&recovery.intent)?;
-                self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                Ok(ResourceCreationSettlement::Indeterminate)
+                self.indeterminate_creation(
+                    &recovery,
+                    &creation_cause("the creation evidence is ambiguous", failure.as_ref()),
+                )
             }
-            ResourceCreationEvidence::AmbiguousLive => {
-                self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                Ok(ResourceCreationSettlement::Indeterminate)
-            }
+            ResourceCreationEvidence::AmbiguousLive => self.indeterminate_creation(
+                &recovery,
+                &creation_cause(
+                    "the live state does not show whether the creation applied",
+                    failure.as_ref(),
+                ),
+            ),
             ResourceCreationEvidence::Pending => Ok(ResourceCreationSettlement::Pending),
             ResourceCreationEvidence::TerminalClosedAfterFailure => {
                 let Some(error) = failure else {
                     self.rollback_interrupted_workspace_creation(&recovery.intent)?;
-                    self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                    return Ok(ResourceCreationSettlement::Indeterminate);
+                    return self.indeterminate_creation(
+                        &recovery,
+                        "the created terminal closed and the failure that closed it is unknown",
+                    );
                 };
                 self.rollback_interrupted_workspace_creation(&recovery.intent)?;
                 match self.commit_resource_effect(
@@ -3751,16 +3812,38 @@ impl Mux {
                     None,
                 ) {
                     Ok(_) => Ok(ResourceCreationSettlement::NotApplied(error)),
-                    Err(_) => {
+                    Err(commit_error) => {
                         if let Some(settlement) = self.persisted_creation_settlement(&recovery)? {
                             return Ok(settlement);
                         }
-                        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
-                        Ok(ResourceCreationSettlement::Indeterminate)
+                        self.indeterminate_creation(
+                            &recovery,
+                            &format!(
+                                "the creation did not apply ({}: {}) and its failure outcome \
+                                 commit failed: {commit_error:#}",
+                                error.code, error.message
+                            ),
+                        )
                     }
                 }
             }
         }
+    }
+
+    /// Marks a creation indeterminate and logs `cause`, so the daemon log
+    /// says why the creation answers `mutation.indeterminate`.
+    fn indeterminate_creation(
+        &self,
+        recovery: &ResourceCreationRecovery,
+        cause: &str,
+    ) -> anyhow::Result<ResourceCreationSettlement> {
+        self.report_resource_effect_indeterminate(
+            &recovery.idempotency_key,
+            &recovery.operation,
+            cause,
+        );
+        self.mark_resource_effect_indeterminate(&recovery.idempotency_key)?;
+        Ok(ResourceCreationSettlement::Indeterminate)
     }
 
     fn rollback_interrupted_workspace_creation(&self, intent: &Value) -> anyhow::Result<()> {
@@ -4713,6 +4796,9 @@ impl Mux {
         cwd: Option<String>,
         size: Option<(u16, u16)>,
     ) -> anyhow::Result<CreatedTerminalEffect> {
+        // Absent only on the daemon's and the user's own new screens: the
+        // resource router sends `focus: false` for a caller that did not ask.
+        let focus = intent["fields"][SCREEN_CREATE_FOCUS_FIELD].as_bool().unwrap_or(true);
         let workspace_key = self
             .with_state(|state| state.workspace_by_id(workspace).map(|item| item.key.clone()))
             .with_context(|| format!("workspace {workspace} disappeared"))?;
@@ -4762,7 +4848,9 @@ impl Mux {
                 anyhow::bail!("workspace disappeared while creating screen");
             };
             state.insert_pane(pane);
-            stamp_pane_focus(self, &mut state, pane_id);
+            if focus {
+                stamp_pane_focus(self, &mut state, pane_id);
+            }
             let workspace = &mut state.workspaces[workspace_index];
             workspace.screens.push(Screen {
                 id: screen_id,
@@ -4771,14 +4859,17 @@ impl Mux {
                 root: Node::Leaf(pane_id),
                 active_pane: pane_id,
                 zoomed_pane: None,
-                zellij_auto_layout: Some(vec![pane_id]),
+                creation_order_auto_layout: Some(vec![pane_id]),
                 viewport_splits: Default::default(),
                 viewport_base_width: None,
                 layout_columns: Vec::new(),
                 layout_revision: 0,
                 layout_undo: Default::default(),
             });
-            workspace.active_screen = workspace.screens.len() - 1;
+            // A workspace whose only screen this is shows it either way.
+            if focus || workspace.screens.len() == 1 {
+                workspace.active_screen = workspace.screens.len() - 1;
+            }
             let path = self.created_resource_path_in_state(&state, surface.id)?;
             CreatedTerminalEffect { path }
         };
@@ -4857,7 +4948,7 @@ impl Mux {
                             id: split_id.expect("viewport split reserved an id"),
                             width,
                             root: Node::Leaf(pane_id),
-                            zellij_auto_layout: Some(vec![pane_id]),
+                            creation_order_auto_layout: Some(vec![pane_id]),
                         },
                     ),
                     "target pane disappeared from its layout"
@@ -4869,7 +4960,7 @@ impl Mux {
                     let column = screen
                         .layout_column_for_pane_mut(target)
                         .context("target pane has no viewport column")?;
-                    column.zellij_auto_layout = None;
+                    column.creation_order_auto_layout = None;
                     &mut column.root
                 } else {
                     &mut screen.root
@@ -4894,7 +4985,7 @@ impl Mux {
                 if in_viewport_column {
                     screen.sync_layout_column_projection();
                 } else {
-                    screen.zellij_auto_layout = None;
+                    screen.creation_order_auto_layout = None;
                 }
             } else if screen.layout_columns_active() {
                 let column = screen
@@ -4902,7 +4993,7 @@ impl Mux {
                     .context("target pane has no viewport column")?;
                 append_to_auto_layout(
                     &mut column.root,
-                    &mut column.zellij_auto_layout,
+                    &mut column.creation_order_auto_layout,
                     pane_id,
                     || self.next_id(),
                 );
@@ -4910,7 +5001,7 @@ impl Mux {
             } else {
                 append_to_auto_layout(
                     &mut screen.root,
-                    &mut screen.zellij_auto_layout,
+                    &mut screen.creation_order_auto_layout,
                     pane_id,
                     || self.next_id(),
                 );
@@ -5033,7 +5124,24 @@ fn resource_creation_failure(
     })
 }
 
+/// Cause logged when a creation waits on an earlier attempt that is still
+/// running or has an indeterminate outcome.
+const BLOCKED_CREATION_CAUSE: &str =
+    "an earlier attempt of this creation is still running or has an indeterminate outcome";
+
+/// Joins an indeterminate creation's reason with the failure that started its
+/// settlement, when there is one.
+fn creation_cause(reason: &str, failure: Option<&ResourceError>) -> String {
+    match failure {
+        Some(failure) => {
+            format!("{reason}; the attempt failed ({}: {})", failure.code, failure.message)
+        }
+        None => reason.to_string(),
+    }
+}
+
 fn creation_settlement_result(
+    mux: &Mux,
     settlement: ResourceCreationSettlement,
     idempotency_key: &str,
     operation: &str,
@@ -5045,6 +5153,11 @@ fn creation_settlement_result(
             Err(anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation)))
         }
         ResourceCreationSettlement::Pending => {
+            mux.report_resource_effect_indeterminate(
+                idempotency_key,
+                operation,
+                "an interrupted attempt of this creation has not settled yet",
+            );
             Err(anyhow::Error::new(resource_effect_indeterminate(idempotency_key, operation)))
         }
     }
@@ -5374,7 +5487,7 @@ fn parse_resource_layout_document(
                     &mut seen_tabs,
                     &mut tab_orders,
                 )?;
-                parsed.push(LayoutColumn { id, width, root, zellij_auto_layout: None });
+                parsed.push(LayoutColumn { id, width, root, creation_order_auto_layout: None });
             }
             anyhow::ensure!(
                 parsed.first().is_some_and(|column| column.width == base_width),
@@ -5423,7 +5536,7 @@ fn parse_resource_layout_document(
         root,
         active_pane,
         zoomed_pane,
-        zellij_auto_layout: None,
+        creation_order_auto_layout: None,
         viewport_splits: Default::default(),
         viewport_base_width,
         layout_columns,
@@ -6426,7 +6539,7 @@ fn target_location_screen(state: &State, location: (usize, usize)) -> ScreenId {
 }
 
 fn remove_pane_from_layout(layout: &mut ScreenLayoutSnapshot, pane: PaneId) -> bool {
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     if layout.layout_columns.is_empty() {
         let root = std::mem::replace(&mut layout.root, Node::Leaf(0));
         let Some(root) = root.remove_leaf(pane) else {
@@ -6440,7 +6553,7 @@ fn remove_pane_from_layout(layout: &mut ScreenLayoutSnapshot, pane: PaneId) -> b
         return true;
     };
     let column = &mut layout.layout_columns[index];
-    column.zellij_auto_layout = None;
+    column.creation_order_auto_layout = None;
     let root = std::mem::replace(&mut column.root, Node::Leaf(0));
     if let Some(root) = root.remove_leaf(pane) {
         column.root = root;
@@ -6452,7 +6565,7 @@ fn remove_pane_from_layout(layout: &mut ScreenLayoutSnapshot, pane: PaneId) -> b
         1 => {
             let column = layout.layout_columns.remove(0);
             layout.root = column.root;
-            layout.zellij_auto_layout = column.zellij_auto_layout;
+            layout.creation_order_auto_layout = column.creation_order_auto_layout;
             layout.viewport_splits.clear();
             layout.viewport_base_width = None;
             true
@@ -6493,7 +6606,7 @@ fn registry_screen_from_layout(
     };
     let layout_node = registry_layout_node(state, &layout.root)?;
     let auto_layout = layout
-        .zellij_auto_layout
+        .creation_order_auto_layout
         .as_ref()
         .map(|panes| {
             panes.iter().map(|pane| public_pane(*pane)).collect::<anyhow::Result<Vec<_>>>()
@@ -6513,7 +6626,7 @@ fn registry_screen_from_layout(
                 width: column.width,
                 layout: registry_layout_node(state, &column.root)?,
                 auto_layout: column
-                    .zellij_auto_layout
+                    .creation_order_auto_layout
                     .as_ref()
                     .map(|panes| {
                         panes
@@ -6630,7 +6743,7 @@ fn set_layout_split_ratio(
         changed
     };
     anyhow::ensure!(changed, "unknown split");
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     Ok(())
 }
 
@@ -6655,13 +6768,13 @@ fn swap_layout_panes(
     for column in &mut layout.layout_columns {
         if column.root.contains(first) || column.root.contains(second) {
             column.root.swap_leaf_ids(first, second);
-            column.zellij_auto_layout = None;
+            column.creation_order_auto_layout = None;
         }
     }
     if !layout.layout_columns.is_empty() {
         sync_layout_column_projection(layout);
     }
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     if !both_present {
         if layout.active_pane == first {
             layout.active_pane = second;
@@ -6687,7 +6800,7 @@ fn overwrite_layout_snapshot(screen: &mut Screen, layout: ScreenLayoutSnapshot) 
     screen.root = layout.root;
     screen.active_pane = layout.active_pane;
     screen.zoomed_pane = layout.zoomed_pane;
-    screen.zellij_auto_layout = layout.zellij_auto_layout;
+    screen.creation_order_auto_layout = layout.creation_order_auto_layout;
     screen.viewport_splits = layout.viewport_splits;
     screen.viewport_base_width = layout.viewport_base_width;
     screen.layout_columns = layout.layout_columns;
@@ -6701,7 +6814,7 @@ fn sync_layout_column_projection(layout: &mut ScreenLayoutSnapshot) {
     };
     layout.viewport_splits.clear();
     layout.viewport_base_width = Some(first.width);
-    layout.zellij_auto_layout = None;
+    layout.creation_order_auto_layout = None;
     let mut root = first.root.clone();
     let mut width_before = first.width;
     for column in layout.layout_columns.iter().skip(1) {

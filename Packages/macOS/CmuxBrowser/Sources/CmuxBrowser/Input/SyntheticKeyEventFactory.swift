@@ -128,17 +128,25 @@ public enum SyntheticKeyEventFactory {
 
     /// Builds an `NSEvent` backed by a real `CGEvent` so WebKit text input can
     /// safely interpret it. Callers choose their own direct delivery target.
+    ///
+    /// - Parameter marksBrowserAutomation: Marks the event as a key browser
+    ///   automation delivers to a web view (``NSEvent/isBrowserAutomationKeyEvent``),
+    ///   so the app can drop WebKit's resend of it to the key window.
     public static func keyEvent(
         specification: SyntheticKeySpecification,
         keyDown: Bool,
         timestamp: TimeInterval,
-        characters: String? = nil
+        characters: String? = nil,
+        marksBrowserAutomation: Bool = false
     ) -> NSEvent? {
         guard let cgEvent = CGEvent(
             keyboardEventSource: nil,
             virtualKey: specification.keyCode,
             keyDown: keyDown
         ) else { return nil }
+        if marksBrowserAutomation {
+            cgEvent.setIntegerValueField(.eventSourceUserData, value: NSEvent.browserAutomationKeyMark)
+        }
         cgEvent.flags = cgFlags(specification.modifierFlags)
         cgEvent.timestamp = CGEventTimestamp(timestamp * 1_000_000_000)
         if let characters {
@@ -297,5 +305,34 @@ public enum SyntheticKeyEventFactory {
         case "`": 50
         default: nil
         }
+    }
+}
+
+extension BrowserKeyboardNativeKey {
+    /// This key with `held`, the modifiers held around it, following
+    /// Playwright's keyboard: a shortcut's command is chosen by the key's
+    /// code and the modifiers held (`Meta+KeyA` is Select All), and an
+    /// uppercase letter adds no Shift of its own. So with Command or
+    /// Control held and no Shift, `A` is the `a` key without Shift (its
+    /// characters stay `A`): `Meta+A` is `Meta+a`. Only a Shift held in the
+    /// combo makes it `Shift+Meta+A`. Without Command or Control, `A` still
+    /// types `A` with Shift.
+    func resolvingLetterCase(held: NSEvent.ModifierFlags) -> BrowserKeyboardNativeKey {
+        guard modifiers.contains(.shift),
+              !held.contains(.shift),
+              !held.isDisjoint(with: [.command, .control]),
+              let base = charactersIgnoringModifiers,
+              base.unicodeScalars.count == 1,
+              let scalar = base.unicodeScalars.first,
+              (97...122).contains(scalar.value)
+        else { return self }
+        return BrowserKeyboardNativeKey(
+            keyCode: keyCode,
+            location: location,
+            modifiers: modifiers.subtracting(.shift),
+            modifierKey: modifierKey,
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers
+        )
     }
 }

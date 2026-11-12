@@ -219,6 +219,20 @@ Notes:
   point cmux-cua refuses with `background_occluded` naming the occluder
   instead of clicking the wrong window. Retry with `delivery_mode:"foreground"`
   or front the target.
+- The bundled Codex compatibility profile exposes `delivery_mode` on `click`
+  and `drag`. A click can be retried with `delivery_mode:"foreground"`; this
+  briefly fronts the snapshotted window, dispatches the click, and restores the
+  previous app. The action remains unverified until a fresh state call confirms
+  its effect.
+- macOS obstruction checks use WindowServer rectangles. System-owned surfaces
+  such as the Dock can be reported at a point that is not visible in the app
+  screenshot, so `background_occluded` is a safety stop rather than proof that
+  the target is visibly covered. Keep the protection and use the foreground
+  retry when bringing the target forward is acceptable.
+- Background coordinate drags are unavailable on macOS and return
+  `background_unavailable`; pass `delivery_mode:"foreground"` with the
+  snapshotted target window for a real drag. A report that dragging fails is
+  not independently verified by this contract change.
 
 ## The branded agent cursor
 
@@ -283,9 +297,10 @@ Settings → cmux Computer Use.
   onboarding. The wrappers set `CMUX_CUA_MCP_FORCE_PROXY=1` and preserve
   the external-flow contract in the proxy process so protected calls wait for
   cmux's post-verification readiness signal.
-  There is no ambient executable override. Both profiles resolve the app-bundled
-  `cmux-cua` executable and the tag-scoped helper only; missing ownership fails
-  closed instead of running a user-supplied executable.
+  There is no ambient executable override. Both profiles resolve the
+  tag-scoped installed helper's `cmux-cua` executable only, through the shared
+  `client-policy.sh`; missing ownership fails closed instead of running a
+  user-supplied executable.
 - If the cmux-owned daemon is unavailable, do **not** invoke `cmux-cua`
   directly through Bash and do not start its default socket. Tell the user to
   open Settings → cmux Computer Use or restart the tagged cmux build, then retry the

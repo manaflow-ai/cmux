@@ -4,8 +4,20 @@ import Foundation
 /// Ports, and Desktop use the separate user-space WireGuard hub and do not
 /// need this command; it exists for other apps on this Mac.
 extension CMUXCLI {
-    func runVPNCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
+    /// Validates `cmux vpn` arguments without touching the socket, so bad input
+    /// fails with usage before the CLI connects or authenticates.
+    static func validatedVPNSubcommand(_ commandArgs: [String]) throws -> String {
+        let usage = CLIError(message: "Usage: cmux vpn <up|down|status|revoke>")
+        guard commandArgs.count <= 1 else { throw usage }
         let subcommand = commandArgs.first?.lowercased() ?? "status"
+        guard ["up", "on", "down", "off", "status", "revoke"].contains(subcommand) else {
+            throw usage
+        }
+        return subcommand
+    }
+
+    func runVPNCommand(commandArgs: [String], client: SocketClient, jsonOutput: Bool) throws {
+        let subcommand = try Self.validatedVPNSubcommand(commandArgs)
         switch subcommand {
         case "up", "on":
             try runVPNUp(client: client, jsonOutput: jsonOutput)

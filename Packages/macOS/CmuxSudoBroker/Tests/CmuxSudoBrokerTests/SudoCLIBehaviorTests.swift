@@ -4,14 +4,73 @@ import Testing
 
 @Suite("Sudo CLI behavior")
 struct SudoCLIBehaviorTests {
-    @Test("Touch ID setup runs the helper bundled with the enclosing app")
+    @Test("Touch ID setup stages the sealed helper bundled with the enclosing app")
     func touchIDSetupUsesBundledHelper() throws {
         let fixture = try SudoTestFixture()
         defer { fixture.remove() }
         let output = TestCLIOutput()
         let launcher = RecordingTouchIDSetupLauncher(exitCode: 17)
-        let helperURL = fixture.root.appendingPathComponent("setup-pam-tid.sh")
-        let command = SudoCLICommand(
+        let sealedDigest = Data(repeating: 0xab, count: 32)
+        let checker = StubSudoCodeSignatureChecker(digest: sealedDigest)
+        let policy = SudoBundledHelperPolicy.testPolicy()
+        let command = Self.setupCommand(
+            fixture: fixture,
+            output: output,
+            launcher: launcher,
+            resolver: SudoBundledHelperResolver(policy: policy, checker: checker)
+        )
+
+        let exitCode = try command.run(arguments: ["setup-touch-id"])
+
+        #expect(exitCode == 17)
+        #expect(checker.calls == [
+            StubSudoCodeSignatureChecker.Call(
+                bundleURL: policy.appBundleURL,
+                requirement: policy.bundleRequirement,
+                resourcePath: "Resources/bin/setup-pam-tid.sh"
+            ),
+        ])
+        #expect(launcher.helpers == [
+            SudoVerifiedHelper(
+                sourceURL: URL(
+                    fileURLWithPath: "/Applications/cmux.app/Contents/Resources/bin/setup-pam-tid.sh"
+                ),
+                sha256: String(repeating: "ab", count: 32),
+                requirement: nil,
+                interpreter: "/bin/bash"
+            ),
+        ])
+    }
+
+    @Test("Touch ID setup refuses a bundle that fails signature validation")
+    func touchIDSetupRefusesUnsignedBundle() throws {
+        let fixture = try SudoTestFixture()
+        defer { fixture.remove() }
+        let output = TestCLIOutput()
+        let launcher = RecordingTouchIDSetupLauncher(exitCode: 0)
+        let command = Self.setupCommand(
+            fixture: fixture,
+            output: output,
+            launcher: launcher,
+            resolver: SudoBundledHelperResolver(
+                policy: .testPolicy(),
+                checker: StubSudoCodeSignatureChecker(failure: .invalidSignature(-67_050))
+            )
+        )
+
+        #expect(throws: SudoCLICommandError.self) {
+            try command.run(arguments: ["setup-touch-id"])
+        }
+        #expect(launcher.helpers.isEmpty)
+    }
+
+    private static func setupCommand(
+        fixture: SudoTestFixture,
+        output: TestCLIOutput,
+        launcher: RecordingTouchIDSetupLauncher,
+        resolver: any SudoBundledHelperResolving
+    ) -> SudoCLICommand {
+        SudoCLICommand(
             store: fixture.store,
             appBundleURL: URL(fileURLWithPath: "/Applications/cmux.app"),
             currentDirectoryURL: URL(fileURLWithPath: "/tmp", isDirectory: true),
@@ -23,16 +82,11 @@ struct SudoCLIBehaviorTests {
             requesterCommand: "test-agent",
             launcher: TestAppLauncher(),
             setupLauncher: launcher,
-            setupHelperURL: helperURL,
+            helperResolver: resolver,
             io: output.io,
             failureMessages: .testMessages,
             now: { Date(timeIntervalSince1970: 1) }
         )
-
-        let exitCode = try command.run(arguments: ["setup-touch-id"])
-
-        #expect(exitCode == 17)
-        #expect(launcher.helperURLs == [helperURL])
     }
 
     @Test("Standard input is read through the script-size bound")
@@ -249,14 +303,14 @@ struct SudoCLIBehaviorTests {
 
 private final class RecordingTouchIDSetupLauncher: SudoTouchIDSetupLaunching {
     private let exitCode: Int32
-    private(set) var helperURLs: [URL] = []
+    private(set) var helpers: [SudoVerifiedHelper] = []
 
     init(exitCode: Int32) {
         self.exitCode = exitCode
     }
 
-    func run(helperURL: URL) throws -> Int32 {
-        helperURLs.append(helperURL)
+    func run(helper: SudoVerifiedHelper) throws -> Int32 {
+        helpers.append(helper)
         return exitCode
     }
 }

@@ -77,21 +77,26 @@ extension ShortcutAction {
         case .toggleFullScreen: return ShortcutStroke(key: "f", command: true, control: true)
         case .quit: return ShortcutStroke(key: "q", command: true)
         case .toggleSidebar: return ShortcutStroke(key: "b", command: true)
+        case .focusSidebar: return nil
+        case .showWindowHints: return ShortcutStroke(key: "j", command: true)
         case .newTab: return ShortcutStroke(key: "n", command: true)
+        case .newLocalWorkspace: return ShortcutStroke(key: "n", command: true, option: true, control: true)
         case .newBrowserWorkspace: return ShortcutStroke(key: "n", command: true, option: true)
-        case .newCloudWorkspace: return ShortcutStroke(key: "y", command: true, shift: true)
-        case .newCloudMachine: return ShortcutStroke(key: "y", command: true)
+        case .newCloudWorkspace: return ShortcutStroke(key: "y", command: true)
+        case .newCloudMachine: return ShortcutStroke(key: "y", command: true, shift: true)
         case .saveLayoutTemplate: return ShortcutStroke(key: "s", command: true, control: true)
         case .openFolder: return ShortcutStroke(key: "o", command: true)
         case .reopenPreviousSession: return ShortcutStroke(key: "o", command: true, shift: true)
         case .goToWorkspace: return ShortcutStroke(key: "p", command: true)
         case .commandPalette: return ShortcutStroke(key: "p", command: true, shift: true)
         case .agentInbox: return ShortcutStroke(key: "i", command: true, shift: true)
+        case .openChief: return ShortcutStroke(key: "c", command: true, shift: true)
         case .commandPaletteNext: return ShortcutStroke(key: "n", control: true)
         case .commandPalettePrevious: return ShortcutStroke(key: "p", control: true)
         case .sendFeedback: return nil
         case .showNotifications: return ShortcutStroke(key: "i", command: true)
         case .jumpToUnread: return ShortcutStroke(key: "u", command: true, shift: true)
+        case .jumpToLastPrompt: return ShortcutStroke(key: "b", command: true, shift: true)
         case .toggleUnread: return ShortcutStroke(key: "u", command: true, option: true)
         case .markOldestUnreadAndJumpNext: return ShortcutStroke(key: "u", command: true, control: true)
         case .markAllNotificationsRead, .clearAllNotifications: return nil
@@ -132,6 +137,7 @@ extension ShortcutAction {
         case .focusDown: return ShortcutStroke(key: "↓", command: true, option: true)
         case .focusPreviousPane: return nil
         case .focusNextPane: return nil
+        case .focusPaneByNumber: return nil
         case .splitRight: return ShortcutStroke(key: "d", command: true)
         case .splitDown: return ShortcutStroke(key: "d", command: true, shift: true)
         case .newPaneAutoLayout: return ShortcutStroke(key: "n", command: true, control: true)

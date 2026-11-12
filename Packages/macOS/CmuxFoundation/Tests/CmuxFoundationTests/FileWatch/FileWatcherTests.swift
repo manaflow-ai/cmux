@@ -4,6 +4,43 @@ import Testing
 @testable import CmuxFoundation
 
 @Suite struct FileWatcherTests {
+    /// A watcher whose ancestor directory cannot be opened has to say so.
+    ///
+    /// `makeSource` returns nil when `open(O_EVTONLY)` fails and the watcher carries on, so the
+    /// event stream exists with nothing behind it and can never yield. A caller waiting for a
+    /// socket to be *created* would then wait forever, which is why the reconnect path reads this
+    /// and falls back to its own retry loop rather than trusting the watch.
+    /// Root ignores directory permissions, so the denial this test relies on cannot be staged there.
+    @Test(.enabled(if: getuid() != 0)) func watcherReportsAFailedAncestorWatch() async throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-filewatch-denied-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer {
+            chmod(base.path, 0o755)
+            try? FileManager.default.removeItem(at: base)
+        }
+
+        let watched = base.appendingPathComponent("socket")
+        // 000 makes open(O_EVTONLY) fail with EACCES for a non-root user, which is the observable
+        // stand-in for the fd exhaustion this guard actually exists to survive.
+        #expect(chmod(base.path, 0o000) == 0)
+        let denied = FileWatcher(path: watched.path)
+        defer { Task { await denied.stop() } }
+        #expect(await denied.isWatchingAncestorDirectory == false)
+    }
+
+    /// The positive half, so the property cannot pass by always returning false.
+    @Test func watcherReportsAWorkingAncestorWatch() async throws {
+        let base = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-filewatch-ok-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: base) }
+
+        let watcher = FileWatcher(path: base.appendingPathComponent("socket").path)
+        defer { Task { await watcher.stop() } }
+        #expect(await watcher.isWatchingAncestorDirectory == true)
+    }
+
     /// Awaits the watcher's first event, bounded so a broken watcher fails the
     /// test instead of hanging CI.
     private func firstEvent(_ watcher: FileWatcher, within seconds: Double) async -> Bool {

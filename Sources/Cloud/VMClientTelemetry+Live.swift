@@ -1,9 +1,11 @@
 import CmuxCloud
+import CmuxProductAnalytics
 import Foundation
 
 extension VMClientTelemetry {
     /// The production telemetry: PostHog for captured requests, Sentry for
-    /// failures and breadcrumbs. Built once at the composition root.
+    /// failures and breadcrumbs, and product analytics for the Cloud funnel.
+    /// Built once at the composition root.
     static func live() -> VMClientTelemetry {
         VMClientTelemetry(
             capturePostHog: { event, properties in
@@ -19,6 +21,15 @@ extension VMClientTelemetry {
             },
             addBreadcrumb: { message, data in
                 sentryBreadcrumb(message, category: VMClientTelemetry.sentryCategory, data: data)
+            },
+            observeRecord: { record in
+                ProductAnalytics.app.noteCloudRequest(CloudRequestObservation(
+                    method: record.method,
+                    route: record.route,
+                    success: record.outcome.isSuccess,
+                    errorCode: record.outcome.errorCode,
+                    durationMs: record.durationMs
+                ))
             }
         )
     }

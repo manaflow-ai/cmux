@@ -12,7 +12,7 @@ struct AgentChatTranscriptResolver: Sendable {
     /// Config-dir root for Claude (`$CLAUDE_CONFIG_DIR` or `~/.claude`).
     private let claudeConfigRoot: URL
     /// Config-dir root for Codex (`$CODEX_HOME` or `~/.codex`).
-    private let codexConfigRoot: URL
+    let codexConfigRoot: URL
 
     /// Creates a resolver.
     ///

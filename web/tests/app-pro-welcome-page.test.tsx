@@ -46,8 +46,7 @@ describe("app pro welcome page", () => {
     const html = renderToStaticMarkup(element);
 
     expect(html).toContain("Welcome to cmux Pro");
-    expect(html).toContain("Pro features are still being built");
-    expect(html).toContain("usage credits accumulated for every month");
+    expect(html).toContain("Pro includes up to 5 Cloud VMs sharing 20 vCPUs and 40 GB RAM");
     expect(html).toContain("cmux iOS app");
     expect(html).toContain(
       'href="/dashboard/testflight?cmux_open_in_browser=split-right"',
@@ -82,7 +81,7 @@ describe("app pro welcome page", () => {
       const html = renderToStaticMarkup(element);
 
       expect(html).toContain("Bienvenue dans cmux Pro");
-      expect(html).toContain("L’accès au cloud arrive bientôt");
+      expect(html).toContain("Pro inclut jusqu’à 5 VM Cloud partageant 20 vCPU et 40 Go de RAM");
       expect(html).toContain("Rejoindre la bêta iOS");
       expect(html).toContain(
         'href="/fr/dashboard/testflight?cmux_open_in_browser=split-right"',
@@ -116,7 +115,7 @@ describe("app pro welcome page", () => {
       const metadata = await generateMetadata();
 
       expect(metadata.title).toBe("Bienvenue dans cmux Pro");
-      expect(metadata.description).toContain("L’accès au cloud arrive bientôt");
+      expect(metadata.description).toContain("Pro inclut jusqu’à 5 VM Cloud partageant 20 vCPU et 40 Go de RAM");
     } finally {
       activeLocale = "en";
     }

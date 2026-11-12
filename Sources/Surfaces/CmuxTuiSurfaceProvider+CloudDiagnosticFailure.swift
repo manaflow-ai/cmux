@@ -10,6 +10,7 @@ extension CmuxTuiSurfaceProvider.ProviderError: CloudDiagnosticFailureClassifyin
         case .terminalAttachTimedOut: return .timeout
         case .invalidSnapshot, .stateUnavailable, .tabStateUnavailable: return .response
         case .snapshotOnly, .hubUnavailable: return .unsupported
+        case .browserNotCreated: return .response
         case .invalidPreviewURL, .localForwardURLUnavailable: return .response
         }
     }

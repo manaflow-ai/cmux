@@ -15,7 +15,7 @@ public struct DeviceAccessControl {
     ///   - preference: The independent preference this control changes.
     ///   - enabled: Its persisted value.
     ///   - managed: Whether administrator policy disables this preference.
-    ///   - unavailable: Whether Cloud/Beta availability disables My Devices.
+    ///   - unavailable: Whether Cloud availability disables My Devices.
     public init(
         _ preference: DevicesAccessCoordinator.Preference,
         enabled: Bool,
@@ -33,8 +33,8 @@ public struct DeviceAccessControl {
         switch preference {
         case .discovery:
             return isOn
-                ? String(localized: "devices.discovery.stop", defaultValue: "Stop discovering other Macs", bundle: .module)
-                : String(localized: "devices.discovery.toggle", defaultValue: "Discover other Macs")
+                ? String(localized: "devices.discovery.stop", defaultValue: "Stop discovering other devices", bundle: .module)
+                : String(localized: "devices.discovery.toggle", defaultValue: "Discover other devices")
         case .incomingAccess:
             return isOn
                 ? String(localized: "devices.incoming.hide", defaultValue: "Hide this Mac from My Devices", bundle: .module)

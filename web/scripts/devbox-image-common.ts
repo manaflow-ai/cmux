@@ -30,16 +30,29 @@ export const repoRoot = path.resolve(webRoot, "..");
 export const devboxDir = path.join(webRoot, "services/vms/images/devbox");
 export const devboxDockerfilePath = path.join(devboxDir, "Dockerfile");
 
+/** The daemon state reservation is inside the existing guest disk, not a VM resize. */
+export const CMUX_TUI_STATE_IMAGE_PATH = "/var/lib/cmux/cmux-tui-state.ext4";
+export const CMUX_TUI_STATE_MOUNT_HELPER_PATH = "/usr/local/bin/cmux-tui-state-mount";
+export const CMUX_TUI_STATE_RESERVATION_MARKER_PATH = "/etc/cmux/cmux-tui-state-reservation";
+export const CMUX_TUI_STATE_RESERVATION_BYTES = 1024 * 1024 * 1024;
+/** The reserved filesystem may grow inside the existing VM disk as journals grow. */
+export const CMUX_TUI_STATE_MAX_BYTES = 8 * 1024 * 1024 * 1024;
+
 /** Files the Dockerfile COPYs plus the Dockerfile itself; all must exist. */
 export const DEVBOX_TEMPLATE_FILES = [
   "Dockerfile",
   "agent-config.sh",
+  "agent-auth.sh",
+  "cmux-claude",
+  "cmux-codex",
   "cmux-opencode",
   "chrome-managed-policy.json",
   "cmux-bashrc",
   "cmux-devbox-boot",
+  "cmux-tui-state-mount",
   "cmux-motd",
   "cmux-prompt.bash",
+  "cmux-python-completion.bash",
   "cmux-terminfo.sh",
   "cmux-terminfo.src",
   "codex-managed.toml",
@@ -277,6 +290,67 @@ export function devboxGhosttyDebSha256(dockerfile = readDevboxDockerfile()): str
   const sha = /^ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256=([0-9a-f]{64})$/m.exec(dockerfile)?.[1];
   if (!sha) throw new Error("devbox Dockerfile is missing a 64-hex ARG CMUX_IMAGE_GHOSTTY_DEB_SHA256");
   return sha;
+}
+
+/** Muse needs a newer bubblewrap than Ubuntu 24.04's 0.9.0. */
+export function devboxBubblewrapUrl(dockerfile = readDevboxDockerfile()): string {
+  const url = /^ARG CMUX_IMAGE_BUBBLEWRAP_URL=(\S+)$/m.exec(dockerfile)?.[1];
+  if (!url) throw new Error("devbox Dockerfile is missing ARG CMUX_IMAGE_BUBBLEWRAP_URL");
+  return url;
+}
+
+/** Verify the upstream archive before extracting or compiling its contents. */
+export function devboxBubblewrapSha256(dockerfile = readDevboxDockerfile()): string {
+  const sha = /^ARG CMUX_IMAGE_BUBBLEWRAP_SHA256=([0-9a-f]{64})$/m.exec(dockerfile)?.[1];
+  if (!sha) throw new Error("devbox Dockerfile is missing a 64-hex ARG CMUX_IMAGE_BUBBLEWRAP_SHA256");
+  return sha;
+}
+
+/** The pinned release, from the tarball name: what `bwrap --version` must print. */
+export function devboxBubblewrapVersion(dockerfile = readDevboxDockerfile()): string {
+  const version = /\/bubblewrap-(\d+\.\d+\.\d+)\.tar\.xz$/.exec(devboxBubblewrapUrl(dockerfile))?.[1];
+  if (!version) throw new Error("devbox Dockerfile's CMUX_IMAGE_BUBBLEWRAP_URL carries no bubblewrap-<x.y.z>.tar.xz");
+  return version;
+}
+
+/**
+ * The one bubblewrap install both recipes run: the Dockerfile's RUN is this
+ * with the ARG references, the Freestyle bake this with the pinned values
+ * (a test keeps them identical). The tarball is verified before anything is
+ * built from it; the build tools are removed again. `/usr/bin/bwrap` is
+ * diverted first, so the distro package (already on a base, or pulled in
+ * later by apt) installs as `/usr/bin/bwrap.distrib` and never replaces the
+ * pinned binary. `/usr/bin` keeps Ubuntu's AppArmor `bwrap` userns profile,
+ * which is attached by that path, applying to it.
+ */
+export function devboxBubblewrapInstallCommand(url: string, sha256: string, version: string): string {
+  return [
+    "apt-get update",
+    "apt-get install -y --no-install-recommends meson ninja-build libcap-dev",
+    `curl -fsSL -o /tmp/bubblewrap.tar.xz ${url}`,
+    `echo "${sha256}  /tmp/bubblewrap.tar.xz" | sha256sum -c -`,
+    "rm -rf /tmp/bubblewrap",
+    "mkdir /tmp/bubblewrap",
+    "tar -xJf /tmp/bubblewrap.tar.xz -C /tmp/bubblewrap --strip-components=1",
+    "meson setup /tmp/bubblewrap/build /tmp/bubblewrap --prefix=/usr --buildtype=release -Dtests=false -Dman=disabled -Dselinux=disabled -Dbash_completion=disabled -Dzsh_completion=disabled",
+    "meson compile -C /tmp/bubblewrap/build",
+    "dpkg-divert --local --rename --divert /usr/bin/bwrap.distrib --add /usr/bin/bwrap",
+    "meson install -C /tmp/bubblewrap/build --no-rebuild",
+    "apt-get purge -y meson ninja-build libcap-dev",
+    "rm -rf /var/lib/apt/lists/* /tmp/bubblewrap /tmp/bubblewrap.tar.xz",
+    `test "$(/usr/bin/bwrap --version)" = "bubblewrap ${version}"`,
+    `test "$(command -v bwrap)" = /usr/bin/bwrap`,
+  ].join(" && ");
+}
+
+/** Reject an old or shadowed binary and exercise the work user's sandbox. */
+export function devboxBubblewrapCheckCommand(dockerfile = readDevboxDockerfile()): string {
+  return [
+    'test "$(command -v bwrap)" = /usr/bin/bwrap',
+    `test "$(bwrap --version)" = "bubblewrap ${devboxBubblewrapVersion(dockerfile)}"`,
+    `sudo -n -u ${DEVBOX_WORK_USER} bwrap --ro-bind / / --unshare-user --unshare-pid --proc /proc --dev /dev -- /bin/true`,
+    "echo bubblewrap-ok",
+  ].join(" && ");
 }
 
 export const AGENT_PIN_ARGS: readonly { arg: string; pkg: string; binary: string }[] = [
@@ -734,6 +808,76 @@ export function devboxWaitForDaemonCommand(timeoutSeconds = 120): string {
   );
 }
 
+/** Options for {@link devboxIdleWakeupCheckCommand}. `procRoot` and `pause` exist for tests. */
+export interface DevboxIdleWakeupCheckOptions {
+  /** Idle window over which voluntary context switches are counted. */
+  readonly windowSeconds?: number;
+  /** Most voluntary context switches one terminal host's main thread may make in the window. */
+  readonly maxHostMainSwitches?: number;
+  readonly procRoot?: string;
+  /** The command that waits out the window (default `sleep <windowSeconds>`). */
+  readonly pause?: string;
+}
+
+/**
+ * Idle-wakeup smoke check (plans/cmux-next/vm-image.md, "Production promotion").
+ * Counts voluntary context switches per thread of every cmux-tui terminal host
+ * and of the daemon across an idle window, and fails when a terminal host's
+ * main thread woke more than the bound. The old host accept loop polled its
+ * listener every 20 ms (about 3,000 switches a minute); an event-driven host
+ * blocks and makes a handful. Processes are found by argv (argv[1] is
+ * `__terminal-host`, or `server start` for the daemon), never by a pattern over
+ * the whole command line, which would also match this check's own shell. It
+ * fails when no terminal host exists, so an empty machine never passes.
+ */
+export function devboxIdleWakeupCheckCommand(options: DevboxIdleWakeupCheckOptions = {}): string {
+  const windowSeconds = options.windowSeconds ?? 60;
+  const max = options.maxHostMainSwitches ?? 30;
+  const proc = options.procRoot ?? "/proc";
+  const pause = options.pause ?? `sleep ${windowSeconds}`;
+  // No shell `${...}` below: this is a TypeScript template.
+  const script = String.raw`P='@PROC@'; hosts=''; daemon=''
+for d in "$P"/[0-9]*; do
+  a1=$(tr '\0' '\n' < "$d/cmdline" 2>/dev/null | sed -n 2p)
+  a2=$(tr '\0' '\n' < "$d/cmdline" 2>/dev/null | sed -n 3p)
+  if [ "$a1" = __terminal-host ]; then hosts="$hosts $(basename "$d")"
+  elif [ "$a1" = server ] && [ "$a2" = start ]; then daemon="$daemon $(basename "$d")"; fi
+done
+[ -n "$hosts" ] || { echo 'idle-wakeups: FAIL no terminal host to measure'; exit 1; }
+snap() {
+  for p in $hosts; do for t in "$P/$p"/task/*; do
+    printf 'host %s %s %s %s\n' "$p" "$(basename "$t")" "$(awk '/^voluntary_ctxt_switches/ { print $2 }' "$t/status" 2>/dev/null)" "$(cat "$t/comm" 2>/dev/null)"
+  done; done
+  for p in $daemon; do for t in "$P/$p"/task/*; do
+    printf 'daemon %s %s %s %s\n' "$p" "$(basename "$t")" "$(awk '/^voluntary_ctxt_switches/ { print $2 }' "$t/status" 2>/dev/null)" "$(cat "$t/comm" 2>/dev/null)"
+  done; done
+}
+before=$(snap); @PAUSE@; after=$(snap)
+printf '%s\n--\n%s\n' "$before" "$after" | awk -v max=@MAX@ -v window=@WINDOW@ '
+  $0 == "--" { second = 1; next }
+  $4 !~ /^[0-9]+$/ { next }
+  !second { start[$1 " " $2 " " $3] = $4; next }
+  {
+    key = $1 " " $2 " " $3
+    if (!(key in start)) next
+    d = $4 - start[key]; comm = $5
+    for (i = 6; i <= NF; i++) comm = comm " " $i
+    tag = ($2 == $3) ? " main" : ""
+    printf "idle-wakeups: %s %s thread %s (%s%s): %d voluntary switches in %ds\n", $1, $2, $3, comm, tag, d, window
+    if ($1 == "host" && $2 == $3) { hosts++; if (d > max) bad++ }
+  }
+  END {
+    if (hosts == 0) { print "idle-wakeups: FAIL no terminal host main thread measured"; exit 1 }
+    if (bad) { printf "idle-wakeups: FAIL %d terminal host main thread(s) over %d switches in %ds\n", bad, max, window; exit 1 }
+    printf "idle-wakeups: PASS %d terminal host main thread(s) at or under %d switches in %ds\n", hosts, max, window
+  }'`;
+  return script
+    .replace("@PROC@", proc)
+    .replace("@PAUSE@", pause)
+    .replace("@MAX@", String(max))
+    .replace("@WINDOW@", String(windowSeconds));
+}
+
 const TEMPLATE_RUN_DIR = "/run/cmux";
 const TERMINAL_IDS_JQ = `[.. | objects | (.terminal_id? // .id?) | strings | select(startswith("term_"))] | unique | .[]`;
 
@@ -754,7 +898,7 @@ export function devboxPrepareTemplateTerminalCommand(timeoutSeconds = 60): strin
     `(${run("terminal list")} > /tmp/cmux-template-terminals.json || :)`,
     `for id in $(jq -r '${TERMINAL_IDS_JQ}' /tmp/cmux-template-terminals.json 2>/dev/null); do ${run('terminal "$id" close')} >/dev/null || exit 1; done`,
     `install -o ${DEVBOX_WORK_USER} -g ${DEVBOX_WORK_USER} -m 644 /dev/null ${TEMPLATE_RUN_DIR}/template-arm`,
-    `${run("workspace create --name Cloud")} >/dev/null`,
+    `${run("workspace create --name workspace-1")} >/dev/null`,
     `for i in $(seq 1 ${timeoutSeconds * 10}); do [ -e ${TEMPLATE_RUN_DIR}/template-shell-ready ] && break; sleep 0.1; done`,
     `test -e ${TEMPLATE_RUN_DIR}/template-shell-ready`,
     `test ! -e ${TEMPLATE_RUN_DIR}/template-arm`,
@@ -808,7 +952,7 @@ export function devboxParkDaemonCommand(): string {
     "! pgrep -f 'cmux-tui server [s]tart' >/dev/null",
     "systemctl is-active cmux-tui-daemon >/dev/null",
     devboxWipeDaemonStateKeepingTemplateCommand('"$CMUX_TUI_HOME/.local/state/cmux-tui"'),
-    'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" /etc/cmux/daemon-instance-id /etc/cmux/first-terminal.json',
+    'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" /etc/cmux/daemon-instance-id /etc/cmux/daemon-boot-id /etc/cmux/first-terminal.json',
     `rm -f ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started ${TEMPLATE_RUN_DIR}/first-prompt-named`,
     `test "$(ls "$cmux_keep" | grep -c '\\.json$')" = 1`,
     "pgrep -f '[_]_terminal-host' >/dev/null",
@@ -878,6 +1022,8 @@ export type DevboxManifestEntry = {
   defaultForLocalDev?: boolean;
   kind?: DevboxImageKind;
   defaultForKind?: boolean;
+  /** A test image (services/vms/images/resolver.ts): never a default, requestable only by allowlisted users. */
+  restricted?: boolean;
   /** The shape this snapshot boots at (Freestyle ladder). Size-less entries are pre-ladder bakes. */
   size?: DevboxImageSize;
   cmuxdRemoteCommit: string;
@@ -1186,7 +1332,15 @@ export function promoteImageManifestEntry(
 export function imageManifestProblems(manifest: DevboxImageManifest): string[] {
   const problems: string[] = [];
   const defaults = new Map<string, DevboxManifestEntry[]>();
+  const restrictedById = new Map<string, boolean>();
   for (const entry of manifest.images) {
+    if (entry.restricted === true && entry.defaultForKind) problems.push(`${entry.version}: a restricted test image cannot be a default`);
+    const twinKey = `${entry.provider}/${entry.imageId}`;
+    const restricted = entry.restricted === true;
+    if (restrictedById.has(twinKey) && restrictedById.get(twinKey) !== restricted) {
+      problems.push(`${entry.imageId}: every entry for one image must agree on restricted`);
+    }
+    restrictedById.set(twinKey, restricted);
     for (const field of ["provider", "version", "imageId", "envVar", "builtAt", "validationStatus"] as const) {
       if (!entry[field]) problems.push(`${entry.version ?? entry.imageId ?? "?"}: missing ${field}`);
     }

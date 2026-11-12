@@ -92,6 +92,31 @@ private struct OfflineReachabilityStub: ReachabilityProviding {
         #expect(composition.authEnvironment == .production)
     }
 
+    @Test func cloudUsesRemoteOriginWhenGeneralDevelopmentOriginIsLoopback() {
+        #expect(MobileAuthComposition.cloudAPIBaseURL(
+            authEnvironment: .development,
+            configuredBaseURL: "http://localhost:9660"
+        ) == "https://cmux-staging.vercel.app")
+        #expect(MobileAuthComposition.cloudAPIBaseURL(
+            authEnvironment: .development,
+            configuredBaseURL: "http://127.0.0.1:3000"
+        ) == "https://cmux-staging.vercel.app")
+    }
+
+    @Test func cloudKeepsExplicitRemoteDevelopmentOrigin() {
+        #expect(MobileAuthComposition.cloudAPIBaseURL(
+            authEnvironment: .development,
+            configuredBaseURL: "https://dev-api.example.test"
+        ) == "https://dev-api.example.test")
+    }
+
+    @Test func cloudPinsProductionToProductionOrigin() {
+        #expect(MobileAuthComposition.cloudAPIBaseURL(
+            authEnvironment: .production,
+            configuredBaseURL: "http://localhost:3000"
+        ) == "https://cmux.com")
+    }
+
     // MARK: - Pure environment resolution
 
     @Test func overrideWinsOverBuildDefaultInBothDirections() {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import unittest
 from unittest import mock
@@ -15,6 +16,7 @@ SCRIPT = ROOT / "scripts/ci/late_placement.py"
 WORKFLOW = ROOT / ".github/workflows/ci-macos.yml"
 XCODE = "/Applications/Xcode_26.6.app"
 ROOT_STD = "glaeda-root-std-xcode-26.6"
+ROOT_AWS = "glaeda-aws-root-std-xcode-26.6"
 FULL = {"MACOS": "true", "CLI": "false", "FULL_SUITE": "true", "UNIT_SUITE": "false",
         "UNIT_IN_ADMISSION": "false", "UNIT_SELECTORS": "", "ADMISSION_XCODE_APP": XCODE,
         "ADMISSION_RUNNER": "blacksmith-12vcpu-macos-26", "OWNED_JOBS": ""}
@@ -41,6 +43,14 @@ def roots(idle: int, busy: int = 0) -> list[dict]:
 
 
 class Decide(unittest.TestCase):
+    def test_explicit_aws_admission_keeps_late_jobs_in_the_aws_namespace(self):
+        env = dict(FULL, ADMISSION_ROOT=ROOT_AWS)
+        aws = [runner(f"aws-{i}", "self-hosted", ROOT_AWS) for i in range(3)]
+        placed, _ = late.decide(env, aws)
+        self.assertEqual(set(placed.values()), {ROOT_AWS})
+        self.assertEqual(late.root_for(XCODE, ROOT_AWS), ROOT_AWS)
+        self.assertEqual(late.root_for(XCODE, "", json.dumps([ROOT_AWS, "glaeda-runner-aws-0"])), ROOT_AWS)
+
     def test_a_full_suite_off_blacksmith_takes_the_idle_roots_shards_first(self):
         placed, why = late.decide(FULL, roots(idle=3, busy=5))
         self.assertEqual(placed, {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
@@ -48,7 +58,8 @@ class Decide(unittest.TestCase):
 
     def test_enough_idle_roots_move_every_job_after_admission(self):
         placed, _ = late.decide(FULL, roots(idle=16))
-        self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product"})
+        self.assertEqual(set(placed), {*(f"shard-{i}" for i in range(1, 8)), "lag", "cli-product",
+                                       "cli-regressions-1", "cli-regressions-2", "cli-regressions-3"})
 
     def test_jobs_the_picker_already_owned_stay_put(self):
         env = dict(FULL, OWNED_JOBS=" admission shard-1 shard-2 ")
@@ -62,21 +73,24 @@ class Decide(unittest.TestCase):
         slots = '{"std": 40, "root-std": 19, "gui-std": 10}'
         # Admission ran on Blacksmith (the picker named no gui runner): the slots still route GUI jobs.
         placed, why = late.decide(dict(FULL, OWNED_SLOTS=slots), runners)
-        # cli-product-tests holds the gui token too, so it queues behind the shards for a gui runner.
-        self.assertEqual(placed, {"shard-1": gui, "shard-2": gui})
+        # cli-product-tests holds the gui token too, so it queues behind the shards for a gui runner;
+        # the cli-regressions shards hold none and take the idle roots.
+        regressions = {"cli-regressions-1": ROOT_STD, "cli-regressions-2": ROOT_STD, "cli-regressions-3": ROOT_STD}
+        self.assertEqual(placed, {"shard-1": gui, "shard-2": gui, **regressions})
         self.assertIn(f"2 idle `{gui}`", why)
         # The runners decide, not CI_OWNED_POOL_SLOTS: without a gui count the gui runners still route.
         self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS='{"std": 40, "root-std": 19}'), runners)[0],
-                         {"shard-1": gui, "shard-2": gui})
-        self.assertEqual(late.decide(FULL, runners)[0], {"shard-1": gui, "shard-2": gui})
+                         {"shard-1": gui, "shard-2": gui, **regressions})
+        self.assertEqual(late.decide(FULL, runners)[0], {"shard-1": gui, "shard-2": gui, **regressions})
         # No runner carries the gui label: the GUI jobs take the root label as before, whatever the slots.
         self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), roots(idle=3))[0],
                          {"shard-1": ROOT_STD, "shard-2": ROOT_STD, "shard-3": ROOT_STD})
         # No idle gui runner: the gui-token jobs stay where the picker put them.
         self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots),
-                                     [*roots(idle=3), runner("gui-busy", gui, busy=True)])[0], {})
+                                     [*roots(idle=3), runner("gui-busy", gui, busy=True)])[0], regressions)
         # An offline gui runner (a drained mini) still keeps them off the root label.
-        self.assertEqual(late.decide(FULL, [*roots(idle=3), runner("gui-off", gui, status="offline")])[0], {})
+        self.assertEqual(late.decide(FULL, [*roots(idle=3), runner("gui-off", gui, status="offline")])[0],
+                         regressions)
         # Enough gui runners: cli-product-tests takes one, never the root label.
         many = [*roots(idle=3), *(runner(f"gui-{i}", "self-hosted", gui) for i in range(10))]
         self.assertEqual(late.decide(dict(FULL, OWNED_SLOTS=slots), many)[0]["cli-product"], gui)
@@ -97,9 +111,11 @@ class Decide(unittest.TestCase):
         self.assertEqual(placed, {})
         self.assertIn("could not be read", why)
 
-    def test_gui_off_moves_only_cli_product(self):
+    def test_gui_off_moves_only_the_cli_jobs(self):
         env = dict(FULL, POOL_OWNED_GUI="0")
-        self.assertEqual(late.decide(env, roots(idle=8))[0], {"cli-product": ROOT_STD})
+        self.assertEqual(late.decide(env, roots(idle=8))[0],
+                         {key: ROOT_STD for key in ("cli-product", "cli-regressions-1", "cli-regressions-2",
+                                                    "cli-regressions-3")})
 
     def test_a_changed_suites_run_moves_its_one_worker(self):
         env = dict(FULL, FULL_SUITE="false", UNIT_SUITE="true", UNIT_SELECTORS="cmuxTests/FooTests")
@@ -113,9 +129,11 @@ class Decide(unittest.TestCase):
 GUI = "glaeda-gui-std-xcode-26.6"
 SLOTS = '{"std": 40, "root-std": 19, "gui-std": 10}'
 RETRY = "blacksmith-12vcpu-macos-26"
-# An owned full suite: the picker gave admission, the shards, lag and cli-product the minis.
+# An owned full suite: the picker gave admission, the shards, lag, cli-product and the
+# cli-regressions shards the minis.
 OWNED = dict(FULL, OWNED_SLOTS=SLOTS, RETRY_RUNNER=RETRY, ADMISSION_RUNNER="glaeda-root-std-xcode-26.6",
-             OWNED_JOBS=" admission " + " ".join(f"shard-{i}" for i in range(1, 8)) + " lag cli-product ")
+             OWNED_JOBS=" admission " + " ".join(f"shard-{i}" for i in range(1, 8))
+             + " lag cli-product cli-regressions-1 cli-regressions-2 cli-regressions-3 ")
 
 
 def guis(idle: int, busy: int) -> list[dict]:

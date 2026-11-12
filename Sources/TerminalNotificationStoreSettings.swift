@@ -24,6 +24,22 @@ enum NotificationPaneRingSettings {
 enum NotificationPaneFlashSettings {
     static let enabledKey = "notificationPaneFlashEnabled"
     static let defaultEnabled = true
+    static let doubleBlinkKey = "notificationPaneFlashDoubleBlink"
+    static let defaultDoubleBlink = true
+    static let onTypingKey = "notificationPaneFlashOnTyping"
+    static let defaultOnTyping = true
+    static let themeColorKey = "notificationPaneFlashThemeColor"
+    static let defaultThemeColor = false
+
+    /// Whether the pane flash blinks twice instead of one short pulse.
+    static func usesDoubleBlink(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: doubleBlinkKey) as? Bool ?? defaultDoubleBlink
+    }
+
+    /// Whether terminal typing should flash the pane after dismissing a notification.
+    static func flashesOnTyping(defaults: UserDefaults = .standard) -> Bool {
+        defaults.object(forKey: onTypingKey) as? Bool ?? defaultOnTyping
+    }
 
     static func isEnabled(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: enabledKey) == nil {

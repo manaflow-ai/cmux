@@ -28,8 +28,16 @@ FAILURES = []
 # cmux-tui-pin-*), which holds only the R2 upload credentials.
 ARTIFACT_JOBS = {
     "cmux-tui-artifacts.yml": ["publish"],
+    "dogfood-artifact-publish.yml": ["publish"],
 }
-ARTIFACT_SECRETS = {"CF_R2_ACCESS_KEY_ID", "CF_R2_SECRET_ACCESS_KEY", "CF_R2_ACCOUNT_ID"}
+ARTIFACT_SECRETS = {
+    "CF_R2_ACCESS_KEY_ID",
+    "CF_R2_SECRET_ACCESS_KEY",
+    "CF_R2_ACCOUNT_ID",
+    "CMUX_CEF_R2_ACCESS_KEY_ID",
+    "CMUX_CEF_R2_SECRET_ACCESS_KEY",
+    "CMUX_CEF_R2_ACCOUNT_ID",
+}
 
 RELEASE_JOBS = {
     "release.yml": ["build-sign-notarize"],
@@ -42,6 +50,20 @@ RELEASE_JOBS = {
     "repair-nightly-appcast-content-types.yml": ["repair"],
     "update-homebrew.yml": ["update-cask"],
 }
+
+# The cmux NEXT feed's own token lives in `release-next` (policy: branch
+# nightly-next only). main carries nightly-next-rollback.yml only so GitHub
+# lists it for dispatch; its job runs only on nightly-next.
+RELEASE_NEXT_JOBS = {
+    "nightly-next-rollback.yml": ["rollback"],
+}
+
+# The cmux-cef-write token (CMUX_CEF_R2_WRITE_*) lives only in `cef-publish`
+# (reviewers required). A job in any other environment reads it as empty: the
+# Cua Driver SDK publish (run 42278271161) and the dev helper signing asked
+# `release` for it and stopped before publishing.
+CEF_WRITE_SECRET = re.compile(r"secrets\.CMUX_CEF_R2_WRITE_[A-Z_]+")
+CEF_WRITE_ENVIRONMENT = "cef-publish"
 
 
 def _check(cond, msg):
@@ -58,6 +80,11 @@ def main():
         for job in jobs:
             definition = document["jobs"].get(job, {})
             _check(definition.get("environment") == "release", f"{name} {job} runs in the release environment")
+    for name, jobs in RELEASE_NEXT_JOBS.items():
+        document = yaml.load(open(os.path.join(WORKFLOWS, name), encoding="utf-8"), Loader=yaml.BaseLoader)
+        for job in jobs:
+            _check(document["jobs"].get(job, {}).get("environment") == "release-next",
+                   f"{name} {job} runs in the release-next environment")
     for name, jobs in ARTIFACT_JOBS.items():
         text = open(os.path.join(WORKFLOWS, name), encoding="utf-8").read()
         document = yaml.load(text, Loader=yaml.BaseLoader)
@@ -66,6 +93,17 @@ def main():
             _check(definition.get("environment") == "artifacts", f"{name} {job} runs in the artifacts environment")
             used = set(re.findall(r"secrets\.([A-Za-z0-9_]+)", yaml.dump(definition)))
             _check(used <= ARTIFACT_SECRETS, f"{name} {job} uses only R2 upload secrets (found {sorted(used)})")
+    for name in sorted(os.listdir(WORKFLOWS)):
+        if not name.endswith((".yml", ".yaml")):
+            continue
+        document = yaml.load(open(os.path.join(WORKFLOWS, name), encoding="utf-8"), Loader=yaml.BaseLoader)
+        for job, definition in ((document or {}).get("jobs") or {}).items():
+            if CEF_WRITE_SECRET.search(yaml.dump(definition)):
+                environment = definition.get("environment")
+                if isinstance(environment, dict):
+                    environment = environment.get("name")
+                _check(environment == CEF_WRITE_ENVIRONMENT,
+                       f"{name} {job} reads the cmux-cef-write token from the {CEF_WRITE_ENVIRONMENT} environment")
     gate = yaml.load(open(os.path.join(WORKFLOWS, "iroh-release-gate.yml"), encoding="utf-8"), Loader=yaml.BaseLoader)
     condition = " ".join(str(gate["jobs"]["simulator-e2e"].get("if", "")).split())
     _check(

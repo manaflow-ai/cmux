@@ -326,7 +326,9 @@ struct ManagedCapabilityPolicyGateTests {
             if refused { break }
             try await ContinuousClock().sleep(for: .milliseconds(20))
         }
-        #expect(refused)
+        // Without a "started" entry the event never reached the engine; with one,
+        // the refusal never finished. Main's batch 5 fails here only in sequence.
+        #expect(refused, "logs=\(engine.logsPayload(limit: 32))")
         #expect(calls.count == 0)
     }
 

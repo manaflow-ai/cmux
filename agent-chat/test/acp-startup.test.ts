@@ -5,6 +5,7 @@ import { makeAcpAdapter } from "../adapters/acp";
 import type { AgentEvent, SessionCtx } from "../types";
 
 const directory = mkdtempSync(join(import.meta.dir, ".acp-startup-"));
+const originalSetTimeout = globalThis.setTimeout;
 const adapter = makeAcpAdapter({
   id: "fixture-acp-startup", label: "Fixture ACP", adapter: "acp",
   cmd: [process.execPath, join(import.meta.dir, "fake-acp-startup.ts"), directory],
@@ -44,12 +45,38 @@ try {
   const modes = ["reject-initialize", "reject-session", "hang-initialize", "hang-session"];
   for (const [index, mode] of modes.entries()) {
     writeFileSync(join(directory, "mode"), mode);
+    rmSync(join(directory, "initialize-ready"), { force: true });
+    rmSync(join(directory, "session-ready"), { force: true });
     const offset = events.length;
     // Sending a prompt and refreshing options must share one startup. Both
     // paths must settle after cleanup, and sending must return the chat to idle.
-    const results = await bounded(Promise.allSettled([
+    let watchdog: { callback: () => void; delay: number; timer: ReturnType<typeof setTimeout> } | undefined;
+    if (mode.startsWith("hang")) {
+      globalThis.setTimeout = ((callback: TimerHandler, delay?: number, ...args: any[]) => {
+        const timer = originalSetTimeout(callback, delay, ...args) as unknown as ReturnType<typeof setTimeout>;
+        if (delay === 30_000) watchdog = { callback: callback as () => void, delay, timer };
+        return timer;
+      }) as typeof setTimeout;
+    }
+    const startup = Promise.allSettled([
       Promise.resolve(adapter.send(sess, "fixture prompt")), adapter.refreshOptions(sess),
-    ]));
+    ]);
+    if (mode.startsWith("hang")) {
+      const stage = mode.slice("hang-".length);
+      const ready = join(directory, `${stage}-ready`);
+      const readyDeadline = Date.now() + 2_000;
+      try {
+        while (!existsSync(ready) && Date.now() < readyDeadline) await Bun.sleep(10);
+        assert.ok(existsSync(ready), `fixture must consume ${stage} before timing out`);
+        assert.ok(watchdog, "ACP startup must schedule its watchdog");
+        assert.equal(watchdog!.delay, 30_000, "ACP startup watchdog must retain its 30s deadline");
+      } finally {
+        globalThis.setTimeout = originalSetTimeout;
+      }
+      clearTimeout(watchdog!.timer);
+      watchdog!.callback();
+    }
+    const results = await bounded(startup);
     assert.equal(results[0]!.status, "fulfilled");
     assert.equal(results[1]!.status, "rejected");
     const diagnostic = mode.startsWith("hang") ? /did not finish ACP startup within 30s/ : new RegExp(`fixture ${mode.slice(7)} rejected`);
@@ -83,6 +110,7 @@ try {
   assert.ok(prompts.every((prompt) => prompt.sessionId === `fixture-${children[4]!.pid}`));
 
   writeFileSync(join(directory, "mode"), "dispose-session");
+  rmSync(join(directory, "session-ready"), { force: true });
   const disposed: SessionCtx = { ...sess, id: "disposed-fixture", events: [], internal: {},
     emit(event) { this.events.push(event); } };
   const starting = adapter.refreshOptions(disposed);
@@ -99,6 +127,7 @@ try {
   assert.equal(alive(children[4]!.pid), true, "cleaning another startup must not kill a healthy agent");
   console.log("ACP startup rejection/timeout/disposal cleanup, idle recovery, single-flight and successful retry: OK");
 } finally {
+  globalThis.setTimeout = originalSetTimeout;
   adapter.dispose(sess);
   const children = processes();
   // Cleanup is restricted to the PIDs recorded by this disposable fixture.

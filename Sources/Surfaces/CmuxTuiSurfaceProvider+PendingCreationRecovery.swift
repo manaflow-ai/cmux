@@ -16,6 +16,10 @@ extension CmuxTuiSurfaceProvider {
         state: CloudVMState?
     ) -> [SurfaceResource] {
         var merged = resources
+        var mergedIndex: [SurfaceResourceID: Int] = [:]
+        for (index, resource) in merged.enumerated() {
+            mergedIndex[resource.id] = index
+        }
         var completed: [SurfaceResourceID] = []
         for (resourceID, pending) in pendingRemoteCreations where resourceID.machine == machine {
             if let state {
@@ -38,7 +42,7 @@ extension CmuxTuiSurfaceProvider {
                     continue
                 }
             }
-            mergePendingCreation(pending, into: &merged)
+            mergePendingCreation(pending, into: &merged, index: &mergedIndex)
         }
         for resourceID in completed {
             pendingRemoteCreations.removeValue(forKey: resourceID)
@@ -50,26 +54,34 @@ extension CmuxTuiSurfaceProvider {
         _ pending: PendingRemoteCreation,
         in state: CloudVMState
     ) -> Bool {
-        guard state.lookupIndex.terminal(id: pending.resource.id.key) != nil else { return false }
+        let resourceVisible: Bool = switch pending.resource.kind {
+        case .terminal: state.lookupIndex.terminal(id: pending.resource.id.key) != nil
+        case .browser: state.lookupIndex.browser(id: pending.resource.id.key) != nil
+        case .display: false
+        }
+        guard resourceVisible else { return false }
         guard let tabID = pending.tabID else { return true }
         return state.lookupIndex.tab(id: tabID) != nil
     }
 
     private func mergePendingCreation(
         _ pending: PendingRemoteCreation,
-        into resources: inout [SurfaceResource]
+        into resources: inout [SurfaceResource],
+        index: inout [SurfaceResourceID: Int]
     ) {
         guard let pendingView = pending.resource.remoteViews?.first else {
-            if !resources.contains(where: { $0.id == pending.resource.id }) {
+            if index[pending.resource.id] == nil {
+                index[pending.resource.id] = resources.count
                 resources.append(pending.resource)
             }
             return
         }
-        guard let index = resources.firstIndex(where: { $0.id == pending.resource.id }) else {
+        guard let resourceIndex = index[pending.resource.id] else {
+            index[pending.resource.id] = resources.count
             resources.append(pending.resource)
             return
         }
-        var resource = resources[index]
+        var resource = resources[resourceIndex]
         var views = resource.remoteViews ?? []
         if !views.contains(where: { $0.tabID == pendingView.tabID }) {
             views.append(pendingView)
@@ -78,7 +90,7 @@ extension CmuxTuiSurfaceProvider {
                 resource.remoteWorkspace = pendingView.workspace
             }
         }
-        resources[index] = resource
+        resources[resourceIndex] = resource
     }
 
     func remoteWorkspaces(for state: CloudVMState?) -> [SurfaceRemoteWorkspace]? {
@@ -95,7 +107,7 @@ extension CmuxTuiSurfaceProvider {
     func pendingMutationMetadata() -> [CloudVMPendingMutation] {
         var writes = pendingRemoteCreations.map { resourceID, pending in
             CloudVMPendingMutation(
-                kind: .terminalCreate,
+                kind: pending.resource.kind == .browser ? .browserCreate : .terminalCreate,
                 resource: resourceID,
                 remoteWorkspaceID: pending.resource.remoteWorkspace?.id,
                 remoteTabID: pending.tabID,

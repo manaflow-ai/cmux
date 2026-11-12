@@ -1,4 +1,5 @@
 import AppKit
+import Bonsplit
 import CmuxControlSocket
 import CmuxSettings
 import Testing
@@ -26,9 +27,95 @@ import Testing
 /// The marker is set-then-consumed synchronously inside the real close gesture, so
 /// this test exercises the marking decision directly to observe it deterministically.
 @MainActor
-@Suite(.serialized) struct RemoteTmuxMirrorCloseDetachTests {
+@Suite(.serialized, .exclusiveAppContext) struct RemoteTmuxMirrorCloseDetachTests {
     fileprivate let sshOverrideKey = "CMUX_REMOTE_TMUX_SSH_FOR_TESTING"
     private let sshLogKey = "CMUX_PR7264_SSH_LOG"
+
+    enum BatchCloseState: CaseIterable {
+        case connected, reconnecting, cancelled
+    }
+
+    @Test(arguments: [false, true], BatchCloseState.allCases)
+    func closeOtherTabsRoutesRemoteWindows(
+        contextMenu: Bool,
+        state: BatchCloseState
+    ) throws {
+        let reconnecting = state == .reconnecting
+        let acceptConfirmation = state != .cancelled
+        let harness = try RemoteTmuxSessionMirrorLayoutHarness(
+            initialWindowLines: (1...4).map {
+                "@\($0) abcd,80x24,0,0,\($0 * 11) abcd,80x24,0,0,\($0 * 11) [] tab\($0)"
+            },
+            initialRectsByWindow: Dictionary(uniqueKeysWithValues: (1...4).map {
+                ($0, ["%\($0 * 11) 0 0 80 24 1 off :zsh"])
+            })
+        )
+        defer {
+            harness.connection.stop()
+            harness.tearDown()
+        }
+        let appDelegate = try #require(AppDelegate.shared)
+        let controller = appDelegate.remoteTmuxController
+        let key = "close-other-tabs-\(UUID().uuidString)"
+        controller.insertSessionMirror(harness.sessionMirror, forKey: key)
+        defer { controller.removeSessionMirror(forKey: key) }
+
+        let workspace = harness.workspace
+        let pane = try #require(workspace.bonsplitController.allPaneIds.first)
+        let tabs = workspace.bonsplitController.tabs(inPane: pane)
+        try #require(tabs.count == 4)
+        let retainedTab = tabs[1]
+        workspace.bonsplitController.selectTab(retainedTab.id)
+        let pinnedPanelID = try #require(workspace.panelIdFromSurfaceId(tabs[0].id))
+        workspace.setPanelPinned(panelId: pinnedPanelID, pinned: true)
+        try #require(workspace.isPanelPinned(pinnedPanelID))
+        let expectedWindowIDs = try [tabs[2], tabs[3]].map { tab in
+            let panelID = try #require(workspace.panelIdFromSurfaceId(tab.id))
+            return try #require(harness.sessionMirror.windowId(forPanel: panelID))
+        }
+        let warningStore = CloseTabWarningStore(defaults: harness.manager.closeTabWarningDefaults)
+        let previousWarning = warningStore.warnsBeforeClosingTab
+        warningStore.setWarnsBeforeClosingTab(true)
+        defer { warningStore.setWarnsBeforeClosingTab(previousWarning) }
+        var promptCount = 0
+        harness.manager.confirmCloseHandler = { _, _, _ in
+            promptCount += 1
+            return acceptConfirmation
+        }
+        if reconnecting { harness.connection.beginReconnecting() }
+
+        if contextMenu {
+            workspace.splitTabBar(
+                workspace.bonsplitController,
+                didRequestTabContextAction: .closeOthers,
+                for: retainedTab,
+                inPane: pane
+            )
+        } else {
+            harness.manager.closeOtherTabsInFocusedPaneWithConfirmation()
+        }
+
+        // The keyboard and main-menu path asks whenever the Close Tab warning
+        // is on. The tab context menu asks only when a tab has a running
+        // process, which these idle mirror tabs don't, so it closes without a
+        // prompt and a cancelled confirmation cannot happen there.
+        let expectsPrompt = !contextMenu
+        let closeProceeds = !reconnecting && (!expectsPrompt || acceptConfirmation)
+        #expect(promptCount == (expectsPrompt ? 1 : 0))
+        // Remote tabs remain until tmux acknowledges their removal. Rejected
+        // and cancelled requests must leave both local and remote tabs alone.
+        #expect(Set(workspace.bonsplitController.tabs(inPane: pane).map(\.id)) == Set(tabs.map(\.id)))
+        #expect(workspace.bonsplitController.selectedTab(inPane: pane)?.id == retainedTab.id)
+        harness.writer.close()
+        let data = try harness.pipe.fileHandleForReading.readToEnd() ?? Data()
+        let killCommands = String(decoding: data, as: UTF8.self)
+            .split(separator: "\n")
+            .filter { $0.hasPrefix("kill-window ") }
+            .map(String.init)
+        #expect(killCommands == (closeProceeds
+            ? expectedWindowIDs.map { "kill-window -t @\($0)" }
+            : []))
+    }
 
     /// The mark seam must NOT flag a mirror workspace's window for kill-on-close:
     /// the close detaches, the remote tmux session survives for resume. Before the
@@ -198,6 +285,106 @@ import Testing
         #expect(harness.appDelegate.recoverableMainWindowRoute(windowId: harness.windowId) == nil)
     }
 
+    /// A second `--new-window` gathers the host's mirrors into the new window. A window that
+    /// held nothing else has no reason to stay: emptied, it recovers by opening a fresh local
+    /// shell, and the user is left with a blank window they did not ask for.
+    @Test func consolidatingMirrorsClosesAWindowThatHeldNothingElse() throws {
+        // The cleanup detach runs ssh to close its master; `true` stands in for it.
+        let previousSSH = environmentValue(for: sshOverrideKey)
+        setenv(sshOverrideKey, "/usr/bin/true", 1)
+        defer { restoreEnvironment(sshOverrideKey, previousValue: previousSSH) }
+        let source = try Harness()
+        defer { source.tearDown() }
+        let target = try Harness()
+        defer { target.tearDown() }
+        let host = RemoteTmuxHost(destination: "consolidate-\(UUID().uuidString)@example.test")
+        let controller = source.controller
+        controller.cacheConnection(RemoteTmuxControlConnection(host: host, sessionName: "dev"))
+        defer {
+            if controller.sessionMirror(host: host, sessionName: "dev") != nil {
+                controller.detach(host: host, sessionName: "dev")
+            }
+        }
+        #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: source.manager))
+        let mirrorWorkspace = try #require(source.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        source.manager.closeWorkspace(source.workspace, recordHistory: false)
+        #expect(source.manager.tabs.map(\.id) == [mirrorWorkspace.id])
+
+        controller.moveExistingMirrors(for: host, into: target.manager)
+
+        #expect(target.manager.tabs.contains { $0.id == mirrorWorkspace.id })
+        #expect(
+            !source.appDelegate.listMainWindowSummaries().contains { $0.windowId == source.windowId },
+            "the emptied window stayed open with \(source.manager.tabs.count) replacement workspace(s)"
+        )
+    }
+
+    /// The window's Dock holds terminals and browsers that belong to no workspace. Closing the
+    /// window closes them, so a window whose workspaces were all mirrors stays open while its
+    /// Dock has panels.
+    @Test func consolidatingMirrorsKeepsAWindowWhoseDockHasPanels() throws {
+        // The cleanup detach runs ssh to close its master; `true` stands in for it.
+        let previousSSH = environmentValue(for: sshOverrideKey)
+        setenv(sshOverrideKey, "/usr/bin/true", 1)
+        defer { restoreEnvironment(sshOverrideKey, previousValue: previousSSH) }
+        let source = try Harness()
+        defer { source.tearDown() }
+        let target = try Harness()
+        defer { target.tearDown() }
+        let host = RemoteTmuxHost(destination: "consolidate-\(UUID().uuidString)@example.test")
+        let controller = source.controller
+        controller.cacheConnection(RemoteTmuxControlConnection(host: host, sessionName: "dev"))
+        defer {
+            if controller.sessionMirror(host: host, sessionName: "dev") != nil {
+                controller.detach(host: host, sessionName: "dev")
+            }
+        }
+        #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: source.manager))
+        let mirrorWorkspace = try #require(source.manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        source.manager.closeWorkspace(source.workspace, recordHistory: false)
+        #expect(source.manager.tabs.map(\.id) == [mirrorWorkspace.id])
+        let dock = source.appDelegate.windowDock(forWindowId: source.windowId)
+        let dockPanel = TerminalPanel(workspaceId: dock.workspaceId, runtimeSpawnPolicy: .pacedSessionRestore)
+        dock.panels[dockPanel.id] = dockPanel
+
+        controller.moveExistingMirrors(for: host, into: target.manager)
+
+        #expect(target.manager.tabs.contains { $0.id == mirrorWorkspace.id })
+        #expect(
+            source.appDelegate.listMainWindowSummaries().contains { $0.windowId == source.windowId },
+            "the window closed while its Dock still held a terminal"
+        )
+        #expect(!dock.isRetired)
+        #expect(dock.panels[dockPanel.id] != nil)
+    }
+
+    /// A window with workspaces of its own keeps them, and gains nothing, when the host's
+    /// mirrors move out.
+    @Test func consolidatingMirrorsLeavesAWindowWithOtherWorkspacesAlone() throws {
+        // The cleanup detach runs ssh to close its master; `true` stands in for it.
+        let previousSSH = environmentValue(for: sshOverrideKey)
+        setenv(sshOverrideKey, "/usr/bin/true", 1)
+        defer { restoreEnvironment(sshOverrideKey, previousValue: previousSSH) }
+        let source = try Harness()
+        defer { source.tearDown() }
+        let target = try Harness()
+        defer { target.tearDown() }
+        let host = RemoteTmuxHost(destination: "consolidate-\(UUID().uuidString)@example.test")
+        let controller = source.controller
+        controller.cacheConnection(RemoteTmuxControlConnection(host: host, sessionName: "dev"))
+        defer {
+            if controller.sessionMirror(host: host, sessionName: "dev") != nil {
+                controller.detach(host: host, sessionName: "dev")
+            }
+        }
+        #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: source.manager))
+
+        controller.moveExistingMirrors(for: host, into: target.manager)
+
+        #expect(source.appDelegate.listMainWindowSummaries().contains { $0.windowId == source.windowId })
+        #expect(source.manager.tabs.map(\.id) == [source.workspace.id])
+    }
+
     /// A remote session ending removes its dead mirror but preserves the owning
     /// window with a fresh local workspace. Only explicit detach closes a
     /// dedicated final-mirror window.
@@ -253,37 +440,35 @@ import Testing
             restoreEnvironment(sshLogKey, previousValue: previousLog)
         }
 
-        try await AppContextSerialGate.withExclusiveAppContext {
-            // This route is model-only: mounting the workspaces in a real window
-            // realizes Ghostty renderers that are unrelated to the close contract
-            // and can still be drawing while the fixture frees their surfaces.
-            let previousAppDelegate = AppDelegate.shared
-            let appDelegate = AppDelegate()
-            AppDelegate.shared = appDelegate
-            defer { AppDelegate.shared = previousAppDelegate }
-            let manager = TabManager()
-            let localWorkspace = try #require(manager.selectedWorkspace)
-            let host = RemoteTmuxHost(destination: "tab-close-\(UUID().uuidString)@example.test")
-            let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
-            let controller = appDelegate.remoteTmuxController
-            defer {
-                // Always remove the cached connection, including when setup fails
-                // before the mirror workspace is registered.
-                controller.detach(host: host, sessionName: "dev")
-            }
-            controller.cacheConnection(connection)
-            #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: manager))
-            let mirrorWorkspace = try #require(manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
-            #expect(manager.tabs.count == 2)
-
-            manager.closeWorkspace(mirrorWorkspace, recordHistory: false)
-
-            let log = try await waitForSSHArgument("exit", at: logURL)
-            #expect(!log.contains("kill-session"), Comment(rawValue: log))
-            #expect(manager.tabs.map(\.id) == [localWorkspace.id])
-            #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
-            #expect(connection.exited)
+        // This route is model-only: mounting the workspaces in a real window
+        // realizes Ghostty renderers that are unrelated to the close contract
+        // and can still be drawing while the fixture frees their surfaces.
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+        let manager = TabManager()
+        let localWorkspace = try #require(manager.selectedWorkspace)
+        let host = RemoteTmuxHost(destination: "tab-close-\(UUID().uuidString)@example.test")
+        let connection = RemoteTmuxControlConnection(host: host, sessionName: "dev")
+        let controller = appDelegate.remoteTmuxController
+        defer {
+            // Always remove the cached connection, including when setup fails
+            // before the mirror workspace is registered.
+            controller.detach(host: host, sessionName: "dev")
         }
+        controller.cacheConnection(connection)
+        #expect(try controller.mirrorSession(host: host, sessionName: "dev", into: manager))
+        let mirrorWorkspace = try #require(manager.tabs.first(where: { $0.isRemoteTmuxMirror }))
+        #expect(manager.tabs.count == 2)
+
+        manager.closeWorkspace(mirrorWorkspace, recordHistory: false)
+
+        let log = try await waitForSSHArgument("exit", at: logURL)
+        #expect(!log.contains("kill-session"), Comment(rawValue: log))
+        #expect(manager.tabs.map(\.id) == [localWorkspace.id])
+        #expect(controller.sessionMirror(host: host, sessionName: "dev") == nil)
+        #expect(connection.exited)
     }
 
     @Test func windowCreationFailureUsesLocalErrorMessage() {
@@ -372,7 +557,7 @@ import Testing
 /// before this test reaches its routing assertions. CI invokes this suite
 /// separately and still requires successful execution of the original test.
 @MainActor
-@Suite(.serialized) struct RemoteTmuxMirrorFocusPolicyTests {
+@Suite(.serialized, .exclusiveAppContext) struct RemoteTmuxMirrorFocusPolicyTests {
     /// A direct socket caller must opt into focus. The CLI supplies an explicit
     /// `activate` value, but a raw `remote.tmux.window` request with no such field
     /// must leave the caller's current cmux window active.
@@ -464,7 +649,7 @@ import Testing
 /// after the close-path cases can retain renderer teardown work on headless CI
 /// runners and crash before the topology assertions execute.
 @MainActor
-@Suite(.serialized) struct RemoteTmuxMirrorDedicatedPlacementTests {
+@Suite(.serialized, .exclusiveAppContext) struct RemoteTmuxMirrorDedicatedPlacementTests {
     /// `--new-window` must consolidate every mirror for the host even when the
     /// Move Workspace action previously distributed those mirrors across several
     /// Cached control connections keep this test network-free. Source managers
@@ -485,7 +670,9 @@ import Testing
             for mirror in controller.sessionMirrors.values {
                 mirror.detachObserver()
             }
-            controller.sessionMirrors.removeAll()
+            for key in Array(controller.sessionMirrors.keys) {
+                _ = controller.removeSessionMirror(forKey: key)
+            }
             controller.detachAll()
             appDelegate.unregisterMainWindowContextForTesting(windowId: targetWindow)
             appDelegate.unregisterMainWindowContextForTesting(windowId: sourceWindowB)

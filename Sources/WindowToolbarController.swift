@@ -170,6 +170,9 @@ final class WindowToolbarController: NSObject, NSToolbarDelegate {
 
     private func attach(to window: NSWindow) {
         guard window.toolbar == nil else { return }
+        // The Cloud welcome is a glass card, not a workspace window: a toolbar
+        // would turn its titlebar into a toolbar band and outline the card.
+        guard window.identifier?.rawValue != "cmux.cloud.welcome" else { return }
         guard !WorkspacePresentationModeSettings.isMinimal() else { return }
         let toolbar = NSToolbar(identifier: NSToolbar.Identifier("cmux.toolbar"))
         toolbar.delegate = self

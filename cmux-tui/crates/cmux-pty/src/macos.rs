@@ -12,7 +12,7 @@ use anyhow::{Context, bail};
 
 use super::{Child, MasterPty, PtyCommand, PtyOpenError, PtySize};
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 unsafe extern "C" {
     fn ptsname_r(
         descriptor: libc::c_int,
@@ -94,7 +94,7 @@ fn pty_slave_name(descriptor: RawFd) -> anyhow::Result<CString> {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 fn platform_ptsname_r(descriptor: RawFd, buffer: *mut libc::c_char, length: usize) -> libc::c_int {
     unsafe { ptsname_r(descriptor, buffer, length) }
 }
@@ -104,7 +104,7 @@ fn platform_ptsname_r(descriptor: RawFd, buffer: *mut libc::c_char, length: usiz
     unsafe { libc::ptsname_r(descriptor, buffer, length) }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(target_vendor = "apple")]
 fn ptsname_error(_status: libc::c_int) -> io::Error {
     io::Error::last_os_error()
 }

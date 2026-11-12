@@ -23,7 +23,7 @@ extension CloudImagePasteError {
         case .deliveryUncertain:
             return String(localized: "cloud.imagePaste.deliveryUncertain", defaultValue: "The link closed before image paste was confirmed. Check the agent for an attachment before pasting again.")
         case .useTerminal:
-            return String(localized: "cloud.imagePaste.useTerminal", defaultValue: "Paste this image directly into the Cloud terminal. Image attachments in the command buffer are not supported yet.")
+            return String(localized: "cloud.imagePaste.useTerminal", defaultValue: "This attachment can’t be added to the command buffer. Paste the image directly into the Cloud terminal.")
         case .busy:
             return String(localized: "cloud.imagePaste.busy", defaultValue: "An image transfer is already in progress. Wait for it to finish or cancel it before pasting again.")
         }

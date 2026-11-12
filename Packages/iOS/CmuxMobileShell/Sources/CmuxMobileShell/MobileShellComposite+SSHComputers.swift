@@ -60,14 +60,18 @@ extension MobileShellComposite: MobileSSHComputersSink {
         return sshOwnsMac(deviceID: row.macDeviceID)
     }
 
-    /// Whether a surface is served on the phone (demonstration or SSH)
-    /// rather than by a paired Mac.
+    /// Whether a surface is served on the phone (demonstration, SSH, or
+    /// external host) rather than by a paired Mac.
     func locallyServedOwnsSurface(_ surfaceID: String) -> Bool {
-        demonstrationOwnsSurface(surfaceID) || sshOwnsSurface(surfaceID)
+        demonstrationOwnsSurface(surfaceID)
+            || sshOwnsSurface(surfaceID)
+            || externalHostOwnsSurface(surfaceID)
     }
 
     func locallyServedOwnsWorkspaceRow(_ id: MobileWorkspacePreview.ID) -> Bool {
-        demonstrationOwnsWorkspaceRow(id) || sshOwnsWorkspaceRow(id)
+        demonstrationOwnsWorkspaceRow(id)
+            || sshOwnsWorkspaceRow(id)
+            || externalHostOwnsWorkspaceRow(id)
     }
 
     /// Routes input for locally served surfaces. Returns `false` for Mac
@@ -75,6 +79,7 @@ extension MobileShellComposite: MobileSSHComputersSink {
     @discardableResult
     func handleLocallyServedTerminalInput(_ text: String, surfaceID: String) -> Bool {
         if handleDemonstrationTerminalInput(text, surfaceID: surfaceID) { return true }
+        if handleExternalHostTerminalInput(text, surfaceID: surfaceID) { return true }
         guard sshOwnsSurface(surfaceID) else { return false }
         sshComputers.input(Data(text.utf8), surfaceID: surfaceID)
         return true
@@ -90,6 +95,9 @@ extension MobileShellComposite: MobileSSHComputersSink {
     }
 
     func deliverLocallyServedTerminalReplay(surfaceID: String) {
+        if handleExternalHostReplayRequest(surfaceID: surfaceID) {
+            return
+        }
         if sshOwnsSurface(surfaceID) {
             sshComputers.replay(surfaceID: surfaceID)
         } else {
@@ -138,6 +146,12 @@ extension MobileShellComposite: MobileSSHComputersSink {
         MobileSSHIdentifier(computerID).isSSH
     }
 
+    /// Cloud hosts have no Mac build version, so Mac compatibility warnings
+    /// must never apply to their computer rows.
+    public nonisolated static func isCloudComputerID(_ computerID: String) -> Bool {
+        computerID.hasPrefix("cmux-cloud\u{1D}")
+    }
+
     /// The SSH host behind a computer device id, if any.
     public func sshHostID(computerDeviceID: String) -> UUID? {
         MobileSSHIdentifier(computerDeviceID).hostID
@@ -168,8 +182,8 @@ extension MobileShellComposite {
     }
 
     /// Whether the phone's own emulator is the terminal for this surface
-    /// (every SSH surface), so scrolling and replies stay local.
+    /// (SSH and external-host surfaces), so scrolling and replies stay local.
     public func surfaceIsLocallyEmulated(_ surfaceID: String) -> Bool {
-        sshOwnsSurface(surfaceID)
+        sshOwnsSurface(surfaceID) || externalHostOwnsSurface(surfaceID)
     }
 }

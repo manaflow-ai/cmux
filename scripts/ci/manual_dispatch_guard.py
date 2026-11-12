@@ -17,6 +17,25 @@ class Decision:
     reason: str
 
 
+LEGACY_FULL_SUITE_MARKER_JOB = "full-suite-coverage"
+CHANGES_JOB = "changes"
+FULL_SUITE_MARKER_STEP = "Mark full-suite coverage"
+
+
+def _completed_successfully(item: Mapping[str, Any]) -> bool:
+    return item.get("status") == "completed" and item.get("conclusion") == "success"
+
+
+def _named_steps(job: Mapping[str, Any], name: str) -> list[Mapping[str, Any]]:
+    steps = job.get("steps")
+    if not isinstance(steps, list):
+        return []
+    return [
+        step for step in steps
+        if isinstance(step, Mapping) and str(step.get("name", "")) == name
+    ]
+
+
 def has_covering_ci_run(
     runs: Sequence[Mapping[str, Any]], sha: str, fingerprint: str
 ) -> bool:
@@ -88,24 +107,45 @@ class GitHub:
             f"/repos/{self.repository}/actions/workflows/ci.yml/runs?{query}"
         )
         runs = body.get("workflow_runs", []) if isinstance(body, Mapping) else []
-        marker = "full-suite-coverage"
         for run in runs:
             try:
                 jobs = self._request(
                     f"/repos/{self.repository}/actions/runs/{run['id']}/jobs?per_page=100"
                 )
                 jobs_list = jobs.get("jobs", []) if isinstance(jobs, Mapping) else []
-                marker_jobs = [
+                legacy_marker_jobs = [
                     job for job in jobs_list
-                    if str(job.get("name", "")) == marker
+                    if isinstance(job, Mapping)
+                    and str(job.get("name", "")) == LEGACY_FULL_SUITE_MARKER_JOB
                 ]
-                run["full_suite"] = any(
-                    job.get("status") != "completed" or job.get("conclusion") == "success"
-                    for job in marker_jobs
+                changes_jobs = [
+                    job for job in jobs_list
+                    if isinstance(job, Mapping)
+                    and str(job.get("name", "")) == CHANGES_JOB
+                ]
+                changes_marker_steps = [
+                    step
+                    for job in changes_jobs
+                    for step in _named_steps(job, FULL_SUITE_MARKER_STEP)
+                ]
+                # The old marker was a downstream job, so it could not exist
+                # until `changes` had completed successfully. Keep that exact
+                # boundary for the in-job marker: a successful step followed
+                # by a later changes failure must not suppress a manual run.
+                changes_full_suite = any(
+                    _completed_successfully(job)
+                    and any(_completed_successfully(step) for step in _named_steps(job, FULL_SUITE_MARKER_STEP))
+                    for job in changes_jobs
                 )
+                legacy_full_suite = any(
+                    job.get("status") != "completed" or job.get("conclusion") == "success"
+                    for job in legacy_marker_jobs
+                )
+                run["full_suite"] = changes_full_suite or legacy_full_suite
+                marker_present = bool(legacy_marker_jobs or changes_marker_steps)
                 run["coverage_fingerprint"] = (
                     str(run.get("display_title", ""))
-                    if marker_jobs and str(run.get("display_title", "")).startswith("v1;")
+                    if marker_present and str(run.get("display_title", "")).startswith("v1;")
                     else ""
                 )
             except (KeyError, OSError, ValueError, TypeError):

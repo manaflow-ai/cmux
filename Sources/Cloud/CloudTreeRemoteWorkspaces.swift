@@ -71,6 +71,39 @@ extension CloudTreeNodeBuilder {
         remoteWorkspaces(info: snapshot.machines.first { $0.id == machine }, resources: snapshot.resources(on: machine))
     }
 
+    /// The name the machine's daemon will give its next unnamed workspace,
+    /// mirroring cmux-tui's `default_workspace_name`: one past the highest
+    /// `workspace-N`, never below the workspace count. `pendingCreations`
+    /// counts this client's other unnamed creates whose receipts have not
+    /// arrived. Nil when the machine has not reported its workspaces yet.
+    /// The daemon's receipt stays authoritative; this only spares the pane a
+    /// generic placeholder title that is renamed a moment later.
+    static func predictedDefaultWorkspaceName(
+        on machine: SurfaceMachineID,
+        snapshot: SurfaceCatalogSnapshot,
+        pendingCreations: Int = 0
+    ) -> String? {
+        let info = snapshot.machines.first { $0.id == machine }
+        guard info?.remoteWorkspaces != nil else { return nil }
+        return predictedDefaultWorkspaceName(
+            existingNames: remoteWorkspaces(info: info, resources: snapshot.resources(on: machine)).map(\.name),
+            pendingCreations: pendingCreations
+        )
+    }
+
+    static func predictedDefaultWorkspaceName(existingNames: [String], pendingCreations: Int = 0) -> String {
+        // Names come from any client of the machine, so the arithmetic
+        // saturates like the daemon's instead of trapping on a huge suffix.
+        let highest = existingNames.compactMap { name -> Int? in
+            guard name.hasPrefix("workspace-"),
+                  let number = Int(name.dropFirst("workspace-".count)), number >= 0 else { return nil }
+            return number
+        }.max() ?? 0
+        let (afterBase, baseOverflow) = max(highest, existingNames.count).addingReportingOverflow(1)
+        let (next, pendingOverflow) = afterBase.addingReportingOverflow(max(pendingCreations, 0))
+        return "workspace-\(baseOverflow || pendingOverflow ? Int.max : next)"
+    }
+
     /// Every workspace's members in ONE pass over the catalog: a resource is
     /// appended to each workspace that views it, so the per-kind lists keep
     /// catalog order. The workspace rows (children and drag group) and the

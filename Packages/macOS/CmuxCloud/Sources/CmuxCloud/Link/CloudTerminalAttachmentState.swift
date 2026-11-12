@@ -13,6 +13,8 @@ public enum CloudTerminalAttachmentInterruption: Equatable, Sendable {
     case rejected(String)
     /// The Mac could not map the terminal to an attachable surface yet.
     case unresolved(String)
+    /// The daemon predates the replay framing required by the native mirror.
+    case staleDaemon
 
     /// A stable, code-like form for the unified log. Free text stays out of
     /// it; see ``detail``.
@@ -23,13 +25,14 @@ public enum CloudTerminalAttachmentInterruption: Equatable, Sendable {
         case .transportClosed: return "transport-closed"
         case .rejected: return "rejected"
         case .unresolved: return "unresolved"
+        case .staleDaemon: return "stale-daemon"
         }
     }
 
     /// The free-text part of the reason, logged privately.
     public var detail: String? {
         switch self {
-        case .handshakeTimedOut, .livenessTimedOut, .transportClosed: return nil
+        case .handshakeTimedOut, .livenessTimedOut, .transportClosed, .staleDaemon: return nil
         case let .rejected(reason), let .unresolved(reason): return reason
         }
     }
@@ -60,6 +63,11 @@ public enum CloudTerminalAttachmentInterruption: Equatable, Sendable {
             return String(
                 localized: "cloudPane.attachment.reason.unresolved",
                 defaultValue: "the terminal is not ready to attach"
+            )
+        case .staleDaemon:
+            return String(
+                localized: "cloudPane.attachment.reason.staleDaemon",
+                defaultValue: "this Cloud machine is running an older terminal runtime; upgrade it, then retry"
             )
         }
     }

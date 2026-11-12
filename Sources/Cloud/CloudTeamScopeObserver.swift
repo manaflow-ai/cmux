@@ -3,7 +3,7 @@ import Foundation
 
 extension Notification.Name {
     static let cmuxCloudTeamScopeDidChange = Notification.Name("cmux.cloudTeamScopeDidChange")
-    /// Posted after the registry has retired the old team and resumed the new scope.
+    /// Posted once the new scope is discovered, without waiting for machine details.
     static let cmuxCloudTeamScopeReady = Notification.Name("cmux.cloudTeamScopeReady")
 }
 

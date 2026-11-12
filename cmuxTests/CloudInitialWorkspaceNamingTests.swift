@@ -213,7 +213,7 @@ struct CloudInitialWorkspaceNamingTests {
                 notificationCenter: NotificationCenter()
             )
             var completion: (@MainActor (CloudVMActionLauncher.Completion) -> Void)?
-            #expect(coordinator.start(request, cancellableLaunch: { _, _, handler in
+            #expect(coordinator.start(request, cancellableLaunch: { _, _, _, handler in
                 completion = handler
                 return CloudVMActionLauncher.CancellationHandle { }
             }))

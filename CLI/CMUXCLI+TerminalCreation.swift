@@ -1,6 +1,12 @@
 import Foundation
 
 extension CMUXCLI {
+    /// The options `workspace create` reads a value for.
+    static let workspaceCreateValueOptions: Set<String> = [
+        "--command", "--cwd", "--name", "--description", "--layout", "--window", "--focus",
+        "--group", "--group-placement", "--group-reference", "--env", "--env-file",
+    ]
+
     /// Creates a workspace through the v2 socket API, preserving terminal
     /// command input as spawn-time input for layout-free workspaces.
     func runWorkspaceCreateCommand(
@@ -46,6 +52,10 @@ extension CMUXCLI {
                 commandName
             ))
         }
+        // A value option left over here had no value to consume (`--name` at the end).
+        if let dangling = remaining.first(where: Self.workspaceCreateValueOptions.contains) {
+            throw missingOptionValueError(dangling, commandName: commandName)
+        }
         if let unknown = remaining.first(where: { $0.hasPrefix("--") }) {
             throw CLIError(message: String(
                 format: String(
@@ -57,6 +67,12 @@ extension CMUXCLI {
                 unknown
             ))
         }
+        try rejectUnexpectedArguments(
+            commandArgs,
+            commandName: commandName,
+            valueOptions: Self.workspaceCreateValueOptions,
+            maxPositionals: 0
+        )
         var params: [String: Any] = [:]
         try applyWindowOrCallerContext(to: &params, client: client, windowRaw: windowOpt ?? windowOverride)
         if let cwdOpt {

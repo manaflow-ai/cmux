@@ -19,6 +19,9 @@ public struct SidebarStatusEntry: Equatable, Sendable {
     public let format: SidebarMetadataFormat
     /// When the entry was reported.
     public let timestamp: Date
+    /// Optional explanatory tooltip shown alongside the text (for example
+    /// that an agent-usage cost is an estimate).
+    public let helpText: String?
     /// What the agent is running on, when the reporter said so. `nil` on every
     /// entry that is not an agent row, and on agent rows from a reporter that
     /// does not report it.
@@ -34,6 +37,7 @@ public struct SidebarStatusEntry: Equatable, Sendable {
         priority: Int = 0,
         format: SidebarMetadataFormat = .plain,
         timestamp: Date = Date(),
+        helpText: String? = nil,
         workState: SidebarAgentWorkState? = nil
     ) {
         self.key = key
@@ -44,6 +48,7 @@ public struct SidebarStatusEntry: Equatable, Sendable {
         self.priority = priority
         self.format = format
         self.timestamp = timestamp
+        self.helpText = helpText
         self.workState = workState
     }
 }

@@ -1,7 +1,13 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import type { HexclaveInboxStore } from "./hexclave/inbox";
+import { hexclaveEventTarget, type HexclaveSyncDependencies } from "./hexclave/sync";
+import { parseHexclaveWebhook, type HexclaveWebhookEvent } from "./hexclave/webhookEvents";
+import { captureAccountSignedUp } from "../analytics/accountSignup";
 
 /**
- * Stack Auth webhooks, delivered by Svix.
+ * Hexclave (formerly Stack Auth) webhooks, delivered by Svix. Every event
+ * type syncs the Hexclave mirror (services/auth/hexclave); deletions also
+ * revoke Cloud machine access.
  *
  * Signature scheme (https://docs.svix.com/receiving/verifying-payloads/how-manual):
  * the signed content is `${svix-id}.${svix-timestamp}.${rawBody}`, the key is
@@ -56,56 +62,53 @@ function svixKey(secret: string): Buffer | null {
   return key.length > 0 ? key : null;
 }
 
-/** The Stack events this backend acts on; every other type is acknowledged and ignored. */
-export type StackWebhookEvent =
-  | { readonly type: "team_membership.deleted"; readonly teamId: string; readonly userId: string }
-  | { readonly type: "team.deleted"; readonly teamId: string }
-  | { readonly type: "ignored"; readonly eventType: string }
-  | { readonly type: "malformed" };
-
-/**
- * Parse a verified body. Shapes follow Stack's webhook schemas
- * (`@hexclave/shared` interface/crud): `team_membership.deleted` carries
- * `data.team_id` and `data.user_id`; `team.deleted` carries `data.id`.
- */
-export function parseStackWebhookEvent(rawBody: string): StackWebhookEvent {
-  let body: unknown;
-  try {
-    body = JSON.parse(rawBody);
-  } catch {
-    return { type: "malformed" };
-  }
-  if (!isRecord(body) || typeof body.type !== "string") return { type: "malformed" };
-  const data = isRecord(body.data) ? body.data : {};
-  if (body.type === "team_membership.deleted") {
-    const teamId = nonEmptyString(data.team_id);
-    const userId = nonEmptyString(data.user_id);
-    return teamId && userId ? { type: body.type, teamId, userId } : { type: "malformed" };
-  }
-  if (body.type === "team.deleted") {
-    const teamId = nonEmptyString(data.id);
-    return teamId ? { type: body.type, teamId } : { type: "malformed" };
-  }
-  return { type: "ignored", eventType: body.type.slice(0, 64) };
-}
+export type StackWebhookLog = (
+  level: "info" | "warn" | "error",
+  message: string,
+  fields: Record<string, unknown>,
+) => void;
 
 export type StackWebhookDependencies = {
   readonly webhookSecret: () => string | undefined;
-  readonly revokeTeamMemberAccess: (input: { readonly teamId: string; readonly userId: string }) => Promise<unknown>;
-  readonly revokeTeamAccess: (input: { readonly teamId: string }) => Promise<unknown>;
+  /** Null when Hexclave server access or the database is not configured. */
+  readonly sync: () => HexclaveSyncDependencies | null;
+  /** Where verified events wait to be applied; null when the database is not configured. */
+  readonly inbox: () => HexclaveInboxStore | null;
+  /** Start a bounded inbox drain after the response (the route uses `after`). */
+  readonly scheduleDrain?: () => void;
   readonly nowSeconds?: () => number;
-  readonly logError?: (message: string, error: unknown) => void;
+  readonly log?: StackWebhookLog;
+  /** Product analytics for a new account (`cmux_account_signed_up`). */
+  readonly captureSignup?: (data: unknown) => void;
+};
+
+const defaultLog: StackWebhookLog = (level, message, fields) => {
+  const line = JSON.stringify({ message, ...fields });
+  if (level === "error") console.error(line);
+  else if (level === "warn") console.warn(line);
+  else console.info(line);
 };
 
 /**
  * The POST handler body. Status codes are the retry contract with Svix: any
- * non-2xx is retried with backoff, so a failed revocation answers 500, and a
- * request we will never accept (bad signature, malformed body) answers 4xx.
+ * non-2xx is retried with backoff.
+ *
+ * - 401/503: the request is not provably from Hexclave, or we cannot check.
+ * - 400: verified, but the body fails Hexclave's schema for its type. Logged
+ *   and never processed.
+ * - 200 ignored: verified, but a type this code does not know. Logged.
+ * - 200 duplicate: this svix-id was already processed.
+ * - 503 + Retry-After: the verified event could not be stored in the inbox;
+ *   Svix retries the same svix-id later.
+ * - 200 queued: the verified event is stored in the inbox. The drain applies
+ *   it (mirror reconcile and revocations) and retries Hexclave failures with
+ *   backoff; `hexclave_webhook_events` records it once applied.
  */
 export async function handleStackWebhook(
   request: Request,
   dependencies: StackWebhookDependencies,
 ): Promise<Response> {
+  const log = dependencies.log ?? defaultLog;
   const secret = dependencies.webhookSecret()?.trim();
   if (!secret) return json(503, { error: "stack_webhook_not_configured" });
 
@@ -120,35 +123,97 @@ export async function handleStackWebhook(
     const status = verification.reason === "invalid_secret" ? 503 : 401;
     return json(status, { error: "invalid_signature", reason: verification.reason });
   }
+  // verifySvixSignature rejects a request without svix-id.
+  const svixId = request.headers.get("svix-id") ?? "";
 
-  const event = parseStackWebhookEvent(rawBody);
+  const sync = dependencies.sync();
+  if (!sync) return json(503, { error: "stack_webhook_sync_not_configured" });
+  const inbox = dependencies.inbox();
+  if (!inbox) return json(503, { error: "stack_webhook_inbox_not_configured" });
+
   try {
-    switch (event.type) {
-      case "team_membership.deleted":
-        await dependencies.revokeTeamMemberAccess({ teamId: event.teamId, userId: event.userId });
-        return json(200, { received: true, handled: event.type });
-      case "team.deleted":
-        await dependencies.revokeTeamAccess({ teamId: event.teamId });
-        return json(200, { received: true, handled: event.type });
-      case "ignored":
-        return json(200, { received: true, ignored: event.eventType });
-      case "malformed":
-        return json(400, { error: "malformed_event" });
+    if (await sync.store.isEventProcessed(svixId)) {
+      return json(200, { received: true, duplicate: true });
     }
   } catch (error) {
-    (dependencies.logError ?? console.error)(`Stack webhook ${event.type} revocation failed`, error);
-    return json(500, { error: "revocation_failed" });
+    log("error", "stack_webhook_idempotency_read_failed", { svixId, error: errorSummary(error) });
+    return json(500, { error: "idempotency_unavailable" });
+  }
+
+  const parsed = await parseHexclaveWebhook(rawBody);
+  switch (parsed.kind) {
+    case "invalid":
+      log("warn", "stack_webhook_invalid_payload", { svixId, eventType: parsed.eventType, errors: parsed.errors });
+      await recordBestEffort(sync, log, { svixId, eventType: parsed.eventType ?? "unknown", outcome: "invalid" });
+      return json(400, { error: "invalid_event", eventType: parsed.eventType });
+    case "unknown":
+      log("warn", "stack_webhook_unknown_event_type", { svixId, eventType: parsed.eventType });
+      await recordBestEffort(sync, log, { svixId, eventType: parsed.eventType, outcome: "ignored" });
+      return json(200, { received: true, ignored: parsed.eventType });
+    case "event":
+      return enqueueEvent(svixId, parsed.event, inbox, dependencies, log);
   }
 }
 
-function json(status: number, body: Record<string, unknown>): Response {
-  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+/**
+ * Store a verified event and answer at once. Applying it (fresh Hexclave
+ * reads, mirror writes, revocations) happens in the inbox drain, so a
+ * Hexclave throttle no longer fails deliveries and Svix's redelivery burst
+ * no longer multiplies Hexclave reads. A failed store answers 503 so Svix
+ * redelivers; nothing was accepted.
+ */
+async function enqueueEvent(
+  svixId: string,
+  event: HexclaveWebhookEvent,
+  inbox: HexclaveInboxStore,
+  dependencies: StackWebhookDependencies,
+  log: StackWebhookLog,
+): Promise<Response> {
+  try {
+    await inbox.enqueue({ svixId, eventType: event.type, target: hexclaveEventTarget(event) });
+  } catch (error) {
+    log("error", "stack_webhook_enqueue_failed", { svixId, eventType: event.type, error: errorSummary(error) });
+    return json(503, { error: "inbox_unavailable", retryable: true }, { "retry-after": "30" });
+  }
+  log("info", "stack_webhook_queued", { svixId, eventType: event.type });
+  // Accepted exactly when the inbox stored it; a redelivery reuses the
+  // event's natural insert id, so the account is counted once.
+  if (event.type === "user.created") (dependencies.captureSignup ?? captureAccountSignedUp)(event.data);
+  dependencies.scheduleDrain?.();
+  return json(200, { received: true, queued: event.type });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
+async function recordBestEffort(
+  sync: HexclaveSyncDependencies,
+  log: StackWebhookLog,
+  input: Parameters<HexclaveSyncDependencies["store"]["recordEvent"]>[0],
+): Promise<void> {
+  try {
+    await sync.store.recordEvent(input);
+  } catch (error) {
+    log("error", "stack_webhook_record_failed", { svixId: input.svixId, error: errorSummary(error) });
+  }
 }
 
-function nonEmptyString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+/**
+ * A log-safe error: name, Postgres code, and the first line of the message
+ * with any bound parameters cut off (Drizzle appends `params: ...`, which can
+ * hold emails). HexclaveApiError details carry only status, known-error code
+ * and value-free validation paths.
+ */
+function errorSummary(error: unknown): Record<string, unknown> {
+  if (!(error instanceof Error)) return { type: typeof error };
+  const details = (error as { details?: unknown }).details;
+  const code = (error as { code?: unknown }).code;
+  const message = (error.message.split("\n")[0] ?? "").split(/params:/i)[0]!.slice(0, 300);
+  return {
+    name: error.name,
+    message,
+    ...(typeof code === "string" ? { code } : {}),
+    ...(details ? { details } : {}),
+  };
+}
+
+function json(status: number, body: Record<string, unknown>, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } });
 }

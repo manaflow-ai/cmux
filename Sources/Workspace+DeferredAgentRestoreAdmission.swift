@@ -28,7 +28,7 @@ extension Workspace {
                 forPanelId: restore.stablePanelID,
                 kind: expectedKind
             ) else {
-                terminal.restoreRecovery.state = .checking
+                terminal.restoreRecovery.markCheckingPreservingFailure()
                 continue
             }
             guard deferredAgentResumeRestoreMatchesCurrentSession(
@@ -66,8 +66,38 @@ extension Workspace {
                 nil
             }
             if let liveSessionOwner {
+                let attachInput = restore.restoresRemoteWorkspaceTerminalSnapshot
+                    ? nil
+                    : AgentRestoreAttachCommand.startupInput(
+                        liveOwner: liveSessionOwner,
+                        restorableAgent: restore.restorableAgent,
+                        resumeBinding: currentResumeBinding ?? restore.resumeBinding,
+                        tmuxStartCommand: restore.tmuxStartCommand,
+                        workingDirectory: restore.resumeWorkingDirectory,
+                        dialect: restore.noticeDialect
+                    )
                 terminal.restoreRecovery.state = .liveOwner(
-                    kind: liveSessionOwner.kind, processID: liveSessionOwner.processID
+                    kind: liveSessionOwner.kind,
+                    processID: liveSessionOwner.processID,
+                    attachInput: attachInput,
+                    attachAvailable: false
+                )
+                let attachOrNoticeInput = attachInput ?? AgentRestoreLiveOwnerNotice(
+                    processID: liveSessionOwner.processID
+                ).startupInput(dialect: restore.noticeDialect)
+                restoredAgentLifecycle.setResumeState(
+                    attachInput == nil ? .manualResumeAvailable : .awaitingAutoResumeCommand,
+                    panelId: panelId
+                )
+                restoredAgentLifecycle.registerStartupInput(attachOrNoticeInput, panelId: panelId)
+                _ = terminal.surface.admitStartupRestoreRuntime(initialInput: attachOrNoticeInput)
+                removeDeferredAgentResumeRestore(panelId: panelId)
+                AgentRestoreSuppressionJournal().record(
+                    kind: liveSessionOwner.kind,
+                    sessionID: liveSessionOwner.sessionID,
+                    workspaceID: id,
+                    surfaceID: panelId,
+                    processID: liveSessionOwner.processID
                 )
                 continue
             }
@@ -116,7 +146,19 @@ extension Workspace {
                 claim = nil
             }
             guard let startupInput, !startupInput.isEmpty else {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
+                // A failed launch must leave the last verified binding in
+                // place so the visible surface remains recoverable. Retiring
+                // it here turns a transient command/provider failure into a
+                // bare shell on the next snapshot.
+                cancelDeferredAgentResumeRestore(
+                    panelId: panelId,
+                    restore: restore,
+                    retireBinding: false
+                )
+                terminal.restoreRecovery.state = .failed(
+                    reason: "resume-command-unavailable",
+                    recoveryInput: nil
+                )
                 continue
             }
             let ownedClaim = restore.restoresRemoteWorkspaceTerminalSnapshot
@@ -157,6 +199,10 @@ extension Workspace {
                 restoredAgentLifecycle.setResumeState(
                     restore.restorableAgent == nil ? nil : .manualResumeAvailable,
                     panelId: panelId
+                )
+                terminal.restoreRecovery.state = .failed(
+                    reason: "startup-admission-rejected",
+                    recoveryInput: startupInput
                 )
             } else {
                 terminalStartupRestoreCoordinator.recordDeferredResumeIntent(

@@ -37,7 +37,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// Native cmux split/tab chrome for this mirrored tmux window.
     var bonsplitController: BonsplitController
 
-    @ObservationIgnored weak var connection: RemoteTmuxControlConnection?
+    @ObservationIgnored weak var connection: (any RemoteTmuxSessionSource)?
     @ObservationIgnored weak var workspaceBonsplitController: BonsplitController?
     /// Creates a configured manual-I/O pane panel whose input goes to `tmuxPaneId`.
     @ObservationIgnored let makePanel: (_ tmuxPaneId: Int) -> TerminalPanel?
@@ -296,7 +296,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     init(
         windowId: Int,
         panelId: UUID,
-        connection: RemoteTmuxControlConnection,
+        connection: any RemoteTmuxSessionSource,
         layout: RemoteTmuxLayoutNode,
         appearance: BonsplitConfiguration.Appearance = .init(),
         workspaceBonsplitController: BonsplitController? = nil,
@@ -396,6 +396,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             connection?.unsubscribePanePath(paneId: paneId)
             connection?.unsubscribePaneReflow(paneId: paneId)
             connection?.unsubscribePaneHeader(paneId: paneId)
+            connection?.unsubscribePaneAgent(paneId: paneId)
             panelsByPaneId[paneId] = nil
             onTerminalPanelRemoved?(panel)
             cwdByPaneId[paneId] = nil
@@ -418,8 +419,9 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         if labels != paneHeaderLabels { paneHeaderLabels = labels }
         var paneTitleMetadata: [Int: RemoteTmuxPaneTitleMetadata] = [:]
         paneTitleMetadata.reserveCapacity(livePaneIDsInOrder.count)
+        let connectionPaneTitleMetadata = connection?.paneTitleMetadataByPane ?? [:]
         for paneId in livePaneIDsInOrder {
-            if let metadata = connection?.paneTitleMetadataByPane[paneId] {
+            if let metadata = connectionPaneTitleMetadata[paneId] {
                 paneTitleMetadata[paneId] = metadata
             }
         }
@@ -502,7 +504,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             handleSizingSample(sample, paneId: paneId)
         }
         reportPaneColors(paneId: paneId)
-        if needsSeed { connection?.seedPane(paneId: paneId) }
+        if needsSeed { connection?.seedPane(paneId: paneId, clearScrollback: true) }
     }
 
     /// Routes a tmux `%output` to the surface for `paneId` (no-op if unknown).
@@ -559,7 +561,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// The pane's last-known foreground classification (alt-screen flag +
     /// `pane_current_command`), driving the kill-pane close confirmation.
     /// `nil` when the pane was never classified (closes without a dialog).
-    func paneForegroundState(_ tmuxPaneId: Int) -> RemoteTmuxControlConnection.PaneForegroundState? {
+    func paneForegroundState(_ tmuxPaneId: Int) -> RemoteTmuxPaneForegroundState? {
         connection?.paneForegroundStates[tmuxPaneId]
     }
 
@@ -569,7 +571,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     /// to ``paneForegroundState(_:)``.
     func queryPaneActivity(
         _ tmuxPaneId: Int,
-        completion: @escaping ([Int: RemoteTmuxControlConnection.PaneForegroundState]?) -> Void
+        completion: @escaping ([Int: RemoteTmuxPaneForegroundState]?) -> Void
     ) {
         guard let connection else {
             completion(nil)
@@ -608,6 +610,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
             activeConnection?.unsubscribePanePath(paneId: paneId)
             activeConnection?.unsubscribePaneReflow(paneId: paneId)
             activeConnection?.unsubscribePaneHeader(paneId: paneId)
+            activeConnection?.unsubscribePaneAgent(paneId: paneId)
         }
         let removedPanels = Array(panelsByPaneId)
         for (paneId, panel) in removedPanels {

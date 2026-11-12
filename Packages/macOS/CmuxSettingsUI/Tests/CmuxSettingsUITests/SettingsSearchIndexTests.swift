@@ -257,6 +257,8 @@ struct SettingsSearchIndexTests {
         ("macos-option-as-alt", "setting:terminal:option-as-alt"),
         ("option as meta", "setting:terminal:option-as-alt"),
         ("scrollback-limit", "setting:terminal:scrollback-limit"),
+        ("middle-click-action", "setting:terminal:middle-click-paste"),
+        ("middle click paste", "setting:terminal:middle-click-paste"),
     ])
     func ghosttyOptionRowsAreSearchable(query: String, expectedID: String) {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
@@ -279,6 +281,7 @@ struct SettingsSearchIndexTests {
         let index = SettingsSearchIndex(catalog: SettingCatalog())
         let anchor = index.anchorID(forSettingsPath: "sidebar.showBranchDirectory")
         #expect(anchor == "setting:sidebarAppearance:show-branch-directory")
+        #expect(index.anchorID(forSettingsPath: "sidebar.showCloudDeviceIcons") == "setting:sidebarAppearance:show-cloud-device-icons")
     }
 
     @Test func conditionalAutoNamingAgentSearchUsesVisibleWorkspaceAutoNamingRow() throws {

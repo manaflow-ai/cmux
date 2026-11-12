@@ -89,6 +89,9 @@ extension TerminalController {
               let windowID = v2ResolveWindowId(tabManager: tabManager) else {
             return .surfaceNotFound(surfaceID)
         }
+        if let message = browserReplTabRefusalMessage(sourcePanelID) {
+            return .denied(sourcePanelID, message: message)
+        }
 
         let targetIndex: Int
         if let index = inputs.index {

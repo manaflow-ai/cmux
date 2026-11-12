@@ -3,24 +3,27 @@ import Testing
 
 @Suite struct UpdateFeedResolverTests {
     @Test func missingInfoFeedURLUsesFallback() {
-        let resolver = UpdateFeedResolver(fallbackFeedURL: "https://example.com/appcast.xml")
+        let resolver = UpdateFeedResolver(hostArchitecture: .arm64)
         let resolution = resolver.resolve(infoFeedURL: nil)
-        #expect(resolution.url == "https://example.com/appcast.xml")
+        #expect(resolution.url == "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast-arm64.xml")
         #expect(resolution.usedFallback)
         #expect(!resolution.isNightly)
     }
 
     @Test func emptyInfoFeedURLUsesFallback() {
-        let resolver = UpdateFeedResolver(fallbackFeedURL: "https://example.com/appcast.xml")
+        let resolver = UpdateFeedResolver(hostArchitecture: .x86_64)
         let resolution = resolver.resolve(infoFeedURL: "")
-        #expect(resolution.url == "https://example.com/appcast.xml")
+        #expect(resolution.url == "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast-x86_64.xml")
         #expect(resolution.usedFallback)
     }
 
-    @Test func stableInfoFeedURLIsUsedVerbatim() {
-        let resolver = UpdateFeedResolver()
-        let resolution = resolver.resolve(infoFeedURL: "https://example.com/stable/appcast.xml")
-        #expect(resolution.url == "https://example.com/stable/appcast.xml")
+    /// Stable ships thin DMGs too: the legacy feed every stable install reads resolves to the
+    /// machine's own architecture feed, so a thin install never depends on the universal feed.
+    @Test func stableInfoFeedURLResolvesToHostArchitectureFeed() {
+        let resolver = UpdateFeedResolver(hostArchitecture: .arm64)
+        let resolution = resolver.resolve(infoFeedURL: "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml")
+        #expect(resolution.url == "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast-arm64.xml")
+        #expect(resolution.channel == .stable)
         #expect(!resolution.usedFallback)
         #expect(!resolution.isNightly)
     }
@@ -86,11 +89,28 @@ import Testing
             == "https://files.cmux.com/nightly/feed.xml")
     }
 
-    /// Stable stays universal: its feed URL is never rewritten per architecture.
-    @Test func stableFeedIsNotRewrittenPerArchitecture() {
+    /// An Intel stable install, and the files.cmux.com stable mirror, resolve the same way.
+    @Test func stableFeedIsRewrittenPerArchitecture() {
         let resolver = UpdateFeedResolver(hostArchitecture: .x86_64)
+        #expect(resolver.resolve(infoFeedURL: "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast.xml").url
+            == "https://github.com/manaflow-ai/cmux/releases/latest/download/appcast-x86_64.xml")
+        #expect(resolver.resolve(infoFeedURL: "https://files.cmux.com/stable/appcast.xml").url
+            == "https://files.cmux.com/stable/appcast-x86_64.xml")
+        #expect(resolver.resolve(infoFeedURL: "https://files.cmux.com/stable/appcast-arm64.xml").url
+            == "https://files.cmux.com/stable/appcast-arm64.xml")
+    }
+
+    /// Only cmux's own stable feeds publish per-architecture appcasts. A fork's or a
+    /// self-hosted stable feed keeps the URL it was built with.
+    @Test func customStableFeedIsKept() {
+        let resolver = UpdateFeedResolver(hostArchitecture: .arm64)
+        #expect(resolver.resolve(infoFeedURL: "https://example.com/custom/appcast.xml").url
+            == "https://example.com/custom/appcast.xml")
         #expect(resolver.resolve(infoFeedURL: "https://example.com/stable/appcast.xml").url
             == "https://example.com/stable/appcast.xml")
-        #expect(resolver.resolve(infoFeedURL: nil).url == resolver.fallbackFeedURL)
+        #expect(resolver.resolve(infoFeedURL: "https://github.com/someone/cmux/releases/latest/download/appcast.xml").url
+            == "https://github.com/someone/cmux/releases/latest/download/appcast.xml")
+        let fork = UpdateFeedResolver(fallbackFeedURL: "https://example.com/appcast.xml", hostArchitecture: .arm64)
+        #expect(fork.resolve(infoFeedURL: nil).url == "https://example.com/appcast.xml")
     }
 }

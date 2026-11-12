@@ -1,5 +1,6 @@
 import CMUXMobileCore
 import CmuxMobileAnalytics
+import CmuxMobileBilling
 import CmuxMobileCrashReporting
 import CmuxMobileDiagnostics
 import CmuxMobileShell
@@ -33,6 +34,11 @@ final class AppCompositionRoot {
     let pushCoordinator: MobilePushCoordinator
     let signOutHook: MobileSignOutHook
     let analytics: MobileAnalyticsComposition
+    /// App Store billing. Built and started once here, at launch, so the
+    /// StoreKit `Transaction.updates` listener delivers renewals, approved
+    /// Ask to Buy requests and purchases from other devices for the whole
+    /// process lifetime. Nil when the build has no API origin.
+    let billing: BillingModel?
     let featureFlags: MobileFeatureFlags
     let displaySettings: MobileDisplaySettings
     /// App-lifetime keyboard frame record, injected into the view tree via
@@ -150,13 +156,21 @@ final class AppCompositionRoot {
             }
         )
         self.appLog = appLog
+        let feedScrollSentryReporter = MobileFeedScrollSentryReporter(consent: telemetryConsent)
         let analytics = MobileAnalyticsComposition(
             apiBaseURL: auth.config.apiBaseURL,
             tokenProvider: auth.coordinator,
             consent: telemetryConsent,
-            diagnosticLog: diagnosticLog
+            diagnosticLog: diagnosticLog,
+            onFeedScrollAnomaly: { feedScrollSentryReporter.report($0) }
         )
         self.analytics = analytics
+        let billing = MobileBillingComposition(
+            auth: auth,
+            bundleIdentifier: Bundle.main.bundleIdentifier
+        ).makeModel(analytics: analytics.emitter)
+        billing?.start()
+        self.billing = billing
         let networkOutcomeReporter = analytics.networkOutcomeReporter
         self.networkOutcomeReporter = networkOutcomeReporter
         let initialConnectionReporter = analytics.initialConnectionReporter
@@ -188,6 +202,9 @@ final class AppCompositionRoot {
             loader: analytics.clientConfig,
             request: analytics.anonymousClientConfigRequest,
             onTerminalLatencyChanged: { [reporter = analytics.terminalLatencyReporter] enabled in
+                reporter.setEnabled(enabled)
+            },
+            onFeedPerformanceChanged: { [reporter = analytics.feedPerformanceReporter] enabled in
                 reporter.setEnabled(enabled)
             }
         )
@@ -399,6 +416,10 @@ final class AppCompositionRoot {
         let emitter = analytics.emitter
         switch phase {
         case .active:
+            #if DEBUG
+            MobileLatencyTrace.stamp("scene.active")
+            #endif
+            analytics.feedPerformanceReporter.setForeground(true)
             analytics.terminalLatencyReporter.setForeground(true)
             analytics.terminalTraceReporter.setForeground(true)
             diagnosticLog.recordAppEvent(.appForegrounded)
@@ -434,6 +455,7 @@ final class AppCompositionRoot {
             emitter.capture("ios_app_foregrounded", foregroundProps)
             hasForegrounded = true
         case .inactive:
+            analytics.feedPerformanceReporter.setForeground(false)
             analytics.terminalLatencyReporter.setForeground(false)
             analytics.terminalTraceReporter.setForeground(false)
             diagnosticLog.recordAppEvent(.appBecameInactive)
@@ -441,6 +463,7 @@ final class AppCompositionRoot {
             // background transition entirely, so snapshot diagnostics now.
             break
         case .background:
+            analytics.feedPerformanceReporter.setForeground(false)
             analytics.terminalLatencyReporter.setForeground(false)
             analytics.terminalTraceReporter.setForeground(false)
             diagnosticLog.recordAppEvent(.appBackgrounded)
@@ -462,12 +485,14 @@ final class AppCompositionRoot {
             // Force a flush before the OS may suspend us, so queued events survive.
             let networkOutcomeReporter = self.networkOutcomeReporter
             let initialConnectionReporter = self.analytics.initialConnectionReporter
+            let feedPerformanceReporter = self.analytics.feedPerformanceReporter
             let terminalLatencyReporter = self.analytics.terminalLatencyReporter
             let terminalTraceReporter = self.terminalTraceReporter
             Task {
                 await emitter.flush()
                 await networkOutcomeReporter.flush()
                 await initialConnectionReporter.flush()
+                await feedPerformanceReporter.flush()
                 await terminalLatencyReporter.flush()
                 await terminalTraceReporter.flush()
             }

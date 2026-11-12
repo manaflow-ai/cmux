@@ -16,6 +16,16 @@ export const MAC_PEER_INBOUND_RULE = "cmux.mac-peer-inbound.v1";
 
 export const CONTROL_PLANE_RULES: readonly string[] = Object.freeze([MAC_PEER_INBOUND_RULE]);
 
+/**
+ * Published only in `account.directory.result.v1`, never in
+ * CONTROL_PLANE_RULES or the health route, so every existing team response is
+ * unchanged. A Mac lists and admits the same Stack user's Macs across teams
+ * through the account directory only when this rule is present.
+ */
+export const MAC_ACCOUNT_PEER_RULE = "cmux.mac-account-peer.v1";
+
+export const ACCOUNT_DIRECTORY_RULES: readonly string[] = Object.freeze([MAC_ACCOUNT_PEER_RULE]);
+
 /** The deployed source revision, when the deploy script published it as a Worker variable. */
 export function sourceRevision(value: unknown): string {
   return typeof value === "string" && /^(?:[0-9a-f]{7,64}|unknown)$/.test(value) ? value : "unknown";

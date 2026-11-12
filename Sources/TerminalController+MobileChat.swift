@@ -9,6 +9,17 @@ import Foundation
 /// the existing mobile terminal injection machinery so chat input behaves
 /// exactly like composer input.
 extension TerminalController {
+    /// Advances both classic Feed attention and mobile agent-chat state from
+    /// the shared accepted-terminal-input seam.
+    @MainActor
+    func noteAcceptedAgentInput(surfaceID: UUID, at: Date = Date()) {
+        _ = agentChatTranscriptService?.noteExplicitInput(
+            surfaceID: surfaceID.uuidString,
+            at: at
+        )
+        FeedCoordinator.shared.noteExplicitInput(surfaceID: surfaceID, at: at)
+    }
+
     /// Actionable error for a chat session whose terminal binding cannot
     /// be resolved even after a hook-store refresh. Surfaces verbatim in the
     /// iOS chat error banner, so it is localized.

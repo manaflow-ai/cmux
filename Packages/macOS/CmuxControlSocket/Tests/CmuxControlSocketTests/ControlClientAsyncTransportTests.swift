@@ -267,4 +267,21 @@ struct ControlClientAsyncTransportTests {
         #expect(count == payload.count)
         #expect(Data(bytes) == payload)
     }
+
+    @Test func asyncReaderPreservesBufferedLinesAfterHalfClose() async throws {
+        let pair = try UnixSocketFixture.makeSocketPair()
+        defer {
+            close(pair.reader)
+        }
+        let reader = ControlClientAsyncLineReader(socket: pair.reader)
+
+        #expect(writeFully(Array("ping\n".utf8), to: pair.writer))
+        shutdown(pair.writer, SHUT_WR)
+        close(pair.writer)
+
+        let line = await reader.nextLine(shouldContinueReading: { true })
+        #expect(line == "ping")
+        let eof = await reader.nextLine(shouldContinueReading: { true })
+        #expect(eof == nil)
+    }
 }

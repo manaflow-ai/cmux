@@ -156,10 +156,6 @@ extension TerminalSurface {
             where !key.isEmpty && !value.isEmpty {
             setManagedEnvironmentValue(key, value)
         }
-        setManagedEnvironmentValue(
-            "CMUX_CLAUDE_INTEGRATION_DISABLED",
-            spawnPolicy.claudeHooksEnabled ? "0" : "1"
-        )
         if !spawnPolicy.claudeHooksEnabled {
             setManagedEnvironmentValue("CMUX_CLAUDE_HOOKS_DISABLED", "1")
         }
@@ -216,12 +212,13 @@ extension TerminalSurface {
             }
         }
 
+        for (key, value) in Self.agentCommandShimEnvironment(
+            claudeIntegrationEnabled: spawnPolicy.claudeHooksEnabled,
+            agentCommandShims: agentCommandShims
+        ) {
+            setManagedEnvironmentValue(key, value)
+        }
         if let agentCommandShims {
-            setManagedEnvironmentValue("CMUX_AGENT_COMMAND_SHIM_ROOT", agentCommandShims.directoryPath)
-            for shim in agentCommandShims.shims {
-                setManagedEnvironmentValue(shim.wrapperShimEnvironmentKey, shim.executablePath)
-                setManagedEnvironmentValue(shim.wrapperShimRootEnvironmentKey, shim.directoryPath)
-            }
             let currentPath = currentManagedPath()
             setManagedEnvironmentValue(
                 "PATH",

@@ -55,8 +55,8 @@ class Prune(unittest.TestCase):
         bucket = FakeBucket([
             archive("admission-derived-data-v1-macOS-ARM64-fp-a", 2),
             archive("admission-derived-data-v1-macOS-ARM64-fp-b", 0.5),
-            archive("xcode-compilation-test-macOS-ARM64-fp-a", 2),
-            archive("xcode-compilation-test-macOS-ARM64-fp-b", 0.5),
+            archive("xcode-compilation-release-macOS-ARM64-fp-a", 2),
+            archive("xcode-compilation-release-macOS-ARM64-fp-b", 0.5),
             archive("git-seed-v1-" + "a" * 40, 2),
             archive("git-seed-v1-" + "b" * 40, 0.5),
             archive("spm-a", 31),
@@ -66,7 +66,7 @@ class Prune(unittest.TestCase):
         prune.prune(bucket, NOW, delete=True)
         self.assertEqual(sorted(bucket.deleted), sorted([
             f"{NS}/objects/admission-derived-data-v1-macOS-ARM64-fp-a.tar.zst",
-            f"{NS}/objects/xcode-compilation-test-macOS-ARM64-fp-a.tar.zst",
+            f"{NS}/objects/xcode-compilation-release-macOS-ARM64-fp-a.tar.zst",
             f"{NS}/objects/git-seed-v1-{'a' * 40}.tar.zst",
             f"{NS}/objects/spm-a.tar.zst",
         ]))
@@ -141,6 +141,9 @@ class Workflow(unittest.TestCase):
         self.assertIn("PRUNE_DELETE", run["run"])
         condition = run["env"]["PRUNE_DELETE"]
         self.assertIn("vars.CI_R2_CACHE_PRUNE_DELETE == '1'", condition)
+        # A dispatch decides by its input alone: delete=false is a dry run even when the variable is on.
+        self.assertIn("github.event_name == 'workflow_dispatch' && inputs.delete", condition)
+        self.assertIn("github.event_name == 'schedule' && vars.CI_R2_CACHE_PRUNE_DELETE == '1'", condition)
         self.assertIn("inputs.delete", condition)
 
 

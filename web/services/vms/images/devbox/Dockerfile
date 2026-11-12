@@ -11,10 +11,10 @@
 # noVNC on 6901), the same stack on every provider.
 #
 # Session daemon: cmux-tui, the machine's only session daemon
-# (docs/cloud-cmux-tui-daemon.md). This container image bakes NO binary: a
-# driver installs the pinned files.cmux.com build (sha256-verified) at create
-# time and heals it on attach (web/services/vms/drivers/cmuxTuiDaemon.ts). The
-# image ships only /usr/local/bin/cmux-devbox-boot, the supervisor that waits
+# (docs/cloud-cmux-tui-daemon.md). This container image bakes NO binary: the
+# Freestyle bake installs the pinned files.cmux.com build (sha256-verified,
+# web/services/vms/drivers/cmuxTuiDaemon.ts), and the driver installs nothing
+# at create or attach. The image ships only /usr/local/bin/cmux-devbox-boot, the supervisor that waits
 # for the binary and restarts the daemon, and (without systemd) runs the
 # desktop supervisor as the work user. The Freestyle public-platform bake
 # (build-devbox-freestyle.ts) runs the same supervisor from a systemd unit but
@@ -32,17 +32,14 @@ FROM ubuntu:24.04
 # Cache-buster: bump the date to force remote builders past stale layer
 # caches (a remote builder served stale layers for chatmux on 2026-08-21 and
 # 2026-08-25). Also the image version /etc/cmux/image-stamp carries.
-ENV CMUX_IMAGE_EPOCH=2026-09-10-r2
+ENV CMUX_IMAGE_EPOCH=2026-10-28-r1
 
 ENV LANG=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
 
 # Devtools (chatmux devbox apt list) plus vim, sudo for non-root provider
 # exec users, procps for the driver's daemon process discovery (pgrep),
-# iproute2 for the desktop's port probes (ss), and bubblewrap: codex's Linux
-# sandbox prerequisite (developers.openai.com/codex/concepts/sandboxing), so
-# codex uses the distro's bwrap instead of warning on every launch that it is
-# falling back to its bundled copy.
+# and iproute2 for the desktop's port probes (ss).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     ripgrep \
@@ -54,6 +51,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xz-utils \
     zstd \
     procps \
+    coreutils \
     iproute2 \
     iputils-arping \
     openssh-client \
@@ -71,11 +69,33 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     vim \
     sudo \
     util-linux \
-    bubblewrap \
+    e2fsprogs \
   && rm -rf /var/lib/apt/lists/* \
   && ln -s "$(command -v fdfind)" /usr/local/bin/fd \
   && echo 'LANG=C.UTF-8' > /etc/default/locale \
-  && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && ss -V && bwrap --version
+  && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && ss -V
+
+# Muse needs a current bubblewrap; Ubuntu 24.04 ships 0.9.0. Build the
+# checksum-pinned upstream release, and divert /usr/bin/bwrap so a later apt
+# install cannot replace it. Keep /usr/bin/bwrap for Ubuntu's AppArmor profile.
+# build-devbox-freestyle.ts reads these pins and replays this install command.
+ARG CMUX_IMAGE_BUBBLEWRAP_URL=https://github.com/containers/bubblewrap/releases/download/v0.13.1/bubblewrap-0.13.1.tar.xz
+ARG CMUX_IMAGE_BUBBLEWRAP_SHA256=0e85c8702248b8dd64144f594147553650cdd0e4c951690345faace79c217c4d
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends meson ninja-build libcap-dev \
+  && curl -fsSL -o /tmp/bubblewrap.tar.xz $CMUX_IMAGE_BUBBLEWRAP_URL \
+  && echo "$CMUX_IMAGE_BUBBLEWRAP_SHA256  /tmp/bubblewrap.tar.xz" | sha256sum -c - \
+  && rm -rf /tmp/bubblewrap \
+  && mkdir /tmp/bubblewrap \
+  && tar -xJf /tmp/bubblewrap.tar.xz -C /tmp/bubblewrap --strip-components=1 \
+  && meson setup /tmp/bubblewrap/build /tmp/bubblewrap --prefix=/usr --buildtype=release -Dtests=false -Dman=disabled -Dselinux=disabled -Dbash_completion=disabled -Dzsh_completion=disabled \
+  && meson compile -C /tmp/bubblewrap/build \
+  && dpkg-divert --local --rename --divert /usr/bin/bwrap.distrib --add /usr/bin/bwrap \
+  && meson install -C /tmp/bubblewrap/build --no-rebuild \
+  && apt-get purge -y meson ninja-build libcap-dev \
+  && rm -rf /var/lib/apt/lists/* /tmp/bubblewrap /tmp/bubblewrap.tar.xz \
+  && test "$(/usr/bin/bwrap --version)" = "bubblewrap 0.13.1" \
+  && test "$(command -v bwrap)" = /usr/bin/bwrap
 
 # The work user: the base's uid-1000 account renamed to `cmux`
 # (web/services/vms/images/workUser.ts). ONE account owns the desktop session,
@@ -228,11 +248,11 @@ RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot \
 # ride the same toolchain users get. `bun run devbox:pins:check` (web/)
 # compares these with the npm registry and `--write` rewrites them; a pin is
 # always an exact release, never a range or a tag.
-ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.267
-ARG CMUX_IMAGE_CODEX_VERSION=0.154.0
-ARG CMUX_IMAGE_OPENCODE_VERSION=1.18.30
-ARG CMUX_IMAGE_PI_VERSION=0.85.1
-ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.37.1
+ARG CMUX_IMAGE_CLAUDE_CODE_VERSION=2.1.299
+ARG CMUX_IMAGE_CODEX_VERSION=0.162.1
+ARG CMUX_IMAGE_OPENCODE_VERSION=1.19.0
+ARG CMUX_IMAGE_PI_VERSION=1.2.0
+ARG CMUX_IMAGE_AGENT_BROWSER_VERSION=0.39.1
 RUN npm install -g --foreground-scripts \
     "@anthropic-ai/claude-code@${CMUX_IMAGE_CLAUDE_CODE_VERSION}" \
     "@openai/codex@${CMUX_IMAGE_CODEX_VERSION}" \
@@ -275,6 +295,14 @@ RUN curl -fsSL https://github.com/akinomyoga/ble.sh/releases/download/nightly/bl
   && test -f /usr/local/share/blesh/ble.sh
 COPY cmux-bashrc /etc/cmux/bashrc
 COPY cmux-prompt.bash /etc/cmux/prompt.bash
+# Shadows Ubuntu's python completion (bash-completion searches /usr/local/share
+# first) so ble.sh ghost text on `python -m pkg.` lists one package's
+# submodules instead of importing every installed package per keystroke.
+COPY cmux-python-completion.bash /usr/local/share/bash-completion/completions/python
+RUN for f in /usr/share/bash-completion/completions/python?* /usr/share/bash-completion/completions/pypy* /usr/share/bash-completion/completions/micropython; do \
+       if [ -e "$f" ]; then ln -sf python "/usr/local/share/bash-completion/completions/${f##*/}"; fi; \
+     done \
+  && bash -n /usr/local/share/bash-completion/completions/python
 RUN echo cmux > /etc/cmux/vm-name
 COPY seed-history /etc/cmux/seed-history
 COPY cmux-terminfo.sh /etc/profile.d/cmux-terminfo.sh
@@ -334,11 +362,25 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
 # proves the persisted-env re-source path, then proves the image itself
 # ships no generated config.
 COPY agent-config.sh /etc/cmux/agent-config.sh
+# Agent sign-in launchers: /usr/local/bin/<agent> resolves the team or
+# own-login mode per launch (agent-auth.sh) and execs
+# /usr/local/libexec/cmux-<agent>-real. mise's shims come first on PATH, so
+# they point at the launchers too.
+COPY agent-auth.sh /etc/cmux/agent-auth.sh
+COPY cmux-claude /etc/cmux/claude
+COPY cmux-codex /etc/cmux/codex
 COPY cmux-opencode /etc/cmux/opencode
-RUN mkdir -p /usr/local/libexec \
-  && ln -s "$(readlink -f /usr/local/bin/opencode)" /usr/local/libexec/cmux-opencode-real \
-  && rm -f /usr/local/bin/opencode \
-  && chmod 755 /etc/cmux/opencode && ln -s /etc/cmux/opencode /usr/local/bin/opencode
+RUN sh -n /etc/cmux/agent-auth.sh && mkdir -p /usr/local/libexec \
+  && for a in claude codex opencode; do \
+       bash -n /etc/cmux/$a \
+       && ln -s "$(readlink -f "$(mise which $a)")" /usr/local/libexec/cmux-$a-real \
+       && test -f /usr/local/libexec/cmux-$a-real \
+       && rm -f /usr/local/bin/$a \
+       && chmod 755 /etc/cmux/$a && ln -s /etc/cmux/$a /usr/local/bin/$a \
+       && ln -sfn /etc/cmux/$a /opt/mise/shims/$a \
+       && /usr/local/bin/$a --version >/dev/null || exit 1; \
+     done \
+  && for a in claude codex opencode; do test "$(readlink -f "$(command -v $a)")" = /etc/cmux/$a || exit 1; done
 RUN bash -n /etc/cmux/agent-config.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/bash.bashrc \
@@ -382,11 +424,14 @@ RUN bash -n /etc/cmux/agent-config.sh \
 # by the driver at create time, never baked). Without systemd it also runs the
 # desktop supervisor as the work user.
 COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot
+COPY cmux-tui-state-mount /usr/local/bin/cmux-tui-state-mount
 # The Ghostty generation panes announce as TERM_PROGRAM_VERSION next to
 # TERM_PROGRAM=ghostty (the supervisor reads it; base images without the .deb
 # still record the pin). The Freestyle bake writes the same file.
 RUN chmod 0755 /usr/local/bin/cmux-devbox-boot \
+  && chmod 0755 /usr/local/bin/cmux-tui-state-mount \
   && sh -n /usr/local/bin/cmux-devbox-boot \
+  && sh -n /usr/local/bin/cmux-tui-state-mount \
   && mkdir -p /etc/cmux \
   && echo "$CMUX_IMAGE_GHOSTTY_DEB_URL" | sed -n 's|.*/ghostty_\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)[-_].*|\1|p' > /etc/cmux/ghostty-version \
   && grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' /etc/cmux/ghostty-version

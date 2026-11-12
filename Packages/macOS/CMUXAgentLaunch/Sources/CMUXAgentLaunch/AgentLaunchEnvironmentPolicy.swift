@@ -28,6 +28,28 @@ public struct ClaudeConfigDirectoryPath: Sendable {
             ? candidate
             : standardized
     }
+
+    /// Returns the Claude config directory that holds a session transcript.
+    ///
+    /// Claude writes transcripts to `<config>/projects/<encoded-cwd>/<session>.jsonl`
+    /// (subagent transcripts nest further below the project directory), so the
+    /// config directory is the path before the last `projects` component.
+    /// Returns nil for a relative path or one that is not below a project directory.
+    public static func configDirectory(ofTranscriptPath transcriptPath: String?) -> String? {
+        guard let trimmed = transcriptPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        let standardized = ((trimmed as NSString).expandingTildeInPath as NSString).standardizingPath
+        guard standardized.hasPrefix("/"), standardized.hasSuffix(".jsonl") else { return nil }
+        let components = standardized.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard let projectsIndex = components.lastIndex(of: "projects"),
+              projectsIndex > 0,
+              projectsIndex + 2 < components.count else {
+            return nil
+        }
+        return "/" + components[..<projectsIndex].joined(separator: "/")
+    }
 }
 
 /// Selects the non-secret launch environment values that are safe to replay when restoring agents.
@@ -55,6 +77,23 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "PI_PACKAGE_DIR",
     ]
 
+    /// Where OpenCode finds its config, sessions database and state, beyond
+    /// `OPENCODE_CONFIG_DIR`. OpenCode reads `OPENCODE_CONFIG_DIR`, then
+    /// `XDG_CONFIG_HOME/opencode`; `OPENCODE_DB`, then
+    /// `XDG_DATA_HOME/opencode/opencode.db`; `OPENCODE_CONFIG` as one more
+    /// config file; and `XDG_STATE_HOME/opencode`. A resumed session needs the
+    /// same roots or its session is not found. The XDG roots apply to every
+    /// program, so they replay only for OpenCode launches, and every one of
+    /// these replays only as an absolute path: a relative root would resolve
+    /// against whatever directory the restored pane starts in.
+    private static let openCodeLocationEnvironmentKeys: Set<String> = [
+        "OPENCODE_CONFIG",
+        "OPENCODE_DB",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
+    ]
+
     private static let safeEnvironmentKeys: Set<String> = [
         // AMP_API_KEY is intentionally NOT allowlisted: it's a secret.
         // Amp resolves auth from ~/.config/amp/settings.json on resume.
@@ -68,12 +107,15 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "CAMPFIRE_CODING_AGENT_SESSION_DIR",
         "CAMPFIRE_RELAY_URL",
         "CLAUDE_CONFIG_DIR",
+        // Selects the directory holding Cursor's cli-config.json and approval policy.
+        "CURSOR_CONFIG_DIR",
         // Selects the directory holding Claude Code's .credentials.json. A path, not a secret,
         // so restoring it keeps a restored agent on the account it launched with.
         "CLAUDE_SECURESTORAGE_CONFIG_DIR",
         "CMUX_CUSTOM_CLAUDE_PATH",
         "CMUX_CUSTOM_AMP_PATH",
         "CMUX_CUSTOM_CODEX_PATH",
+        "CMUX_CUSTOM_ANTIGRAVITY_PATH",
         "CMUX_ROVODEV_SESSIONS_DIR",
         "CODEX_HOME",
         "CODEBUDDY_BASE_URL",
@@ -105,8 +147,12 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "KIRO_LOG_NO_COLOR",
         "KIMI_CODE_HOME",
         "KIMI_SHARE_DIR",
+        "MUSE_AUTH_PATH",
+        "MUSE_CHANNEL",
         "NODE_OPTIONS",
+        "OPENCODE_CONFIG",
         "OPENCODE_CONFIG_DIR",
+        "OPENCODE_DB",
         "OLLAMA_EDITOR",
         "OLLAMA_HOST",
         "OLLAMA_NOHISTORY",
@@ -119,7 +165,10 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
         "PI_PACKAGE_DIR",
         "PI_SKIP_VERSION_CHECK",
         "QODER_CONFIG_DIR",
-        "USE_BUILTIN_RIPGREP"
+        "USE_BUILTIN_RIPGREP",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
     ]
 
     private static let sortedSafeEnvironmentKeys = safeEnvironmentKeys.sorted()
@@ -156,8 +205,19 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
                 result.removeValue(forKey: key)
             }
         }
+        if normalizedKind != "cursor" {
+            result.removeValue(forKey: "CURSOR_CONFIG_DIR")
+        }
         if normalizedKind != "codex" {
             result.removeValue(forKey: "CMUX_CUSTOM_CODEX_PATH")
+        }
+        if normalizedKind != "antigravity" {
+            result.removeValue(forKey: "CMUX_CUSTOM_ANTIGRAVITY_PATH")
+        }
+        if !Self.isOpenCodeLaunch(normalizedKind) {
+            for key in Self.openCodeLocationEnvironmentKeys {
+                result.removeValue(forKey: key)
+            }
         }
         if normalizedKind == "campfire" {
             for key in Self.campfireManagedEnvironmentKeys {
@@ -269,92 +329,18 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
             return value.map { ClaudeConfigDirectoryPath.preferredPath($0) }
         case "NODE_OPTIONS":
             return sanitizedNodeOptions(value)
+        case _ where Self.openCodeLocationEnvironmentKeys.contains(key):
+            return value.flatMap { $0.hasPrefix("/") ? $0 : nil }
         default:
             return value
         }
     }
 
-    private func selectedNodeOptions(from env: [String: String]) -> String? {
-        switch normalizedValue(env["CMUX_ORIGINAL_NODE_OPTIONS_PRESENT"]) {
-        case "1":
-            return sanitizedNodeOptions(env["CMUX_ORIGINAL_NODE_OPTIONS"])
-        case "0":
-            return nil
-        default:
-            return sanitizedNodeOptions(env["NODE_OPTIONS"])
-        }
-    }
-
-    private func sanitizedNodeOptions(_ rawValue: String?) -> String? {
-        let tokens = rawValue.map { nodeOptionsTokens($0) } ?? []
-        guard !tokens.isEmpty else { return nil }
-
-        var sanitized: [String] = []
-        var index = 0
-        var shouldDropInjectedHeapCap = false
-        while index < tokens.count {
-            let token = tokens[index]
-
-            if shouldDropInjectedHeapCap, isInjectedNodeHeapCap(tokens, index: index) {
-                index += nodeHeapCapWidth(tokens, index: index)
-                shouldDropInjectedHeapCap = false
-                continue
-            }
-            shouldDropInjectedHeapCap = false
-
-            if isRequireOption(token), index + 1 < tokens.count,
-               isCmuxNodeOptionsRestoreModulePath(tokens[index + 1]) {
-                index += 2
-                shouldDropInjectedHeapCap = true
-                continue
-            }
-            if let path = inlineRequireOptionPath(token),
-               isCmuxNodeOptionsRestoreModulePath(path) {
-                index += 1
-                shouldDropInjectedHeapCap = true
-                continue
-            }
-
-            sanitized.append(token)
-            index += 1
-        }
-
-        let joined = sanitized.joined(separator: " ")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return joined.isEmpty ? nil : joined
-    }
-
-    /// Splits `NODE_OPTIONS` the way Node does: on whitespace outside double quotes,
-    /// with backslash escapes inside quotes. Tokens keep their quotes so an
-    /// unmatched token rejoins unchanged, e.g. `--require="/Users/a b/x.cjs"`.
-    private func nodeOptionsTokens(_ rawValue: String) -> [String] {
-        var tokens: [String] = []
-        var current = ""
-        var inQuotes = false
-        var escaped = false
-        for character in rawValue {
-            if escaped {
-                current.append(character)
-                escaped = false
-            } else if inQuotes, character == "\\" {
-                current.append(character)
-                escaped = true
-            } else if character == "\"" {
-                current.append(character)
-                inQuotes.toggle()
-            } else if !inQuotes, character.isWhitespace {
-                if !current.isEmpty {
-                    tokens.append(current)
-                    current = ""
-                }
-            } else {
-                current.append(character)
-            }
-        }
-        if !current.isEmpty {
-            tokens.append(current)
-        }
-        return tokens
+    /// Whether `kind` (a hook kind or a launcher such as `omo`) is an OpenCode
+    /// launch, by the same launcher mapping that decides capture trust.
+    private static func isOpenCodeLaunch(_ normalizedKind: String?) -> Bool {
+        guard let normalizedKind, !normalizedKind.isEmpty else { return false }
+        return AgentLaunchCaptureTrust.launcherDescribesKind(normalizedKind, kind: "opencode")
     }
 
     private func normalizedValue(_ value: String?) -> String? {
@@ -363,38 +349,5 @@ public struct AgentLaunchEnvironmentPolicy: Sendable {
             return nil
         }
         return trimmed
-    }
-
-    private func isRequireOption(_ token: String) -> Bool {
-        token == "--require" || token == "-r"
-    }
-
-    private func inlineRequireOptionPath(_ token: String) -> String? {
-        for prefix in ["--require=", "-r="] where token.hasPrefix(prefix) {
-            return String(token.dropFirst(prefix.count))
-        }
-        return nil
-    }
-
-    private func isCmuxNodeOptionsRestoreModulePath(_ value: String) -> Bool {
-        let trimmed = value.trimmingCharacters(in: CharacterSet(charactersIn: "'\""))
-        guard URL(fileURLWithPath: trimmed).lastPathComponent == "restore-node-options.cjs" else {
-            return false
-        }
-        return trimmed.contains("/cmux-")
-    }
-
-    private func isInjectedNodeHeapCap(_ tokens: [String], index: Int) -> Bool {
-        guard index < tokens.count else { return false }
-        let token = tokens[index]
-        if token == "--max-old-space-size" {
-            return index + 1 < tokens.count && tokens[index + 1] == "4096"
-        }
-        return token == "--max-old-space-size=4096"
-    }
-
-    private func nodeHeapCapWidth(_ tokens: [String], index: Int) -> Int {
-        guard index < tokens.count else { return 1 }
-        return tokens[index] == "--max-old-space-size" ? min(2, tokens.count - index) : 1
     }
 }

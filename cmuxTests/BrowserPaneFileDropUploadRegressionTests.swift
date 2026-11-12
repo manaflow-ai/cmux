@@ -35,6 +35,36 @@ struct BrowserPaneFileDropUploadRegressionTests {
         }
     }
 
+    private final class SlowPromisedFileURLProvider: NSObject, NSPasteboardItemDataProvider {
+        let urlString: String
+        let delay: TimeInterval
+        private let lock = NSLock()
+        private var _resolvedOnMainThread: Bool?
+
+        var resolvedOnMainThread: Bool? {
+            lock.lock()
+            defer { lock.unlock() }
+            return _resolvedOnMainThread
+        }
+
+        init(urlString: String, delay: TimeInterval) {
+            self.urlString = urlString
+            self.delay = delay
+        }
+
+        nonisolated func pasteboard(
+            _ pasteboard: NSPasteboard?,
+            item: NSPasteboardItem,
+            provideDataForType type: NSPasteboard.PasteboardType
+        ) {
+            lock.lock()
+            _resolvedOnMainThread = Thread.isMainThread
+            lock.unlock()
+            Thread.sleep(forTimeInterval: delay)
+            item.setString(urlString, forType: type)
+        }
+    }
+
     private final class MockDraggingInfo: NSObject, NSDraggingInfo {
         let draggingDestinationWindow: NSWindow?
         let draggingSourceOperationMask: NSDragOperation
@@ -438,6 +468,39 @@ struct BrowserPaneFileDropUploadRegressionTests {
             try await Task.sleep(nanoseconds: 50_000_000)
         }
         #expect(swept, "drop record should expire without another guard call")
+    }
+
+    @Test func guardResolvesSlowPromisedFileURLOffMainThread() async throws {
+        let guardStore = BrowserFileDropNavigationGuard()
+        let webView = DragSpyWebView(frame: .zero, configuration: WKWebViewConfiguration())
+        let expectedURL = URL(fileURLWithPath: "/tmp/promised-upload.png")
+        let pasteboard = NSPasteboard(
+            name: NSPasteboard.Name("cmux.test.issue-18581.slow-promise.\(UUID().uuidString)")
+        )
+        pasteboard.clearContents()
+        let provider = SlowPromisedFileURLProvider(
+            urlString: expectedURL.absoluteString,
+            delay: 0.5
+        )
+        let item = NSPasteboardItem()
+        #expect(item.setDataProvider(
+            provider,
+            forTypes: [PasteboardFileURLReader.promisedFileURLPasteboardType]
+        ))
+        #expect(pasteboard.writeObjects([item]))
+
+        guardStore.recordDelivery(webView: webView, pasteboard: pasteboard)
+
+        var recordedURLs: [URL] = []
+        for _ in 0..<30 {
+            if let record = guardStore.records[ObjectIdentifier(webView)] {
+                recordedURLs = record.urls
+                break
+            }
+            try await Task.sleep(nanoseconds: 50_000_000)
+        }
+        #expect(recordedURLs == [expectedURL])
+        #expect(provider.resolvedOnMainThread == false)
     }
 
     @Test func fallbackNavigationClassifierRequiresMainFrameFileOtherNavigation() {

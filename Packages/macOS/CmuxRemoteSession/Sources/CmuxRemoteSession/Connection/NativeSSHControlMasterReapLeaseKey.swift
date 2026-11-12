@@ -21,8 +21,8 @@ struct NativeSSHControlMasterReapLeaseKey: Hashable, Sendable {
         sharingOptions: SSHConnectionSharingOptions
     ) {
         guard configuration.transport == .ssh else { return nil }
-        let effectiveOptions = sharingOptions.mergingDefaults(
-            into: configuration.sshOptions,
+        let effectiveOptions = configuration.mergingConnectionSharingDefaults(
+            sharingOptions,
             routeSensitiveOptions: configuration.identityFile.map { ["IdentityFile=\($0)"] } ?? []
         )
         guard let controlPath = sharingOptions.cmuxOwnedControlPath(

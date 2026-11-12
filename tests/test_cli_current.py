@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import copy
 import json
-import os
 from pathlib import Path
 import socketserver
 import subprocess
@@ -16,6 +15,7 @@ import threading
 import unittest
 
 from claude_teams_test_utils import resolve_cmux_cli
+from fake_socket_env import cli_environment, unwrap_capability
 
 
 SNAPSHOT = {
@@ -63,7 +63,7 @@ class FakeServer(socketserver.ThreadingUnixStreamServer):
 class FakeHandler(socketserver.StreamRequestHandler):
     def handle(self):
         while line := self.rfile.readline():
-            request = json.loads(line)
+            request = json.loads(unwrap_capability(line.decode("utf-8")))
             self.server.requests.append((request["method"], request.get("params", {})))
             if request["method"] != "current.list":
                 error = {"code": "unexpected_mutation", "message": request["method"]}
@@ -95,9 +95,7 @@ class CurrentCLITests(unittest.TestCase):
         self.thread.join(timeout=2)
 
     def invoke(self, *args):
-        env = dict(os.environ, CMUX_CLI_SENTRY_DISABLED="1")
-        for key in ("CMUX_SOCKET_PASSWORD", "CMUX_SOCKET_CAPABILITY", "CMUX_WORKSPACE_ID", "CMUX_SURFACE_ID", "CMUX_TAB_ID"):
-            env.pop(key, None)
+        env = cli_environment()
         return subprocess.run([self.cli, "--socket", self.path, *args], capture_output=True,
                               text=True, timeout=10, env=env)
 

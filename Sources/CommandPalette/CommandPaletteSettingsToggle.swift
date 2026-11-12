@@ -430,6 +430,28 @@ enum CommandPaletteSettingsToggleCommands {
                 defaultsKey: NotificationPaneFlashSettings.enabledKey
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "paneFlashDoubleBlink",
+                settingsKey: "notifications.paneFlashDoubleBlink",
+                title: {
+                    String(localized: "settings.notifications.paneFlashDoubleBlink.title", defaultValue: "Double Blink")
+                },
+                sectionTitle: app,
+                keywords: ["notifications.paneFlashDoubleBlink", "pane", "flash", "double", "blink", "pulse"],
+                defaultValue: NotificationPaneFlashSettings.defaultDoubleBlink,
+                defaultsKey: NotificationPaneFlashSettings.doubleBlinkKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "paneFlashOnTyping",
+                settingsKey: "notifications.paneFlashOnTyping",
+                title: {
+                    String(localized: "settings.notifications.paneFlashOnTyping.title", defaultValue: "Flash While Typing")
+                },
+                sectionTitle: app,
+                keywords: ["notifications.paneFlashOnTyping", "pane", "flash", "typing", "notification"],
+                defaultValue: NotificationPaneFlashSettings.defaultOnTyping,
+                defaultsKey: NotificationPaneFlashSettings.onTypingKey
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "sendAnonymousTelemetry",
                 settingsKey: "app.sendAnonymousTelemetry",
                 title: {
@@ -457,6 +479,9 @@ enum CommandPaletteSettingsToggleCommands {
                 userFacing: SettingCatalog().app.warnBeforeClosingTab
             ),
             CommandPaletteSettingToggleDescriptor(
+                userFacing: SettingCatalog().app.warnBeforeClosingAgentSession
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "warnBeforeClosingTabXButton",
                 settingsKey: "app.warnBeforeClosingTabXButton",
                 title: {
@@ -480,6 +505,9 @@ enum CommandPaletteSettingsToggleCommands {
             ),
             CommandPaletteSettingToggleDescriptor(
                 userFacing: SettingCatalog().app.warnBeforeClosingWorkspace
+            ),
+            CommandPaletteSettingToggleDescriptor(
+                userFacing: SettingCatalog().app.alwaysConfirmWorkspaceClose
             ),
             CommandPaletteSettingToggleDescriptor(
                 userFacing: SettingCatalog().app.warnBeforeClosingWindow
@@ -676,6 +704,18 @@ enum CommandPaletteSettingsToggleCommands {
                 isAvailable: sidebarDetailsAvailable
             ),
             CommandPaletteSettingToggleDescriptor(
+                commandId: commandIdPrefix + "showCloudDeviceIconsInSidebar",
+                settingsKey: "sidebar.showCloudDeviceIcons",
+                title: {
+                    String(localized: "settings.app.showCloudDeviceIcons", defaultValue: "Show Cloud and Device Icons in Sidebar")
+                },
+                sectionTitle: sidebar,
+                keywords: ["sidebar.showCloudDeviceIcons", "sidebar", "cloud", "device", "computer", "icon", "remote"],
+                defaultValue: SidebarWorkspaceDetailDefaults.showCloudDeviceIcons,
+                defaultsKey: SidebarWorkspaceDetailDefaults.showCloudDeviceIconsKey,
+                isAvailable: sidebarDetailsAvailable
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "showPullRequestsInSidebar",
                 settingsKey: "sidebar.showPullRequests",
                 title: {
@@ -820,7 +860,7 @@ enum CommandPaletteSettingsToggleCommands {
                 didSet: { _, _, notificationCenter in
                     notificationCenter.post(name: RightSidebarBetaFeatureSettings.didChangeNotification, object: nil)
                 }
-            ),
+            ), ClickByHintPreview.paletteToggle,
             CommandPaletteSettingToggleDescriptor(
                 commandId: commandIdPrefix + "claudeCodeIntegration",
                 settingsKey: "automation.claudeCodeIntegration",
@@ -1002,7 +1042,7 @@ enum CommandPaletteSettingsToggleCommands {
                     SystemWideHotkeySettings.setEnabled(newValue, defaults: defaults)
                 }
             ),
-        ]
+        ] + [sidebarAgentUsageDescriptor(sectionTitle: sidebar, isAvailable: sidebarDetailsAvailable)]
     }()
 }
 

@@ -23,8 +23,8 @@ private final class RevealSignalLog {
     }
 }
 
-@Suite(.serialized)
 @MainActor
+@Suite(.serialized, .exclusiveAppContext)
 struct SidebarHiddenPresentationTests {
     @Test
     func focusBoundaryUsesScrollableRespondersVisibleRect() throws {
@@ -233,6 +233,21 @@ struct SidebarHiddenPresentationTests {
         let defaults = try #require(UserDefaults(suiteName: suiteName))
         defaults.removePersistentDomain(forName: suiteName)
         defer { defaults.removePersistentDomain(forName: suiteName) }
+        let cloudMarkerKey = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
+        let previousCloudMarker = UserDefaults.standard.object(forKey: cloudMarkerKey)
+        defer {
+            if let previousCloudMarker {
+                UserDefaults.standard.set(previousCloudMarker, forKey: cloudMarkerKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: cloudMarkerKey)
+            }
+        }
+        // Keep the presentation fixture independent of other app-host tests
+        // that mutate this process-wide marker while exercising activation.
+        // Activation transitions are covered by CloudActivationCoordinatorTests;
+        // this test starts with Cloud rows available and only checks retention
+        // and reconciliation across a hidden/revealed sidebar.
+        UserDefaults.standard.set(true, forKey: cloudMarkerKey)
         defaults.set(
             CmuxExtensionSidebarSelection.defaultProviderId,
             forKey: CmuxExtensionSidebarSelection.defaultsKey
@@ -293,6 +308,22 @@ struct SidebarHiddenPresentationTests {
         )
         #expect(initialContainers.count == 1)
         let initialContainer = try #require(initialContainers.first)
+        // Cloud activation is process-wide and another app-host fixture may
+        // finish its marker notification while this window is mounting. Wait
+        // for the workspace list to settle before recording the baseline so a
+        // delayed external transition cannot look like a hidden-table update.
+        var lastTabCount = tabManager.tabs.count
+        var stableTabCountRounds = 0
+        for _ in 0..<20 where stableTabCountRounds < 3 {
+            await drainMainRunLoop(for: window, iterations: 5)
+            let currentTabCount = tabManager.tabs.count
+            if currentTabCount == lastTabCount {
+                stableTabCountRounds += 1
+            } else {
+                lastTabCount = currentTabCount
+                stableTabCountRounds = 0
+            }
+        }
         let initialRowCount = initialContainer.tableView.numberOfRows
         #expect(initialRowCount > 0)
         let focusedWorkspace = try #require(tabManager.selectedWorkspace)
@@ -328,7 +359,6 @@ struct SidebarHiddenPresentationTests {
         _ = await cloudChangeIterator.next()
         focusedWorkspace.cloudVMBinding = WorkspaceCloudVMBinding(vmID: "vivid-newt", isBase: true)
         _ = await cloudChangeIterator.next()
-
         // A doubled projection count means a SECOND sidebar body pass followed
         // the reveal. Record what landed inside the reveal window (the async
         // inputs the hidden phase queued: the workspace's directory channel,

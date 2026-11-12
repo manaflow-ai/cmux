@@ -261,7 +261,7 @@ class WiringTests(unittest.TestCase):
         declared = set(resolver.load_map(REAL_MAP)["capabilities"])
         used = set()
         for chunk in text.split(marker)[1:]:
-            used.add(chunk.split()[0].strip("}").strip())
+            used.add(chunk.split()[0].strip("})").strip())
         self.assertTrue(used)
         self.assertEqual(used - declared, set())
 
@@ -329,9 +329,15 @@ class TheResolverStartsAnywhere(unittest.TestCase):
 
         workflow = Path(__file__).resolve().parents[1] / ".github/workflows/resolve-runners.yml"
         jobs = yaml.safe_load(workflow.read_text(encoding="utf-8"))["jobs"]
+        # A fork takes GitHub-hosted Linux first; manaflow-ai runs on
+        # Blacksmith through the CI_TRUSTED_RUNNER selector, so a GitHub
+        # billing block cannot stop the graph this job starts.
         for name, job in jobs.items():
             with self.subTest(job=name):
-                self.assertEqual(job["runs-on"], "ubuntu-24.04")
+                self.assertEqual(
+                    job["runs-on"],
+                    '${{ github.repository_owner != \'manaflow-ai\' && \'ubuntu-24.04\' || contains(fromJSON(\'["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404","blacksmith-8vcpu-ubuntu-2404"]\'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || \'blacksmith-4vcpu-ubuntu-2404\' }}',
+                )
 
 
 if __name__ == "__main__":

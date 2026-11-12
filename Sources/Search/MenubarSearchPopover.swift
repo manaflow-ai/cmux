@@ -302,7 +302,7 @@ private struct GlobalSearchResultRowView: View {
                         Text(row.title)
                             .cmuxFont(size: 13, weight: .semibold)
                             .lineLimit(1)
-                        Text(row.hit.kind.localizedLabel)
+                        Text(row.kindLabel)
                             .cmuxFont(size: 11, weight: .medium)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)

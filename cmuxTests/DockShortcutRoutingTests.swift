@@ -1442,7 +1442,7 @@ struct DockShortcutRoutingTests {
                 )
                 #expect(harness.dock.focusedPanelId == dockBrowserId)
                 #expect(
-                    dockBrowser.pendingReactGrabReturnTargetPanelId ==
+                    dockBrowser.reactGrabPasteback.armedReturnPanelId ==
                         dockTerminalId
                 )
             }

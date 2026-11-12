@@ -5,6 +5,6 @@ struct IntentionalCleanupUnusedProcessRunner: RemoteSessionProcessRunning {
         _ request: RemoteProcessRequest,
         operation: (any RemoteTransferCancelling)?
     ) throws -> RemoteCommandResult {
-        fatalError("Intentional cleanup tests do not spawn processes")
+        RemoteCommandResult(status: 0, stdout: "", stderr: "")
     }
 }

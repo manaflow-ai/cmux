@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 
 /// Pure remote catalog selector and placement resolution shared by the app and CLI.
 enum CmuxTuiRemoteRouting {
@@ -20,9 +21,21 @@ enum CmuxTuiRemoteRouting {
         }
     }
 
+    /// Seconds between `vm.status` polls; invalid overrides use the safe cadence.
+    static func vmReadyPollInterval(environment: [String: String] = ProcessInfo.processInfo.environment) -> TimeInterval {
+        guard let raw = environment["CMUX_VM_WAIT_POLL_SECONDS"], let parsed = TimeInterval(raw), parsed.isFinite, parsed >= 0.01, parsed <= 3 else { return 3 }
+        return parsed
+    }
+
     static func isAgentSubcommand(_ raw: String?) -> Bool {
         raw?.lowercased() == "agent"
     }
+
+    /// Keeps the app-host test and legacy app-facing alias on the shared package contract.
+    static func codexForkMonitorArguments(environment: [String: String]) -> [String] {
+        CodexForkMonitorArguments().make(environment: environment)
+    }
+
 
     static func vmAgentRequestsHelp(_ arguments: [String]) -> Bool {
         let normalized = Array(vmAgentAliasArgs(arguments).prefix { $0 != "--" })

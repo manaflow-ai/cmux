@@ -83,3 +83,43 @@ extension CloudVMState {
         }
     }
 }
+
+/// Names given to a machine's displays. A display is a machine resource, so its
+/// name is one per display and shared by every client, sidebar row and pane
+/// that shows it. Stored as a frontend projection beside the memberships so a
+/// rename reaches every client through the daemon's live graph.
+extension CloudVMDisplayMembership {
+    public static let namesProjectionSchema = "cmux.cloud.display-names.v1"
+
+    public static func namesProjectionWindowID(machine: SurfaceMachineID) -> String {
+        "cloud-display-names:\(machine.rawValue)"
+    }
+
+    /// Longest stored name; longer input is truncated before writing.
+    public static let maxDisplayNameLength = 80
+}
+
+extension CloudVMState {
+    /// Validated display names from the accepted frontend projection, keyed by
+    /// display id. Rows from another frontend, machine or session are ignored.
+    public var displayNames: [String: String] {
+        let expectedSessionID = (document.value(forKey: "session") as? [String: Any])?["id"] as? String
+        var result: [String: String] = [:]
+        for row in document.objects(forCollectionKey: "frontend_projections") ?? [] {
+            guard row["frontend_id"] as? String == CloudVMDisplayMembership.projectionFrontendID,
+                  row["generation"] as? String == CloudVMDisplayMembership.projectionGeneration,
+                  row["window_id"] as? String == CloudVMDisplayMembership.namesProjectionWindowID(machine: machine) else { continue }
+            if let expectedSessionID, row["session_id"] as? String != expectedSessionID { continue }
+            guard let projection = row["projection"] as? [String: Any],
+                  projection["schema"] as? String == CloudVMDisplayMembership.namesProjectionSchema,
+                  projection["machine_id"] as? String == machine.rawValue,
+                  let names = projection["names"] as? [String: Any] else { continue }
+            for (displayID, value) in names {
+                guard displayID.hasPrefix("display:"), let name = value as? String else { continue }
+                let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { result[displayID] = String(trimmed.prefix(CloudVMDisplayMembership.maxDisplayNameLength)) }
+            }
+        }
+        return result
+    }
+}

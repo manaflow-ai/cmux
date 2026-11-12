@@ -56,6 +56,9 @@ public struct AccountTeamCard: View {
         }
         .onAppear { model.reloadIfNeeded() }
         .onChange(of: model.selectedTeamID) { _, _ in model.reload() }
+        .onChange(of: model.isAuthSettling) { _, settling in
+            if !settling { model.reloadIfNeeded() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: Self.focusInviteRequestName)) { _ in
             model.isComposingInvite = true
             inviteFieldFocused = true
@@ -77,6 +80,9 @@ public struct AccountTeamCard: View {
                     .accessibilityIdentifier("SettingsTeamSubtitle")
             }
             Spacer(minLength: 12)
+                .overlay(alignment: .trailing) {
+                    saveIndicator(model.isInviting)
+                }
             if model.detail?.canInvite ?? false {
                 Button {
                     model.isComposingInvite.toggle()
@@ -130,17 +136,13 @@ public struct AccountTeamCard: View {
             .frame(width: 88)
             .disabled(model.isInviting)
             .accessibilityLabel(String(localized: "settings.team.invite.roleLabel", defaultValue: "Invite role", bundle: .module))
-            if model.isInviting {
-                ProgressView().controlSize(.small).frame(width: 44)
-            } else {
-                Button(String(localized: "settings.team.invite.sendShort", defaultValue: "Send", bundle: .module)) {
-                    model.submitInvite()
-                }
-                .controlSize(.small)
-                .keyboardShortcut(.defaultAction)
-                .disabled(!model.canSendInvite)
-                .accessibilityIdentifier("SettingsTeamSendInvitesButton")
+            Button(String(localized: "settings.team.invite.sendShort", defaultValue: "Send", bundle: .module)) {
+                model.submitInvite()
             }
+            .controlSize(.small)
+            .keyboardShortcut(.defaultAction)
+            .disabled(!model.canSendInvite)
+            .accessibilityIdentifier("SettingsTeamSendInvitesButton")
             Button(String(localized: "settings.team.link.copyShort", defaultValue: "Copy link", bundle: .module)) {
                 model.copyInviteLink()
             }
@@ -180,43 +182,47 @@ public struct AccountTeamCard: View {
                 }
             }
             Spacer(minLength: 12)
-            if pending {
-                ProgressView().controlSize(.small)
-            } else {
-                if detail.canInvite, !member.isViewer {
-                    Picker("", selection: Binding(
-                        get: { member.role },
-                        set: { model.setRole($0, for: member) }
-                    )) {
-                        Text(String(localized: "settings.team.role.member", defaultValue: "Member", bundle: .module)).tag(AccountTeamRole.member)
-                        Text(String(localized: "settings.team.role.admin", defaultValue: "Admin", bundle: .module)).tag(AccountTeamRole.admin)
-                    }
-                    .labelsHidden()
-                    .controlSize(.small)
-                    .frame(width: 88)
-                    .accessibilityLabel(String(localized: "settings.team.invite.roleLabel", defaultValue: "Invite role", bundle: .module))
-                } else {
-                    Text(roleTitle(member.role))
-                        .cmuxFont(size: 11)
-                        .foregroundColor(.secondary)
+                .overlay(alignment: .trailing) {
+                    saveIndicator(pending)
+                        .accessibilityIdentifier("SettingsTeamSaving_\(member.userID)")
                 }
-                if member.isViewer {
-                    if detail.members.count > 1 {
-                        Button(String(localized: "settings.team.leave", defaultValue: "Leave", bundle: .module)) {
-                            model.remove(member)
-                        }
-                        .controlSize(.small)
-                    }
-                } else if detail.canRemoveMembers {
-                    Button(String(localized: "settings.team.removeShort", defaultValue: "Remove", bundle: .module)) {
+            if detail.canInvite, !member.isViewer {
+                Picker("", selection: Binding(
+                    get: { member.role },
+                    set: { model.setRole($0, for: member) }
+                )) {
+                    Text(String(localized: "settings.team.role.member", defaultValue: "Member", bundle: .module)).tag(AccountTeamRole.member)
+                    Text(String(localized: "settings.team.role.admin", defaultValue: "Admin", bundle: .module)).tag(AccountTeamRole.admin)
+                }
+                .labelsHidden()
+                .controlSize(.small)
+                .frame(width: 88)
+                .disabled(model.pendingID != nil)
+                .accessibilityIdentifier("SettingsTeamRole_\(member.userID)")
+                .accessibilityLabel(String(localized: "settings.team.invite.roleLabel", defaultValue: "Invite role", bundle: .module))
+            } else {
+                Text(roleTitle(member.role))
+                    .cmuxFont(size: 11)
+                    .foregroundColor(.secondary)
+            }
+            if member.isViewer {
+                if detail.members.count > 1 {
+                    Button(String(localized: "settings.team.leave", defaultValue: "Leave", bundle: .module)) {
                         model.remove(member)
                     }
                     .controlSize(.small)
-                    .accessibilityLabel(String.localizedStringWithFormat(
-                        String(localized: "settings.team.remove", defaultValue: "Remove %@", bundle: .module),
-                        member.label
-                    ))
+                    .disabled(model.pendingID != nil)
                 }
+            } else if detail.canRemoveMembers {
+                Button(String(localized: "settings.team.removeShort", defaultValue: "Remove", bundle: .module)) {
+                    model.remove(member)
+                }
+                .controlSize(.small)
+                .disabled(model.pendingID != nil)
+                .accessibilityLabel(String.localizedStringWithFormat(
+                    String(localized: "settings.team.remove", defaultValue: "Remove %@", bundle: .module),
+                    member.label
+                ))
             }
         }
         .padding(.horizontal, 14)
@@ -234,7 +240,10 @@ public struct AccountTeamCard: View {
                         Text(roleTitle(invitation.role)).cmuxFont(size: 11).foregroundColor(.secondary)
                     }
                     Spacer(minLength: 12)
-                    revokeControl(id: invitation.id) { model.revoke(invitation) }
+                        .overlay(alignment: .trailing) {
+                            saveIndicator(model.pendingID == invitation.id)
+                        }
+                    revokeControl { model.revoke(invitation) }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
@@ -250,7 +259,10 @@ public struct AccountTeamCard: View {
                 HStack(alignment: .center, spacing: 12) {
                     Text(model.linkSummary(link)).cmuxFont(size: 13, weight: .medium).lineLimit(1)
                     Spacer(minLength: 12)
-                    revokeControl(id: link.id) { model.revoke(link) }
+                        .overlay(alignment: .trailing) {
+                            saveIndicator(model.pendingID == link.id)
+                        }
+                    revokeControl { model.revoke(link) }
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
@@ -259,13 +271,20 @@ public struct AccountTeamCard: View {
         }
     }
 
+    private func revokeControl(action: @escaping () -> Void) -> some View {
+        Button(String(localized: "settings.team.revoke", defaultValue: "Revoke", bundle: .module), action: action)
+            .controlSize(.small)
+            .disabled(model.pendingID != nil)
+    }
+
+    /// Draw in the existing flexible gap before the controls without moving them.
     @ViewBuilder
-    private func revokeControl(id: String, action: @escaping () -> Void) -> some View {
-        if model.pendingID == id {
-            ProgressView().controlSize(.small)
-        } else {
-            Button(String(localized: "settings.team.revoke", defaultValue: "Revoke", bundle: .module), action: action)
-                .controlSize(.small)
+    private func saveIndicator(_ isSaving: Bool) -> some View {
+        if isSaving {
+            ProgressView()
+                .controlSize(.mini)
+                .frame(width: 12, height: 12)
+                .allowsHitTesting(false)
         }
     }
 
@@ -302,7 +321,11 @@ final class AccountTeamCardModel {
     /// composer's marker while an invite or link request runs.
     var pendingID: String?
     @ObservationIgnored private var loadedTeamID: String?
+    @ObservationIgnored private var pendingTeamID: String?
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
+    /// A reload that arrived while sign-in or sign-out still owned the
+    /// session. The card runs it once ``isAuthSettling`` turns false.
+    @ObservationIgnored private var reloadDeferredForAuth = false
 
     static let composerPendingID = "composer"
 
@@ -311,6 +334,9 @@ final class AccountTeamCardModel {
     }
 
     var selectedTeamID: String? { flow.selectedTeamID }
+    /// True while the host's sign-in or sign-out still owns the session.
+    /// A roster request in that window is refused before it leaves the Mac.
+    var isAuthSettling: Bool { flow.isWorkingOnAuth }
     var isInviting: Bool { pendingID == Self.composerPendingID }
     var canSendInvite: Bool {
         pendingID == nil && !inviteEmails.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -339,29 +365,46 @@ final class AccountTeamCardModel {
     }
 
     func reloadIfNeeded() {
-        guard detail == nil || loadedTeamID != flow.selectedTeamID else { return }
+        guard reloadDeferredForAuth || detail == nil || loadedTeamID != flow.selectedTeamID else { return }
         reload()
     }
 
     func reload() {
-        guard flow.supportsTeamManagement, flow.selectedTeamID != nil else {
+        let teamID = flow.selectedTeamID
+        guard pendingID == nil || pendingTeamID != teamID else { return }
+        reloadTask?.cancel()
+        reloadDeferredForAuth = false
+        guard flow.supportsTeamManagement, teamID != nil else {
             detail = nil
+            isLoading = false
             return
         }
-        reloadTask?.cancel()
+        if detail?.teamID != teamID {
+            detail = nil
+            errorMessage = nil
+            notice = nil
+        }
         isLoading = true
-        let teamID = flow.selectedTeamID
+        // Sign-in publishes the team before it hands the new tokens over. A
+        // fetch now fails locally, so wait for the session to settle.
+        guard !flow.isWorkingOnAuth else {
+            reloadDeferredForAuth = true
+            return
+        }
         reloadTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            defer { isLoading = false }
+            defer {
+                if !Task.isCancelled, teamID == flow.selectedTeamID { isLoading = false }
+            }
             do {
                 let loaded = try await flow.loadTeamDetail()
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, teamID == flow.selectedTeamID else { return }
                 detail = loaded
                 loadedTeamID = teamID
                 errorMessage = nil
             } catch is CancellationError {
             } catch {
+                guard !Task.isCancelled, teamID == flow.selectedTeamID else { return }
                 errorMessage = flow.teamManagementMessage(for: error)
             }
         }
@@ -420,8 +463,13 @@ final class AccountTeamCardModel {
     }
 
     func setRole(_ role: AccountTeamRole, for member: AccountTeamMember) {
-        guard role != member.role else { return }
-        run(id: member.id) { [self] in
+        guard pendingID == nil, let detail, detail.teamID == selectedTeamID,
+              let current = detail.members.first(where: { $0.id == member.id }),
+              role != current.role else { return }
+        self.detail = detail.replacingRole(for: member.id, with: role)
+        run(id: member.id, rollback: { [self] in
+            self.detail = self.detail?.replacingRole(for: member.id, with: current.role)
+        }) { [self] in
             try await flow.changeTeamMemberRole(userID: member.userID, role: role)
         }
     }
@@ -450,20 +498,53 @@ final class AccountTeamCardModel {
 
     /// Runs one action with its row marked pending. A second action waits
     /// until the first finishes so the roster never reloads mid-mutation.
-    private func run(id: String, _ action: @escaping @MainActor () async throws -> Void) {
+    private func run(
+        id: String,
+        rollback: (@MainActor () -> Void)? = nil,
+        _ action: @escaping @MainActor () async throws -> Void
+    ) {
         guard pendingID == nil else { return }
+        // A pre-mutation fetch must not overwrite the optimistic role.
+        reloadTask?.cancel()
+        isLoading = false
+        let teamID = selectedTeamID
+        pendingTeamID = teamID
         pendingID = id
         errorMessage = nil
         Task { @MainActor [weak self] in
             guard let self else { return }
+            defer {
+                pendingID = nil
+                pendingTeamID = nil
+            }
+            guard teamID == selectedTeamID else { return }
             do {
                 try await action()
+                guard teamID == selectedTeamID else { return }
                 pendingID = nil
                 reload()
             } catch {
-                pendingID = nil
+                guard teamID == selectedTeamID else { return }
+                rollback?()
                 errorMessage = flow.teamManagementMessage(for: error)
             }
         }
+    }
+}
+
+private extension AccountTeamDetail {
+    func replacingRole(for userID: String, with role: AccountTeamRole) -> Self {
+        Self(
+            teamID: teamID, teamName: teamName, viewerUserID: viewerUserID,
+            viewerRole: viewerRole, canInvite: canInvite, canRemoveMembers: canRemoveMembers,
+            members: members.map { member in
+                guard member.userID == userID else { return member }
+                return AccountTeamMember(
+                    userID: member.userID, displayName: member.displayName,
+                    email: member.email, role: role, isViewer: member.isViewer
+                )
+            },
+            invitations: invitations, links: links, memberLimit: memberLimit
+        )
     }
 }

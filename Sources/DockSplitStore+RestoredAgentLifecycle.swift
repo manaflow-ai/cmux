@@ -58,6 +58,15 @@ extension DockSplitStore {
             retireAgentHookResumeBinding(panelId: panelId)
         case (.promptIdle, .some(.autoResumeCommandRunning)),
              (.promptIdle, .some(.observedAgentCommandRunning)):
+            if case .liveOwner(let kind, let processID, let attachInput, false) = terminal.restoreRecovery.state,
+               attachInput != nil {
+                terminal.restoreRecovery.state = .liveOwner(
+                    kind: kind,
+                    processID: processID,
+                    attachInput: attachInput,
+                    attachAvailable: true
+                )
+            }
             // A TUI prompt mark (OSC 133;A) is not the shell prompt returning
             // while the agent process is still alive.
             guard !restoredAgentHasLiveProcess(panelId: panelId, restoredAgent: restoredAgent) else { break }
@@ -469,7 +478,8 @@ extension DockSplitStore {
     func cancelDeferredAgentResumeRestore(
         panelId: UUID,
         restore: DeferredAgentResumeRestore,
-        startRuntime: Bool = true
+        startRuntime: Bool = true,
+        retireBinding: Bool = true
     ) {
         if startRuntime {
             (panels[panelId] as? TerminalPanel)?.restoreRecovery.state = nil
@@ -480,7 +490,7 @@ extension DockSplitStore {
         }
         removeDeferredAgentResumeRestore(panelId: panelId)
         restoredAgentLifecycle.clearStartupInput(panelId: panelId)
-        if startRuntime, restore.restorableAgent == nil {
+        if startRuntime, retireBinding, restore.restorableAgent == nil {
             if let binding = restore.resumeBinding {
                 retireAgentHookResumeBinding(panelId: panelId, matching: binding)
             }

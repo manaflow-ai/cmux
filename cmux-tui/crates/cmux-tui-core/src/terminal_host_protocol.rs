@@ -53,6 +53,13 @@ pub const FLAG_LAUNCH_ACTIVATION_REQUIRED: u32 = 1 << 3;
 /// from the protocol version so older persistent hosts and renderers can keep
 /// using the exact v4 snapshot layout.
 pub const FLAG_TERMINAL_METADATA: u32 = 1 << 4;
+/// ClientHello opt-in and HostHello acknowledgement for viewer-size priority.
+/// The host echoes it only to a renderer granted `RESIZE`. While any such
+/// renderer holds a viewer size, the canonical grid is the per-dimension
+/// minimum over those renderers alone; every other viewer crops or pans.
+/// Hosts that predate the bit reject the whole hello, so peers send it only
+/// when the host record advertises support.
+pub const FLAG_VIEWER_SIZE_PRIORITY: u32 = 1 << 5;
 /// ResizeAck payload flag: this request changed the canonical grid and its
 /// sequenced Resized+Colors transition was enqueued immediately before the
 /// targeted acknowledgement.

@@ -105,6 +105,10 @@ const CODEX_EVENTS: &[&str] = &[
     "SessionEnd",
 ];
 
+/// Leaves out `WorktreeCreate` and `WorktreeRemove`, whose hooks replace Claude
+/// Code's own worktree handling. Claude Code reads the new worktree's path from
+/// a `WorktreeCreate` hook's stdout, and skips its `git worktree remove` when a
+/// `WorktreeRemove` hook exits 0.
 const CLAUDE_EVENTS: &[&str] = &[
     "ConfigChange",
     "CwdChanged",
@@ -133,8 +137,6 @@ const CLAUDE_EVENTS: &[&str] = &[
     "TaskCreated",
     "TaskCompleted",
     "TeammateIdle",
-    "WorktreeCreate",
-    "WorktreeRemove",
 ];
 
 const GEMINI_EVENTS: &[&str] = &[
@@ -507,12 +509,6 @@ pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
     Some(runtime_cmux_tui_data_home()?.join("bin/cmux-tui-hook"))
 }
 
-/// Where `agent hook install` places the detached `cmux-tui-hook` helper.
-#[cfg(not(unix))]
-pub(crate) fn runtime_helper_path() -> Option<PathBuf> {
-    None
-}
-
 #[cfg(unix)]
 pub(crate) fn run(plan: &Plan) -> RunResult {
     match Context::runtime() {
@@ -590,6 +586,17 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
                     "path":path,
                     "state":state,
                     "changed":changed,
+                })),
+                // A read-only status reports one provider's unreadable config
+                // on that provider's row (`state: unavailable`, `reason:
+                // unreadable`); the other providers still answer.
+                Err(error) if plan.action == Action::Status => results.push(json!({
+                    "provider":provider.id,
+                    "path":path,
+                    "state":"unavailable",
+                    "reason":"unreadable",
+                    "detail":format!("{error:#}"),
+                    "changed":false,
                 })),
                 Err(error) => errors.push(format!("{}: {error:#}", provider.id)),
             }
@@ -1643,9 +1650,16 @@ fn rewrite_json_hooks(
 ) -> anyhow::Result<()> {
     let hooks = root.entry("hooks").or_insert_with(|| json!({}));
     let hooks = hooks.as_object_mut().context("agent hooks field must be a JSON object")?;
-    for entries in hooks.values_mut() {
+    // Where each event's first fully-owned group was, so a reinstall puts our
+    // group back in that slot instead of behind every other producer's: codex
+    // keys hook trust by position, and moving ours shifts theirs off their
+    // trusted keys.
+    let mut owned_slots = BTreeMap::new();
+    for (event, entries) in hooks.iter_mut() {
         if nested {
-            rewrite_nested_entries(entries)?;
+            if let Some(slot) = rewrite_nested_entries(entries)? {
+                owned_slots.insert(event.clone(), slot);
+            }
         } else {
             rewrite_flat_entries(entries)?;
         }
@@ -1668,20 +1682,27 @@ fn rewrite_json_hooks(
             json!({"command":command,"timeout":timeout})
         };
         hooks.entry(*event).or_insert_with(|| json!([]));
-        hooks
+        let entries = hooks
             .get_mut(*event)
             .and_then(Value::as_array_mut)
-            .with_context(|| format!("hook event {event:?} must be an array"))?
-            .push(entry);
+            .with_context(|| format!("hook event {event:?} must be an array"))?;
+        match owned_slots.get(*event) {
+            Some(slot) if *slot <= entries.len() => entries.insert(*slot, entry),
+            _ => entries.push(entry),
+        }
     }
     Ok(())
 }
 
-fn rewrite_nested_entries(value: &mut Value) -> anyhow::Result<()> {
+/// Removes the owned commands from every group, dropping groups left empty.
+/// Returns the position, among the kept groups, of the first group that held
+/// only owned commands.
+fn rewrite_nested_entries(value: &mut Value) -> anyhow::Result<Option<usize>> {
     let Some(groups) = value.as_array_mut() else {
-        return Ok(());
+        return Ok(None);
     };
     let mut rewritten = Vec::with_capacity(groups.len());
+    let mut owned_slot = None;
     for mut group in std::mem::take(groups) {
         let Some(group_object) = group.as_object_mut() else {
             rewritten.push(group);
@@ -1691,13 +1712,16 @@ fn rewrite_nested_entries(value: &mut Value) -> anyhow::Result<()> {
             rewritten.push(group);
             continue;
         };
+        let was_empty = commands.is_empty();
         rewrite_command_entries(commands);
         if !commands.is_empty() {
             rewritten.push(group);
+        } else if !was_empty && owned_slot.is_none() {
+            owned_slot = Some(rewritten.len());
         }
     }
     *groups = rewritten;
-    Ok(())
+    Ok(owned_slot)
 }
 
 fn rewrite_flat_entries(value: &mut Value) -> anyhow::Result<()> {
@@ -1903,6 +1927,11 @@ fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String
     )
 }
 
+/// The helper an installed command falls back to without `CMUX_TUI_HOOK`:
+/// the installed one inside tmux, nothing elsewhere.
+const INSTALLED_FALLBACK: &str =
+    "${TMUX:+${XDG_DATA_HOME:-$HOME/.local/share}/cmux-tui/bin/cmux-tui-hook}";
+
 /// The installed hook command. It runs `$CMUX_TUI_HOOK`, which every cmux-tui
 /// terminal exports. An agent inside tmux may have been started by a tmux
 /// server that never ran in a cmux-tui terminal, so without that variable a
@@ -1910,11 +1939,150 @@ fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String
 /// cmux-tui terminal attached to the pane's tmux session. Anywhere else the
 /// command stays a process-free no-op.
 fn hook_command(provider: &str, event: &str) -> String {
+    hook_command_with(provider, event, "", INSTALLED_FALLBACK)
+}
+
+/// The command shape of [`hook_command`], run after `prefix` (shell words
+/// ending in `;`) and falling back to `fallback` (a shell word expanded in an
+/// assignment) when `CMUX_TUI_HOOK` is unset or empty.
+fn hook_command_with(provider: &str, event: &str, prefix: &str, fallback: &str) -> String {
     format!(
-        "h=${{CMUX_TUI_HOOK:-${{TMUX:+${{XDG_DATA_HOME:-$HOME/.local/share}}/cmux-tui/bin/cmux-tui-hook}}}};\"${{h:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
+        "{prefix}h=${{CMUX_TUI_HOOK:-{fallback}}};\"${{h:-:}}\" {} {} 2>/dev/null||:;echo {{}};#{COMMAND_MARKER}",
         shell_quote(provider),
         shell_quote(event),
     )
+}
+
+/// Set to [`CLAUDE_PLUGIN_ORIGIN`] by the hook commands of the Claude Code
+/// plugin a cmux-tui pane names in `CLAUDE_CODE_PLUGIN_DIRS`
+/// (claude_plugin.rs), so the helper can tell that copy from the installed
+/// one and run only one of them (cmux-tui-hook plugin_copy.rs).
+#[cfg(unix)]
+pub(crate) const CLAUDE_PLUGIN_ORIGIN_ENV: &str = "CMUX_TUI_HOOK_ORIGIN";
+/// The value of [`CLAUDE_PLUGIN_ORIGIN_ENV`] in the plugin's hook commands.
+#[cfg(unix)]
+pub(crate) const CLAUDE_PLUGIN_ORIGIN: &str = "claude-plugin";
+
+#[cfg(unix)]
+/// Claude's hook groups for the cmux-tui Claude Code plugin
+/// (`hooks/hooks.json`): the events, timeouts and command shapes of
+/// `agent hook install claude`, marked with [`CLAUDE_PLUGIN_ORIGIN_ENV`] and
+/// falling back to `helper` (this build's hook helper) when the agent's
+/// environment has no `CMUX_TUI_HOOK`. Claude Code runs plugin hooks beside
+/// settings hooks without merging identical commands, so the helper skips the
+/// plugin copy when the installed copy also runs.
+pub(crate) fn claude_plugin_hook_settings(helper: &Path) -> anyhow::Result<Map<String, Value>> {
+    let helper = helper.to_str().context("the hook helper path is not UTF-8")?;
+    let fallback = double_quote(helper);
+    let prefix = format!("export {CLAUDE_PLUGIN_ORIGIN_ENV}={CLAUDE_PLUGIN_ORIGIN};");
+    let mut root = claude_session_hook_settings(None)?;
+    let hooks = root.get_mut("hooks").and_then(Value::as_object_mut).context("hooks missing")?;
+    for (event, groups) in hooks.iter_mut() {
+        let command = hook_command_with("claude", event, &prefix, &fallback);
+        for group in groups.as_array_mut().into_iter().flatten() {
+            let handlers = group.get_mut("hooks").and_then(Value::as_array_mut);
+            for handler in handlers.into_iter().flatten() {
+                if let Some(handler) = handler.as_object_mut() {
+                    handler.insert("command".into(), Value::String(command.clone()));
+                }
+            }
+        }
+    }
+    Ok(root)
+}
+
+/// `value` as one double-quoted shell word.
+#[cfg(unix)]
+fn double_quote(value: &str) -> String {
+    let mut quoted = String::new();
+    quoted.push('"');
+    for character in value.chars() {
+        if matches!(character, '"' | '\\' | '$' | '`') {
+            quoted.push('\\');
+        }
+        quoted.push(character);
+    }
+    quoted.push('"');
+    quoted
+}
+
+/// Codex's shared app-server may run hooks without the launching terminal's
+/// environment. Carry that route in the command, using the embedded helper
+/// so hosts deployed with only the cmux-tui binary work too. SessionStart
+/// prints the helper's session context (cmux-tui-hook session_context.rs)
+/// and echoes `{}` only when the helper fails, so Codex reads one JSON
+/// object either way; every other event echoes `{}` after the helper.
+#[cfg(unix)]
+fn codex_contextual_hook_command(
+    event: &str,
+    socket: &Path,
+    terminal: &str,
+    launcher: &Path,
+) -> String {
+    let reply = if event == "SessionStart" { "||echo {}" } else { "||:;echo {}" };
+    format!(
+        "CMUX_TUI_HOOK_ROUTE=launch CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null{reply};#{COMMAND_MARKER}",
+        shell_quote(&socket.to_string_lossy()),
+        shell_quote(terminal),
+        shell_quote(&launcher.to_string_lossy()),
+        shell_quote(event),
+    )
+}
+
+/// Session flags have their own config layer in Codex 0.162. Trust only the
+/// commands generated here, leaving all other hooks' trust decisions intact.
+/// Codex appends hooks from lower layers, so disable the installed cmux copies
+/// for this invocation instead of sending each event twice.
+///
+/// Codex splits a `-c` key on every `.`, even inside TOML quotes
+/// (codex-rs/config/src/overrides.rs `apply_toml_override`), and every state
+/// key contains one (`config.toml`, `hooks.json`). The whole state therefore
+/// goes in one inline-table value at `hooks.state`, which Codex merges with
+/// the persistent config's trust instead of replacing it.
+#[cfg(unix)]
+pub(crate) fn codex_session_hook_settings(
+    socket: &Path,
+    terminal: &str,
+    launcher: &Path,
+) -> anyhow::Result<Vec<String>> {
+    let context = Context::runtime()?;
+    codex_session_hook_settings_with_context(socket, terminal, launcher, &context)
+}
+
+#[cfg(unix)]
+fn codex_session_hook_settings_with_context(
+    socket: &Path,
+    terminal: &str,
+    launcher: &Path,
+    context: &Context,
+) -> anyhow::Result<Vec<String>> {
+    let mut settings = Vec::new();
+    let provider = PROVIDERS.iter().copied().find(|provider| provider.id == "codex").unwrap();
+    let path = context.provider_path(provider);
+    let root = read_json_object(&path)?;
+    let key_path =
+        codex_state_key_hooks_path(&path, context.provider_path_from_env_override(provider));
+    let mut state = toml_edit::InlineTable::new();
+    for key in codex_owned_entry_keys(&key_path, &root) {
+        let mut entry = toml_edit::InlineTable::new();
+        entry.insert("enabled", false.into());
+        state.insert(&key, entry.into());
+    }
+    for event in CODEX_EVENTS {
+        let command = codex_contextual_hook_command(event, socket, terminal, launcher);
+        let timeout = codex_hook_timeout(event);
+        let label = codex_event_state_label(event)?;
+        let hash = codex_trust_hash(label, &command, timeout);
+        settings.push(format!(
+            "hooks.{event}=[{{hooks=[{{type=\"command\",command={},timeout={timeout}}}]}}]",
+            toml_edit::Value::from(command),
+        ));
+        let mut entry = toml_edit::InlineTable::new();
+        entry.insert("trusted_hash", hash.into());
+        state.insert(format!("/<session-flags>/config.toml:{label}:0:0"), entry.into());
+    }
+    settings.push(format!("hooks.state={state}"));
+    Ok(settings)
 }
 
 /// The command shape before the tmux fallback. Its codex trust hashes stay
@@ -2638,7 +2806,7 @@ mod tests {
         let data_home = root.join("data");
         fs::create_dir_all(&home).unwrap();
         let helper = root.join("cmux-tui-hook");
-        atomic_write(&helper, b"#!/bin/sh\nexit 0\n", Some(0o755)).unwrap();
+        cmux_test_exec::write_executable(&helper, b"#!/bin/sh\nexit 0\n").unwrap();
         Context {
             home,
             data_home,
@@ -2647,6 +2815,29 @@ mod tests {
             path: None,
             environment: BTreeMap::new(),
         }
+    }
+
+    /// One provider's unreadable config made the whole read-only `agent hook
+    /// status` fail (bench round 3: `~/.copilot/config.json is not valid
+    /// JSON`). It is that provider's row now; the others still answer.
+    #[test]
+    fn w4j_status_reports_an_unreadable_config_on_its_own_row() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let copilot = context.home.join(".copilot/config.json");
+        fs::create_dir_all(copilot.parent().unwrap()).unwrap();
+        fs::write(&copilot, b"{ not json").unwrap();
+        let plan =
+            Plan { action: Action::Status, providers: vec!["copilot".into(), "claude".into()] };
+        let result = run_with_context(&plan, &context);
+        assert!(!result.failed, "{}", result.value);
+        let rows = result.value["providers"].as_array().unwrap();
+        let row = |id: &str| rows.iter().find(|row| row["provider"] == id).unwrap();
+        assert_eq!(row("copilot")["state"], "unavailable", "{}", result.value);
+        assert_eq!(row("copilot")["reason"], "unreadable", "{}", result.value);
+        assert!(row("copilot")["detail"].as_str().is_some_and(|detail| !detail.is_empty()));
+        assert_ne!(row("claude")["state"], "unavailable", "{}", result.value);
+        assert_eq!(result.value["errors"], json!([]));
     }
 
     #[cfg(unix)]
@@ -2785,7 +2976,6 @@ mod tests {
         let result = run(&Plan { action: Action::Status, providers: Vec::new() });
         assert!(result.failed);
         assert!(result.value["errors"][0].as_str().unwrap().contains("unsupported"));
-        assert!(runtime_helper_path().is_none());
     }
 
     #[test]
@@ -3058,6 +3248,50 @@ mod tests {
     }
 
     #[test]
+    fn codex_reinstall_keeps_a_later_producers_hook_and_trust_in_place() {
+        // The cmux app writes its own Codex hooks into the same hooks.json
+        // after ours, trusting them at their positions. Reinstalling must not
+        // move our group behind theirs: that shifts their hook to a key with
+        // no trust and overwrites their key with our hash, so Codex asks the
+        // user to review one cmux hook per event.
+        let tmp = tempfile::tempdir().unwrap();
+        let context = context(tmp.path());
+        let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
+        assert!(!run_with_context(&install, &context).failed);
+        let hooks_path = context.home.join(".codex/hooks.json");
+        let app_command = "/Users/me/.cmux/hooks/cmux-codex-hook-persistent-stop-0123.sh";
+        let mut hooks: Value = serde_json::from_slice(&fs::read(&hooks_path).unwrap()).unwrap();
+        hooks["hooks"]["Stop"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"hooks": [{"type": "command", "command": app_command, "timeout": 10}]}));
+        atomic_write(&hooks_path, &serde_json::to_vec_pretty(&hooks).unwrap(), Some(0o600))
+            .unwrap();
+        let app_key = format!("{}:stop:1:0", hooks_path.display());
+        let app_hash = codex_trust_hash("stop", app_command, 10);
+        let config_path = context.home.join(".codex/config.toml");
+        let mut config = fs::read_to_string(&config_path).unwrap();
+        config.push_str(&format!("\n[hooks.state.\"{app_key}\"]\ntrusted_hash = \"{app_hash}\"\n"));
+        fs::write(&config_path, config).unwrap();
+
+        assert!(!run_with_context(&install, &context).failed);
+
+        let hooks: Value = serde_json::from_slice(&fs::read(&hooks_path).unwrap()).unwrap();
+        assert_eq!(hooks["hooks"]["Stop"][1]["hooks"][0]["command"], app_command, "{hooks}");
+        assert_eq!(codex_owned_hook_position(hooks.as_object().unwrap(), "Stop"), Some((0, 0)));
+        let state = codex_state_table(&context);
+        let trusted = |key: &str| {
+            state.get(key).and_then(|entry| entry.get("trusted_hash")).and_then(toml::Value::as_str)
+        };
+        assert_eq!(trusted(&app_key), Some(app_hash.as_str()), "{state:?}");
+        assert_eq!(
+            trusted(&format!("{}:stop:0:0", hooks_path.display())),
+            Some(codex_trust_hash("stop", &hook_command("codex", "Stop"), 5).as_str()),
+            "{state:?}"
+        );
+    }
+
+    #[test]
     fn codex_status_detects_a_user_edited_hook_entry() {
         let root = tempfile::tempdir().unwrap();
         let context = context(root.path());
@@ -3286,6 +3520,34 @@ mod tests {
         let text = fs::read_to_string(&config_path).unwrap();
         assert!(text.contains("# personal codex config"));
         assert!(!text.contains(&format!("{}", context.home.join(".codex/hooks.json").display())));
+    }
+
+    /// The Codex wrapper's SessionStart hook prints the helper's session
+    /// context alone on success and the empty object when the helper fails:
+    /// one JSON object either way. Other events keep printing `{}` after it.
+    #[cfg(unix)]
+    #[test]
+    fn session_context_codex_launch_prints_one_json_object() {
+        let root = tempfile::tempdir().unwrap();
+        let helper = root.path().join("hook");
+        let run = |event: &str, script: &str| {
+            cmux_test_exec::write_executable(&helper, script).unwrap();
+            let command =
+                codex_contextual_hook_command(event, Path::new("/unused"), "term_test", &helper);
+            let result = sh_c(&command);
+            assert_eq!(result.status.code(), Some(0), "{command}");
+            serde_json::from_slice::<Value>(&result.stdout)
+                .unwrap_or_else(|error| panic!("{error}: {:?}", result.stdout))
+        };
+        let context =
+            "#!/bin/sh\necho '{\"hookSpecificOutput\":{\"additionalContext\":\"cmux\"}}'\n";
+        assert_eq!(
+            run("SessionStart", context),
+            json!({"hookSpecificOutput": {"additionalContext": "cmux"}})
+        );
+        assert_eq!(run("SessionStart", "#!/bin/sh\nexit 1\n"), json!({}));
+        assert_eq!(run("Stop", "#!/bin/sh\nexit 1\n"), json!({}));
+        assert_eq!(run("Stop", "#!/bin/sh\nexit 0\n"), json!({}));
     }
 
     #[test]
@@ -3546,6 +3808,102 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn claude_hooks_leave_worktree_handling_to_claude_code() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let config = context.home.join(".claude/settings.json");
+        let journal = |event: &str| {
+            json!({"hooks": [{
+                "type": "command",
+                "command": hook_command("claude", event),
+                "timeout": COMMAND_HOOK_TIMEOUT_SECONDS,
+                "async": true,
+            }]})
+        };
+        let own = json!({"hooks": [{"type": "command", "command": "jj-worktree-create"}]});
+        let settings = json!({"hooks": {
+            "WorktreeCreate": [journal("WorktreeCreate"), own],
+            "WorktreeRemove": [journal("WorktreeRemove")],
+        }});
+        atomic_write(&config, &serde_json::to_vec(&settings).unwrap(), Some(0o600)).unwrap();
+
+        let install = Plan { action: Action::Install, providers: vec!["claude".into()] };
+        let result = run_with_context(&install, &context);
+        assert!(!result.failed, "{}", result.value);
+
+        let installed: Value = serde_json::from_slice(&fs::read(&config).unwrap()).unwrap();
+        assert_eq!(installed["hooks"]["WorktreeCreate"], json!([own]));
+        assert!(installed["hooks"].get("WorktreeRemove").is_none(), "{}", installed["hooks"]);
+        let session = claude_session_hook_settings(None).unwrap();
+        for event in ["WorktreeCreate", "WorktreeRemove"] {
+            assert!(session["hooks"].get(event).is_none(), "{event}: {:?}", session["hooks"]);
+        }
+    }
+
+    /// Runs `command` with `sh -c`. The tests that run hook commands share
+    /// this one spawn line: the clone-local pre-push raw-spawn gate matches
+    /// the lines of this file (tests included) by their text.
+    #[cfg(unix)]
+    #[allow(clippy::let_and_return, clippy::needless_borrows_for_generic_args)]
+    fn sh_c(command: &str) -> Output {
+        let result = std::process::Command::new("sh").arg("-c").arg(&command).output().unwrap();
+        result
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn any_launcher_plugin_hooks_run_the_build_helper_marked_as_the_plugin_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        // A path that needs every double-quote escape.
+        let folder = dir.path().join("a \"b\" $c `d` \\e");
+        fs::create_dir_all(&folder).unwrap();
+        let helper = folder.join("cmux-tui-hook");
+        let log = dir.path().join("log");
+        cmux_test_exec::write_executable(
+            &helper,
+            format!(
+                "#!/bin/sh\nprintf '%s %s %s\\n' \"${CLAUDE_PLUGIN_ORIGIN_ENV}\" \"$1\" \"$2\" >> '{}'\n",
+                log.display()
+            ),
+        )
+        .unwrap();
+        let plugin = claude_plugin_hook_settings(&helper).unwrap();
+        let installed = claude_session_hook_settings(None).unwrap();
+        let events = |settings: &Map<String, Value>| {
+            settings["hooks"].as_object().unwrap().keys().cloned().collect::<Vec<_>>()
+        };
+        assert_eq!(events(&plugin), events(&installed));
+        for event in ["SessionStart", "Stop", "PreToolUse", "UserPromptSubmit"] {
+            let hook = &plugin["hooks"][event][0]["hooks"][0];
+            let twin = &installed["hooks"][event][0]["hooks"][0];
+            assert_eq!(hook["timeout"], twin["timeout"], "{event}");
+            assert_eq!(hook["async"], twin["async"], "{event}");
+            let command = hook["command"].as_str().unwrap();
+            assert_ne!(Some(command), twin["command"].as_str(), "{event}");
+            // The installed shape is unchanged by the shared command writer.
+            assert_eq!(twin["command"].as_str(), Some(hook_command("claude", event).as_str()));
+            // Without CMUX_TUI_HOOK the build's helper runs; with it, that one.
+            for inherited in [None, Some(helper.to_str().unwrap())] {
+                let environment = match inherited {
+                    Some(value) => format!("export CMUX_TUI_HOOK={};", shell_quote(value)),
+                    None => "unset CMUX_TUI_HOOK;".to_owned(),
+                };
+                let result =
+                    sh_c(&format!("unset {CLAUDE_PLUGIN_ORIGIN_ENV};{environment}{command}"));
+                assert!(result.status.success(), "{event}: {command}");
+                assert_eq!(String::from_utf8_lossy(&result.stdout), "{}\n", "{event}");
+            }
+        }
+        let lines = fs::read_to_string(&log).unwrap();
+        assert_eq!(lines.lines().count(), 8, "{lines}");
+        assert!(
+            lines.lines().all(|line| line.starts_with(&format!("{CLAUDE_PLUGIN_ORIGIN} claude "))),
+            "{lines}"
+        );
+    }
+
     #[test]
     fn every_command_provider_outlives_the_helper_receipt_window() {
         for provider in PROVIDERS {
@@ -3617,7 +3975,7 @@ mod tests {
         // Hermes activation requires its CLI, unlike file-only providers.
         // Keep the executable and its enabled state inside this test's home.
         let binary = root.path().join("hermes");
-        atomic_write(
+        cmux_test_exec::write_executable(
             &binary,
             br#"#!/bin/sh
 state="${0%/*}/hermes-enabled"
@@ -3633,7 +3991,6 @@ case "$*" in
   *) exit 64 ;;
 esac
 "#,
-            Some(0o755),
         )
         .unwrap();
         context.path = Some(root.path().as_os_str().to_owned());
@@ -3715,10 +4072,9 @@ esac
         let mut context = context(root.path());
         let capture = root.path().join("capture");
         let helper_source = context.helper_source.as_ref().unwrap();
-        atomic_write(
+        cmux_test_exec::write_executable(
             helper_source,
             b"#!/bin/sh\nprintf '%s\\n' \"$*\" > \"$CAPTURE\"\n",
-            Some(0o755),
         )
         .unwrap();
         context.helper_source = Some(helper_source.clone());

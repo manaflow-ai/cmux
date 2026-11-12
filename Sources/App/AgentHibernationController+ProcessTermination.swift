@@ -278,7 +278,12 @@ extension AgentHibernationController {
             terminalPanel?.beginAgentHibernationTerminationRecovery()
         }
         let handleRecoveryFailure: @MainActor () async -> Void = {
-            [weak self, weak terminalPanel = record.terminalPanel] in
+            [weak self, weak terminalPanel = record.terminalPanel,
+             processExitCompletion] in
+            // Resolve the fence even if the panel was closed during recovery;
+            // there is no live surface left that could safely receive reset
+            // bytes in that case.
+            await processExitCompletion.finish(false)
             guard let self, let terminalPanel else { return }
             terminalPanel.failAgentHibernationTermination()
             terminalPanel.onRequestAgentHibernationTerminationRetry = {
@@ -363,7 +368,10 @@ extension AgentHibernationController {
                 )
                 terminalPanel?.beginAgentHibernationTermination(
                     agent: agent,
-                    lastActivityAt: lastActivityAt
+                    lastActivityAt: lastActivityAt,
+                    processExitFence: {
+                        await processExitCompletion.wait()
+                    }
                 )
             }
         )

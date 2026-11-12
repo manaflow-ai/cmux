@@ -228,7 +228,7 @@ private struct BrowserDesignModeTokenField: NSViewRepresentable {
             object: scrollView.contentView,
             queue: .main
         ) { [weak textView, weak scrollView] _ in
-            MainActor.assumeIsolated {
+            Task { @MainActor [weak textView, weak scrollView] in
                 guard let textView, let scrollView else { return }
                 let width = scrollView.contentView.bounds.width
                 guard width > 0, abs(textView.frame.width - width) > 0.5 else { return }

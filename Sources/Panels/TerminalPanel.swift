@@ -19,7 +19,7 @@ final class TerminalPanel: Panel, ObservableObject {
     }
 
     let id: UUID
-    let stableSurfaceIdentity = PanelStableSurfaceIdentity()
+    let stableSurfaceIdentity: PanelStableSurfaceIdentity
     let panelType: PanelType = .terminal
 
     /// The underlying terminal surface
@@ -122,6 +122,10 @@ final class TerminalPanel: Panel, ObservableObject {
     /// Optional owner hook for a manual mirror that becomes the active pane.
     /// Ordinary terminals leave this unset.
     var onTerminalFocus: (() -> Void)?
+    /// Optional input hook owned by a manual-mirror session. Workspace routing
+    /// composes this hook into its current owner callback so a panel that moves
+    /// between workspaces keeps its Cloud input behavior.
+    var onManualMirrorExplicitInput: (() -> Void)?
 
     private var cancellables = Set<AnyCancellable>()
     /// Shared monotonic gate for AppKit and workspace-overlay flash renderers.
@@ -170,6 +174,9 @@ final class TerminalPanel: Panel, ObservableObject {
         self.id = surface.id
         self.workspaceId = workspaceId
         self.surface = surface
+        let persistedStableSurfaceId = surface.startupEnvironmentValue("CMUX_STABLE_SURFACE_ID")
+            .flatMap(UUID.init(uuidString:))
+        self.stableSurfaceIdentity = PanelStableSurfaceIdentity(id: persistedStableSurfaceId ?? UUID())
         self.title = surface.agentPanelTitle.flatMap { AutomaticTerminalTitle($0)?.value } ?? "Terminal"
         surface.onExplicitInput = { [weak self] in
             self?.hasReceivedExplicitInput = true
@@ -197,10 +204,18 @@ final class TerminalPanel: Panel, ObservableObject {
         initialInput: String? = nil,
         initialEnvironmentOverrides: [String: String] = [:],
         additionalEnvironment: [String: String] = [:],
+        stableSurfaceId: UUID? = nil,
         focusPlacement: TerminalSurfaceFocusPlacement = .workspace,
         isRemoteTerminal: Bool = false,
         runtimeSpawnPolicy: TerminalSurfaceRuntimeSpawnPolicy = .immediate
     ) {
+        let stableSurfaceId = stableSurfaceId ?? UUID()
+        var managedInitialEnvironmentOverrides = initialEnvironmentOverrides
+        managedInitialEnvironmentOverrides["CMUX_STABLE_SURFACE_ID"] = stableSurfaceId.uuidString
+        let managedAdditionalEnvironment = additionalEnvironment.merging(
+            ["CMUX_STABLE_SURFACE_ID": stableSurfaceId.uuidString],
+            uniquingKeysWith: { _, stableValue in stableValue }
+        )
         let surface = TerminalSurface(
             id: id,
             tabId: workspaceId,
@@ -211,12 +226,12 @@ final class TerminalPanel: Panel, ObservableObject {
             initialCommand: initialCommand,
             tmuxStartCommand: tmuxStartCommand,
             initialInput: initialInput,
-            initialEnvironmentOverrides: initialEnvironmentOverrides,
-            additionalEnvironment: additionalEnvironment,
+            initialEnvironmentOverrides: managedInitialEnvironmentOverrides,
+            additionalEnvironment: managedAdditionalEnvironment,
             focusPlacement: focusPlacement,
             isRemoteTerminal: isRemoteTerminal,
             runtimeSpawnPolicy: runtimeSpawnPolicy,
-            preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: additionalEnvironment) }
+            preparePaneHost: { Self.prepareNotificationScrollReplay(for: $0, environment: managedAdditionalEnvironment) }
         )
         self.init(workspaceId: workspaceId, surface: surface)
         if Self.startsAtOwnedPrompt(
@@ -818,7 +833,7 @@ final class TerminalPanel: Panel, ObservableObject {
            now < attentionFlashActiveUntil {
             return
         }
-        attentionFlashActiveUntil = now + FocusFlashPattern.duration
+        attentionFlashActiveUntil = now + FocusFlashPattern.current.duration
 
         switch TmuxOverlayExperimentSettings.target() {
         case .bonsplitPane:

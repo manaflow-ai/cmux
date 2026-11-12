@@ -18,6 +18,7 @@ private final class RemoteRelayNarrowingContext: ControlCommandContext {
         "daemon": .object(["remote_path": .string("/home/builder/.cmux/bin/cmuxd-remote")]),
     ])
     private(set) var replyShapeWire: String??
+    private(set) var effects: ControlNotificationEffectsPatch??
 
     func controlRemoteRelayDispatchError(method: String, params: [String: JSONValue]) -> ControlCallResult? { nil }
 
@@ -63,9 +64,11 @@ private final class RemoteRelayNarrowingContext: ControlCommandContext {
         title: String,
         subtitle: String,
         body: String,
-        replyShapeWire: String?
+        replyShapeWire: String?,
+        effects: ControlNotificationEffectsPatch?
     ) -> ControlNotificationTargetedDeliveryResolution {
         self.replyShapeWire = .some(replyShapeWire)
+        self.effects = .some(effects)
         return .delivered(workspaceID: workspaceID, surfaceID: surfaceID, windowID: nil, notificationID: UUID())
     }
 }
@@ -167,6 +170,7 @@ struct ControlCommandCoordinatorRemoteRelayNarrowingTests {
         }
     }
 
+    /// A relayed create loses its reply field but keeps its effects override unchanged.
     @Test func relayedNotificationDropsTheReplyShape() throws {
         let context = RemoteRelayNarrowingContext()
         let coordinator = ControlCommandCoordinator(context: context)
@@ -176,8 +180,10 @@ struct ControlCommandCoordinatorRemoteRelayNarrowingTests {
             return
         }
         #expect(context.replyShapeWire == .some(nil))
+        #expect(context.effects == .some(Self.requestedEffects))
     }
 
+    /// A local create keeps both its reply field and its effects override.
     @Test func localNotificationKeepsTheReplyShape() throws {
         let context = RemoteRelayNarrowingContext()
         let coordinator = ControlCommandCoordinator(context: context)
@@ -187,6 +193,7 @@ struct ControlCommandCoordinatorRemoteRelayNarrowingTests {
             return
         }
         #expect(context.replyShapeWire == .some("text"))
+        #expect(context.effects == .some(Self.requestedEffects))
     }
 
     private func notification(_ context: RemoteRelayNarrowingContext) -> [String: JSONValue] {
@@ -195,6 +202,9 @@ struct ControlCommandCoordinatorRemoteRelayNarrowingTests {
             "surface_id": .string(context.surfaceID.uuidString),
             "title": .string("Build finished"),
             "reply_shape": .string("text"),
+            "effects": .object(["desktop": .bool(false), "command": .bool(true)]),
         ]
     }
+
+    private static let requestedEffects = ControlNotificationEffectsPatch(desktop: false, command: true)
 }

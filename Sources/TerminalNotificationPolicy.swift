@@ -22,89 +22,10 @@ struct TerminalNotificationPolicyContext: Codable, Sendable, Equatable {
     var soundContext: NotificationSoundOverrideContext? = nil
 }
 
-struct TerminalNotificationPolicyEffects: Codable, Sendable, Equatable {
-    var record: Bool = true
-    var markUnread: Bool = true
-    var reorderWorkspace: Bool = true
-    var desktop: Bool = true
-    var sound: Bool = true
-    var command: Bool = true
-    var paneFlash: Bool = true
-
-    private enum CodingKeys: String, CodingKey {
-        case record
-        case markUnread
-        case reorderWorkspace
-        case desktop
-        case sound
-        case command
-        case paneFlash
-    }
-
-    init() {}
-
-    /// Every delivery effect disabled. Workspace mute is an admission gate;
-    /// keeping this constructor exhaustive prevents a newly added effect from
-    /// accidentally leaking through a muted workspace.
-    static var allSuppressed: Self {
-        var effects = Self()
-        effects.record = false
-        effects.markUnread = false
-        effects.reorderWorkspace = false
-        effects.desktop = false
-        effects.sound = false
-        effects.command = false
-        effects.paneFlash = false
-        return effects
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        record = try container.decodeIfPresent(Bool.self, forKey: .record) ?? true
-        markUnread = try container.decodeIfPresent(Bool.self, forKey: .markUnread) ?? true
-        reorderWorkspace = try container.decodeIfPresent(Bool.self, forKey: .reorderWorkspace) ?? true
-        desktop = try container.decodeIfPresent(Bool.self, forKey: .desktop) ?? true
-        sound = try container.decodeIfPresent(Bool.self, forKey: .sound) ?? true
-        command = try container.decodeIfPresent(Bool.self, forKey: .command) ?? true
-        paneFlash = try container.decodeIfPresent(Bool.self, forKey: .paneFlash) ?? true
-    }
-}
-
-private struct TerminalNotificationPolicyEffectsPatch: Decodable {
-    var record: Bool?
-    var markUnread: Bool?
-    var reorderWorkspace: Bool?
-    var desktop: Bool?
-    var sound: Bool?
-    var command: Bool?
-    var paneFlash: Bool?
-
-    func merged(into effects: TerminalNotificationPolicyEffects) -> TerminalNotificationPolicyEffects {
-        var merged = effects
-        if let record {
-            merged.record = record
-        }
-        if let markUnread {
-            merged.markUnread = markUnread
-        }
-        if let reorderWorkspace {
-            merged.reorderWorkspace = reorderWorkspace
-        }
-        if let desktop {
-            merged.desktop = desktop
-        }
-        if let sound {
-            merged.sound = sound
-        }
-        if let command {
-            merged.command = command
-        }
-        if let paneFlash {
-            merged.paneFlash = paneFlash
-        }
-        return merged
-    }
-}
+/// The delivery effects model lives in `CmuxNotifications`; these names keep
+/// the app's call sites and hook envelope encoding unchanged.
+typealias TerminalNotificationPolicyEffects = NotificationPolicyEffects
+typealias TerminalNotificationPolicyEffectsPatch = NotificationPolicyEffectsPatch
 
 private struct TerminalNotificationPolicyPayloadPatch: Decodable {
     var workspaceId: String?
@@ -262,6 +183,11 @@ struct TerminalNotificationPolicyRequest: Sendable {
     let agent: TerminalNotificationPolicyAgentContext?
     let soundContext: NotificationSoundOverrideContext?
     let origin: TerminalNotificationOrigin
+    /// The caller's effects override (`cmux notify --desktop false`). `nil`
+    /// keeps the policy defaults. Hooks receive the merged result as the
+    /// envelope's starting effects and may still override it.
+    let effects: TerminalNotificationPolicyEffectsPatch?
+    /// Creates a request; the defaulted parameters describe optional caller context.
     init(
         tabId: UUID,
         surfaceId: UUID?,
@@ -277,7 +203,8 @@ struct TerminalNotificationPolicyRequest: Sendable {
         isFocusedPanel: Bool,
         agent: TerminalNotificationPolicyAgentContext? = nil,
         soundContext: NotificationSoundOverrideContext? = nil,
-        origin: TerminalNotificationOrigin = .local
+        origin: TerminalNotificationOrigin = .local,
+        effects: TerminalNotificationPolicyEffectsPatch? = nil
     ) {
         self.tabId = tabId
         self.surfaceId = surfaceId
@@ -294,6 +221,13 @@ struct TerminalNotificationPolicyRequest: Sendable {
         self.agent = agent
         self.soundContext = soundContext
         self.origin = origin
+        self.effects = effects
+    }
+
+    /// The effects a delivery starts from before any hook runs: the defaults
+    /// with the caller's override merged in.
+    var baseEffects: TerminalNotificationPolicyEffects {
+        TerminalNotificationPolicyEffects(applying: effects)
     }
 }
 struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {
@@ -305,6 +239,7 @@ struct TerminalNotificationPolicyFailure: Error, Sendable, Hashable {
 enum TerminalNotificationPolicyEngine {
     private static let maxOutputBytes = 1_048_576
 
+    /// Builds the hook envelope for `request`, seeded with the request's base effects, and runs `hooks` over it in order.
     #if compiler(>=6.2)
     @concurrent
     #else
@@ -331,7 +266,8 @@ enum TerminalNotificationPolicyEngine {
                 soundContext: request.soundContext
             ),
             agent: request.agent,
-            origin: request.origin.isRemote ? TerminalNotificationPolicyOriginContext(request.origin) : nil
+            origin: request.origin.isRemote ? TerminalNotificationPolicyOriginContext(request.origin) : nil,
+            effects: request.baseEffects
         )
 
         return await evaluate(envelope: initialEnvelope, hooks: hooks)

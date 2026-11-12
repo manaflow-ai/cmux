@@ -24,7 +24,11 @@ public struct RemoteReverseRelayLauncher: RemoteReverseRelayLaunching {
         let stderrPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
         process.arguments = arguments
-        process.environment = environment
+        // A nil environment means inherit Foundation's caller environment.
+        // Assign only explicit snapshots; assigning nil clears it on macOS.
+        if let environment {
+            process.environment = environment
+        }
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = stderrPipe

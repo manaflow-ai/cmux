@@ -73,7 +73,15 @@ struct SSHForegroundAuthenticationMarkerCleanupTests {
         process.standardError = FileHandle.nullDevice
         try process.run()
 
-        #expect(Self.waitForFile(at: childPIDFile, containing: "\n", timeout: 3))
+        defer {
+            if process.isRunning {
+                Darwin.kill(process.processIdentifier, SIGKILL)
+                process.waitUntilExit()
+            }
+        }
+        // This is process startup, not the cleanup deadline asserted below.
+        // Cold Python startup on a busy runner can exceed three seconds.
+        try #require(Self.waitForFile(at: childPIDFile, containing: "\n", timeout: 15))
         let childPID = try #require(Int32(
             String(contentsOf: childPIDFile, encoding: .utf8)
                 .trimmingCharacters(in: .whitespacesAndNewlines)

@@ -14,15 +14,31 @@ public struct CloudPortScanResult: Equatable, Sendable {
 
     public init?(socketListing: String) {
         var applicationListings: [String] = []
+        var socketRows = 0
+        var diagnosticRows = 0
         for line in socketListing.split(separator: "\n") {
             let text = line.trimmingCharacters(in: .whitespaces)
             if text.isEmpty || text.hasPrefix("State ") || text.hasPrefix("Proto ") || text.hasPrefix("Active Internet") { continue }
-            guard text.split(whereSeparator: { $0.isWhitespace }).contains("LISTEN"),
-                  !CmuxTuiSnapshotParser.listeningPortBindings(fromSocketListing: text).isEmpty else { return nil }
+            // `ss` may include non-listening rows (for example an UNCONN
+            // socket or a diagnostic line) alongside the listeners. Those
+            // rows do not invalidate the successful listener inventory.
+            let fields = text.split(whereSeparator: { $0.isWhitespace })
+            guard fields.contains("LISTEN") else {
+                if Self.isSocketRow(fields) { socketRows += 1 } else { diagnosticRows += 1 }
+                continue
+            }
+            guard !CmuxTuiSnapshotParser.listeningPortBindings(fromSocketListing: text).isEmpty else {
+                diagnosticRows += 1
+                continue
+            }
+            socketRows += 1
             if !Self.isContainerRuntimeListener(text) {
                 applicationListings.append(text)
             }
         }
+        // Diagnostics beside real socket rows are noise; diagnostics alone
+        // mean the inventory itself failed, not that nothing is listening.
+        if socketRows == 0 && diagnosticRows > 0 { return nil }
         let bindings = CmuxTuiSnapshotParser.listeningPortBindings(fromSocketListing: applicationListings.joined(separator: "\n"))
             .filter { !CmuxTuiSnapshotParser.internalPorts.contains($0.port) }
         var reachable = Set<Int>()
@@ -47,6 +63,17 @@ public struct CloudPortScanResult: Equatable, Sendable {
         loopbackOnlyPorts = reachable.subtracting(wildcard).sorted()
         otherBindingPorts = other.subtracting(reachable).sorted()
     }
+
+    /// An `ss` row in another socket state, or a `netstat` protocol row.
+    private static func isSocketRow(_ fields: [Substring]) -> Bool {
+        guard let first = fields.first?.uppercased() else { return false }
+        return socketStates.contains(first) || first.hasPrefix("TCP") || first.hasPrefix("UDP")
+    }
+
+    private static let socketStates: Set<String> = [
+        "UNCONN", "ESTAB", "SYN-SENT", "SYN-RECV", "FIN-WAIT-1", "FIN-WAIT-2",
+        "TIME-WAIT", "CLOSE-WAIT", "LAST-ACK", "CLOSING", "CLOSED",
+    ]
 
     /// Runtime management APIs choose ephemeral ports; their owner, not the port number,
     /// distinguishes them from an application. Missing ownership never hides a listener.

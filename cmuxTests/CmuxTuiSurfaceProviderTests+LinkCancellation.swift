@@ -33,7 +33,7 @@ extension CmuxTuiSurfaceProviderTests {
                 sshArguments: ["-p", "2222", "-i", "/keys/with spaces", "-o", "ProxyJump=fixture-jump"]
             )
             Issue.record("the fixture exits before connecting")
-        } catch CloudMachineLink.LinkError.exited(let status, _) {
+        } catch CloudMachineLink.LinkError.exitedBeforeSocket(let status, _) {
             #expect(status == 2)
         }
         let arguments = try String(contentsOf: argumentsFile, encoding: .utf8)

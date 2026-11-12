@@ -8,6 +8,11 @@ if [ "$(basename "$0")" = "launchctl" ]; then
   printf '%s\n' "$*" >> "${CMUX_CAPTURE_LAUNCHCTL:?}"
   exit 0
 fi
+if [ "$(basename "$0")" = "xcrun" ]; then
+  # An xcresulttool that never returns on its bundle.
+  sleep 30
+  exit 0
+fi
 if [ "$(basename "$0")" = "pgrep" ]; then
   [ -z "${CMUX_FAKE_PGREP_PIDS:-}" ] || printf '%s\n' $CMUX_FAKE_PGREP_PIDS
   exit 0
@@ -29,6 +34,8 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
       echo "existing" >> "$CMUX_CAPTURE_RESULT_BUNDLE_STATE"
     fi
     mkdir -p "$result_bundle_path"
+    # xcodebuild writes Info.plist last, when it finalizes the bundle.
+    [ "${CMUX_MOCK_RESULT_BUNDLE_FINALIZED:-0}" != "1" ] || : >"$result_bundle_path/Info.plist"
   fi
   printf '%s\n' "${TEST_RUNNER_CMUX_TEST_PROCESS:-<unset>}" >> "$CMUX_CAPTURE_TEST_RUNNER_ENV"
   if [ -n "${CMUX_CAPTURE_TEST_RUNNER_CI_ENV:-}" ]; then
@@ -148,6 +155,9 @@ if [ "${CMUX_MOCK_XCODEBUILD_PROCESS:-0}" = "1" ]; then
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "published-default-sibling-leak" ] \
     || [ "${CMUX_MOCK_XCODEBUILD_MODE:-timeout}" = "published-config-sibling-leak" ]; then
     echo 'cmux DEV message = "socket.listener.start"'
+    if [ -n "${CMUX_MOCK_SUITE_LINES:-}" ]; then
+      printf '%b\n' "$CMUX_MOCK_SUITE_LINES"
+    fi
     exit 0
   fi
   sleep 10
@@ -831,4 +841,53 @@ grep -Fq "Not restarting testmanagerd: xcodebuild $other_xcodebuild is running t
   "$TMP_DIR/startup-hang-shared-output.log" \
   || fail_startup startup-hang-shared "skipped restart must explain itself"
 
-echo "PASS: app-host xcodebuild wrapper retries only before test execution, aborts a crash loop without retrying, and fails a startup hang as a runner fault after one testmanagerd restart"
+# A run whose result bundle is unreadable names the cause, the batch and the
+# last suite it ran; it never leaves an empty typed-result file behind.
+run_typed_results() {
+  local name="$1" finalized="$2"
+  set +e
+  /usr/bin/env -u CMUX_APP_HOST_HOME -u CMUX_APP_HOST_XDG_CONFIG_HOME \
+    -u CFFIXED_USER_HOME -u XDG_CONFIG_HOME \
+    PATH="$BASH32_BIN_DIR:$TMP_DIR:$PATH" \
+    RUNNER_TEMP="$RUNNER_TEMP_DIR" \
+    CMUX_CAPTURE_XCODEBUILD_ARGS="$TMP_DIR/$name-xcodebuild-args.log" \
+    CMUX_CAPTURE_TEST_RUNNER_ENV="$TMP_DIR/$name-test-runner-env.log" \
+    CMUX_CAPTURE_XCODEBUILD_PARENT_ENV="$TMP_DIR/$name-parent-env.log" \
+    CMUX_CAPTURE_TEST_RUNNER_HOME_ENV="$TMP_DIR/$name-runner-home-env.log" \
+    CMUX_MOCK_XCODEBUILD_PROCESS=1 \
+    CMUX_MOCK_XCODEBUILD_MODE=success \
+    CMUX_MOCK_RESULT_BUNDLE_FINALIZED="$finalized" \
+    CMUX_MOCK_SUITE_LINES="Test Suite 'SlowTeardownTests' passed at now.\n  ✔ Suite SlowTeardownSuite passed after 0.1 seconds.\r\nTest Suite 'Selected tests' passed at now." \
+    CMUX_TAG="$name" \
+    CMUX_APP_HOST_XCODEBUILD_ATTEMPTS=1 \
+    CMUX_APP_HOST_XCRESULTTOOL_TIMEOUT_SECONDS=1 \
+    CMUX_APP_HOST_RESULT_BUNDLE_ROOT="$RUNNER_TEMP_DIR/$name" \
+    CMUX_XCODEBUILD_NONINTERACTIVE_IDLE_TIMEOUT_SECONDS=5 \
+    /bin/bash "$ROOT_DIR/scripts/ci/run-app-host-xcodebuild.sh" test \
+      >"$TMP_DIR/$name-output.log" 2>&1
+  typed_status=$?
+  set -e
+}
+
+run_typed_results unfinalized-bundle 0
+[ "$typed_status" -eq 0 ] || fail_startup unfinalized-bundle "expected status 0, got $typed_status"
+grep -Eq "^Unreadable result bundle: $RUNNER_TEMP_DIR/unfinalized-bundle/\S+\.xcresult has no Info\.plist .*\(batch unfinalized-bundle, last suite in its log: ✔ Suite SlowTeardownSuite passed after 0\.1 seconds\.\)$" \
+  "$TMP_DIR/unfinalized-bundle-output.log" \
+  || fail_startup unfinalized-bundle "an unfinalized bundle must name its batch and last suite"
+! compgen -G "$RUNNER_TEMP_DIR/unfinalized-bundle/*.tests.json" >/dev/null \
+  || fail_startup unfinalized-bundle "an unfinalized bundle must not leave an empty tests.json"
+
+ln -s "$ROOT_DIR/tests/test_ci_app_host_xcodebuild_retry.sh" "$TMP_DIR/xcrun"
+typed_started=$SECONDS
+run_typed_results xcresulttool-hang 1
+rm -f "$TMP_DIR/xcrun"
+[ "$typed_status" -eq 0 ] || fail_startup xcresulttool-hang "expected status 0, got $typed_status"
+[ $((SECONDS - typed_started)) -lt 20 ] \
+  || fail_startup xcresulttool-hang "a hung xcresulttool must be stopped at its timeout"
+grep -Fq "Unreadable result bundle: xcresulttool get test-results tests did not finish within 1s" \
+  "$TMP_DIR/xcresulttool-hang-output.log" \
+  || fail_startup xcresulttool-hang "a hung xcresulttool must be named"
+! compgen -G "$RUNNER_TEMP_DIR/xcresulttool-hang/*.tests.json" >/dev/null \
+  || fail_startup xcresulttool-hang "a timed-out xcresulttool must not leave a partial tests.json"
+
+echo "PASS: app-host xcodebuild wrapper retries only before test execution, aborts a crash loop without retrying, fails a startup hang as a runner fault after one testmanagerd restart, and names unreadable result bundles"

@@ -1,6 +1,8 @@
+import { planItem } from "./subscriptionItems";
+
 /**
- * What a stored Stripe subscription actually charges, read from the first
- * item's Price in the raw Stripe payload. Amounts are immutable per Price, so
+ * What a stored Stripe subscription actually charges, read from the plan
+ * item's Price (planItem: never a metered usage item) in the raw Stripe payload. Amounts are immutable per Price, so
  * grandfathered rows render their own figure without a copy table.
  */
 export type SubscriptionPrice = {
@@ -31,13 +33,9 @@ export function formatUsd(amount: number): string {
 }
 
 function stripePrice(raw: unknown): Record<string, unknown> | null {
-  const items = raw && typeof raw === "object" ? (raw as { items?: unknown }).items : null;
-  const data = items && typeof items === "object" && "data" in items
-    ? (items as { data?: unknown }).data
-    : null;
-  const firstItem = Array.isArray(data) ? data[0] : null;
-  const price = firstItem && typeof firstItem === "object" && "price" in firstItem
-    ? (firstItem as { price?: unknown }).price
+  const item = raw && typeof raw === "object" ? planItem(raw as Parameters<typeof planItem>[0]) : undefined;
+  const price = item && typeof item === "object" && "price" in item
+    ? (item as { price?: unknown }).price
     : null;
   return price && typeof price === "object" ? (price as Record<string, unknown>) : null;
 }

@@ -499,7 +499,7 @@ struct BrowserDesignModeScreenshotEvaluatorTests {
 
     @Test func sharedDesignModeActivationDeactivatesReactGrab() async throws {
         let panel = await loadedBrowserPanel()
-        panel.handleReactGrabBridgeMessage(.stateChange(isActive: true))
+        panel.handleReactGrabBridgeMessage(.stateChange(isActive: true), isMainFrame: true)
 
         let enabled = await panel.setDesignModeEnabled(true, reason: "test.designMode")
 

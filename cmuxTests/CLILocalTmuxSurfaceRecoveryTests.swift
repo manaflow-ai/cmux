@@ -104,7 +104,7 @@ extension CLINotifyProcessIntegrationRegressionTests {
 
         let attach = runProcess(
             executablePath: cliPath,
-            arguments: ["local-tmux", "attach", "--id", logicalID.uuidString],
+            arguments: ["local-tmux", "attach", "--id", logicalID.uuidString, "--json"],
             environment: environment,
             timeout: 10
         )
@@ -112,7 +112,12 @@ extension CLINotifyProcessIntegrationRegressionTests {
         wait(for: [serverHandled], timeout: 10)
         XCTAssertFalse(attach.timedOut, attach.stderr)
         XCTAssertEqual(attach.status, 0, attach.stderr)
-        XCTAssertTrue(attach.stdout.contains(createdSurfaceID), attach.stdout)
+        let attachPayload = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: Data(attach.stdout.utf8)) as? [String: Any]
+        )
+        XCTAssertEqual(attachPayload["session_id"] as? String, logicalID.uuidString)
+        XCTAssertEqual(attachPayload["tmux_session_id"] as? String, "$31")
+        XCTAssertEqual(attachPayload["surface_id"] as? String, createdSurfaceID)
         let persisted = try XCTUnwrap(
             JSONSerialization.jsonObject(with: Data(contentsOf: registryURL)) as? [String: Any]
         )

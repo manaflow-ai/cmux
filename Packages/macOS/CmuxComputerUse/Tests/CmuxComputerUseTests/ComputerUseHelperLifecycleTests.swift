@@ -13,7 +13,8 @@ struct ComputerUseHelperLifecycleTests {
         try fixture.files.makeReadOnly(fixture.nestedHelper)
         var uptime: TimeInterval = 100
         let runtime = ComputerUseRuntimeService(
-            bundle: fixture.bundle, paths: fixture.paths, uptime: { uptime }, isDisabledByPolicy: { false }
+            bundle: fixture.bundle, paths: fixture.paths, uptime: { uptime }, isDisabledByPolicy: { false },
+            helperTrust: HelperRuntimeFixture.trustingEveryHelper
         )
         defer { runtime.stopForTermination() }
 
@@ -43,7 +44,9 @@ struct ComputerUseHelperLifecycleTests {
         let stale = directory.appendingPathComponent(".cmux Computer Use.\(UUID().uuidString).app")
         try FileManager.default.copyItem(at: fixture.files.bundle, to: stale)
         try fixture.files.makeReadOnly(stale)
-        let runtime = ComputerUseRuntimeService(bundle: fixture.bundle, paths: fixture.paths)
+        let runtime = ComputerUseRuntimeService(
+            bundle: fixture.bundle, paths: fixture.paths, helperTrust: HelperRuntimeFixture.trustingEveryHelper
+        )
         defer { runtime.stopForTermination() }
 
         // Both startup and the cancellable maintenance scheduler use this same
@@ -62,7 +65,9 @@ struct ComputerUseHelperLifecycleTests {
     @Test func cleanProfileCreatesTheEntireHelperHierarchy() throws {
         let fixture = try HelperRuntimeFixture()
         defer { fixture.files.remove() }
-        let runtime = ComputerUseRuntimeService(bundle: fixture.bundle, paths: fixture.paths)
+        let runtime = ComputerUseRuntimeService(
+            bundle: fixture.bundle, paths: fixture.paths, helperTrust: HelperRuntimeFixture.trustingEveryHelper
+        )
         defer { runtime.stopForTermination() }
         #expect(runtime.prepareRuntimeForLaunch())
         #expect(FileManager.default.fileExists(atPath: fixture.paths.installedHelperDirectoryURL.path))
@@ -77,7 +82,9 @@ struct ComputerUseHelperLifecycleTests {
         try FileManager.default.createDirectory(at: root.deletingLastPathComponent(), withIntermediateDirectories: true)
         try FileManager.default.createSymbolicLink(at: root, withDestinationURL: outside)
         let before = try FileManager.default.attributesOfItem(atPath: outside.path)[.posixPermissions] as? Int
-        let runtime = ComputerUseRuntimeService(bundle: fixture.bundle, paths: fixture.paths)
+        let runtime = ComputerUseRuntimeService(
+            bundle: fixture.bundle, paths: fixture.paths, helperTrust: HelperRuntimeFixture.trustingEveryHelper
+        )
         defer { runtime.stopForTermination() }
 
         await runtime.reapOrphanedHelperStaging()

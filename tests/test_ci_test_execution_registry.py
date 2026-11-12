@@ -63,8 +63,14 @@ class RegistryBlastRadiusTests(unittest.TestCase):
              "--lane", "macos-cli-product", "--list"],
             cwd=ROOT, capture_output=True, text=True, check=True,
         )
-        self.assertEqual(result.stdout.splitlines(), ["tests/test_claude_hook_spool.py"])
-        errors, _, _ = validator.validate(ROOT, added={"tests/test_claude_hook_spool.py"})
+        self.assertEqual(
+            result.stdout.splitlines(),
+            ["tests/test_claude_hook_spool.py", "tests/test_cli_hooks_setup_arguments.py"],
+        )
+        errors, _, _ = validator.validate(
+            ROOT,
+            added={"tests/test_claude_hook_spool.py", "tests/test_cli_hooks_setup_arguments.py"},
+        )
         self.assertEqual(errors, [])
 
     def make_root(self, *, tests: list[str], registry: str) -> Path:
@@ -548,6 +554,18 @@ sys.exit(3 if name.endswith("fail") else 0)
 
 
 class LaneRunnerTests(unittest.TestCase):
+    def test_invalid_timeouts_are_rejected_before_listing_tests(self) -> None:
+        for timeout in ("0", "-1", "nan", "inf", "-inf"):
+            with self.subTest(timeout=timeout):
+                result = subprocess.run(
+                    [sys.executable, str(RUNNER), "--lane", "linux-guard",
+                     "--list", f"--timeout={timeout}"],
+                    cwd=ROOT, capture_output=True, text=True,
+                )
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("--timeout must be a positive finite number", result.stderr)
+                self.assertEqual(result.stdout, "")
+
     def run_lane(self, registry: str, names: list[str], *args: str, peers: int) -> tuple[int, list[str], str]:
         root = Path(tempfile.mkdtemp(prefix="cmux-lane-runner-"))
         self.addCleanup(shutil.rmtree, root, ignore_errors=True)
@@ -653,6 +671,12 @@ class LaneRunnerTests(unittest.TestCase):
     def test_workflow_discovery_reads_every_lane_of_one_invocation(self) -> None:
         workflow = "run: python3 scripts/ci/run_python_test_lane.py --jobs 8 --lane one --lane=two --lane three\n"
         self.assertEqual(validator.runner_lanes_from_workflow_text(workflow), {"one", "two", "three"})
+
+    def test_verify_local_jobs_option_keeps_recipe_tests_live(self) -> None:
+        workflow = ["run: python3 scripts/verify-local.py --jobs 4\n"]
+        discovered = validator.recipe_tests(workflow)
+        self.assertIn("tests/test_normalize_pbxproj.py", discovered)
+        self.assertIn("tests/test_ui_fuzzer_engine.py", discovered)
 
 
 if __name__ == "__main__":

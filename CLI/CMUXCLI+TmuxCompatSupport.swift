@@ -420,7 +420,7 @@ extension CMUXCLI {
                 .first { !$0.isEmpty }
 
             if let paneStartCommand,
-               tmuxCommandLooksLikeOMXHud(tmuxShellWords(paneStartCommand)) {
+               tmuxCommandLooksLikeOMXHud(paneStartCommand) {
                 return true
             }
         }

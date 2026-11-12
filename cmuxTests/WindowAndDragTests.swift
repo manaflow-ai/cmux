@@ -39,6 +39,33 @@ private final class FakeBonsplitTabItemRegionView: NSView, BonsplitTabItemHitReg
     }
 }
 
+private final class FakeBonsplitTabBarRegionView: NSView {
+    deinit {
+        BonsplitTabBarHitRegionRegistry.unregister(self)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        BonsplitTabBarHitRegionRegistry.unregister(self)
+        if window != nil {
+            BonsplitTabBarHitRegionRegistry.register(self)
+        }
+    }
+
+    override func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        if superview == nil {
+            BonsplitTabBarHitRegionRegistry.unregister(self)
+        } else if window != nil {
+            BonsplitTabBarHitRegionRegistry.register(self)
+        }
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
+    }
+}
+
 @MainActor
 final class WindowGlassEffectTests: XCTestCase {
     func testRemoveRestoresOriginalContentHierarchy() {
@@ -153,6 +180,26 @@ final class WindowAccessorTests: XCTestCase {
 
         XCTAssertTrue(coordinator.shouldInvoke(window: window, dedupeByWindow: false, refreshID: "same"))
         XCTAssertTrue(coordinator.shouldInvoke(window: window, dedupeByWindow: false, refreshID: "same"))
+    }
+
+}
+
+@MainActor
+@Suite("Window accessor")
+struct WindowAccessorSwiftTestingTests {
+    @Test func resetAllowsSameWindowAfterDetach() {
+        _ = NSApplication.shared
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 200),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        let coordinator = WindowAccessor.Coordinator()
+
+        #expect(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: "same"))
+        coordinator.reset()
+        #expect(coordinator.shouldInvoke(window: window, dedupeByWindow: true, refreshID: "same"))
     }
 }
 
@@ -740,38 +787,47 @@ final class TerminalDefaultFileOpenRequestTests: XCTestCase {
 
 
 final class FocusFlashPatternTests: XCTestCase {
-    func testFocusFlashPatternMatchesTerminalDoublePulseShape() {
-        XCTAssertEqual(FocusFlashPattern.values, [0, 1, 0, 1, 0])
-        XCTAssertEqual(FocusFlashPattern.keyTimes, [0, 0.25, 0.5, 0.75, 1])
-        XCTAssertEqual(FocusFlashPattern.duration, 0.9, accuracy: 0.0001)
-        XCTAssertEqual(FocusFlashPattern.curves, [.easeOut, .easeIn, .easeOut, .easeIn])
+    func testDefaultPatternIsOneShortPulse() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "FocusFlashPatternTests.\(UUID().uuidString)"))
+        XCTAssertTrue(NotificationPaneFlashSettings.usesDoubleBlink(defaults: defaults))
+
+        let pulse = FocusFlashPattern.pulse
+        XCTAssertEqual(pulse.values, [0, 1, 0])
+        XCTAssertEqual(pulse.keyTimes, [0, 0.3, 1])
+        XCTAssertEqual(pulse.duration, 0.6, accuracy: 0.0001)
+        XCTAssertEqual(pulse.curves, [.easeOut, .easeIn])
         XCTAssertEqual(FocusFlashPattern.ringInset, Double(PanelOverlayRingMetrics.inset), accuracy: 0.0001)
         XCTAssertEqual(FocusFlashPattern.ringCornerRadius, Double(PanelOverlayRingMetrics.cornerRadius), accuracy: 0.0001)
     }
 
-    func testFocusFlashPatternSegmentsCoverFullDoublePulseTimeline() {
-        let segments = FocusFlashPattern.segments
-        XCTAssertEqual(segments.count, 4)
+    func testDoubleBlinkSettingSelectsTheOlderPattern() throws {
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: "FocusFlashPatternTests.\(UUID().uuidString)"))
+        defaults.set(true, forKey: NotificationPaneFlashSettings.doubleBlinkKey)
+        XCTAssertTrue(NotificationPaneFlashSettings.usesDoubleBlink(defaults: defaults))
+
+        let doubleBlink = FocusFlashPattern.doubleBlink
+        XCTAssertEqual(doubleBlink.values, [0, 1, 0, 1, 0])
+        XCTAssertEqual(doubleBlink.keyTimes, [0, 0.25, 0.5, 0.75, 1])
+        XCTAssertEqual(doubleBlink.duration, 0.9, accuracy: 0.0001)
+        XCTAssertEqual(doubleBlink.segments.count, 4)
+    }
+
+    func testPulseSegmentsCoverThePulse() {
+        let pulse = FocusFlashPattern.pulse
+        let segments = pulse.segments
+        XCTAssertEqual(segments.count, 2)
 
         XCTAssertEqual(segments[0].delay, 0.0, accuracy: 0.0001)
-        XCTAssertEqual(segments[0].duration, 0.225, accuracy: 0.0001)
+        XCTAssertEqual(segments[0].duration, 0.18, accuracy: 0.0001)
         XCTAssertEqual(segments[0].targetOpacity, 1, accuracy: 0.0001)
         XCTAssertEqual(segments[0].curve, .easeOut)
 
-        XCTAssertEqual(segments[1].delay, 0.225, accuracy: 0.0001)
-        XCTAssertEqual(segments[1].duration, 0.225, accuracy: 0.0001)
+        XCTAssertEqual(segments[1].delay, 0.18, accuracy: 0.0001)
+        XCTAssertEqual(segments[1].duration, 0.42, accuracy: 0.0001)
         XCTAssertEqual(segments[1].targetOpacity, 0, accuracy: 0.0001)
         XCTAssertEqual(segments[1].curve, .easeIn)
-
-        XCTAssertEqual(segments[2].delay, 0.45, accuracy: 0.0001)
-        XCTAssertEqual(segments[2].duration, 0.225, accuracy: 0.0001)
-        XCTAssertEqual(segments[2].targetOpacity, 1, accuracy: 0.0001)
-        XCTAssertEqual(segments[2].curve, .easeOut)
-
-        XCTAssertEqual(segments[3].delay, 0.675, accuracy: 0.0001)
-        XCTAssertEqual(segments[3].duration, 0.225, accuracy: 0.0001)
-        XCTAssertEqual(segments[3].targetOpacity, 0, accuracy: 0.0001)
-        XCTAssertEqual(segments[3].curve, .easeIn)
+        XCTAssertEqual(pulse.opacity(at: 0.18), 1, accuracy: 0.0001)
+        XCTAssertEqual(pulse.opacity(at: 0.6), 0, accuracy: 0.0001)
     }
 }
 
@@ -1451,6 +1507,66 @@ final class WindowDragHandleHitTests: XCTestCase {
                 eventWindow: window
             ),
             "Empty tab-strip chrome should remain available for app-window dragging"
+        )
+    }
+
+    func testMinimalModeDragHandleYieldsToReparentedPaneTabBarWithoutItemRegion() {
+        let savedMode = UserDefaults.standard.object(forKey: WorkspacePresentationModeSettings.modeKey)
+        UserDefaults.standard.set(
+            WorkspacePresentationModeSettings.Mode.minimal.rawValue,
+            forKey: WorkspacePresentationModeSettings.modeKey
+        )
+        defer {
+            if let savedMode {
+                UserDefaults.standard.set(savedMode, forKey: WorkspacePresentationModeSettings.modeKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: WorkspacePresentationModeSettings.modeKey)
+            }
+        }
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 120),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        defer { window.orderOut(nil) }
+        guard let contentView = window.contentView else {
+            XCTFail("Expected content view")
+            return
+        }
+
+        let firstContainer = NSView(frame: contentView.bounds)
+        let tabBar = FakeBonsplitTabBarRegionView(
+            frame: NSRect(x: 20, y: 82, width: 220, height: 30)
+        )
+        let dragHandle = NSView(frame: contentView.bounds)
+
+        contentView.addSubview(firstContainer)
+        firstContainer.addSubview(tabBar)
+        contentView.addSubview(tabBar)
+        contentView.addSubview(dragHandle)
+        window.makeKeyAndOrderFront(nil)
+
+        let tabWindowPoint = tabBar.convert(NSPoint(x: 80, y: 15), to: nil)
+        let dragHandlePoint = dragHandle.convert(tabWindowPoint, from: nil)
+        BonsplitTabBarHitRegionRegistry.unregister(tabBar)
+        tabBar.viewDidMoveToSuperview()
+        #expect(
+            BonsplitTabBarHitRegionRegistry.containsWindowPoint(tabWindowPoint, in: window),
+            "The tab-bar region must be restored after a same-window reparent"
+        )
+        BonsplitTabItemHitRegionRegistry.unregister(tabBar)
+        defer { BonsplitTabBarHitRegionRegistry.unregister(tabBar) }
+
+        XCTAssertFalse(
+            windowDragHandleShouldCaptureHit(
+                dragHandlePoint,
+                in: dragHandle,
+                eventType: .leftMouseDown,
+                eventWindow: window
+            ),
+            "Minimal-mode pane chrome must own the press while its tab-item registry is between lifecycle updates"
         )
     }
 

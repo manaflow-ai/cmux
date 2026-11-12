@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 8956ad6492bfd776f7c94fa11ba79b6fe23de0a0df61c6baf782d7d0ecf1f4cd. */
+/* cmux-tui mux protocol 12, IR 93af6692f7f686eafe3bfcb03c01e8570f8cf4dfa8a84ad93824ed07160b504d. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -10,6 +10,8 @@ export type AgentRecord = {
   "session": (string) | null;
   "source": AgentSource;
   "state": AgentState;
+  /** What the person sees: `working`, `blocked`, `done` (the agent finished a turn and no client has shown its tab since; `state` is `idle` then), `idle` or `unknown`; null for an ended session (`state` `done`). Reading never clears `done`; a frontend's tab acknowledgement does. Absent from older daemons: use `state`. */
+  "status"?: (AgentState) | null;
   "surface": Id;
   "updated_at_ms": bigint;
 };
@@ -363,6 +365,7 @@ export type MintTerminalRendererResult = {
   "incarnation": string;
   "protocol_version": number;
   "rights": number;
+  "supports_viewer_size_priority"?: boolean;
   "terminal_id": string;
   "token": string;
   "ttl_ms": bigint;

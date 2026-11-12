@@ -2,13 +2,14 @@ import { DurableObject } from "cloudflare:workers";
 import { z } from "zod";
 import { TeamBroker, type BrokerResult, type BrokerSession } from "./broker";
 import { encodeResponse, errorResponse, httpFailure, inputOperation, inputRequestId, parseControlRequest, parseJSON } from "./boundary";
-import { IdentitySchema, endpointID, identifier, revision, timestamp } from "./contracts/common";
+import { IdentitySchema, endpointID, identifier, revision, timestamp, type Identity } from "./contracts/common";
+import type { AccountMacRecord } from "./account-broker";
 import type { ControlResponse } from "./contracts/responses";
 import { identityKey, issueTicket } from "./crypto";
 import { acknowledgeDelivery, DeliveryStateSchema, deliveryUsage, emptyDeliveryState, prepareDelivery } from "./delivery";
 import { environmentScope, runtime, type Environment } from "./environment";
 import { failureDiagnostics, OperationError, publicError, unwrap } from "./errors";
-import { AuthoritySchema, objectName, readInternalRequest } from "./routing";
+import { AuthoritySchema, accountObjectName, objectName, readInternalRequest } from "./routing";
 import { applyStorageMigrations } from "./storage/migrations";
 import { TeamStore } from "./storage/team-store";
 import type { UsageOperation } from "./storage/user-usage";
@@ -199,6 +200,21 @@ export class TeamControl extends DurableObject<Environment> {
     return [...live];
   }
 
+  /**
+   * Read-only RPC for AccountControl: each identity's stored record in this
+   * team and the user's authority lease, or null. It writes no team storage,
+   * moves no revision and sends nothing to a team or dashboard socket.
+   */
+  accountMacRecords(teamId: string, identities: Identity[]): (AccountMacRecord | null)[] {
+    const store = this.broker(teamId).dependencies.store;
+    if (!Array.isArray(identities) || identities.length > 17) throw new OperationError("invalid_request", 400);
+    return identities.map(value => {
+      const identity = IdentitySchema.parse(value);
+      if (identity.teamId !== teamId) throw new OperationError("identity_mismatch", 403);
+      return store.accountMacRecord(identity);
+    });
+  }
+
   private broker(teamId: string): TeamBroker {
     const scope = environmentScope(this.env);
     const expected = this.env.TEAM_CONTROL.idFromName(objectName(scope.environment, scope.projectId, teamId));
@@ -331,6 +347,41 @@ export class TeamControl extends DurableObject<Environment> {
     ]).catch(() => {
       observe(this.ctx, this.env, { event: "iroh.directory.delivery_failed", environment: this.env.ENVIRONMENT });
     }));
+    this.notifyAccount(teamId, result.changed);
+  }
+
+  /**
+   * Best effort, after the team work above is already scheduled: tell the
+   * owner's AccountControl that one of their Mac records changed here. Only
+   * Mac rows qualify; iOS rows never leave this object. It sends no team frame,
+   * writes no team storage and cannot fail or delay the team response.
+   */
+  private notifyAccount(teamId: string, changed: BrokerResult["changed"]) {
+    try {
+      const deviceRecordId = changed?.revokedDeviceRecordId ?? changed?.deviceRecordId;
+      if (!deviceRecordId) return;
+      const record = this.broker(teamId).dependencies.store.getDeviceByRecordId(deviceRecordId);
+      if (!record || record.descriptor.metadata.platform !== "mac") return;
+      const userId = record.descriptor.identity.userId;
+      const scope = environmentScope(this.env);
+      const identity = record.descriptor.identity;
+      const name = accountObjectName(scope.environment, scope.projectId, userId);
+      // A few immediate attempts ride out a transient object reset. A notice
+      // that still fails is bounded by the account directory itself: every
+      // read re-checks the team, and inbound grants last at most
+      // ACCOUNT_INBOUND_GRANT_SECONDS.
+      const deliver = async () => {
+        let failure: unknown;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try { await this.env.ACCOUNT_CONTROL.getByName(name).teamChanged(userId, teamId, deviceRecordId, identity); return; }
+          catch (error) { failure = error; }
+        }
+        observe(this.ctx, this.env, { event: "iroh.account.notify_failed", environment: this.env.ENVIRONMENT, ...failureDiagnostics(failure) });
+      };
+      this.ctx.waitUntil(deliver());
+    } catch (error) {
+      observe(this.ctx, this.env, { event: "iroh.account.notify_failed", environment: this.env.ENVIRONMENT, ...failureDiagnostics(error) });
+    }
   }
 
   private async broadcast(teamId: string, change: NonNullable<BrokerResult["changed"]>) {

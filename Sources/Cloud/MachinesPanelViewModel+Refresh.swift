@@ -1,3 +1,4 @@
+import CmuxAuthRuntime
 import CmuxCloud
 import CmuxCloudMachines
 import Foundation
@@ -63,6 +64,9 @@ extension MachinesPanelViewModel {
         updateListRefreshPresentation(isLoading: true, isRecovering: !routinePoll)
         let generation = refreshGeneration
         let scope = machinePinStore?.scopeIdentifier
+        // The New Machine sheet's cache reuses this read for its plan and count.
+        let sheetCacheScope = NewMachineSheetDataCache.shared?.scopeForIngest
+        beginRestReadStreamCapture()
         refreshTask = Task { [weak self] in
             // Only the last read in flight ends loading; a retired or chained one must not.
             defer { self?.clearListLoadingIfIdle() }
@@ -70,7 +74,12 @@ extension MachinesPanelViewModel {
             do { result = .success(try await client.listPage()) }
             catch { result = .failure(error) }
             guard !Task.isCancelled, let self, generation == self.refreshGeneration else { return }
+            if case .success(let page) = result {
+                NewMachineSheetDataCache.shared?.ingest(page: page, scope: sheetCacheScope)
+            }
             self.applyRefreshResult(result, generation: generation, scope: scope)
+            // A failed read applied nothing, so there is nothing to replay onto.
+            self.streamChangesDuringRestRead = nil
             self.refreshTask = nil
             if self.refreshRequestedWhileLoading {
                 let isRecovery = self.refreshRequestedWhileLoadingIsRecovery
@@ -88,10 +97,20 @@ extension MachinesPanelViewModel {
         guard isCloudEnabled() else { pausePolling(); return }
         // Showing the panel or returning online is a recovery; polls are not.
         recoverList()
+        // The stream (re)subscribes under the current team; a same-scope
+        // socket that is already open keeps its cursor.
+        startVMSync()
         guard pollTask == nil else { return }
+        armPollLoop()
+    }
+
+    /// The routine poll loop. The interval is read before every sleep so a
+    /// stream connect or disconnect (which re-arms the loop) takes effect at once.
+    func armPollLoop() {
         pollTask = Task { [weak self, pollingClock] in
             while !Task.isCancelled {
-                do { try await pollingClock.sleep(for: Self.pollInterval) } catch { return }
+                guard let interval = self?.routinePollInterval else { return }
+                do { try await pollingClock.sleep(for: interval) } catch { return }
                 guard !Task.isCancelled, let self else { return }
                 self.refresh(routinePoll: true)
             }

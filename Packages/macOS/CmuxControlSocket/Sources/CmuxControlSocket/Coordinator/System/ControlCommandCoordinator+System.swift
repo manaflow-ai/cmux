@@ -358,7 +358,8 @@ extension ControlCommandCoordinator {
     }
 
     /// The `system.tree` surface node payload (browser surfaces emit their URL
-    /// string — empty when absent — and non-browsers emit JSON `null`).
+    /// string — empty when absent — and non-browsers emit JSON `null`; file
+    /// surfaces emit their `file_path`, other surfaces JSON `null`).
     private nonisolated func systemTreeSurfacePayload(
         _ node: ControlSystemTreeSurfaceNode,
         refs: SystemTreeSurfaceRefs
@@ -379,6 +380,7 @@ extension ControlCommandCoordinator {
             "render_health": orNull(node.renderHealthRawValue),
         ]
         item["url"] = node.isBrowser ? .string(node.url ?? "") : .null
+        item["file_path"] = orNull(node.filePath)
         if let dockScope = node.dockScopeRawValue {
             item["dock_scope"] = .string(dockScope)
         }

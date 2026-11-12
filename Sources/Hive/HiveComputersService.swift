@@ -307,16 +307,19 @@ final class HiveComputersService {
         if ManagedDevicePolicy().isDeviceDiscoveryDisabled {
             return String(localized: "devices.managed", defaultValue: "Disabled by your administrator.")
         }
-        return String(localized: "devices.discovery.settingsDisabled", defaultValue: "Turn on Discover other Macs to see your devices.")
+        return String(localized: "devices.discovery.settingsDisabled", defaultValue: "Turn on Discover other devices to see your devices.")
     }
 
     /// Why the account's Macs cannot be listed at all, or `nil` while
     /// Devices is available. My Devices rides on Cloud Machines, so this is
-    /// the Cloud gate's reason: managed policy, the Beta opt-in, or the flag.
+    /// the Cloud gate's reason: managed policy, the activation marker, or the flag.
     private static var unavailableMessage: String? {
         guard !DevicesFeature.isAvailable() else { return nil }
+        guard CloudMachinesFeature.isAvailable else {
+            return CloudMachinesFeature.disabledMessage
+        }
         if !ManagedDevicePolicy().isEnforced(.disableCloud), !CloudMachinesFeature.localOptIn(defaults: .standard) {
-            return String(localized: "settings.devices.cloudRequired", defaultValue: "Turn on Cloud Machines in Settings › Beta Features to use My Devices.")
+            return String(localized: "settings.devices.cloudRequired", defaultValue: "Enable Cloud Machines in the Cloud tab to use My Devices.")
         }
         return CloudMachinesFeature.disabledMessage
     }

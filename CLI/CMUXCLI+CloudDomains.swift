@@ -92,9 +92,10 @@ extension CMUXCLI {
                   let port = Int(remaining[1]), (1...65_535).contains(port) else {
                 throw CLIError(message: Self.cloudDomainsUsage)
             }
-            let access = try Self.validatedPublicationAccess(
+            let access = try validatedPublicationAccess(
                 accessRaw ?? CloudDomainAccessMode.personal.rawValue,
-                teamID: teamID
+                teamID: teamID,
+                client: client
             )
             var params: [String: Any] = [
                 "vmId": remaining[0],
@@ -153,7 +154,7 @@ extension CMUXCLI {
                   let publicationID = Self.nonempty(remaining[0]) else {
                 throw CLIError(message: Self.cloudDomainsUsage)
             }
-            let access = try Self.validatedPublicationAccess(remaining[1], teamID: teamID)
+            let access = try validatedPublicationAccess(remaining[1], teamID: teamID, client: client)
             var params: [String: Any] = [
                 "id": publicationID,
                 "accessMode": access.mode.rawValue,
@@ -223,9 +224,10 @@ extension CMUXCLI {
         }
     }
 
-    private static func validatedPublicationAccess(
+    private func validatedPublicationAccess(
         _ rawValue: String,
-        teamID: String?
+        teamID: String?,
+        client: SocketClient
     ) throws -> (mode: CloudDomainAccessMode, teamID: String?) {
         guard let mode = CloudDomainAccessMode(rawValue: rawValue.lowercased()) else {
             throw CLIError(message: String(
@@ -233,12 +235,23 @@ extension CMUXCLI {
                 defaultValue: "Access must be personal, team, or public."
             ))
         }
-        let normalizedTeamID = nonempty(teamID)
+        var normalizedTeamID = Self.nonempty(teamID)
         if mode == .team, normalizedTeamID == nil {
-            throw CLIError(message: String(
-                localized: "cli.cloud.domains.teamRequired",
-                defaultValue: "Team access requires `--team <id>`."
-            ))
+            let response = try client.sendV2(method: "auth.team.list", responseTimeout: 60)
+            let teams = (response["teams"] as? [[String: Any]] ?? []).compactMap {
+                Self.nonempty($0["id"] as? String)
+            }
+            let selected = Self.nonempty(response["selected_team_id"] as? String)
+            if let selected, teams.contains(selected) {
+                normalizedTeamID = selected
+            } else if teams.count == 1 {
+                normalizedTeamID = teams[0]
+            } else {
+                throw CLIError(message: String(
+                    localized: "cli.cloud.domains.teamRequired",
+                    defaultValue: "Team access requires `--team <id>` when more than one team is available."
+                ))
+            }
         }
         if mode != .team, normalizedTeamID != nil {
             throw CLIError(message: String(

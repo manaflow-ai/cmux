@@ -1,11 +1,6 @@
+import CmuxCore
 import Foundation
 import Darwin
-
-struct CmuxTopProcessScopeCacheKey: Hashable {
-    let pid: Int
-    let startSeconds: Int
-    let startMicroseconds: Int
-}
 
 // Result of probing a single process for its cmux scope. `resolved` means the
 // probe completed (the scope may legitimately be absent) within this census.

@@ -134,6 +134,7 @@ extension Workspace {
         let liveEntry = liveIndex.entryForStablePanel(
             workspaceId: id,
             panelId: panelId,
+            stableSurfaceId: panels[panelId]?.stableSurfaceId,
             revalidateProcessEvidence: false
         )
         return !AgentResumeLiveness.hasLiveProcess(
