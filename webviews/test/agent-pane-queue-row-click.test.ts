@@ -373,9 +373,13 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
           })),
         ).toEqual({ inactive: true, focused: "acpmux-queued" });
         await hidden();
-        // Back at the page (a press or key marks it key again), the keyed row's actions return.
+        // Back at the page (a press or key marks it key again), the keyed row's actions return, on the
+        // reveal's ramp: the blur took the ring, so they come back as a hover's would, not at once.
         await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-        expect(await opacity(page, `${ROW} .acpmux-queued-actions`)).toBe(1);
+        await page.waitForFunction(
+          (sel) => Number(getComputedStyle(document.querySelector(sel)!).opacity) === 1,
+          `${ROW} .acpmux-queued-actions`,
+        );
         await page.close();
       });
 
