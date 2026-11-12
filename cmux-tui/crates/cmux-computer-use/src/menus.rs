@@ -36,8 +36,13 @@ pub enum MenuMode {
 /// menus closed.
 impl<'de> Deserialize<'de> for MenuMode {
     fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
-        let text = String::deserialize(d)?;
-        Ok(MenuMode::parse(&text.trim().to_ascii_lowercase()).unwrap_or(MenuMode::Refuse))
+        // Any value at all (null, false, a number) reads: not a mode means
+        // refuse.
+        let value = serde_json::Value::deserialize(d)?;
+        Ok(value
+            .as_str()
+            .and_then(|text| MenuMode::parse(&text.trim().to_ascii_lowercase()))
+            .unwrap_or(MenuMode::Refuse))
     }
 }
 
@@ -271,7 +276,18 @@ pub const HIDDEN_ITEMS_HELD_REFUSAL: &str = "this menu has items Computer Use hi
 
 /// Why a submenu is not opened (or arrows sent) into a menu holding the
 /// person's keyboard.
-pub const SUBMENU_HELD_REFUSAL: &str = "this open menu holds the person's keyboard, so a submenu (or arrows) could put the highlight on an item Computer Use hides and their Return would run it; press the item you want by element, or choose it in one call with click and menu_item";
+pub const SUBMENU_HELD_REFUSAL: &str = "this open menu holds the person's keyboard and hides an item at some level, so a submenu (or arrows) could put the highlight on a hidden item and their Return would run it; press the item you want by element, or choose it in one call with click and menu_item, a path for a submenu's item (\"Sort By > Name\")";
+
+/// The titles of a menu path ("Sort By > Name", "View ▸ as Icons"): each
+/// level's item, outermost first. A title with no separator is one level.
+pub fn menu_path(value: &str) -> Vec<String> {
+    let parts: Vec<String> = value
+        .split(['\u{25B8}', '>'])
+        .map(|p| p.trim().to_string())
+        .filter(|p| !p.is_empty())
+        .collect();
+    if parts.is_empty() { vec![value.to_string()] } else { parts }
+}
 
 /// How a wanted title picks among a menu's items, the visible ones first.
 #[derive(Clone, Debug, PartialEq, Eq)]

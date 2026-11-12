@@ -135,6 +135,13 @@ Prevention, in the desktop (macOS):
     it shows, as Codex Computer Use's does; such a menu is never left open
     when it hides items while anything is denied (the person's typing could
     reach one): `click` with `menu_item`, or `set_value`, picks in one call.
+  - A menu that holds the keyboard is left open only when no level of it
+    (submenus too, three deep) hides an item; `click` with `menu_item`
+    takes a path for a submenu's item ("Sort By > Name").
+  - Display screenshots show a menu the agent opened as it is on screen,
+    hidden items' titles included (only the windows of blocked apps are
+    redacted; a window screenshot leaves menus out). Codex Computer Use
+    shows them too; the items stay refused.
   - Known limit: if the release misses and the menu also ignores both
     `AXCancel` and Escape, the person's window can look active while their
     keys go to the menu until it closes. The menu stays recorded, so the

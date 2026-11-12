@@ -128,4 +128,18 @@ fn a_mode_is_read_in_any_case_and_an_unknown_one_refuses() {
     assert_eq!(read(serde_json::json!("Refuse")), MenuMode::Refuse);
     assert_eq!(read(serde_json::json!("OPEN")), MenuMode::Open);
     assert_eq!(read(serde_json::json!("sometimes")), MenuMode::Refuse);
+    assert_eq!(read(serde_json::json!(null)), MenuMode::Refuse);
+    assert_eq!(read(serde_json::json!(false)), MenuMode::Refuse);
+    assert_eq!(read(serde_json::json!(1)), MenuMode::Refuse);
+}
+
+#[test]
+fn a_menu_path_names_each_level() {
+    assert_eq!(menu_path("Sort By > Name"), vec!["Sort By".to_string(), "Name".to_string()]);
+    assert_eq!(
+        menu_path("View \u{25B8} as Icons"),
+        vec!["View".to_string(), "as Icons".to_string()]
+    );
+    assert_eq!(menu_path("Always"), vec!["Always".to_string()]);
+    assert_eq!(menu_path(""), vec![String::new()]);
 }

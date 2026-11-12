@@ -32,7 +32,7 @@ use super::input::{self, Route};
 use super::sys::{AX_CANNOT_COMPLETE, AXError, Cf};
 use super::{MacDesktop, Target, cgwindows, key_focus, roles, workspace};
 use crate::desktop::*;
-use crate::menus::{self, MenuItemInfo, MenuReport};
+use crate::menus::{self, ItemMatch, MenuItemInfo, MenuReport};
 
 /// `NSPopUpMenuWindowLevel`: pop-up and context menus show at this layer.
 const MENU_LAYER: i64 = 101;
@@ -45,6 +45,9 @@ const CLOSE_WAIT: Duration = Duration::from_millis(1000);
 const CANCEL_WAIT: Duration = Duration::from_millis(300);
 const STEP: Duration = Duration::from_millis(10);
 const ESCAPE: u16 = 53;
+/// How many submenu levels below a menu are checked before it is left
+/// open holding the person's keyboard (deeper counts as hiding).
+const SUBMENU_LEVELS: usize = 3;
 /// Why a press or right click showed no menu.
 const MENU_DID_NOT_OPEN: &str = "the menu did not open (the app showed no menu)";
 
@@ -61,7 +64,7 @@ pub(super) struct KeyGuard(Option<(u64, u64)>);
 impl KeyGuard {
     fn arm(t: &Target, guard: Option<std::sync::Arc<dyn MenuGuard>>) -> Self {
         let armed = workspace::frontmost_pid().is_some_and(|front| {
-            front != t.window.pid && key_focus::arm(front, t.window.pid, guard)
+            front != t.window.pid && key_focus::arm(front, t.window.pid, t.window.frame, guard)
         });
         KeyGuard(armed.then(key_focus::counts))
     }
@@ -111,10 +114,13 @@ pub(super) struct Opened {
     /// on one, so they are refused too.
     pub has_hidden: bool,
     /// It holds the person's keyboard (the handoff did not arm, or it could
-    /// not be closed): while anything is denied, bare arrows and opening a
-    /// submenu are refused, since a submenu's hidden items could get the
-    /// highlight and the person's Return would run it.
+    /// not be closed).
     pub keyboard_held: bool,
+    /// Some level of it (a submenu too) hides an item, or could not be read.
+    /// With `keyboard_held` while anything is denied, bare arrows and
+    /// opening a submenu are refused: a hidden item could get the highlight
+    /// and the person's Return would run it.
+    pub nested_hidden: bool,
 }
 
 /// The menu windows on screen now, any owner.
@@ -508,6 +514,7 @@ impl MacDesktop {
                     // Unread: its items cannot be told apart.
                     has_hidden: true,
                     keyboard_held: true,
+                    nested_hidden: true,
                 });
                 return Err(DesktopError::Failed(menus::MENU_UNREAD_OPEN.into()));
             }
@@ -570,6 +577,7 @@ impl MacDesktop {
             // Kept only because it would not close: arrows stay refused.
             has_hidden: true,
             keyboard_held: true,
+            nested_hidden: true,
         });
         false
     }
@@ -631,12 +639,16 @@ impl MacDesktop {
         opened.as_ref().is_some_and(|o| o.pid == pid && o.has_hidden && showing(&o.windows))
     }
 
-    /// Whether a menu left open (any app) holds the person's keyboard while
-    /// something is denied: arrows and opening submenus are refused then.
+    /// Whether a menu left open (any app) holds the person's keyboard and
+    /// hides an item at some level while something is denied: arrows and
+    /// opening submenus are refused then. (A menu left open on the fallback
+    /// hides nothing at any level, so it is fully reachable, as Codex's.)
     pub(super) fn held_menu_guards_keys(&self) -> bool {
         let held = {
             let opened = self.opened.lock().unwrap_or_else(|e| e.into_inner());
-            opened.as_ref().is_some_and(|o| o.keyboard_held && showing(&o.windows))
+            opened
+                .as_ref()
+                .is_some_and(|o| o.keyboard_held && o.nested_hidden && showing(&o.windows))
         };
         held && self.denies_any()
     }
@@ -706,6 +718,33 @@ impl MacDesktop {
         }
     }
 
+    /// Whether any submenu below `level` (down `levels` more levels, at most
+    /// LISTED_ITEMS_MAX items read per menu) hides an item; one that cannot
+    /// be read, or a cap that cuts the check short, counts as hiding.
+    fn submenus_hide(&self, level: &[Item], levels: usize) -> bool {
+        let parents: Vec<&Item> = level.iter().filter(|i| !i.denied).collect();
+        for item in parents {
+            let kids = match item.el.attr("AXChildren") {
+                Ok(kids) => kids.map(|k| k.items()).unwrap_or_default(),
+                Err(_) => return true,
+            };
+            let Some(sub) = kids.into_iter().filter_map(Ax::from_cf).find(is_menu) else {
+                continue;
+            };
+            if levels == 0 {
+                return true;
+            }
+            let below = items(self, &sub);
+            if below.len() > menus::LISTED_ITEMS_MAX || below.iter().any(|i| i.denied) {
+                return true;
+            }
+            if self.submenus_hide(&below, levels - 1) {
+                return true;
+            }
+        }
+        false
+    }
+
     /// Records the menu left open for `t`'s window and reports its items.
     fn leave_open(
         &self,
@@ -713,7 +752,7 @@ impl MacDesktop {
         menu: Ax,
         windows: Vec<u32>,
         all: Vec<Item>,
-        keyboard_held: bool,
+        (keyboard_held, nested_hidden): (bool, bool),
         route: &str,
     ) -> ActionOutcome {
         let hidden = all.iter().filter(|i| i.denied).count();
@@ -725,6 +764,7 @@ impl MacDesktop {
             windows,
             has_hidden: hidden > 0,
             keyboard_held,
+            nested_hidden: nested_hidden || hidden > 0,
         });
         let visible: Vec<Item> = all.into_iter().filter(|i| !i.denied).collect();
         let more = visible.len().saturating_sub(menus::LISTED_ITEMS_MAX);
@@ -760,7 +800,13 @@ impl MacDesktop {
             return Err(self.close_and_fail(t, &menu, &windows, refused));
         }
         let all = items(self, &menu);
-        if !guard.armed() && self.denies_any() && all.iter().any(|i| i.denied) {
+        let held = !guard.armed();
+        // A menu that holds the person's keyboard is checked at every level
+        // (Services ▸, Open With ▸ hide items in submenus too).
+        let nested_hidden = held
+            && self.denies_any()
+            && (all.iter().any(|i| i.denied) || self.submenus_hide(&all, SUBMENU_LEVELS));
+        if nested_hidden {
             let why = if workspace::app_names_ready() {
                 menus::HIDDEN_ITEMS_HELD_REFUSAL
             } else {
@@ -769,7 +815,7 @@ impl MacDesktop {
             let refused = DesktopError::Unsupported(why.into());
             return Err(self.close_and_fail(t, &menu, &windows, refused));
         }
-        let mut out = self.leave_open(t, menu, windows, all, !guard.armed(), route);
+        let mut out = self.leave_open(t, menu, windows, all, (held, nested_hidden), route);
         if let Some(report) = out.menu.as_mut() {
             report.keyboard = keyboard;
         }
@@ -819,47 +865,65 @@ impl MacDesktop {
         popup: Option<(&Ax, &str, Option<String>)>,
     ) -> DResult<ActionOutcome> {
         let (menu, windows, opened, guard) = opened;
-        let mut all = items(self, &menu);
-        let titles: Vec<String> = all.iter().map(|i| i.info.title.clone()).collect();
-        let hidden: Vec<bool> = all.iter().map(|i| i.denied).collect();
         let refuse = |msg: String| -> DResult<ActionOutcome> {
             let refused =
                 DesktopError::Unsupported(format!("{msg} (keyboard: {})", guard.report()));
             Err(self.close_and_fail(t, &menu, &windows, refused))
         };
-        let item = match menus::pick(&titles, &hidden, value) {
-            menus::Pick::Item(i) => {
-                all[i].detail();
-                &all[i]
-            }
-            menus::Pick::Hidden => return refuse(menus::denied_item_refusal(Some(value))),
-            menus::Pick::Missing(found) => {
-                if self.denies_any() && !workspace::app_names_ready() {
-                    return refuse(menus::APP_NAMES_LOADING.into());
+        // A path ("Sort By > Name") walks submenus, each level held to the
+        // same checks as the item pressed.
+        let path = menus::menu_path(value);
+        let mut level = menu.clone();
+        let mut chosen: Option<Item> = None;
+        for (n, part) in path.iter().enumerate() {
+            let last = n + 1 == path.len();
+            let mut all = items(self, &level);
+            let titles: Vec<String> = all.iter().map(|i| i.info.title.clone()).collect();
+            let hidden: Vec<bool> = all.iter().map(|i| i.denied).collect();
+            let mut item = match menus::pick(&titles, &hidden, part) {
+                menus::Pick::Item(i) => all.swap_remove(i),
+                menus::Pick::Hidden => return refuse(menus::denied_item_refusal(Some(part))),
+                menus::Pick::Missing(found) => {
+                    if self.denies_any() && !workspace::app_names_ready() {
+                        return refuse(menus::APP_NAMES_LOADING.into());
+                    }
+                    let shown: Vec<String> =
+                        all.iter().filter(|i| !i.denied).map(|i| i.info.title.clone()).collect();
+                    return refuse(menus::not_found(part, &found, &shown));
                 }
-                let shown: Vec<String> =
-                    all.iter().filter(|i| !i.denied).map(|i| i.info.title.clone()).collect();
-                return refuse(menus::not_found(value, &found, &shown));
+            };
+            item.detail();
+            if item.info.disabled {
+                return refuse(format!("the item {:?} is disabled", item.info.title));
             }
+            // The full check (LaunchServices names too) on each item chosen.
+            if self.refuse_denied_item(&item.el).is_err() {
+                return refuse(menus::denied_item_refusal(Some(part)));
+            }
+            if last {
+                if item.info.submenu {
+                    return refuse(format!(
+                        "the item {:?} opens a submenu; give the path to an item in it (\"{} > …\")",
+                        item.info.title, item.info.title
+                    ));
+                }
+                chosen = Some(item);
+                break;
+            }
+            let sub = item.el.elements("AXChildren").into_iter().find(is_menu);
+            let Some(sub) = sub else {
+                return refuse(format!("the item {:?} opens no submenu", item.info.title));
+            };
+            level = sub;
+        }
+        let Some(item) = chosen else {
+            return refuse(menus::not_found(value, &ItemMatch::NotFound, &[]));
         };
-        if item.info.disabled {
-            return refuse(format!("the item {:?} is disabled", item.info.title));
-        }
-        if item.info.submenu {
-            return refuse(format!(
-                "the item {:?} opens a submenu; open the menu (click without menu_item) and press one of its items",
-                item.info.title
-            ));
-        }
-        // The full check (LaunchServices names too) on the one item pressed.
-        if self.refuse_denied_item(&item.el).is_err() {
-            return refuse(menus::denied_item_refusal(Some(value)));
-        }
         if let Err(e) = item.el.perform("AXPress") {
             let failed = ax_error(e, &format!("the item {:?}", item.info.title));
             return Err(self.close_and_fail(t, &menu, &windows, failed));
         }
-        let title = item.info.title.clone();
+        let title = item.info.title;
         // A pop-up shows the item a little after the press (about 0.2 s in a
         // System Settings pane); a menu button shows no value, so its menu
         // closing is the end, as for a context menu.

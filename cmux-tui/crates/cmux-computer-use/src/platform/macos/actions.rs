@@ -597,6 +597,9 @@ pub(super) fn type_text(
         if d.menu_open_in(t.window.pid) {
             return Err(DesktopError::Unsupported(menus::OPEN_MENU_KEYS_REFUSAL.into()));
         }
+        if delivery == Delivery::Foreground {
+            d.refuse_other_menus(&t)?;
+        }
         // Keys go to the focused element: focus this one first (it changes
         // focus inside the app, not which app is in front).
         if element_id.is_some()

@@ -134,7 +134,7 @@ pub static TOOLS: &[Tool] = &[
                     "button": {"type": "string", "enum": ["left", "right", "middle"]},
                     "count": {"type": "integer", "minimum": 1, "maximum": 3},
                     "modifiers": {"type": "array", "items": {"type": "string"}, "description": "shift, ctrl, alt/option, cmd/meta"},
-                    "menu_item": {"type": "string", "description": "For a click that opens a menu (right click, control-click, a pop-up or menu button): the title of the item to choose (exact, any case, or a unique prefix); the menu opens, the item is pressed and the menu closes in one call."},
+                    "menu_item": {"type": "string", "description": "For a click that opens a menu (right click, control-click, a pop-up or menu button): the title of the item to choose (exact, any case, or a unique prefix), or a path for an item in a submenu (\"Sort By > Name\"); the menu opens, the item is pressed and the menu closes in one call."},
                     "delivery": delivery()
                 }),
                 &[],

@@ -158,6 +158,8 @@ struct State {
     menus_before: Vec<u32>,
     /// The deny list, for a helper process that takes key focus.
     guard: Option<std::sync::Arc<dyn crate::desktop::MenuGuard>>,
+    /// The target's window, which a helper's menu window must overlap.
+    target_frame: Option<crate::desktop::Rect>,
     lookup_until: Option<Instant>,
     released: u64,
     missed: u64,
@@ -215,21 +217,25 @@ fn may_own_menu(
     target: i32,
     before: &[u32],
     guard: Option<&dyn crate::desktop::MenuGuard>,
+    target_frame: Option<crate::desktop::Rect>,
 ) -> bool {
-    if pid == target {
-        return true;
-    }
-    let helper = match super::workspace::app_for_pid(pid) {
-        // A denied menu-bar app's menu is never the call's.
-        Some(app) => {
-            !app.is_regular() && !guard.is_some_and(|g| g.app_blocked(&app.id(), &app.name))
-        }
-        None => !guard.is_some_and(|g| g.denies_any()),
-    };
-    helper
-        && super::cgwindows::on_screen()
-            .iter()
-            .any(|w| new_menu_window(w.pid, w.layer, w.id, pid, before))
+    let candidate = pid == target
+        || match super::workspace::app_for_pid(pid) {
+            // A denied menu-bar app's menu is never the call's.
+            Some(app) => {
+                !app.is_regular() && !guard.is_some_and(|g| g.app_blocked(&app.id(), &app.name))
+            }
+            None => !guard.is_some_and(|g| g.denies_any()),
+        };
+    // The target too must show a new menu-layer window: a non-activating
+    // panel of its own that takes key focus is not the call's menu. A
+    // helper's window counts only over the target's window.
+    candidate
+        && super::cgwindows::on_screen().iter().any(|w| {
+            new_menu_window(w.pid, w.layer, w.id, pid, before)
+                && (pid == target
+                    || target_frame.is_none_or(|f| super::menus::overlaps(&w.frame, &f)))
+        })
 }
 
 /// Whether a window (owner, layer, id) is a menu window `pid` shows that
@@ -272,13 +278,14 @@ extern "C" fn front_tap(
     event: *mut c_void,
     _info: *mut c_void,
 ) -> *mut c_void {
-    let (front, armed, port, target, before, guard) = {
+    let (front, armed, port, target, before, guard, frame) = {
         let st = state();
         let armed = st.armed_until.is_some_and(|t| Instant::now() < t);
         let front = st.front.as_ref();
         let before = if armed { st.menus_before.clone() } else { Vec::new() };
         let guard = st.guard.clone();
-        (front.map_or(0, |f| f.0), armed, front.map(|f| f.1.port), st.target, before, guard)
+        let port = front.map(|f| f.1.port);
+        (front.map_or(0, |f| f.0), armed, port, st.target, before, guard, st.target_frame)
     };
     if reenable(event_type, port) || event.is_null() {
         return event;
@@ -290,7 +297,7 @@ extern "C" fn front_tap(
             CGEventGetIntegerValueField(event, FIELD_THIEF_PID),
         )
     };
-    let owner = |pid| may_own_menu(pid, target, &before, guard.as_deref());
+    let owner = |pid| may_own_menu(pid, target, &before, guard.as_deref(), frame);
     match classify(event_type, subtype, thief, front, std::process::id() as i32, armed, owner) {
         Notice::Pass => event,
         Notice::ReleaseAndDrop(thief) => {
@@ -460,6 +467,7 @@ fn stop_tap(tap: Tap) {
 pub(super) fn arm(
     front_pid: i32,
     target_pid: i32,
+    target_frame: crate::desktop::Rect,
     guard: Option<std::sync::Arc<dyn crate::desktop::MenuGuard>>,
 ) -> bool {
     if skylight().is_none() {
@@ -482,6 +490,7 @@ pub(super) fn arm(
     st.target = target_pid;
     st.menus_before = before;
     st.guard = guard;
+    st.target_frame = Some(target_frame);
     true
 }
 

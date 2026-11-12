@@ -221,6 +221,13 @@ mod tests {
                 .unwrap();
         assert_eq!(owner.menus, MenuMode::Refuse);
         assert_eq!(owner.denied_apps, vec!["com.example.x".to_string()]);
+        for odd in [json!(null), json!(false), json!(0)] {
+            let owner: PolicyConfig =
+                serde_json::from_value(json!({"menus": odd, "deniedApps": ["com.example.x"]}))
+                    .unwrap();
+            assert_eq!(owner.menus, MenuMode::Refuse);
+            assert_eq!(owner.denied_apps, vec!["com.example.x".to_string()]);
+        }
     }
 
     #[test]
