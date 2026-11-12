@@ -824,7 +824,8 @@ def release_pool_signer_fixture_failures(documents: dict[str, dict]) -> list[str
     # A real invocation behind a condition, an env assignment and a shell's options is still read as one.
     for form, run in (("if ! VAR=1", f"if ! CMUX_X=1 ./{signer} app; then exit 1; fi"),
                       ("bash -e", f"bash -e {signer} app"),
-                      ("after &&", f"test -n \"$CERT\" && ./{signer} app")):
+                      ("left of ||", f"./{signer} app || true"),
+                      ("after a guard line", f"test -n \"$CERT\" || exit 1\n./{signer} app")):
         prefixed = {**good, "steps": [{**CERTIFICATE_STEP, "run": run}]}
         found = [why for why in tree_job_failures(with_job(documents, "nightly.yml", "signer-fixture", prefixed), label)
                  if "release-pool signer" in why or "Developer ID certificate" in why]
@@ -855,7 +856,16 @@ def release_pool_signer_mention_fixture_failures(documents: dict[str, dict]) -> 
                       ("run inside a substitution", f"x=$(./{signer} app)\n./sign.sh"),
                       ("run by eval", f"eval ./{signer} app\n./sign.sh"),
                       ("run by bash -c", f"bash -c './{signer} app'\n./sign.sh"),
-                      ("defined as a function", f"{signer.split('/')[-1].split('.')[0]}() {{ true; }}\n./{signer} app\n./sign.sh")):
+                      ("defined as a function", f"{signer.split('/')[-1].split('.')[0]}() {{ true; }}\n./{signer} app\n./sign.sh"),
+                      # Codex (#40784 F1, BLOCK at 341c7c1b): a signer bash may skip is not credited either, so the
+                      # job cannot take rule 8's no-keychain path while the signer never runs.
+                      ("right of &&", f"false && ./{signer} app\n./sign.sh"),
+                      ("after && on a test", f"test -n \"$CERT\" && ./{signer} app\n./sign.sh"),
+                      ("in an if branch", f"if false; then ./{signer} app; fi\n./sign.sh"),
+                      ("in an else branch", f"if ./sign.sh; then true; else ./{signer} app; fi"),
+                      ("in a case branch", f"case \"$MODE\" in release) ./{signer} app;; esac\n./sign.sh"),
+                      ("in a loop body", f"for app in; do ./{signer} \"$app\"; done\n./sign.sh"),
+                      ("after exit", f"./sign.sh\nexit 0\n./{signer} app")):
         job = {"runs-on": "ubuntu-24.04", "steps": [{**CERTIFICATE_STEP, "run": run}]}
         found = [why for why in tree_job_failures(with_job(documents, "nightly.yml", "signer-fixture", job), label)
                  if "Developer ID certificate" in why or "release-pool signer" in why]
@@ -874,6 +884,10 @@ def managed_keychain_mention_fixture_failures(documents: dict[str, dict]) -> lis
     create = "./scripts/ci/signing-keychain.sh create"
     delete = {"if": "always()", "run": "./scripts/ci/signing-keychain.sh delete"}
     for form, run, named in (("real create", create, False),
+                             ("real create, left of ||", f"{create} || exit 1", False),
+                             # #40784 F1: a create bash may skip makes no keychain.
+                             ("right of &&", f"false && {create}", True),
+                             ("in an if branch", f"if false; then {create}; fi", True),
                              ("comment", f"# {create}", True),
                              ("echo", f"echo {create}", True),
                              ("heredoc body", f"cat <<EOF > plan.txt\n{create}\nEOF", True)):
@@ -887,6 +901,29 @@ def managed_keychain_mention_fixture_failures(documents: dict[str, dict]) -> lis
     return problems
 
 
+def keychain_cleanup_fixture_failures(documents: dict[str, dict]) -> list[str]:
+    """Rule 2's cleanup (#40784 F1 sweep): an `if: always()` step counts as deleting the keychain only when bash
+    surely runs the delete. `false && ./scripts/ci/signing-keychain.sh delete` or a delete in an if branch leaves the
+    keychain on the runner and must be named; a delete that runs (also left of `||`) is not."""
+    problems = []
+    label = "release.yml cleanup-fixture"
+    create = {"name": "Keychain", "run": "./scripts/ci/signing-keychain.sh create"}
+    sign = {**CERTIFICATE_STEP, "run": "./sign.sh"}
+    for form, run, named in (("real delete", "./scripts/ci/signing-keychain.sh delete", False),
+                             ("delete || true", "./scripts/ci/signing-keychain.sh delete || true", False),
+                             ("security delete-keychain", "security delete-keychain \"$K\"", False),
+                             ("right of &&", "false && ./scripts/ci/signing-keychain.sh delete", True),
+                             ("in an if branch", "if false; then ./scripts/ci/signing-keychain.sh delete; fi", True),
+                             ("echo", "echo ./scripts/ci/signing-keychain.sh delete", True)):
+        job = {"runs-on": "blacksmith-6vcpu-macos-26", "steps": [create, sign, {"if": "always()", "run": run}]}
+        found = [why for why in tree_job_failures(with_job(documents, "release.yml", "cleanup-fixture", job), label)
+                 if "no `if: always()` step deletes it" in why]
+        expected = [f"{label}: creates a signing keychain but no `if: always()` step deletes it"]
+        if found != (expected if named else []):
+            problems.append(f"keychain cleanup: an always() delete as {form} is misread: {found}")
+    return problems
+
+
 def keychain_list_fixture_failures(documents: dict[str, dict]) -> list[str]:
     """The four keychain lists' fixtures, each built on every workflow document (with_job). Each red fixture adds a
     job with the list's trait that reads its secrets by bracket (`secrets['X']`) and carries no release
@@ -895,7 +932,7 @@ def keychain_list_fixture_failures(documents: dict[str, dict]) -> list[str]:
     return [*step_level_fixture_failures(documents), *inline_keychain_fixture_failures(documents),
             *script_made_fixture_failures(documents), *release_pool_signer_fixture_failures(documents),
             *release_pool_signer_mention_fixture_failures(documents),
-            *managed_keychain_mention_fixture_failures(documents)]
+            *managed_keychain_mention_fixture_failures(documents), *keychain_cleanup_fixture_failures(documents)]
 
 
 def check_keychain_lists(documents: dict[str, dict], failures: list[str]) -> None:
