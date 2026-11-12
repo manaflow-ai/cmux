@@ -65,6 +65,7 @@ extension Metrics {
     /// defaults (8 pt outer, the omnibar's, 2 pt gap) make a 6 pt tab. The sidebar's workspace
     /// rows read this radius too, so a row is as round as a tab.
     public static var tabCornerRadius: CGFloat {
+        if let row = tabRowCornerRadius { return row }
         let corners = Metrics.corners
         let outer = tabStripCardRadius ?? corners.outer
         return corners.radius(fitting: CGSize(width: tabHeight, height: tabHeight),

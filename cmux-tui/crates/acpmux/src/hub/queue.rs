@@ -1228,35 +1228,50 @@ impl Hub {
             if pending || self.logged_prompt(session, &prompt_id).is_some() {
                 continue;
             }
-            let Some(blocks) = self.logged_prompt_blocks(session, &e.msg) else {
+            let Some(queued) = self.queued_copy(session, &e.msg, &turn_id) else {
                 tracing::warn!(session = %session.id, prompt = %prompt_id, "an unstarted prompt cannot be rebuilt; a resend runs it");
                 continue;
             };
-            let mut queued = json!({
-                "text": field("text"),
-                "client": e.msg.get("client").cloned().unwrap_or(json!("acpmux")),
-                "position": 0,
-                "promptId": prompt_id,
-                "turnId": turn_id,
-                "prompt": blocks,
-                // Gated as it came: a prompt from the CLI's unix socket never was, so a restart
-                // does not hold it on a trust question nobody asked (cmux#37231). The gated ones
-                // are checked again, since the folder's trust may have changed across the
-                // restart, as is one from a log from before `user_message` recorded its gate.
-                "trustGate": e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(true),
-                "restored": "unstarted",
-            });
-            for k in ["control", "cloudMobile", "images", "inlineParts", "pasted", "_meta"] {
-                if let Some(v) = e.msg.get(k) {
-                    queued.set(k, v.clone());
-                }
-            }
             let (record, stored) = self.append_logged(session, "mux", "queued", queued, None);
             if stored {
                 copies.push(record);
             }
         }
         copies
+    }
+
+    /// The `queued` record that puts the prompt logged as `msg` (its `user_message`) back at the
+    /// head of the queue under turn `turn_id`, with what it came with that its run checks again
+    /// (`requeue_unstarted`, `unread_steer.rs`). None when its blocks cannot be rebuilt (hidden
+    /// context, a document).
+    pub(super) fn queued_copy(
+        &self,
+        session: &Session,
+        msg: &Value,
+        turn_id: &str,
+    ) -> Option<Value> {
+        let field = |k: &str| msg.get(k).and_then(Value::as_str).unwrap_or("").to_owned();
+        let blocks = self.logged_prompt_blocks(session, msg)?;
+        let mut queued = json!({
+            "text": field("text"),
+            "client": msg.get("client").cloned().unwrap_or(json!("acpmux")),
+            "position": 0,
+            "promptId": field("promptId"),
+            "turnId": turn_id,
+            "prompt": blocks,
+            // Gated as it came: a prompt from the CLI's unix socket never was, so a restart
+            // does not hold it on a trust question nobody asked (cmux#37231). The gated ones
+            // are checked again, since the folder's trust may have changed across the
+            // restart, as is one from a log from before `user_message` recorded its gate.
+            "trustGate": msg.get("trustGate").and_then(Value::as_bool).unwrap_or(true),
+            "restored": "unstarted",
+        });
+        for k in ["control", "cloudMobile", "images", "inlineParts", "pasted", "_meta"] {
+            if let Some(v) = msg.get(k) {
+                queued.set(k, v.clone());
+            }
+        }
+        Some(queued)
     }
 
     pub(super) fn restore_queue(&self, session: &Arc<Session>) {

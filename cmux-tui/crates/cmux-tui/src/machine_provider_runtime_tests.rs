@@ -522,13 +522,15 @@ fn accepted_mutation_request(kind: AcceptedMutationKind, machine: MachineKey) ->
     }
 }
 
+/// Answers one accepted mutation and returns the `mutation_id` it carried.
 fn serve_accepted_mutation(
     kind: AcceptedMutationKind,
     stream: &mut UnixStream,
     reader: &mut BufReader<UnixStream>,
-) {
+) -> protocol::OpaqueId {
     let mutation: protocol::RequestEnvelope = read_frame(reader);
     let request_id = mutation.id;
+    let mutation_id = sent_mutation_id(&mutation.request);
     match (kind, mutation.request) {
         (AcceptedMutationKind::CreateMachine, protocol::ProviderRequest::CreateMachine(_)) => {
             write_frame(
@@ -644,6 +646,7 @@ fn serve_accepted_mutation(
         }
         (_, request) => panic!("unexpected request for {kind:?}: {request:?}"),
     }
+    mutation_id
 }
 
 #[test]
@@ -1705,7 +1708,6 @@ fn selecting_provider_scope_cancels_ambiguous_external_connect() {
     runtime.pending_external_connect = Some(PendingExternalConnect {
         scope_id: personal.selected_scope_id,
         specifier: protocol::ExternalMachineSpecifier::new("PAIR 4J7K").unwrap(),
-        mutation_id: id("old-scope-mutation"),
     });
 
     runtime.perform_request(MachineRequest::SelectProviderScope("team-1".into())).unwrap();
@@ -3874,4 +3876,474 @@ fn provider_eof_requests_and_completes_a_fresh_authenticated_connection() {
     finish.send(()).unwrap();
     drop(runtime);
     server.join().unwrap();
+}
+
+fn sent_mutation_id(request: &protocol::ProviderRequest) -> protocol::OpaqueId {
+    let mut request = request.clone();
+    request_mutation_id_mut(&mut request).expect("request carries a mutation id").clone()
+}
+
+fn fail_followup_refresh(
+    stream: &mut UnixStream,
+    reader: &mut BufReader<UnixStream>,
+    kind: AcceptedMutationKind,
+) {
+    let failed_refresh: protocol::RequestEnvelope = read_frame(reader);
+    assert!(matches!(failed_refresh.request, protocol::ProviderRequest::Snapshot(_)));
+    write_frame(
+        stream,
+        &protocol::ResponseEnvelope::<protocol::SnapshotResult>::failure(
+            failed_refresh.id,
+            protocol::ProviderError {
+                code: protocol::ProviderErrorCode::Unavailable,
+                message: format!("refresh failed after accepted {kind:?}"),
+                retryable: true,
+            },
+        ),
+    );
+}
+
+/// A mutation whose answer outran its bound may still commit on the
+/// provider. Its retry must replay the same mutation_id, so a slow create
+/// makes one machine, not two. Success then settles the id.
+#[test]
+fn every_timed_out_provider_mutation_replays_its_mutation_id_on_retry() {
+    use crate::machine_provider_client::ProviderRequestDeadlines;
+
+    let socket = TestProviderSocket::bind();
+    let listener = socket.listener();
+    let catalog = provider_managed_snapshot(1);
+    let workspace = active_workspace_snapshot(1);
+    let server_catalog = catalog;
+    let server_workspace = workspace;
+    let server = thread::spawn(move || {
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, server_catalog.clone());
+        serve_workspace_snapshot(&mut stream, &mut reader, &server_workspace);
+        let mut first_create_id = None;
+        for kind in AcceptedMutationKind::ALL {
+            serve_runtime_refresh(
+                &mut stream,
+                &mut reader,
+                &server_catalog,
+                Some(&server_workspace),
+            );
+            // The provider is still working: no answer before the bound.
+            let unanswered: protocol::RequestEnvelope = read_frame(&mut reader);
+            let first_id = sent_mutation_id(&unanswered.request);
+
+            serve_runtime_refresh(
+                &mut stream,
+                &mut reader,
+                &server_catalog,
+                Some(&server_workspace),
+            );
+            let retry_id = serve_accepted_mutation(kind, &mut stream, &mut reader);
+            assert_eq!(retry_id, first_id, "{kind:?} retry minted a new mutation_id");
+            if matches!(kind, AcceptedMutationKind::CreateMachine) {
+                first_create_id = Some(first_id);
+            }
+            fail_followup_refresh(&mut stream, &mut reader, kind);
+        }
+
+        // The answered create settled its id; a new create is a new machine.
+        serve_runtime_refresh(&mut stream, &mut reader, &server_catalog, Some(&server_workspace));
+        let next_create_id =
+            serve_accepted_mutation(AcceptedMutationKind::CreateMachine, &mut stream, &mut reader);
+        assert_ne!(Some(next_create_id), first_create_id);
+        fail_followup_refresh(&mut stream, &mut reader, AcceptedMutationKind::CreateMachine);
+    });
+
+    let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+    let bound = Duration::from_millis(500);
+    runtime.client.set_request_deadlines(ProviderRequestDeadlines {
+        control: bound,
+        create: bound,
+        open: bound,
+    });
+    let machine = key_for_id(&runtime.keys, &id("machine-1")).unwrap();
+    for kind in AcceptedMutationKind::ALL {
+        let Err(first) = runtime.perform_request(accepted_mutation_request(kind, machine)) else {
+            panic!("{kind:?} completed although the provider never answered");
+        };
+        assert!(
+            matches!(
+                first.downcast_ref::<ProviderClientError>(),
+                Some(ProviderClientError::Timeout)
+            ),
+            "{kind:?} failed with {first:#} instead of a timeout"
+        );
+        if let Err(error) = runtime.perform_request(accepted_mutation_request(kind, machine)) {
+            panic!("{kind:?} retry failed: {error:#}");
+        }
+        runtime.open = None;
+    }
+    runtime.perform_request(MachineRequest::Create).unwrap();
+    drop(runtime);
+    server.join().unwrap();
+}
+
+fn create_in_scope(scope: usize) -> protocol::ProviderRequest {
+    protocol::ProviderRequest::CreateMachine(protocol::CreateMachineParams {
+        scope_id: id(&format!("scope-{scope}")),
+        mutation_id: unassigned_mutation_id().unwrap(),
+    })
+}
+
+fn answer_create(
+    stream: &mut UnixStream,
+    reader: &mut BufReader<UnixStream>,
+    machine: &str,
+) -> (protocol::OpaqueId, protocol::OpaqueId) {
+    let create: protocol::RequestEnvelope = read_frame(reader);
+    let protocol::ProviderRequest::CreateMachine(params) = create.request else {
+        panic!("expected a create, got {:?}", create.request);
+    };
+    write_frame(
+        stream,
+        &protocol::ResponseEnvelope::success(
+            create.id,
+            protocol::CreateMachineResult { machine_id: id(machine), revision: 2, notice: None },
+        ),
+    );
+    (params.scope_id, params.mutation_id)
+}
+
+/// A full ledger of unanswered creates never forgets one: the next new create
+/// is refused before it reaches the provider, and a retry of the oldest still
+/// replays its mutation_id, so it cannot make a second machine. Its answer
+/// frees one slot for the refused create.
+#[test]
+fn a_full_unsettled_ledger_refuses_new_creates_and_still_replays_the_oldest() {
+    use crate::machine_provider_client::ProviderRequestDeadlines;
+
+    let pending = MAX_UNSETTLED_MUTATIONS;
+    let socket = TestProviderSocket::bind();
+    let listener = socket.listener();
+    let catalog = provider_managed_snapshot(1);
+    let workspace = active_workspace_snapshot(1);
+    let server = thread::spawn(move || {
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, catalog);
+        serve_workspace_snapshot(&mut stream, &mut reader, &workspace);
+        // Every create stays unanswered past its bound.
+        let mut sent = Vec::new();
+        for scope in 0..pending {
+            let create: protocol::RequestEnvelope = read_frame(&mut reader);
+            let protocol::ProviderRequest::CreateMachine(params) = create.request else {
+                panic!("expected create {scope}, got {:?}", create.request);
+            };
+            assert_eq!(params.scope_id, id(&format!("scope-{scope}")));
+            sent.push(params.mutation_id);
+        }
+        let unique: HashSet<_> = sent.iter().collect();
+        assert_eq!(unique.len(), pending, "each distinct create mints its own id");
+
+        // The refused create never arrives: the next frame is the oldest's retry.
+        let (scope, retry_id) = answer_create(&mut stream, &mut reader, "machine-0");
+        assert_eq!(scope, id("scope-0"), "the refused create reached the provider");
+        assert_eq!(retry_id, sent[0], "the oldest create's retry minted a new mutation_id");
+
+        // The settled slot admits the create that was refused.
+        let (scope, admitted_id) = answer_create(&mut stream, &mut reader, "machine-new");
+        assert_eq!(scope, id(&format!("scope-{pending}")));
+        assert!(!sent.contains(&admitted_id), "a new create needs a new mutation_id");
+    });
+
+    let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+    let bound = Duration::from_millis(20);
+    runtime.client.set_request_deadlines(ProviderRequestDeadlines {
+        control: Duration::from_secs(5),
+        create: bound,
+        open: Duration::from_secs(5),
+    });
+    for scope in 0..pending {
+        let error = runtime
+            .send_mutation::<protocol::CreateMachineResult>(create_in_scope(scope))
+            .expect_err("the provider never answers these creates");
+        assert!(
+            matches!(
+                error.downcast_ref::<ProviderClientError>(),
+                Some(ProviderClientError::Timeout)
+            ),
+            "create {scope} failed with {error:#} instead of a timeout"
+        );
+    }
+
+    for _ in 0..2 {
+        let refused = runtime
+            .send_mutation::<protocol::CreateMachineResult>(create_in_scope(pending))
+            .expect_err("a new create past the ledger's capacity must be refused");
+        let full = refused
+            .downcast_ref::<UnsettledMutationsFull>()
+            .unwrap_or_else(|| panic!("refused with {refused:#} instead of a full ledger"));
+        assert_eq!(full.pending, pending);
+        assert!(refused.to_string().contains("still waiting for an answer"));
+    }
+    assert_eq!(runtime.unsettled_mutations.entries.len(), pending);
+
+    runtime.client.set_request_deadlines(ProviderRequestDeadlines::PRODUCTION);
+    let created: protocol::CreateMachineResult =
+        runtime.send_mutation(create_in_scope(0)).expect("the oldest create's retry");
+    assert_eq!(created.machine_id, id("machine-0"));
+    assert_eq!(runtime.unsettled_mutations.entries.len(), pending - 1);
+
+    let created: protocol::CreateMachineResult =
+        runtime.send_mutation(create_in_scope(pending)).expect("a freed slot admits a new create");
+    assert_eq!(created.machine_id, id("machine-new"));
+    assert_eq!(runtime.unsettled_mutations.entries.len(), pending - 1);
+
+    drop(runtime);
+    server.join().unwrap();
+}
+
+/// A mutation refused before its frame was written left nothing on the
+/// provider, so it must not hold a ledger slot. Forty refused connects in
+/// forty scopes would otherwise fill all 32 slots and block every create.
+#[test]
+fn mutations_refused_before_sending_leave_no_slot_and_a_create_still_goes_through() {
+    const REFUSED: usize = 40;
+    let socket = TestProviderSocket::bind();
+    let listener = socket.listener();
+    let catalog = provider_managed_snapshot(1);
+    let workspace = active_workspace_snapshot(1);
+    let server = thread::spawn(move || {
+        // The provider does not advertise external connect.
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, catalog);
+        serve_workspace_snapshot(&mut stream, &mut reader, &workspace);
+        // No connect frame arrives: the first frame after them is the create.
+        let (scope, _) = answer_create(&mut stream, &mut reader, "machine-real");
+        assert_eq!(scope, id("scope-real"), "a refused connect reached the provider");
+    });
+
+    let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+    for attempt in 0..REFUSED {
+        let connect = protocol::ProviderRequest::ConnectExternalMachine(
+            protocol::ConnectExternalMachineParams {
+                scope_id: id(&format!("stale-scope-{attempt}")),
+                specifier: protocol::ExternalMachineSpecifier::new(format!("PAIR {attempt}"))
+                    .unwrap(),
+                mutation_id: unassigned_mutation_id().unwrap(),
+            },
+        );
+        let error = runtime
+            .send_mutation::<protocol::ConnectExternalMachineResult>(connect)
+            .expect_err("an unadvertised capability is refused locally");
+        assert!(
+            matches!(
+                error.downcast_ref::<ProviderClientError>(),
+                Some(ProviderClientError::UnsupportedCapability(_))
+            ),
+            "attempt {attempt} failed with {error:#}"
+        );
+        assert!(runtime.unsettled_mutations.entries.is_empty(), "attempt {attempt} kept a slot");
+    }
+
+    let created: protocol::CreateMachineResult = runtime
+        .send_mutation(protocol::ProviderRequest::CreateMachine(protocol::CreateMachineParams {
+            scope_id: id("scope-real"),
+            mutation_id: unassigned_mutation_id().unwrap(),
+        }))
+        .expect("a real create after the refused connects");
+    assert_eq!(created.machine_id, id("machine-real"));
+    assert!(runtime.unsettled_mutations.entries.is_empty());
+    drop(runtime);
+    server.join().unwrap();
+}
+
+/// An external connect goes through the one ledger: its unanswered attempt
+/// takes a slot (so 31 more fill the ledger and refuse a new create) and its
+/// retry replays the id the first attempt sent.
+#[test]
+fn an_unanswered_external_connect_holds_a_ledger_slot_and_its_retry_replays_its_id() {
+    use crate::machine_provider_client::ProviderRequestDeadlines;
+
+    let others = MAX_UNSETTLED_MUTATIONS - 1;
+    let socket = TestProviderSocket::bind();
+    let listener = socket.listener();
+    let mut catalog = snapshot(1, "Existing", protocol::MachineStatus::Running);
+    catalog.capabilities.connect_external_machine = true;
+    let mut enrolled = catalog.clone();
+    enrolled.revision = 2;
+    enrolled.selected_machine_id = Some(id("machine-1"));
+    enrolled.machines[0].connectable = true;
+    let server_catalog = catalog;
+    let server = thread::spawn(move || {
+        let (mut stream, mut reader) = serve_initial_snapshot_with_capabilities(
+            &listener,
+            server_catalog,
+            &[protocol::EXTERNAL_MACHINE_CONNECT_CAPABILITY],
+        );
+        let first: protocol::RequestEnvelope = read_frame(&mut reader);
+        let protocol::ProviderRequest::ConnectExternalMachine(first_params) = first.request else {
+            panic!("first request was not external connect: {:?}", first.request);
+        };
+        for scope in 0..others {
+            let create: protocol::RequestEnvelope = read_frame(&mut reader);
+            assert!(
+                matches!(create.request, protocol::ProviderRequest::CreateMachine(_)),
+                "create {scope} was {:?}",
+                create.request
+            );
+        }
+        // Neither refused request arrives; the next frame is the retry.
+        let retry: protocol::RequestEnvelope = read_frame(&mut reader);
+        let protocol::ProviderRequest::ConnectExternalMachine(retry_params) = retry.request else {
+            panic!("retry request was not external connect: {:?}", retry.request);
+        };
+        assert_eq!(retry_params.specifier, first_params.specifier);
+        assert_eq!(retry_params.mutation_id, first_params.mutation_id, "the retry minted a new id");
+        write_frame(
+            &mut stream,
+            &protocol::ResponseEnvelope::success(
+                retry.id,
+                protocol::ConnectExternalMachineResult {
+                    machine_id: id("machine-1"),
+                    revision: 2,
+                    notice: None,
+                },
+            ),
+        );
+        serve_runtime_refresh(&mut stream, &mut reader, &enrolled, None);
+    });
+
+    let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+    let bound = Duration::from_millis(20);
+    runtime.client.set_request_deadlines(ProviderRequestDeadlines {
+        control: bound,
+        create: bound,
+        open: bound,
+    });
+    let Err(first) = runtime.connect_external_after_refresh("PAIR 4J7K".into()) else {
+        panic!("an unanswered connect completed");
+    };
+    assert!(
+        matches!(first.downcast_ref::<ProviderClientError>(), Some(ProviderClientError::Timeout)),
+        "the connect failed with {first:#} instead of a timeout"
+    );
+    assert_eq!(runtime.unsettled_mutations.entries.len(), 1, "the connect took no slot");
+    assert!(runtime.pending_external_connect.is_some());
+
+    for scope in 0..others {
+        runtime
+            .send_mutation::<protocol::CreateMachineResult>(create_in_scope(scope))
+            .expect_err("the provider never answers these creates");
+    }
+    let refused = runtime
+        .send_mutation::<protocol::CreateMachineResult>(create_in_scope(others))
+        .expect_err("the connect's slot fills the ledger");
+    assert!(refused.downcast_ref::<UnsettledMutationsFull>().is_some(), "{refused:#}");
+    let Err(refused) = runtime.connect_external_after_refresh("PAIR OTHER".into()) else {
+        panic!("a new connect must be refused by the full ledger too");
+    };
+    assert!(refused.downcast_ref::<UnsettledMutationsFull>().is_some(), "{refused:#}");
+    assert!(
+        runtime.pending_external_connect.is_some(),
+        "a refused connect cleared the ambiguous one"
+    );
+
+    runtime.client.set_request_deadlines(ProviderRequestDeadlines::PRODUCTION);
+    runtime.connect_external_after_refresh("PAIR 4J7K".into()).expect("the connect's retry");
+    assert!(runtime.pending_external_connect.is_none());
+    assert_eq!(runtime.unsettled_mutations.entries.len(), others);
+    runtime.close();
+    server.join().unwrap();
+}
+
+/// The `.mutate(` calls in `source` outside `send_mutation`'s body, as
+/// 1-based line numbers. Comment lines are ignored.
+fn provider_mutate_calls_outside_send_mutation(source: &str) -> Vec<usize> {
+    let allowed = source.find("fn send_mutation").and_then(|start| {
+        let open = start + source[start..].find('{')?;
+        let mut depth = 0usize;
+        for (offset, byte) in source[open..].bytes().enumerate() {
+            match byte {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(open..open + offset);
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    });
+    let mut offset = 0;
+    let mut hits = Vec::new();
+    for (index, line) in source.split_inclusive('\n').enumerate() {
+        let calls = line.contains(".mutate(") || line.contains(".mutate::<");
+        let comment = line.trim_start().starts_with("//");
+        let inside = allowed.as_ref().is_some_and(|range| range.contains(&offset));
+        if calls && !comment && !inside {
+            hits.push(index + 1);
+        }
+        offset += line.len();
+    }
+    hits
+}
+
+fn crate_sources(dir: &Path, found: &mut Vec<PathBuf>) {
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            crate_sources(&path, found);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            found.push(path);
+        }
+    }
+}
+
+/// Detector for the bypass class: a provider mutation sent anywhere but
+/// `send_mutation` skips the replay ledger and its cap. Test files may call
+/// the client directly; production code may not.
+#[test]
+fn every_provider_mutate_call_goes_through_send_mutation() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut sources = Vec::new();
+    crate_sources(&root, &mut sources);
+    let mut bypasses = Vec::new();
+    let mut scanned = 0;
+    for path in sources {
+        if path.file_name().is_some_and(|name| name.to_string_lossy().ends_with("_tests.rs")) {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).unwrap();
+        if !source.contains("ProviderClient") && !source.contains("machine_provider_client") {
+            continue;
+        }
+        scanned += 1;
+        for line in provider_mutate_calls_outside_send_mutation(&source) {
+            bypasses.push(format!("{}:{line}", path.display()));
+        }
+    }
+    assert!(scanned > 1, "the scan found no machine-provider sources under {}", root.display());
+    assert!(
+        bypasses.is_empty(),
+        "these provider mutations bypass send_mutation, so a retry can mint a new mutation_id \
+         and the ledger cap does not count them; route them through send_mutation:\n{}",
+        bypasses.join("\n")
+    );
+}
+
+#[test]
+fn the_mutate_bypass_detector_flags_a_call_outside_send_mutation() {
+    let fixture = r#"
+impl ProviderMachineRuntime {
+    /// Only `self.client.mutate(request)` may send.
+    fn send_mutation<T>(&mut self, request: protocol::ProviderRequest) -> anyhow::Result<T> {
+        if true { let _ = 1; }
+        Ok(self.client.mutate(request)?)
+    }
+
+    fn connect_directly(&mut self) -> anyhow::Result<()> {
+        // self.client.mutate(request) in a comment is fine
+        let _: protocol::ConnectExternalMachineResult = self.client.mutate(request)?;
+        let _ = self
+            .client
+            .mutate::<protocol::CreateMachineResult>(create)?;
+        Ok(())
+    }
+}
+"#;
+    assert_eq!(provider_mutate_calls_outside_send_mutation(fixture), vec![11, 14]);
 }

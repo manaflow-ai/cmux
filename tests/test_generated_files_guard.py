@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
@@ -313,6 +314,54 @@ class GuardTests(unittest.TestCase):
                          {"out/a.json", "out/b.json"})
         self.assertEqual({p for pats, _ in guard.rules_at(repo.root, head + "~1").exports for p in pats},
                          {"out/a.json"})
+
+
+class CheckTimeoutTests(unittest.TestCase):
+    """A busy runner makes a generator's --check slower, never red on its own (cmux#41742's class).
+
+    The guard runs a check only for an output the change edits without touching the generator or its inputs; each
+    case here fakes a slow check with a generator that sleeps past the limits, patched down to a second.
+    """
+
+    SLOW = "import time\ntime.sleep(30)\n"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.marker = Path(self.tmp.name) / "slow-once"
+        limits = mock.patch.multiple(guard, CHECK_TIMEOUT_SECONDS=1, RETRY_CHECK_TIMEOUT_SECONDS=2, create=True)
+        limits.start()
+        self.addCleanup(limits.stop)
+
+    def slow_once(self) -> str:
+        """Sleeps past the limit on its first run only."""
+        return (f"from pathlib import Path\nimport time\nmarker = Path({str(self.marker)!r})\n"
+                "if not marker.exists():\n    marker.write_text('x')\n    time.sleep(30)\n")
+
+    def guard_of(self, prelude: str, head_output: str) -> tuple[list[str], list[str]]:
+        """A stale base (schemas/chats.json moved to {"a": 1} without a regeneration) whose generator runs PRELUDE
+        first, and a change that writes HEAD_OUTPUT to the output alone."""
+        repo = Repo(Path(self.tmp.name) / "repo")
+        repo.commit({guard.MANIFEST: with_check(), guard.BASELINE: "", "tools/gen-schema.py": prelude + SCHEMA_GENERATOR,
+                     "schemas/chats.json": "{}\n", SCHEMA_OUT: rendered({})})
+        base = repo.commit({"schemas/chats.json": "{\"a\": 1}\n"})
+        head = repo.commit({SCHEMA_OUT: head_output})
+        return guard.check(repo.root, base, head, [])
+
+    def test_a_check_that_times_out_twice_warns_naming_the_generator_and_does_not_fail(self):
+        errors, notes = self.guard_of(self.SLOW, rendered({"a": 1}))
+        self.assertEqual(errors, [])
+        self.assertTrue(any("timed out" in n and "schema" in n and SCHEMA_OUT in n for n in notes), notes)
+
+    def test_a_check_that_times_out_once_is_retried_with_a_longer_limit(self):
+        errors, notes = self.guard_of(self.slow_once(), rendered({"a": 1}))
+        self.assertEqual(errors, [])
+        self.assertFalse(any("timed out" in n for n in notes), notes)
+        self.assertTrue(self.marker.exists(), "the first run timed out")
+
+    def test_a_hand_edit_still_fails_when_the_retried_check_says_so(self):
+        errors, _ = self.guard_of(self.slow_once(), rendered({"a": 1}) + "let y = 2\n")
+        self.assertTrue(any(SCHEMA_OUT in e and "not a regeneration" in e and "exits 1" in e for e in errors), errors)
 
 
 if __name__ == "__main__":
