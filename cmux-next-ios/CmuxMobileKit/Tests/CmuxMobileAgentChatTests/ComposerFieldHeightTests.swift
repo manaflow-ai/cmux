@@ -46,8 +46,7 @@ import UIKit
         }
     }
 
-    @Test func everyComposerSharesOneMaximum() {
-        #expect(ChatComposerField.maxLines == ComposerFieldHeight.defaultMaxLines)
+    @Test func maxLinesIsAtLeastOne() {
         #expect(ComposerFieldHeight(lineHeight: 20, verticalInset: 0, maxLines: 0).maxLines == 1)
     }
 }
@@ -72,6 +71,10 @@ import UIKit
 
     static func lines(_ count: Int) -> String {
         (1...count).map { "line \($0)" }.joined(separator: "\n")
+    }
+
+    @Test func everyComposerSharesOneMaximum() {
+        #expect(ChatComposerField.maxLines == ComposerFieldHeight.defaultMaxLines)
     }
 
     @Test func growsWithEachLineUpToMaxLinesThenStops() {
