@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43299616623",
+  "recorded_at": "2026-11-12T20:30:43Z",
+  "reason": "cmux-tui c10dc5bc9540 changes the image's cmux-tui (pinned 53df879fb060)",
+  "dry_run": false,
+  "cmux_tui": "c10dc5bc9540687e6b5d89251534bfc6eef904fd",
+  "fixes": [
+    {
+      "sha": "c10dc5bc9540687e6b5d89251534bfc6eef904fd",
+      "mergedAt": "2026-11-12T11:55:17-08:00",
+      "subject": "acpmux-book: versioned record layout and raw ranges, v2 PR 1b (#42113)"
+    },
+    {
+      "sha": "d5c18b83a92331b2c8b4614923b85fb28831b77e",
+      "mergedAt": "2026-11-12T13:46:54-06:00",
+      "subject": "perf(cmux-tui): a terminal host's parser queue slots hold a boxed resize and clear-history command"
+    },
+    {
+      "sha": "6774816a69c80d23bfdb85d1159ad83c9dbe3724",
+      "mergedAt": "2026-11-12T13:46:53-06:00",
+      "subject": "test(cmux-tui): a terminal host's parser queue takes at most one page from the start (red)"
+    },
+    {
+      "sha": "3b8bfabb3fcd4b126d3446df30de7ff4ba4404d8",
+      "mergedAt": "2026-11-12T13:46:34-06:00",
+      "subject": "fix(cmux-tui): a closed remote connection closes its socket while the session lives on"
+    },
+    {
+      "sha": "16b90b8aecf18328af5bf31a1fc1ca8870b1e5b2",
+      "mergedAt": "2026-11-12T13:46:34-06:00",
+      "subject": "test(cmux-tui): a closed remote connection closes its socket while the session lives on"
+    },
+    {
+      "sha": "bfb706d227a42bec00204737133c1f2b600e7629",
+      "mergedAt": "2026-11-12T13:46:16-06:00",
+      "subject": "cmux-tui-core tests: an adopting terminal's queue waits on the backstop's clock, not 10 s"
+    },
+    {
+      "sha": "84a8821dcba79fb5dcc79594fa0177451c1f5592",
+      "mergedAt": "2026-11-12T11:40:30-08:00",
+      "subject": "acpmux: read the settings file through cmux-config's path and JSONC reader (#42064)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T20:30:43Z",
+    "snapshot_id": "sh-fd3d5564bd2349e384005660cf8506ce",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43299616623): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "4f1967c781091658ba598530f421bad7ea0d8dab",
+    "image": "cloud-native-auto-c10dc5bc-43299616623-1",
+    "revision": "ci-43299616623-1",
+    "at": "2026-11-12T20:30:43Z"
+  },
+  "rolled_back": false
+}
