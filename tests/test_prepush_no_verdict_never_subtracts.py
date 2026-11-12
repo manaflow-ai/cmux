@@ -391,6 +391,7 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
     # file it finds is the one run.
 
     def rustfmt_from_path(self, path_value: str, in_scope: bool, in_gate_cwd: bool) -> str:
+        from unittest import mock  # noqa: PLC0415
         tree = Path(self.tmp.name) / "tree"
         (tree / "cmux-tui/crates/x/src").mkdir(parents=True, exist_ok=True)
         (tree / "cmux-tui/crates/x/src/lib.rs").write_text("fn a() {}\n", encoding="utf-8")

@@ -385,17 +385,18 @@ for module, name in json.load(sys.stdin):
     try:
         mod = importlib.import_module(module)
     except Exception:
-        missing.append([module, name, True, True])
+        if name is None:
+            missing.append([module, name, True, True])
         continue
     if name is None:
         continue
     attr_missing = not hasattr(mod, name)
-    try:
-        importlib.import_module(module + "." + name)
-    except Exception:
-        import_missing = True
-    else:
-        import_missing = False
+    import_missing = False
+    if attr_missing:
+        try:
+            importlib.import_module(module + "." + name)
+        except Exception:
+            import_missing = True
     if attr_missing or import_missing:
         missing.append([module, name, attr_missing, import_missing])
 print(json.dumps(missing))
