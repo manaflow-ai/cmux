@@ -941,7 +941,8 @@ public struct WorkspacesList: View {
             EmptyState(
                 symbol: "link",
                 title: "\(displayName(mac)) isn't connected",
-                message: "Connect to this Mac to view its workspaces.",
+                message: mac.isCloud ? "Connect to this Cloud machine to view its workspaces."
+                    : "Connect to this Mac to view its workspaces.",
                 primaryTitle: reconnect == nil ? nil : "Connect",
                 primary: reconnect.map { reconnect in { reconnect(mac.id) } }
             )
