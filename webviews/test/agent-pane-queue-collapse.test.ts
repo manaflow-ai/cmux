@@ -361,11 +361,13 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       });
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("two");
-      // Each painted frame from the press: the field's text, the rows drawn and the list's height.
+      // The state before the press, then each painted frame from the press: the field's text, the
+      // rows drawn and the list's height. The first entry is read now, not on a paint: an idle page
+      // may paint nothing between this and the press, and the first painted frame is then the send.
       await page.evaluate(() => {
         const frames: { text: string; rows: number; height: number; cut: boolean }[] = [];
         (window as { queueFrames?: typeof frames }).queueFrames = frames;
-        window.cmuxAfterPaint(() => {
+        const sample = () => {
           const field = document.querySelector<HTMLElement>(".acpmux-composer-prompt")!;
           const list = document.querySelector<HTMLElement>(".acpmux-composer-queue");
           const rows = [...document.querySelectorAll<HTMLElement>(".acpmux-queued")];
@@ -377,6 +379,10 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
             height: box?.height ?? 0,
             cut: Boolean(box && last && last.bottom > box.bottom + 0.5),
           });
+        };
+        sample();
+        window.cmuxAfterPaint(() => {
+          sample();
           return frames.length < 40;
         });
       });
