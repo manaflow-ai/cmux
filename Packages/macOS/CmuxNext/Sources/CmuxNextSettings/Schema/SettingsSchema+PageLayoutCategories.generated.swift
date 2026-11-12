@@ -278,6 +278,8 @@ extension SettingsPageLayout {
             GroupSpec(keys: ["history.terminalCommands", "home.attachments.keepLocation"], title: SettingsText.keyed("settings.pageGroup.localData", "Data on This Mac")),
             GroupSpec(keys: ["browser.omnibar.remoteSuggestions", "announcements.fetch"], title: SettingsText.keyed("settings.pageGroup.network", "Network Requests")),
             GroupSpec(group: "settings.group.hangReports"),
+            // Opt-in local usage patterns (cmux-usage-patterns); `cmux usage-patterns` reads them.
+            GroupSpec(group: "settings.group.usagePatterns"),
             // The hosts an ssh:// link from another app reaches without asking (ExternalLinkGate).
             GroupSpec(group: "settings.group.sshLinks"),
         ],

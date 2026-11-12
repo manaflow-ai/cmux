@@ -12,7 +12,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"
 OUTPUTS="$ROOT_DIR/scripts/cmux-next/generated_outputs.py"
 APPLY="$ROOT_DIR/scripts/cmux-next/pr-autofix-apply.sh"
 tmp="$(mktemp -d "${TMPDIR:-/tmp}/cmux-generated-ownership.XXXXXX")"
-trap 'rm -rf "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf "$tmp"'
 fail() { echo "FAIL: $*" >&2; cat "$tmp/out" >&2 2>/dev/null || true; exit 1; }
 
 graph=Packages/macOS/CmuxNext/ci-target-graph.json

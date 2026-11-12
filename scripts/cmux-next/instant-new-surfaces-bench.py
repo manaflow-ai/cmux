@@ -13,7 +13,8 @@ display frame of visibility (1 = the first frame drawn after the key) is above N
 
 `--commands` picks the commands (default all; `link_right`, a web link opened to the right as a new split,
 `link_home`, the same link from Home's dock alone (a new column beside it), `split_browser`, Split Browser Right,
-`dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, `github_right`, a github.com
+`dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, `browser_workspace`, New Browser
+Workspace (`chrome_ms`: its browser in the pane; a terminal shown first makes it later than `visible_ms`), `github_right`, a github.com
 pull request link opened to the right in the native GitHub page (`--link-url`, default a cmux pull request; its
 pull request is seeded into the app's cache, as a chat's link card has read it, and `page_ms` is the page drawing it),
 and the diff viewer's `diff_small` (one file, 20 changed lines), `diff_5k` (5,000 changed lines in 10 files) and
@@ -208,7 +209,7 @@ def stop_load():
 
 def undo(command, window, before_panes):
     """Back to one terminal pane in the bench workspace."""
-    if command in ("new_workspace", "dock_respawn"):  # a dock leaves two panes: the workspace goes, the next run gets a fresh one
+    if command in ("new_workspace", "browser_workspace", "dock_respawn"):  # a dock leaves two panes: the workspace goes, the next run gets a fresh one
         rpc("action.run", {"action": "closeWorkspace"})
         wait(lambda: (focused() or {}).get("kind") == "terminal", 10)
         return
@@ -261,6 +262,8 @@ def timed(command, phase, index, arm=None):
         params.update({"url": GITHUB_URL, "seed": True})
     if command in DIFF_COMMANDS:
         params.update({"command": "diff_right", "folder": DIFF_FOLDERS[command]})
+    if command == "browser_workspace":  # New Browser Workspace: visible_ms is the window on the new workspace, chrome_ms its browser in the pane
+        params.update({"command": "new_workspace", "run": "newBrowserWorkspace"})
     result = rpc("debug.new_tab", params, timeout=20) or {}
     result.update({"phase": phase, "run": index, "command": command})
     if arm:
@@ -315,7 +318,7 @@ def arm_cold(relaunch):
                 print(f"cold {command} #{index}: launch failed: {error}", flush=True)
                 rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": f"launch: {error}"})
                 continue
-            if command != "new_workspace" and not ready(command, settle=False):
+            if command not in ("new_workspace", "browser_workspace") and not ready(command, settle=False):
                 rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": "no focused start pane"})
                 continue
             rows.append(timed(command, "cold", index, arm="cold"))
@@ -342,7 +345,7 @@ def bench(phase, window):
         sys.exit("no focused terminal: " + json.dumps(panes())[:800])
     for command in COMMANDS:
         for index in range(opts.runs):
-            if command != "new_workspace" and not ready(command):
+            if command not in ("new_workspace", "browser_workspace") and not ready(command):
                 sys.exit("no focused start pane: " + json.dumps(panes())[:800])
             before = len(panes())
             if opts.hang_stacks:
