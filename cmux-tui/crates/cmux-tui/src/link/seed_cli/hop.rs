@@ -458,10 +458,13 @@ fn as_seed(bundle: &Path) -> anyhow::Result<()> {
         while let Some(found) =
             header.get(at..).and_then(|rest| rest.windows(from.len()).position(|w| w == from))
         {
-            // `found` is inside `header[at..]` and every ref prefix is as long as `TO`, so these
-            // sums stay within the header; saturating keeps an impossible overflow from wrapping.
-            let start = at.saturating_add(found);
-            let end = start.saturating_add(TO.len());
+            // Offsets into the header: an overflow is an error, never a wrapped or clamped index.
+            let Some(start) = at.checked_add(found) else {
+                anyhow::bail!("the first machine's bundle header is too long to rename its refs");
+            };
+            let Some(end) = start.checked_add(TO.len()) else {
+                anyhow::bail!("the first machine's bundle header is too long to rename its refs");
+            };
             if let Some(slot) = header.get_mut(start..end) {
                 slot.copy_from_slice(TO);
             }

@@ -690,8 +690,11 @@ impl Read for PartReader {
         let held = self.held.get(self.at..).unwrap_or_default();
         let count = out.len().min(held.len());
         out.iter_mut().zip(held).for_each(|(to, from)| *to = *from);
-        // `count` is at most what is left of `held` after `at`, so this stays within it.
-        self.at = self.at.saturating_add(count);
+        // An offset into `held`: an overflow is an error, never a clamped position.
+        self.at = self
+            .at
+            .checked_add(count)
+            .ok_or_else(|| std::io::Error::other("the relayed part's offset overflowed"))?;
         Ok(count)
     }
 }
