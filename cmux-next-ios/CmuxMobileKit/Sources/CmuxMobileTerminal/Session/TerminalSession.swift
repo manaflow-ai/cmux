@@ -84,6 +84,20 @@ public enum TerminalConnectionState: Sendable, Equatable {
         }
     }
 
+    /// The quiet line by the composer once an outage has lasted
+    /// `QuietStatusGate.threshold` (nil: attached). Plain words, never a
+    /// transport error ("daemon channel closed").
+    public var quietLine: String? {
+        func named(_ mac: String?) -> String { mac.flatMap { $0.isEmpty ? nil : $0 } ?? "your Mac" }
+        switch self {
+        case .connecting(let mac): return "Connecting to \(named(mac))…"
+        case .reattaching(let mac): return "Reconnecting to \(named(mac))…"
+        case .offline: return label
+        case .failed: return "Can't reach this terminal"
+        case .attached: return nil
+        }
+    }
+
     /// A dropped tab (reattaching, or its Mac offline): a warm surface keeps
     /// its last frame live and readable under no overlay; the title pill says
     /// what is going on.

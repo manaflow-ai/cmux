@@ -230,7 +230,7 @@ try:
                               "--hook-dir", os.path.join(SCRATCH, "hooks"), "--claude-dir", os.path.join(SCRATCH, "claude"),
                               "--codex-dir", os.path.join(SCRATCH, "codex"), "--apply", "--select", "all",
                               "--socket", NEXT_SOCKET], capture_output=True, text=True, timeout=600)
-    print(applied.stdout + applied.stderr, flush=True)
+    safe_print(applied.stdout + applied.stderr, flush=True)
     check(applied.returncode == 0, f"classic-to-next.py --apply exits 0 (got {applied.returncode})")
 
     def opened():
@@ -239,7 +239,7 @@ try:
         return new if {"api server", "claude chat", "codex chat"} <= names and len(names) >= 4 else None
     new = wait_for(opened, "the selected rows open in cmux-next", 60) or []
     for name, tab in new:
-        print(f"     opened: {name!r} kind={tab.get('kind')} cwd={tab.get('cwd')} agent={tab.get('agent')} session={tab.get('agent_session')}")
+        safe_print(f"     opened: {name!r} kind={tab.get('kind')} cwd={tab.get('cwd')} agent={tab.get('agent')} session={tab.get('agent_session')}")
     check(any(name == "api server" and same_dir(tab.get("cwd"), PROJ) for name, tab in new),
           "the workspace opens in its folder")
     check(any(name == "api server" and same_dir(tab.get("cwd"), OLD) for name, tab in new),
@@ -252,7 +252,7 @@ try:
         check("conversation" in kinds, f"{name} opens an agent chat tab for {session} (tab kinds: {kinds})")
     split = wait_for(lambda: (lambda p: p if sum(map(len, p)) >= 4 else None)(panes(NEXT_SOCKET, "split api")),
                      "the split workspace opens its four terminals", 60) or []
-    print(f"     split api panes: {split}")
+    safe_print(f"     split api panes: {split}")
     shape = sorted([[(name, os.path.relpath(os.path.realpath(cwd or "/"), os.path.realpath(SPLIT))) for name, cwd in pane]
                     for pane in split])
     check(shape == [[("api", "api"), ("logs", "api/logs")], [("db", "db")], [("web", "web")]],
@@ -283,9 +283,9 @@ try:
         CLASSIC_SOCKET = wait_for(classic_socket, f"classic {bundle} socket", 120)
         if not CLASSIC_SOCKET:
             for path in (socket_path(bundle), "/tmp/cmux.sock"):
-                print(f"     {path}: exists={os.path.exists(path)} identify={json.dumps(call(path, 'system.identify', timeout=5))[:400]}")
+                safe_print(f"     {path}: exists={os.path.exists(path)} identify={json.dumps(call(path, 'system.identify', timeout=5))[:400]}")
             CLASSIC_SOCKET = socket_path(bundle)
-        print(f"classic pid {classic_app.pid} socket {CLASSIC_SOCKET}", flush=True)
+        safe_print(f"classic pid {classic_app.pid} socket {CLASSIC_SOCKET}", flush=True)
         created = call(CLASSIC_SOCKET, "workspace.create", {"cwd": LIVE, "focus": False})
         workspace = (created.get("result") or {}).get("workspace_id")
         check(bool(workspace), f"classic creates a workspace in {LIVE}: {created}")

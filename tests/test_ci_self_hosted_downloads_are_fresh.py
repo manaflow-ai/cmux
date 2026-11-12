@@ -44,7 +44,10 @@ FRESH_PATH = re.compile(r"^\$\{\{\s*(runner\.temp|steps\.[A-Za-z0-9_-]+\.outputs
 
 
 def on_self_hosted_selector(job: Mapping[str, Any]) -> bool:
-    return bool(SELF_HOSTED.search(workflow_jobs.runs_on(job)))
+    """Whether any matrix cell of the job's runs-on (workflow_jobs.runs_on_cells) names a self-hosted selector. A
+    matrix nothing resolves counts as self-hosted (#40784 F2: `${{ matrix.runner }}` named no selector)."""
+    cells = workflow_jobs.runs_on_cells(job)
+    return cells is None or any(SELF_HOSTED.search(cell) for cell in cells)
 
 
 WORKSPACE_PREFIX = re.compile(r"^\$\{\{\s*github\.workspace\s*\}\}(/|$)")
@@ -323,6 +326,22 @@ class SelfHostedDownloads(unittest.TestCase):
         for runs_on in ("ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404"):
             document = fixture(runs_on, [{"uses": DOWNLOAD, "with": {"name": "a", "path": "dist"}}])
             self.assertEqual(problems({"w.yml": document}), [])
+
+    def test_a_matrix_runner_that_resolves_to_self_hosted_is_held_to_it(self) -> None:
+        # Codex (#40784 F2, BLOCK at 341c7c1b): `${{ matrix.runner }}` named no selector, so the guard skipped the
+        # job though one cell is self-hosted. Each cell is read; a matrix nothing resolves is held to it (fail closed).
+        download = [{"uses": DOWNLOAD, "with": {"name": "a", "path": "dist"}}]
+        for label, matrix in (("a self-hosted cell", {"runner": ["ubuntu-24.04", "self-hosted"]}),
+                              ("a pool cell", {"runner": ["${{ vars.LINUX_RUNNER }}"]}),
+                              ("an include cell", {"include": [{"runner": "self-hosted"}]}),
+                              ("a matrix nothing resolves", "${{ fromJSON(needs.plan.outputs.matrix) }}")):
+            with self.subTest(label):
+                document = fixture("${{ matrix.runner }}", download)
+                document["jobs"]["j"]["strategy"] = {"matrix": matrix}
+                self.assertEqual(len(problems({"w.yml": document})), 1)
+        hosted = fixture("${{ matrix.runner }}", download)
+        hosted["jobs"]["j"]["strategy"] = {"matrix": {"runner": ["ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404"]}}
+        self.assertEqual(problems({"w.yml": hosted}), [])
 
     def test_every_download_of_a_job_is_checked(self) -> None:
         steps = [{"uses": DOWNLOAD, "with": {"name": "a", "path": "${{ runner.temp }}/a"}},

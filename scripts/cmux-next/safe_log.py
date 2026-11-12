@@ -11,7 +11,7 @@ cmux#41832 review F1 and cmux#41803 F1 are the same class in shell and in push_r
 
     safe_print(f"app pid {app.pid}", flush=True)
 
-tests/test_guard_logs_survive_closed_pipe.py scans scripts/ for a print right before a kill that is not this.
+tests/test_python_guard_logs_survive_closed_pipe.py: in a function that stops a process, every line is safe_print.
 """
 
 from __future__ import annotations

@@ -75,7 +75,9 @@ for attempt in 1 2 3; do
   lease=$(grep '^slot-' "$work/lease" | tail -1)
   [ -n "$lease" ] || { echo "no capture slot: $(tail -3 "$work/lease")" >&2; exit 3; }
   eval "$(capture-host slot-info "$lease" | grep -E '^(host|slot|root)=')"
-  echo "perceived-speed: lease $lease on $host slot $slot"
+  # In a subshell that ignores SIGPIPE: an echo to a stdout nobody reads would otherwise end this script
+  # before it releases the lease and stops acquire (tests/test_guard_logs_survive_closed_pipe.py).
+  ( trap '' PIPE; echo "perceived-speed: lease $lease on $host slot $slot" ) || true
   ssh "$host" "ls -d $cache/*.app" >/dev/null 2>&1 && break
   capture-host release "$lease" >/dev/null 2>&1; lease=""; kill "$acquire" 2>/dev/null; acquire=""
   echo "perceived-speed: staging job $job on $host"
