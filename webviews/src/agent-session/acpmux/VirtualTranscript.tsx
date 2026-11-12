@@ -5426,14 +5426,17 @@ function TranscriptView({
   // A prompt entering as a send has been drawn above: the thinking lines entering after it take the
   // send's clock (RowFrame `sendPaced`), in the order the rows render. Read in one pass over the
   // mounted rows (as the placement below), not by a flag the row callback reassigns.
+  // A session switch is a load, not a live arrival. The reset effect runs after this render, so it is
+  // gated here as well, to keep a reused row id from animating once.
+  const entering = sessionChanged ? undefined : enteringRows.current;
   const sendPacedRows = new Set<string>();
-  {
+  if (entering?.size) {
     let sendEntering = false;
     for (const { first, last } of mountedRanges)
       for (let index = first; index < last; index++) {
         const row = rows[index]!;
         const key = rowFrameKey(row);
-        if (sessionChanged || !enteringRows.current.has(key)) continue;
+        if (!entering.has(key)) continue;
         if (row.kind === THINKING && sendEntering) sendPacedRows.add(key);
         if (entersAsSend(row)) sendEntering = true;
       }
@@ -5631,7 +5634,7 @@ function TranscriptView({
                 {mountedRanges.flatMap(({ first, last }) =>
                   rows.slice(first, last).map((row, index) => {
                     const absoluteIndex = first + index;
-                    const enter = !sessionChanged && enteringRows.current.has(rowFrameKey(row));
+                    const enter = entering?.has(rowFrameKey(row)) === true;
                     const sendPaced = enter && sendPacedRows.has(rowFrameKey(row));
                     const next = nextDrawnRow(rows, absoluteIndex);
                     const actions = hasReplyActions(row, next);
