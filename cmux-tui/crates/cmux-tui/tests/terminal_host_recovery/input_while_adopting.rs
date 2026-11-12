@@ -67,11 +67,21 @@ impl Connection {
 /// A cat terminal whose daemon was killed, restarted with every adoption
 /// held for [`ADOPTION_DELAY_MS`]: returns the terminal id and its host pid.
 fn adopting_cat_terminal(harness: &mut RecoveryHarness, name: &str) -> (String, libc::pid_t) {
+    adopting_cat_terminal_with(harness, name, Vec::new())
+}
+
+/// [`adopting_cat_terminal`], the restarted owner also given `env`.
+fn adopting_cat_terminal_with(
+    harness: &mut RecoveryHarness,
+    name: &str,
+    env: Vec<(String, String)>,
+) -> (String, libc::pid_t) {
     let (terminal_id, _) = run_cat_workspace(&harness.socket, 1, name);
     let host = wait_for_host_records(&harness.host_root(), 1)[0].1.host_pid as libc::pid_t;
     harness.sigkill();
     harness.extra_env =
         vec![("CMUX_TUI_TEST_ADOPTION_DELAY_MS".into(), ADOPTION_DELAY_MS.to_string())];
+    harness.extra_env.extend(env);
     harness.restart();
     let resolved = request(
         &harness.socket,
@@ -119,6 +129,50 @@ fn input_sent_while_a_terminal_adopts_reaches_it_once_adopted() {
     assert!(
         first.is_some() && second.is_some() && first < second,
         "the queued input did not reach the adopted terminal in order: {screen:?}"
+    );
+    assert!(
+        connection.notices.iter().all(|n| n["event"] != "terminal-input-unclaimed"),
+        "written input was also given back: {:?}",
+        connection.notices
+    );
+}
+
+/// An adoption can take far longer than a creation: at 320 terminals on a loaded Mac the new
+/// owner adopted for 48 s after an update. Input queued for an adopting terminal waits for the
+/// adoption's end, not the creating-input expiry: given back at the expiry, it reached no one
+/// (no client takes the notice) and the person's keys were lost.
+#[test]
+fn input_sent_while_a_terminal_adopts_longer_than_the_input_expiry_reaches_it() {
+    let mut harness = RecoveryHarness::start("input-while-adopting-slow");
+    // The creating-input expiry ends long before the adoption does.
+    let expiry = vec![("CMUX_TUI_TEST_CREATING_INPUT_EXPIRY_MS".to_string(), "300".to_string())];
+    let (terminal_id, _) = adopting_cat_terminal_with(&mut harness, "adopting-slow", expiry);
+    let mut connection = Connection::open(&harness.socket);
+    let reply = connection.call(serde_json::json!({
+        "id": 3, "cmd": "send", "terminal_id": terminal_id, "text": "typed-in-a-slow-adoption\n",
+    }));
+    assert_eq!(reply["data"]["queued"], true, "{reply}");
+
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(20));
+    let surface = loop {
+        let resolved = request(
+            &harness.socket,
+            serde_json::json!({"id": 5, "cmd": "resolve-terminal", "terminal_id": terminal_id}),
+        );
+        if resolved["lifecycle"] == "running"
+            && let Some(surface) = resolved["surface"].as_u64()
+        {
+            break surface;
+        }
+        assert!(Instant::now() < deadline, "the terminal was never adopted: {resolved}");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    // The cat echoes the line once it was written; given back instead, it never shows.
+    let screen = wait_for_screen(&harness.socket, surface, "typed-in-a-slow-adoption");
+    assert!(
+        screen.contains("typed-in-a-slow-adoption"),
+        "input queued while the terminal adopted never reached it: {screen:?}; notices: {:?}",
+        connection.notices
     );
     assert!(
         connection.notices.iter().all(|n| n["event"] != "terminal-input-unclaimed"),
