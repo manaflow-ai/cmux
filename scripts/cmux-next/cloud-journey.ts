@@ -2727,7 +2727,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         if (outDir) writeFileSync(path.join(outDir, "chaos.json"), `${JSON.stringify({ backend: backend.name, machine: created.id, results }, null, 2)}\n`);
         const chaosOut = argValue("--chaos-probe-out", argv);
-        if (chaosOut) writeFileSync(chaosOut, `${JSON.stringify(chaosProbeRow(argValue("--chaos-probe", argv) ?? `cloud-carrier-chaos-${backend.name}`, results, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined, new Date(), { backend: backend.name, model: modelStub || gatewayStub ? "stub" : "real", run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT ?? 1) }))}\n`);
+        if (chaosOut) writeFileSync(chaosOut, `${JSON.stringify(chaosProbeRow(argValue("--chaos-probe", argv) ?? `cloud-carrier-chaos-${backend.name}`, results, process.env.GITHUB_RUN_ID ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}` : undefined))}\n`);
       }
     }
 
