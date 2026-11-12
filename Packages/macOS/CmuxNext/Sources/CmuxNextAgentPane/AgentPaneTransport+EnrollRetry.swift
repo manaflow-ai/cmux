@@ -88,6 +88,8 @@ extension AgentPaneTransport {
         }
         let delays = personRecoveryDelays
         // task-owner: one identity recovery per unproven connection; a new connection or a proof cancels it
+        // main-hop-allow: a failure backoff, not frame work: at most five wakes per unproven connection,
+        // each only compares the connection and awaits the host lookup, then closes the connection once
         personRecovery = Task { @MainActor [weak self] in
             for delay in delays {
                 // wakeup-allow: bounded backoff while the pane is unproven (five waits at most)
