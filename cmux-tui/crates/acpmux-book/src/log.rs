@@ -37,6 +37,8 @@
 //! entry left by power loss is repaired before replay. Every patch is synced before its
 //! entry is published; a later mismatch names the damaged row and never serves another row.
 
+#[cfg(test)]
+mod actor_recovery_tests;
 mod checkpoint;
 mod index;
 mod read;
