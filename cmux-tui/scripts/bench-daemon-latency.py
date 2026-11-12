@@ -119,6 +119,7 @@ import argparse
 import json
 import os
 import shutil
+import signal
 import socket
 import statistics
 import subprocess
@@ -408,7 +409,17 @@ class Bench:
         try:
             self.daemon.wait(timeout=180)
         except subprocess.TimeoutExpired:
+            pass
+        # The daemon's whole group (it leads one, start_new_session), whatever its state: an exited daemon can leave a
+        # terminal running in it (cmux#41767 review F1). A refused killpg (macOS EPERM) kills the daemon by its handle
+        # instead (cmux#41880 review F1).
+        try:
+            os.killpg(self.daemon.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except OSError:
             self.daemon.kill()
+        self.daemon.wait()
         shutil.rmtree(self.root, ignore_errors=True)
 
     # -- topology
