@@ -50,14 +50,18 @@ final class TabsGestureProbeUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 30), "workspace row\n\(app.debugDescription)")
         row.tap()
 
-        let address = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Address, '")).firstMatch
-        XCTAssertTrue(address.waitForExistence(timeout: 15), "address bar\n\(app.debugDescription)")
+        // The bar: Tabs at its trailing end; the drag starts on its middle (the
+        // address or title, whatever the tab shows), at the screen's centre.
+        let tabsButton = app.buttons.matching(NSPredicate(format: "label ==[c] 'Tabs'")).firstMatch
+        XCTAssertTrue(tabsButton.waitForExistence(timeout: 15), "bar's Tabs button\n\(app.debugDescription)")
         let probe = app.descendants(matching: .any)["tabs.gestureProbe"]
         XCTAssertTrue(probe.waitForExistence(timeout: 10), "probe element (DEBUG build with the probe on)")
         Thread.sleep(forTimeInterval: 1.0)
         attach(app, "\(run)-before")
 
-        let from = address.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        let window = app.windows.firstMatch.frame
+        let bar = tabsButton.frame
+        let from = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: window.midX, dy: bar.midY))
         let to = from.withOffset(CGVector(dx: 0, dy: -up))
         from.press(forDuration: hold, thenDragTo: to, withVelocity: XCUIGestureVelocity(velocity), thenHoldForDuration: holdAtEnd)
 
