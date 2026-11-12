@@ -111,24 +111,20 @@ extension AgentPaneView {
     /// on a later turn when a pane in `views` shows the chat to someone now, else when a pane of the
     /// chat shows, one made later too.
     public func owe(session: String, _ name: String, in views: some Sequence<AgentPaneView>, _ work: @escaping @MainActor () -> Void) {
-        owed.removeAll { $0.session == session && $0.name == name }
-        owed.append((session, name, work))
-        if owed.count > Self.limit { owed.removeFirst(owed.count - Self.limit) }
-        hand(to: views)
-    }
-
-    /// Asks each pane in `views` whose chat owes work to run it when someone can see the pane: the
-    /// tab store calls it when it made a pane.
-    public func hand(to views: some Sequence<AgentPaneView>) {
-        guard !owed.isEmpty else { return }
-        for view in views {
-            guard let session = view.model.sessionId else { continue }
-            let names = owed.filter { $0.session == session }.map(\.name)
-            for name in names {
-                view.whenSeen(name) { [weak self] in self?.run(session, name) }
+        // NON-LANDING, the behavior of 1524b7e0f7a4: the work is owed to the panes that show the
+        // chat at this moment, and to nothing when the chat has no pane.
+        var once: (@MainActor () -> Void)? = work
+        for view in views where view.model.sessionId == session {
+            view.whenSeen(name) {
+                let run = once
+                once = nil
+                run?()
             }
         }
     }
+
+    /// NON-LANDING: nothing is kept, so a pane made later takes nothing.
+    public func hand(to views: some Sequence<AgentPaneView>) {}
 
     /// Runs and forgets the work `session` owes under `name`; a second pane's call finds nothing.
     private func run(_ session: String, _ name: String) {
