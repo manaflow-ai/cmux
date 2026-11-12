@@ -154,3 +154,50 @@ fn project_chats_folds_changes_during_a_read_into_one_more_read() {
     assert_eq!(reads.asked, Some(WATCH_ID + 1));
     assert!(reads.again);
 }
+
+/// An agent at work in a folder ends a turn every few seconds, each turn
+/// moves the folder's time on, and acpmux reports each as an index change.
+/// Each import of that list committed a resource revision and a journal
+/// record: 2,524 of the 3,294 journal records of one session in 116 minutes
+/// (one each 2.8 s), about 29 database pages, 120 KB, per commit
+/// (2026-11-12).
+#[test]
+fn project_chats_commits_a_busy_folders_time_once_per_step_not_once_per_turn() {
+    let mux = Mux::new_for_test("project-chats-write-budget", crate::SurfaceOptions::default());
+    let start: i64 = 1_794_000_000_000;
+    let list = |busy_ms: i64| {
+        answer(json!([
+            {"harness": "claude-code", "path": "/srv/cmux-chats/busy", "lastUsedMs": busy_ms},
+            {"harness": "claude-code", "path": "/srv/cmux-chats/idle",
+             "lastUsedMs": start - 86_400_000},
+        ]))
+    };
+    let revision = || mux.with_state(|state| state.resource_revision);
+    let mut imported = Imported::new();
+    import(&mux, &list(start), &mut imported);
+    let seeded = revision();
+    assert!(seeded > 0, "the first list is imported");
+
+    // 200 turns 3 s apart: ten minutes of work in one folder.
+    for turn in 1..=200 {
+        import(&mux, &list(start + turn * 3_000), &mut imported);
+    }
+    let commits = revision() - seeded;
+    assert!(
+        commits <= 2,
+        "200 turns in ten minutes committed {commits} project imports (budget 2): one per turn"
+    );
+    assert!(commits >= 1, "the folder's time never moved on in ten minutes");
+
+    // A folder the harness did not list before is imported at once.
+    let before = revision();
+    let grown = answer(json!([
+        {"harness": "claude-code", "path": "/srv/cmux-chats/busy", "lastUsedMs": start + 600_000},
+        {"harness": "claude-code", "path": "/srv/cmux-chats/idle",
+         "lastUsedMs": start - 86_400_000},
+        {"harness": "claude-code", "path": "/srv/cmux-chats/new", "lastUsedMs": start + 601_000},
+    ]));
+    import(&mux, &grown, &mut imported);
+    assert_eq!(revision(), before + 1, "a new chat folder waits for no step");
+    mux.shutdown();
+}
