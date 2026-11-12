@@ -244,6 +244,23 @@ impl Page {
         self
     }
 
+    /// Constructs a list page from its stable keyset anchor. Chat pages use
+    /// [`Page::new`] with a row id; list pages must never use an offset.
+    pub fn new_list(
+        sid: impl Into<String>,
+        stream: impl Into<Stream>,
+        side: PageSide,
+        key: ListKey,
+    ) -> Self {
+        Self {
+            sid: sid.into(),
+            stream: stream.into(),
+            before: (side == PageSide::Before).then_some(Position::List(key.clone())),
+            after: (side == PageSide::After).then_some(Position::List(key)),
+            max_bytes: default_page_bytes(),
+        }
+    }
+
     pub fn side(&self) -> Option<(PageSide, &Position)> {
         match (&self.before, &self.after) {
             (Some(row_id), None) => Some((PageSide::Before, row_id)),

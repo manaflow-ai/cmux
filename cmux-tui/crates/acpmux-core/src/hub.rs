@@ -351,8 +351,8 @@ impl Hub {
                 index.page(0, requested)
             }
         };
-        let has_before =
-            matches!(sub.anchor, Some(crate::wire::Anchor::List { .. })) && !rows.is_empty();
+        let has_before = matches!(sub.anchor.as_ref(), Some(crate::wire::Anchor::List { .. }))
+            && !rows.is_empty();
         let has_after = rows.len() < index.len();
         // The cursor is the index sequence, not a row id. The current snapshot
         // is exact at `index.seq()` even when the window is short.
