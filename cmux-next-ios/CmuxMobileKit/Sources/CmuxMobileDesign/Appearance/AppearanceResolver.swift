@@ -143,8 +143,11 @@ public enum CmuxMobileAppearanceResolver {
         let code = composite(t.chromeBackground, over: bg)
         let ansi = { (i: Int) in i < t.ansi.count ? t.ansi[i] : t.textPrimary }
         switch role {
-        // Over a backdrop the page is the backdrop's own tint (drawn once, under everything).
-        case .bg, .bgGrouped: return backdrop ? rgba(bg, alpha: 0) : rgba(bg)
+        // The page stays the theme's opaque background even with a picture: the system's
+        // navigation and tab containers paint an opaque page under every screen, so a clear
+        // page read black (or white). The picture shows where screens leave the page (the
+        // sidebar, the sliding card) until those containers are cleared too.
+        case .bg, .bgGrouped: return rgba(bg)
         case .surface, .sheet, .card: return rgba(t.overlayFill)
         case .surfaceRaised: return over(t.chromeBackground)
         case .bubble: return chat?.sent.map { CmuxMobileRGBA(hex: $0) } ?? over(t.pressedFill)

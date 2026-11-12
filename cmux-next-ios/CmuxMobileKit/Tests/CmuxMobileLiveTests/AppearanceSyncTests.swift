@@ -204,8 +204,8 @@ import UIKit
         #expect(disk.assetURL(sha256: Self.pictureHash) != nil)
         #expect(appearance.backdrop?.sha256 == Self.pictureHash)
         #expect(appearance.backdrop?.opacity == 0.8)
-        // Over a backdrop the page is clear: the backdrop draws it once.
-        #expect(appearance.token(.bg).dark.alpha == 0)
+        // The page stays opaque under a picture (the system containers paint under it).
+        #expect(appearance.token(.bg).dark.alpha == 1)
         // Another change with the same image: never fetched again.
         sync.changed(conn)
         await sync.settle("mac-a")
