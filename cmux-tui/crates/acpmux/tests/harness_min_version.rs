@@ -216,8 +216,8 @@ async fn an_unsupported_claude_code_is_flagged_and_one_update_brings_its_models(
     assert_eq!(reply["results"], json!([{"id": "claude", "ok": true, "version": "2.1.300"}]));
     let row = health_row(&c.call(method::MUX_HARNESS_HEALTH, json!({})).await);
     assert_eq!(
-        (row["version"].as_str(), row["unsupported"].as_bool()),
-        (Some("2.1.300"), Some(false))
+        (row["version"].as_str(), row["unsupported"].as_bool().unwrap_or(false)),
+        (Some("2.1.300"), false)
     );
 
     // The models are listed again without a chat or a daemon restart, and watchers hear it.

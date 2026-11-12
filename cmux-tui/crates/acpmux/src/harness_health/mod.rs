@@ -69,7 +69,7 @@ pub struct HarnessHealth {
     pub minimum: Option<String>,
     /// `version` is older than `minimum`: its CLI is missing models the pickers offer,
     /// and the pane asks the person to update it (cmux#42212).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unsupported: bool,
     pub auth: Auth,
     /// Why `auth` is what it is (the probe error, or the check that ran).
