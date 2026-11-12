@@ -650,20 +650,34 @@ class GateScriptTests(unittest.TestCase):
                 "if kind == 'stubborn':\n    signal.signal(signal.SIGTERM, signal.SIG_IGN)\n    time.sleep(30)\n"
                 # What the real harness does when it is cut after its verdict (in the system log read or the wait
                 # for a late report): it stops, writes the report it has and exits 128 + SIGTERM.
-                "if kind in ('cut-crash', 'cut-no-home'):\n"
+                "if kind in ('cut-crash', 'cut-no-home', 'cut-daemon-down'):\n"
                 "    def cut(*_):\n"
                 "        said = {'verdict': 'fail', 'pid': 2, 'exit': -11, 'arm': 'seeded',\n"
                 "                'failures': ['seeded home: the app exited (signal 11) 2.6s after launch'],\n"
                 "                'arms': {'empty': {'verdict': 'pass', 'exit': None}, 'seeded': {'verdict': 'fail', 'exit': -11}}}\n"
                 "        if kind == 'cut-no-home':\n"
                 "            said = {'verdict': 'fail', 'pid': 1, 'exit': None, 'failures': ['Home did not render within 90s']}\n"
+                "        if kind == 'cut-daemon-down':\n"
+                "            said = {'verdict': 'fail', 'pid': 1, 'exit': None, 'arm': 'empty',\n"
+                "                    'daemon_down': 'not connected', 'failures': ['the daemon was not connected']}\n"
                 "        open(os.path.join(out, 'report.json'), 'w').write(json.dumps(said))\n"
                 "        sys.exit(143)\n"
                 "    signal.signal(signal.SIGTERM, cut)\n    time.sleep(30)\n"
                 # As the real harness: the daemon is read only for a caller that asks (--daemon), else a pass.
                 "if 'daemon-' in kind and '--daemon' not in sys.argv:\n    kind = 'pass'\n"
+                # As the real harness with --daemon: a launch that passed has its reads (the report's `daemon` is the
+                # empty home's, the seeded arm has its own).
                 "empty = {'verdict': 'pass', 'exit': None}\n"
-                "report = {'pass': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
+                "up = [{'state': 'connected', 'failure': None}]\n"
+                "silent = [{'state': None, 'failure': None}]\n"
+                "report = {'pass': {'verdict': 'pass', 'pid': 1, 'arm': 'empty', 'daemon': up,"
+                " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass', 'daemon': up}}},"
+                " 'daemon-silent': {'verdict': 'pass', 'pid': 1, 'arm': 'empty', 'daemon': silent,"
+                " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass', 'daemon': up}}},"
+                " 'seeded-daemon-silent': {'verdict': 'pass', 'pid': 1, 'arm': 'empty', 'daemon': up,"
+                " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass',"
+                " 'daemon': [{'state': 'disconnected', 'failure': None}] + silent}}},"
+                " 'daemon-unasked': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass'}}},"
                 " 'crash': {'verdict': 'fail', 'pid': 1, 'exit': -11, 'arm': 'empty',"
                 " 'failures': ['the app exited (signal 11)']},"
@@ -678,15 +692,16 @@ class GateScriptTests(unittest.TestCase):
                 " 'daemon-other': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
                 " 'daemon': [{'state': 'connected', 'failure': None, 'of_launch': False}],"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass'}}},"
-                " 'seeded-not-run': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
+                " 'seeded-not-run': {'verdict': 'pass', 'pid': 1, 'arm': 'empty', 'daemon': up,"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'not-run', 'reason': 'its cookie sync did not read\\nthe seeded store'}}},"
-                " 'seeded-cannot-run': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
+                " 'seeded-cannot-run': {'verdict': 'pass', 'pid': 1, 'arm': 'empty', 'daemon': up,"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'cannot-run', 'reason': 'RuntimeError: no seed today'}}},"
                 " 'cannot-run': {'verdict': 'cannot-run'}}[kind]\n"
                 "open(os.path.join(out, 'report.json'), 'w').write(json.dumps(report))\n"
                 "open(os.path.join(out, 'app.log'), 'w').write('log\\n')\n"
                 "sys.exit({'pass': 0, 'crash': 1, 'seeded-crash': 1, 'seeded-not-run': 0, 'seeded-cannot-run': 0,"
-                " 'daemon-down': 1, 'seeded-daemon-down': 1, 'daemon-other': 0,"
+                " 'daemon-down': 1, 'seeded-daemon-down': 1, 'daemon-other': 0, 'daemon-silent': 0,"
+                " 'seeded-daemon-silent': 0, 'daemon-unasked': 0,"
                 " 'cannot-run': 3}[kind])\n")
             dmg = root / "app.dmg"
             dmg.write_bytes(b"dmg")
@@ -734,10 +749,61 @@ class GateScriptTests(unittest.TestCase):
         self.assertEqual(status, 1, output)
         self.assertIn("the app's daemon was not connected after launch from a seeded home (imported-cookie sync on) "
                       "on both attempts", output)
-        # A crash keeps its own words, also when the other attempt was the daemon's.
-        status, output, _ = self.run_gate(["daemon-down", "crash"])
+
+    def test_a_held_build_whose_2_attempts_failed_in_2_ways_is_told_each_attempts_own_cause(self) -> None:
+        # The error line took its cause from the last attempt and said "on both attempts": for a daemon that was
+        # down and then a crash it said "crashed at launch ... on both attempts", which was not true. A person who
+        # reads a held nightly gets each attempt's cause and home.
+        down, crash = "the app's daemon was not connected after launch", "the app crashed at launch"
+        fresh, seeded = "from a fresh home", "from a seeded home (imported-cookie sync on)"
+        for plan, first, second in ((["daemon-down", "crash"], f"{down} {fresh}", f"{crash} {fresh}"),
+                                    (["crash", "daemon-down"], f"{crash} {fresh}", f"{down} {fresh}"),
+                                    (["seeded-daemon-down", "daemon-down"], f"{down} {seeded}", f"{down} {fresh}"),
+                                    (["crash", "seeded-crash"], f"{crash} {fresh}", f"{crash} {seeded}")):
+            status, output, _ = self.run_gate(plan)
+            self.assertEqual(status, 1, (plan, output))
+            self.assertIn(f"::error title=nightly-next launch smoke::{first} on attempt 1, and {second} on attempt 2; "
+                          "this build is not published", output, plan)
+            self.assertNotIn("on both attempts", output, plan)
+        # The same cause in the same home stays one sentence.
+        self.assertIn(f"::error title=nightly-next launch smoke::{crash} from a fresh home on both attempts; "
+                      "this build is not published", self.run_gate(["crash", "crash"])[1])
+
+    def test_a_daemon_that_a_cut_attempt_saw_down_holds_as_a_cut_crash_holds(self) -> None:
+        # The gate reads a cut attempt with --daemon too (its `attempt` call): without it a cut attempt whose report
+        # says `daemon_down` ends the check, and a build with a dead daemon and slow evidence is published.
+        status, output, _ = self.run_gate(["cut-daemon-down", "cut-daemon-down"], attempt_seconds="2")
         self.assertEqual(status, 1, output)
-        self.assertIn("the app crashed at launch from a fresh home on both attempts", output)
+        self.assertIn("launch smoke attempt 2: exit 124", output)
+        self.assertIn("the app's daemon was not connected after launch from a fresh home on both attempts", output)
+        status, output, _ = self.run_gate(["cut-daemon-down", "daemon-down"], attempt_seconds="2")
+        self.assertEqual(status, 1, output)
+        for plan in (["cut-daemon-down", "pass"], ["cut-daemon-down", "cut-no-home"], ["cut-daemon-down", "hang"]):
+            status, output, _ = self.run_gate(plan, attempt_seconds="2")
+            self.assertEqual(status, 0, (plan, output))
+            self.assertIn("launch smoke attempt 2: exit", output, plan)
+
+    def test_a_pass_whose_daemon_was_not_judged_says_so_and_holds_nothing(self) -> None:
+        # A read with no state (no answer, no field) is not judged, and the harness passes the launch. The gate
+        # printed "launch smoke passed" and no more: if the app renames the field, the check is off and nobody
+        # sees it. Said as the seeded home's arm is said: a warning and a summary line, never a hold.
+        why = "(the app gave no connected state when it was asked)"
+        for kind, where in (("daemon-silent", "in the empty home"), ("seeded-daemon-silent", "in the seeded home"),
+                            ("daemon-unasked", "in the empty home and in the seeded home")):
+            status, output, _ = self.run_gate([kind])
+            self.assertEqual(status, 0, (kind, output))
+            self.assertIn("launch smoke passed", output, kind)
+            self.assertIn(f"::warning title=nightly-next launch smoke::the daemon was not judged {where} {why}; "
+                          "the app launched and the build is not held", output, kind)
+            self.assertIn("### Launch smoke: pass", self.summary, kind)
+            self.assertIn(f"Daemon: the daemon was not judged {where} {why}. The app launched; the build is not held.",
+                          self.summary, kind)
+        # A launch whose reads end "connected" says nothing of it; nor does a seeded home that did not pass (it
+        # has its own line), a daemon of another launch (its own warning) or a held build.
+        for plan in (["pass"], ["daemon-down", "pass"], ["seeded-not-run"], ["seeded-cannot-run"], ["daemon-other"],
+                     ["daemon-down", "daemon-down"]):
+            _, output, _ = self.run_gate(plan)
+            self.assertNotIn("the daemon was not judged", output + self.summary, plan)
 
     def test_a_pass_with_the_daemon_of_another_launch_is_a_warning_and_never_a_pass(self) -> None:
         status, output, _ = self.run_gate(["daemon-other", "pass"])
