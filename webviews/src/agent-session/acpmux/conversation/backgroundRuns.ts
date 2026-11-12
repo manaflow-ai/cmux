@@ -75,8 +75,10 @@ export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRo
   const inline = backgroundTurnsInline(experimentArm(backgroundTurnLook));
   let out: AcpmuxRow[] | undefined;
   let index = 0;
+  let outerOpen = false;
   while (index < rows.length) {
     const first = rows[index]!;
+    if (first.kind === "worked") outerOpen = first.foldOpen === true;
     if (!memberKind(first, inline)) {
       out?.push(first);
       index += 1;
@@ -113,7 +115,7 @@ export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRo
     // Its id is that key, so a click closes it by the same key. Keyed lookups, one per member.
     const opened = folded.find((row) => expanded.has(backgroundRunRowId(row.id)));
     const id = backgroundRunRowId((opened ?? first).id);
-    const open = opened !== undefined;
+    const open = opened !== undefined || outerOpen;
     const run: AcpmuxBackgroundRun = { ...counts, commands, rows: folded.map((row) => row.id) };
     out.push({
       id,
