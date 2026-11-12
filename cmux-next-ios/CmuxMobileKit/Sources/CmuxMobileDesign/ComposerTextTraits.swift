@@ -32,6 +32,7 @@ public struct ComposerTextTraits: Equatable, Sendable {
         smartQuotes: .no, smartDashes: .no, smartInsertDelete: .no)
 
     /// The traits a text input has now.
+    @MainActor
     public init(of input: any UITextInputTraits) {
         self.init(autocorrection: input.autocorrectionType ?? .default,
                   spellChecking: input.spellCheckingType ?? .default,
@@ -52,6 +53,7 @@ public struct ComposerTextTraits: Equatable, Sendable {
         self.smartInsertDelete = smartInsertDelete
     }
 
+    @MainActor
     public func apply(to view: UITextView) {
         view.autocorrectionType = autocorrection
         view.spellCheckingType = spellChecking
