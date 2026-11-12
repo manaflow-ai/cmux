@@ -128,9 +128,8 @@ describe("the mesh_vm_attach line", () => {
     expect(entered).toBeGreaterThanOrEqual(before);
     expect(entered).toBeLessThanOrEqual(after);
     for (const field of ["preMs", "gateMs", "rateMs", "ownsMeshMs", "totalMs"]) expect(Number(line[field])).toBeGreaterThanOrEqual(0);
-    // The apply's compile splits into its five reads and the mesh's size (one VM, one device here).
-    for (const field of ["readDevicesMs", "readServersMs", "readMembersMs", "readAddressesMs", "readRulesMs"])
-      expect(Number(line[field])).toBeLessThanOrEqual(Number(line["compileMs"]));
+    // The apply's compile splits into its one read and the mesh's size (one VM, one device here).
+    expect(Number(line["readMs"])).toBeLessThanOrEqual(Number(line["compileMs"]));
     expect(line).toMatchObject({ members: "1", devices: "1" });
     expect(Number(line["preMs"])).toBeGreaterThanOrEqual(Number(line["ownsMeshMs"]));
     expect(entered + Number(line["preMs"]) + Number(line["totalMs"])).toBeLessThanOrEqual(after);
