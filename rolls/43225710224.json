@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43225710224",
+  "recorded_at": "2026-11-12T13:24:29Z",
+  "reason": "cmux-tui 683a2f9a78ac changes the image's cmux-tui (pinned 27641d8ffb4c)",
+  "dry_run": false,
+  "cmux_tui": "683a2f9a78ac530edfb360a04b1f47c06d24425c",
+  "fixes": [
+    {
+      "sha": "683a2f9a78ac530edfb360a04b1f47c06d24425c",
+      "mergedAt": "2026-11-12T07:01:29-06:00",
+      "subject": "perf(cmux-tui): a terminal host's PTY reader reads into 16 KiB, not 64 KiB, of stack"
+    },
+    {
+      "sha": "017e69d80708eb1b91ad739b78bc1ab9ec6c3aa4",
+      "mergedAt": "2026-11-12T07:01:29-06:00",
+      "subject": "test(cmux-tui): a quiet terminal's PTY reader keeps at most 48 KiB of stack resident (red)"
+    },
+    {
+      "sha": "04a8ce86eaea62a6da39f12ad87f20380dc846f2",
+      "mergedAt": "2026-11-12T12:59:53Z",
+      "subject": "acpmux: a chat's settled view, written at turn end and answered first by a settled attach (hq#9655 stage 1, slice A) (#41793)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T13:24:29Z",
+    "snapshot_id": "sh-fe325412ec6b467ea352926700721eb6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43225710224): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a0f8775474159cbef8baad94db25ccd9f80e046a",
+    "image": "cloud-native-auto-683a2f9a-43225710224-1",
+    "revision": "ci-43225710224-1",
+    "at": "2026-11-12T13:24:29Z"
+  },
+  "rolled_back": false
+}
