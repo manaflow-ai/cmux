@@ -522,6 +522,16 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
       try {
         await installPaintedFrames(page);
         await installRecorder(page);
+        // The turn fold's own reflow is not a load flip: under the shipped "answer" arm (#41213) a turn
+        // that ends folds its earlier replies under "Worked for", the transcript gets shorter and the
+        // prompt above scrolls back into view by design. This harness measures loading (open,
+        // reconnects, paging), so it pins the arm that keeps every reply, as #41213 pinned old arms in
+        // other suites; turn-fold-keeps-replies.test.ts covers the fold itself.
+        await page.addInitScript(() => {
+          (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
+            "turn-fold-replies": "replies",
+          };
+        });
         await page.goto(url());
         await page.mouse.move(0, 0);
         await arm(page, true);
