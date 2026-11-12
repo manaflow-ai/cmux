@@ -229,6 +229,17 @@
       "packages": [],
       "reads": []
     },
+    "CmuxNextAgentQuestion": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentQuestion",
+      "targets": [
+        "CmuxNextDesign",
+        "CmuxNextIcons"
+      ],
+      "packages": [
+        "CmuxAgentQuestion"
+      ]
+    },
     "CmuxNextAgentUpdates": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentUpdates",
@@ -256,6 +267,7 @@
         "CmuxNextAgentLanes",
         "CmuxNextAgentPane",
         "CmuxNextAgentPermissions",
+        "CmuxNextAgentQuestion",
         "CmuxNextAgentUpdates",
         "CmuxNextAppCore",
         "CmuxNextAppHealth",

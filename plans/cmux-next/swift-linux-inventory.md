@@ -375,6 +375,7 @@ imports. Imports inside `#if canImport/os()/targetEnvironment/arch` blocks do no
 | CmuxNextAgentLanes | target | mac | scan | imports AppKit; shim os | - |
 | CmuxNextAgentPane | target | mac | scan | imports AVFoundation, AppKit, CoreMedia, DeviceCheck, ImageIO, Network, Quartz, Security, Speech, SwiftUI, UserNotifications, WebKit; shim CommonCrypto, CoreGraphics, CryptoKit, Darwin, UniformTypeIdentifiers, os | - |
 | CmuxNextAgentPermissions | target | mac | scan | imports AppKit | - |
+| CmuxNextAgentQuestion | target | mac | scan | imports AppKit | - |
 | CmuxNextAgentUpdates | target | mac | scan | shim CryptoKit; via CmuxNextActions | - |
 | CmuxNextApp | target | mac | scan | imports AVFoundation, AppKit, ApplicationServices, CoreServices, CoreText, ImageIO, LocalAuthentication, MediaPlayer, Network, ObjectiveC, QuartzCore, ServiceManagement, SwiftUI, SystemConfiguration, UserNotifications, WebKit; shim CoreGraphics, CryptoKit, Darwin, OSLog, UniformTypeIdentifiers, os | - |
 | CmuxNextAppCore | target | mac | scan | imports AppKit | - |
