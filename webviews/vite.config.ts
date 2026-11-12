@@ -95,6 +95,29 @@ export default defineConfig({
       },
     },
     {
+      // KaTeX's @font-face rules list woff2, woff and ttf; WebKit and Chromium read woff2, so the
+      // fallbacks are dropped and never emitted (about 0.8 MB of the app; the agent pane's
+      // katexStylePlugin.mjs does the same). A KaTeX whose rules no longer match fails the build.
+      name: "cmux-katex-woff2-only",
+      apply: "build",
+      // Before Vite's CSS plugin turns the url()s into asset references.
+      enforce: "pre",
+      transform(code, id) {
+        if (!id.endsWith("/katex/dist/katex.min.css")) return null;
+        let fonts = 0;
+        const out = code.replace(
+          /src:url\((fonts\/[^)]+\.woff2)\) format\("woff2"\)(?:,url\([^)]+\) format\("[^"]+"\))+/g,
+          (_, file) => {
+            fonts += 1;
+            return `src:url(${file}) format("woff2")`;
+          },
+        );
+        if (!fonts || /\.(woff|ttf)\)/.test(out))
+          throw new Error("cmux-katex-woff2-only: KaTeX's @font-face rules changed; update the pattern");
+        return { code: out, map: null };
+      },
+    },
+    {
       // `@pierre/diffs` declares `sideEffects: false`, which is right for the
       // main-thread exports but tree-shakes the worker entry (a self-registering
       // `onmessage` script with no exports) down to an empty chunk.
