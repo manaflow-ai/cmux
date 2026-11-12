@@ -150,22 +150,23 @@ await requireBrowserLane("agent-pane-chat-width.test.ts", async () => {
       expect(m.composer.left).toBeCloseTo(m.column.left, -0.3);
     });
 
-  /** Runs in the page: what draws past its row's sides (a row is the chat's column; it clips its own
-   *  paint, so past it is text cut off) or the pane's, elements and the lines of text in them (a word
-   *  that does not break overflows its paragraph's box, not the box itself), unless a box that scrolls
-   *  on its own (a code block, a table) holds it; and how far the transcript itself scrolls sideways. */
+  /** Runs in the page: the lines of text that draw past their row (a row is the chat's column and clips
+   *  its own paint, so text past it is cut off; a word that does not break overflows its paragraph's
+   *  box, not the box itself), the elements that draw past the pane (a control's box may overhang the
+   *  column by design: a prompt's last action button by its glyph's inset, conversation.css
+   *  --cv-footer-overhang), each unless a box that scrolls on its own (a code block, a table) holds it;
+   *  and how far the transcript itself scrolls sideways. */
   function overflow() {
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const pane = scroller.getBoundingClientRect();
-    /** The box `node` must stay inside: its row's, else the pane's. */
-    const bounds = (node: Node) => node.parentElement?.closest("[data-row-id]")?.getBoundingClientRect() ?? pane;
+    const row = (node: Node) => node.parentElement?.closest("[data-row-id]")?.getBoundingClientRect() ?? pane;
     const inside = (box: DOMRect, edge: DOMRect) => box.right <= edge.right + 0.5 && box.left >= edge.left - 0.5;
-    const outside = (box: DOMRect, node: Node) => box.width > 0 && !inside(box, bounds(node));
-    const held = (node: Node) => {
+    const outside = (box: DOMRect, edge: DOMRect) => box.width > 0 && !inside(box, edge);
+    const held = (node: Node, edge: DOMRect) => {
       for (let parent = node.parentElement; parent && parent !== scroller; parent = parent.parentElement) {
         if (parent.matches("[data-row-id]")) return false;
         if (getComputedStyle(parent).overflowX === "visible") continue;
-        return inside(parent.getBoundingClientRect(), bounds(parent));
+        return inside(parent.getBoundingClientRect(), edge);
       }
       return false;
     };
@@ -173,15 +174,16 @@ await requireBrowserLane("agent-pane-chat-width.test.ts", async () => {
     const spills: string[] = [];
     for (const element of scroller.querySelectorAll<HTMLElement>("*")) {
       const box = element.getBoundingClientRect();
-      if (outside(box, element) && !held(element))
+      if (outside(box, pane) && !held(element, pane))
         spills.push(`${name(element)} ${Math.round(box.left)}..${Math.round(box.right)}`);
     }
     const walker = document.createTreeWalker(scroller, NodeFilter.SHOW_TEXT);
     const range = document.createRange();
     for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+      const edge = row(text);
       range.selectNodeContents(text);
-      const line = [...range.getClientRects()].find((box) => outside(box, text));
-      if (line && !held(text))
+      const line = [...range.getClientRects()].find((box) => outside(box, edge));
+      if (line && !held(text, edge))
         spills.push(`text in ${name(text.parentElement)} ${Math.round(line.left)}..${Math.round(line.right)}`);
     }
     return { sideways: scroller.scrollWidth - scroller.clientWidth, spills: spills.slice(0, 5) };
