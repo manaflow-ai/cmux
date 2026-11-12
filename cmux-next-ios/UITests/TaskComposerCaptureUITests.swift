@@ -33,6 +33,23 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         return nil
     }
 
+    /// Drags the sheet a little at a time until `element` sits below the bar and above the bottom
+    /// (its frame from the accessibility tree), so a capture shows it whole.
+    @MainActor
+    private static func scrollUntilBelowBar(_ app: XCUIApplication, _ element: XCUIElement) -> String? {
+        guard element.waitForExistence(timeout: 10) else { return "no element to bring into view" }
+        let screen = app.frame
+        for _ in 0..<12 {
+            let f = element.frame
+            if f.minY > screen.height * 0.16, f.maxY < screen.height * 0.85 { return nil }
+            let up = f.minY > screen.height * 0.85
+            let from = CGVector(dx: 0.5, dy: up ? 0.6 : 0.3), to = CGVector(dx: 0.5, dy: up ? 0.45 : 0.42)
+            app.coordinate(withNormalizedOffset: from).press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: to))
+            pause(0.5)
+        }
+        return "could not bring it below the bar"
+    }
+
     /// A short drag up inside the sheet (a fraction of a screen), to bring the next rows in.
     @MainActor
     private static func nudgeUp(_ app: XCUIApplication, by fraction: Double = 0.3) {
@@ -158,7 +175,6 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }])
             },
-            // Made: a new chat whose first message is the task, the agent answering.
             // A1: with no Mac starting agents from the phone, New Task is not offered.
             Scene(group: g, id: "entry-hidden-no-agents", args: Self.list + ["-cmux-mobile-no-agents"]) { app in
                 C.longPress(C.any(app, "workspaces.new"), "New Workspace button")
@@ -240,8 +256,11 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(2.2); return nil }])
             },
             // A11 at Accessibility Large: the agent row with its model menu, and each list state.
+            // The checked agent and its model menu, below the bar: scrolled until the menu is in view.
             Scene(group: g, id: "large-agent-row", args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL", "-cmux-mobile-open-new-task"]) { app in
-                C.steps([{ Self.openedAtLaunch(app) }, { Self.type(app, "Fix it") }, { Self.nudgeUp(app, by: 0.45); return nil }])
+                C.steps([{ Self.openedAtLaunch(app) }, { Self.type(app, "Fix it") },
+                         { Self.nudgeUp(app, by: 0.1); return nil },
+                         { Self.scrollUntilBelowBar(app, C.any(app, "taskComposer.model.claude")) }])
             },
             Scene(group: g, id: "large-agents-loading", args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL", "-cmux-mobile-open-new-task"] + ["-cmux-mobile-task-catalog", "slow"]) { app in
                 C.steps([{ Self.openedAtLaunch(app) }, { Self.nudgeUp(app, by: 0.45); return nil }])
@@ -252,6 +271,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "large-agents-empty", args: Self.list + ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityL", "-cmux-mobile-open-new-task"] + ["-cmux-mobile-task-catalog", "empty"]) { app in
                 C.steps([{ Self.openedAtLaunch(app) }, { Self.nudgeUp(app, by: 0.45); return nil }])
             },
+            // Made: a new chat whose first message is the task, the agent answering.
             Scene(group: g, id: "started-one-opens", args: Self.list + ["-cmux-mobile-mock-create-delay", "1"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(5); return nil }])

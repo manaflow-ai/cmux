@@ -171,14 +171,14 @@ final class ShellModel {
             }
         }
         // Mock mode: a New Task's task goes to its workspace's mock chat, as the Mac's agent gets it.
-        mock.onTaskSent = { [weak store] task, workspace in
+        if mockMode { mock.onTaskSent = { [weak store] task, workspace in
             guard let store, let ws = store.workspace(id: workspace.id) ?? Optional(workspace),
                   let tab = ws.tabs.first(where: \.isAgent) else { return }
             let mac = store.teams.flatMap(\.macs).first { $0.id == ws.macID }?.name ?? "Mac"
             let chat = AgentSessionDirectory.shared.store(workspace: ws, tab: tab, macName: mac)
             let images = task.images.map { AgentAttachment(kind: .image, name: "Photo.jpg", data: $0.data) }
             chat.send(prompt: task.prompt, attachments: images)
-        }
+        } }
         // `-cmux-mobile-refuse-next-tab`: the next tab request is refused like the live report's
         // (the Mac's cwd policy), for the new-tab captures.
         // `-cmux-mobile-task-catalog empty|failed|slow`: New Task's agent list states, for its captures.
@@ -501,9 +501,9 @@ final class ShellModel {
         shellLog.error("new workspace on \(mac, privacy: .public) refused: \(message, privacy: .public)")
     }
 
-    /// New Task's workspace stands but its task didn't get to the agent. Never sent: the task
-    /// waits in that chat's composer (its photos are dropped, the toast says so). Maybe sent
-    /// or refused: the toast says so, and nothing is put back that could run it twice.
+    /// New Task's workspace stands but its task didn't get to the agent. Never sent: the task,
+    /// photos included, waits in that chat's composer. Maybe sent or refused: the toast says
+    /// so, and nothing is put back that could run it twice.
     private func taskNotDelivered(_ workspace: Workspace, task: AgentTask, failure: TaskDeliveryFailure) {
         let agent = workspace.tabs.first(where: \.isAgent)?.agentName ?? "The agent"
         let text: String

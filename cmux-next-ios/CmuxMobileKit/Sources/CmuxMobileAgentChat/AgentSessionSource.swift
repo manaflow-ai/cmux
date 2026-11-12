@@ -390,6 +390,11 @@ public final class StartingAgentSource: AgentSessionSource {
         self.summary = summary
     }
 
+    /// Replaced by the chat's real source once its workspace is listed: its readers end.
+    isolated deinit {
+        for continuation in continuations { continuation.finish() }
+    }
+
     public var loadsHistory: Bool { true }
     public var isStarting: Bool { true }
 
