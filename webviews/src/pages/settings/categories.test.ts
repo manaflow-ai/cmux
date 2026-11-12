@@ -31,12 +31,17 @@ test("the categories are the approved ones, in order", () => {
   expect(categories.map((category) => category.id)).toEqual([
     "general",
     "updates",
+    // Personalization holds the theme; old Theme links open it (next tests).
     "personalization",
-    "theme",
     "appearance",
+    // Settings overhaul (2026-11-07): the sidebar, tabs and panes, and the New Tab page have pages.
+    "sidebar",
+    "tabs",
+    "newTab",
     "terminal",
     "editor",
     "browser",
+    "chat",
     "agents",
     "chief",
     "notifications",
@@ -44,15 +49,25 @@ test("the categories are the approved ones, in order", () => {
     // Settings > Menus: every right-click menu's arrangement (Customize Menu… opens it).
     "menus",
     "accounts",
+    // Mobile stays its own page (Lucas 2026-11-11); Devices holds what Server showed, and its old
+    // id opens it (next test).
     "mobile",
     "devices",
-    "server",
     "import",
     "privacy",
     "advanced",
     "experimental",
     "development",
   ]);
+});
+
+test("old Theme links open Personalization", () => {
+  expect(categoryOf("theme")).toBe("personalization");
+});
+
+test("Mobile opens its own page, and old Server links open Devices", () => {
+  expect(categoryOf("mobile")).toBe("mobile");
+  expect(categoryOf("server")).toBe("devices");
 });
 
 test("a route to the Development category opens the default category outside DEV builds", () => {
@@ -160,7 +175,7 @@ test("every category and section symbol has its own icon", () => {
     readFileSync(new URL("../../../../schemas/settings/source/page-layout.json", import.meta.url), "utf8"),
   ) as { sidebar_sections: Array<{ categories: Array<{ symbol: string }> }> };
   const layoutSymbols = layout.sidebar_sections.flatMap((run) => run.categories.map((category) => category.symbol));
-  expect(layoutSymbols).toContain("iphone");
+  expect(layoutSymbols).toContain("sidebar.left");
   const missing = [...new Set([...exportedSymbols, ...layoutSymbols])].filter((symbol) => !hasIcon(symbol));
   expect(missing).toEqual([]);
 });

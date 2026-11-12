@@ -2100,11 +2100,25 @@ jobs:
           ref: ${{ github.sha }}
           submodules: false
 
+      # The routing App's own budget, github.token as the fallback: every workflow's github.token shares
+      # one hourly limit, and its 403s failed this restore in sign runs 43129190893 and 43139032769.
+      - name: Mint the glaeda read token for the unsigned restore
+        id: resume-read-token
+        if: inputs.nightly_next_unsigned_run != '' && github.repository == 'manaflow-ai/cmux' && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: read
+          permission-contents: read
+
       - name: Restore the original unsigned nightly inputs
         if: inputs.nightly_next_unsigned_run != ''
         id: resume
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ steps.resume-read-token.outputs.token || github.token }}
           SOURCE_RUN: ${{ inputs.nightly_next_unsigned_run }}
           SOURCE_ATTEMPT: ${{ inputs.nightly_next_unsigned_attempt }}
           NIGHTLY_NEXT_SIGN_STAGE: ${{ inputs.nightly_next_sign_stage }}

@@ -289,6 +289,9 @@ export type PromptDeliveryState = "sending" | "delivered" | "read" | "failed";
 /// The hop a send stopped at: the pane could not reach acpmux, acpmux refused it or never answered,
 /// or the agent's turn for it failed.
 export type PromptDeliveryHop = "connection" | "acpmux" | "agent";
+/// How long a sent prompt shows nothing before its pending state does (PromptDelivery.tsx): a fast
+/// send never says it is on its way.
+export const PROMPT_PENDING_AFTER_MS = 1000;
 export type PromptDelivery = {
   state: PromptDeliveryState;
   promptId: string;
@@ -298,8 +301,12 @@ export type PromptDelivery = {
   acceptedAt?: number;
   readAt?: number;
   failedAt?: number;
-  /// No answer for a while: the row says it is still sending.
+  /// No answer for a while: the pane checks whether it missed the chat's events (stallLog.ts). The
+  /// row says nothing more than it did: one pending state until the prompt lands or fails.
   slow?: boolean;
+  /// A steer sent into the running turn: while on its way the row says it is queued behind that
+  /// turn, never "Not sent".
+  queued?: boolean;
   /// acpmux is starting or reconnecting: the pane holds the prompt and sends it once acpmux answers
   /// (sendWhenReady.ts). The row says "Sending when ready".
   waitingForHost?: boolean;
@@ -2276,8 +2283,8 @@ function fallbackRowHeight(
       ) - videoCount,
     );
     const attachmentHeight = imageRows * 128 + otherAttachments * 36;
-    // Its sending clock sits beside the last attachment band (UserBubble.tsx), taking no line of
-    // its own, so the row keeps its height when the send lands.
+    // Its pending state is its footer's time slot (PromptDelivery.tsx), taking no line of its own,
+    // so the row keeps its height when the send lands.
     return finish(attachmentHeight + messageBelow(beforeFooter) + chromeHeight(row, actions));
   }
   if (row.kind === SUBAGENTS) return finish(56);

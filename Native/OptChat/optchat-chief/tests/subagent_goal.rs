@@ -71,6 +71,7 @@ fn subagent_goal_a_claude_subagent_starts_under_goal_on_opus() {
     let sp = spawner(&h, "claude", true, None);
     let started = spawn(&mut h, sp, "Fix the flaky test and land it.");
     assert!(started.contains("Started a1"), "{started}");
+    h.agents.wait_prompts(2);
     let inner = h.agents.inner.lock().unwrap();
     assert_eq!(
         inner.specs.last().and_then(|s| s.model.as_deref()),
@@ -94,6 +95,50 @@ fn subagent_goal_a_claude_subagent_starts_under_goal_on_opus() {
         "under Claude Code's condition cap: {} chars",
         goal.len()
     );
+}
+
+/// a1141's real spawn (2026-11-12): the task and `/goal` went out together and acpmux
+/// ran the short `/goal` first, so the session never saw its view or task. `/goal` now
+/// waits for the task turn to end: the session's first prompt always holds the task.
+#[test]
+fn subagent_goal_waits_for_the_task_turn_before_goal() {
+    let mut h = Harness::new(default_script());
+    h.agents.inner.lock().unwrap().hold = true;
+    let sp = spawner(&h, "claude", true, None);
+    spawn(&mut h, sp, "Copy the go file into done.");
+    std::thread::sleep(Duration::from_millis(200));
+    {
+        let inner = h.agents.inner.lock().unwrap();
+        assert_eq!(
+            inner.prompts.len(),
+            1,
+            "no /goal while the task turn runs: {:?}",
+            inner.prompts
+        );
+        let first = text(&inner.prompts[0]);
+        assert!(first.contains("Copy the go file into done."), "{first}");
+        assert!(!first.starts_with("/goal"), "{first}");
+    }
+    h.agents.release();
+    h.agents.wait_prompts(2);
+    let inner = h.agents.inner.lock().unwrap();
+    assert!(
+        text(&inner.prompts[1]).starts_with("/goal "),
+        "{:?}",
+        inner.prompts
+    );
+}
+
+/// A task turn the Chief stopped (or that failed) gets no `/goal` after it.
+#[test]
+fn subagent_goal_not_sent_after_a_cancelled_task_turn() {
+    let mut h = Harness::new(default_script());
+    h.agents.inner.lock().unwrap().answer = Some(json!({"stopReason": "cancelled"}));
+    let sp = spawner(&h, "claude", true, None);
+    spawn(&mut h, sp, "Copy the go file into done.");
+    std::thread::sleep(Duration::from_millis(300));
+    let inner = h.agents.inner.lock().unwrap();
+    assert_eq!(inner.prompts.len(), 1, "{:?}", inner.prompts);
 }
 
 #[test]
