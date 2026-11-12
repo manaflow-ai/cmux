@@ -62,6 +62,23 @@ pub(super) fn classify_legacy_terminals(transaction: &Transaction<'_>) -> anyhow
     Ok(kept)
 }
 
+/// Marks each of `terminals` (host ids) `keep` in `transaction`: a
+/// `terminals: keep` close stores its marks in its own commit (W7-C), so a
+/// close never answers "running" for a terminal the reaper then ends.
+pub(crate) fn keep_terminals_in_transaction(
+    transaction: &Transaction<'_>,
+    terminals: &[String],
+) -> anyhow::Result<()> {
+    for terminal_id in terminals {
+        validate_terminal_identity("terminal id", terminal_id)?;
+        transaction.execute(
+            "INSERT OR IGNORE INTO terminal_keep(terminal_id) VALUES(?1)",
+            [terminal_id],
+        )?;
+    }
+    Ok(())
+}
+
 impl WorkspaceRegistry {
     /// Mark (`true`) or unmark (`false`) a live terminal as `keep`. Tombstoned
     /// or unknown terminals are rejected so a stale request cannot leave an

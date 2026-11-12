@@ -41,6 +41,7 @@ impl WorkspaceRegistry {
         result: &Value,
         deltas: &Value,
         terminals: &[(String, Option<String>)],
+        keep: &[String],
         workspace_close: Option<&ResourceWorkspaceClose>,
         tab_groups: Option<&TabGroupState>,
         record_closed: bool,
@@ -100,6 +101,7 @@ impl WorkspaceRegistry {
         };
         let terminal_batch =
             close_terminals_in_transaction(&tx, mutation, terminals, "topology-closed")?;
+        keep_terminals_in_transaction(&tx, keep)?;
         // A close that is part of another change (a space delete) writes that
         // change and announces its closed group first, in this transaction.
         if let Some(before_patch) = before_patch {

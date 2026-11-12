@@ -268,8 +268,8 @@ impl CloseMode {
 /// own terminal, or one whose process is the request's socket peer, an
 /// ancestor of it or its process session's leader) is never ended now. Any
 /// other one ends now in ``CloseMode::Now``, and in ``CloseMode::Grace``
-/// when no reaper runs. In ``CloseMode::Keep`` the rest stay running and are
-/// marked `keep`. The rest stay with no tab: while a reaper runs they end at
+/// when no reaper runs. In ``CloseMode::Keep`` every one stays running and is
+/// marked `keep` in the close's commit, the caller's own too. The rest stay with no tab: while a reaper runs they end at
 /// the close time plus its grace (`ending`), else they keep running.
 pub(super) struct CloseTerminals {
     mode: CloseMode,
@@ -324,12 +324,11 @@ impl CloseTerminals {
             || runtime.process_id().is_some_and(|process| self.peer.contains(&process))
     }
 
-    /// Whether the close marks `runtime` `keep`: in ``CloseMode::Keep``,
-    /// each one but the caller's own, which the reaper still ends after its
-    /// grace (the worktree close keeps its terminals and ends them itself,
-    /// all but the caller's).
-    fn marks_kept(&self, public_id: &TerminalPublicId, runtime: &Surface) -> bool {
-        self.mode == CloseMode::Keep && !self.callers(public_id, runtime)
+    /// Whether the close marks each terminal it leaves `keep`
+    /// (``CloseMode::Keep``: the person asked to keep them, the caller's own
+    /// included).
+    fn marks_kept(&self) -> bool {
+        self.mode == CloseMode::Keep
     }
 }
 
@@ -352,9 +351,9 @@ pub(super) struct EndedTerminals {
     /// When the reaper ends `ending` (milliseconds since the epoch).
     ends_at_ms: Option<u64>,
     running: Vec<TerminalPublicId>,
-    /// The host ids of the terminals the close marks `keep` once it has
-    /// committed (``CloseMode::Keep``).
-    keep_hosts: Vec<String>,
+    /// The host ids of the terminals the close marks `keep` in its commit
+    /// (``CloseMode::Keep``).
+    pub(super) keep_hosts: Vec<String>,
 }
 
 impl EndedTerminals {

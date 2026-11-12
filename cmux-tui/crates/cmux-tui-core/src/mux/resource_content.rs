@@ -48,6 +48,7 @@ impl Mux {
         // Reopen Closed of a tab whose terminal still runs: the new view is
         // that same tab again, under its retired id (durable-links-DESIGN.md).
         let reopen_tab = super::tab_strip::reopen_identity::take();
+        let reopens = reopen_tab.is_some();
         let fingerprint = json!({
             "operation": "terminal.project",
             "selectors": selectors,
@@ -291,8 +292,37 @@ impl Mux {
             },
         )?;
         self.finish_app_terminal_first_view(&registered)?;
+        // Reopen Closed takes back a `keep` mark (a `--keep-terminals`
+        // close set it, W7-C): a later plain close gets the grace again.
+        if reopens && !commit.replayed {
+            self.take_back_keep_of(&commit.result);
+        }
         self.emit_raw_tree_changed(&commit);
         Ok(commit)
+    }
+
+    /// Clears the `keep` mark of the terminal a reopen placed again
+    /// (`result.terminal`). A failure leaves the mark: the terminal then
+    /// runs on, which never loses work.
+    fn take_back_keep_of(&self, result: &Value) {
+        let Some(public_id) = result
+            .get("terminal")
+            .and_then(Value::as_str)
+            .and_then(|id| TerminalPublicId::parse(id.to_owned()).ok())
+        else {
+            return;
+        };
+        let host = self.workspace_registry.lock().unwrap().terminal_host_id(&public_id);
+        let cleared = match host {
+            Ok(Some(host)) => self.set_terminal_keep(&host, false),
+            Ok(None) => Ok(()),
+            Err(error) => Err(error),
+        };
+        if let Err(error) = cleared {
+            self.report_internal_diagnostic(format!(
+                "reopen could not clear the keep mark of {public_id}: {error:#}"
+            ));
+        }
     }
 
     /// Raw clients subscribed with `tree_events` learn about a tab that a

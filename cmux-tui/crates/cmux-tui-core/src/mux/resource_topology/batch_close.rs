@@ -328,6 +328,7 @@ impl Mux {
             &result,
             &projection.changes,
             &plan.terminal_batch,
+            &ended.keep_hosts,
             plan.workspace_close.as_ref(),
             tab_groups.as_ref(),
             request.record_closed,
@@ -452,7 +453,7 @@ impl Mux {
     /// The one close rule for the terminals a close leaves with no view
     /// (W7-C, ``CloseTerminals``): a kept one or one with an attached viewer
     /// is listed as running; with ``CloseMode::Keep`` every other one is
-    /// listed as running and marked `keep` after the commit; one the close
+    /// listed as running and marked `keep` in the close's commit; one the close
     /// ends now leaves the planned state
     /// (its catalog runtime goes and its host joins the plan's terminal
     /// batch); the rest are listed as ending when the reaper's grace runs
@@ -499,7 +500,7 @@ impl Mux {
             }
             // A close that leaves it (a raw detach close, the grace) needs no
             // durable receipt; only ending it now does.
-            if terminals.marks_kept(&public_id, &runtime) {
+            if terminals.marks_kept() {
                 outcome.keep_hosts.push(host.terminal_id.clone());
                 outcome.running.push(public_id);
                 continue;

@@ -624,6 +624,7 @@ impl Mux {
                     &json!({}),
                     &projection.changes,
                     &[],
+                    &[],
                     Some(close),
                     None,
                     false,

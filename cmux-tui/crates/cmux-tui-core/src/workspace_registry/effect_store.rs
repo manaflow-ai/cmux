@@ -974,6 +974,7 @@ impl WorkspaceRegistry {
         result: &Value,
         deltas: &Value,
         terminals: &[(String, Option<String>)],
+        keep: &[String],
         workspace_close: Option<&ResourceWorkspaceClose>,
         restates_all: bool,
     ) -> anyhow::Result<ResourceCloseCommit> {
@@ -996,6 +997,7 @@ impl WorkspaceRegistry {
         // A terminal close can empty a workspace: both commit here.
         let terminal_batch =
             close_terminals_in_transaction(&tx, &mutation, terminals, "topology-closed")?;
+        keep_terminals_in_transaction(&tx, keep)?;
         let workspace_revision = if let Some(close) = workspace_close {
             if let Some(active) = close.active_workspace.as_ref() {
                 anyhow::ensure!(

@@ -153,6 +153,7 @@ impl Mux {
             &result,
             &projection.changes,
             &plan.terminal_batch,
+            &[],
             None,
             None,
             true,

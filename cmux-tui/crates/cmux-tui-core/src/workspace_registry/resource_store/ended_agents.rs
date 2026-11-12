@@ -1,15 +1,15 @@
-//! The agent change a terminal's end sends (W7-C: an agent row ends with its
-//! terminal). A read already shows the agent of a tombstoned terminal as
-//! `done` (`public_agent_projections`); this queues the same change into the
-//! batch that tombstones the terminal, so an open `session.events` subscriber
-//! gets it at that moment, whatever path ended the terminal (a close, `terminal
-//! close`, the reaper). The stored projection is unchanged, as for the read.
+//! The agent change a terminal's end sends (W7-C, with #41123): the
+//! transaction that tombstones a terminal deletes its agent record, so the
+//! same journal batch carries an `agent` `delete` for it. An open
+//! `session.events` subscriber then drops the agent at that moment, whatever
+//! path ended the terminal (a close, `terminal close`, the reaper), and its
+//! fold agrees with `agent.list` and the snapshot, which have no agent of an
+//! ended terminal.
 
 use super::*;
 
-/// Queue, for each terminal `patch` tombstones, the end of its agent: an
-/// `agent` upsert with state `done`, or a delete for a hook-reported agent
-/// (a read leaves those out). An agent already `done` sends nothing.
+/// Queue, for each terminal `patch` tombstones that has an agent record, the
+/// `delete` of that agent. It reads the record before the patch deletes it.
 pub(super) fn queue_ended_agents(
     transaction: &Transaction<'_>,
     patch: &ResourcePatch,
@@ -34,30 +34,10 @@ pub(super) fn queue_ended_agents(
             )
             .optional()?;
         let Some(stored) = stored else { continue };
-        let mut value: Value = serde_json::from_str(&stored)
+        let value: Value = serde_json::from_str(&stored)
             .with_context(|| format!("invalid agent projection for terminal {terminal_id:?}"))?;
-        let Some(fields) = value.as_object_mut() else { continue };
-        let Some(id) = fields.get("id").and_then(Value::as_str).map(str::to_owned) else {
-            continue;
-        };
-        if fields.get("state").and_then(Value::as_str) == Some("done") {
-            continue;
-        }
-        let change = if fields.get("source").and_then(Value::as_str) == Some("hook") {
-            json!({"kind": "delete", "sequence": 0, "resource": "agent", "id": id})
-        } else {
-            fields.insert("state".into(), json!("done"));
-            // The public value never carries the internal hook markers.
-            let internal =
-                fields.get("source_session").and_then(Value::as_str).is_some_and(|session| {
-                    session.starts_with("cmux-hook-sequence:")
-                        || session.starts_with("cmux-hook-ended:")
-                });
-            if internal {
-                fields.insert("source_session".into(), Value::Null);
-            }
-            json!({"kind": "upsert", "sequence": 0, "resource": "agent", "id": id, "value": value})
-        };
+        let Some(id) = value.get("id").and_then(Value::as_str) else { continue };
+        let change = json!({"kind": "delete", "sequence": 0, "resource": "agent", "id": id});
         crate::state::closed_history_store::queue_change(transaction, &change)?;
     }
     Ok(())

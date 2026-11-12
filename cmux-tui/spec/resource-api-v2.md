@@ -35,8 +35,10 @@ every other one keeps running with no view until the reaper's grace (30 s for
 a local owner) ends it, and `closed.reopen` in that window shows the same
 process again (`ending_terminal_ids`, `ends_at_ms`); with no reaper it ends in
 the close's commit. `terminals: "end"` ends them in the close's commit;
-`terminals: "keep"` keeps them running with no view and marks each one but the
-caller's own `keep` after the commit, so the reaper leaves it too;
+`terminals: "keep"` keeps them running with no view and marks each one `keep`
+(the caller's own too) in the close's commit, so the reaper leaves it; a close
+that cannot set the mark fails whole, and `closed.reopen` that shows the
+terminal again takes the mark back, so a later plain close gives it the grace;
 `terminals: "detach"` leaves them with no view and no mark (a running reaper
 ends them after its grace). No close ends at once the caller's own terminal: the actor's
 `term_` id, or a terminal whose process is the request's socket peer, one of
@@ -46,14 +48,14 @@ reply). A close that names `terminals` answers `ended_terminal_ids`,
 it the value keeps its old shape, which older SDKs decode strictly. A daemon
 without `close-grace-v1` refuses `grace`; one without
 `close-ends-terminals-v1` refuses the field and only detaches.
-`layout.bulk` follows the same rule: without `end_terminals` it is `grace`,
-`true` is `end`, `keep_terminals: true` is `keep`, and `end_terminals: false`
-leaves them with no view and no mark (the Mac app's close; a running reaper
-ends them after its grace); its result names the same lists.
+`layout.bulk` takes the same `terminals` (`grace` by default); its legacy
+`end_terminals` is an alias (`true` is `end`, `false` is `detach`, the Mac
+app's close) and is refused when it disagrees with `terminals`. Its result
+names the same lists.
 Each terminal a close ends is tombstoned, which deletes its agent ("Agent").
 `session.events` sends that change in the commit that ends the terminal (a
-close, `terminal.close`, the reaper): an `agent` upsert with state `done`, or a
-delete for a hook-reported one.
+close, `terminal.close`, the reaper): an `agent` delete for each agent of the
+terminal.
 `terminal.project` adds another view, and `terminal.close`
 terminates and tombstones one terminal. With `if_unplaced:
 true` it does so only for a terminal with no view, no `keep` mark and no

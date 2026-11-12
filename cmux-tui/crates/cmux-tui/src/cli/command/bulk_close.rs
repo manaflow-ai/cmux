@@ -46,6 +46,11 @@ pub(super) fn close(
     if now && keep_terminals {
         return Err(UsageError::new("use one of --now and --keep-terminals"));
     }
+    let terminals = match (now, keep_terminals) {
+        (true, _) => "end",
+        (false, true) => "keep",
+        (false, false) => "grace",
+    };
     let Some(&bulk) = chosen.first() else {
         if include_pinned {
             return Err(UsageError::new(
@@ -57,11 +62,6 @@ pub(super) fn close(
         if level == "workspace" && flags.boolean("report-closed-ids") {
             params.insert("report_closed_ids".into(), Value::Bool(true));
         }
-        let terminals = match (now, keep_terminals) {
-            (true, _) => "end",
-            (false, true) => "keep",
-            (false, false) => "grace",
-        };
         params.insert("terminals".into(), Value::String(terminals.into()));
         return request(plain, selectors, flags, params);
     };
@@ -78,12 +78,8 @@ pub(super) fn close(
     if include_pinned {
         params.insert("include_pinned".into(), Value::Bool(true));
     }
-    // Without either flag the daemon's default: the grace, as a plain close.
-    if now {
-        params.insert("end_terminals".into(), Value::Bool(true));
-    }
-    if keep_terminals {
-        params.insert("keep_terminals".into(), Value::Bool(true));
-    }
+    // The same `terminals` as a plain close (wire/close_terminals.rs fits
+    // it to an older daemon).
+    params.insert("terminals".into(), Value::String(terminals.into()));
     request(ResourceOperation::LayoutBulk, selectors, flags, params)
 }

@@ -94,6 +94,7 @@ pub mod synth;
 pub(crate) mod terminal_archive_store;
 mod terminal_exit_store;
 mod terminal_keep_store;
+use terminal_keep_store::keep_terminals_in_transaction;
 mod terminal_resource_close_store;
 pub(crate) mod terminal_state_end;
 pub use terminal_state_end::EndedTerminalState;

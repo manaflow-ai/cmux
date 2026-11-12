@@ -1,9 +1,10 @@
 //! The terminals a `tab`, `pane`, `screen` or `workspace` close (or a bulk
 //! `layout.bulk` close) leaves with no tab (W7-C: one close model). The CLI
 //! sends `terminals` (`grace`, `end` with `--now`, `keep` with
-//! `--keep-terminals`, or `detach` from the worktree close). A daemon without
-//! `close-grace-v1` refuses `grace` and `detach`, so the CLI sends it `end`
-//! (its own default) and `keep` (which only detaches there); one older than
+//! `--keep-terminals`, or `detach` from the worktree close), for a bulk close
+//! too. A daemon without `close-grace-v1` refuses `grace` and `detach`, so the
+//! CLI sends it `end` (its own default) and `keep` (which only detaches
+//! there), and a bulk close the legacy `end_terminals`; one older than
 //! `close-ends-terminals-v1` refuses the field, so the CLI drops it there and
 //! the close detaches its terminals as that daemon always did. A person's
 //! close names the terminals it ended, the ones that end when the grace runs
@@ -33,12 +34,15 @@ fn is_close(operation: &Value) -> bool {
     CLOSES.iter().any(|close| operation == close.wire_name())
 }
 
-/// Fits `terminals` to what the daemon takes. On a daemon without
-/// `close-grace-v1`: `grace` becomes `end` (its own default), `detach`
-/// becomes that daemon's `keep` (which only detaches), and a bulk close's
-/// `keep_terminals: true` becomes `end_terminals: false`. On one without
-/// `close-ends-terminals-v1` the field goes too. True when the request
-/// changed.
+/// Fits `terminals` to what the daemon takes. A daemon with
+/// `close-grace-v1` takes every value. A single close to one with only
+/// `close-ends-terminals-v1` gets `end` for `grace` (that daemon's default)
+/// and `keep` for `detach` (its `keep` only detaches); to an older one, no
+/// field (it only detaches). A bulk close to a daemon without
+/// `close-grace-v1` gets the legacy `end_terminals`: `true` where a single
+/// close to it ends them, `false` (detach) for `keep` and `detach`, and none
+/// to a daemon without `close-ends-terminals-v1` unless `end`. True when the
+/// request changed.
 pub(in crate::cli) fn drop_unsupported(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     socket: &Path,
@@ -52,49 +56,37 @@ pub(in crate::cli) fn drop_unsupported(
 /// ``drop_unsupported`` with `advertises` answering whether the daemon has
 /// a capability (asked only when the request needs the answer).
 fn fit(request: &mut Value, mut advertises: impl FnMut(&str) -> bool) -> bool {
-    let operation = request.get("operation");
-    let bulk_keep = operation
-        .is_some_and(|operation| operation == ResourceOperation::LayoutBulk.wire_name())
-        && request.pointer("/params/keep_terminals").and_then(Value::as_bool) == Some(true);
-    if bulk_keep {
-        if advertises(CLOSE_GRACE_CAPABILITY) {
-            return false;
-        }
-        let Some(params) = request.get_mut("params").and_then(Value::as_object_mut) else {
-            return false;
-        };
-        params.remove("keep_terminals");
-        params.insert("end_terminals".into(), Value::Bool(false));
-        return true;
-    }
-    let terminals = request.pointer("/params/terminals").and_then(Value::as_str);
-    if !request.get("operation").is_some_and(is_close) || terminals.is_none() {
+    let bulk = request
+        .get("operation")
+        .is_some_and(|operation| operation == ResourceOperation::LayoutBulk.wire_name());
+    if !bulk && !request.get("operation").is_some_and(is_close) {
         return false;
     }
-    // The values a daemon without `close-grace-v1` does not know, and what it
-    // takes for each.
-    let older = match terminals {
-        Some("grace") => Some("end"),
-        Some("detach") => Some("keep"),
-        _ => None,
+    let Some(terminals) =
+        request.pointer("/params/terminals").and_then(Value::as_str).map(str::to_owned)
+    else {
+        return false;
     };
-    if older.is_some() && advertises(CLOSE_GRACE_CAPABILITY) {
+    if advertises(CLOSE_GRACE_CAPABILITY) {
         return false;
     }
-    let keeps_field = advertises(CLOSE_ENDS_TERMINALS_CAPABILITY);
-    if keeps_field && older.is_none() {
-        return false;
-    }
+    let ends = advertises(CLOSE_ENDS_TERMINALS_CAPABILITY);
     let Some(params) = request.get_mut("params").and_then(Value::as_object_mut) else {
         return false;
     };
-    match older {
-        Some(older) if keeps_field => {
-            params.insert("terminals".into(), Value::String(older.into()));
-            true
+    params.remove("terminals");
+    // What a daemon without `close-grace-v1` does for each value: end them
+    // (`grace` is its `end` when it ends what a close leaves), or detach.
+    let end = terminals == "end" || (ends && terminals == "grace");
+    if bulk {
+        if end || ends {
+            params.insert("end_terminals".into(), Value::Bool(end));
         }
-        _ => params.remove("terminals").is_some(),
+    } else if ends {
+        let older = if end { "end" } else { "keep" };
+        params.insert("terminals".into(), Value::String(older.into()));
     }
+    true
 }
 
 /// The lines a person's close adds after its result: how many terminals it

@@ -89,17 +89,58 @@ pub(crate) struct BulkRequest {
     pub(crate) ids: Option<Vec<String>>,
     #[serde(default)]
     pub(crate) include_pinned: bool,
-    /// What the close does with the terminals whose every view closes (W7-C,
-    /// one close model): absent, the grace of every public close
-    /// (``CloseMode::Grace``, the CLI's default); `true` ends them now
-    /// (`--now`); `false` leaves them with no tab (the Mac app's close, which
-    /// Reopen Closed Tab needs; a running reaper ends them after its grace).
+    /// What the close does with the terminals whose every view closes: the
+    /// `terminals` of a single close (W7-C, one close model). Absent: the
+    /// legacy ``BulkRequest::end_terminals``, else `grace`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) terminals: Option<BulkTerminals>,
+    /// The legacy form of ``BulkRequest::terminals``: `true` is `end`,
+    /// `false` is `detach` (the Mac app's close, which Reopen Closed Tab
+    /// needs). Refused when it disagrees with `terminals`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) end_terminals: Option<bool>,
-    /// `--keep-terminals`: leave them running with no tab and mark each one
-    /// `keep`, so the reaper leaves it too (``CloseMode::Keep``).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub(crate) keep_terminals: bool,
+}
+
+/// The `terminals` of a `layout.bulk` close, as a single close takes it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum BulkTerminals {
+    /// Left for the reaper's grace (ended now with no reaper).
+    Grace,
+    /// Ended now.
+    End,
+    /// Left running and marked `keep`.
+    Keep,
+    /// Left with no tab and no mark.
+    Detach,
+}
+
+impl BulkTerminals {
+    /// The close mode of this value.
+    fn mode(self) -> CloseMode {
+        match self {
+            Self::Grace => CloseMode::Grace,
+            Self::End => CloseMode::Now,
+            Self::Keep => CloseMode::Keep,
+            Self::Detach => CloseMode::Detach,
+        }
+    }
+
+    /// The value the legacy `end_terminals` names.
+    fn of_end_terminals(end: bool) -> Self {
+        if end { Self::End } else { Self::Detach }
+    }
+}
+
+impl BulkRequest {
+    /// The close mode of the request's `terminals` (or its legacy
+    /// `end_terminals`).
+    fn close_mode(&self) -> CloseMode {
+        self.terminals
+            .or(self.end_terminals.map(BulkTerminals::of_end_terminals))
+            .unwrap_or(BulkTerminals::Grace)
+            .mode()
+    }
 }
 
 impl BulkRequest {
@@ -119,10 +160,12 @@ impl BulkRequest {
                 || !matches!(request.selector, BulkSelector::ToRight | BulkSelector::ToLeft),
             "bad request: panes have no order; use others, all or selection"
         );
-        anyhow::ensure!(
-            !(request.keep_terminals && request.end_terminals == Some(true)),
-            "bad request: use one of end_terminals and keep_terminals"
-        );
+        if let (Some(terminals), Some(end)) = (request.terminals, request.end_terminals) {
+            anyhow::ensure!(
+                terminals == BulkTerminals::of_end_terminals(end),
+                "bad request: end_terminals {end} disagrees with terminals {terminals:?}"
+            );
+        }
         Ok(request)
     }
 }
@@ -400,11 +443,7 @@ impl Mux {
         let outcome = match self.close_tabs_and_bare_for_bulk(
             surfaces,
             bare,
-            match (request.keep_terminals, request.end_terminals) {
-                (true, _) => CloseMode::Keep,
-                (false, None) => CloseMode::Grace,
-                (false, Some(end)) => CloseMode::ending(end),
-            },
+            request.close_mode(),
             OPERATION,
             match request.level {
                 BulkLevel::Tab => crate::resource::ResourceOperation::TabClose,

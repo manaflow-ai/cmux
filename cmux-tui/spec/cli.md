@@ -1004,7 +1004,9 @@ tab until the grace ends it, and `cmux closed reopen` in that window shows the
 same process again; with no reaper it ends at once. `--now` (`terminals:
 "end"`) ends them at once; `--keep-terminals` (`terminals: "keep"`) keeps
 them running with no tab and marks each one `keep`, so the reaper leaves it
-too (`cmux terminal <id> keep off` undoes it). The caller's own terminal (found by its launch credential,
+too, the caller's own terminal included (`cmux terminal <id> keep off` undoes
+it, and `cmux closed reopen` that shows it again takes the mark back). The
+caller's own terminal (found by its launch credential,
 its process session, or the CLI's process ancestors) is never ended at once.
 The `--json` value names `ended_terminal_ids`, `ending_terminal_ids` (with
 `ends_at_ms`) and `running_terminal_ids`; the text output adds
@@ -1026,10 +1028,12 @@ workspace or session close in one commit as one closed-history group, which
 `closed reopen` restores whole. Pinned tabs, screens and workspaces stay unless
 `--include-pinned`; the home workspace never closes. The bulk close follows
 the same terminal model and names the terminals as a plain close does (the
-same fields and text lines); `--now` (or `--end-terminals`) sends
-`end_terminals: true`, `--keep-terminals` sends `keep_terminals: true`, and
-neither leaves both out (the grace). A daemon without `close-grace-v1` gets
-`end_terminals: false` for `--keep-terminals`.
+same fields and text lines); it sends the same `terminals` as a plain close
+(`grace`, `end` for `--now` or `--end-terminals`, `keep` for
+`--keep-terminals`). A daemon without `close-grace-v1` gets the legacy
+`end_terminals` instead: with `close-ends-terminals-v1`, `true` for the grace
+and `--now` and `false` for `--keep-terminals`; without it, `true` only for
+`--now`.
 `client <selector> metadata set` leaves an omitted field unchanged and clears
 one passed as null. A non-null name or kind preserves its exact value, contains
 at most 64 Unicode scalars, and contains no Unicode `Cc` control scalar.
