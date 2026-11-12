@@ -185,8 +185,20 @@ pub struct IndexLog {
 
 impl IndexLog {
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
+        let path = path.as_ref();
+        let next_seq = match File::open(path) {
+            Ok(file) => BufReader::new(file)
+                .lines()
+                .filter_map(Result::ok)
+                .filter_map(|line| serde_json::from_str::<IndexRecord>(&line).ok())
+                .map(|record| record.seq)
+                .max()
+                .unwrap_or(0),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => 0,
+            Err(error) => return Err(error),
+        };
         let file = OpenOptions::new().create(true).append(true).open(path)?;
-        Ok(Self { file: BufWriter::new(file), next_seq: 0 })
+        Ok(Self { file: BufWriter::new(file), next_seq })
     }
 
     pub fn append(&mut self, summary: Summary) -> io::Result<IndexRecord> {
@@ -274,6 +286,7 @@ impl SortedSnapshot {
         for summary in snapshot.summaries {
             index = index.apply(snapshot.seq, summary);
         }
+        index.seq = snapshot.seq;
         Ok(Some(index))
     }
 }
@@ -297,7 +310,7 @@ mod tests {
         assert_eq!(index.get("a").unwrap().extra.get(), "{\"future\": [1, 2]}");
         let index = index.apply(2, summary("a", 3, "{\"new\":true}"));
         assert_eq!(index.len(), 1);
-        assert_eq!(index.page(0, 2)[0].last_activity, 3);
+        assert_eq!(index.page(0, 2).first().map(|s| s.last_activity), Some(3));
     }
 
     #[test]

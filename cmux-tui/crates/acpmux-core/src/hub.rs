@@ -198,7 +198,7 @@ mod tests {
         assert_eq!(hub.snapshot().len(), 2);
         let frame = hub.list_window(&Sub::new("sidebar", Stream::from("list"))).unwrap();
         let window: Window = frame.decode_json().unwrap();
-        assert_eq!(window.rows[0].chat_id, "a");
+        assert_eq!(window.rows.first().map(|row| row.chat_id.as_str()), Some("a"));
         assert!(window.rows.len() <= DEFAULT_WINDOW_ROWS);
     }
 

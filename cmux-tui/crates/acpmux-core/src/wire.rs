@@ -277,8 +277,10 @@ impl FrameDecoder {
                 if self.bytes.len() < HEADER_BYTES {
                     break;
                 }
-                let len =
-                    u32::from_be_bytes(self.bytes[..HEADER_BYTES].try_into().unwrap()) as usize;
+                let header = self.bytes.get(..HEADER_BYTES).ok_or(FrameError::Truncated)?;
+                let mut length = [0_u8; HEADER_BYTES];
+                length.copy_from_slice(header);
+                let len = u32::from_be_bytes(length) as usize;
                 if !(KIND_BYTES..=MAX_FRAME_BYTES - HEADER_BYTES).contains(&len) {
                     return Err(FrameError::InvalidLength(len));
                 }
@@ -291,8 +293,8 @@ impl FrameDecoder {
             }
             let body: Vec<u8> = self.bytes.drain(..expected).collect();
             self.expected = None;
-            let kind = FrameKind::try_from(body[0])?;
-            frames.push(Frame::new(kind, body[1..].to_vec())?);
+            let (kind, payload) = body.split_first().ok_or(FrameError::Truncated)?;
+            frames.push(Frame::new(FrameKind::try_from(*kind)?, payload.to_vec())?);
         }
         Ok(frames)
     }
@@ -338,7 +340,10 @@ mod tests {
         let text = serde_json::to_string(&sub).unwrap();
         assert_eq!(text, r#"{"sid":"s1","stream":"list","cursor":42,"window":100}"#);
         let page = Page::new("s1", "list", PageSide::After, 11);
-        assert_eq!(serde_json::to_value(page).unwrap()["maxBytes"], 262_144);
+        assert_eq!(
+            serde_json::to_value(page).unwrap().get("maxBytes"),
+            Some(&serde_json::json!(262_144))
+        );
     }
 
     #[test]
@@ -346,8 +351,8 @@ mod tests {
         let frame = Frame::json(FrameKind::Window, &serde_json::json!({"seq": 7})).unwrap();
         let encoded = frame.encode();
         let mut decoder = FrameDecoder::default();
-        assert!(decoder.push(&encoded[..2]).unwrap().is_empty());
-        assert_eq!(decoder.push(&encoded[2..]).unwrap(), vec![frame]);
+        assert!(decoder.push(encoded.get(..2).unwrap()).unwrap().is_empty());
+        assert_eq!(decoder.push(encoded.get(2..).unwrap()).unwrap(), vec![frame]);
         assert!(matches!(
             Frame::new(FrameKind::Delta, vec![0; MAX_FRAME_BYTES]),
             Err(FrameError::TooLarge { .. })
