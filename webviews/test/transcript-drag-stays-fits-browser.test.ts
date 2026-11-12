@@ -1,5 +1,5 @@
 // A chat with a few rows, all in view, keeps its first row in place while the divider beside it is
-// dragged, narrower and wider.
+// dragged, narrower and wider, in Chromium.
 // test/support/transcriptDragStays.ts has the cases and why they are split.
 import path from "node:path";
 import { chromium } from "playwright";
@@ -11,6 +11,7 @@ await requireBrowserLane("transcript-drag-stays-fits-browser.test.ts", async () 
     file: "transcript-drag-stays-fits-browser.test.ts",
     shape: "fits",
     engine: chromium,
+    engineName: "chromium",
     configFile: path.join(path.resolve(import.meta.dir, ".."), "vite.config.ts"),
   });
 });
