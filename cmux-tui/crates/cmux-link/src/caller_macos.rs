@@ -230,7 +230,7 @@ const BASIC_VALIDATE_ONLY: u32 = (1 << 1) | (1 << 2);
 /// It comes from the bundle's code directory after the bundle's signature is
 /// checked against this build's team, never from an unsigned Info.plist.
 fn containing_app_identifier(team: &str) -> Result<String, String> {
-    let executable = own_executable()?;
+    let executable = crate::app_caller::own_executable()?;
     let bundle = crate::app_caller::containing_bundle(&executable)
         .ok_or("this binary is not inside an app bundle")?;
     let code =
@@ -376,33 +376,6 @@ unsafe extern "C" {
     /// its pid no longer carries the token's pid version.
     fn proc_pidpath_audittoken(token: *mut [u32; 8], buffer: *mut c_void, size: u32)
     -> libc::c_int;
-}
-
-unsafe extern "C" {
-    /// libproc: the path of the executable the process `pid` runs, as the kernel resolved it
-    /// at exec (`<= 0` on failure).
-    fn proc_pidpath(pid: libc::c_int, buffer: *mut c_void, size: u32) -> libc::c_int;
-}
-
-/// `app_caller::own_executable`: the file this process runs, as the kernel resolved it at exec.
-/// `std::env::current_exe` is the path the process was started by (`_NSGetExecutablePath`),
-/// symbolic links and all: a daemon launchd started as `~/.local/bin/acpmux`, a link into the
-/// NIGHTLY bundle, read as outside any app, so it refused every `person_enroll` and the person's
-/// own prompts drew as "Unverified sender" (Leo, 2026-11-12). Falls back to the canonical
-/// `current_exe` only when the kernel does not answer.
-pub(crate) fn own_executable() -> Result<std::path::PathBuf, String> {
-    let mut path = [0u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
-    // SAFETY: the buffer is valid for `path.len()` bytes; the call writes at most that many and
-    // returns the count written (`<= 0` on failure). getpid has no preconditions.
-    let written =
-        unsafe { proc_pidpath(libc::getpid(), path.as_mut_ptr().cast(), path.len() as u32) };
-    if let Some(written) = usize::try_from(written).ok().filter(|written| *written > 0)
-        && let Ok(text) = std::str::from_utf8(&path[..written])
-    {
-        return Ok(std::path::PathBuf::from(text));
-    }
-    let exe = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
-    std::fs::canonicalize(&exe).map_err(|error| format!("canonicalize {}: {error}", exe.display()))
 }
 
 /// `app_caller::executable_path`.

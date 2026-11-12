@@ -63,21 +63,14 @@ pub fn peer_token(fd: std::os::fd::RawFd) -> Option<PeerToken> {
     }
 }
 
-/// The file this process runs, symbolic links resolved: on macOS the kernel's own record of the
-/// exec (`proc_pidpath`), elsewhere the canonical `current_exe`. Read the app bundle a binary
-/// belongs to from this, never from `current_exe`, which keeps the link it was started by
-/// (`~/.local/bin/acpmux` names no bundle; the NIGHTLY binary it links to does).
+/// The file this process runs, symbolic links resolved (the canonical `current_exe`). Read the
+/// app bundle a binary belongs to from this, never from `current_exe` alone, which on macOS keeps
+/// the link the process was started by: a daemon launchd starts as `~/.local/bin/acpmux`, a link
+/// into `cmux NIGHTLY.app/Contents/Resources/bin`, read itself as outside any app and refused
+/// every `person_enroll` ("this binary is not inside an app bundle", Leo, 2026-11-12).
 pub fn own_executable() -> Result<std::path::PathBuf, String> {
-    #[cfg(target_os = "macos")]
-    {
-        crate::caller::macos::own_executable()
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        let exe = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
-        std::fs::canonicalize(&exe)
-            .map_err(|error| format!("canonicalize {}: {error}", exe.display()))
-    }
+    let exe = std::env::current_exe().map_err(|error| format!("current_exe: {error}"))?;
+    std::fs::canonicalize(&exe).map_err(|error| format!("canonicalize {}: {error}", exe.display()))
 }
 
 /// The executable of the process `token` names, read by the token itself

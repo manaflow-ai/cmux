@@ -1854,12 +1854,13 @@ async fn dispatch_request_with_identity(
             // (`prompt_provenance.rs` `verified`, `transport`, `claimed`): the proven person's
             // prompt carries none; one no proof attributes is `unverified`, never the person's.
             let transport = transport_of(conn);
-            // The owner's own terminal send, claiming no agent, harness or relay: the person's
-            // prompt again, though it proves no person (`owner_terminal`, the trust boundary).
+            // The owner's own terminal send, or the app's own pane before it proved the person,
+            // claiming no agent, harness or relay: the person's prompt again, though it proves no
+            // person (`owner_terminal`, `app_pane_unproven`, the trust boundary).
             let unproven_owner = provenance.is_none()
                 && !person_admitted(conn, &params)
                 && declared.is_none()
-                && owner_terminal(conn, &params);
+                && (owner_terminal(conn, &params) || app_pane_unproven(conn, &params));
             let provenance = match provenance {
                 Some(p) => Some(crate::prompt_provenance::observed(p, transport)),
                 None if unproven_owner || person_admitted(conn, &params) => None,
@@ -3535,7 +3536,42 @@ pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
 /// person (`human_authenticated` needs the proven person) and is never forwarded to a peer as
 /// the person's (`attest_person` reads `person_admitted` only).
 pub(super) fn owner_terminal(conn: &Conn, params: &Value) -> bool {
-    let claims = params.pointer("/_meta/acpmux").and_then(Value::as_object).is_some_and(|mux| {
+    conn.origin == super::Origin::Local
+        && !conn.is_trigger()
+        && conn.caller().is_none()
+        && conn.unproven_caller.get().is_none()
+        && conn.may_be_owner_terminal()
+        && !claims_a_sender(params)
+}
+
+/// Whether an unnamed prompt is the app's own agent pane's (`Origin::LocalApp`, proven by this
+/// launch's LocalApp token) on a connection that has not proved the person: recorded as the
+/// person's prompt, as [`owner_terminal`]'s is.
+///
+/// The pane proves the person with `_acpmux/person_prove`, but only once the daemon holds the
+/// app's person key, and a daemon that just restarted, is still loading, or refused the app's
+/// enroll does not hold it yet. The composer's prompts in that window were recorded as
+/// `unverified` and drawn as "Unverified sender" in the inbox, with the agent told they came
+/// "From a program that did not say who it is, not the person" (Leo, 2026-11-12: "STOP CALLING
+/// ME F***ING UNVERIFIED F***ING SENDER"). The LocalApp token proves more than the unix socket
+/// an owner's terminal send comes over, so the pane gets the same record. As with
+/// `owner_terminal`, it lifts no protected hold (`PromptOptions::unproven_owner`), is never
+/// an authenticated person and is never forwarded to a peer as the person's; a pane prompt
+/// that names a sender (an agent's `cmux agent message` through the app) stays that sender's.
+pub(super) fn app_pane_unproven(conn: &Conn, params: &Value) -> bool {
+    conn.origin == super::Origin::LocalApp
+        && conn.auth == ConnAuth::LocalApp
+        && !conn.is_person()
+        && !conn.is_trigger()
+        && conn.caller().is_none()
+        && conn.unproven_caller.get().is_none()
+        && !claims_a_sender(params)
+}
+
+/// Whether a prompt names a sender, a harness or a relay of its own (`_meta.acpmux`): an agent's
+/// or a relay's then, never the person's.
+fn claims_a_sender(params: &Value) -> bool {
+    params.pointer("/_meta/acpmux").and_then(Value::as_object).is_some_and(|mux| {
         [
             "fromAgent",
             crate::prompt_provenance::FROM_HARNESS,
@@ -3545,13 +3581,7 @@ pub(super) fn owner_terminal(conn: &Conn, params: &Value) -> bool {
         ]
         .iter()
         .any(|key| mux.get(*key).is_some_and(|v| !v.is_null()))
-    });
-    conn.origin == super::Origin::Local
-        && !conn.is_trigger()
-        && conn.caller().is_none()
-        && conn.unproven_caller.get().is_none()
-        && conn.may_be_owner_terminal()
-        && !claims
+    })
 }
 
 /// The labels a prompt's sender gave about itself, kept as claims (`prompt_provenance::CLAIMED`),
