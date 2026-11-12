@@ -16,28 +16,15 @@
   min-width: 0;
   box-sizing: border-box;
 }
-/* The model menu and its side menus never let the chat read through them (Leo 2026-10-31: "plus all
-   this dumbass shit in the model picker", over a menu whose list showed the transcript's "23m 43s
-   Running" and "Done" behind its rows). Still glass, never opaque: the fill a translucent surface
-   that carries text keeps (desktop.css --surface-text-min) and the menus' stronger frost
-   (--ds-glass-menu-blur), in plain glass and under the lens alike. Chromium over the window glass
-   lays it over the theme surface as well (glass.css), so there it is near solid. Reduce
-   Transparency still makes it the solid popup surface (glass.css, !important). */
-/* On the App's menu glass (ui/glass/hostGlass.ts; Leo, 2026-11-06: "the model picker ... is this
-   actually glass"): the chat under it blurs in place and the page lays a 40% veil of the theme surface
-   on the App's glass, so the rows still never read the chat through them (gallery ui.host-glass
-   model-*: 0% let the wallpaper's color into the row text, 70% read as solid again). Only the model
-   menus: the composer's (its placement class, or the column picker, .acpmux-cols), their submenus and
-   Retry with; the other quick menus (Open In, a queued message's, a machine's) keep the plain menu glass. */
-.ui-popup.ui-glass.acpmux-quick-menu:is([class*="acpmux-quick-placement-"], .acpmux-quick-submenu, .acpmux-retry-menu),
-.ui-glass.acpmux-cols {
-  --host-glass-fill: color-mix(in srgb, var(--glass-surface) 40%, transparent);
-}
-.ui-popup.ui-glass.acpmux-quick-menu,
-:root[data-glass-lens]:is([data-glass="lens"], [data-glass="spectrum"]) .ui-popup.ui-glass.acpmux-quick-menu {
-  --glass-tint: color-mix(in srgb, var(--glass-surface) var(--surface-text-min, 92%), transparent);
-  --glass-backdrop: var(--ds-glass-menu-blur);
-}
+/* The model menus' glass is every popup's (ui/glass/glass.css GLASS LEVELS: the menu level, and the
+   40% veil on the App's glass that started here, cmux#37794). They kept a 92% tint of their own
+   (--surface-text-min; Leo 2026-10-31: "plus all this dumbass shit in the model picker", over a menu
+   whose list showed the transcript's "23m 43s Running" and "Done"), which made the model picker a
+   different material from the context card and the menus beside it (Leo, 2026-11-11: "the styles mix
+   and they don't look good"). The chat under it still never reads through its rows: on the App's
+   glass the chat blurs in place under the 40% veil, in WebKit the menu level's 32 px frost takes it,
+   and in a see-through Chromium page without the App's glass the underlay lays the theme surface
+   under the tint (glass.css). Reduce Transparency still makes it the solid popup surface. */
 .acpmux-mp-rail-scroll {
   flex: 0 0 auto;
   min-width: 0;
@@ -168,7 +155,8 @@
   max-width: min(440px, var(--available-width, calc(100vw - 24px)));
   padding: 4px;
   border: 0;
-  border-radius: 10px;
+  /* Every popup's one radius (popupSurface.css, the native popovers' 8 pt), never a 10 of its own. */
+  border-radius: var(--ui-popup-radius);
   /* Size to visible rows, then give the list room up to the popup boundary and viewport. */
   --acpmux-quick-room: min(var(--available-height, calc(100vh - 16px)), calc(100vh - 16px));
   max-height: calc(100vh - 16px);
