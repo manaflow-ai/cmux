@@ -350,8 +350,6 @@ struct PastedImageTests {
             photo = Array(jpeg[0..<2]) + [0xFF, 0xFE, 0xFD, 0xE8] + Array("cut".utf8) + Array(jpeg[2...])
         case "truncated scan":
             // The file ends partway through the scan's coded data: no end-of-image marker.
-            let scan = try #require(Self.segments(Data(jpeg), type: .jpeg).firstIndex { $0.hasPrefix("DA") })
-            _ = scan
             let start = try #require((0..<jpeg.count - 1).first { jpeg[$0] == 0xFF && jpeg[$0 + 1] == 0xDA })
             photo = Array(jpeg[0..<(start + (jpeg.count - start) / 2)])
         default:

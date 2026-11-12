@@ -43,6 +43,8 @@ struct PastedImage: Sendable, Equatable {
               width > 0, height > 0 else { return nil }
         let upright = (properties[kCGImagePropertyOrientation] as? Int ?? 1) == 1
         let format = Self.passThroughType(of: photo)
+        // A damaged JPEG or PNG is refused, never decoded: what a decoder makes of it is not the photo.
+        if let format, Self.isDamaged(photo, type: format) { return nil }
         if upright, let format, let copied = Self.copyWithNoMetadata(source, type: format) {
             self.init(data: copied, type: format)
             return
