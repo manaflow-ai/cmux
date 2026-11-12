@@ -229,9 +229,9 @@ test("a closed fold's line around a reply never shows a draft call as a finished
   }
 });
 
-test("the runs arm splits the work after a reply where the open fold does, a draft call between them", () => {
-  // A short note joins the runs on either side of it (mergeShortNotes); a draft-only row beside it still
-  // ends a run there, as the opened fold draws it, so closing the fold never redraws its runs.
+test("the runs arm groups adjacent work after hiding its short note and draft call", () => {
+  // The closed runs arm hides short narration and draft-only calls. Its remaining adjacent calls
+  // join one run; the opened fold keeps the note between its groups.
   const draft = row("t-draft", "activity", 27, {
     items: [{ kind: "tool", text: "", tool: { id: "draft-0", title: "Bash", kind: "execute", status: "in_progress" } }],
   });
@@ -249,7 +249,7 @@ test("the runs arm splits the work after a reply where the open fold does, a dra
   globalThis.cmuxExperiments = { "turn-fold-replies": "runs" };
   const opened = turnView(rows, new Set([`${WORKED}-u-0`]), { agentFamily: "claude", now: START + 60_000 });
   const after = (view: AcpmuxRow[]) => outline(view).slice(outline(view).indexOf("a-middle") + 1, -1);
-  expect(after(closed("claude", rows))).toEqual(["run:2", "run:3"]);
+  expect(after(closed("claude", rows))).toEqual(["run:5"]);
   expect(after(opened)).toEqual(["run:2", "note", "run:3"]);
 });
 

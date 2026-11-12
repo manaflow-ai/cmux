@@ -404,24 +404,27 @@ function devServerShell(): Plugin {
       };
     },
     configureServer(server) {
+      revalidateDependencyCache(server);
       server.middlewares.use((request, response, next) => {
         const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
         if (pathname === "/" || pathname === "/index.html") return send(response, 200, "text/html", indexPage);
-        // Vite serves optimized dependencies as `immutable` for a year, keyed by a `?v=` hash
-        // of the lockfile and config only. When the set of optimized dependencies changes (a
-        // source file starts importing one directly), the hash stays and the chunks inside are
-        // renamed, so a long-lived WebView (the cmux browser pane) keeps old modules that import
-        // chunks that no longer exist: "Importing a module script failed", then "Load failed".
-        // Revalidating them by ETag costs a 304 per module and never serves a stale graph.
-        if (isDependencyCacheRequest(pathname, server.config.cacheDir, server.config.root)) {
-          const setHeader = response.setHeader.bind(response);
-          response.setHeader = (name, value) =>
-            setHeader(name, name.toLowerCase() === "cache-control" ? "no-cache" : value);
-        }
         next();
       });
     },
   };
+}
+
+// Long-lived WebViews must revalidate optimized dependency graphs after Vite rebuilds them.
+function revalidateDependencyCache(server: ViteDevServer): void {
+  server.middlewares.use((request, response, next) => {
+    const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
+    if (isDependencyCacheRequest(pathname, server.config.cacheDir, server.config.root)) {
+      const setHeader = response.setHeader.bind(response);
+      response.setHeader = (name, value) =>
+        setHeader(name, name.toLowerCase() === "cache-control" ? "no-cache" : value);
+    }
+    next();
+  });
 }
 
 /// /agent-pane/<page>.html serves src/agent-session/acpmux/<page>.html (index.html for the
@@ -462,6 +465,7 @@ export function agentPaneHost(): Plugin {
       return paneModule ? [...modules, paneModule] : undefined;
     },
     configureServer(server) {
+      if (server.config.root === paneDir) revalidateDependencyCache(server);
       // The pane's repository reads (dev-host/host.ts): git.status, git.diff, git.checkpoint.diff
       // and file.search, read only and confined to the slot's folder (agentGitHost.ts).
       server.middlewares.use(async (request, response, next) => {

@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ViteDevServer } from "vite-plus";
-import { cmuxDevServer } from "../dev-server/plugins";
+import path from "node:path";
+import { agentPaneHost, cmuxDevServer } from "../dev-server/plugins";
 
 const root = "/work/cmux/webviews";
 
@@ -16,14 +17,14 @@ for (const [cacheDir, request] of [
     const hook = plugin.configureServer;
     if (typeof hook !== "function") throw new Error("Missing dev-server middleware");
     type Middleware = (req: IncomingMessage, response: ServerResponse, next: () => void) => void;
-    let middleware: Middleware | undefined;
+    const middleware: Middleware[] = [];
     await hook.call(
       {} as never,
       {
         config: { root, cacheDir, server: { port: 4292 } },
         middlewares: {
           use: (handler: Middleware) => {
-            middleware = handler;
+            middleware.push(handler);
           },
         },
       } as unknown as ViteDevServer,
@@ -39,10 +40,54 @@ for (const [cacheDir, request] of [
           headers.set(name.toLowerCase(), value);
         },
       };
-      middleware!({ url } as IncomingMessage, response as unknown as ServerResponse, () => {
-        response.setHeader("Cache-Control", "max-age=31536000,immutable");
-      });
+      const dispatch = (at: number): void => {
+        const handler = middleware[at];
+        if (handler) handler({ url } as IncomingMessage, response as unknown as ServerResponse, () => dispatch(at + 1));
+        else response.setHeader("Cache-Control", "max-age=31536000,immutable");
+      };
+      dispatch(0);
       expect(headers.get("cache-control"), url).toBe(expected);
     }
   });
 }
+
+test("the standalone agent pane revalidates optimized modules too", async () => {
+  const plugin = agentPaneHost();
+  const hook = plugin.configureServer;
+  if (typeof hook !== "function") throw new Error("Missing agent-pane middleware");
+  type Middleware = (req: IncomingMessage, response: ServerResponse, next: () => void) => void;
+  const middleware: Middleware[] = [];
+  await hook.call(
+    {} as never,
+    {
+      config: {
+        root: path.resolve(import.meta.dir, "../src/agent-session/acpmux"),
+        cacheDir: "/tmp/chatparity-agent-cache",
+        server: { port: 4178 },
+      },
+      middlewares: {
+        use: (handler: Middleware) => {
+          middleware.push(handler);
+        },
+      },
+    } as unknown as ViteDevServer,
+  );
+  for (const [url, expected] of [
+    ["/@fs/tmp/chatparity-agent-cache/deps/react.js?v=same-hash", "no-cache"],
+    ["/Composer.tsx", "max-age=31536000,immutable"],
+  ]) {
+    const headers = new Map<string, string>();
+    const response = {
+      setHeader: (name: string, value: string) => {
+        headers.set(name.toLowerCase(), value);
+      },
+    };
+    const dispatch = (at: number): void => {
+      const handler = middleware[at];
+      if (handler) handler({ url } as IncomingMessage, response as unknown as ServerResponse, () => dispatch(at + 1));
+      else response.setHeader("Cache-Control", "max-age=31536000,immutable");
+    };
+    dispatch(0);
+    expect(headers.get("cache-control"), url).toBe(expected);
+  }
+});
