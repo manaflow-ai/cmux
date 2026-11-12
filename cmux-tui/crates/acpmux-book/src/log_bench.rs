@@ -27,6 +27,7 @@
 use crate::log::{Anchor, Edge, Log, MAX_PAGE_BYTES, RawRange, StateWriter, section};
 use crate::testkit::{open, text};
 use std::fmt::Write as _;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -69,6 +70,15 @@ fn dist(samples: &[u64]) -> Dist {
         .min()
         .unwrap();
     Dist { p50: percentile(&sorted, 0.5), p95: percentile(&sorted, 0.95), best_p95 }
+}
+
+/// Append, rather than replace, so one runner can collect several crate-local gates.
+fn emit_measure(name: &str, small: u64, god: u64, unit: &str) {
+    if let Some(path) = std::env::var_os("V2_GATE_OUT") {
+        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
+        writeln!(file, "{{\"name\":\"v2.pr01b.{name}\",\"small_p95\":{small},\"god_p95\":{god},\"unit\":\"{unit}\"}}")
+            .unwrap();
+    }
 }
 
 fn micros(nanos: u64) -> String {
@@ -118,14 +128,20 @@ impl Report {
             &micros(small.p95),
             &micros(god.p95),
             Some(god.p95 as f64 / small.p95 as f64),
-            "-",
-            None,
+            if gate { "pooled god <= 2x small" } else { "-" },
+            gate.then_some(god.p95 <= small.p95.saturating_mul(2)),
         );
-        let ratio = god.best_p95 as f64 / small.best_p95 as f64;
+        // The noise allowance is only for sub-100-us paths.
+        let (small_p95, god_p95) = if small.best_p95 < 100_000 && god.best_p95 < 100_000 {
+            (small.best_p95, god.best_p95)
+        } else {
+            (small.p95, god.p95)
+        };
+        let ratio = god_p95 as f64 / small_p95 as f64;
         self.row(
             &format!("{what}, p95 (best of {ROUNDS} rounds)"),
-            &micros(small.best_p95),
-            &micros(god.best_p95),
+            &micros(small_p95),
+            &micros(god_p95),
             Some(ratio),
             if gate { "god <= 1.2x small" } else { "-" },
             gate.then_some(ratio <= 1.2),
@@ -168,9 +184,14 @@ fn timed_appends(log: &mut Log, from: u64, to: u64, end: u64, into: &mut Appends
         let before = log.stats().bytes_written;
         let start = Instant::now();
         log.append_settled(id, 1, RawRange { file: raw_file, off: id, len: 1 }, &text).unwrap();
-        into.times.push(nanos(start));
-        into.written += log.stats().bytes_written - before;
-        into.text_bytes += text.len() as u64;
+        let elapsed = nanos(start);
+        // Both sides exclude the same position in each 40-row group. The first append to
+        // a new book pays mapping/allocation only on small; it has a separate cold gate.
+        if id % SMALL_ROWS != 1 {
+            into.times.push(elapsed);
+            into.written += log.stats().bytes_written - before;
+            into.text_bytes += text.len() as u64;
+        }
         if id.is_multiple_of(CHECKPOINT_EVERY) || id + ROWS_AFTER_CHECKPOINT == end {
             let state = actor_state(id);
             let before = log.stats().bytes_written;
@@ -311,7 +332,7 @@ fn god_vs_small() {
         .map(|entry| entry.unwrap().metadata().unwrap().len())
         .sum();
 
-    let per = |bytes: u64| bytes as f64 / TIMED_ROWS as f64;
+    let per = |bytes: u64| bytes as f64 / small.times.len() as f64;
     let (small_written, god_written) = (per(small.written), per(god.written));
     report.row(
         "append: bytes written per row",
@@ -331,7 +352,10 @@ fn god_vs_small() {
         "-",
         None,
     );
-    report.timed("append: time per row", &dist(&small.times), &dist(&god.times), true);
+    let (small_append, god_append) = (dist(&small.times), dist(&god.times));
+    report.timed("append: time per row", &small_append, &god_append, true);
+    emit_measure("append_time", small_append.best_p95, god_append.best_p95, "ns");
+    emit_measure("append_bytes", small_written.ceil() as u64, god_written.ceil() as u64, "bytes");
     report.timed("checkpoint: time", &dist(&small.checkpoints), &dist(&god.checkpoints), false);
     report.row(
         "checkpoint: bytes",
@@ -365,6 +389,9 @@ fn god_vs_small() {
             None,
         );
         report.timed(&what, &small_dist, &god_dist, gate);
+        if gate {
+            emit_measure("first_window", small_dist.best_p95, god_dist.best_p95, "ns");
+        }
         if rows == 400 {
             let worst = small_dist.p95.max(god_dist.p95);
             report.row(
@@ -377,6 +404,38 @@ fn god_vs_small() {
             );
         }
     }
+
+    // ---- open alone: the same checkpoint interval at each book length ----
+    let (mut small_open, mut god_open) = (Vec::new(), Vec::new());
+    for _ in 0..ROUNDS * 200 {
+        for (dir, samples) in [(&small_dir, &mut small_open), (&god_dir, &mut god_open)] {
+            let start = Instant::now();
+            let (log, recovered) = open(dir);
+            samples.push(nanos(start));
+            assert_eq!(recovered.replayed, ROWS_AFTER_CHECKPOINT);
+            drop(log);
+        }
+    }
+    let (small_open, god_open) = (dist(&small_open), dist(&god_open));
+    report.timed("open: one checkpoint interval", &small_open, &god_open, true);
+    emit_measure("record_layout", small_open.best_p95, god_open.best_p95, "ns");
+
+    // Both sides pay first map/allocation in a new book, with exactly the same payload.
+    let (mut small_cold, mut god_cold) = (Vec::new(), Vec::new());
+    for _ in 0..ROUNDS * 100 {
+        for samples in [&mut small_cold, &mut god_cold] {
+            let dir = tempfile::tempdir_in(home.path()).unwrap();
+            let (mut log, _) = open(dir.path());
+            let file = log.append_raw_file(b"bench/raw.ndjson").unwrap();
+            let text = text(1);
+            let start = Instant::now();
+            log.append_settled(1, 1, RawRange { file, off: 0, len: 1 }, &text).unwrap();
+            samples.push(nanos(start));
+        }
+    }
+    let (small_cold, god_cold) = (dist(&small_cold), dist(&god_cold));
+    report.timed("cold first append", &small_cold, &god_cold, true);
+    emit_measure("cold_first_append", small_cold.best_p95, god_cold.best_p95, "ns");
 
     // ---- page: a 256 KB page is one read ----
     let (mut log, _) = open(&god_dir);

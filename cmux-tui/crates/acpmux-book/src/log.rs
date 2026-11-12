@@ -769,7 +769,7 @@ impl Log {
             .filter(|len| *len != 0 && text.len() <= MAX_ROW_TEXT)
             .ok_or(Error::RowText { len: text.len() })?;
         let seq = self.last_seq.checked_add(1).ok_or(Error::Corrupt("the seq overflowed"))?;
-        record::encode(&mut self.scratch, seq, row_id, rev, raw.file, raw.off, raw.len, text);
+        record::encode(&mut self.scratch, seq, row_id, rev, raw, text);
         let record_len = self.scratch.len() as u64;
         if self.tail.len != 0
             && self.tail.len.saturating_add(record_len) > self.options.segment_bytes

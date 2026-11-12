@@ -2,6 +2,7 @@
 //! raw_off u64 | raw_len u32 | row text | crc32`, little endian. `len` is the row
 //! text's length; the crc covers everything before it.
 
+use super::RawRange;
 use crate::row::MAX_ROW_TEXT;
 
 /// The bytes before a record's row text.
@@ -64,9 +65,7 @@ pub(crate) fn encode(
     seq: u64,
     row_id: u64,
     rev: u32,
-    raw_file: u32,
-    raw_off: u64,
-    raw_len: u32,
+    raw: RawRange,
     text: &[u8],
 ) {
     out.clear();
@@ -75,9 +74,9 @@ pub(crate) fn encode(
     out.extend_from_slice(&seq.to_le_bytes());
     out.extend_from_slice(&row_id.to_le_bytes());
     out.extend_from_slice(&rev.to_le_bytes());
-    out.extend_from_slice(&raw_file.to_le_bytes());
-    out.extend_from_slice(&raw_off.to_le_bytes());
-    out.extend_from_slice(&raw_len.to_le_bytes());
+    out.extend_from_slice(&raw.file.to_le_bytes());
+    out.extend_from_slice(&raw.off.to_le_bytes());
+    out.extend_from_slice(&raw.len.to_le_bytes());
     out.extend_from_slice(text);
     let crc = crc32fast::hash(out);
     out.extend_from_slice(&crc.to_le_bytes());
