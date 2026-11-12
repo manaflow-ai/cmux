@@ -283,6 +283,16 @@ impl Peer {
         let _ = self.last_good.set(book);
     }
 
+    /// Preparation may run concurrently; the registered peer owns token writes.
+    /// This only sets an atomic generation, so registration does no file I/O.
+    pub(crate) fn activate_read_tokens(&self) {
+        self.read_tokens.activate();
+    }
+
+    pub(crate) fn persist_read_tokens(&self) {
+        self.read_tokens.persist();
+    }
+
     /// The paths this peer has, before any is dialed.
     pub(super) fn path_vias(&self) -> Vec<Via> {
         let mut vias: Vec<Via> =

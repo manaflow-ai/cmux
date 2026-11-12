@@ -68,6 +68,40 @@ fn aliases_of_one_wireguard_key_share_one_mesh_peer() {
     });
 }
 
+#[test]
+fn different_wireguard_keys_cannot_claim_one_overlay_address() {
+    runtime().block_on(async {
+        let home = tempfile::tempdir().unwrap();
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let settings = StaticConfig {
+            listen: socket.local_addr().unwrap(),
+            address: "10.77.0.1:4100".parse().unwrap(),
+        };
+        let configured = BTreeMap::from([7u8, 8].map(|id| {
+            (
+                format!("host-{id}"),
+                peer(
+                    base64::engine::general_purpose::STANDARD.encode([id; 32]),
+                    "127.0.0.1:4101".parse().unwrap(),
+                    "10.77.0.2:4100".parse().unwrap(),
+                ),
+            )
+        }));
+        let lock = KeyHolder::acquire(home.path()).unwrap();
+        let result = Transport::from_socket(
+            &settings,
+            &configured,
+            home.path(),
+            "127.0.0.1:4103".parse().unwrap(),
+            socket,
+            lock,
+        )
+        .await;
+        let error = result.err().expect("different identities must not share an overlay address");
+        assert!(error.to_string().contains("overlap"), "{error}");
+    });
+}
+
 /// A pair whose `a` side runs on `a_socket`.
 async fn pair_on(
     a_socket: UdpSocket,
