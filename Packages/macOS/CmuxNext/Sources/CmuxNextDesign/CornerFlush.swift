@@ -106,6 +106,9 @@ public protocol TabStripCorner: AnyObject {
     /// its selected tab run into the card. A strip inside the card (a lower split pane's) keeps the pill,
     /// which a tab in the card's own color would hide on the card.
     func setRunsIntoCard(_ runs: Bool)
+    /// The selected tab's folder (its body down to the card and its fillets) in `target`'s coordinates, while
+    /// it runs into the card; nil otherwise. The chrome's shade leaves it out (``Palette/folderTabFill``).
+    func selectedFolderPath(in target: CALayer) -> CGPath?
 }
 
 extension Metrics {
@@ -191,7 +194,9 @@ public final class CornerFlushChrome: NSView {
         if content.superview === root, superview !== root || root.subviews.firstIndex(of: self) != (root.subviews.firstIndex(of: content) ?? 0) + 1 {
             root.addSubview(self, positioned: .above, relativeTo: content)
         }
-        guard on, alpha > 0, radius > 0, superview === root else {
+        // A shade of 0 (`appearance.titleAreaContrast` 0, one colour) still draws here: the tab row keeps its
+        // divider, and the selected tab its pill (``redraw()``).
+        guard on, Metrics.mainPaneChromeShadeBase(isDark: isDark) > 0, radius > 0, superview === root else {
             isHidden = true
             markTopRow(card: nil, in: root)
             shade.update(card: card, radius: radius, alpha: alpha)
@@ -223,13 +228,73 @@ public final class CornerFlushChrome: NSView {
             shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha)
             return
         }
+        // Under the least shade that sets the content apart (a title area contrast near 0: the tab row in the
+        // content's own colour), a tab in the content's colour would vanish into the row: the selected tab keeps
+        // its pill (`Palette.selectionFill`), the content its four round corners, and only the divider marks the
+        // row's edge. Lawrence's single colour with a highlighted tab.
+        guard drawn.alpha >= Metrics.folderTabMinimumShade else {
+            wedges.path = nil
+            markTopRow(card: nil, in: root)
+            if let content { Self.roundBottomOnly(content, false) }
+            shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha,
+                          divider: Self.dividerLine(card: tabRowEdge(card: card, in: root), radius: 0, squareLeading: true))
+            return
+        }
         if let content { Self.roundBottomOnly(content, true) }
         markTopRow(card: card, in: root)
         let square = leadingTabSelected(card: card, sidebarOnLeft: drawn.sidebarOnLeft, in: root)
         wedges.path = Self.wedgePath(card: card, radius: drawn.radius, squareLeading: square, sidebarOnLeft: drawn.sidebarOnLeft)
         wedges.fillColor = NSColor.black.withAlphaComponent(drawn.alpha).cgColor
         // The shade under a translucent terminal would show the rounded corner the wedge no longer draws.
-        shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square)
+        shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square,
+                      folders: folderHoles(card: card, in: root),
+                      divider: Self.dividerLine(card: tabRowEdge(card: card, in: root), radius: drawn.radius, squareLeading: square && drawn.sidebarOnLeft,
+                                                squareTrailing: square && !drawn.sidebarOnLeft))
+    }
+
+    /// The tab row's divider: the card's top edge (maxY is the top) between its rounded corners, as a rect of no
+    /// height (`MainPaneChromeShadeView` gives it a hairline's thickness and leaves the selected folder tabs out,
+    /// so the line runs under the unselected tabs and ends where a folder's fillet curves into the content).
+    /// `radius` 0: the whole width (the pill look, whose card top is the tab row's top). Leo, 2026-11-12, on the
+    /// two tones: "THERE IS THE DIVIDER THERE ARE WAYS TO MAKE THE 'BACKGROUND' LESS CONTRAST THAN IT DOES NOW".
+    static func dividerLine(card: CGRect, radius: CGFloat, squareLeading: Bool, squareTrailing: Bool = false) -> CGRect {
+        let r = min(radius, card.width / 2, card.height / 2)
+        let minX = card.minX + (squareLeading ? 0 : r), maxX = card.maxX - (squareTrailing ? 0 : r)
+        return CGRect(x: minX, y: card.maxY, width: max(0, maxX - minX), height: 0)
+    }
+
+    /// `card` with its top on the top row's strips' bottom edge, where the tab row's divider sits. The card's top
+    /// (the content less ``Metrics/tabStripHeight``) can sit a point inside the panes' content, under their opaque
+    /// tops, so a divider drawn there was hidden at the default 1 pt (cmux#41640's one-colour captures). The strips
+    /// report their frames (``TabStripCorner/cornerFrameInWindow``); with none on the row the card is unchanged.
+    /// O(strips).
+    private func tabRowEdge(card: CGRect, in root: NSView) -> CGRect {
+        var bottom: CGFloat?
+        for case let strip as (any TabStripCorner & NSView) in strips.allObjects where strip.window === root.window {
+            guard !strip.isHiddenOrHasHiddenAncestor else { continue }
+            let minY = root.convert(strip.cornerFrameInWindow, from: nil).minY
+            guard abs(minY - card.maxY) < 2 else { continue }
+            bottom = max(bottom ?? minY, minY)
+        }
+        guard let bottom else { return card }
+        var edge = card
+        edge.size.height = max(0, bottom - card.minY)
+        return edge
+    }
+
+    /// The selected folder tabs of the strips on the card's top row, in the shade's coordinates: the
+    /// shade leaves them out, so a folder tab shows the same glass as the content (``Palette/folderTabFill``).
+    /// The caller asks only while the shade reads (``Metrics/folderTabMinimumShade``); under it the folder
+    /// keeps the selection fill over the shade. O(strips).
+    private func folderHoles(card: CGRect, in root: NSView) -> [CGPath] {
+        guard let target = shade?.layer else { return [] }
+        var holes: [CGPath] = []
+        for case let strip as (any TabStripCorner & NSView) in strips.allObjects where strip.window === root.window {
+            guard !strip.isHiddenOrHasHiddenAncestor, abs(root.convert(strip.cornerFrameInWindow, from: nil).minY - card.maxY) < 2,
+                  let path = strip.selectedFolderPath(in: target) else { continue }
+            holes.append(path)
+        }
+        return holes
     }
 
     /// Whether the window's tab row is whole: some shown pane's strip sits on the card's top, and every

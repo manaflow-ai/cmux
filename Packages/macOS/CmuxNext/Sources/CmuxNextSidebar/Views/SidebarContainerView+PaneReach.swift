@@ -22,7 +22,7 @@ extension SidebarContainerView {
     /// stays plain sidebar background, and flat styles keep the full-height line. `rootY` is in the
     /// container's superview coordinates, which is also where the main-pane card frame is reported.
     public func updateResizeLine(cardMaxY rootY: CGFloat) {
-        guard Metrics.mainPaneCurved else {
+        guard Metrics.cardEdgeIsSidebarSeam else {
             handle.lineMinY = 0
             return
         }

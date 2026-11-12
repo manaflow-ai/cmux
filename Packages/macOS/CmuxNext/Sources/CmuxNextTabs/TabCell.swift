@@ -345,9 +345,12 @@ final class TabCell {
                 : Palette.selectionFill.withAlphaComponent(Palette.selectionFill.alphaComponent * Self.backgroundWindowSelectionShare)
             let fill: NSColor? = fillsSelection ? selection : multi ? Palette.secondarySelectionFill : (isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
-            // The flush corner: the card's own surface, so the tab and the card read as one shape.
-            if runsIntoCard { backgroundLayer.backgroundColor = Palette.windowBackground.cgColor }
-            cornerFeetLayer?.fillColor = Palette.windowBackground.cgColor
+            // The flush corner: the content's own glass (`Palette.folderTabFill`: what the content paints, with the
+            // chrome's shade cut away under the tab), so the tab and the card read as one shape and the same
+            // transparency. Where that would not stand out of the chrome, the selection fill.
+            let folder = Palette.folderTabFill ?? selection
+            if runsIntoCard { backgroundLayer.backgroundColor = folder.cgColor }
+            cornerFeetLayer?.fillColor = folder.cgColor
             if isLifted, let lift = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary) {
                 // Keeps the tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
                 backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope).dragLiftFill(lift).cgColor
