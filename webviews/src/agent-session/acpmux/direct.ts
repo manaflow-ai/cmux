@@ -2263,6 +2263,15 @@ export type CarriedChat = {
   optimisticPromptRows: ReadonlyMap<string, string>;
   optimisticPromptTexts: ReadonlyMap<string, string>;
   queueAuthors: ReadonlyMap<string, Participant | null>;
+  /// How far the records run, and from where: the next open resumes after `lastSeq`, and older
+  /// pages load from `firstSeq`.
+  lastSeq: number;
+  firstSeq: number | undefined;
+  /// The holes a gap read had not filled when the connection went (`gapReads`): the next open
+  /// resumes from the lowest of them, so no record in one is skipped.
+  gapSeqs: number[];
+  /// Where the next older page of the agent's own transcript ends (`nativeNext`), when one was read.
+  nativeNext: { before: number; mark?: string } | undefined;
 };
 
 /** Direct browser client for the authenticated acpmux WebSocket protocol. */
@@ -2751,6 +2760,11 @@ export class AcpmuxDirectClient {
   /// The `createdAt` of the session the rows drawn before the attach are of (`drawKeptTail`, from
   /// the tail's summary), undefined when they do not say.
   private drawnGeneration?: number;
+  /// How far the records carried from a lost client run (`resumeCarried`), for the attach's check of
+  /// their session (`drawnGeneration`) only: they are merged as a reconnect's, not as a kept tail.
+  private carriedThrough = 0;
+  /// The segment acpmux stamped on the reply row streaming now (`replySegment`), by that row.
+  private streamingSegment?: { row: string; segment: string };
   /// The seq a fork's rows drawn before the attach were taken through from the chat it forked
   /// (forkTail.ts, `KeptTail.forkedThrough`), which the attach checks them against.
   private drawnForkThrough?: number;
@@ -3253,6 +3267,13 @@ export class AcpmuxDirectClient {
       optimisticPromptRows: new Map(this.optimisticPromptRows),
       optimisticPromptTexts: new Map(this.optimisticPromptTexts),
       queueAuthors: new Map(this.queueAuthors),
+      lastSeq: this.lastSeq,
+      firstSeq: this.firstSeq,
+      gapSeqs: [...this.gapReads.values()].filter((gap) => gap.sessionId === sessionId).map((gap) => gap.seq),
+      nativeNext:
+        this.nativeNext?.epoch === this.historyEpoch
+          ? { before: this.nativeNext.before, mark: this.nativeNext.mark }
+          : undefined,
     };
   }
 
@@ -3283,6 +3304,16 @@ export class AcpmuxDirectClient {
     };
     this.shownBefore = shown;
     this.rebuild();
+    // Where the records run and where the next reads start, as the lost client had them: the open
+    // resumes after the lowest unfilled hole (`wholeSeq`), and older pages go on where they were.
+    this.lastSeq = Math.max(this.lastSeq, carried.lastSeq);
+    if (carried.firstSeq !== undefined) this.firstSeq = Math.min(this.firstSeq ?? carried.firstSeq, carried.firstSeq);
+    for (const seq of carried.gapSeqs) this.gapReads.set(++this.gapReadKeys, { sessionId: carried.sessionId, seq });
+    if (carried.nativeNext) this.nativeNext = { epoch: this.historyEpoch, ...carried.nativeNext };
+    // The session these rows are of: the attach checks it against the session acpmux holds now, so
+    // a session it recreated under the same id drops them instead of merging into its transcript.
+    this.drawnGeneration = carried.generation;
+    this.carriedThrough = this.lastSeq;
     // The rows on screen are the chat's, read: no load state, no fade over them.
     this.attachedGeneration = this.selectionGeneration;
     this.drewKeptTail = true;
@@ -3750,6 +3781,7 @@ export class AcpmuxDirectClient {
     for (const { timers } of this.deliveries.values()) timers.forEach(clearTimeout);
     this.deliveries.clear();
     this.firstSeq = undefined;
+    this.carriedThrough = 0;
     this.promptIndex?.cancel?.();
     this.promptIndex = undefined;
     this.lastSeq = 0;
@@ -6272,7 +6304,8 @@ export class AcpmuxDirectClient {
     const through = result?.pageThrough ?? result?.lastSeq;
     const hostLast = typeof through === "number" ? through : undefined;
     const createdAt = result?.session?.createdAt;
-    const drawnThrough = copy?.lastSeq ?? keptThrough;
+    const drawnThrough = copy?.lastSeq ?? (keptThrough || this.carriedThrough);
+    this.carriedThrough = 0;
     const row = this.sessions.find((s) => s.sessionId === sessionId);
     const peerChat = typeof row?.peer === "string";
     const drawnOf = copy ? copy.generation : this.drawnGeneration;
@@ -7025,6 +7058,7 @@ export class AcpmuxDirectClient {
     this.lastReplyRow = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
+    this.streamingSegment = undefined;
     this.assistantCut = false;
     this.streamingActivity = undefined;
     this.supersededMessageIds.clear();
@@ -8660,6 +8694,21 @@ export class AcpmuxDirectClient {
       }
       // After a cut only the cut message's own text goes on in its row; anything else starts below.
       if (this.assistantCut && messageId !== this.streamingAssistantMessageId) this.endAssistantSegment();
+      // acpmux ends a reply's segment at a prompt, a tool call or a thought (hub/stream.rs): a chunk
+      // of another segment starts its own row, even under the same messageId (a reply a steer split).
+      const stamped = replySegment(event);
+      const segment = this.streamingSegment;
+      if (
+        stamped !== undefined &&
+        this.streamingAssistant &&
+        segment?.row === this.streamingAssistant &&
+        segment.segment !== stamped
+      ) {
+        const prior = this.rows.get(this.streamingAssistant);
+        if (prior) this.rows.set(prior.id, { ...prior, version: prior.version + 1, streaming: false });
+        this.streamingAssistant = undefined;
+        this.streamingAssistantMessageId = undefined;
+      }
       const sameMessage = Boolean(
         this.streamingAssistant &&
         (!messageId || !this.streamingAssistantMessageId || this.streamingAssistantMessageId === messageId),
@@ -8669,7 +8718,6 @@ export class AcpmuxDirectClient {
       // hub/stream.rs), the same whichever of its chunks a page starts at, so a reply a page cut
       // keeps its row (and its node) when the older page with its first chunk comes in. Older logs
       // carry none: the first chunk read names it, as before.
-      const stamped = replySegment(event);
       const id = sameMessage
         ? this.streamingAssistant!
         : stamped !== undefined && !this.rows.has(`assistant-${stamped}`)
@@ -8692,6 +8740,8 @@ export class AcpmuxDirectClient {
       this.streamingAssistant = id;
       this.lastReplyRow = id;
       this.streamingAssistantMessageId = messageId;
+      if (stamped !== undefined) this.streamingSegment = { row: id, segment: stamped };
+      else if (!sameMessage) this.streamingSegment = undefined;
       if (messageId) {
         const ids = this.messageRows.get(messageId) ?? [];
         if (!ids.includes(id)) this.messageRows.set(messageId, [...ids, id]);
