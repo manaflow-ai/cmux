@@ -4762,8 +4762,7 @@ function TranscriptView({
       }
       return;
     }
-    const top = upTopRef.current;
-    const place = upPlaceRef.current;
+    const { top, place } = upTopRef.current;
     if (top === undefined || !place) return;
     jumpBack.current = press.back;
     setJumpBackHeld(true);
@@ -5315,10 +5314,8 @@ function TranscriptView({
   const upTop = upIndex >= 0 ? layout.geometry.topAt(upIndex) + (upTarget?.offset ?? 0) : undefined;
   const upOff = placeOffView(upTop, { shownTop, height, threadTop: THREAD_TOP, topInset, dockSpace });
   const upShown = jumpButton && jumpUpShown(upOff, jumpBackHeld ? jumpBack.current : undefined);
-  const upTopRef = useRef(upTop);
-  upTopRef.current = upTop;
-  const upPlaceRef = useRef(upTarget);
-  upPlaceRef.current = upTarget;
+  const upTopRef = useRef({ top: upTop, place: upTarget });
+  upTopRef.current = { top: upTop, place: upTarget };
   // The button's own `shown` (JumpToLatest below), reported once per change so the pane's toast deck
   // moves in the same frame the button starts to fade in or out.
   const jumpVisible = jumpButton && (behind || (needsYou?.elsewhere ?? 0) > 0);
