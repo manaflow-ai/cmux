@@ -5983,6 +5983,106 @@ def _self_test() -> int:
             "echo 'maintenance.auto is on'\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
             {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
         ),
+        # #41794 review F1: a call whose name merely contains "load" (download, payload) is no loader.
+        (
+            "tests/temp_repo_download_names_helper.py",
+            "import subprocess, tempfile\ndownload('git_fixture_env docs')\npayload('git_fixture_env')\n"
+            "d = tempfile.mkdtemp()\nsubprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # #41794 review F2: a string literal never turns the opt-out on, even one that reads as the git command
+        # (a docstring, a print, an echo); only a string a shell runs does.
+        (
+            "scripts/ci/temp_repo_docstring_opt_out.py",
+            "\"\"\"git -c maintenance.auto=false init\"\"\"\nimport subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/ci/temp_repo_printed_opt_out.py",
+            "import subprocess, tempfile\nprint('git -c maintenance.auto=false init')\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_echo_opt_out_value.test.sh",
+            "echo maintenance.auto=false\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # Sweep of the same class: a spread is the parent's environment only when it resolves to os.environ (or a
+        # fixture env), not because its name holds "env"; a helper's name in a string is no helper call.
+        (
+            "scripts/ci/env_spread_named_env.py",
+            "import subprocess, tempfile\npayload_env_docs = {'X': '1'}\nd = tempfile.mkdtemp()\n"
+            "env = {'PATH': '/bin', **payload_env_docs}\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], env=env)\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        # A caller's keyword arguments (**env) are a few variables, not the parent's environment.
+        (
+            "scripts/ci/env_spread_kwargs.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\ndef run(**env):\n"
+            "    return subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], env={'PATH': '/bin', **env})\n",
+            {RULE_GIT_FIXTURE_ENV_DROPPED},
+        ),
+        (
+            "scripts/ci/bare_repo_name_in_string.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', '--bare', d]); print('use init_repo')\n",
+            {RULE_GIT_BARE_REPO_UNMANAGED},
+        ),
+        # An opt-out counts only where the parser shows it runs (#41835 review F1-F3, hq#9831 review F1-F3).
+        # 41835 F1: a string or argv list nobody runs is no git call, and a print's arguments are no git argv.
+        (
+            "scripts/ci/temp_repo_unused_hint_argv.py",
+            "import subprocess, tempfile\nHINT = 'git -c maintenance.auto=false init'\n"
+            "ARGV = ['git', '-c', 'maintenance.auto=false', 'init']\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', 'init', d])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        (
+            "scripts/ci/temp_repo_print_config_args.py",
+            "import subprocess, tempfile\nprint('maintenance.auto', 'false')\nprint('-c', 'maintenance.auto=false')\n"
+            "d = tempfile.mkdtemp()\nsubprocess.run(['git', 'init', d])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        # 41835 F2: GIT_CONFIG_KEY_<n>=maintenance.auto turns nothing off unless GIT_CONFIG_VALUE_<n> is false.
+        (
+            "scripts/ci/tests/temp_repo_config_value_true.test.sh",
+            "d=$(mktemp -d)\nGIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=true git -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/temp_repo_config_value_true.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "env = {'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'maintenance.auto', 'GIT_CONFIG_VALUE_0': 'true'}\n"
+            "subprocess.run(['git', 'init', d], env=env)\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE},
+        ),
+        # 41835 F3: a function's body runs where it is called; one nobody calls changes no trap state and loads nothing.
+        (
+            "scripts/cmux-next/tests/reraise_never_called_function.test.sh",
+            "tmp=$(mktemp -d)\na='s=$?; (exit \"$s\"); rm -rf \"$tmp\"'\nnever() {\n  a='rm -rf \"$tmp\"'\n}\n"
+            "trap \"$a\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_source_in_uncalled_function.test.sh",
+            "setup() {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # hq#9831 F1: env runs a program, and no program is called source (exit 127): nothing is loaded.
+        (
+            "scripts/ci/tests/temp_repo_env_source.test.sh",
+            "env source scripts/cmux-next/tests/lib/git-fixture.sh || true\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # hq#9831 F2: an echo's argument is no assignment, whatever it reads.
+        (
+            "scripts/ci/tests/temp_repo_echo_config_key.test.sh",
+            "echo GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
         # A child script that loads the helper covers its own span, not the rest of its physical line.
         (
             "tests/git_write_beside_child_script.py",
@@ -7318,6 +7418,64 @@ def _self_test() -> int:
             "scripts/ci/temp_repo_opt_out_argv.py",
             "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
             "subprocess.run(['git', '-c', 'maintenance.auto=false', '-C', d, 'init'])\n",
+        ),
+        # A string a shell runs is code: bash -c's script, or a command line with shell=True.
+        (
+            "scripts/ci/temp_repo_opt_out_bash_c.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['bash', '-c', 'git -c maintenance.auto=false init -q \"$0\"', d])\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out_shell_true.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(f'git -c maintenance.auto=false init -q {d}', shell=True)\n",
+        ),
+        # The spread is resolved in the file as written: a '#' inside a string does not cut the module short.
+        (
+            "scripts/ci/env_spread_after_hash_string.py",
+            "import os, subprocess, tempfile\nscript = '#!/bin/sh'\nd = tempfile.mkdtemp()\n"
+            "env = {**os.environ, 'GIT_CONFIG_NOSYSTEM': '1'}\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], env={**env, 'PATH': '/bin'})\n",
+        ),
+        # A spread that resolves to os.environ, directly or through an attribute set elsewhere, inherits it.
+        (
+            "scripts/ci/env_spread_from_environ.py",
+            "import os, subprocess, tempfile\nclass H:\n    def __init__(self):\n"
+            "        self.env = {**os.environ, 'PATH': '/bin'}\nh = H()\nbase = dict(os.environ)\n"
+            "d = tempfile.mkdtemp()\nenv = {'PATH': '/bin', **h.env}\nenv2 = {'HOME': d, **base}\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', 'init', d], env=env)\n",
+        ),
+        # What does run still counts: a called function's source and assignments, builtin source, an exported
+        # GIT_CONFIG pair, an env passed to git, a module's own git wrapper.
+        (
+            "scripts/ci/tests/source_in_called_function.test.sh",
+            "setup() {\n  source scripts/cmux-next/tests/lib/git-fixture.sh\n}\nsetup\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+        ),
+        (
+            "scripts/ci/tests/source_through_builtin.test.sh",
+            "builtin source scripts/cmux-next/tests/lib/git-fixture.sh\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+        ),
+        (
+            "scripts/ci/temp_repo_export_config_pair.sh",
+            "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false\nd=$(mktemp -d)\n"
+            "git -C \"$d\" init -q\n",
+        ),
+        (
+            "scripts/ci/temp_repo_env_config_pair.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "env = {'GIT_CONFIG_COUNT': '1', 'GIT_CONFIG_KEY_0': 'maintenance.auto', 'GIT_CONFIG_VALUE_0': 'false'}\n"
+            "subprocess.run(['git', 'init', d], env=env)\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out_wrapper.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\ndef run_it(*args):\n"
+            "    return subprocess.run(['git', *args], check=True)\nrun_it('-c', 'maintenance.auto=false', 'init', d)\n",
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_called_function_ok.test.sh",
+            "tmp=$(mktemp -d)\na='s=$?; (exit \"$s\"); rm -rf \"$tmp\"'\nfix() {\n  a='rm -rf \"$tmp\"'\n}\nfix\n"
+            "trap \"$a\" EXIT\n",
         ),
         (
             "scripts/ci/temp_repo_opt_out_config.py",
