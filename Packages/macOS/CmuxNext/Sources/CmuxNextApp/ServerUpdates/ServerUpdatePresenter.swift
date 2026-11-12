@@ -9,7 +9,7 @@ import CmuxNextUpdater
 
 /// Shows "Update ready for cmux-tui" (Restart) as a toast on the active window, asks the confirm
 /// on its button, runs the restart and reports the result (plans/cmux-next/server-updates-DESIGN.md).
-/// It never restarts on its own: skew only shows the toast.
+/// It never restarts on its own: skew only shows the toast, never for a daemon the launch hands off.
 @MainActor
 final class ServerUpdatePresenter {
     let servers: ServerUpdateCoordinator
@@ -42,10 +42,8 @@ final class ServerUpdatePresenter {
         observers.append(Task { [weak self] in
             for await (identity, replacing) in ObservationStream({ (daemon.identity, daemon.replacingDaemonPID) }) {
                 guard let identity else { continue }
-                // An older build's daemon the launch check is already handing off gets no toast.
-                servers.report(ServerHandshake(daemon: identity, host: .local),
-                               appCapabilities: ServerHandshake.appCmuxTUICapabilities, bundledBuild: nil,
-                               handingOff: identity.pid == replacing)
+                servers.report(ServerHandshake(daemon: identity, host: .local), appCapabilities: ServerHandshake.appCmuxTUICapabilities,
+                               bundledBuild: nil, handingOff: identity.pid == replacing)
                 self?.sync()
                 await self?.refreshFacts()
             }
