@@ -460,9 +460,23 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.acpmux-goal[data-kind="loop"] .acpmux-goal-action {
-  width: var(--ds-control-icon);
-  height: var(--ds-control-icon);
+/* The line opens its details itself (no icon button): a bare button that reads as the line, its
+   text brightening on hover as a row's does. */
+.acpmux-goal-loop-toggle {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+}
+.acpmux-goal-loop-toggle:hover .acpmux-goal-state,
+.acpmux-goal-loop-toggle[aria-expanded="true"] .acpmux-goal-state {
+  color: var(--agent-soft);
+}
+.acpmux-goal-loop-toggle:focus-visible {
+  outline: var(--cmux-focus-ring-width) solid var(--cmux-focus-ring-color);
 }
 .acpmux-goal-loop-details {
   min-width: 0;

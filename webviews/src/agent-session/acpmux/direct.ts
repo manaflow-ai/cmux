@@ -8514,6 +8514,7 @@ export class AcpmuxDirectClient {
         // A turn the agent started on its own runs no earlier checklist: Progress shows it ended
         // until the agent sends a plan again.
         if (agentStarted && this.progressRow) this.progressSuperseded = true;
+        this.carryPrompts(msg.carried, startedTurnId);
         this.turnOpen = true;
         this.turnStartedAtMs = event.at;
         if (startedTurnId !== undefined) this.runningTurnId = startedTurnId;
@@ -9061,6 +9062,32 @@ export class AcpmuxDirectClient {
         (row.promptId !== undefined ? row.promptId === promptId : (row.resend ?? row.text) === text)
       )
         this.rows.delete(row.id);
+  }
+
+  /// The prompts a turn ended without reading, which acpmux carried into this new turn
+  /// (`turn_started.carried.promptIds`): sent as steers into the turn before, they were never part
+  /// of it. Each row moves to where this turn starts and opens it, so the earlier turn's reply (one
+  /// to a background notice, say) no longer draws under the person's message as if it answered it
+  /// (Leo, 2026-11-12, on a "No change." under his "hm? what happened here").
+  private carryPrompts(carried: unknown, turnId: string | undefined): void {
+    const ids = (carried as { promptIds?: unknown } | undefined)?.promptIds;
+    if (!Array.isArray(ids)) return;
+    for (const id of ids) {
+      if (typeof id !== "string") continue;
+      const rowId = this.steerRows.get(id) ?? this.promptRowKeys.get(id);
+      const row = rowId ? this.rows.get(rowId) : undefined;
+      if (!rowId || !row || row.kind !== "user") continue;
+      this.steerRows.delete(id);
+      this.waitingSteers = this.waitingSteers.filter((waiting) => waiting.rowId !== rowId);
+      this.lateSteers = this.lateSteers.filter((late) => late !== rowId);
+      const { steer: _steer, steerPromptId: _steerPromptId, ...rest } = row;
+      this.rows.set(rowId, {
+        ...rest,
+        version: row.version + 1,
+        ...(turnId !== undefined ? { turnId } : {}),
+      });
+      this.rows.adoptEventOrder(rowId);
+    }
   }
 
   /// The waiting steers (or the one `promptId` names) were read: their rows say so.

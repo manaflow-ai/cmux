@@ -235,6 +235,57 @@ test("a background command's notice never shows acpmux, its task id or bg_output
     expect(`${el.getAttribute("aria-label") ?? ""} ${el.getAttribute("title") ?? ""}`).not.toMatch(/acpmux/i);
 });
 
+// A task end whose subagent ended before it comes to the lead (acpmux hub/bg_notify.rs
+// `bg_end_to_chat`, `orphan_display`). Leo, 2026-11-12, on one drawn as a card with Details: "hm?
+// what happened here". It went well and wrote nothing: no row. Otherwise one quiet line whose
+// output is all it opens to, never the text the agent read.
+function orphanEnd(exit: number, output: string | undefined, display?: "none" | "line") {
+  const end = bgEnd("bg-2361c6b2eafd", "glaeda-gh wait pr x#1 --until done", exit, output ?? "");
+  const body =
+    output === undefined
+      ? "It wrote no output."
+      : `Last 3 lines of its output:\n${output}\n(bg_output reads all of it.)`;
+  const head = end.text.split("\n")[0];
+  const text = `${head}\nTask bg-2361c6b2eafd: glaeda-gh wait pr x#1 --until done\n${body}\nThis task end is for your general-purpose subagent aeac1f9a, which started the task and has ended, so it comes to you.`;
+  const provenance = {
+    ...end.provenance,
+    forSubagent: { id: "aeac1f9a765e65d82", type: "general-purpose" },
+    ...(display && { display }),
+  };
+  return { text, provenance };
+}
+
+test("an orphan task end that went well and wrote nothing draws no row, by acpmux's word or its text", () => {
+  for (const display of ["none", undefined] as const) {
+    const end = orphanEnd(0, undefined, display);
+    expect(incomingPrompt(end.text, { _meta: { provenance: end.provenance } })).toEqual({ kind: "hidden" });
+  }
+});
+
+test("an orphan task end with output is one quiet line that opens to its output, with no Details", async () => {
+  const end = orphanEnd(0, "merged\nchecks green", "line");
+  const read = incomingPrompt(end.text, { _meta: { provenance: end.provenance } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.notice?.orphan).toBe("line");
+  expect(read.message.text).toBe("Last 3 lines of its output:\nmerged\nchecks green");
+  const container = await render(<IncomingMessageLine id="n-o1" message={read.message} onOpen={() => undefined} />);
+  const line = container.querySelector(".cv-received.cv-notice")!;
+  await act(async () => (line.querySelector(".cv-disclosure__toggle") as HTMLElement).click());
+  const all = container.textContent ?? "";
+  expect(all).toContain("checks green");
+  expect(all).not.toMatch(/This task end is for your|bg_output|Details/);
+  expect(container.querySelector(".cv-received__details, .cv-received__more")).toBeNull();
+});
+
+test("a failed orphan task end with no output stays one line that says it wrote none", () => {
+  const end = orphanEnd(2, undefined);
+  const read = incomingPrompt(end.text, { _meta: { provenance: end.provenance } });
+  if (read?.kind !== "message") throw new Error("not a message");
+  expect(read.message.notice?.orphan).toBe("line");
+  expect(read.message.notice?.severity).toBe("warn");
+  expect(read.message.text).toBe("It wrote no output.");
+});
+
 /// Notices that waited behind a busy turn go in as one (acpmux hub/digest.rs `digest_blocks`).
 function digest(...ends: { text: string; provenance: Record<string, unknown> }[]) {
   const parts = ends.map(

@@ -161,7 +161,7 @@ impl Hub {
     ) {
         let id = record.id.as_str();
         let notice = end_notice(dir, record);
-        let mut body = notice_body(dir, record);
+        let (mut body, wrote) = notice_body(dir, record);
         if let Some(label) = super::lane_report_subagents::label(ended) {
             body.push_str(&format!(
                 "\nThis task end is for your {label}, which started the task and has ended, so it \
@@ -173,6 +173,10 @@ comes to you."
         provenance.set("bgTaskId", json!(id));
         if let Some(sub) = ended {
             provenance.set(super::lane_report_subagents::FOR_SUBAGENT, sub.clone());
+        }
+        // How the chat draws it; the agent reads the whole text either way.
+        if let Some(display) = orphan_display(ended.is_some(), wrote, &notice) {
+            provenance.set(DISPLAY, json!(display));
         }
         let mark = bg_run::notified_path(dir, id);
         let opts = PromptOptions {
@@ -219,7 +223,7 @@ impl Hub {
         let notice = end_notice(dir, record);
         let text = format!(
             "[acpmux] A background task you started ended:\n{}",
-            crate::prompt_provenance::notice_text(&notice, &notice_body(dir, record))
+            crate::prompt_provenance::notice_text(&notice, &notice_body(dir, record).0)
         );
         // Only the task's id: the sweep finds its folder from the chat (`bg_end_swept`).
         let left = json!({"text": text, "bgTask": record.id, "forSubagent": sub});
@@ -276,8 +280,25 @@ fn end_notice(dir: &Path, record: &Record) -> Value {
     json!({"sender": SENDER, "severity": severity, "title": summary})
 }
 
-/// The message's body: the task's id and command, and its last [`NOTICE_LINES`] lines.
-fn notice_body(dir: &Path, record: &Record) -> String {
+/// The provenance field that says how the chat draws a task end (`"none"` or `"line"`).
+const DISPLAY: &str = "display";
+
+/// How the chat draws a task end whose subagent ended before it (`orphan`), so it comes to the
+/// lead: one that went well and wrote nothing tells the person nothing, so it draws nothing
+/// (`"none"`); any other is one quiet line, its output behind it (`"line"`). A task end for the
+/// chat's own agent keeps its usual row (`None`). The agent reads the whole notice either way
+/// (Leo, 2026-11-12, on such an end drawn as a card: "hm? what happened here").
+fn orphan_display(orphan: bool, wrote: bool, notice: &Value) -> Option<&'static str> {
+    if !orphan {
+        return None;
+    }
+    let ok = notice.get("severity").and_then(Value::as_str) == Some("info");
+    Some(if ok && !wrote { "none" } else { "line" })
+}
+
+/// The message's body: the task's id and command, and its last [`NOTICE_LINES`] lines; and
+/// whether the task wrote any output.
+fn notice_body(dir: &Path, record: &Record) -> (String, bool) {
     let read = bg_run::read_output(dir, &record.id, None, NOTICE_TAIL).unwrap_or_default();
     let text = String::from_utf8_lossy(&read.data);
     let mut lines: Vec<&str> = text.lines().collect();
@@ -295,7 +316,7 @@ fn notice_body(dir: &Path, record: &Record) -> String {
         body.push_str(&tail.join("\n"));
         body.push_str("\n(bg_output reads all of it.)");
     }
-    body
+    (body, !tail.is_empty())
 }
 
 /// Blocks until nothing holds the lock at `path` (a missing file holds nothing), then lets go.
@@ -332,11 +353,26 @@ mod tests {
         let out: String = (0..30).map(|i| format!("line-{i}\n")).collect();
         spool.write(out.as_bytes()).unwrap();
         let record = Record { id: "t".into(), command: "make  test\n".into(), ..Record::default() };
-        let body = notice_body(dir.path(), &record);
+        let (body, wrote) = notice_body(dir.path(), &record);
+        assert!(wrote);
         assert!(body.starts_with("Task t: make test\nLast 20 lines"), "{body}");
         assert!(body.contains("line-10\n") && body.contains("line-29\n"), "{body}");
         assert!(!body.contains("line-9\n"), "{body}");
         let quiet = Record { id: "none".into(), command: "true".into(), ..Record::default() };
-        assert!(notice_body(dir.path(), &quiet).ends_with("It wrote no output."));
+        let (body, wrote) = notice_body(dir.path(), &quiet);
+        assert!(!wrote);
+        assert!(body.ends_with("It wrote no output."));
+    }
+
+    /// A task end whose subagent ended draws nothing when it went well with no output, one quiet
+    /// line otherwise; the chat's own task end keeps its row.
+    #[test]
+    fn an_orphan_task_end_is_quiet() {
+        let ok = json!({"severity": "info"});
+        let failed = json!({"severity": "warn"});
+        assert_eq!(orphan_display(true, false, &ok), Some("none"));
+        assert_eq!(orphan_display(true, true, &ok), Some("line"));
+        assert_eq!(orphan_display(true, false, &failed), Some("line"));
+        assert_eq!(orphan_display(false, false, &ok), None);
     }
 }

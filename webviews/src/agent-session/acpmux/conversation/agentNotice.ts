@@ -30,6 +30,10 @@ export type AgentNotice = {
   /// cmux's own notice (a background command's end): its sender is an internal component, named
   /// `cmux` on the line, and no chat of the list stands behind it.
   system?: true;
+  /// A background task's end whose subagent ended first, so it came to the lead (acpmux
+  /// hub/bg_notify.rs `orphan_display`): `none` draws nothing (it went well and wrote nothing),
+  /// `line` is one quiet line with its output behind it and no Details. The agent reads it whole.
+  orphan?: "none" | "line";
   /// How many more notices went in with this one (a digest of notices, incomingMessage.ts): the
   /// line names this one, the most severe, and counts the rest.
   more?: number;
@@ -55,8 +59,29 @@ export function shownNoticeBody(notice: AgentNotice, body: string): string {
   if (!notice.system) return body;
   const lines = body.split("\n");
   if (lines[0] && /^Task \S+: /.test(lines[0])) lines.shift();
-  if (lines.length && /^\(bg_output reads all of it\.\)$/.test(lines.at(-1)!.trim())) lines.pop();
+  // The lines acpmux writes for the model, wherever they fall: the hint, and an orphan end's
+  // "This task end is for your …" (it comes after the hint, so the hint is not always last).
+  const forModel = (text: string) => BG_HINT.test(text) || ORPHAN_LINE.test(text);
+  while (lines.length && forModel(lines.at(-1)!.trim())) lines.pop();
   return lines.join("\n").trim();
+}
+
+const BG_HINT = /^\(bg_output reads all of it\.\)$/;
+const ORPHAN_LINE = /^This task end is for your .+, which started the task and has ended, so it comes to you\.$/;
+const NO_OUTPUT = /^It wrote no output\.$/;
+
+/// How an orphan task end draws (`AgentNotice.orphan`): acpmux's own word (`display`), else, for
+/// a record from before it said, read from the notice and the text: one for a subagent that went
+/// well and wrote nothing draws nothing.
+function orphanDisplay(
+  provenance: Record<string, unknown>,
+  severity: string,
+  text: string | undefined,
+): AgentNotice["orphan"] {
+  if (provenance.display === "none" || provenance.display === "line") return provenance.display;
+  if (!provenance.forSubagent || typeof provenance.forSubagent !== "object") return undefined;
+  const quiet = severity === "info" && text !== undefined && text.split("\n").some((l) => NO_OUTPUT.test(l.trim()));
+  return quiet ? "none" : "line";
 }
 
 /// A notice signed by `sender`: cmux's own parts are marked and named `cmux`.
@@ -92,7 +117,7 @@ export function titleParts(title: string): { lead: string; end?: string } {
 
 /// The notice a `notice` provenance carries, or undefined when it names no sender, severity or
 /// title (an older or broken record: the prompt then reads as its sender's message).
-export function provenanceNotice(provenance: Record<string, unknown>): AgentNotice | undefined {
+export function provenanceNotice(provenance: Record<string, unknown>, text?: string): AgentNotice | undefined {
   const raw = provenance.notice;
   if (!raw || typeof raw !== "object") return undefined;
   const notice = raw as Record<string, unknown>;
@@ -109,12 +134,14 @@ export function provenanceNotice(provenance: Record<string, unknown>): AgentNoti
         return [{ url, ...(label && { label }) }];
       })
     : [];
+  const orphan = isSystemSender(sender) ? orphanDisplay(provenance, severity, text) : undefined;
   return {
     ...signed(sender),
     ...(host && { host }),
     severity: severity as NoticeSeverity,
     title,
     links: links.slice(0, 16),
+    ...(orphan && { orphan }),
   };
 }
 

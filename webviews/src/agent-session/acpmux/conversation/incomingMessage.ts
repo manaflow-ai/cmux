@@ -620,7 +620,11 @@ function promptOf(
   // body without the head and the Links line the row draws itself.
   // acpmux's own who-else notice (hub/touched.rs) carries a notice's fields under its own kind.
   if (provenance?.kind === "notice" || provenance?.kind === "who_else") {
-    const notice = provenanceNotice(provenance);
+    const notice = provenanceNotice(provenance, text);
+    // A background task's end that came to the lead because its subagent ended (agentNotice.ts
+    // `orphan`): nothing when it went well and wrote nothing, else one quiet line whose output is
+    // all it opens to, with no Details of the text the agent read.
+    if (notice?.orphan === "none") return { kind: "hidden" };
     if (notice)
       return {
         kind: "message",
@@ -630,7 +634,7 @@ function promptOf(
           ...remote,
           ...harness,
           text: shownNoticeBody(notice, noticeBody(text)),
-          raw: text,
+          ...(notice.orphan ? {} : { raw: text }),
         },
       };
   }
