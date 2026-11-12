@@ -55,7 +55,7 @@ printf '[package]\nname = "pinned"\nversion = "0.1.0"\n\n[workspace]\n' >"$W/cra
 printf '[toolchain]\nchannel = "1.90.0"\n' >"$W/crates/pinned/rust-toolchain.toml"
 printf '[toolchain]\nchannel = "1.95.0"\n' >"$W/cmux-tui/rust-toolchain.toml"
 printf '[package]\nname = "off"\nversion = "0.1.0"\n\n[workspace]\n' >"$W/crates/off/Cargo.toml"
-cat >"$W/.github/workflows/swift-packages-linux.yml" <<'YML'
+cat >"$W/.github/workflows/swift-linux-packages.yml" <<'YML'
 jobs:
   packages:
     strategy:
@@ -65,10 +65,13 @@ jobs:
             packages: >-
               Packages/Shared/Port
               Packages/Shared/NoTests
+          - group: one
+            packages: Packages/Shared/Single
     steps:
       - run: echo Packages/Shared/Other
 YML
 touch "$W/Packages/Shared/Port/Tests/.keep" "$W/Packages/Shared/NoTests/Package.swift"
+mkdir -p "$W/Packages/Shared/Single" && touch "$W/Packages/Shared/Single/Package.swift"
 for t in a b; do printf '#!/bin/bash\necho "cpp %s" >> "%s"\n[[ "%s" != "${CPP_RED:-}" ]]\n' "$t" "$TMP/calls" "$t" >"$W/scripts/cmux-next/test-$t-cpp.sh"; done
 printf '#!/bin/bash\necho "run-tests $*" >> "%s"\n' "$TMP/calls" >"$W/web/scripts/run-tests.sh"
 # The web step's bun is the one webviews/package.json pins (scripts/webviews_bun_version.py).
@@ -182,7 +185,7 @@ grep -q '^chromium-host-dispatch.test *FAIL (exit 1)' <<<"$out" || fail "the sum
 rm -rf "$W/scripts/cmux-next/tests"
 rm -f "$TMP/calls"
 
-# swift-portable PKG: swift-packages-linux.yml's build and test, only for a package its matrix lists.
+# swift-portable PKG: swift-linux-packages.yml's build and test, only for a package its matrix lists.
 ARGS=(swift-portable Packages/Shared/Port)
 run CMUX_CI_STEP_KEY=k >/dev/null || fail "swift-portable refused"
 [[ "$(calls)" == "$(printf '%s\n' 'swift 1 build --package-path Packages/Shared/Port --build-tests' 'swift 1 test --package-path Packages/Shared/Port --skip-build --parallel')" ]] || fail "swift-portable: $(calls)"
@@ -194,6 +197,9 @@ rm -f "$TMP/calls"
 ARGS=(swift-portable Packages/Shared/Port)
 rc=0; out=$(run CMUX_CI_STEP_KEY=k FAKE_OS=Darwin) || rc=$?
 [[ "$rc" == 78 ]] || fail "swift-portable on macOS exited $rc, want 78 (no Linux evidence): $out"
+ARGS=(swift-portable Packages/Shared/Single)
+run CMUX_CI_STEP_KEY=k >/dev/null || fail "swift-portable refused a one-line packages: group"
+rm -f "$TMP/calls"
 for bad in Packages/Shared/Other Packages/Shared ../Packages/Shared/Port; do
   ARGS=(swift-portable "$bad")
   run CMUX_CI_STEP_KEY=k >/dev/null && fail "swift-portable accepted $bad"
