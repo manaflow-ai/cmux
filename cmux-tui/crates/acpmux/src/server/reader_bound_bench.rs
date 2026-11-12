@@ -25,10 +25,15 @@ const SMALL_BYTES: usize = 1 << 10;
 /// 64 MiB, plus the hub's event ring's, 64 MiB, plus slack for the allocator).
 const GROWTH_BOUND: usize = 160 << 20;
 
-/// This process's resident memory in bytes (Linux `/proc/self/statm`).
+/// This process's resident memory in bytes (Linux `/proc/self/statm`); a bench that cannot read
+/// it fails rather than report no growth.
 fn rss() -> usize {
-    let statm = std::fs::read_to_string("/proc/self/statm").unwrap_or_default();
-    let pages: usize = statm.split_whitespace().nth(1).and_then(|p| p.parse().ok()).unwrap_or(0);
+    let statm = std::fs::read_to_string("/proc/self/statm").expect("/proc/self/statm");
+    let pages: usize = statm
+        .split_whitespace()
+        .nth(1)
+        .and_then(|p| p.parse().ok())
+        .expect("resident pages in /proc/self/statm");
     pages * 4096
 }
 

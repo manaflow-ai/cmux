@@ -45,3 +45,42 @@ async fn an_event_the_store_refused_is_not_broadcast_and_moves_no_cursor() {
     }
     assert!(heard, "a stored record is broadcast");
 }
+
+/// A fork whose copy of the chat's history the journal refused fails, rather than reading as
+/// whole with records missing (a refused copy is neither stored nor heard).
+#[tokio::test(flavor = "current_thread")]
+async fn a_fork_whose_copy_the_store_refused_fails() {
+    use super::NewRequest;
+    let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let cfg = json!({"harnesses": {"fake": {"argv": ["python3", fake]}}, "defaultHarness": "fake",
+                     "titles": {"generate": false}});
+    let mut cfg: Config = serde_json::from_value(cfg).unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = super::Hub::new(cfg, store);
+    let parent = hub
+        .new_session(NewRequest { cwd: Some(std::env::temp_dir()), ..Default::default() })
+        .await
+        .unwrap();
+    hub.prompt(&parent, vec![json!({"type":"text", "text":"first"})], "test", false).await.unwrap();
+    {
+        let mut meta = parent.meta.lock().unwrap();
+        meta.status = crate::store::SessionStatus::Running;
+        // No native fork: the fork copies the mux log.
+        meta.agent_capabilities = Some(json!({}));
+    }
+    let chats = hub.sessions.lock().unwrap().len();
+
+    REFUSE_APPENDS.with(|r| r.set(true));
+    let fork = hub.fork(&parent, None, None, Default::default(), None, None, true).await;
+    REFUSE_APPENDS.with(|r| r.set(false));
+    let err = fork.err().expect("a fork with refused copies fails");
+    assert_eq!(err.data.as_ref().and_then(|d| d["reason"].as_str()), Some("fork.incomplete"));
+    // The failed fork is purged (`CreationGuard`, on its own task).
+    let purged = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while hub.sessions.lock().unwrap().len() != chats {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    });
+    assert!(purged.await.is_ok(), "the failed fork is not listed");
+}
