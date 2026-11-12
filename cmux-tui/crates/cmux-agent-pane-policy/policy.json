@@ -168,7 +168,7 @@
     "_acpmux/agent_login/finish": {"params": ["loginId", "code", "sessionId"], "acpmux": []},
     "_acpmux/agent_login/api_key": {"params": ["agent", "key", "sessionId"], "acpmux": []},
     "_acpmux/agent_login/cancel": {"params": ["loginId", "sessionId"], "acpmux": []},
-    "_acpmux/process/list": {"params": ["sessionId"], "acpmux": []},
+    "_acpmux/process/list": {"params": ["sessionId", "limit", "cursor"], "acpmux": []},
     "_acpmux/process/tail": {"params": ["processId", "maxBytes"], "acpmux": []},
     "_acpmux/process/kill": {"params": ["sessionId", "processId"], "acpmux": []},
     "_acpmux/process/background": {"params": ["sessionId", "toolCallId"], "acpmux": []},
