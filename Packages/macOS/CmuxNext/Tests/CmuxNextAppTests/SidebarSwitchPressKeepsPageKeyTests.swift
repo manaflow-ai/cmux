@@ -6,11 +6,11 @@ import CmuxNextFocus
 import Testing
 
 /// SPACE SWITCH 4 (hold l1, aws-m4pro-8, 120 Hz, twin 646125b19f9b, gated for the host clock): a workspace switch by
-/// a sidebar click shows its frame 14.9 ms later at p50 than the same switch by its key (51.55 and 48.40 ms against
-/// 33.38 and 33.57 ms; Chrome's tab switch: 33.20 and 36.94 ms). The cause is a change of the key window that the
+/// a sidebar click shows its frame 18.2 and 14.8 ms later at p50 than the same switch by its key (the 2 rounds: 51.55
+/// and 48.40 ms against 33.38 and 33.57 ms; Chrome's tab switch: 33.20 and 36.94 ms). The cause is a change of the key window that the
 /// person cannot see. While a Chromium page holds the key (a browser tab, an agent chat, Home), a press on a row went
 /// `ShellWindow.sendEvent` -> `WindowPressRouter.willSend` -> `FirstClickPolicy` -> `makeKey` BEFORE the row got the
-/// press (the press was 10.23 ms old when the switch started; 2.95 ms with a terminal, where no key moves), and the
+/// press (the press was 10.23 ms old at p50 when the switch started; 2.7 to 3.0 ms with a terminal, where no key moves), and the
 /// row's `mouseDown` then made the list the first responder, for which the focus model takes the keys back from the
 /// page (`FocusEffectApplier.moveResponder(.sidebar)` -> `ChildPageFocus.reclaim`). The key change's layout and
 /// draw of the window landed in the frame of the switch (commit - apply 13.58 ms by click, 6.3 ms by key). The
@@ -159,6 +159,10 @@ struct SidebarSwitchPressKeepsPageKeyTests {
             try rig.send(.leftMouseDown, point, flags: press.flags, clicks: press.clicks)
             try rig.send(.leftMouseUp, point, flags: press.flags, clicks: press.clicks)
             #expect(rig.keyRequests == 1, "a \(press.name) press on a row made \(rig.keyRequests) key requests (want 1)")
+            // AppKit does not deliver a sent press to a view of a window that is not on screen, so the row gets the
+            // same press directly: what the list shows after it is the row's own answer, not the rig's.
+            rig.list.mouseDown(with: try rig.event(.leftMouseDown, point, flags: press.flags, clicks: press.clicks))
+            rig.list.mouseUp(with: try rig.event(.leftMouseUp, point, flags: press.flags, clicks: press.clicks))
             #expect(rig.bench.shownWorkspace == shown, "a \(press.name) press showed \(rig.bench.shownWorkspace ?? "nothing")")
         }
     }

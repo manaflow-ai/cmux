@@ -39,8 +39,9 @@ extension SidebarListViewComponents: KeyNeutralPressTarget {
     /// A row press that shows another workspace moves no key: the switch gives the keyboard to that workspace's
     /// content in its own turn, as the workspace keys do. Before, the window was made key for the press and the list
     /// took the keyboard, only for the switch to hand both on: with a Chromium page key that was two changes of the key
-    /// window and their layout and draw in the frame of the switch, 14.9 ms at p50 (SPACE SWITCH 4, hold l1). Chrome's
-    /// tab strip is in the page's own window, which stays key through a tab click.
+    /// window and their layout and draw in the frame of the switch: the click's frame was 14.8 to 18.2 ms behind the
+    /// key's at p50 (SPACE SWITCH 4, hold l1, 2 rounds). Chrome's tab strip is in the page's own window, which stays
+    /// key through a tab click.
     ///
     /// Every other press takes the window's usual path, as before: one on the shown workspace's row (the list takes the
     /// keyboard), a control-, Shift- or Command-press, a double-click's second press (the rename needs the key), a press

@@ -2025,7 +2025,7 @@ mark that shows ANOTHER workspace goes straight to the row (`KeyNeutralPressTarg
 `SidebarListView+WorkspacePress.swift`, `SidebarModel.clickShowsAnotherWorkspace`): the shell window is not made key
 first and the list does not become the first responder. The switch gives the keyboard to the new workspace's content in
 the same turn, as the key path does. Chrome's tab strip and page share one window that stays key through a tab click.
-Measured before (hold l1, aws-m4pro-8, 120 Hz, gated): the click was 14.9 ms behind the key at p50.
+Measured before (hold l1, aws-m4pro-8, 120 Hz, gated): the click's frame was 18.2 ms (round 0) and 14.8 ms (round 1) behind the key's at p50.
 
 Not changed (each keeps the window-key-first path and the list as first responder): a press with the shell window
 key; the shown row; a control-press (menu); a double-click (rename); a Command or Shift press (selection); a row of a

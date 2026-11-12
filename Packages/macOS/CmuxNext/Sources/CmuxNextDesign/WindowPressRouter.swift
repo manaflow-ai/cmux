@@ -50,8 +50,9 @@ public extension KeyNeutralPressTarget {
 /// key before such a press; for a divider that key change was the press's whole cost:
 /// `-[NSThemeFrame _windowChangedKeyState]` redrew every control of the window, 101 view layouts and an 18.9 ms frame on
 /// the drag's first refresh (RESIZE P0 7, px-col-drag-2-s1r, cmux21 120 Hz). For a sidebar row that shows another
-/// workspace it was 14.9 ms of the switch at p50 (SPACE SWITCH 4, hold l1, aws-m4pro-8 120 Hz: the press was 10.2 ms old
-/// when the switch started, against 3.0 ms with no key change, and the key change's layout and draw landed in the
+/// workspace it put the switch's frame 14.8 to 18.2 ms behind the same switch by its key at p50 (SPACE SWITCH 4, hold
+/// l1, aws-m4pro-8 120 Hz, 2 rounds: the press was 10.23 ms old when the switch started, against 2.7 to 3.0 ms with no
+/// key change, and the key change's layout and draw landed in the
 /// switch's frame); the switch gives the keyboard to the new workspace's content in the same turn, so the window was
 /// key for nothing. In Chrome the page, the splitter and the tab strip share one window, which stays key.
 ///
