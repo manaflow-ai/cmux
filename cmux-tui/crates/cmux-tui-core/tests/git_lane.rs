@@ -306,6 +306,28 @@ impl Connection {
         writeln!(self.writer, "{request}").unwrap();
     }
 
+    /// One line of the daemon, with a wait of `left` at most: `Ok(0)` when
+    /// the daemon closed, an error when no line came in time.
+    ///
+    /// macOS refuses a read timeout on a socket whose peer closed its whole
+    /// end (`EINVAL`). Such a socket has all that it will ever get, so a read
+    /// that does not wait gives the lines that are left, then the close. A
+    /// refusal on a connection that is open is a fault of the test.
+    fn read_line_in(&mut self, left: Duration, line: &mut String) -> std::io::Result<usize> {
+        let Err(refused) = self.reader.get_ref().set_read_timeout(Some(left)) else {
+            return self.reader.read_line(line);
+        };
+        self.reader.get_ref().set_nonblocking(true).unwrap();
+        let read = self.reader.read_line(line);
+        self.reader.get_ref().set_nonblocking(false).unwrap();
+        match read {
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                panic!("a read timeout was refused on a connection that is open: {refused}")
+            }
+            read => read,
+        }
+    }
+
     /// The reply with `id` among the lines the connection sends in `wait`;
     /// `None` when it did not come by then.
     fn reply_in(&mut self, id: &Value, wait: Duration) -> Option<Value> {
@@ -316,9 +338,8 @@ impl Connection {
         loop {
             let left = deadline.checked_duration_since(Instant::now())?;
             let left = left.max(Duration::from_millis(1));
-            self.reader.get_ref().set_read_timeout(Some(left)).unwrap();
             let mut line = String::new();
-            match self.reader.read_line(&mut line) {
+            match self.read_line_in(left, &mut line) {
                 Ok(0) => panic!("the connection closed before the reply {id}"),
                 Ok(_) => {}
                 Err(_) => return None,
@@ -345,9 +366,8 @@ impl Connection {
         while replies.len() < count {
             let Some(left) = deadline.checked_duration_since(Instant::now()) else { break };
             let left = left.max(Duration::from_millis(1));
-            self.reader.get_ref().set_read_timeout(Some(left)).unwrap();
             let mut line = String::new();
-            match self.reader.read_line(&mut line) {
+            match self.read_line_in(left, &mut line) {
                 Ok(0) => return (replies, true),
                 Ok(_) => {}
                 Err(_) => break,
@@ -371,9 +391,8 @@ impl Connection {
         loop {
             let Some(left) = deadline.checked_duration_since(Instant::now()) else { return false };
             let left = left.max(Duration::from_millis(1));
-            self.reader.get_ref().set_read_timeout(Some(left)).unwrap();
             let mut line = String::new();
-            match self.reader.read_line(&mut line) {
+            match self.read_line_in(left, &mut line) {
                 Ok(0) => return true,
                 Ok(_) => {}
                 Err(_) => return false,
