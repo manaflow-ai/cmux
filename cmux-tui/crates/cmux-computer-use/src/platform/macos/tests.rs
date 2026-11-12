@@ -1258,3 +1258,18 @@ fn a_release_by_id_is_skipped_once_another_app_took_the_keyboard() {
     assert!(release_blocked(true, true).is_some_and(|w| w.contains("another app")));
     assert!(release_blocked(false, false).is_some_and(|w| w.contains("tap")));
 }
+
+#[test]
+fn the_keyboard_handoff_is_off_unless_its_variable_is_1() {
+    assert!(!key_focus::handoff_enabled_by(None));
+    assert!(!key_focus::handoff_enabled_by(Some("")));
+    assert!(!key_focus::handoff_enabled_by(Some("0")));
+    assert!(!key_focus::handoff_enabled_by(Some("true")));
+    assert!(key_focus::handoff_enabled_by(Some("1")));
+    // This test process does not set it: arm is a no-op (no tap, no thread).
+    if std::env::var(key_focus::HANDOFF_ENV).ok().as_deref() != Some("1") {
+        let frame = Rect { x: 0.0, y: 0.0, width: 10.0, height: 10.0 };
+        assert!(!key_focus::arm(1, 2, frame, None));
+        assert_eq!(key_focus::counts(), (0, 0));
+    }
+}

@@ -118,55 +118,47 @@ Prevention, in the desktop (macOS):
   next call presses an item, and `press_key Escape` closes it. A menu's
   window may belong to another process (a System Settings pane's extension):
   the engine follows the new menu window, not the target's pid.
-- An open menu takes key focus: the window server routes the keyboard to it
-  without activating its app (measured: a key typed into the frontmost
-  TextEdit while a background System Settings pop-up was open never arrived).
-  While a call opens a menu of an app other than the person's, a per-process
-  event tap on the person's app drops the "lost key focus" notice and, once
-  the menu shows, the theft is released with SkyLight's private
+- Menus behave like Codex Computer Use's. An open menu takes key focus: the
+  window server routes the keyboard to it without activating its app
+  (measured: a key typed into the frontmost TextEdit while a background
+  System Settings pop-up was open never arrived), so an open menu holds the
+  person's keyboard while it shows, and the result says so (`menu.keyboard`
+  `menu`). A menu in the person's own app holds their keyboard inside that
+  app.
+  - While anything is denied, a menu is left open only when it hides
+    nothing and has no submenu at all (the person's own arrows and Return
+    reach every level, and AX gives no sign of a submenu an app fills when
+    it opens). Otherwise it is closed again and its titles listed
+    (`menu.state` `listed`, submenu parents marked).
+  - Picks run in one call: `click` with `menu_item` (a right click or
+    control-click, a pop-up or menu button), with a path for a submenu's
+    item ("Open With > TextEdit", "Sort By > Name"), or `set_value` on a
+    pop-up. A pick holds the keyboard while it picks (about 0.5 to 1.5 s),
+    as Codex's does.
+- Keyboard handoff (experimental, off): with `CMUX_CU_KEY_HANDOFF=1` in the
+  Computer Use worker's environment, on macOS 12 through 26 only, a call
+  that opens a menu of an app other than the person's places an event tap on
+  the person's app, drops its "lost key focus" notice and, once the menu
+  shows, releases the theft with SkyLight's private
   `SLPSStealKeyFocusReturningID` / `SLPSReleaseKeyFocusWithID`
-  (`platform/macos/key_focus.rs`, cua-driver's technique). The menu stays open
-  and operable through accessibility; the person's typing stays in their app
-  (10 of 10 in a guest; Codex Computer Use keeps it there too). The result
-  says which: `menu.keyboard` is `person` or `menu`. A menu in the person's own
-  app holds their keyboard inside that app while it is open.
-  - The handoff arms only on the macOS majors its private calls were checked
-    on (12 through 26). Elsewhere (macOS 27) the menu holds the keyboard while
-    it shows, as Codex Computer Use's does; such a menu is never left open
-    when it hides items while anything is denied (the person's typing could
-    reach one): `click` with `menu_item`, or `set_value`, picks in one call.
-  - While anything is denied, a menu that holds the keyboard (the person's
-    own arrows and Return reach every level) is left open only when it hides
-    nothing and has no submenu at all: AX gives no sign of a submenu the app
-    fills when it opens. Otherwise it is closed again and its titles listed
-    (`menu.state` `listed`, submenu parents marked), and `click` with
-    `menu_item` picks in one call, with a path for a submenu's item ("Sort
-    By > Name"). On macOS 27 that is most context menus.
-  - A one-call pick holds the keyboard while it picks (about 0.5 to 1.5 s),
-    as Codex Computer Use's does.
-  - When the handoff armed but the keyboard was not given back (a helper's
-    theft, released only once its menu window shows over the target, or a
-    release that missed), the menu is listed and closed the same way, with
-    the reason in the result's note (`keyboard handoff: ...`); `set_value`
-    and `click` with `menu_item` still pick in one call.
-  - A release takes the keyboard back only from the call's own theft.
-    Whoever commits to it takes it, once: the release thread when the call's
-    menu shows (the thief's own menu window, a new one over the target's
-    window, or the call seeing its menu open), else the call's end, when
-    the call never saw its menu (a menu that was seen and closed ended its
-    theft itself). The release goes by id (the newest theft), so it is
-    skipped, as a miss, when another app took the keyboard from the menu's
-    owner since (Spotlight, a menu-bar menu: the tap on the owner hears it)
-    or that tap could not be placed. Each call is numbered: a release of an
-    earlier call, or of a call that already ended, gives nothing back. A
-    miss is the safe fallback above (listed and closed, keyboard: menu).
+  (`platform/macos/key_focus.rs`, cua-driver's technique), so the person's
+  typing stays in their app (`menu.keyboard` `person`). Off, no tap, thread
+  or SkyLight call runs. With it on:
+  - when the keyboard was not given back, the menu is listed and closed as
+    above, with the reason in the result's note (`keyboard handoff: ...`);
+  - a release takes the keyboard back only from the call's own theft, once
+    (the release thread when the call's menu shows over the target, else
+    the call's end when the call never saw its menu), and is skipped, as a
+    miss, when another app took the keyboard from the menu's owner since or
+    the tap on it could not be placed; each call is numbered, so a release
+    of an earlier or ended call gives nothing back.
   - Display screenshots show a menu the agent opened as it is on screen,
     hidden items' titles included (only the windows of blocked apps are
     redacted; a window screenshot leaves menus out). Codex Computer Use
     shows them too; the items stay refused.
-  - Known limit: if the release misses and the menu also ignores both
-    `AXCancel` and Escape, the person's window can look active while their
-    keys go to the menu until it closes. The menu stays recorded, so the
+  - Known limit (handoff on): if the release misses and the menu also
+    ignores both `AXCancel` and Escape, the person's window can look active
+    while their keys go to the menu until it closes. The menu stays recorded, so the
     agent's keys, typing and drags into that app are refused meanwhile, and
     the next call tries to close it again.
 - Menu bar menus (`AXMenuBarItem`, menu extras) never open in the background:

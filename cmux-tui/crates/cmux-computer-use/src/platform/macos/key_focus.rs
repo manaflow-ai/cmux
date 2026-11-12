@@ -111,6 +111,24 @@ pub(super) fn tested_os(version: &str) -> bool {
         .is_some_and(|m| TESTED_MAJORS.contains(&m))
 }
 
+/// The environment variable that turns the keyboard handoff on. It is
+/// experimental and off by default: menus then behave as Codex Computer
+/// Use's (an open menu holds the keyboard; while anything is denied a menu
+/// with hidden items or submenus is listed and closed; picks run in one
+/// call).
+pub(super) const HANDOFF_ENV: &str = "CMUX_CU_KEY_HANDOFF";
+
+/// Whether the handoff is on: `CMUX_CU_KEY_HANDOFF=1` in the worker's
+/// environment, read once. Pure part, for tests.
+pub(super) fn handoff_enabled_by(value: Option<&str>) -> bool {
+    value.is_some_and(|v| v.trim() == "1")
+}
+
+fn handoff_enabled() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| handoff_enabled_by(std::env::var(HANDOFF_ENV).ok().as_deref()))
+}
+
 fn skylight() -> Option<&'static SkyLight> {
     static S: OnceLock<Option<SkyLight>> = OnceLock::new();
     S.get_or_init(|| {
@@ -740,7 +758,8 @@ pub(super) fn arm(
     target_frame: crate::desktop::Rect,
     guard: Option<std::sync::Arc<dyn crate::desktop::MenuGuard>>,
 ) -> bool {
-    if skylight().is_none() {
+    // Off unless CMUX_CU_KEY_HANDOFF=1: no tap, thread or SkyLight call then.
+    if !handoff_enabled() || skylight().is_none() {
         return false;
     }
     let placed = state().front.as_ref().is_some_and(|f| f.0 == front_pid);
