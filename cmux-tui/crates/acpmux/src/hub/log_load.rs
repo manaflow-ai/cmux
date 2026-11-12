@@ -225,6 +225,8 @@ impl Hub {
         // callback writes `_acpmux/message`; reconstruct those projections before
         // clients can attach or the restored queue resumes.
         super::message_events::recover_message_events(self, session);
+        // And the last turn a lost save named: the log's newest result (`auto_resume/restore.rs`).
+        self.correct_last_turn(session);
         // A cut turn goes on before what waited behind it (`restart_resume.rs`).
         if let Some(prompt_id) = continued {
             let _ = self.move_queued(session, &prompt_id, 0, None);
