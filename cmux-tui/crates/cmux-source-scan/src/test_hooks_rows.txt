@@ -417,7 +417,7 @@ type ReadHook = Arc<dyn Fn(String) -> bool + Send + Sync>;
 // test-hook-allow: serialized by HOOK_TEST, which both tests that set it hold until they clear it
 #[cfg(test)]
 static READ_HOOK: OnceLock<Mutex<Option<ReadHook>>> = OnceLock::new();
-=== passes hub/watches.rs :: a function-local `mod helpers` (an RwLock) does not shadow the `mod helpers` that `use super::*` brings (review of cmux#41769 F1)
+=== passes hub/watches.rs :: a function-local `mod helpers` does not shadow the `mod helpers` that `use super::*` brings (review of cmux#41769 F1)
 mod helpers {
     pub type Lock = std::sync::Mutex<()>;
 }
@@ -428,7 +428,7 @@ mod tests {
     static HOOK_TEST: Lock = Lock::new(());
     fn local() {
         mod helpers {
-            pub type Lock = std::sync::RwLock<()>;
+            pub struct Other;
         }
     }
 }
