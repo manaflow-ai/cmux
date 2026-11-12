@@ -303,7 +303,9 @@ fn a_slow_start_whose_acpmux_still_answers_waits_for_it() {
     assert_eq!(reply, json!({"ok": true}));
     assert!(started.elapsed() >= Duration::from_millis(90));
     assert!(probes.load(Ordering::SeqCst) >= 2, "acpmux was asked whether it still answers");
-    let (link, _probes, _dir) = paced("session/new", Duration::from_millis(90), true);
+    // A fixed bound fails a start slower than it. Its answer never comes: a 90 ms answer reached a
+    // waiter that a loaded machine woke after it came, and the fixed call returned it.
+    let (link, _probes, _dir) = paced("session/new", Duration::from_secs(3600), true);
     let fixed = link.call("session/new", json!({}), Duration::from_millis(60));
     assert_eq!(fixed, Err(LinkError::Timeout));
 }
