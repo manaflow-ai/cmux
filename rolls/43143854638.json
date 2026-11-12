@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43143854638",
+  "recorded_at": "2026-11-12T03:00:05Z",
+  "reason": "cmux-tui 80f6ed6b08e6 changes the image's cmux-tui (pinned d9b91678182d)",
+  "dry_run": false,
+  "cmux_tui": "80f6ed6b08e64cffb2613d91db357c008761b45c",
+  "fixes": [
+    {
+      "sha": "e16bc62ae880999858e3b1d01d20114f9c59e086",
+      "mergedAt": "2026-11-12T02:33:07Z",
+      "subject": "chore(next): base autofix at 206648471733"
+    },
+    {
+      "sha": "206648471733a948e2222fed1de24b458ab11665",
+      "mergedAt": "2026-11-11T18:29:37-08:00",
+      "subject": "cmux next: split --fit opens a column that shares the window; agents use it instead of a half-window column (#37445)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T03:00:05Z",
+    "snapshot_id": "sh-bfe5970758314fb18038cc424c882cb3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43143854638): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "211ba5aa7462ab5cf59e58d7fbb6c922a0239f10",
+    "image": "cloud-native-auto-80f6ed6b-43143854638-1",
+    "revision": "ci-43143854638-1",
+    "at": "2026-11-12T03:00:05Z"
+  },
+  "rolled_back": false
+}
