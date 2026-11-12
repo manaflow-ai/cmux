@@ -170,7 +170,7 @@ public final class DaemonTerminalSession: TerminalSession {
     var tailProbeArmed: Bool { tailProbe != nil }
     private var nextInputBatch = 0
     /// Batches of the failed channel, held until its sends all settle.
-    private var inputFailed: [(number: Int, bytes: Data, at: TimeInterval, written: Bool)] = []
+    private var inputFailed: [(number: Int, bytes: Data, at: TimeInterval, written: Bool, typed: Int)] = []
     private var inputDrainScheduled = false
     private var handler: (@MainActor (TerminalSessionEvent) -> Void)?
     /// Decodes lines given to `handle(_:)` (the attach stream has its own, off the main actor).
@@ -314,7 +314,9 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The terminal is unreachable: every key still queued now waits for a
     /// detached terminal, from when it was typed.
     private func markInputDetached() {
-        input = input.map { ($0.bytes, $0.at, true, $0.typed) }
+        // A reply waiting to go is stale once the link drops: never sent
+        // after a reattach (the screen is replayed by then).
+        input = input.filter(\.typed).map { ($0.bytes, $0.at, true, true) }
         guard !input.isEmpty else { return }
         let limit = Self.inputHoldLimit
         Task { [weak self] in
@@ -998,6 +1000,9 @@ public final class DaemonTerminalSession: TerminalSession {
         inputWrittenAt[number] = now()
         let typedAt = input[0].at
         let batch = input.reduce(into: Data()) { $0.append($1.bytes) }
+        // The person's own bytes in it: a failed batch of terminal replies
+        // alone is no "keys not sent".
+        let typedBytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         input.removeAll()
         let surface = surface
         let onLane = target !== client
@@ -1013,7 +1018,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 let id: String
                 if onLane {
                     guard let submitted = try await Self.within(.seconds(10), submit) else {
-                        abandonInputLane(target, number: number, bytes: batch.count, wasWriting: true)
+                        abandonInputLane(target, number: number, bytes: batch.count, typed: typedBytes, wasWriting: true)
                         return
                     }
                     id = submitted
@@ -1028,7 +1033,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 let reply: Data
                 if onLane {
                     guard let answer = try await Self.within(.seconds(10), { try await target.reply(to: id) }) else {
-                        abandonInputLane(target, number: number, bytes: batch.count, wasWriting: false)
+                        abandonInputLane(target, number: number, bytes: batch.count, typed: typedBytes, wasWriting: false)
                         return
                     }
                     reply = answer
@@ -1044,11 +1049,11 @@ public final class DaemonTerminalSession: TerminalSession {
                 lastError = LinkController.reason(error)
                 inputRecovering = true
                 if written || target === abandonedInputLane {
-                    inputFailed.append((number, batch, typedAt, written: true))
+                    inputFailed.append((number, batch, typedAt, written: true, typed: typedBytes))
                 } else {
                     // Never written: safe to send again (on the attach channel
                     // when the lane failed, or after the reattach).
-                    inputFailed.append((number, batch, typedAt, written: false))
+                    inputFailed.append((number, batch, typedAt, written: false, typed: typedBytes))
                 }
                 if inputClient === target {
                     dropInputLane()
@@ -1070,11 +1075,11 @@ public final class DaemonTerminalSession: TerminalSession {
     /// The input lane gave no answer in time (`wasWriting`: the batch's
     /// write itself hung): given up, and the batch is not sent again (the
     /// Mac may already have typed it).
-    private func abandonInputLane(_ lane: DaemonClient, number: Int, bytes: Int, wasWriting: Bool) {
+    private func abandonInputLane(_ lane: DaemonClient, number: Int, bytes: Int, typed: Int, wasWriting: Bool) {
         log.error("send on the input lane got no answer; using the attach channel")
         abandonedInputLane = lane
         inputRecovering = true
-        inputFailed.append((number, Data(count: bytes), now(), written: true))
+        inputFailed.append((number, Data(count: bytes), now(), written: true, typed: typed))
         if wasWriting { inputWriting = false }
         inputWrittenAt[number] = nil
         if inputClient === lane { dropInputLane() }
@@ -1101,15 +1106,19 @@ public final class DaemonTerminalSession: TerminalSession {
             inputRecovering = false
             let failed = inputFailed.sorted { $0.number < $1.number }
             inputFailed.removeAll()
-            if failed.contains(where: \.written) {
+            // A written batch of terminal replies alone is no part of a
+            // command: losing it costs the keys typed after it nothing.
+            if failed.contains(where: { $0.written && $0.typed > 0 }) {
                 // The keys typed since go too: no part of a command may run
                 // after an earlier part that may be lost.
-                let bytes = failed.reduce(0) { $0 + $1.bytes.count } + input.reduce(0) { $0 + $1.bytes.count }
+                let bytes = failed.reduce(0) { $0 + $1.typed } + input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
                 input.removeAll()
                 log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes not sent again (the Mac may have typed them before the channel failed)")
                 handler?(.inputNotSent(bytes: bytes))
             } else if !failed.isEmpty {
-                input.insert(contentsOf: failed.map { ($0.bytes, $0.at, true, true) }, at: 0)
+                // A batch of replies alone is stale after the outage (and a
+                // written one may have arrived): dropped.
+                input.insert(contentsOf: failed.filter { !$0.written && $0.typed > 0 }.map { ($0.bytes, $0.at, true, true) }, at: 0)
                 markInputDetached()
             }
         }
