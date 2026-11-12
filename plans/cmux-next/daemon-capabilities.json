@@ -63,6 +63,7 @@
     "conversation-tabs-v1",
     "conversation-thread-v1",
     "conversation-threads-v1",
+    "create-terminal-workspace-v1",
     "creation-attempt-keys-v1",
     "creation-receipts-v1",
     "detached-terminals-v1",

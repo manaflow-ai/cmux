@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3d42509344ba83f31bc5ed0a033e69b79449e5b5ff6cae5e5a1ef3c56ade7849. */
+/* cmux-tui mux protocol 12, IR e0f129ba9e5de0dd090224643abdee9397ad729c0df51ac7927fd1e33a0144b4. */
 
 
 import type * as T from "./types.js";
@@ -221,6 +221,15 @@ export interface BrowserWheelGuardedRequest extends CmuxRequestBase {
   "y_px": number;
 }
 export type BrowserWheelGuardedResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface CancelCreatingInputRequest extends CmuxRequestBase {
+  cmd: "cancel-creating-input";
+  "terminal_id": string;
+}
+export type CancelCreatingInputResult = {
+  "cancelled": boolean;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ChiefInspectRequest extends CmuxRequestBase {
@@ -1076,6 +1085,8 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   "argv"?: (Array<string>) | null;
   "cols"?: (number) | null;
   "command"?: (string) | null;
+  /** Make the workspace first when no workspace has key: a workspace and its first terminal in one request. Needs key and mutation_id, and takes no workspace. */
+  "create_workspace"?: boolean;
   "cwd"?: (string) | null;
   "detached"?: boolean;
   "env"?: (Record<string, string>) | null;
@@ -1090,6 +1101,8 @@ export interface CreateTerminalRequest extends CmuxRequestBase {
   "shell_args"?: (Array<string>) | null;
   "terminal_id"?: (string) | null;
   "workspace"?: (T.Id) | null;
+  /** The name of the workspace create_workspace makes. */
+  "workspace_name"?: (string) | null;
 }
 export type CreateTerminalResult = T.TerminalPlacement;
 
@@ -3040,6 +3053,7 @@ export type CmuxRequest =
   | BrowserReloadRequest
   | BrowserWheelRequest
   | BrowserWheelGuardedRequest
+  | CancelCreatingInputRequest
   | ChiefInspectRequest
   | ChiefWorkRequest
   | ClearHistoryRequest
@@ -3481,6 +3495,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "frontend";
     since: 10;
     capability: "browser-pointer-frame-guard-v1";
+    stream: null;
+  };
+  "cancel-creating-input": {
+    request: CancelCreatingInputRequest;
+    result: CancelCreatingInputResult;
+    authority: "control";
+    since: 12;
+    capability: "creating-input-cancel-v1";
     stream: null;
   };
   "chief-inspect": {

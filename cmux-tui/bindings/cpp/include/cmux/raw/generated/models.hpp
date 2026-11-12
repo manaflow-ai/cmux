@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3d42509344ba83f31bc5ed0a033e69b79449e5b5ff6cae5e5a1ef3c56ade7849";
+inline constexpr std::string_view kProtocolIrSha256 = "e0f129ba9e5de0dd090224643abdee9397ad729c0df51ac7927fd1e33a0144b4";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -288,6 +288,8 @@ struct BrowserNavigateRequest;
 struct BrowserReloadRequest;
 struct BrowserWheelRequest;
 struct BrowserWheelGuardedRequest;
+struct CancelCreatingInputRequest;
+struct CancelCreatingInputResult;
 struct ChiefInspectRequest;
 struct ChiefInspectResult;
 struct ChiefWorkRequest;
@@ -1239,6 +1241,16 @@ struct BrowserWheelRequest {
     double x_px{};
     double y_px{};
     friend bool operator==(const BrowserWheelRequest&, const BrowserWheelRequest&) = default;
+};
+
+struct CancelCreatingInputRequest {
+    std::string terminal_id{};
+    friend bool operator==(const CancelCreatingInputRequest&, const CancelCreatingInputRequest&) = default;
+};
+
+struct CancelCreatingInputResult {
+    bool cancelled{};
+    friend bool operator==(const CancelCreatingInputResult&, const CancelCreatingInputResult&) = default;
 };
 
 struct CellPixelFailure {
@@ -2733,6 +2745,7 @@ struct CreateTerminalRequest {
     Field<std::vector<std::string>> argv{};
     Field<std::uint16_t> cols{};
     Field<std::string> command{};
+    std::optional<bool> create_workspace{};
     Field<std::string> cwd{};
     std::optional<bool> detached{};
     Field<std::map<std::string, std::string, std::less<>>> env{};
@@ -2747,6 +2760,7 @@ struct CreateTerminalRequest {
     Field<std::vector<std::string>> shell_args{};
     Field<std::string> terminal_id{};
     Field<Id> workspace{};
+    Field<std::string> workspace_name{};
     friend bool operator==(const CreateTerminalRequest&, const CreateTerminalRequest&) = default;
 };
 
@@ -8179,6 +8193,18 @@ template <>
 struct Codec<BrowserWheelGuardedRequest> {
     static Result<Json> encode(const BrowserWheelGuardedRequest& value);
     static Result<BrowserWheelGuardedRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CancelCreatingInputRequest> {
+    static Result<Json> encode(const CancelCreatingInputRequest& value);
+    static Result<CancelCreatingInputRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CancelCreatingInputResult> {
+    static Result<Json> encode(const CancelCreatingInputResult& value);
+    static Result<CancelCreatingInputResult> decode(const Json& value);
 };
 
 template <>

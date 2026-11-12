@@ -4452,3 +4452,44 @@ async fn a_match_watch_on_a_peer_chat_wakes_on_a_match_inside_a_large_reply() {
     a.shutdown_all().await;
     b.shutdown_all().await;
 }
+
+/// A switch of a peer's chat onto another harness (`session/fork` with `_meta.acpmux.harness`)
+/// goes only to a peer that lists `sessionForkRetarget`: an older build forks on the chat's own
+/// harness and ignores the pick, so the next message would reach the old provider (review of
+/// cmux#41030, F3). It is refused here with `peer.retarget_unsupported`; a plain fork still goes.
+#[tokio::test]
+async fn a_switch_of_a_peer_chat_needs_a_peer_that_takes_one() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let says = Lying {
+        instance: json!("l-run"),
+        sessions: vec![json!({"sessionId": "far-1", "name": "far"})],
+        answers: json!({"sessionId": "far-fork"}),
+        ..Lying::default()
+    };
+    let port = lying_peer(says).await;
+    a.add_peer("old", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    while a.resolve_remote("old/far").is_none() {
+        assert!(tokio::time::Instant::now() < deadline, "the peer's chat never arrived");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let mut local = client(a.clone()).await;
+    let reply = local
+        .raw(
+            method::SESSION_FORK,
+            json!({"sessionId": "old/far", "cwd": std::env::temp_dir(), "mcpServers": [],
+                   "_meta": {"acpmux": {"harness": "other", "model": "m-1"}}}),
+        )
+        .await;
+    assert_eq!(reply["error"]["data"]["reason"], "peer.retarget_unsupported", "{reply}");
+    let reply = local
+        .raw(
+            method::SESSION_FORK,
+            json!({"sessionId": "old/far", "cwd": std::env::temp_dir(), "mcpServers": []}),
+        )
+        .await;
+    assert!(reply.get("error").is_none(), "a plain fork still goes to the peer: {reply}");
+    a.peer_by_name("old").unwrap().stop();
+}

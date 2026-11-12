@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextPages
 import ImageIO
 import Foundation
 import os
@@ -90,6 +91,8 @@ final class CEFRuntime {
     private(set) lazy var extensionPrompts = CEFExtensionPrompts(runtime: self)
     /// chrome.omnibox keyword sessions (fork API 12).
     let omniboxKeywords = CEFOmniboxKeywords()
+    /// Holds a cmux page's Cmd-V while a TIFF-only picture on the pasteboard gets its PNG (#41016).
+    let pastedImagePNG = PastedImagePNGHold()
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The new Chromium tab bench's marks (`CEFBenchMarks`, DEBUG builds).
     let benchMarks = CEFBenchMarks()

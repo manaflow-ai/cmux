@@ -14,10 +14,20 @@
 //! that is refused, skipped or fails ends that: the pass deletes in place.
 //! So does a start beside the file that the last swap replaced: no worker
 //! runs while that file is kept (at least 7 days and 3 full starts).
+//!
+//! The same thread runs the journal compaction
+//! (`workspace_registry::output_cleanup::journal_compact`) instead, only when
+//! the daemon was started with `CMUX_TUI_JOURNAL_COMPACT=1` and the registry
+//! was not compacted yet: one pass over the whole journal (no floor), and
+//! the worker of that start runs no rebuild at a floor. Without that
+//! variable nothing here changes. The compaction waits like a rebuild while
+//! the file that the last swap replaced is kept, whichever of the two made
+//! that swap: its own swap would replace that file.
 
 use super::*;
 use crate::workspace_registry::output_cleanup::{
-    self, StageControl, StageOutcome, failed_path, stage_registry,
+    self, CleanupMode, StageControl, StageOutcome, failed_path, journal_compact, stage_registry,
+    stage_registry_in,
 };
 
 /// How long after start the cleanup waits, so it never competes with
@@ -244,11 +254,35 @@ impl Mux {
     }
 
     pub(super) fn start_output_cleanup(self: &Arc<Self>) -> anyhow::Result<()> {
+        // The opt-in is read here, once per owner start.
+        self.start_cleanup(journal_compact::requested_by_env())
+    }
+
+    /// A start with the journal compaction's opt-in, for a test: the opt-in
+    /// is a variable of the process, which a test must not set.
+    #[cfg(test)]
+    pub(crate) fn start_cleanup_with_the_compaction_opt_in_for_test(
+        self: &Arc<Self>,
+    ) -> anyhow::Result<()> {
+        self.start_cleanup(true)
+    }
+
+    /// Starts the cleanup thread when this registry has a cleanup to run:
+    /// the journal compaction with `compact_requested` (the opt-in) on a
+    /// registry not compacted yet, else the output cleanup when not done.
+    fn start_cleanup(self: &Arc<Self>, compact_requested: bool) -> anyhow::Result<()> {
         let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let Some(db_path) = registry.session_journal_database_path() else { return Ok(()) };
         // A registry the one-time cleanup is done for is staged again only
         // for a retention floor, which the retention pass names later.
         let done = registry.output_cleanup_done()?;
+        // The journal compaction goes first when it is asked for and not
+        // done (`journal_compact::scheduled_mode`).
+        let compact = journal_compact::scheduled_mode(
+            compact_requested,
+            compact_requested && registry.cleanup_done(CleanupMode::Compact)?,
+            done,
+        ) == Some(CleanupMode::Compact);
         drop(registry);
         if output_cleanup::failed_for_this_build(&db_path) {
             eprintln!(
@@ -258,15 +292,31 @@ impl Mux {
             return Ok(());
         }
         // The file that the last swap replaced is still beside the registry
-        // (`output_cleanup/backup.rs`): the swap of a new rebuild would
-        // replace it. No worker in this start, so the retention pass deletes
-        // in place (`rebuild_possible` stays false).
+        // (`output_cleanup/backup.rs`): the swap of a new rebuild or of a
+        // compaction would replace it, whichever of the two made the last
+        // swap. No worker in this start, so the retention pass deletes in
+        // place (`rebuild_possible` stays false).
         if output_cleanup::backup_held(&db_path) {
-            eprintln!(
-                "cmux-tui: output cleanup: no rebuild in this start; the registry that the last \
-                 swap replaced is still kept beside this one"
-            );
+            if compact {
+                eprintln!(
+                    "cmux-tui: output cleanup: {}=1, but no journal compaction in this start; \
+                     the registry that the last swap replaced is still kept beside this one (at \
+                     least 7 days and 3 full starts after that swap)",
+                    journal_compact::OPT_IN_ENV
+                );
+            } else {
+                eprintln!(
+                    "cmux-tui: output cleanup: no rebuild in this start; the registry that the \
+                     last swap replaced is still kept beside this one"
+                );
+            }
             return Ok(());
+        }
+        if compact {
+            eprintln!(
+                "cmux-tui: output cleanup: {}=1, the journal compaction runs for this registry",
+                journal_compact::OPT_IN_ENV
+            );
         }
         // A staged registry from an earlier start: no sealing during the
         // start delay either (Phase A would have to stage those segments).
@@ -297,6 +347,34 @@ impl Mux {
                 if !worker_control.wait(delay) {
                     return;
                 }
+                if compact {
+                    // One pass over the whole journal, with no floor; then
+                    // the worker of this start ends, and with it the wait of
+                    // the retention pass for a rebuild.
+                    let outcome = run_output_cleanup(
+                        &db_path,
+                        0,
+                        &worker_control,
+                        &pending,
+                        CleanupMode::Compact,
+                    );
+                    if matches!(outcome, CleanupOutcome::NotNeeded)
+                        && !worker_control.is_stopped()
+                        && let Some(mux) = weak_mux.upgrade()
+                    {
+                        let marked = mux
+                            .workspace_registry
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .mark_cleanup_done(CleanupMode::Compact, "not-needed");
+                        if let Err(error) = marked {
+                            eprintln!(
+                                "cmux-tui: output cleanup: could not record the result: {error:#}"
+                            );
+                        }
+                    }
+                    return;
+                }
                 let mut done = done;
                 let mut resume = resume;
                 loop {
@@ -325,7 +403,13 @@ impl Mux {
                         0 => {}
                         limit => output_cleanup::set_put_records_limit_for_test(limit),
                     }
-                    let outcome = run_output_cleanup(&db_path, floor, &worker_control, &pending);
+                    let outcome = run_output_cleanup(
+                        &db_path,
+                        floor,
+                        &worker_control,
+                        &pending,
+                        CleanupMode::Output,
+                    );
                     if worker_control.is_stopped() {
                         return;
                     }
@@ -351,7 +435,7 @@ impl Mux {
                             .workspace_registry
                             .lock()
                             .unwrap_or_else(PoisonError::into_inner)
-                            .mark_output_cleanup_done("not-needed");
+                            .mark_cleanup_done(CleanupMode::Output, "not-needed");
                         if let Err(error) = marked {
                             eprintln!(
                                 "cmux-tui: output cleanup: could not record the result: {error:#}"
@@ -392,7 +476,7 @@ impl Mux {
 /// How one pass of the worker ended.
 enum CleanupOutcome {
     /// Nothing to clean up at this floor: at floor 0 the caller records
-    /// that the one-time cleanup is done.
+    /// that the cleanup of this mode is done.
     NotNeeded,
     /// The pass would keep too much of the journal; the registry is
     /// unchanged and no staging file is left.
@@ -402,30 +486,32 @@ enum CleanupOutcome {
     Ended,
 }
 
-/// Phase A for the registry at `db_path`.
+/// Phase A for the registry at `db_path`: the rebuild at `floor` (0: the
+/// one-time output cleanup), or the journal compaction, which has no floor.
 fn run_output_cleanup(
     db_path: &Path,
     floor: u64,
     control: &Arc<Control>,
     pending: &AtomicBool,
+    mode: CleanupMode,
 ) -> CleanupOutcome {
     let pause = env_duration("CMUX_TUI_TEST_OUTPUT_CLEANUP_SEGMENT_PAUSE_MS");
     let catch_up =
         env_duration("CMUX_TUI_TEST_OUTPUT_CLEANUP_CATCH_UP_MS").unwrap_or(CATCH_UP_INTERVAL);
     let stop_control = control.clone();
-    let outcome = stage_registry(
-        db_path,
-        floor,
-        &StageControl {
-            on_pending: &|| pending.store(true, Ordering::Release),
-            next_segment: &|| match pause {
-                Some(pause) => control.wait(pause),
-                None => !control.is_stopped(),
-            },
-            catch_up: &|| control.wait(catch_up),
-            stopped: Arc::new(move || stop_control.is_stopped()),
+    let stage_control = StageControl {
+        on_pending: &|| pending.store(true, Ordering::Release),
+        next_segment: &|| match pause {
+            Some(pause) => control.wait(pause),
+            None => !control.is_stopped(),
         },
-    );
+        catch_up: &|| control.wait(catch_up),
+        stopped: Arc::new(move || stop_control.is_stopped()),
+    };
+    let outcome = match mode {
+        CleanupMode::Output => stage_registry(db_path, floor, &stage_control),
+        CleanupMode::Compact => stage_registry_in(db_path, &stage_control, mode),
+    };
     match outcome {
         Ok(StageOutcome::NotNeeded) => {
             pending.store(false, Ordering::Release);
@@ -501,6 +587,28 @@ mod tests {
             "a stop waited without a limit for a worker blocked on the registry lock"
         );
         drop(held);
+    }
+
+    /// Without the opt-in the owner schedules what it did before the
+    /// compaction existed: the output cleanup while that is not done, and
+    /// nothing after. The compaction is scheduled only with the opt-in, once.
+    #[test]
+    fn the_journal_compaction_is_scheduled_only_with_the_opt_in() {
+        use journal_compact::{requested, scheduled_mode};
+        use std::ffi::OsStr;
+        assert!(!requested(None), "the compaction is on without its variable");
+        for value in ["", "0", "true", "yes", "2"] {
+            assert!(!requested(Some(OsStr::new(value))), "{value:?} turns the compaction on");
+        }
+        assert!(requested(Some(OsStr::new("1"))));
+        for compact_done in [false, true] {
+            assert_eq!(scheduled_mode(false, compact_done, true), None);
+            assert_eq!(scheduled_mode(false, compact_done, false), Some(CleanupMode::Output));
+        }
+        assert_eq!(scheduled_mode(true, false, true), Some(CleanupMode::Compact));
+        assert_eq!(scheduled_mode(true, false, false), Some(CleanupMode::Compact));
+        assert_eq!(scheduled_mode(true, true, true), None, "the compaction runs once");
+        assert_eq!(scheduled_mode(true, true, false), Some(CleanupMode::Output));
     }
 
     #[test]

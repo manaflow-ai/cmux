@@ -11,7 +11,9 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
-use super::stage::{PUT_RECORDS_LIMIT, StageControl, StageOutcome, stage_registry};
+use super::stage::{
+    PUT_RECORDS_LIMIT, StageControl, StageOutcome, stage_registry, stage_registry_in,
+};
 use super::*;
 
 const SESSION: &str = "floor-rebuild";
@@ -310,6 +312,7 @@ fn a_rebuild_at_a_floor_leaves_a_small_registry_that_every_reader_reads() {
         1,
         u64::try_from(end).unwrap(),
         records,
+        stage::SegmentGaps::Pruned,
     )
     .unwrap();
     assert_eq!(inflated.first().map(|record| record.0), Some(floor + 1));
@@ -461,6 +464,142 @@ fn a_second_rebuild_at_a_higher_floor_swaps_a_registry_that_a_swap_made() {
     );
     let mux = open(&root.0);
     assert_eq!(roster_state(&mux, terminal), roster, "the roster after the second rebuild");
+    mux.shutdown();
+}
+
+/// The journal compaction (`journal_compact.rs`, only with its opt-in) on a
+/// registry that a rebuild at a floor made. The two meet in one staging file
+/// and one kept file:
+///
+/// - No worker of the compaction starts while the file that the rebuild's
+///   swap replaced is kept, and a compaction that is staged does not swap
+///   beside it: its swap would replace the person's way back.
+/// - After a person removed the kept file (the manual step), the compaction
+///   swaps, and it keeps what the rebuild left: each record above the floor,
+///   the removed run as one pruned range, what the registry says it deleted
+///   through, the base of each reducer, and the roster.
+/// - The file that the compaction's swap replaced is then held by the same
+///   rule, from the time of that swap.
+#[test]
+fn a_compaction_of_a_registry_rebuilt_at_a_floor_keeps_what_the_rebuild_left() {
+    let fixture = fixture("then-compact", 1_100);
+    let Fixture { root, db_path, terminal, floor, .. } = &fixture;
+    assert_eq!(stage(db_path, *floor, &|| true), StageOutcome::Built);
+    drop(WorkspaceRegistry::open(&root.0, SESSION).unwrap());
+    assert_rebuilt(&fixture);
+    let rebuilt_at = held_backup(db_path).and_then(|held| held.swapped_at_ms);
+    assert!(rebuilt_at.is_some(), "the rebuild's swap recorded no time");
+
+    // Two full starts with the compaction's opt-in: the file of the
+    // rebuild's swap is beside the registry under its first name, then under
+    // its second. No worker starts in either.
+    for name in [previous_path(db_path), kept_path(db_path)] {
+        let mux = open(&root.0);
+        assert!(name.is_file(), "the file of the rebuild's swap is not at {}", name.display());
+        assert!(!mux.journal_rebuild_possible(), "a rebuild worker runs beside the kept file");
+        mux.start_cleanup_with_the_compaction_opt_in_for_test().unwrap();
+        assert!(
+            !mux.journal_rebuild_possible(),
+            "a compaction worker started beside {}",
+            name.display()
+        );
+        let _ = roster_state(&mux, terminal);
+        mux.shutdown();
+        drop(mux);
+    }
+    let kept_file = kept_path(db_path);
+    assert!(kept_file.is_file(), "the file of the rebuild's swap went after 2 full starts");
+    let kept_bytes = std::fs::read(&kept_file).unwrap();
+    assert!(!staging_path(db_path).exists(), "a start with the opt-in staged beside the kept file");
+
+    // What the rebuild left, read from the closed registry.
+    let head = journal_head(db_path);
+    let records = records_after(db_path, 0, head);
+    assert_eq!(records.first().map(|record| record.0), Some(*floor + 1));
+    let ranges = pruned_ranges(db_path);
+    assert_eq!(ranges, vec![(1, i64::try_from(*floor).unwrap())]);
+    let bases = BASED.map(|reducer| meta(db_path, &format!("journal_reducer_base.{reducer}")));
+    assert!(bases.iter().all(Option::is_some), "the rebuild left no base: {bases:?}");
+    let saved = BASED.map(|reducer| meta(db_path, &format!("journal_reducer.{reducer}")));
+    let rebuild_done = meta(db_path, DONE_META_KEY);
+    let mux = open(&root.0);
+    let roster = roster_state(&mux, terminal);
+    mux.shutdown();
+    drop(mux);
+    let head = journal_head(db_path);
+    let records_now = records_after(db_path, 0, head);
+    assert!(records_now.starts_with(&records), "a start changed the records it found");
+
+    // A compaction that is staged all the same (a staging file from before
+    // this rule): the open does not swap it in beside the kept file.
+    let compact = || {
+        stage_registry_in(
+            db_path,
+            &StageControl {
+                on_pending: &|| {},
+                next_segment: &|| true,
+                catch_up: &|| false,
+                stopped: Arc::new(|| false),
+            },
+            CleanupMode::Compact,
+        )
+        .unwrap()
+    };
+    assert_eq!(compact(), StageOutcome::Built, "the compaction did not build");
+    drop(WorkspaceRegistry::open(&root.0, SESSION).unwrap());
+    assert!(staging_path(db_path).is_file(), "the staged compaction was lost");
+    assert!(!previous_path(db_path).exists(), "the compaction swapped beside the kept file");
+    assert_eq!(meta(db_path, journal_compact::DONE_META_KEY), None);
+    assert!(std::fs::read(&kept_file).unwrap() == kept_bytes, "the kept file changed");
+
+    // The manual step: with the daemon stopped, a person removes the kept
+    // file. The next open swaps the compaction in.
+    std::fs::remove_file(&kept_file).unwrap();
+    drop(WorkspaceRegistry::open(&root.0, SESSION).unwrap());
+    assert!(!staging_path(db_path).exists(), "the staging file stays");
+    assert!(previous_path(db_path).is_file(), "the rebuilt file is not kept as the way back");
+    let compacted = meta(db_path, journal_compact::DONE_META_KEY);
+    assert!(
+        compacted.as_deref().is_some_and(|record| record.contains("\"kept\"")),
+        "the compaction did not swap: {compacted:?}"
+    );
+    assert_eq!(meta(db_path, DONE_META_KEY), rebuild_done, "the rebuild's record changed");
+    assert_eq!(
+        records_after(db_path, 0, head),
+        records_now,
+        "the compaction lost or changed a record above the floor"
+    );
+    assert_eq!(pruned_ranges(db_path), ranges, "the removed run is not the same pruned range");
+    assert_eq!(
+        super::super::journal_retention::journal_pruned_through(&read_only(db_path)).unwrap(),
+        *floor,
+        "the compacted registry does not say that the records through the floor are gone"
+    );
+    for ((reducer, base), saved) in BASED.iter().zip(&bases).zip(&saved) {
+        assert_eq!(
+            &meta(db_path, &format!("journal_reducer_base.{reducer}")),
+            base,
+            "the base of {reducer} is not the bytes that the rebuild left"
+        );
+        assert_eq!(&meta(db_path, &format!("journal_reducer.{reducer}")), saved, "{reducer}");
+    }
+
+    // The way back of the compaction's swap: held from the time of that
+    // swap, which is the newest record of the two.
+    let held = held_backup(db_path).expect("the compaction's swap left its old file");
+    assert_eq!((held.full_starts, held.full_starts_left), (0, 3));
+    let compacted_at = serde_json::from_str::<serde_json::Value>(&compacted.unwrap())
+        .unwrap()
+        .get("at_ms")
+        .and_then(|at| at.as_str()?.parse::<u64>().ok());
+    assert!(compacted_at >= rebuilt_at, "{compacted_at:?} is before {rebuilt_at:?}");
+    assert_eq!(held.swapped_at_ms, compacted_at, "the kept file's 7 days count from another swap");
+
+    let mux = open(&root.0);
+    assert_eq!(roster_state(&mux, terminal), roster, "the roster after the compaction");
+    assert!(!mux.journal_rebuild_possible(), "a rebuild worker runs beside the compaction's file");
+    let page = mux.session_journal_after(*floor / 2, 16).unwrap();
+    assert_eq!(page.records.first().map(|record| record.sequence), Some(*floor + 1));
     mux.shutdown();
 }
 

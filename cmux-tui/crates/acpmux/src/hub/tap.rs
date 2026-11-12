@@ -296,6 +296,8 @@ impl Hub {
                 {
                     let mut line = params.clone().unwrap_or(Value::Null);
                     crate::model_copies::scrub_logged(&mut line);
+                    // A prompt's long text is in its `user_message` already (`logged_bodies.rs`).
+                    crate::claude_stdio::leave_out_prompt_bodies("claude.stdin", &mut line);
                     return tap_hub
                         .append_logged(&tap_session, "out", "claude.stdin", line, host_seq)
                         .1;
@@ -309,6 +311,11 @@ impl Hub {
             let mut value = msg.to_value();
             // Less the model-sized image copies acpmux wrote to the agent, and any echo of them.
             crate::model_copies::scrub_logged(&mut value);
+            // The prompt acpmux sends an agent: its long text is in its `user_message` already
+            // (`logged_bodies.rs`).
+            if d == "out" {
+                crate::claude_stdio::leave_out_prompt_bodies(&kind, &mut value);
+            }
             // The agent's own display line on its ask is neither logged nor shown
             // (`permissions/display.rs`): only acpmux writes the line a person reads.
             if d == "in"
@@ -402,8 +409,10 @@ impl Hub {
                 && !kind.ends_with(".replay")
                 && msg.method() == Some(crate::rpc::method::SESSION_UPDATE)
                 && subagent.is_none();
-            if live_update {
-                tap_hub.before_agent_update(&tap_session, msg.params());
+            if live_update
+                && let Some(segment) = tap_hub.before_agent_update(&tap_session, msg.params())
+            {
+                super::stream::stamp_reply_segment(&mut value, &segment);
             }
             // An update that starts or ends a subagent may change the work that runs past the
             // chat's turn (`work_below.rs`).

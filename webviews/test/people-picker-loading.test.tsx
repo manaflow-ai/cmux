@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { PeoplePicker } from "../src/pages/home-channels/PeoplePicker";
 import type { Strings } from "../src/pages/shared/i18n";
 import type { HomeParticipant } from "../src/pages/home-channels/types";
+import { settleReact } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
@@ -30,7 +31,8 @@ beforeAll(() => {
   host = dom.window.document.getElementById("root")!;
 });
 afterEach(() => act(() => root?.unmount()));
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   dom.window.close();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];

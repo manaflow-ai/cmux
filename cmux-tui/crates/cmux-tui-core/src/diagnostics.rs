@@ -23,7 +23,9 @@ pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
 mod command_stats;
-pub(crate) use command_stats::{ClientKind, CommandStats, ConnectionKind, line_is_named};
+pub(crate) use command_stats::{
+    ClientKind, CommandStats, ConnectionKind, answered_later, line_is_named,
+};
 pub use command_stats::{CommandConnections, CommandRow, CommandStatsSnapshot};
 mod connection_leases;
 mod disk_usage;

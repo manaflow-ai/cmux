@@ -21,8 +21,15 @@
 //! finds no registry takes `.pre-output-cleanup` for an interrupted swap and
 //! serves it, which a week-old file must never be.
 //!
-//! While either file is beside the registry no rebuild starts
-//! ([`backup_held`]): its swap would replace the kept file with a newer and
+//! The rule is the same for each cleanup that swaps: the output cleanup, a
+//! rebuild at a retention floor and the journal compaction
+//! (`journal_compact.rs`). Each records its swap under its own meta key and
+//! leaves the records of the others, so the time of the last swap is the
+//! newest of the recorded times ([`SWAP_RECORD_KEYS`]).
+//!
+//! While either file is beside the registry no rebuild and no compaction
+//! starts ([`backup_held`]), whichever of them made the last swap: its swap
+//! would replace the kept file with a newer and
 //! smaller one. Journal retention deletes in place in that time. A kept file
 //! that is not of this registry (the registry was made again in its place)
 //! never goes by itself, so it holds the rebuild off for good; each open
@@ -39,7 +46,7 @@ use super::super::open_guard::sidecar_path;
 use super::super::session_journal::unix_epoch_ms;
 use super::super::{open_registry_database_read_only, open_registry_database_with_flags};
 use super::{
-    DONE_META_KEY, V1_DONE_META_KEY, kept_path, previous_path, remove_if_present,
+    DONE_META_KEY, V1_DONE_META_KEY, journal_compact, kept_path, previous_path, remove_if_present,
     rollback_pending_path, write_failure_marker,
 };
 use crate::platform;
@@ -48,6 +55,13 @@ use crate::platform;
 /// [`BACKUP_KEEP_FULL_STARTS`] of them are one of the two conditions for the
 /// kept file to go.
 pub(super) const FULL_STARTS_META_KEY: &str = "output_cleanup_full_starts";
+
+/// The meta keys under which a swap records what it kept and when: the
+/// output cleanup's (and a rebuild at a retention floor), the version 1
+/// cleanup's, and a journal compaction's. The rules of this file are the
+/// same for a swap of each.
+const SWAP_RECORD_KEYS: [&str; 3] =
+    [DONE_META_KEY, V1_DONE_META_KEY, journal_compact::DONE_META_KEY];
 
 /// The file a swap replaced stays at least this long after the swap.
 const BACKUP_KEEP: Duration = Duration::from_secs(7 * 24 * 60 * 60);
@@ -229,9 +243,14 @@ fn swapped_registry(db_path: &Path, backup: &Path) -> anyhow::Result<bool> {
     }
     // A swap writes what it kept. The version 1 cleanup wrote only the
     // version 1 key, and version 2 may later mark that registry `not-needed`
-    // (#39381 review): its swap is still the version 1 one.
-    let swapped = |value: Option<String>| value.is_some_and(|value| value.contains("\"kept\""));
-    Ok(swapped(read(db_path, DONE_META_KEY)?) || swapped(read(db_path, V1_DONE_META_KEY)?))
+    // (#39381 review): its swap is still the version 1 one. A journal
+    // compaction's swap writes its own key (`journal_compact.rs`).
+    for key in SWAP_RECORD_KEYS {
+        if read(db_path, key)?.is_some_and(|value| value.contains("\"kept\"")) {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 /// What the registry alone says about its swap, read without the kept file
@@ -248,16 +267,27 @@ fn swap_record(db_path: &Path) -> anyhow::Result<Option<(u64, Option<u64>)>> {
             })
             .optional()?)
     };
-    let record = [read(DONE_META_KEY)?, read(V1_DONE_META_KEY)?]
-        .into_iter()
-        .flatten()
-        .find(|value| value.contains("\"kept\""));
-    let Some(record) = record else { return Ok(None) };
-    // `{"at_ms":"<ms>","kept":"<records>"}`; a number is read too.
-    let at_ms = serde_json::from_str::<serde_json::Value>(&record).ok().and_then(|value| {
-        let at = value.get("at_ms")?;
-        at.as_u64().or_else(|| at.as_str()?.parse().ok())
-    });
+    let mut records = Vec::new();
+    for key in SWAP_RECORD_KEYS {
+        if let Some(record) = read(key)?.filter(|value| value.contains("\"kept\"")) {
+            records.push(record);
+        }
+    }
+    if records.is_empty() {
+        return Ok(None);
+    }
+    // `{"at_ms":"<ms>","kept":"<records>"}`; a number is read too. Each
+    // cleanup keeps its own record, and the kept file is of the last swap:
+    // the newest time. With the time of an older swap the file would go
+    // before its 7 days.
+    let at_ms = records
+        .iter()
+        .filter_map(|record| {
+            let value = serde_json::from_str::<serde_json::Value>(record).ok()?;
+            let at = value.get("at_ms")?;
+            at.as_u64().or_else(|| at.as_str()?.parse().ok())
+        })
+        .max();
     let starts =
         read(FULL_STARTS_META_KEY)?.and_then(|value| value.parse::<u64>().ok()).unwrap_or(0);
     Ok(Some((starts, at_ms)))

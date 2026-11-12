@@ -27,10 +27,10 @@ use super::build::{
 };
 use super::stage::{open_existing_staging, state, state_u64};
 use super::{
-    DONE_META_KEY, OUTPUT_KIND, REBUILT_TABLES, STAGED_WORK_CHANGED, copied_bytes,
-    failed_for_this_build, file_len, free_space_refusal, is_temporary, kept_path, mebibytes,
-    previous_path, remove_if_present, remove_staging, staged_bytes_refusal, staging_path,
-    start_floor, write_failure_marker,
+    CleanupMode, DONE_META_KEY, OUTPUT_KIND, REBUILT_TABLES, STAGED_WORK_CHANGED, copied_bytes,
+    done_meta_key, failed_for_this_build, file_len, free_space_refusal, is_temporary,
+    journal_compact, kept_path, mebibytes, previous_path, remove_if_present, remove_staging,
+    staged_bytes_refusal, staging_path, start_floor, write_failure_marker,
 };
 use crate::platform;
 
@@ -400,7 +400,12 @@ fn committed_swap(db_path: &Path, registry_id: &str) -> Option<CommittedSwap> {
             .ok()
             .flatten()
     };
-    if meta("registry_id")?.as_str() != registry_id || !meta(DONE_META_KEY)?.contains("\"kept\"") {
+    // The key of the cleanup that swapped: an output cleanup's or a journal
+    // compaction's.
+    let swapped = [DONE_META_KEY, journal_compact::DONE_META_KEY]
+        .into_iter()
+        .any(|key| meta(key).is_some_and(|value| value.contains("\"kept\"")));
+    if meta("registry_id")?.as_str() != registry_id || !swapped {
         return None;
     }
     let swap: CommittedSwap = serde_json::from_str(&meta(SWAP_META_KEY)?).ok()?;
@@ -620,6 +625,8 @@ fn build_in(
 ) -> anyhow::Result<(Built, CommittedSwap)> {
     let TailRange { stamp, built_head, head } = range;
     let (built_head, head) = (*built_head, *head);
+    // Read before the cleanup's own tables go.
+    let mode = CleanupMode::of(tx)?;
     let from = state_u64(tx, "packed_through")?;
     let start = state_u64(tx, "pack_next_start")?;
     if head > built_head {
@@ -724,11 +731,24 @@ fn build_in(
              INSERT INTO main.sqlite_sequence(name, seq) SELECT name, seq FROM src.sqlite_sequence;",
         )?;
     }
-    let done = format!("{{\"at_ms\":\"{}\",\"kept\":\"{kept}\"}}", unix_epoch_ms()?);
+    // A compaction leaves the output cleanup's marker as it is: it dropped
+    // no superseded put, so that cleanup is not done by it.
+    let done = match mode {
+        CleanupMode::Output => {
+            format!("{{\"at_ms\":\"{}\",\"kept\":\"{kept}\"}}", unix_epoch_ms()?)
+        }
+        CleanupMode::Compact => format!(
+            "{{\"at_ms\":\"{}\",\"kept\":\"{kept}\",\"rewritten\":\"{}\",\
+             \"removed_changes\":\"{}\"}}",
+            unix_epoch_ms()?,
+            state_u64(tx, "compact_rewritten")?,
+            state_u64(tx, "compact_removed_changes")?
+        ),
+    };
     let swap = CommittedSwap { source: stamp.clone(), from, head, tail_kept, floor: Some(cut) };
     let swap_json = serde_json::to_string(&swap)?;
     for (key, value) in [
-        (DONE_META_KEY, done.as_str()),
+        (done_meta_key(mode), done.as_str()),
         ("journal_segment_kinds_backfill", "1"),
         (FULL_STARTS_META_KEY, "0"),
         (SWAP_META_KEY, swap_json.as_str()),

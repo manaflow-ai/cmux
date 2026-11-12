@@ -782,6 +782,52 @@ export function filesFrom(transfer: DataTransfer | null): File[] {
   return transfer ? [...transfer.files] : [];
 }
 
+/// How long a gesture's chips may wait for its twins' bytes (filesOnce): one frame.
+const TWIN_READ_MS = 16;
+
+/// A paste's or drop's files with each set of bytes once. A screenshot tool that copies both the
+/// saved file and its picture hands WebKit one image twice, and each became a chip, an upload and
+/// an image in the sent prompt (Leo, 2026-11-06: "Why am I seeing that, like the app is trying to
+/// attach doubled up screenshots?"). Only images: two other files with the same bytes (an empty
+/// `__init__.py` and `py.typed`, a file and its renamed copy) are two files the person meant, and
+/// a drop's paths are matched to its files by count. Only images of one type and size can be the
+/// same, so only those are read: any other gesture answers in its own task, as its chips must, and
+/// a read that takes past a frame keeps every file rather than hold the chips.
+export function filesOnce(files: File[], wait = TWIN_READ_MS): File[] | Promise<File[]> {
+  const groups = new Map<string, number[]>();
+  files.forEach((file, index) => {
+    if (!file.type.startsWith("image/")) return;
+    const key = `${file.type}\n${file.size}`;
+    groups.set(key, [...(groups.get(key) ?? []), index]);
+  });
+  const twins = [...groups.values()].filter((group) => group.length > 1);
+  if (!twins.length) return files;
+  const read = (index: number) => files[index]!.arrayBuffer().then((buffer) => new Uint8Array(buffer));
+  const once = Promise.all(twins.map((group) => Promise.all(group.map(read)))).then(
+    (bytes) => {
+      const dropped = new Set<number>();
+      twins.forEach((group, at) =>
+        group.forEach((index, member) => {
+          if (bytes[at]!.slice(0, member).some((earlier) => sameBytes(earlier, bytes[at]![member]!)))
+            dropped.add(index);
+        }),
+      );
+      return files.filter((_, index) => !dropped.has(index));
+    },
+    // A file that can't be read is the reader's to refuse: none is dropped here.
+    () => files,
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<File[]>((resolve) => (timer = setTimeout(() => resolve(files), wait)));
+  return Promise.race([once, late]).finally(() => clearTimeout(timer));
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let index = 0; index < a.length; index++) if (a[index] !== b[index]) return false;
+  return true;
+}
+
 /// Whether a paste of files carries no text but their own names: files copied in a file manager
 /// also put each one's name (or path, or a file: URL list) on the clipboard as text, which the
 /// field must not take as a prompt. As the Home channel's composer decides (home-channels/Composer.tsx).

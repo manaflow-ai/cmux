@@ -203,3 +203,80 @@ fn full_starts_are_counted_for_the_kept_file_and_shown() {
     fs::remove_dir_all(db_path.parent().unwrap()).unwrap();
     fs::remove_dir_all(window.parent().unwrap()).unwrap();
 }
+
+/// The record that a journal compaction's swap writes, under its own key.
+fn compact_record(at_ms: u64) -> String {
+    format!(
+        "{{\"at_ms\":\"{at_ms}\",\"kept\":\"5\",\"rewritten\":\"2\",\"removed_changes\":\"9\"}}"
+    )
+}
+
+/// One rule for the file that a swap replaced, whichever cleanup made the
+/// swap. A journal compaction writes its record under its own key and leaves
+/// the record of an older rebuild as it is, so the registry can hold two
+/// records: the kept file is of the LAST swap, and its 7 days count from the
+/// newest time. A read of the rebuild's keys only would count from the older
+/// swap and remove the file of the compaction days too early; on a registry
+/// with only a compaction's record it would find no swap at all.
+#[test]
+fn the_kept_file_of_a_compaction_after_a_rebuild_stays_7_days_from_the_newest_swap() {
+    const COMPACTED_AT_MS: u64 = SWAPPED_AT_MS + 30 * DAY_MS;
+    let db_path = temp_dir("compact-after-rebuild").join("workspace-registry.sqlite3");
+    registry_with_meta(
+        &db_path,
+        &[
+            ("registry_id", "r1"),
+            (DONE_META_KEY, &format!("{{\"at_ms\":\"{SWAPPED_AT_MS}\",\"kept\":\"5\"}}")),
+            (journal_compact::DONE_META_KEY, &compact_record(COMPACTED_AT_MS)),
+            (FULL_STARTS_META_KEY, "3"),
+        ],
+    );
+    registry_with_meta(&kept_path(&db_path), &[("registry_id", "r1"), ("old", "1")]);
+
+    // 6 days after the compaction, 36 days after the rebuild, 3 full starts.
+    let now = COMPACTED_AT_MS + 6 * DAY_MS;
+    assert_eq!(
+        kept_file_due(&db_path, now),
+        None,
+        "the file that the compaction's swap replaced is due 6 days after that swap: the 7 days \
+         were counted from the older rebuild's record"
+    );
+    open_at(&db_path, now);
+    assert!(kept_path(&db_path).is_file(), "an open 6 days after the compaction removed its file");
+    assert_eq!(
+        held_backup(&db_path).and_then(|held| held.swapped_at_ms),
+        Some(COMPACTED_AT_MS),
+        "the swap time that `server-stats` shows is not the newest swap's"
+    );
+    assert!(backup_held(&db_path), "the kept file is not seen: a worker of either mode starts");
+    // At 7 days after the compaction the same rule lets the file go.
+    assert_eq!(kept_file_due(&db_path, COMPACTED_AT_MS + 7 * DAY_MS), Some(kept_path(&db_path)));
+    fs::remove_dir_all(db_path.parent().unwrap()).unwrap();
+
+    // A registry with only a compaction's record: the same rule, both ways.
+    let db_path = temp_dir("compact-only").join("workspace-registry.sqlite3");
+    registry_with_meta(
+        &db_path,
+        &[
+            ("registry_id", "r1"),
+            (journal_compact::DONE_META_KEY, &compact_record(SWAPPED_AT_MS)),
+            (FULL_STARTS_META_KEY, "2"),
+        ],
+    );
+    registry_with_meta(&kept_path(&db_path), &[("registry_id", "r1"), ("old", "1")]);
+    assert_eq!(
+        kept_file_due(&db_path, SWAPPED_AT_MS + 400 * DAY_MS),
+        None,
+        "2 full starts are under the 3 of the rule"
+    );
+    // The third full start is counted on a registry that a compaction made.
+    note_full_start(&db_path).unwrap();
+    assert_eq!(
+        held_backup(&db_path).map(|held| (held.full_starts, held.swapped_at_ms)),
+        Some((3, Some(SWAPPED_AT_MS))),
+        "a full start on a compacted registry was not counted for its kept file"
+    );
+    assert_eq!(kept_file_due(&db_path, SWAPPED_AT_MS + 7 * DAY_MS - 1), None);
+    assert_eq!(kept_file_due(&db_path, SWAPPED_AT_MS + 7 * DAY_MS), Some(kept_path(&db_path)));
+    fs::remove_dir_all(db_path.parent().unwrap()).unwrap();
+}
