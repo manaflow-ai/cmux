@@ -394,6 +394,7 @@ impl ClientRegistry {
         &self,
         client: u64,
         surface: SurfaceId,
+        routes: &crate::route_table::RouteGenerations,
     ) -> Option<(Arc<crate::Surface>, bool)> {
         let state = self.state.lock().recover_poison();
         let attached = state.clients.get(&client)?.attached.get(&surface)?;
@@ -401,7 +402,7 @@ impl ClientRegistry {
         let can_type = attached.can_type();
         // A change of this id's route since it was kept (respawn, close, move): the id may name another terminal now.
         // Only this id's route counts: a tab created or closed elsewhere keeps it (TYPING FIX 2).
-        if *generation != crate::route_table::route_generation(surface) {
+        if *generation != routes.of(surface) {
             return None;
         }
         let input = kept.upgrade()?;

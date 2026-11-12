@@ -22,6 +22,7 @@ import argparse, json, os, socket, subprocess, sys, time
 import re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -136,7 +137,7 @@ env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.ge
        "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900", **home_classic.ENV}
 process = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=opts.out, stdin=subprocess.DEVNULL,
                            stdout=open(os.path.join(opts.out, "app.log"), "a"), stderr=subprocess.STDOUT, start_new_session=True)
-print(f"launched pid {process.pid}", flush=True)
+safe_print(f"launched pid {process.pid}", flush=True)
 try:
     if not home_classic.require(rpc):  # classic Home: these checks drive the native transcript
         sys.exit(2)
@@ -265,7 +266,7 @@ finally:
         rpc("action.run", {"id": "quitEndSessions"}, timeout=10)
     rpc("action.run", {"id": "endAgents"}, timeout=5)
     exited = poll(lambda: process.poll() is not None, timeout=30)
-    print("app exited" if exited else "app STILL RUNNING", flush=True)
+    safe_print("app exited" if exited else "app STILL RUNNING", flush=True)
     if not exited:
         process.terminate()
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))

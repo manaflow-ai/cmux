@@ -30,6 +30,8 @@ def _load(name: str, path: Path):
 check = _load("check_test_redefinitions", SCRIPT)
 git_fixture_env = _load("git_fixture_env", ROOT / "tests/git_fixture_env.py")
 gate = _load("cmux_next_prepush_gate", ROOT / "scripts/cmux-next/prepush-gate.py")
+py39_names = _load("py39_names", ROOT / "tests/test_py39_names.py")  # its python39(): a real 3.9
+gate.load_push_range(ROOT, ROOT / "scripts/cmux-next")  # gate_own reads it from sys.modules
 
 
 def scan(source: str) -> list[str]:
@@ -95,6 +97,48 @@ class RedefinitionTest(unittest.TestCase):
         """)
         self.assertEqual(sorted(hit.split(":")[1] for hit in hits), ["13", "5"], hits)
 
+    def test_a_class_under_two_ifs_or_an_except_is_read(self) -> None:
+        # #41818 review (F3): the scope walk read a class only one `if`/`try`/`with` deep, and never under `except`.
+        hits = scan("""
+            if HAVE_GIT:
+                if sys.platform == "linux":
+                    class Deep(unittest.TestCase):
+                        def test_a(self):
+                            pass
+
+                        def test_a(self):
+                            pass
+
+            try:
+                import fcntl
+            except ImportError:
+                class Fallback:
+                    def lock(self):
+                        pass
+
+                    def lock(self):
+                        pass
+        """)
+        self.assertEqual([hit.split(";")[0] for hit in hits],
+                         ["tests/test_x.py:8: Deep.test_a redefines line 5",
+                          "tests/test_x.py:18: Fallback.lock redefines line 15"])
+
+    def test_a_class_nested_in_a_method_is_read_once_under_its_own_scope(self) -> None:
+        # #41818 review (F3): ast.walk() over a function also reached a class nested in a class inside it, so that
+        # class was read twice, once under the function's scope instead of the class it sits in.
+        hits = scan("""
+            def make():
+                class Outer:
+                    class Inner:
+                        def go(self):
+                            pass
+
+                        def go(self):
+                            pass
+                return Outer
+        """)
+        self.assertEqual([hit.split(";")[0] for hit in hits], ["tests/test_x.py:8: make.Outer.Inner.go redefines line 5"])
+
     def test_one_name_in_different_bodies_passes(self) -> None:
         self.assertEqual(scan("""
             def setUp():
@@ -154,9 +198,54 @@ class RedefinitionTest(unittest.TestCase):
             self.assertEqual(dirty.returncode, 1, dirty.stdout + dirty.stderr)
             self.assertIn("tests/nested/test_dup.py:5: a redefines line 1", dirty.stdout)
 
+    def test_a_file_that_does_not_parse_is_no_verdict(self) -> None:
+        # #41818 review (F2): it exited 1, a verdict, and the gate took that as "no redefinition" for the file.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tests").mkdir()
+            (root / "tests" / "test_broken.py").write_text("def a():\n    pass\n\n\ndef a(:\n    pass\n")
+            result = subprocess.run([sys.executable, "-I", str(SCRIPT), "--root", str(root)],
+                                    capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, check.UNPARSED_EXIT, result.stdout + result.stderr)
+            self.assertIn("tests/test_broken.py:5: does not parse: ", result.stdout)
+
     def test_the_tree_is_clean(self) -> None:
         result = subprocess.run([sys.executable, "-I", str(SCRIPT)], capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+
+class Python39Test(unittest.TestCase):
+    """The checker as a Mac's hook runs it: install-git-hooks.sh takes any python3, and macOS's is 3.9.6."""
+
+    def test_a_39_run_on_a_plain_file_passes(self) -> None:
+        # cmux#41827 review (F1): `ast.match_case` (3.10+) in the scope walk raised AttributeError on 3.9 for any file
+        # with a block in it, so the gate refused clean pushes as no verdict.
+        python = py39_names.python39()
+        if python is None:
+            self.fail("no Python 3.9 (PY39, python3.9, /usr/bin/python3 or uv): this row needs a real 3.9")
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tests").mkdir()
+            (root / "tests" / "test_plain.py").write_text(textwrap.dedent("""
+                import unittest
+
+
+                class Plain(unittest.TestCase):
+                    def setUp(self):
+                        if True:
+                            self.x = 1
+
+                    def test_x(self):
+                        for _ in range(2):
+                            with self.subTest():
+                                try:
+                                    self.assertEqual(self.x, 1)
+                                except AssertionError:
+                                    raise
+            """))
+            result = subprocess.run([python, "-I", str(SCRIPT), "--root", str(root)], capture_output=True, text=True,
+                                    check=False)
+        self.assertEqual((result.returncode, result.stdout), (0, ""), result.stdout + result.stderr)
 
 
 LOCKED = "class T:\n    def helper(self):\n        return 1\n"
@@ -199,6 +288,38 @@ class GateRowTest(unittest.TestCase):
         base = self.commit({"tests/test_a.py": SHADOWED})
         head = self.commit({"README": "x"})
         self.assertEqual(gate.test_redefinition_problems(self.repo, base, head), [])
+
+    def test_a_head_file_that_does_not_parse_refuses_with_no_verdict(self) -> None:
+        # #41818 review (F2): the file holds a redefinition the parse error hides; the gate passed it.
+        base = self.commit({"tests/test_a.py": LOCKED})
+        head = self.commit({"tests/test_a.py": SHADOWED + "\ndef broken(:\n    pass\n"})
+        found = gate.test_redefinition_problems(self.repo, base, head)
+        self.assertEqual(len(found), 1, found)
+        self.assertIsInstance(found[0], gate.NoVerdict, found)
+        self.assertIn("could not parse tests/test_a.py:", found[0])
+
+    def test_an_installed_checker_that_says_exit_1_on_a_parse_error_still_refuses(self) -> None:
+        # The hook runs the installed reviewed copy, which can be older than the exit 2: its parse line alone refuses.
+        installed = Path(tempfile.mkdtemp(dir=self.repo.parent))
+        (installed / "check-test-redefinitions.py").write_text(
+            "print('tests/test_a.py:7: does not parse: invalid syntax')\nraise SystemExit(1)\n")
+        base = self.commit({"tests/test_a.py": LOCKED})
+        head = self.commit({"tests/test_a.py": SHADOWED + "\ndef broken(:\n    pass\n"})
+        found = gate.test_redefinition_problems(self.repo, base, head, trusted_scripts=installed)
+        self.assertEqual(len(found), 1, found)
+        self.assertIsInstance(found[0], gate.NoVerdict, found)
+
+    def test_gate_own_subtracts_a_redefinition_an_upstream_range_added(self) -> None:
+        # #41818 review (F1): a merge brings in upstream's tests/ redefinition. gate_own's runs over the upstream range
+        # read only the files in its restrict set, which left tests/ out, so nothing was taken off and the push was
+        # blamed for upstream's debt. The push's own redefinition still refuses.
+        base = self.commit({"tests/test_a.py": LOCKED})
+        upstream = self.commit({"tests/test_a.py": SHADOWED})
+        head = self.commit({"tests/test_b.py": SHADOWED})
+        own_range = sys.modules[gate.PUSH_RANGE_MODULE].OwnRange(head=head, base=base, before=((base, upstream),))
+        found = dict(gate.gate_own(self.repo, own_range, {"redefinitions"}, False))
+        self.assertEqual(list(found), [gate.REDEFINITION_CHECK], found)
+        self.assertEqual([line.split(":")[0] for line in found[gate.REDEFINITION_CHECK]], ["tests/test_b.py"], found)
 
     def test_the_gate_reports_it_under_its_own_check(self) -> None:
         base = self.commit({"tests/test_a.py": LOCKED})

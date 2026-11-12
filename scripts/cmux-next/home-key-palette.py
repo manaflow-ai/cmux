@@ -32,6 +32,7 @@ from collections import Counter
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
 from home_pixels import read_png  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -294,7 +295,7 @@ finally:
     try:
         process.wait(timeout=30)  # `open -W` returns when the app it launched exits
     except subprocess.TimeoutExpired:
-        print("     the app did not quit in 30 s (run under nx-remote: its app stop ends the app)", flush=True)
+        safe_print("     the app did not quit in 30 s (run under nx-remote: its app stop ends the app)", flush=True)
         process.kill()  # the `open -W` this script started
     acp = "%s/.acpmux/builds/com.cmuxterm.app.debug.%s" % (home, re.sub(r"[^a-z0-9]+", ".", opts.tag.lower()).strip("."))
     subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown", "--end-agents"], capture_output=True,

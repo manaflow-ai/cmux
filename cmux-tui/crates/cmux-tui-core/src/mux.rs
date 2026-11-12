@@ -566,6 +566,9 @@ pub struct Mux {
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
     started_at: Instant,
+    /// The route generations of `state`'s routing tables, read without the session lock
+    /// (`crate::route_table::RouteGenerations`).
+    pub(crate) route_generations: crate::route_table::RouteGenerations,
     pub(crate) state: signaled_mutex::StateMutex,
     subscribers: MuxEventBroadcaster,
     config_reload: Mutex<ConfigReloadState>,
