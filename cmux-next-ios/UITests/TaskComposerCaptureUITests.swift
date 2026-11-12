@@ -35,6 +35,23 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         ])
     }
 
+    /// Back to the Workspaces list from a workspace's page (its tab page, then the workspace).
+    @MainActor
+    private static func backToList(_ app: XCUIApplication) -> String? {
+        let new = any(app, "workspaces.new")
+        for _ in 0..<4 {
+            if new.waitForExistence(timeout: 2), onScreen(new) { return nil }
+            let back = app.buttons["Back"].firstMatch
+            if back.exists {
+                back.tap()
+            } else {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.01, dy: 0.5))
+                    .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.5)))
+            }
+        }
+        return new.waitForExistence(timeout: 3) ? nil : "could not get back to the Workspaces list"
+    }
+
     @MainActor
     func testNewTaskStates() {
         let g = Self.group
@@ -104,7 +121,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "refused-draft-restored", args: Self.list + ["-cmux-mobile-refuse-next-create"]) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Fix the flaky upload test") },
                          { C.tap(C.any(app, "taskComposer.start"), "Start") }, { C.pause(3); return nil },
-                         { C.tap(app.buttons["Back"].firstMatch, "Back") }, { C.pause(1); return Self.openComposer(app) }])
+                         { Self.backToList(app) }, { Self.openComposer(app) }])
             },
             Scene(group: g, id: "draft-kept-after-cancel", args: Self.list) { app in
                 C.steps([{ Self.openComposer(app) }, { Self.type(app, "Half-written idea") },
@@ -128,7 +145,7 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
         XCTAssertTrue(C.any(app, "taskComposer.prompt").waitForNonExistence(timeout: 5), "the sheet closes at once")
         XCTAssertTrue(C.label(app, contains: "Fix the flaky upload test").waitForExistence(timeout: 5),
                       "the opened workspace is titled for the task")
-        XCTAssertNil(C.tap(app.buttons["Back"].firstMatch, "Back"))
+        XCTAssertNil(Self.backToList(app))
         XCTAssertNil(Self.openComposer(app))
         let left = C.any(app, "taskComposer.prompt").value as? String ?? ""
         XCTAssertTrue(left.isEmpty || left == "Describe the task…", "the prompt is cleared, got \(left)")
