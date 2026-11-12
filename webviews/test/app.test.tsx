@@ -10,7 +10,7 @@ type FetchMock = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respo
 let root: Root | null = null;
 let dom: JSDOM | null = null;
 const originalGlobals = new Map<string, any>();
-for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "HTMLStyleElement", "customElements", "fetch", "requestAnimationFrame", "cancelAnimationFrame"]) {
+for (const key of ["window", "document", "navigator", "Element", "Node", "HTMLElement", "HTMLStyleElement", "customElements", "fetch", "requestAnimationFrame", "cancelAnimationFrame", "ResizeObserver"]) {
   originalGlobals.set(key, (globalThis as any)[key]);
 }
 
@@ -552,7 +552,7 @@ test("files header shows the total additions and deletions", async () => {
   ].join("\n");
   installDomGlobals(dom, () => new Response(patch, { status: 200 }));
   // The real code view and file tree read DOM classes unqualified; jsdom lacks ResizeObserver.
-  const domOnlyGlobals = [...Object.getOwnPropertyNames(dom.window).filter((key) => !(key in globalThis)), "ResizeObserver"];
+  const domOnlyGlobals = [...Object.getOwnPropertyNames(dom.window).filter((key) => !(key in globalThis))];
   for (const key of domOnlyGlobals) {
     (globalThis as any)[key] = (dom.window as any)[key];
   }
