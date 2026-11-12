@@ -206,12 +206,20 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-json",
+ "cmux-unix-socket",
  "hmac",
  "ring",
  "serde",
  "serde_json",
  "sha2",
  "time",
+]
+
+[[package]]
+name = "cmux-unix-socket"
+version = "0.1.0"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -912,6 +920,7 @@ dependencies = [
  "cmux-mcp-connect",
  "cmux-sdk",
  "cmux-server-core",
+ "cmux-unix-socket",
  "image",
  "libc",
  "optchat-chief",
