@@ -89,29 +89,61 @@ final class TerminalJumpToBottomUITests: XCTestCase {
     func testPillAppearingDoesNotMoveRows() throws {
         let app = launch()
         let jump = app.buttons["terminal.jumpToBottom"]
-        let window = app.windows.firstMatch.frame
         func drag(points: CGFloat) {
             let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
             let end = start.withOffset(CGVector(dx: 0, dy: points))
             start.press(forDuration: 0.1, thenDragTo: end, withVelocity: XCUIGestureVelocity(120), thenHoldForDuration: 0.6)
         }
-        drag(points: 50)
-        XCTAssertFalse(jump.waitForExistence(timeout: 1), "50 pt up: under the 120 pt threshold, no pill yet")
+        // The mock intro streams for a few seconds; its scrollback is short
+        // (about 300 pt), so the drags are short too.
+        try waitForStill(app, scale: try scale(app))
+        drag(points: 40)
+        XCTAssertFalse(jump.waitForExistence(timeout: 1), "40 pt up: under the 120 pt threshold, no pill yet")
         let before = app.screenshot()
-        drag(points: 130)
+        drag(points: 90)
         XCTAssertTrue(jump.waitForExistence(timeout: 2), "the second drag crosses the threshold: the pill shows")
         let shown = app.screenshot()
-        drag(points: 130)
+        drag(points: 90)
         XCTAssertTrue(jump.exists, "still shown")
         let after = app.screenshot()
         attach(shown, "pill-appeared-mid-drag")
 
-        let scale = CGFloat(try XCTUnwrap(before.image.cgImage).height) / window.height
+        let scale = try scale(app)
         let appearing = try rowShift(from: before, to: shown, scale: scale)
         let steady = try rowShift(from: shown, to: after, scale: scale)
-        XCTAssertGreaterThan(steady, 60, "the third drag moved the rows (\(steady) pt)")
+        XCTAssertGreaterThan(steady, 40, "the third drag moved the rows (\(steady) pt)")
         XCTAssertEqual(appearing, steady, accuracy: 8,
                        "rows moved \(appearing) pt while the pill appeared vs \(steady) pt with it shown: the pill made the page jump")
+    }
+
+    @MainActor
+    private func scale(_ app: XCUIApplication) throws -> CGFloat {
+        CGFloat(try XCTUnwrap(app.screenshot().image.cgImage).height) / app.windows.firstMatch.frame.height
+    }
+
+    /// Waits (up to 15 s) until two stills a second apart show the rows in
+    /// the same place: the mock intro has finished streaming.
+    @MainActor
+    private func waitForStill(_ app: XCUIApplication, scale: CGFloat) throws {
+        var previous = app.screenshot()
+        for _ in 0..<15 {
+            Thread.sleep(forTimeInterval: 1)
+            let next = app.screenshot()
+            if try rowShift(from: previous, to: next, scale: scale) == 0, try meanDifference(previous, next) < 1 { return }
+            previous = next
+        }
+        XCTFail("the terminal kept moving for 15 s")
+    }
+
+    @MainActor
+    private func meanDifference(_ a: XCUIScreenshot, _ b: XCUIScreenshot) throws -> Double {
+        let ga = try gray(a), gb = try gray(b)
+        var cost = 0.0, count = 0
+        for i in stride(from: 0, to: min(ga.pixels.count, gb.pixels.count), by: 97) {
+            cost += Double(abs(Int(ga.pixels[i]) - Int(gb.pixels[i])))
+            count += 1
+        }
+        return cost / Double(max(count, 1))
     }
 
     /// How far the rows moved down between two stills, in points: the shift
