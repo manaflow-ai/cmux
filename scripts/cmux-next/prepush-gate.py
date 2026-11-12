@@ -1106,12 +1106,23 @@ def rustfmt_edition(repo: Path, tree: Path, path: str) -> str | None:
 # (RUSTUP_AUTO_INSTALL=0): `error: 'rustfmt' is not installed for the toolchain 'T'` (newer: `... 'T'.`, `... for
 # the custom toolchain 'T'`), `error: toolchain 'T' is not installed`, `error: override toolchain 'T' is not
 # installed`, and `error: the 'rustfmt' binary, normally provided by the 'rustfmt' component, is not applicable to the
-# 'T' toolchain`, each a whole line.
+# 'T' toolchain`. Each is the whole of stderr's first line, and rustup prints nothing after it but its own hint
+# (RUSTUP_HINT): `help: run `rustup ...` to install it`, or `To install, run `rustup ...``.
 RUSTUP_MISSING = re.compile(
-    rb"(?m)^error: (?:'rustfmt(?:\.exe)?' is not installed for the (?:custom )?toolchain '[^'\n]+'\.?"
-    rb"|(?:override )?toolchain '[^'\n]+' is not installed"
-    rb"|the 'rustfmt(?:\.exe)?' binary, normally provided by the 'rustfmt' component, is not applicable to the "
-    rb"'[^'\n]+' toolchain)\r?(?:\n|$)")
+    r"error: (?:'rustfmt(?:\.exe)?' is not installed for the (?:custom )?toolchain '[^'\n]+'\.?"
+    r"|(?:override )?toolchain '[^'\n]+' is not installed"
+    r"|the 'rustfmt(?:\.exe)?' binary, normally provided by the 'rustfmt' component, is not applicable to the "
+    r"'[^'\n]+' toolchain)")
+RUSTUP_HINT = re.compile(r"(?:help: (?:run|use) `rustup [^`\n]+`(?: to install it)?|To install, run `rustup [^`\n]+`)\.?")
+
+
+def rustup_missing(stderr: bytes) -> bool:
+    """True when STDERR is rustup's "no such toolchain or component" answer and nothing else: its error as the first
+    line, then only rustup's own hint. A rustfmt diagnostic or a panic that carries such a line anywhere else is not
+    (#41888 review: a diagnostic quoting `let toolchain = ;` passed as a missing component)."""
+    lines = [line.strip() for line in stderr.decode(errors="replace").splitlines() if line.strip()]
+    return bool(lines) and RUSTUP_MISSING.fullmatch(lines[0]) is not None and all(
+        RUSTUP_HINT.fullmatch(line) for line in lines[1:])
 
 
 def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
@@ -1126,6 +1137,13 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
     if not present or not config.is_file():
         return ""
     env = {**os.environ, "RUSTUP_AUTO_INSTALL": "0"}
+    # No rustfmt (and no rustup proxy) on PATH: not available here, which warns. Asked of PATH itself: a launch that
+    # raises FileNotFoundError can also be a rustfmt that is there with a missing `#!` interpreter (#41927 review).
+    # Any file named rustfmt counts, executable or not: one that will not start is no verdict, below.
+    if not any((Path(folder) / "rustfmt").is_file() for folder in env.get("PATH", os.defpath).split(os.pathsep)
+               if folder):
+        log("prepush-gate: WARNING: no rustfmt on PATH; Rust formatting NOT checked")
+        return ""
     findings = []
     for path in present:
         edition = rustfmt_edition(repo, tree, path)
@@ -1138,24 +1156,22 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
         except subprocess.TimeoutExpired:
             # It started and did not finish: no verdict on the file, not a pass (no rustfmt at all, below, warns).
             return f"rustfmt gave no verdict: timed out after 60s on {path}"
-        except FileNotFoundError:
-            # No rustfmt (and no rustup proxy) on PATH: not available here, which warns.
-            log("prepush-gate: WARNING: no rustfmt on PATH; Rust formatting NOT checked")
-            return ""
         except OSError as error:
-            # A rustfmt that is there and would not start (not executable, a bad interpreter): no verdict (#41888
-            # review).
+            # A rustfmt that is on PATH and would not start (not executable, a `#!` interpreter that is gone, raising
+            # FileNotFoundError): no verdict (#41888 and #41927 review).
             return f"rustfmt gave no verdict: it could not be started on {path} ({type(error).__name__}: {error})"
         if done.returncode != 0:
-            # Only rustup's own "no such toolchain or component" answer is "not available here" and warns, matched in
-            # its exact forms, each a whole line: a rustfmt diagnostic quotes the source, which can say "toolchain"
-            # or "not installed" anywhere (#41888 review). Then a parse error is a finding; any other failure (a panic,
-            # a crash) is no verdict, never a pass (#41827 review).
-            if RUSTUP_MISSING.search(done.stderr):
+            # Only rustup's own "no such toolchain or component" answer is "not available here" and warns, and only
+            # as the whole of stderr (rustup_missing): a rustfmt diagnostic quotes the source, which can say
+            # "toolchain" or "not installed" anywhere (#41888 review). Then a parse error is a finding; any other
+            # failure (a panic, a crash) is no verdict, never a pass (#41827 review).
+            if rustup_missing(done.stderr):
                 log("prepush-gate: WARNING: the pinned rustfmt is not available here (rustup component add rustfmt in "
                     f"cmux-tui/); Rust formatting NOT checked: {done.stderr.decode(errors='replace').strip()[:200]}")
                 return ""
-            if b"error[" in done.stderr or b"error:" in done.stderr:
+            # A parse error is rustfmt's exit 1 with its diagnostic first; a panic (exit 101) quoting `error:` is not.
+            first = next((line.strip() for line in done.stderr.splitlines() if line.strip()), b"")
+            if done.returncode == 1 and (first.startswith(b"error[") or first.startswith(b"error:")):
                 findings.append(f"{path}: rustfmt cannot parse it: "
                                 f"{done.stderr.decode(errors='replace').strip().splitlines()[0][:200]}")
                 continue
@@ -1506,10 +1522,10 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
                 cmd += ["--base-reserved", str(work / "base-list.json")]
             code, out = run(cmd, work)
             # Its verdicts exit 0 (none) or 1 (findings); anything else, a traceback or a timeout is no verdict, and so
-            # is an exit 1 that prints no finding.
+            # is an exit 1 that prints no finding, and output that is not its findings (#41888 review: "could not read
+            # checker input" on both revisions subtracted to [] and passed).
             lines = [line for line in out.splitlines() if line.strip()]
-            return lines, no_verdict(code, out, (0, 1)) or ("exited 1 but printed no finding" if code == 1 and not lines
-                                                            else None)
+            return lines, no_verdict(code, out, (0, 1)) or unread_findings(code, lines, RESERVED_FINDING)
 
         head_lines, head_stopped = findings(head, blob(base, RESERVED_LIST)) or ([], None)
         base_lines, base_stopped = findings(base, None) or ([], None)
@@ -1521,6 +1537,33 @@ def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None
         log(f"prepush-gate: {RESERVED_CHECK}: allowed by a Ghostty-defaults-OK trailer:\n  " + "\n  ".join(fresh))
         return []
     return fresh
+
+
+# check-ghostty-reserved-keys.py's findings: each names the file it is about, then what is wrong.
+RESERVED_FINDING = re.compile(r"(?:ghostty-reserved-keys|action-surfaces)\.json: \S.*")
+# check-ui-font.py's INPUTS, for a copy too old to answer --inputs: its findings name one of these paths.
+UI_FONT_INPUTS = ("schemas/type-scale/type-scale.json", "schemas/type-scale/ui-font-pin.json",
+                  "webviews/src/pages/shared/desktop.css", "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/",
+                  "webviews/src/", "Native/OptChat/")
+
+
+def unread_findings(code: int, lines: list[str], finding: re.Pattern[str]) -> str | None:
+    """Why LINES, a checker's verdict output for exit CODE (0 or 1), are not its findings, or None when they are:
+    exit 1 prints at least one finding and nothing that is not one (FINDING, a whole line); exit 0 prints nothing.
+    Only parsed findings subtract base from head: anything else is no verdict."""
+    if code == 1 and not lines:
+        return "exited 1 but printed no finding"
+    unread = [line for line in lines if not finding.fullmatch(line.strip())]
+    if unread:
+        return f"exited {code} with output that is not a finding: {unread[0][:200]}"
+    if code == 0 and lines:
+        return f"exited 0 but printed findings: {lines[0][:200]}"
+    return None
+
+
+def ui_font_finding(inputs: tuple[str, ...]) -> re.Pattern[str]:
+    """A check-ui-font.py finding: `<path>: <what>` or `<path>:<line>: <what>`, the path one of its INPUTS."""
+    return re.compile(r"(?:%s)[^:\s]*(?::\d+)?: \S.*" % "|".join(re.escape(i) for i in inputs))
 
 
 def ui_font_inputs(check: Path) -> tuple[str, ...] | None:
@@ -1555,13 +1598,18 @@ def ui_font(repo: Path, base: str, head: str, trusted_scripts: Path | None = Non
             if not any(path.startswith((*inputs, UI_FONT_SCRIPT)) for path in names.split("\0") if path):
                 return []
 
+        shape = ui_font_finding(inputs or UI_FONT_INPUTS)
+
         def findings(*args: str) -> tuple[list[str], str | None]:
             code, out = run(["python3", "-I", str(check), "--repo", str(repo), *args], Path(tmp), timeout=600)
             lines = [line for line in out.splitlines() if line.strip() and not line.startswith("ui font:")]
             # Its verdicts exit 0 or 1; anything else, a traceback or a timeout is no verdict, and so is an exit 1 that
-            # prints no finding (only its `ui font:` summary).
-            return lines, no_verdict(code, out, (0, 1)) or ("exited 1 but printed no finding" if code == 1 and not lines
-                                                            else None)
+            # prints no finding (only its `ui font:` summary), and output that is not its findings (#41888 review).
+            # Its INPUTS guard stop is not a finding either; it refuses on its own below.
+            reason = no_verdict(code, out, (0, 1))
+            if reason is None and not any(UI_FONT_GUARD in line for line in lines):
+                reason = unread_findings(code, lines, shape)
+            return lines, reason
 
         head_lines, head_stopped = findings("--rev", head, "--base", base)
         # A guard stop (a read outside the check's INPUTS) prints the same line on both passes, so the diff below

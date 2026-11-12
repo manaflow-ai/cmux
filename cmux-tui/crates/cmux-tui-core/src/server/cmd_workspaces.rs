@@ -34,6 +34,17 @@ pub(super) fn list_workspaces(mux: &Arc<Mux>, lines_written: Option<u64>) -> any
     Ok(reply)
 }
 
+/// [`list_workspaces`] for a reply that the socket writes from its build's shared tree text
+/// (tree_reply_text.rs): the same reply, with no copy of the tree.
+pub(super) fn list_workspaces_text(
+    mux: &Arc<Mux>,
+    writer: &super::MessageWriter,
+) -> anyhow::Result<super::tree_reply_text::TreeReply> {
+    let lines_written_before_read = writer.lines_written();
+    let text = super::list_workspaces_reply_text(mux, &writer.render_service)?;
+    Ok(super::tree_reply_text::TreeReply { text, lines_written_before_read })
+}
+
 pub(super) fn new_workspace(
     mux: &Arc<Mux>,
     actor: Actor,
