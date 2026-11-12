@@ -84,8 +84,17 @@ final class CEFHostView: NSView {
         super.rightMouseDown(with: event)
     }
     override func otherMouseDown(with event: NSEvent) { focusPageOnPress() }
+    /// A scroll that reaches this view found no page window under the pointer: a detached page's window comes back
+    /// (``CEFLayerHosting/personReachedPage()``), so the next wheel event scrolls the page.
+    /// A scroll while a button is held (a divider drag clamped past its pane's minimum) is no reach of the page.
+    override func scrollWheel(with event: NSEvent) {
+        if NSEvent.pressedMouseButtons == 0 { layerHosting.personReachedPage() }
+        super.scrollWheel(with: event)
+    }
 
     private func focusPageOnPress() {
+        // A press on a page whose window is detached at rest (it shows, takes no click): the window comes back first.
+        layerHosting.personReachedPage()
         guard let window, window.firstResponder !== self else { return }
         window.makeFirstResponder(self)
     }

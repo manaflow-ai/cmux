@@ -42,6 +42,9 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
     /// (``CEFLayerHosting/resizeMotion(active:)``).
     public var detaches = 0
     public var attaches = 0
+    /// Pages found detached at rest by a press, scroll, focus grant or tab show, and attached then
+    /// (``CEFLayerHosting/personReachedPage()``): each is a motion or hold whose end never came.
+    public var leftoverAttaches = 0
 
     public init() {}
 
@@ -65,7 +68,8 @@ public nonisolated struct CEFTrackerStats: Equatable, Sendable {
         ["clip_reads": Double(clipReads), "occlusion_reads": Double(occlusionReads), "clip_builds": Double(clipBuilds),
          "clip_hits": Double(clipHits), "clip_ms": clipSeconds * 1_000, "geometry_posts": Double(geometryPosts),
          "hosted_pages": Double(hostedPages), "hosting_refused": Double(hostingRefused), "geometry_skips": Double(geometrySkips),
-         "detaches": Double(detaches), "attaches": Double(attaches)]
+         "detaches": Double(detaches), "attaches": Double(attaches),
+         "leftover_attaches": Double(leftoverAttaches)]
     }
 
     /// Monotonic seconds for timing a read.

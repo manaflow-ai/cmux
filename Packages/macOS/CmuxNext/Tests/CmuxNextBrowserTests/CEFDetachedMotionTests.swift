@@ -348,4 +348,65 @@ import Testing
         commit()
         #expect(grants == 0 && hosting.firstFrameHold == .none, "no grant into a closed window")
     }
+
+    // MARK: A page the person reaches is never left detached (Aziz 2026-11-10)
+
+    /// Aziz 2026-11-10 (nightly 4269066450801): several browser tabs showed their page but took no click or scroll until
+    /// he closed and reopened the window. A motion whose end never reached the page (its container's share lost on the
+    /// way) left the window detached at rest; only a window change attached it. A press or a scroll on the page area
+    /// now attaches it at once, and the motion's late end, if it ever comes, changes nothing.
+    @Test func aPressOnAPageLeftDetachedByALostMotionEndAttachesIt() {
+        let hosting = hostedPage()
+        hosting.resizeMotion(active: true)
+        #expect(hosting.isDetached, "the motion detached it; its end never comes")
+        #expect(hosting.personReachedPage(), "the press attaches the page window")
+        #expect(!hosting.isDetached && !hosting.inResizeMotion)
+        #expect(calls == ["4:detach", "4:attach"])
+        hosting.resizeMotion(active: false)
+        #expect(calls.count == 2, "a late end is ignored: no motion is counted any more")
+        #expect(!hosting.personReachedPage(), "an attached page makes no fork call on a press")
+        #expect(calls.count == 2)
+    }
+
+    /// A first-frame hold whose frame never came (no tick, no drop) kept the page detached at rest with its focus ask:
+    /// a press attaches it, and the kept ask is granted after the next commit, once the fork ordered the window in.
+    @Test func aPressOnAPageWhoseFirstFrameNeverCameAttachesItAndGrantsTheKeptAsk() {
+        let (hosting, commit, _) = shownPage()
+        var grants = 0
+        hosting.pageAppeared(windowInWindow: false) { grants += 1 }
+        #expect(hosting.isDetached && hosting.holdsFirstFrame())
+        #expect(hosting.personReachedPage())
+        #expect(!hosting.isDetached && !hosting.holdsFirstFrame())
+        #expect(grants == 0, "the window is ordered in at the fork's next observer")
+        commit()
+        #expect(grants == 1)
+    }
+
+    /// A press attaches the page, then makes the page view first responder, which asks for focus in the same turn. The
+    /// window is a child again only after the next commit, so the grant waits for it (review finding 1, #this PR).
+    @Test func aFocusGrantRightAfterAPressAttachWaitsForTheNextCommit() {
+        let (hosting, commit, _) = shownPage()
+        hosting.resizeMotion(active: true)
+        hosting.resizeMotion(active: true)
+        hosting.resizeMotion(active: false)
+        #expect(hosting.isDetached, "one share of the motion never ended")
+        #expect(hosting.personReachedPage())
+        #expect(hosting.pageTakesFocus(), "the grant waits: the window is not ordered in yet")
+        commit()
+        #expect(!hosting.pageTakesFocus(), "after the commit the grant goes ahead")
+    }
+
+    /// A refused attach is not retried once per scroll event: the owed path retries it (review finding 2).
+    @Test func aRefusedLeftoverAttachIsNotRetriedOnEveryEvent() {
+        let hosting = hostedPage()
+        hosting.resizeMotion(active: true)
+        fake.accepts = false
+        #expect(!hosting.personReachedPage())
+        let after = calls.count
+        for _ in 0..<5 { hosting.personReachedPage() }
+        #expect(calls.count == after, "no fork call per event while the attach is owed")
+        fake.accepts = true
+        hosting.trackerDidRead()
+        #expect(!hosting.isDetached, "the owed path attaches it")
+    }
 }
