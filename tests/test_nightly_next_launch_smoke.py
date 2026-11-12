@@ -75,6 +75,11 @@ PASSED = {"verdict": "pass", "pid": 4242}
 NO_LAUNCH = {"verdict": "cannot-run", "failures": ["this process is in a Background session, not Aqua (no GUI)"]}
 NO_HOME = {"verdict": "fail", "pid": 4242, "exit": None,
            "failures": ["Home did not render within 90s"]}
+# The app stayed up with Home shown and said two times that its daemon is not connected (the harness's word).
+DAEMON_DOWN = {"verdict": "fail", "pid": 4242, "exit": None, "crash_reports": [], "run_exceptions": [],
+               "daemon_down": "the app's daemon (cmux-tui) was not connected when the watch ended (disconnected) "
+                              "and 5s later (disconnected)"}
+DAEMON_DOWN["failures"] = [DAEMON_DOWN["daemon_down"]]
 
 
 class VerdictTests(unittest.TestCase):
@@ -105,6 +110,26 @@ class VerdictTests(unittest.TestCase):
         self.assertEqual(smoke.attempt_result(1, report), smoke.CRASH)
         report = {"verdict": "fail", "pid": 4242, "exit": None, "run_exceptions": ["run.exception"]}
         self.assertEqual(smoke.attempt_result(1, report), smoke.CRASH)
+
+    def test_a_daemon_that_was_down_at_the_end_of_the_watch_holds_as_a_crash_holds(self) -> None:
+        # A build that shows Home with a dead daemon cannot be used. It is evidence of the app as its end is,
+        # with the same rule: one attempt holds nothing, both attempts hold the build.
+        self.assertEqual(smoke.attempt_result(1, DAEMON_DOWN), smoke.CRASH)
+        self.assertEqual(smoke.attempt_result(124, DAEMON_DOWN), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN)]), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (1, DAEMON_DOWN)]), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(1, RAN), (124, DAEMON_DOWN)]), smoke.CRASH)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (0, PASSED)]), smoke.PASS)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (1, NO_HOME)]), smoke.CANNOT_RUN)
+        self.assertEqual(smoke.verdict([(1, DAEMON_DOWN), (3, NO_LAUNCH)]), smoke.CANNOT_RUN)
+        # Only with the harness's verdict and its launch: the word alone is no evidence.
+        for report in ({**DAEMON_DOWN, "verdict": "pass"}, {**DAEMON_DOWN, "pid": None},
+                       {k: v for k, v in DAEMON_DOWN.items() if k != "verdict"}, {**DAEMON_DOWN, "daemon_down": None},
+                       {**DAEMON_DOWN, "daemon_down": ""}):
+            self.assertEqual(smoke.attempt_result(1, report), smoke.CANNOT_RUN, report)
+            self.assertEqual(smoke.attempt_result(124, report), smoke.CANNOT_RUN, report)
+        for status in (0, 2, 3, 143, 137, -1):
+            self.assertEqual(smoke.attempt_result(status, DAEMON_DOWN), smoke.CANNOT_RUN, status)
 
     def test_a_clean_exit_or_missing_app_evidence_is_not_a_launch_crash(self) -> None:
         report = {"verdict": "fail", "pid": 4242, "exit": 0, "failures": ["Home did not render"]}
@@ -581,6 +606,11 @@ class GateScriptTests(unittest.TestCase):
                 " 'seeded-crash': {'verdict': 'fail', 'pid': 2, 'exit': -11, 'arm': 'seeded',"
                 " 'failures': ['seeded home: the app exited (signal 11) 2.5s after launch'],"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'fail', 'exit': -11}}},"
+                " 'daemon-down': {'verdict': 'fail', 'pid': 1, 'exit': None, 'arm': 'empty', 'daemon_down': 'not connected',"
+                " 'failures': ['the daemon was not connected']},"
+                " 'seeded-daemon-down': {'verdict': 'fail', 'pid': 2, 'exit': None, 'arm': 'seeded',"
+                " 'daemon_down': 'not connected', 'failures': ['seeded home: the daemon was not connected'],"
+                " 'arms': {'empty': empty, 'seeded': {'verdict': 'fail', 'exit': None}}},"
                 " 'seeded-not-run': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'not-run', 'reason': 'its cookie sync did not read\\nthe seeded store'}}},"
                 " 'seeded-cannot-run': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
@@ -589,6 +619,7 @@ class GateScriptTests(unittest.TestCase):
                 "open(os.path.join(out, 'report.json'), 'w').write(json.dumps(report))\n"
                 "open(os.path.join(out, 'app.log'), 'w').write('log\\n')\n"
                 "sys.exit({'pass': 0, 'crash': 1, 'seeded-crash': 1, 'seeded-not-run': 0, 'seeded-cannot-run': 0,"
+                " 'daemon-down': 1, 'seeded-daemon-down': 1,"
                 " 'cannot-run': 3}[kind])\n")
             dmg = root / "app.dmg"
             dmg.write_bytes(b"dmg")
@@ -623,6 +654,30 @@ class GateScriptTests(unittest.TestCase):
         self.assertIn("from a seeded home (imported-cookie sync on) on both attempts", output)
         self.assertIn("not published", output)
         self.assertNotIn("from a seeded home", self.run_gate(["crash", "crash"])[1])
+
+    def test_a_daemon_that_is_down_on_both_attempts_holds_the_build_and_the_gate_says_so(self) -> None:
+        status, output, _ = self.run_gate(["daemon-down", "daemon-down"])
+        self.assertEqual(status, 1, output)
+        self.assertIn("the app's daemon was not connected after launch from a fresh home on both attempts", output)
+        self.assertIn("not published", output)
+        self.assertNotIn("crashed at launch", output)
+        self.assertIn("### Launch smoke: crash", self.summary)
+        self.assertIn("the daemon was not connected", self.summary)
+        status, output, _ = self.run_gate(["seeded-daemon-down", "seeded-daemon-down"])
+        self.assertEqual(status, 1, output)
+        self.assertIn("the app's daemon was not connected after launch from a seeded home (imported-cookie sync on) "
+                      "on both attempts", output)
+        # A crash keeps its own words, also when the other attempt was the daemon's.
+        status, output, _ = self.run_gate(["daemon-down", "crash"])
+        self.assertEqual(status, 1, output)
+        self.assertIn("the app crashed at launch from a fresh home on both attempts", output)
+
+    def test_a_daemon_that_is_down_on_one_attempt_never_holds_the_build(self) -> None:
+        for plan in (["daemon-down", "pass"], ["daemon-down", "cannot-run"], ["daemon-down"],
+                     ["seeded-daemon-down", "seeded-not-run"], ["crash", "pass"]):
+            status, output, _ = self.run_gate(plan)
+            self.assertEqual(status, 0, (plan, output))
+            self.assertNotIn("not published", output, plan)
 
     def test_one_seeded_crash_or_a_seeded_home_that_did_not_run_never_holds_the_build(self) -> None:
         self.assertEqual(self.run_gate(["seeded-crash", "pass"])[0], 0)
