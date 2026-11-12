@@ -94,24 +94,27 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         }
         XCTAssertEqual(screen.frame.height, upScreenHeight, accuracy: 2, "screen height after the keyboard")
 
-        // Landscape: tucked away at first (height is short), brought up and tucked away again.
-        XCUIDevice.shared.orientation = .landscapeLeft
-        settle(app, 2.5)
-        XCTAssertEqual(drawer.value as? String, "closed", "landscape starts tucked away")
-        attach(app, "06-landscape-tucked-away")
-        handle.swipeUp()
-        XCTAssertTrue(wait(for: drawer, value: "open"), "notch drag up in landscape")
-        XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad in landscape")
-        settle(app, 1)
-        attach(app, "07-landscape-trackpad-up")
-        handle.swipeDown()
-        XCTAssertTrue(wait(for: drawer, value: "closed"), "notch drag down in landscape")
+        // Landscape (iPhone; an iPad's app window turns with the device without becoming landscape):
+        // tucked away at first (height is short), brought up and tucked away again.
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            XCUIDevice.shared.orientation = .landscapeLeft
+            settle(app, 2.5)
+            XCTAssertEqual(drawer.value as? String, "closed", "landscape starts tucked away")
+            attach(app, "06-landscape-tucked-away")
+            handle.swipeUp()
+            XCTAssertTrue(wait(for: drawer, value: "open"), "notch drag up in landscape")
+            XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad in landscape")
+            settle(app, 1)
+            attach(app, "07-landscape-trackpad-up")
+            handle.swipeDown()
+            XCTAssertTrue(wait(for: drawer, value: "closed"), "notch drag down in landscape")
 
-        // Back in portrait: the remembered portrait choice (up) again.
-        XCUIDevice.shared.orientation = .portrait
-        settle(app, 2)
-        XCTAssertEqual(drawer.value as? String, "open", "portrait keeps its own choice")
-        XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad back in portrait")
+            // Back in portrait: the remembered portrait choice (up) again.
+            XCUIDevice.shared.orientation = .portrait
+            settle(app, 2)
+            XCTAssertEqual(drawer.value as? String, "open", "portrait keeps its own choice")
+            XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad back in portrait")
+        }
 
         // Last, the options menu has a Show Trackpad toggle. (A simulator, which reports its host's
         // keyboard to the app, raises its software keyboard with the menu; taps on the menu's items
