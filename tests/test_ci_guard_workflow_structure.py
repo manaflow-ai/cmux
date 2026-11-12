@@ -80,7 +80,7 @@ def test_agent_chat_uses_a_pinned_local_compiler_and_runs_tests_once() -> None:
     ]
     assert all(step["if"] == "${{ !cancelled() && matrix.group == 'preflight-agent-chat' }}" for step in chat_steps)
     assert chat_steps[0]["run"].splitlines() == [
-        "bun install --frozen-lockfile",
+        'bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile',
         "./node_modules/.bin/tsc --noEmit",
     ]
     assert chat_steps[1]["run"] == "bun run test"

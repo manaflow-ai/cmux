@@ -208,7 +208,7 @@ jobs:
             bun-vm-image-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       # An image roll bakes the lock with the build it rolls (images/cmux-vm/pin-cmux-tui.ts); the roll's
       # commit writes the same lock, and refuses one that no longer hashes to what was baked here.
@@ -574,7 +574,7 @@ jobs:
           bun-version: "1.4.4"
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: First build before
         env:

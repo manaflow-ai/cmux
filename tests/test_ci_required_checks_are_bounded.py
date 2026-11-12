@@ -14,6 +14,13 @@ A `pull_request` workflow with no concurrency group starts a fresh run per
 push and lets the superseded ones finish. `ci.yml` and most of its neighbours
 already cancel; five path-filtered workflows had no group at all.
 
+A bare `bun install` (or `bun i`) in any workflow step waits forever on a
+registry connection that stops answering: bun has no idle limit of its own,
+so the job sits silent until its timeout cancels it (2026-11-09, hosted Linux
+runners). Every workflow installs through scripts/ci/bun-install.sh, which
+gives bun an idle limit and retries, bounds each attempt, and ends a stall
+with a named "bun install stalled" error.
+
 Both rules stay derived rather than listed. The required contexts come from
 the repository ruleset and are matched to jobs by name, and a context that
 stops matching any job fails this test rather than quietly guarding nothing.
@@ -22,6 +29,7 @@ stops matching any job fails this test rather than quietly guarding nothing.
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -52,6 +60,74 @@ OWN_SUPERSESSION = {
 }
 # Every context whose workflows must be bounded. Tests patch this name.
 REQUIRED_CONTEXTS = tuple(dict.fromkeys((*_required_status_checks.REQUIRED_CHECKS, *ALWAYS_BOUNDED)))
+
+
+# `bun install` or `bun i` as a command, not `bun-install.sh` or `bun install` inside a quoted string.
+BARE_BUN_INSTALL = re.compile(r"(?<![\w./$-])bun\s+(?:install|i)(?![\w.-])")
+
+
+def unquoted(line: str) -> str:
+    """The line with its quoted text and trailing comment blanked out. A command substitution (`$(...)` or backticks)
+    runs even inside double quotes, so its text is kept."""
+    out: list[str] = []
+    quote = None  # None, "'" or '"'
+    depth = 0  # open $( ... ) inside double quotes
+    i = 0
+    while i < len(line):
+        ch = line[i]
+        if quote == "'":
+            out.append(" ")
+            if ch == "'":
+                quote = None
+        elif quote == '"' and depth == 0:
+            if line.startswith("$(", i):
+                depth = 1
+                out.append("$(")
+                i += 2
+                continue
+            out.append(" ")
+            if ch == "\\":
+                out.append(" ")
+                i += 2
+                continue
+            if ch == '"':
+                quote = None
+        elif quote == '"':
+            if line.startswith("$(", i):
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            out.append(ch)
+        elif ch in "\"'":
+            quote = ch
+            out.append(" ")
+        elif ch == "#" and (not out or out[-1].isspace()):
+            break
+        else:
+            out.append(ch)
+        i += 1
+    return "".join(out)
+
+
+def bare_bun_installs(workflow: dict) -> list[str]:
+    """Each step command that runs bun install without scripts/ci/bun-install.sh, as job: line."""
+    found = []
+    for job_id, job in (workflow.get("jobs") or {}).items():
+        if not isinstance(job, dict):
+            continue
+        for step in job.get("steps") or ():
+            run = step.get("run") if isinstance(step, dict) else None
+            if not isinstance(run, str):
+                continue
+            # A backslash-newline continues one shell line.
+            for line in re.sub(r"\\\n[ \t]*", " ", run).splitlines():
+                stripped = line.strip()
+                for command in re.split(r"&&|\|\||[;|&()`]", unquoted(stripped)):
+                    # `timeout N bun install` is bounded too (a trusted job whose base predates the script).
+                    if BARE_BUN_INSTALL.search(command) and not re.match(r"\s*(?:\w+=\S*\s+)*timeout\b", command):
+                        found.append(f"{job_id}: {stripped}")
+                        break
+    return found
 
 
 def load(path: Path) -> dict:
@@ -177,6 +253,14 @@ def main() -> int:
         elif "pull_request" not in triggers(workflow) or workflow.get("concurrency"):
             failures.append(f"{name} no longer needs its OWN_SUPERSESSION entry; remove it")
 
+    for path, workflow in workflows.items():
+        for hit in bare_bun_installs(workflow):
+            failures.append(
+                f"{path.relative_to(ROOT)}:{hit} runs a bare bun install, which waits "
+                "forever on a registry that stops answering; run "
+                'bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" with the same arguments'
+            )
+
     if failures:
         print("unbounded CI:", file=sys.stderr)
         for failure in failures:
@@ -185,10 +269,31 @@ def main() -> int:
 
     print(
         f"{len(REQUIRED_CONTEXTS)} required and always-bounded checks are bounded; "
-        "every pull_request workflow has a concurrency group"
+        "every pull_request workflow has a concurrency group; no workflow runs a bare bun install"
     )
     return 0
 
 
+def self_test() -> None:
+    """The bare-install detector on the shapes workflows use."""
+    def hits(run: str) -> list[str]:
+        return bare_bun_installs({"jobs": {"j": {"steps": [{"run": run}]}}})
+    for bare in ("bun install --frozen-lockfile", "cd web && bun install", "(cd x && bun i)",
+                 "bun install -g some-tool || true", "[ -d node_modules ] || bun install --frozen-lockfile",
+                 'echo "Installing dependencies"; bun install --frozen-lockfile', 'printf "Installing\\n" && bun i',
+                 "echo bun install", "timeout 600 echo x; bun install",
+                 'install_log="$(bun install --frozen-lockfile)"', "bun \\\n  install --frozen-lockfile",
+                 "out=`bun i`", 'echo "$(cd web && bun install)"'):
+        assert hits(bare), bare
+    for bounded in ('bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile',
+                    'bash ../scripts/ci/bun-install.sh --', 'echo "bun install --frozen-lockfile in x"',
+                    '(cd x && bash "$RUNNER_TEMP/bun-install.sh") || fail "bun install"',
+                    "# bun install runs below", "bun run install-hooks", "bun index.ts",
+                    "X=1 timeout --kill-after=15 600 bun install --frozen-lockfile",
+                    'echo "$(date) bun install starts"', "echo 'run $(bun install) later'"):
+        assert not hits(bounded), bounded
+
+
 if __name__ == "__main__":
+    self_test()
     sys.exit(main())

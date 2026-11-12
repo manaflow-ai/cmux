@@ -91,7 +91,7 @@ jobs:
 
       - name: Install webviews dependencies
         working-directory: webviews
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       # Some webviews tests read the built bundles (build output since cx-vn5).
       - name: Build the web bundles
@@ -143,7 +143,7 @@ jobs:
 
       - name: Install webviews dependencies
         working-directory: webviews
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: Cache Playwright's apt packages
         uses: ./.github/actions/playwright-apt-cache

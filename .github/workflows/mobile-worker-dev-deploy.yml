@@ -110,8 +110,15 @@ jobs:
             exit 1
           fi
 
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-mobile-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('cmux-next-ios/backend/bun.lock') }}
+          restore-keys: |
+            bun-mobile-backend-${{ runner.os }}-${{ runner.arch }}-
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: Typecheck
         run: bunx tsc -p .

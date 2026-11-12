@@ -120,7 +120,7 @@ jobs:
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: Validate managed relay catalog
         run: bun tools/generate-managed-iroh-relay-catalog.ts --check
@@ -172,7 +172,7 @@ jobs:
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: Vercel production build
         env:
@@ -217,7 +217,7 @@ jobs:
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: Run web test shard
         id: shard
@@ -269,7 +269,7 @@ jobs:
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: Cache Playwright browsers
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
@@ -792,7 +792,7 @@ jobs:
       - name: Install webview dependencies
         if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}
         working-directory: webviews
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: Build base web bundles
         if: ${{ steps.head.outputs.reds != '0' && steps.history.outputs.replay != '0' }}
@@ -889,7 +889,7 @@ jobs:
       - name: Install head webview dependencies
         if: ${{ steps.base.outputs.rerun == 'true' }}
         working-directory: webviews
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: Build head web bundles
         if: ${{ steps.base.outputs.rerun == 'true' }}
@@ -965,7 +965,7 @@ jobs:
           key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: React Doctor
         run: bun run react-doctor:ci
@@ -1174,7 +1174,7 @@ jobs:
 
       - name: Install webview dependencies
         working-directory: webviews
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       # Format and clippy are gates: a miss is recorded and fails the job in the
       # last step, so it no longer hides the cargo tests and checks below.
@@ -1251,7 +1251,7 @@ jobs:
           key: bun-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('web/bun.lock') }}
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: Apply migrations
         env:

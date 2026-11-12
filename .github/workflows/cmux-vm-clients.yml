@@ -144,8 +144,15 @@ jobs:
         with:
           bun-version: "1.4.4"
 
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-cmux-vm-sdk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('workers/cmux-vm/sdk/bun.lock') }}
+          restore-keys: |
+            bun-cmux-vm-sdk-${{ runner.os }}-${{ runner.arch }}-
       - id: install
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: Generated schema matches openapi.json
         id: regenerate

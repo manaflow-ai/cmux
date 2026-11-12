@@ -41,7 +41,7 @@ jobs:
       # so this step needs the install.
       - name: Install web dependencies
         working-directory: web
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: cmux-next docs reference pages are fresh
         working-directory: web

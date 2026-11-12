@@ -59,7 +59,7 @@ jobs:
           node-version: "22"
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: Validate managed relay catalog
         run: bun run relay-catalog:check
@@ -100,7 +100,7 @@ jobs:
           node-version: "22"
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
 
       - name: Check Cloudflare secrets
         env:

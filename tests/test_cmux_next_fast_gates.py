@@ -23,6 +23,7 @@ import json
 import os
 import re
 import select
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1143,7 +1144,7 @@ class BunInstallScript(unittest.TestCase):
 
     SCRIPT = ROOT / "scripts/ci/bun-install.sh"
 
-    def install(self, fake_bun: str, **env: str) -> subprocess.CompletedProcess:
+    def install(self, fake_bun: str, *args: str, no_timeout: bool = False, **env: str) -> subprocess.CompletedProcess:
         tmp = Path(tempfile.mkdtemp(prefix="bun-install-test-"))
         self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)])
         bin_dir = tmp / "bin"
@@ -1151,11 +1152,20 @@ class BunInstallScript(unittest.TestCase):
         (bin_dir / "bun").write_text("#!/bin/sh\n" + fake_bun, encoding="utf-8")
         (bin_dir / "bun").chmod(0o755)
         (tmp / "count").write_text("", encoding="utf-8")
-        environment = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "COUNT": str(tmp / "count"),
+        path = f"{bin_dir}{os.pathsep}{os.environ['PATH']}"
+        if no_timeout:
+            # A host with no coreutils `timeout` (a stock macOS runner): only the tools the script and the fake use.
+            # bash, dirname and perl: bun-install.sh runs scripts/ci/timeout.sh, which finds itself and runs its watchdog.
+            for tool in ("sed", "curl", "mktemp", "rm", "sleep", "hostname", "wc", "sh", "bash", "dirname", "perl"):
+                found = shutil.which(tool)
+                if found:
+                    (bin_dir / tool).symlink_to(found)
+            path = str(bin_dir)
+        environment = {**os.environ, "PATH": path, "COUNT": str(tmp / "count"),
                        # A closed local port: the registry probe answers at once, with no network.
                        "BUN_CONFIG_REGISTRY": "http://127.0.0.1:9/", **env}
-        result = subprocess.run(["bash", str(self.SCRIPT)], cwd=tmp, env=environment, capture_output=True, text=True,
-                                timeout=60)
+        result = subprocess.run([shutil.which("bash") or "bash", str(self.SCRIPT), *args], cwd=tmp, env=environment,
+                                capture_output=True, text=True, timeout=60)
         result.attempts = len((tmp / "count").read_text(encoding="utf-8"))
         return result
 
@@ -1178,6 +1188,38 @@ class BunInstallScript(unittest.TestCase):
         result = self.install('echo "idle=$BUN_CONFIG_HTTP_IDLE_TIMEOUT retry=$BUN_CONFIG_HTTP_RETRY_COUNT args=$*"\n')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("idle=30 retry=5 args=install --frozen-lockfile", result.stdout)
+
+    def test_a_lone_double_dash_passes_exactly_the_args_after_it(self):
+        # A step that ran a plain `bun install` keeps it: no --frozen-lockfile added.
+        result = self.install('echo "args=$*."\n', "--")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("args=install.", result.stdout)
+        result = self.install('echo "args=$*."\n', "--", "-g", "some-tool")
+        self.assertIn("args=install -g some-tool.", result.stdout)
+
+    def test_a_host_without_timeout_still_bounds_the_attempt(self):
+        result = self.install('printf x >> "$COUNT"; sleep 30\n', no_timeout=True, BUN_INSTALL_ATTEMPT_SECONDS="1",
+                              BUN_INSTALL_ATTEMPTS="2")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(result.attempts, 2)
+        self.assertIn("::error title=bun install stalled::", result.stdout)
+        passed = self.install('exit 0\n', no_timeout=True)
+        self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
+
+    def test_without_timeout_the_deadline_ends_the_installs_children_too(self):
+        # A lifecycle script bun started must not outlive the attempt: it would hold the step's log open and race
+        # the retry. The fake starts a child that records its PID and outlives bun; the watchdog ends the group.
+        pids = Path(tempfile.mkdtemp(prefix="bun-install-children-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(pids)])
+        result = self.install(f'sleep 60 & echo $! >> "{pids}/child"; printf x >> "$COUNT"; sleep 60\n',
+                              no_timeout=True, BUN_INSTALL_ATTEMPT_SECONDS="1", BUN_INSTALL_ATTEMPTS="1")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("::error title=bun install stalled::", result.stdout)
+        children = [int(line) for line in (pids / "child").read_text(encoding="utf-8").split()]
+        self.assertEqual(len(children), 1)
+        for child in children:
+            with self.assertRaises(ProcessLookupError, msg=f"the install's child {child} outlived the deadline"):
+                os.kill(child, 0)
 
     def test_a_zero_bound_is_refused(self):
         # GNU `timeout 0` disables the deadline, so a zero would let a hung install run to the job limit again.
@@ -1208,8 +1250,8 @@ class BunInstallScriptWithoutGnuTimeout(BunInstallScript):
     portable-placement sends it to ("timeout: command not found") on #40892, #41288, #41299 and #41305.
     """
 
-    def install(self, fake_bun: str, **env: str) -> subprocess.CompletedProcess:
-        return super().install(fake_bun, **{"CI_TIMEOUT_IMPL": "perl", **env})
+    def install(self, fake_bun: str, *args: str, no_timeout: bool = False, **env: str) -> subprocess.CompletedProcess:
+        return super().install(fake_bun, *args, no_timeout=no_timeout, **{"CI_TIMEOUT_IMPL": "perl", **env})
 
 
 TIMEOUT_SCRIPT = ROOT / "scripts/ci/timeout.sh"
@@ -1328,21 +1370,28 @@ class CiScriptsCallPortableTimeout(unittest.TestCase):
                          "`bash scripts/ci/timeout.sh [--kill-after=D] SECONDS CMD...` instead")
 
     def test_a_workflow_that_copies_a_script_out_copies_the_wrapper_with_it(self):
-        # ci-web.yml and cmux-next-web.yml run the head's run-webviews-tests.sh from a copy in $RUNNER_TEMP; a copy
-        # without its sibling timeout.sh would fail every file with "No such file or directory".
+        # A script that runs scripts/ci/timeout.sh finds it beside itself. ci-web.yml runs run-webviews-tests.sh from
+        # a copy in $RUNNER_TEMP, and ten workflows sparse-check-out bun-install.sh and move it there (#39869): a step
+        # that copies, moves or sparse-checks-out one of them without timeout.sh fails every run with exit 127.
         users = [path.name for path in shell_scripts(ROOT / "scripts/ci")
                  if path != TIMEOUT_SCRIPT and "timeout.sh" in path.read_text(encoding="utf-8", errors="replace")]
         self.assertIn("run-webviews-tests.sh", users)
+        self.assertIn("bun-install.sh", users)
         missing = []
         for workflow_path in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
-            text = workflow_path.read_text(encoding="utf-8").replace("\\\n", " ")
-            for line in text.splitlines():
-                if not re.search(r"(?:^|[;&|]\s*|\s)cp\s", line):
-                    continue
-                for name in users:
-                    if re.search(rf"scripts/ci/{re.escape(name)}\b", line) and "scripts/ci/timeout.sh" not in line:
-                        missing.append(f"{workflow_path.name}: {line.strip()[:160]}")
-        self.assertEqual(missing, [], "copy scripts/ci/timeout.sh beside every script that runs it")
+            doc = yaml.safe_load(workflow_path.read_text(encoding="utf-8")) or {}
+            for job_name, job_doc in (doc.get("jobs") or {}).items():
+                for step in (job_doc or {}).get("steps") or []:
+                    sparse = str((step.get("with") or {}).get("sparse-checkout", ""))
+                    run = str(step.get("run", "")).replace("\\\n", " ")
+                    texts = [sparse] + [line for line in run.splitlines() if re.search(r"(?:^|[;&|]\s*|\s)(?:cp|mv)\s", line)]
+                    for text in texts:
+                        if "timeout.sh" in text:
+                            continue
+                        for name in users:
+                            if re.search(rf"scripts/ci/{re.escape(name)}\b", text):
+                                missing.append(f"{workflow_path.name} {job_name}: {text.strip()[:160]}")
+        self.assertEqual(missing, [], "copy, move or sparse-check-out scripts/ci/timeout.sh beside every script that runs it")
 
     def test_the_detector_catches_the_shapes_that_broke(self):
         self.assertEqual(len(bare_timeout_calls('  timeout --kill-after=15 "$s" bun install "$@"\n')), 1)

@@ -34,10 +34,17 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: "24"
+      - name: Cache Bun package cache
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-backend-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('backend/bun.lock') }}
+          restore-keys: |
+            bun-backend-${{ runner.os }}-${{ runner.arch }}-
       - name: Install locked dependencies
         id: install
         working-directory: backend
-        run: bun install --frozen-lockfile
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile
       - name: API typecheck
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: bun run typecheck

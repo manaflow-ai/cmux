@@ -150,6 +150,7 @@ jobs:
             workers/iroh-v2
             workers/presence
             scripts/e2e
+            scripts/ci
           sparse-checkout-cone-mode: true
 
       # Bun's package cache, not node_modules, and actions/cache, not a sticky
@@ -184,9 +185,9 @@ jobs:
           set -euo pipefail
           docker pull -q postgres:16-alpine >/dev/null &
           pull=$!
-          (cd workers/iroh-v2 && bun install --frozen-lockfile) &
+          (cd workers/iroh-v2 && bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile) &
           iroh=$!
-          (cd workers/presence && bun install --frozen-lockfile) &
+          (cd workers/presence && bash "$GITHUB_WORKSPACE/scripts/ci/bun-install.sh" --frozen-lockfile) &
           presence=$!
           wait "$iroh"
           wait "$presence"

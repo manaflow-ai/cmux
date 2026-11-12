@@ -8,7 +8,9 @@
 # cancelled the job, which merge_hold then refused. The same registry answered in under a second from another network.
 #
 # Usage, in the package's folder: bash scripts/ci/bun-install.sh [bun install args...]
-#   (default args: --frozen-lockfile)
+#   (default args: --frozen-lockfile; a lone `--` first means exactly the args after it, none included,
+#   for a step that runs a plain `bun install`)
+# Every workflow's bun install goes through here (tests/test_ci_required_checks_are_bounded.py fails on a bare one).
 # Knobs (environment, each with a default):
 #   BUN_CONFIG_HTTP_IDLE_TIMEOUT  seconds a registry connection may sit idle before bun drops and retries it (30)
 #   BUN_CONFIG_HTTP_RETRY_COUNT   bun's own retries of one failed request (5)
@@ -38,6 +40,8 @@ for value in "$BUN_CONFIG_HTTP_IDLE_TIMEOUT" "$BUN_CONFIG_HTTP_RETRY_COUNT" "$at
 done
 if [ "$#" -eq 0 ]; then
   set -- --frozen-lockfile
+elif [ "$1" = "--" ]; then
+  shift
 fi
 
 # One timed request to the registry, so the log says how it answered from this runner before the install.
