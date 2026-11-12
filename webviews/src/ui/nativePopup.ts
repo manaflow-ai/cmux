@@ -3,6 +3,7 @@ import { usePopupHost } from "./UiProvider";
 import type { AnchorBox } from "./popupHost";
 import { nativePopupRows, type NativePopupEvent, type NativePopupModel, type NativePopupRow } from "./popupProtocol";
 import { NativePopupEventFence } from "./nativePopupEvents";
+import { onVisualViewport } from "./visualViewportBox";
 
 export type { NativePopupEvent, NativePopupModel, NativePopupRow } from "./popupProtocol";
 
@@ -88,7 +89,10 @@ export function useNativePopup(options: NativePopupOptions): { available: boolea
       editSequences.current.clear();
       eventFence.current.reset();
     }
-    const rect = anchor.getBoundingClientRect();
+    // Where the anchor shows under a trackpad pinch (visualViewportBox.ts), so the App's popup opens
+    // beside it on the zoomed page. A virtual anchor (a pointer) has no document: the page's own window.
+    const view = ("ownerDocument" in anchor ? (anchor as Element).ownerDocument?.defaultView : undefined) ?? window;
+    const rect = onVisualViewport(anchor.getBoundingClientRect(), view);
     const model: NativePopupModel = {
       ...withEditSequences(latest.current.model, editSequences.current),
       schemaVersion: 1,

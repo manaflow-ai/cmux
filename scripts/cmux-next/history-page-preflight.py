@@ -181,7 +181,7 @@ def teardown(app):
         ps = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
         left = [l for l in ps.splitlines() if (APP + "/") in l and "history-preflight" not in l]
         note("leftovers-after-router", lines=left)
-    print("leftovers of this bundle: %d" % len(left), flush=True)
+    safe_print("leftovers of this bundle: %d" % len(left), flush=True)
     return not left
 
 

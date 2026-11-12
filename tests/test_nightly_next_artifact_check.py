@@ -17,6 +17,7 @@ import os
 import plistlib
 import re
 import tempfile
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -24,6 +25,8 @@ from unittest import mock
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "tests"))
+import workflow_jobs  # noqa: E402
 spec = importlib.util.spec_from_file_location("nightly_next_artifact_check",
                                               ROOT / "scripts" / "ci" / "nightly_next_artifact_check.py")
 check = importlib.util.module_from_spec(spec)
@@ -284,7 +287,7 @@ class CanaryWiringTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls) -> None:
-        cls.jobs = yaml.safe_load((ROOT / ".github" / "workflows" / "nightly-next-canary.yml").read_text())["jobs"]
+        cls.jobs = workflow_jobs.jobs(ROOT / ".github" / "workflows" / "nightly-next-canary.yml")
 
     def test_the_pick_resolves_the_source_commit_and_the_signature(self) -> None:
         pick = self.jobs["pick"]
@@ -306,8 +309,9 @@ class CanaryWiringTests(unittest.TestCase):
 
     def test_the_artifact_step_checks_the_bytes_and_the_commit(self) -> None:
         canary = self.jobs["canary"]
-        self.assertEqual(canary["env"]["SOURCE_COMMIT"], "${{ needs.pick.outputs.source_commit }}")
-        self.assertEqual(canary["env"]["DMG_ED_SIGNATURE"], "${{ needs.pick.outputs.ed_signature }}")
+        env = workflow_jobs.resolve(canary, "canary").env
+        self.assertEqual(env["SOURCE_COMMIT"], "${{ needs.pick.outputs.source_commit }}")
+        self.assertEqual(env["DMG_ED_SIGNATURE"], "${{ needs.pick.outputs.ed_signature }}")
         app = next(step for step in canary["steps"] if step.get("id") == "app")
         self.assertNotIn("continue-on-error", app)
         self.assertIn("nightly_next_artifact_check.py dmg", app["run"])

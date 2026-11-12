@@ -23,6 +23,15 @@ import sys
 import tempfile
 import time
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+try:
+    from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
+except ImportError:  # a copy of this script without its folder (a test, scp): the same helper as safe_log.py
+    def safe_print(*args, **kwargs):
+        try:
+            print(*args, **kwargs)
+        except (BrokenPipeError, OSError, ValueError):
+            pass
 
 HERE = Path(__file__).resolve().parent
 # Leave half a second for Python startup, result output and the best-effort timing receipt.
@@ -170,9 +179,9 @@ def main(argv=None) -> int:
     refs = "" if args.base else sys.stdin.read()
     if args.worker:
         try:
-            print(json.dumps(worker(args, refs)))
+            safe_print(json.dumps(worker(args, refs)))
         except Exception as error:
-            print(json.dumps({"head": None, "checks": [{"name": "tier", "status": "deferred", "detail": str(error)}]}))
+            safe_print(json.dumps({"head": None, "checks": [{"name": "tier", "status": "deferred", "detail": str(error)}]}))
         return 0
     started = time.monotonic()
     # Hook installs retire old versioned snapshots only under an exclusive .in-use lock.
@@ -183,7 +192,7 @@ def main(argv=None) -> int:
         fcntl.flock(snapshot_lock, fcntl.LOCK_SH | fcntl.LOCK_NB)
     except OSError:
         if HERE.name.startswith("cmux-next-checks."):
-            print(json.dumps({"status": "deferred", "checks": [], "detail": "installed snapshot is retiring"}))
+            safe_print(json.dumps({"status": "deferred", "checks": [], "detail": "installed snapshot is retiring"}))
             return 0
     timing = sibling("inner_loop_timing")
     pushed_heads = [line.split()[1] for line in refs.splitlines()
@@ -215,7 +224,7 @@ def main(argv=None) -> int:
     statuses = {check["status"] for check in receipt["checks"]}
     receipt["status"] = "failed" if "failed" in statuses else "deferred" if "deferred" in statuses else "passed"
     timing.record(args.repo, prepush=receipt)
-    print(json.dumps(receipt))
+    safe_print(json.dumps(receipt))
     if snapshot_lock is not None:
         snapshot_lock.close()
     return 1 if receipt["status"] == "failed" else 0
