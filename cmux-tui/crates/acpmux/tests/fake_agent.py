@@ -1271,8 +1271,9 @@ def handle_prompt(rid, params):
         return
     # "reply-segments" streams one message (m1) across what the pane keeps it whole over: a
     # background task's note, a subagent's spawn and update, a plumbing call (ToolSearch), a plan
-    # and a usage tick; then a chunk with no messageId and two more with none around a thought and
-    # a tool call. acpmux stamps one segment per message (hub/stream.rs).
+    # and a usage tick; then a chunk with no messageId, a thought and a tool call the person sees,
+    # and another chunk with none. acpmux stamps one segment per message, ended also where the pane
+    # cuts the row (hub/stream.rs `cuts_reply`).
     if text == "reply-segments":
         chunk = lambda t, mid=None: update(sid, {"sessionUpdate": "agent_message_chunk", **({"messageId": mid} if mid else {}), "content": {"type": "text", "text": t}})
         chunk("a", "m1")

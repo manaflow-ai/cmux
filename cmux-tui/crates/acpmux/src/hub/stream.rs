@@ -41,6 +41,38 @@ fn codex_error(update: &Value) -> Option<(bool, Value)> {
     Some((will_retry, err.clone()))
 }
 
+/// Discovery tools that only load deferred schemas (the pane's `hiddenTools.ts` PLUMBING_TOOLS): the
+/// pane keeps one message in one row across such a call, so it does not end a reply segment.
+const PLUMBING_TOOLS: &[&str] = &["ToolSearch", "tool_search", "load_tools"];
+
+/// Whether `update` is where the pane always cuts a reply's row (direct.ts `endAssistantSegment`),
+/// so the next reply text is another segment: a thought, a new tool call the person sees, or a
+/// compaction note. Not a call the pane hides or folds into the message (plumbing, a todo call that
+/// becomes the plan, a result of a call already shown), nor a background task's note, a subagent's
+/// update or a plan, beside which the message goes on in its row (Leo, 2026-11-03: "this chat's
+/// text stream got cut in the middle by a tool call which is weird"). The pane cuts in a few rarer
+/// places too (a permission card, an offer); a row after one is named by its first chunk read.
+fn cuts_reply(kind: &str, update: &Value) -> bool {
+    match kind {
+        "agent_thought_chunk" => {
+            update.pointer("/content/text").and_then(Value::as_str).is_some_and(|t| !t.is_empty())
+        }
+        "compaction" => true,
+        "tool_call" => {
+            let tool = update
+                .pointer("/_meta/claude/tool")
+                .or_else(|| update.pointer("/_meta/claudeCode/toolName"))
+                .and_then(Value::as_str);
+            let plumbing = tool.is_some_and(|t| PLUMBING_TOOLS.contains(&t));
+            let todo = tool == Some("TodoWrite")
+                || update.get("name").and_then(Value::as_str) == Some("write_todos")
+                || update.pointer("/_meta/acpmux/planTool").and_then(Value::as_bool) == Some(true);
+            !plumbing && !todo
+        }
+        _ => false,
+    }
+}
+
 /// This daemon run's mark in every reply segment id (`reply_segment`): segment numbers start
 /// again after a restart, and an id minted before it must never name a reply minted after.
 fn segment_boot() -> &'static str {
@@ -71,12 +103,10 @@ impl Hub {
     /// Appends `message_superseded` ahead of the redelivered message.
     ///
     /// Returns the reply segment of an `agent_message_chunk`: one id for every chunk of one
-    /// message (the same `messageId`; with none, the run of chunks with none), until a prompt (a
-    /// steer) ends it: the turn's id, this daemon run's mark and the segment's number in the turn.
-    /// Nothing else ends one. The pane keeps one message in one row across a background task's
-    /// note, a subagent's update, a plumbing or plan call (direct.ts; Leo, 2026-11-03: "this chat's
-    /// text stream got cut in the middle by a tool call which is weird"), so the segment does too;
-    /// a row the pane does cut there is named as before. Stamped on each chunk's record (`stamp_reply_segment`), it names
+    /// message (the same `messageId`; with none, the run of chunks with none) in one turn, until a
+    /// prompt (a steer) or what the pane cuts a reply's row at (`cuts_reply`) ends it: the turn's id,
+    /// this daemon run's mark and the segment's number in the turn. Its boundaries are the pane's
+    /// row boundaries, so a row is named the same whichever of its chunks a page starts at. Stamped on each chunk's record (`stamp_reply_segment`), it names
     /// the reply's row in a client whichever of its chunks a page of the log starts at, so a reply
     /// a page cut is never drawn again under another id when the page before it comes in, and a
     /// reconnect's page draws it under the id it had (Leo, 2026-11-11: "they just appear and
@@ -109,8 +139,12 @@ impl Hub {
             match kind {
                 "agent_message_chunk" => {
                     let id = update.get("messageId").and_then(Value::as_str);
-                    if st.reply_segment.is_none() || id != st.segment_message.as_deref() {
-                        let turn = turn_id.as_deref().unwrap_or("-");
+                    let turn = turn_id.as_deref().unwrap_or("-");
+                    // A turn the agent started on its own has no prompt to end the last one's.
+                    if st.reply_segment.is_none()
+                        || id != st.segment_message.as_deref()
+                        || st.segment_turn.as_deref() != Some(turn)
+                    {
                         // Numbered within the turn: a new turn starts again at 1.
                         if st.segment_turn.as_deref() != Some(turn) {
                             st.segment_turn = Some(turn.to_owned());
@@ -163,8 +197,15 @@ impl Hub {
                         }
                     }
                 }
-                k if NEUTRAL_UPDATES.contains(&k) => {}
+                k if NEUTRAL_UPDATES.contains(&k) => {
+                    if cuts_reply(k, update) {
+                        st.reply_segment = None;
+                    }
+                }
                 _ => {
+                    if cuts_reply(kind, update) {
+                        st.reply_segment = None;
+                    }
                     // A tool call, plan or user chunk ends the message: a
                     // later retry does not abandon it.
                     st.open_message = None;

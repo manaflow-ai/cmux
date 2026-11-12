@@ -321,3 +321,34 @@ test("a folded older page keeps the live reply's segment", async () => {
     ["assistant-t1.x.2", "after"],
   ]);
 });
+
+// A message the pane cuts at a tool call the person sees: acpmux ends the segment there too
+// (hub/stream.rs `cuts_reply`), so each part is named by its own segment, the same whether the page
+// starts before the first part or between them, and an older page that brings the first part leaves
+// the second where it was.
+test("a reply cut at a visible tool call keeps both parts' ids when the older page comes in", async () => {
+  const daemon = fakeDaemon(
+    [
+      user(1, "go"),
+      chunk(2, "first part", "m1", "t1.x.1"),
+      update(3, { sessionUpdate: "tool_call", toolCallId: "ls-1", title: "ls", kind: "read", status: "completed" }),
+      chunk(4, "second part", "m1", "t1.x.2"),
+    ],
+    1000,
+  );
+  daemon.state.attachFrom = 3;
+  const pane = await page(daemon);
+  const replies = () =>
+    pane
+      .rows()
+      .filter((row) => row.kind === "assistant")
+      .map((row) => [row.id, row.text]);
+  expect(replies()).toEqual([["assistant-t1.x.2", "second part"]]);
+  const second = pane.rows().find((row) => row.id === "assistant-t1.x.2");
+  await pane.older();
+  expect(replies()).toEqual([
+    ["assistant-t1.x.1", "first part"],
+    ["assistant-t1.x.2", "second part"],
+  ]);
+  expect(pane.rows().find((row) => row.id === "assistant-t1.x.2")?.text).toBe(second?.text);
+});

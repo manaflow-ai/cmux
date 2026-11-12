@@ -215,12 +215,16 @@ async fn reply_chunks_carry_one_segment_per_run_of_text() {
         for i in 1..5 {
             assert_eq!(seg(0), seg(i), "{run:?}");
         }
-        // Chunks with no messageId after it are the next; a thought and a tool call end neither.
+        // A chunk with no messageId after it is the next; a thought and a tool call the person
+        // sees end it, where the pane cuts the row, so the chunk after them is a third.
         assert_ne!(seg(4), seg(5), "{run:?}");
-        assert_eq!(seg(5), seg(6), "{run:?}");
+        assert_ne!(seg(5), seg(6), "{run:?}");
         assert!(seg(0).starts_with(&format!("{turn}.")), "{run:?} of turn {turn}");
         // Numbered within the turn, after this daemon run's mark.
-        assert!(seg(0).ends_with(".1") && seg(5).ends_with(".2"), "{run:?}");
+        assert!(
+            seg(0).ends_with(".1") && seg(5).ends_with(".2") && seg(6).ends_with(".3"),
+            "{run:?}"
+        );
     }
     // Every turn's segments are its own.
     assert!(first.iter().all(|(_, a)| second.iter().all(|(_, b)| a != b)));
