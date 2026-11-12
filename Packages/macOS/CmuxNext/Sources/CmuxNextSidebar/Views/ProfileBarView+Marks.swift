@@ -59,29 +59,11 @@ extension ProfileBarView {
                                     width: diameter, height: diameter)).fill()
     }
 
-    /// The space's color, softened toward the strip a little so it sits in
-    /// the sidebar chrome (less for the current space, so its color reads).
+    /// The space's color as the Color menu's swatch draws it (Leo 2026-11-11: "this colour selection for spaces is wack"):
+    /// the chosen color itself, never mixed toward the strip, so a yellow space's dot is the yellow swatch; the other
+    /// spaces are dimmer by opacity only (`markAlpha`). A space with no color draws in the label ink.
     // theme-scoped: called only from drawMarks(), inside performWithTheme
-    func profileColor(_ profile: SidebarProfile, active: Bool) -> NSColor {
-        let base = profile.color?.markColor ?? Palette.textPrimary
-        return Self.markColor(base: base, step: Palette.stripStep, active: active)
-    }
-
-    /// A mark's color: the strip step (`Palette.stripStep`, design-tokens.json theme.stripStep) painted
-    /// over `base`, at full strength for the other spaces and a quarter for the current one. The result
-    /// is opaque and composited in sRGB, as the token is defined: `NSColor.blended` mixes in its own color
-    /// space and also blends alpha, which left the mark see-through.
-    static func markColor(base: NSColor, step: NSColor, active: Bool) -> NSColor {
-        guard let step = step.usingColorSpace(.sRGB), let base = base.usingColorSpace(.sRGB) else { return base }
-        let strength = step.alphaComponent * (active ? 0.25 : 1)
-        func over(_ under: CGFloat, _ top: CGFloat) -> CGFloat { under * (1 - strength) + top * strength }
-        return NSColor(
-            srgbRed: over(base.redComponent, step.redComponent),
-            green: over(base.greenComponent, step.greenComponent),
-            blue: over(base.blueComponent, step.blueComponent),
-            alpha: 1
-        )
-    }
+    func profileColor(_ profile: SidebarProfile, active: Bool) -> NSColor { profile.color?.markColor ?? Palette.textPrimary }
 
     // theme-scoped: called only from drawMarks() inside performWithTheme
     func drawPlus(in rect: NSRect) {

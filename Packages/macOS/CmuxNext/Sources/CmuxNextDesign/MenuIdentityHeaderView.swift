@@ -148,12 +148,12 @@ public final class MenuNameField: NSTextField, NSTextFieldDelegate {
 public final class MenuSwatchStrip: NSView {
     private let choices: [NSMenuItem]
     /// Each choice's color; nil draws the scope's tertiary ink.
-    private let colors: [GroupColor?]
-    private let current: GroupColor?
+    let colors: [GroupColor?]
+    let current: GroupColor?
     /// The row that removes the color, drawn first as the No Color swatch; nil draws none.
     public let clearChoice: NSMenuItem?
     /// Whether the target has no color now: the No Color swatch is ringed.
-    private let clearIsCurrent: Bool
+    let clearIsCurrent: Bool
     private var hovered: Int?
     /// The scope of the view whose menu this is (`themeRows(in:)`); nil until a themed menu hands it.
     private var menuScope: ThemeScope?

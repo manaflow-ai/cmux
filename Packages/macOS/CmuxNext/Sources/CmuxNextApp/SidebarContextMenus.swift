@@ -81,7 +81,9 @@ enum SidebarContextMenus {
             }
             return registry.makeContextMenu(for: .sidebarBackground).themeRows(in: scope)
         case .profile(let id):
-            return registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: id.rawValue)).themeRows(in: scope)
+            let target = ActionTargetRef(kind: .profile, id: id.rawValue), menu = registry.makeContextMenu(for: .profile, target: target), space = model.profiles.first { $0.id == id }
+            MenuIdentityHeader.install(in: menu, registry: registry, target: target, name: space?.name ?? "", rename: "space.rename", current: space?.color, noColor: space?.color == nil) // the group menu's header
+            return menu.themeRows(in: scope)
         case .nowPlaying:
             // The media card's rows (u2437): Play/Pause, Picture in Picture (on the tab the card
             // shows), Hide, Hide Until Relaunch, Never Show Media Card.
