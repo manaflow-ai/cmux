@@ -8,8 +8,9 @@ import UniformTypeIdentifiers
 /// upright goes as it is when it names no location; when it names one, ImageIO copies it with no
 /// metadata at all and the same pixels (no second lossy encode). Anything else (HEIC, a turned
 /// photo, …) is decoded by ImageIO with its orientation applied to the pixels (an agent that reads
-/// pixels, not the EXIF tag, sees it the right way up), and written as PNG when it has transparency,
-/// JPEG otherwise, with orientation 1 and no other metadata. A photo whose pixel size ImageIO cannot
+/// pixels, not the EXIF tag, sees it the right way up), and written as PNG when it has transparency
+/// or was a PNG (lossless, so the same pixels), JPEG otherwise, with orientation 1 and no other
+/// metadata. A photo whose pixel size ImageIO cannot
 /// read is refused. No UIKit drawing context is made. No size limit: the image goes to the Mac in
 /// chunks (``ScreenInput/pasteImageChunks(_:type:id:)``). Builds on macOS too, so its tests run there.
 struct PastedImage: Sendable, Equatable {
@@ -46,7 +47,9 @@ struct PastedImage: Sendable, Equatable {
                 return
             }
         }
-        guard let converted = Self.convert(source, properties: properties, width: width, height: height) else { return nil }
+        let lossless = Self.passThroughType(of: photo) == UTType.png.identifier
+        guard let converted = Self.convert(source, properties: properties, width: width, height: height, lossless: lossless)
+        else { return nil }
         self = converted
     }
 
@@ -103,8 +106,9 @@ struct PastedImage: Sendable, Equatable {
     }
 
     /// The photo's first image, turned upright at its full size and re-encoded with no location:
-    /// PNG with transparency, else JPEG.
-    private static func convert(_ source: CGImageSource, properties: [CFString: Any], width: Int, height: Int) -> PastedImage? {
+    /// PNG when it has transparency or is `lossless` (a PNG stays a PNG, with the same pixels), else JPEG.
+    private static func convert(_ source: CGImageSource, properties: [CFString: Any], width: Int, height: Int,
+                                lossless: Bool) -> PastedImage? {
         // The full-size "thumbnail" with the transform applies the EXIF orientation to the pixels.
         let upright: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
@@ -114,13 +118,14 @@ struct PastedImage: Sendable, Equatable {
         ]
         guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, upright as CFDictionary) else { return nil }
         let transparent = properties[kCGImagePropertyHasAlpha] as? Bool ?? false
-        let type = transparent ? UTType.png : UTType.jpeg
+        let png = transparent || lossless
+        let type = png ? UTType.png : UTType.jpeg
         let output = NSMutableData()
         guard let destination = CGImageDestinationCreateWithData(output as CFMutableData, type.identifier as CFString, 1, nil) else { return nil }
         // Only what the Mac needs: no GPS, no EXIF (its own copy of the place and the camera), orientation 1.
         var written: [CFString: Any] = [kCGImagePropertyOrientation: 1]
         if let profile = properties[kCGImagePropertyProfileName] { written[kCGImagePropertyProfileName] = profile }
-        if !transparent { written[kCGImageDestinationLossyCompressionQuality] = 0.9 }
+        if !png { written[kCGImageDestinationLossyCompressionQuality] = 0.9 }
         CGImageDestinationAddImage(destination, image, written as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { return nil }
         return PastedImage(data: output as Data, type: type.identifier)
