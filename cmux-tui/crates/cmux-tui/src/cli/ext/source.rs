@@ -202,7 +202,8 @@ pub(super) fn fetch(
 
 /// The commit `tail` names, the ref as written, and the folder after it: the shortest leading
 /// part of `tail` that is a branch, tag or commit is the ref (a branch name may hold `/`), the
-/// rest is the folder. An empty `tail` is the default branch.
+/// rest is the folder. Full commit IDs are object pins, never ref names. An empty `tail`
+/// is the default branch.
 pub(super) fn resolve(
     tail: &[String],
     commit_of: impl Fn(&str) -> Option<String>,
@@ -211,6 +212,16 @@ pub(super) fn resolve(
         // Only origin's default branch: the clone's own HEAD is whatever an earlier add checked out.
         let commit = commit_of("refs/remotes/origin/HEAD")?;
         return Some((commit, None, None));
+    }
+    if let Some((pin, rest)) = tail.split_first()
+        && matches!(pin.len(), 40 | 64)
+        && pin.bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        // A publisher controls branch/tag names, including names identical to a shared
+        // commit. Resolve the object itself and fail closed if Git returns another ID.
+        let commit = commit_of(pin).filter(|commit| commit.eq_ignore_ascii_case(pin))?;
+        let subdir = (!rest.is_empty()).then(|| rest.join("/"));
+        return Some((commit, Some(pin.clone()), subdir));
     }
     (1..=tail.len()).find_map(|cut| {
         let reference = tail.get(..cut)?.join("/");
