@@ -2,6 +2,7 @@
 //! installed copy is reported to the platform once, and a seeded sweep interleaves events, claims, warms, two
 //! clients, consent off and copies that fail midway.
 
+use super::tests::run;
 use super::*;
 use base64::Engine as _;
 use std::cell::{Cell, RefCell};

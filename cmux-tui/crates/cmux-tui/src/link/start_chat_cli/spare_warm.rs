@@ -201,19 +201,6 @@ fn lock(state: &Path) -> Option<std::fs::File> {
     Some(file)
 }
 
-/// `cmux link start-chat warm-spare --request JSON`, stdin the session credential then the install
-/// token. A fresh warm of a machine the person owns answers `copy`: the machine, the account and
-/// the backend team the App's login copy must target, and nothing else may be copied.
-pub(super) fn run(
-    flags: &Flags,
-    state: &Path,
-    now_ms: u64,
-    stdin: &mut dyn std::io::BufRead,
-    transport: Transport<'_>,
-) -> Option<Value> {
-    run_reporting(flags, state, now_ms, stdin, transport, &|_, _, _, _| {})
-}
-
 /// [`run`], with `report` called once a copy ends installed (after the lock is let go).
 pub(super) fn run_reporting(
     flags: &Flags,
