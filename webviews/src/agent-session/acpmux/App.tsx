@@ -7079,8 +7079,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   freshRef.current = freshChat && !snapshot.sessionId;
   /// The tab's own folder (a New Tab's, `~` in a fresh workspace): a terminal's folder, never a new
   /// chat's by itself (newChatFolder).
-  const inheritedFolderRef = useRef(newTab?.cwd);
-  inheritedFolderRef.current = newTab?.cwd;
+  const inheritedFolder = newTab?.cwd;
+  const inheritedFolderRef = useRef(inheritedFolder);
+  useLayoutEffect(() => {
+    inheritedFolderRef.current = inheritedFolder;
+  }, [inheritedFolder]);
   /// The project the person picked in this pane's project picker, until they send in it: that send
   /// makes it the New Tab default (newtab/startedProject.ts). A folder the host or an agent named
   /// is no pick.
