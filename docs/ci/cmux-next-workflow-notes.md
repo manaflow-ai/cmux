@@ -370,7 +370,15 @@ outputs, from an earlier attempt: a job output is evaluated when its job runs, s
 attempt's number. Every Mac job reads blacksmith_12_jobs, blacksmith_6_jobs and
 retry_runner only while this equals its own run_attempt; a carried reading is stale (run
 40398277457, 2026-10-26: attempt 2 took blacksmith-6vcpu-macos-26 on a reading 39 minutes old and
-waited 55 minutes for a runner), so the job takes the owned label instead.
+waited 55 minutes for a runner). Its owned labels (runner, the side label, the gui and session
+labels) are as stale, so from attempt 2 on a Mac job takes one only while this equals its own
+run_attempt too; a carried reading, whoever re-ran the run, sends it to the moving Blacksmith label
+(vars.MACOS_RUNNER_26, else RUNNER_POOLS.macos_26), as a push Release compile's fallback does.
+cmux#38484's run 42728317341 (2026-11-10) kept `cmux app scheme compile (Debug)` on
+glaeda-side-std-xcode-26.6 through three re-runs of failed jobs: 2 h, 15 h and 1 h 49 min queued
+(tests/test_ci_next_macos_cascade.py CarriedPlacement). The placement runs only on attempt 1 and the
+rescue's attempts 2 and 3, so attempt 4 and later never take an owned label; fast-tier-handback-placement's
+reading is gated on its own placed_attempt the same way.
 
 ## note-20
 
@@ -456,6 +464,19 @@ on (one after another they took about 7 of the job's 8.4 min). Each of their ste
 for its own commands, prints their output and keeps its name, id and outcome. A `[step-id]`
 line names the step the commands under it belong to; the longest commands start first.
 Not here: "Pushed commits add no violations" deepens the clone and writes its step summary.
+
+## note-27b
+
+Above `checks: Prepare check Python (PyYAML) and timeout` in `.github/workflows/cmux-next.yml`.
+
+portable-placement may put this job on a free mini, whose Homebrew python3 has no
+PyYAML and whose PATH has no GNU `timeout`. On 2026-11-11 the job went red there
+with `ModuleNotFoundError: No module named 'yaml'` (56 times) and `timeout: command
+not found` (cmux13s-mac-mini-glaeda-5 job 130627140300, cmuxs-mac-mini-6-glaeda-3
+job 130624833630), and passed on Blacksmith Linux at the same tree. The job brings
+its own venv first on PATH wherever it lands, as cmux-next-guards.yml's tooling
+tests do; tests/test_portable_jobs_bring_their_python.py keeps every mini-eligible
+job that runs Python tests doing so.
 
 ## note-28
 

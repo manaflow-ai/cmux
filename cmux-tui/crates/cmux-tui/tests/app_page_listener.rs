@@ -202,7 +202,10 @@ fn an_owner_started_from_the_app_bundle_serves_its_pages_without_the_pages_env()
     fs::write(pages.join("home-channels/index.html"), PAGE_HTML).unwrap();
     fs::create_dir_all(resources.join("bin")).unwrap();
     let binary = resources.join("bin/cmux-tui");
-    fs::copy(env!("CARGO_BIN_EXE_cmux-tui"), &binary).unwrap();
+    // The binary is copied by `cp`, not `fs::copy`: a write descriptor held here would pass to the child of any test thread that starts a process meanwhile, and exec of the copy then fails with ETXTBSY.
+    let copied =
+        Command::new("cp").arg(env!("CARGO_BIN_EXE_cmux-tui")).arg(&binary).status().unwrap();
+    assert!(copied.success(), "cp cmux-tui {}", binary.display());
 
     let mut command = Command::new(&binary);
     command
