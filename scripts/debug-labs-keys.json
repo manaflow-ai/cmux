@@ -64,7 +64,7 @@
   "home.firstRun.hero": {"case": "delete", "why": "On by default (Leo 10-19); deleting the off switch keeps the Chief hero and drops the old rows-only panel."},
   "home.flightRecorder": {"case": "keep", "why": "A diagnostic that records Home transcript blinks; it costs main-thread time, so it stays opt-in."},
   "home.flightRecorder.captures": {"case": "keep", "why": "A diagnostic that saves window pictures of your conversation; it is a privacy opt-in and stays off in released builds."},
-  "home.headerPanelToggles": {"case": "keep", "why": "Off on purpose (Lawrence 10-22, header buttons were confusing); the switch brings the Memory and sidebar toggles back."},
+  "home.headerPanelToggles": {"case": "keep", "why": "Off on purpose (Lawrence 10-22, header buttons were confusing); the switch brings the Memory Inspector toggle back."},
   "home.launchIntoHome": {"case": "delete", "why": "On by default (Leo 10-19); deleting the off switch keeps first launch opening Home, not an empty New Tab workspace."},
   "home.loneConversationRail": {"case": "keep", "why": "A look comparison; off was chosen after visual QA so a lone Chief gives the chat the full width."},
   "home.richTables": {"case": "delete", "why": "On since Leo asked for it on 10-20; deleting the switch keeps table cards and plan cards and drops the plain-text table path."},

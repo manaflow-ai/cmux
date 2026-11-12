@@ -15,5 +15,6 @@ extension TabStripView {
         }
         let any = !accessibilityFocusedElements.isEmpty
         if buttonReveal.accessibilityFocused != any { buttonReveal.accessibilityFocused = any }
+        updateChooserReveal()
     }
 }

@@ -431,8 +431,11 @@ import {
   withEarlierPlan,
   samePlanEntries as sameEntries,
   waitingAsks,
+  closeTurnRuns,
+  turnInsideIds,
 } from "./conversation/turns";
 import { PendingAsks } from "./conversation/PendingAsks";
+import { forgetInsideTurn } from "./conversation/transcriptDisclosureModel";
 import {
   answerState,
   bottomAsks,
@@ -606,6 +609,7 @@ import {
   withoutHeldCalls,
   rowsToHold,
   withoutHeldRows,
+  lastTurnWorkedKeys,
 } from "./conversation/turnEndHold";
 import { HarnessHealthNotice } from "./HarnessHealthNotice";
 import { type HarnessHealth, type UpdateOffer, UpdateOfferContext } from "./harnessHealthNoticeModel";
@@ -3391,6 +3395,32 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     heldFolds.current = { session: heldFolds.current.session, keys: new Set() };
     for (const key of keys) openFold(key);
   });
+  // A turn's "Worked for" is always closed when the turn ends, whatever opened it (Lucas, 2026-11-11:
+  // "the Worked for should ALWAYS collapse when the turn has ended"): on the shown chat's step from
+  // working to idle, its last turn's keys leave the open folds. The reader can open it again after.
+  // Adjusted in render, as a chat switch is above: no extra frame. The lines the reader opened in it
+  // are forgotten in a layout effect, before the frame paints (`closedTurn`).
+  const [closedTurn, setClosedTurn] = useState<{ session?: string; key: string; rows: readonly AcpmuxRow[] }>();
+  useLayoutEffect(() => {
+    if (!closedTurn) return;
+    // Every key names the same turn (its prompt's and each steer's): resolved once, by its last key.
+    const edits = new Set<string>();
+    forgetInsideTurn(closedTurn.session, turnInsideIds(closedTurn.rows, closedTurn.key, edits), edits);
+  }, [closedTurn]);
+  const [workingSeen, setWorkingSeen] = useState<{ session?: string; working: boolean }>({ working: false });
+  if (workingSeen.session !== shownSessionId || workingSeen.working !== snapshot.isWorking) {
+    const ended = workingSeen.session === shownSessionId && workingSeen.working && !snapshot.isWorking;
+    setWorkingSeen({ session: shownSessionId, working: snapshot.isWorking });
+    const keys = ended ? lastTurnWorkedKeys(snapshot.rows) : [];
+    // What the reader opened while it ran closes with it, once this render is done (the store tells
+    // the rows, which may not update while the pane draws).
+    if (keys.length) setClosedTurn({ session: shownSessionId, key: keys.at(-1)!, rows: snapshot.rows });
+    if (keys.some((key) => expanded.has(key))) {
+      const next = new Set(expanded);
+      for (const key of keys) next.delete(key);
+      setExpanded(next);
+    }
+  }
   const [inspectorOpen, setInspectorOpen] = useState(false);
   // Jump to latest shows over the stage's foot (VirtualTranscript): the bottom toast deck stands above
   // it while it does (toastLayer.css), so a toast never covers the button or takes its clicks. Written
@@ -4216,6 +4246,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // recorded on its summary, diffed on the session host.
   const turnRowsRef = useRef(snapshot.rows);
   turnRowsRef.current = snapshot.rows;
+  const shownSessionRef = useRef(shownSessionId);
+  useLayoutEffect(() => {
+    shownSessionRef.current = shownSessionId;
+  }, [shownSessionId]);
   // The image viewer holds the chat's images from when it opened; another chat closes it.
   const [imageView, setImageView] = useState<{ images: ChatImage[]; index: number } | undefined>();
   const openImage = useCallback(
@@ -10841,13 +10875,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Stable: memoized transcript rows compare it.
   const toggleActivity = useCallback((id: string, covers?: readonly string[]) => {
     const view = chatViewRef.current;
+    // A turn's fold opens with every line in it closed, whatever the reader opened there before
+    // (Lucas, 2026-11-11): its toggle forgets them. Closed, nothing in it draws, so open or close alike.
+    if (isWorkedFold(id)) {
+      const edits = new Set<string>();
+      forgetInsideTurn(shownSessionRef.current, turnInsideIds(turnRowsRef.current, id, edits), edits);
+    }
     // In Thinking and Verbose a turn's "Worked for" is open unless toggled there (viewFolds.ts):
     // the reader's open or close overrides the view, and Normal's own folds stay as they were.
-    if (view !== "normal" && isWorkedFold(id))
+    if (view !== "normal" && isWorkedFold(id)) {
       setViewToggles((current) =>
         new Map(current).set(view, toggleViewTurnFold(turnRowsRef.current, current.get(view) ?? NO_FOLD_TOGGLES, id)),
       );
-    else setExpanded((current) => toggleTurnFold(turnRowsRef.current, current, id, covers));
+      // Its runs of messages close with it in this view too.
+      setExpanded((current) => {
+        const next = new Set(current);
+        closeTurnRuns(turnRowsRef.current, next, id);
+        return next.size === current.size ? current : next;
+      });
+    } else setExpanded((current) => toggleTurnFold(turnRowsRef.current, current, id, covers));
   }, []);
   const loadReplay = useCallback(
     // l10n-allow: never shown; the replay says replay.failed.
