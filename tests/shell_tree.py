@@ -327,11 +327,18 @@ class _Parser:
             return
         k, prog = len(argv) - len(run), run[0].rsplit("/", 1)[-1]
         picks: list[int] = []
+        # eval and trap read their options as bash's builtins do: one -- ends them, and the word after it is an
+        # operand whatever it starts with (trap -- '-x; c1' EXIT runs c1: upstream #4620 review, F1). Before any --,
+        # a word that starts with - (other than - alone) is an option: eval takes none, so it refuses it and runs
+        # nothing; trap's -l, -p and -P print, and any other it refuses. A lone - is trap's reset (trap - SIG,
+        # trap -- - SIG), and eval's first word.
+        j = k + 1
+        if prog in ("eval", "trap") and j < len(argv) and argv[j] != "-" and argv[j].startswith("-"):
+            j = j + 1 if argv[j] == "--" else len(argv)
         if prog == "eval":
-            picks = list(range(k + 1 + (argv[k + 1:k + 2] == ["--"]), len(argv)))
+            picks = list(range(j, len(argv)))
         elif prog == "trap":
-            j = k + 1 + (argv[k + 1:k + 2] == ["--"])
-            if j < len(argv) and not argv[j].startswith("-"):  # trap -p, trap -l and trap - SIG run nothing
+            if j < len(argv) and argv[j] != "-":
                 picks = [j]
         elif prog in SHELLS:
             j = _script_index(run)
@@ -1271,12 +1278,12 @@ def _script_index(values: list[str]) -> int | str | None:
     while i < len(values):
         word = values[i]
         i += 1
-        if word == "--":
-            break
+        if word in ("--", "-"):
+            break  # a lone - ends them as -- does: bash -c - '-x; c1' runs -x; c1 (upstream #4620 F1's sweep)
         if word.startswith("--"):
             i += word in SHELL_OPERAND_LONGS
             continue
-        if word[:1] in "-+" and len(word) > 1:
+        if word[:1] in "-+" and len(word) > 1 or word == "+":  # a lone + is an empty option group: bash -c + T runs T
             if "\0" in word:
                 return UNKNOWN_SCRIPT if c or "c" in word else None
             c = c or (word[0] == "-" and "c" in word[1:])
@@ -1293,10 +1300,11 @@ def shell_string(values: list[str]) -> str | None:
     """The text a shell's words (VALUES, its name first, quotes removed) run with -c, read as bash reads its options:
     option groups (-e, +x, -ec), each o or O in a group taking the next word as its operand, in order (bash -o
     errexit -c T, -eo pipefail, -cO extglob T, -coo A B T: cmux#41745's F2),
-    --rcfile and --init-file taking theirs, other long options none, and -- ending them; the first word that is no
-    option is the script when a group held c, anywhere before it (bash -c -e T). An expansion in the script ("\0")
-    is kept as a literal word, so its other programs still count (upstream #4490 review, F2); a script that is all
-    expansion is UNKNOWN_SCRIPT. None when no -c is given (a script file, or stdin)."""
+    --rcfile and --init-file taking theirs, other long options none, a lone + an empty group, and -- or a lone -
+    ending them, so the word after one is the script whatever it starts with (bash -c -- '-x; c1'); the first word
+    that is no option is the script when a group held c, anywhere before it (bash -c -e T). An expansion in the
+    script ("\0") is kept as a literal word, so its other programs still count (upstream #4490 review, F2); a script
+    that is all expansion is UNKNOWN_SCRIPT. None when no -c is given (a script file, or stdin)."""
     i = _script_index(values)
     if not isinstance(i, int):
         return i
