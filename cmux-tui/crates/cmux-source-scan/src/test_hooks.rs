@@ -759,7 +759,7 @@ impl<'ast> Visit<'ast> for Collect<'_> {
         if self.blocks > 0 {
             // An import or glob in a function body scopes that body, not the module's `use` paths.
             self.names.globs.truncate(globs);
-            self.names.imports[imports..].iter_mut().for_each(|i| i.in_body = true);
+            self.names.imports.iter_mut().skip(imports).for_each(|i| i.in_body = true);
         }
     }
     fn visit_item_trait(&mut self, i: &'ast syn::ItemTrait) {
