@@ -30,9 +30,9 @@ extension CEFPaneHost {
     /// A host whose page window was out when the show began has no window in the window, whatever sits at its rect:
     /// in that switch the leaving page's window still fills the same page area.
     func holdFirstFrameIfAppeared(_ tab: CEFTab) { // perf-hot: 10ms tab-switch (every Chromium tab show)
+        if hostView.layerHosting.onHoldStep == nil { hostView.layerHosting.onHoldStep = { [weak self] step in self?.lifecycleTrace.record(self?.visibleTab?.id ?? BrowserTabID(rawValue: "none"), "hold \(step)") } }
         guard visibleTab === tab, tab.appearedThisTurn, !hostView.isHidden, tab.browserID != nil, !tab.awaitsWindowMove else { return }
         let windowInWindow = shownWithWindowOut !== tab && tab.pageWindow != nil
-        if hostView.layerHosting.onHoldStep == nil { hostView.layerHosting.onHoldStep = { [weak self] step in self?.visibleTab.map { self?.lifecycleTrace.record($0.id, "hold \(step)") } } }
         // The hold's end grants the kept ask of the tab this host shows then (a tab switch in the hold).
         hostView.layerHosting.pageAppeared(windowInWindow: windowInWindow) { [weak self] in
             self?.visibleTab.map { self?.lifecycleTrace.record($0.id, "first-frame hold ended") }

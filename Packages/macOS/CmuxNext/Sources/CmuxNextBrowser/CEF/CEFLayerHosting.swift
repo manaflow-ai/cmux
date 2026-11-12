@@ -382,7 +382,7 @@ final class CEFLayerHosting {
             onHoldStep?("not begun: in-window=\(windowInWindow) hold=\(firstFrameHold) detached=\(isDetached) motion=\(inResizeMotion) page=\(page != nil)")
             return
         }
-        onHoldStep?("begun")
+        onHoldStep?("begun in window \(view?.window?.windowNumber ?? -1)")
         firstFrameHold = .detached
         afterFirstFrame = grant
         runAfterFrameShown { [weak self] in self?.attachAfterFirstFrame() }
@@ -404,10 +404,18 @@ final class CEFLayerHosting {
         }
         // A dropped tick (its window closed in the hold) counts as the frame, so no page stays detached until an ask,
         // but grants nothing: SetFocus would order a closed window's page front. The tab keeps its ask for its next show.
+        // A view that left that window for another before it closed still shows there: the wait moves to that window.
+        let waited = view?.window
+        onHoldStep?("waits for a frame of window \(waited?.windowNumber ?? -1)")
         let client = FrameClient(owner: "cef.first-frame-attach", isAnimation: false,
                                  scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app },
                                  dropped: { [weak self] in
-                                     self?.onHoldStep?("frame dropped")
+                                     let now = self?.view?.window
+                                     self?.onHoldStep?("frame dropped: waited=\(waited?.windowNumber ?? -1) now=\(now?.windowNumber ?? -1) visible=\(now?.isVisible ?? false)")
+                                     if let self, let now, now !== waited, now.isVisible {
+                                         self.shownFrame = nil
+                                         return self.runAfterFrameShown(block)
+                                     }
                                      self?.afterFirstFrame = nil
                                      shown()
                                  }) { _ in
