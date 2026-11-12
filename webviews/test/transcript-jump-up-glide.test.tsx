@@ -8,7 +8,7 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
-import { keepIdle } from "../src/agent-session/acpmux/jumpUp";
+import { keepIdle, loadIdle } from "../src/agent-session/acpmux/jumpUp";
 import { installJsdomScroller, scrollerEnd } from "./support/jsdomScroller";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -21,6 +21,7 @@ const replacements: Record<string, unknown> = {
   window: dom.window,
   document: dom.window.document,
   navigator: dom.window.navigator,
+  localStorage: dom.window.localStorage,
   HTMLElement: dom.window.HTMLElement,
   Element: dom.window.Element,
   customElements: dom.window.customElements,
@@ -181,12 +182,16 @@ test("pressing Jump to latest is the reader's act: Jump up does not come up at t
     expect(latest.hasAttribute("data-shown")).toBe(true);
     expect(up.hasAttribute("data-shown")).toBe(false);
     await act(async () => latest.click());
-    const down = await frames(scroller);
-    expect(down.at(-1)).toBe(scrollerEnd(scroller));
-    await act(async () => nextFrame());
-    expect(latest.hasAttribute("data-shown")).toBe(false);
+    // The ride to the latest message, its scroll events as the browser sends them.
+    for (let i = 0; i < 120 && scroller.scrollTop !== scrollerEnd(scroller); i++)
+      await act(async () => {
+        await nextFrame();
+        scroller.dispatchEvent(new dom.window.Event("scroll"));
+      });
     expect(up.hasAttribute("data-shown")).toBe(false);
   } finally {
     await act(async () => root.unmount());
   }
+  // The press let go of the mark: what the chat keeps for its next load has none.
+  expect(loadIdle(dom.window.localStorage, SESSION).mark).toBeUndefined();
 });

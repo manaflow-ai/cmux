@@ -5556,7 +5556,7 @@ function TranscriptView({
     if (idleKey === undefined || idleKey === idleKept.current) return;
     idleKept.current = idleKey;
     const waiting = idleWrite.current;
-    if (waiting?.sessionId !== sessionId) flushIdle();
+    if (!waiting || waiting.sessionId !== sessionId) flushIdle();
     else clearTimeout(waiting.timer);
     idleWrite.current = { sessionId, state: idleNow, timer: setTimeout(flushIdle, IDLE_KEEP_MS) };
     // Written when what is kept changes, not on every render.
