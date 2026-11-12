@@ -61,8 +61,8 @@ cmux_stop_app_instances() {
   done < <(cmux_wait_for_pids_exit "$force_timeout" "${survivors[@]}" || true)
   [[ ${#stuck[@]} -gt 0 ]] || return 0
   if [[ "${CMUX_STOP_APP_FORCE_KILL:-0}" == 1 ]]; then
-    echo "cmux_stop_app_instances: ${bundle_id} PID(s) ${stuck[*]} still running ${force_timeout}s after the second SIGTERM; sending SIGKILL (CMUX_STOP_APP_FORCE_KILL=1)" >&2
     kill -KILL "${stuck[@]}" 2>/dev/null || true
+    echo "cmux_stop_app_instances: ${bundle_id} PID(s) ${stuck[*]} still running ${force_timeout}s after the second SIGTERM; sending SIGKILL (CMUX_STOP_APP_FORCE_KILL=1)" >&2 || true
     cmux_wait_for_pids_exit 2 "${stuck[@]}" >/dev/null && return 0
     echo "cmux_stop_app_instances: ${bundle_id} PID(s) ${stuck[*]} survived SIGKILL" >&2
     return 1

@@ -106,9 +106,9 @@ stop_mount_processes() {
     case " $(echo $pids) " in *" $pid "*) survivors="$survivors $pid" ;; esac
   done
   if [ -n "$survivors" ]; then
-    echo "SIGKILL to the processes that outlived SIGTERM:$survivors"
     # shellcheck disable=SC2086
     kill -KILL $survivors 2>/dev/null || true
+    echo "SIGKILL to the processes that outlived SIGTERM:$survivors" || true
   fi
 }
 detach() {
