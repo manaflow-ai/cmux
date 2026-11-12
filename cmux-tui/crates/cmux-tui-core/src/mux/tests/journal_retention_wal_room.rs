@@ -21,6 +21,9 @@ use crate::workspace_registry::wal_durability::WAL_SIZE_LIMIT_BYTES;
 
 /// A row of `meta` that the test writes again and again to fill the WAL.
 const FILLER_KEY: &str = "retention_wal_room_test";
+/// Ticks the setup runs at most until one of them comes to the pass's
+/// question for WAL room.
+const SETUP_TICKS: usize = 32;
 
 /// The registry file's WAL: its size now.
 fn wal_file_bytes(mux: &Mux) -> u64 {
@@ -81,7 +84,7 @@ fn session_with_a_segment_to_delete_and_a_held_wal(
     // Until a tick came to the pass's question for WAL room (or deleted the
     // segment, which the tests refuse): the agent history fold is at the
     // head then and no record follows, so each later tick comes to it too.
-    for _ in 0..32 {
+    for _ in 0..SETUP_TICKS {
         if mux.journal_no_wal_room_ticks() > 0 || mux.journal_pruned_through().unwrap() >= big.end {
             break;
         }
@@ -91,6 +94,23 @@ fn session_with_a_segment_to_delete_and_a_held_wal(
     assert!(floor >= big.end, "the setup: floor {floor}, the segment ends at {}", big.end);
     let bytes = wal_file_bytes(&mux);
     assert!(bytes > WAL_SIZE_LIMIT_BYTES, "the setup: the reader holds a WAL of {bytes} bytes");
+    // The defect that these tests are about, found in the setup: a hold
+    // began while the reader held the WAL. No test goes on from that state.
+    let pruned_through = mux.journal_pruned_through().unwrap();
+    assert!(
+        pruned_through < big.end,
+        "the pass began the delete of the segment that ends at {} (deleted through \
+         {pruned_through}) into a WAL of {bytes} bytes that a reader holds",
+        big.end
+    );
+    // A setup that ends with no tick at the question would let a test pass
+    // on nothing.
+    assert!(
+        mux.journal_no_wal_room_ticks() > 0,
+        "the setup: none of {SETUP_TICKS} ticks came to the pass's question for WAL room (floor \
+         {floor}, the segment ends at {}, deleted through {pruned_through})",
+        big.end
+    );
     (mux, big, reader)
 }
 
@@ -145,8 +165,6 @@ fn the_retention_pass_takes_a_copied_wal_past_its_limit_with_no_request() {
     let root = std::env::temp_dir()
         .join(format!("cmux-journal-retention-idle-{}", crate::workspace_registry::new_uuid_v4()));
     let (mux, big, reader) = session_with_a_segment_to_delete_and_a_held_wal(&root);
-    let held_through = mux.journal_pruned_through().unwrap();
-    assert!(held_through < big.end, "the setup: no hold while the reader held the WAL");
     reader.execute_batch("COMMIT").unwrap();
     drop(reader);
     let before = wal_file_bytes(&mux);

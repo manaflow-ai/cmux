@@ -61,7 +61,7 @@ use std::cell::RefCell;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use rusqlite::Connection;
 
@@ -319,13 +319,13 @@ impl WalDurability {
     /// again. Never on a request's path: no request waits for the disk
     /// (module docs).
     pub(crate) fn checkpoint_and_wait(&self, timeout: Duration) -> WalRoom {
-        let deadline = Instant::now() + timeout;
+        let deadline = std::time::Instant::now() + timeout;
         let mut state = self.shared.state.lock().recover_poison();
         state.requested = state.requested.max(state.committed);
         state.look_wanted = true;
         self.shared.changed.notify_all();
         while state.look_wanted && !state.stopping {
-            let left = deadline.saturating_duration_since(Instant::now());
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
             if left.is_zero() {
                 break;
             }

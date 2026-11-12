@@ -246,8 +246,7 @@ fn archived_kinds_after(
     // content last (`workspace_registry::journal_retention`): between two of
     // them, and after a kill there, the kept records are those of a part of
     // the segment. Such a segment is read from its content, which is whole.
-    let pruned_through =
-        crate::workspace_registry::journal_retention::journal_pruned_through(connection)?;
+    let pruned_through = journal_retention::journal_pruned_through(connection)?;
     let mut page = Page { sequence, through, kinds, records: Vec::new(), reached: sequence };
     let workers = segment_decode_workers();
     // Segments in order, each with how its accepted records are read.
