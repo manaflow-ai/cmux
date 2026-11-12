@@ -56,20 +56,20 @@ final class CloudWorkspacesCaptureUITests: XCTestCase {
         shot(app, "\(name)-01-list")
 
         app.swipeUp()
-        XCTAssertTrue(app.buttons["Repro sandbox · Cloud · Waking up…"].waitForExistence(timeout: 5), "waking\n\(app.debugDescription)")
+        XCTAssertTrue(app.descendants(matching: .any)["Repro sandbox · Cloud · Waking up…"].firstMatch.waitForExistence(timeout: 5), "waking\n\(app.debugDescription)")
         XCTAssertTrue(app.buttons["workspaces.cloud.retry.\(Self.failed)"].exists, "Retry on the failed machine")
         XCTAssertTrue(app.buttons["workspaces.cloud.new.\(Self.empty)"].exists, "New Workspace on the empty machine")
-        XCTAssertTrue(app.buttons["Starting Cloud Machine…"].exists, "the pending New Cloud Workspace line")
+        XCTAssertTrue(app.descendants(matching: .any)["Starting Cloud Machine…"].firstMatch.exists, "the pending New Cloud Workspace line")
         shot(app, "\(name)-02-list-states")
 
         app.swipeDown()
         // The paused machine's folded workspace unfolds in place.
-        app.buttons["Nightly evals · Cloud · Paused"].tap()
+        app.descendants(matching: .any)["workspaces.cloud.\(Self.paused)"].firstMatch.tap()
         XCTAssertTrue(app.buttons["workspace.row.ws-paused-1"].waitForExistence(timeout: 5), "unfolded\n\(app.debugDescription)")
         shot(app, "\(name)-03-paused-unfolded")
 
         app.buttons["workspaces.cloud.start.\(Self.paused)"].tap()
-        XCTAssertTrue(app.buttons["Nightly evals · Cloud · Waking up…"].waitForExistence(timeout: 5), "started\n\(app.debugDescription)")
+        XCTAssertTrue(app.descendants(matching: .any)["Nightly evals · Cloud · Waking up…"].firstMatch.waitForExistence(timeout: 5), "started\n\(app.debugDescription)")
         shot(app, "\(name)-04-started")
 
         // The + button's long-press menu: New Workspace on… lists the Cloud machines with the Mac.
@@ -88,7 +88,7 @@ final class CloudWorkspacesCaptureUITests: XCTestCase {
             XCTAssertTrue(app.buttons["workspaces.newCloud"].waitForExistence(timeout: 5))
             app.buttons["workspaces.newCloud"].tap()
             app.swipeUp()
-            XCTAssertTrue(app.buttons["Starting Cloud Machine 2…"].waitForExistence(timeout: 5), "pending\n\(app.debugDescription)")
+            XCTAssertTrue(app.descendants(matching: .any)["Starting Cloud Machine 2…"].firstMatch.waitForExistence(timeout: 5), "pending\n\(app.debugDescription)")
             shot(app, "\(name)-07-new-cloud-pending")
         }
     }

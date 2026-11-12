@@ -81,6 +81,9 @@ extension WorkspacesList {
             .accessibilityElement(children: .ignore)
             .accessibilityLabel(Text(Self.cloudFoldSentence(fold)))
             .accessibilityValue(foldable ? (isOpen ? "Expanded" : "Collapsed") : "")
+            // A tap unfolds its rows only when it has some: otherwise it is a label, not a button.
+            .accessibilityAddTraits(foldable ? .isButton : [])
+            .allowsHitTesting(foldable)
             .accessibilityIdentifier("workspaces.cloud.\(machine.id)")
             cloudFoldAction(fold)
                 .padding(.leading, 10)
