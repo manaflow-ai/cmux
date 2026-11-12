@@ -44,6 +44,8 @@ from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402  (App, FakeChats, FAKE_AGENT_ID, process_table)
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 PEER = "bench-remote"
 
@@ -258,10 +260,7 @@ class PeerDaemon:
                     pass
             # Its whole group (it leads one, start_new_session), whatever the daemon's state: an exited daemon can
             # leave a child running in it (cmux#41767 review F1).
-            try:
-                os.killpg(self.process.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
+            kill_group(self.process, signal.SIGKILL)
             for pid in left - {self.process.pid}:
                 try:
                     os.kill(pid, signal.SIGKILL)  # this run's own peer processes only

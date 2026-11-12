@@ -28,6 +28,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 
 def paths(state: Path, name: str) -> dict[str, Path]:
@@ -125,9 +127,7 @@ def stop(state: Path) -> int:
             continue
         group = int(pid_file.read_text().strip())
         for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(group, sig)
-            except (ProcessLookupError, PermissionError):
+            if not kill_group(group, sig):
                 break
             print(f"sent {signal.Signals(sig).name} to {name} (process group {group})")
             if sig == signal.SIGTERM:

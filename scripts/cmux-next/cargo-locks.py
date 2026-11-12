@@ -122,18 +122,35 @@ def cargo(args: list[str], cwd: Path, env: dict[str, str], timeout: float = TIME
         _, err = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired:
         err = ""
+        # This file runs alone (the pre-push hook copies it and runs it with -I), so it cannot import
+        # ci_process_tree.kill_group: a refused killpg (macOS EPERM) kills the leader by its handle
+        # (cmux#41880 review F1).
         try:
             os.killpg(process.pid, signal.SIGTERM)
-        except (ProcessLookupError, PermissionError):
+        except ProcessLookupError:
             pass
+        except OSError as refused:
+            process.send_signal(signal.SIGTERM)  # before the line: a closed stderr cannot skip the kill
+            try:
+                print(f"cargo-locks: killpg refused ({refused}); signalled cargo {process.pid} directly",
+                      file=sys.stderr)
+            except (OSError, ValueError):
+                pass
         try:
             _, err = process.communicate(timeout=5)
         except subprocess.TimeoutExpired:
             pass
         try:
             os.killpg(process.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
+        except ProcessLookupError:
             pass
+        except OSError as refused:
+            process.send_signal(signal.SIGKILL)  # before the line: a closed stderr cannot skip the kill
+            try:
+                print(f"cargo-locks: killpg refused ({refused}); signalled cargo {process.pid} directly",
+                      file=sys.stderr)
+            except (OSError, ValueError):
+                pass
         try:
             _, rest = process.communicate(timeout=5)
             err = (err or "") + (rest or "")

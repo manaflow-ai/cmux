@@ -39,6 +39,8 @@ import subprocess
 import sys
 import tempfile
 import time
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 BUNDLE_ID = "com.cmuxterm.app.staging"
 CHANNEL = "staging"
@@ -232,10 +234,7 @@ class App:
                 client.close()
             self.process.wait(timeout=45)
         except subprocess.TimeoutExpired:
-            try:
-                os.killpg(self.process.pid, signal.SIGKILL)  # the app this script started, and its group
-            except (ProcessLookupError, PermissionError):
-                pass
+            kill_group(self.process, signal.SIGKILL)  # the app this script started, and its group
             self.process.wait(timeout=15)
         finally:
             os.close(self.read_fd)

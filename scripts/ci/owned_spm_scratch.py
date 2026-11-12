@@ -102,6 +102,8 @@ import sys
 import tempfile
 import unicodedata
 from typing import Mapping
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 DEFAULT_STORE = Path("/Users/Shared/cmux-build-fleet/ci")
 # glaeda's mini-fleet manifest on the mini (glaeda-cmux-runner installs it) and the keys of its disk
@@ -340,10 +342,7 @@ def hold(lock: Path, fd: int | None = None) -> subprocess.Popen[str]:
     holder = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                               text=True, start_new_session=True, pass_fds=() if fd is None else (fd,))
     if holder.stdout is None or holder.stdout.readline().strip() != HELD:
-        try:
-            os.killpg(holder.pid, signal.SIGKILL)  # its whole group: it leads one (start_new_session)
-        except (ProcessLookupError, PermissionError):
-            pass
+        kill_group(holder, signal.SIGKILL)  # its whole group: it leads one (start_new_session)
         raise OSError(f"could not hold {lock}")
     holder.stdout.close()
     HOLDERS.append(holder)
@@ -780,10 +779,7 @@ def lease(workspace: Path, store: Path, runner: str, verdict: dict[str, object] 
 
 def release_holders() -> None:
     for holder in HOLDERS:
-        try:
-            os.killpg(holder.pid, signal.SIGKILL)  # its whole group: it leads one (start_new_session)
-        except (ProcessLookupError, PermissionError):
-            pass
+        kill_group(holder, signal.SIGKILL)  # its whole group: it leads one (start_new_session)
         holder.wait()
     HOLDERS.clear()
 

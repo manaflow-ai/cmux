@@ -16,6 +16,8 @@ import subprocess
 import sys
 import time
 from typing import Any, Sequence
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 HERE = Path(__file__).resolve().parent
 DEFAULT_HELPER = HERE / "dev-fleet-warm-slot.py"
@@ -316,10 +318,7 @@ def cleanup_warmer(
     """Terminate the owned warmer and its native group after benchmark failure."""
     # The group, whatever the leader's state: an exited warmer can leave a child running in it (cmux#41767 review
     # F1). The group keeps the leader's pid as its id while any member lives.
-    try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError):
-        pass
+    kill_group(process, signal.SIGTERM)
     try:
         stdout, stderr = process.communicate(timeout=30)
     except subprocess.TimeoutExpired:
@@ -341,10 +340,7 @@ def cleanup_warmer(
         stdout, stderr = process.communicate()
         inflight_path.unlink(missing_ok=True)
     # A child that ignored SIGTERM outlives a leader that exited on it.
-    try:
-        os.killpg(process.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
-        pass
+    kill_group(process, signal.SIGKILL)
     clear_owned_warmer_state(state, slot, process.pid)
     return stdout, stderr
 

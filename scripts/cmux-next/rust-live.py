@@ -67,6 +67,8 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 WATCHED_SUFFIXES = (".rs", ".toml")
 WATCHED_NAMES = ("Cargo.lock",)
@@ -292,15 +294,11 @@ class Builder:
             return
         # The group, whatever its leader's state: a leader that exited (and was reaped) can leave a child running in
         # it, and that child would run into later builds (cmux#41767 review F1). start_new_session made the group's id
-        # the leader's pid, which the kernel keeps while any member lives; ProcessLookupError means it is empty.
-        pgid = proc.pid
+        # the leader's pid, which the kernel keeps while any member lives; ProcessLookupError means it is empty. A
+        # refused killpg (macOS EPERM) signals the leader and the group's members directly (cmux#41880 review F1).
         for sig in (signal.SIGTERM, signal.SIGKILL):
-            try:
-                os.killpg(pgid, sig)
-            except ProcessLookupError:
+            if not kill_group(proc, sig):
                 return
-            except PermissionError:  # macOS, a group whose members are exiting: SIGKILL still goes after the grace
-                pass
             if sig == signal.SIGTERM:
                 try:
                     proc.wait(timeout=5)

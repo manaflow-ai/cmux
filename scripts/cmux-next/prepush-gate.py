@@ -2817,19 +2817,25 @@ def advisory_finish(started, summary: str | None, seconds: float) -> None:
     try:
         code = process.wait(timeout=max(0.0, seconds - (time.monotonic() - t0)))
     except subprocess.TimeoutExpired:
+        # This file is installed alone into the hooks folder, so it cannot import group_kill.kill_group: a refused
+        # killpg (macOS EPERM) kills the leader by its handle here, a no-op once it was reaped (cmux#41880 review F1).
         for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
                 os.killpg(process.pid, sig)
-            except (ProcessLookupError, PermissionError):
+            except ProcessLookupError:
                 break
+            except OSError:
+                process.send_signal(sig)
             try:
                 process.wait(timeout=GRACE_SECONDS)
             except subprocess.TimeoutExpired:
                 pass
         try:
             os.killpg(process.pid, signal.SIGKILL)  # members that outlived the leader
-        except (ProcessLookupError, PermissionError):
+        except ProcessLookupError:
             pass
+        except OSError:
+            process.kill()
         try:
             process.wait(timeout=GRACE_SECONDS + 5)
         except subprocess.TimeoutExpired:

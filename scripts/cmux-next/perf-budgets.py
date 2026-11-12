@@ -36,6 +36,8 @@ Local, on a built app (never on a laptop that is in use):
   perf-budgets.py --tag T --app "<...>/cmux DEV T.app" --out DIR --json DIR/report.json
 """
 import argparse, importlib.util, json, os, platform, re, statistics, subprocess, sys, time
+sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'ci'))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUDGETS_FILE = os.path.join(HERE, "perf-budgets.json")
@@ -155,20 +157,14 @@ def start_load(tier, scratch):
 def stop_load(procs, scratch):
     import signal
     for proc in procs:
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-        except OSError:
-            pass
+        kill_group(proc, signal.SIGTERM)
     for proc in procs:
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             pass
         # Whether or not the leader exited: a child that ignores SIGTERM would outlive it (cmux#41767 review F1).
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except OSError:
-            pass
+        kill_group(proc, signal.SIGKILL)
     for name in os.listdir(scratch):
         if name.startswith("w"):
             try:

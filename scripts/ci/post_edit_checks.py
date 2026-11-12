@@ -34,6 +34,8 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from ci_process_tree import kill_group  # noqa: E402  (a refused killpg still kills the leader)
 
 PATH_KEYS = {"file_path", "filePath", "path", "filename", "target_file", "targetFile"}
 # apply_patch-style tools carry their paths only in the patch text.
@@ -130,10 +132,7 @@ def run_tool(argv: list[str], root: Path, budget: Budget, *, cap: float = 8.0, s
     try:
         out, err = proc.communicate(stdin, timeout=timeout)
     except subprocess.TimeoutExpired:
-        try:
-            os.killpg(proc.pid, signal.SIGKILL)
-        except OSError:
-            pass
+        kill_group(proc, signal.SIGKILL)
         proc.communicate()
         return None
     return subprocess.CompletedProcess(argv, proc.returncode, out, err)
