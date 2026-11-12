@@ -150,8 +150,10 @@
     }
 
     /* folder and folder-rim: the tab runs on to the panel's edge (the sidebar's, past the list's end
-       padding), square where it meets it. */
+       padding), square where it meets it. The row is `width: 100%` (styles.css), so it grows by that
+       padding; a margin alone left the panel's colour a gap short of the panel. */
     :root[data-settings-look="refined"]:not([data-settings-folder-tab="pill"], [data-settings-folder-tab="lifted"]) .settings .section-link[aria-current] {
+      width: calc(100% + var(--ds-space-3));
       margin-right: calc(var(--ds-space-3) * -1);
       border-radius: var(--look-nav-radius) 0 0 var(--look-nav-radius);
     }
