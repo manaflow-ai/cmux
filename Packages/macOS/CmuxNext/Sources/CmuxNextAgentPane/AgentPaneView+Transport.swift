@@ -105,6 +105,8 @@ extension AgentPaneView {
         transportPacer = pacer
         model.transport.pacer = pacer
         model.transport.onOtherInstall = { [weak self] other in self?.showOtherInstallNotice(other) }
+        model.transport.onPersonProof = { [weak self] proven in self?.showPersonProof(proven) }
+        model.transport.recoverPersonProof = { [weak self] in await self?.recoverPersonProof() ?? false }
         model.transport.onRemoteApprovalsOff = { [weak self] approvals in self?.showRemoteApprovalsOff(approvals) }
         model.transport.onPeerApprovalsOff = { [weak self] reason in self?.showPeerApprovalsOff(reason) }
         model.transport.onQuestionStateChanged = { [weak self] in
