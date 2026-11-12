@@ -276,6 +276,24 @@ struct NewTabHoldCloseKeyTests {
         }
     }
 
+    /// The same for the rule's own type: a hold whose opening is not the person's records no owner and drops no key.
+    @Test func aHoldOfAnOpeningThatIsNotThePersonsDropsNoKey() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: 200, y: 200, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let view = KeyProbe(frame: CGRect(x: 0, y: 0, width: 100, height: 100))
+        try #require(window.contentView).addSubview(view)
+        try #require(window.makeFirstResponder(view) && window.firstResponder === view, "the view did not take the keyboard")
+        let keyboard = NewTabHoldKeyboard(in: window, persons: false)
+        keyboard.endedUnready = true
+        #expect(!keyboard.drops(keyFor: window.firstResponder), "a hold of a script's opening dropped a key of the view the person types in")
+        #expect(keyboard.dropped == 0)
+        let persons = NewTabHoldKeyboard(in: window)
+        persons.endedUnready = true
+        #expect(persons.drops(keyFor: window.firstResponder), "a hold of the person's opening did not drop a key for what had the keyboard at the opening")
+    }
+
     /// The chord rule stays: keys typed ahead of Cmd-V go on first, in order, to the view that took the
     /// keyboard after the opening.
     @Test func aChordStillSendsTheHeldLineOnFirstToTheViewThatTookTheKeyboard() async throws {

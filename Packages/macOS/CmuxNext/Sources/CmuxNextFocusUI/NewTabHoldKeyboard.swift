@@ -17,8 +17,11 @@ public final class NewTabHoldKeyboard {
     public private(set) var dropped = 0
 
     /// `standIn`: a terminal makes its surface view again at a replay, so that view stands for the terminal's host view.
-    public init(in window: NSWindow, standIn: @escaping StandIn = { _ in nil }) {
+    public init(in window: NSWindow, persons: Bool = true, standIn: @escaping StandIn = { _ in nil }) {
         self.standIn = standIn
+        // An opening that is not the person's (a script, the CLI, an agent): the held keys are what the person types
+        // in the view they are in. No owner is recorded, so no key is dropped: that view gets them at an unready end.
+        guard persons else { return }
         // A page in Chromium has the keys in its own window, a child of the shell.
         if let key = NSApp.keyWindow, key !== window, key.parent === window { owner = key } else { owner = whatStands(for: window.firstResponder) }
     }
