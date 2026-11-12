@@ -175,3 +175,24 @@ for (const status of ["cancelled", "interrupted"])
       reopened.rows.indexOf(reopened.rows.find((row) => row.id === secondCall.id)!),
     );
   });
+
+for (const status of ["cancelled", "interrupted"])
+  test(`${status} work after a continued summary closes on the first click`, () => {
+    const continued = { ...summary, id: "continued", at: 2_000, status: "interrupted", continued: true };
+    const steer = row("continuing-steer", "user", { at: 3_000, text: "Finish the check.", steer: "landed" });
+    const source = [
+      ...work,
+      continued,
+      steer,
+      { ...call, id: "after-steer", at: 4_000 },
+      answer,
+      { ...summary, status },
+    ];
+    const settled = { ...options, working: false };
+    const before = turnViewFrom(source, new Set(), settled);
+    expect(before.rows.find((row) => row.id === foldId)?.foldOpen).toBe(true);
+    const choice = toggleTurnFold(source, new Set(), foldId);
+    const closed = turnViewFrom(source, choice, settled, before);
+    expect(closed.rows.find((row) => row.id === foldId)?.foldOpen).toBe(false);
+    expect(closed.rows.some((row) => row.id === call.id)).toBe(false);
+  });

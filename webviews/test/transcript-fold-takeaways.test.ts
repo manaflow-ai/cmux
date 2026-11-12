@@ -4,7 +4,7 @@
 // Short narration between steps folds with them. While running, intermediate dialogue remains visible.
 import { afterEach, expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { isTakeaway, turnFoldFor, turnView } from "../src/agent-session/acpmux/conversation/turns";
+import { isTakeaway, toggleTurnFold, turnFoldFor, turnView } from "../src/agent-session/acpmux/conversation/turns";
 
 /// These cases read a steered turn as one fold (turnFoldSteered `nested-open`); its in-order default,
 /// each message that came in mid-turn ending a fold, is turn-fold-in-order.test.ts's.
@@ -227,6 +227,10 @@ test("Find opens the right fold for a row after a summary a steer continued", ()
   ];
   const folds = drawn(rows).filter((entry) => entry.startsWith("worked:"));
   expect(folds).toEqual(["worked:worked-u"]);
+  const opened = turnView(rows, toggleTurnFold(rows, new Set(), "worked-u"));
+  expect(opened.find((entry) => entry.id === "worked-u")?.foldOpen).toBe(true);
+  expect(opened.some((entry) => entry.id === "tool1")).toBe(true);
+  expect(opened.some((entry) => entry.id === "tool3")).toBe(true);
   expect(
     turnFoldFor(
       rows,

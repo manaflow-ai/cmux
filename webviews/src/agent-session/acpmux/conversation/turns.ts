@@ -956,12 +956,7 @@ function shapedTurn(
   const kept = source.filter(
     (row, at) =>
       (row.kind !== "user" || (continuesTurn(row) && row.incoming?.kind !== "hidden")) &&
-      !(
-        row.kind === "turnSummary" &&
-        row.continued &&
-        (source.slice(at + 1).some(continuesTurn) ||
-          (last && !source.slice(at + 1).some((later) => later.kind === "turnSummary")))
-      ),
+      !hidesContinuedSummary(source, at, last),
   );
   // A turn the agent ran on its own after this one ended (no prompt starts it) draws in its tail:
   // a quiet one, or one still running, as its one line (backgroundTurns.ts).
@@ -1722,13 +1717,12 @@ function shapeTurn(
       // summary lines of the work around them (TurnRows.tsx `runStretches`).
       // A steer's reply never joins a run: it stays in sight beside the steer.
       const merge = (rows: readonly AcpmuxRow[]) =>
-        style.conclusion
-          ? rows.filter((row) => !out(row))
-          : mergeShortNotes(
-              rows.filter((row) => !out(row)),
-              steerDialogue,
-              style.runs,
-            );
+        mergeShortNotes(
+          rows.filter((row) => !out(row)),
+          steerDialogue,
+          style.runs,
+          !style.conclusion,
+        );
       if (open)
         shaped.push(
           // The answer between `before` and `after` is a seam: the runs on either side of it stay apart.
@@ -2875,7 +2869,12 @@ const isRun = (row: AcpmuxRow | undefined) => row?.kind === "activity" && !isEdi
 /// these aren't folded? they were missed in the logic?"): two runs with nothing between them (a todo
 /// update that ended the first run and moved to the turn's end, `staysOut`) and two runs with only an
 /// agent message of no visible text between them are one run, with no note line.
-export function mergeShortNotes(rows: readonly AcpmuxRow[], keep?: ReadonlySet<string>, edits = false): AcpmuxRow[] {
+export function mergeShortNotes(
+  rows: readonly AcpmuxRow[],
+  keep?: ReadonlySet<string>,
+  edits = false,
+  joinNotes = true,
+): AcpmuxRow[] {
   const run = (row: AcpmuxRow | undefined) => isRun(row) || (edits && row?.kind === "activity");
   const out: AcpmuxRow[] = [];
   // The stretch being joined at `out`'s end: its calls and member ids grow in place and go on its
@@ -2891,7 +2890,7 @@ export function mergeShortNotes(rows: readonly AcpmuxRow[], keep?: ReadonlySet<s
     const previous = out.at(-1);
     let to = index;
     while (drawsNothing(rows[to])) to += 1;
-    const note = to === index && isShortNote(row) && !keep?.has(row.id);
+    const note = joinNotes && to === index && isShortNote(row) && !keep?.has(row.id);
     if (note) to += 1;
     // A stretch being joined is a run already (`items`): its first run is not read again per note.
     // A run of a turn the agent ran on its own never joins another turn's run (backgroundTurns.ts).
@@ -3055,15 +3054,25 @@ export function toggleTurnFold(
 
 const closedTurnFoldKey = (id: string) => `${CLOSED_TURN_FOLD}${id}`;
 
+/// A continued stop is bookkeeping, not the summary that decides the fold's resting state.
+function hidesContinuedSummary(rows: readonly AcpmuxRow[], at: number, last: boolean): boolean {
+  const row = rows[at]!;
+  if (row.kind !== "turnSummary" || !row.continued) return false;
+  const tail = rows.slice(at + 1);
+  return tail.some(continuesTurn) || (last && !tail.some((later) => later.kind === "turnSummary"));
+}
+
 function stoppedTurnFold(rows: readonly AcpmuxRow[], id: string): boolean {
   if (!id.startsWith(`${WORKED}-`)) return false;
   const start = rows.findIndex((row) => `${WORKED}-${row.id}` === id);
-  for (let at = start + 1; start >= 0 && at < rows.length; at += 1) {
-    const row = rows[at]!;
-    if (opensTurn(row) && !isUnsent(row)) break;
-    if (row.kind === "turnSummary") return isStopped(row);
-  }
-  return false;
+  if (start < 0) return false;
+  let end = start + 1;
+  while (end < rows.length && !(opensTurn(rows[end]!) && !isUnsent(rows[end]!))) end += 1;
+  const turn = rows.slice(start + 1, end);
+  const summary = turn.find(
+    (row, at) => row.kind === "turnSummary" && !hidesContinuedSummary(turn, at, end === rows.length),
+  );
+  return summary !== undefined && isStopped(summary);
 }
 
 /// A turn's fold opens with every line in it closed (Lucas, 2026-11-11): the runs of messages and of
