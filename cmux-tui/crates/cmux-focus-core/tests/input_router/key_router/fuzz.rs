@@ -533,9 +533,13 @@ impl World {
                 self.press(record);
             }
             91..92 => {
-                let (action, tier, code) = match self.rng.below(3) {
+                // Find and its neighbors go to a page first; Reload and Cmd-B
+                // (Toggle Sidebar) run before it (Lawrence 2026-11-11).
+                let (action, tier, code) = match self.rng.below(5) {
                     0 => ("find", Tier::Navigation, 3),
-                    1 => ("browserReload", Tier::Content, 15),
+                    1 => ("findNext", Tier::Navigation, 5),
+                    2 => ("findPrevious", Tier::Navigation, 5),
+                    3 => ("browserReload", Tier::Content, 15),
                     _ => ("toggleSidebar", Tier::Navigation, 11),
                 };
                 let (modifiers, binding) = World::command(action, tier, false);
