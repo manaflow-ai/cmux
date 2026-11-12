@@ -148,6 +148,8 @@ on:
       - .github/actions/setup-cmux-tui-rust/**
       - .github/actions/runner-cargo-home/**
       - cmux-tui/**
+      # No tracked file is here: these start the run whose check-no-swift-cli.sh
+      # step fails when a main sync brings the Swift CLI back.
       - CLI/**
       - cmuxCLITests/**
       - cmuxCLITestSupport/**
@@ -302,7 +304,6 @@ on:
       - TunnelExtension/**
       - cmuxTests/**
       - cmuxUITests/**
-      - CLI/**
       - daemon/**
       - cmux-tui/**
       - Assets.xcassets/**
@@ -485,6 +486,8 @@ on:
       - .github/actions/setup-cmux-tui-rust/**
       - .github/actions/runner-cargo-home/**
       - cmux-tui/**
+      # No tracked file is here: these start the run whose check-no-swift-cli.sh
+      # step fails when a main sync brings the Swift CLI back.
       - CLI/**
       - cmuxCLITests/**
       - cmuxCLITestSupport/**
