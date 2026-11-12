@@ -415,7 +415,7 @@ fn serve(stream: UnixStream, local: &Path, app: &str, installed: bool, seen: &Mu
                 }
             }
             // The capability manifest, when the test put a live types file
-            // next to the state folder (`LIVE_TYPES`); else an older daemon's `{}`.
+            // next to the local folder (`LIVE_TYPES`); else an older daemon's `{}`.
             "apps-capabilities" => {
                 let live = local.parent().map(|state| state.join(LIVE_TYPES));
                 match live.and_then(|path| std::fs::read_to_string(path).ok()) {
@@ -531,7 +531,8 @@ fn ext_dev_writes_the_live_types_when_they_differ() {
     assert_eq!(std::fs::read_to_string(dir.join(dev::TYPES_FILE)).unwrap(), scaffolded);
 
     // A daemon whose API differs: the file becomes its text, once.
-    let live = root.path().join("state").join(LIVE_TYPES);
+    // Next to the local folder, where the fake daemon looks.
+    let live = root.path().join("state/apps").join(LIVE_TYPES);
     std::fs::write(&live, "declare const cmux: { newOp(): void }\n").unwrap();
     let outcome = dev::once(&global(&fake.socket), &options, false);
     assert_eq!(outcome.phase, Phase::Done, "{:?}", outcome.errors);
