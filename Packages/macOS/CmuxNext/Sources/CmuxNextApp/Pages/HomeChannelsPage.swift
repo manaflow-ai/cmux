@@ -187,15 +187,11 @@ final class DaemonCredentialPageProvider: PageProvider {
         } catch DaemonError.command(_, let message, _, _, _) where message.contains("shutting down") {
             throw PageError.unavailable(Self.restarting)
         } catch DaemonError.command(_, let message, _, _, _) {
-            // The daemon refused (a configured credential, an origin its listener does not admit):
-            // final. The page says so in its own words and offers Restart cmux-tui; the daemon's
-            // text is only for the log.
-            throw PageError(code: "cmux.daemon.page_listener", message: PageError.failedMessage, retryable: false,
-                            details: ["reason": .string(message)])
+            // The daemon refused (a configured credential, an origin its listener does not admit): final.
+            // The page says so in its own words, with Restart cmux-tui; the daemon's text is in details.
+            throw PageError(code: "cmux.daemon.page_listener", message: PageError.failedMessage, details: ["reason": .string(message)])
         } catch {
-            // Retried; the page's line says the daemon is restarting, the error itself goes to details.
-            throw PageError(code: "cmux.protocol.unavailable", message: Self.restarting, retryable: true,
-                            details: ["reason": .string(String(describing: error))])
+            throw PageError(code: "cmux.protocol.unavailable", message: Self.restarting, retryable: true, details: ["reason": .string(String(describing: error))])
         }
         switch outcome {
         case .ready:

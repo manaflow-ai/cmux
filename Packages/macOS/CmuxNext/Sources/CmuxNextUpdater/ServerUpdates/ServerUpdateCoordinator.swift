@@ -1,5 +1,6 @@
 public import Foundation
 public import Observation
+import os
 
 /// Holds each server's last handshake and the notices to show, and runs a confirmed restart.
 /// Reporting skew never restarts anything: only ``restart(_:)``, which the app calls after the
@@ -108,6 +109,8 @@ public final class ServerUpdateCoordinator {
         do {
             successor = try await restarter.restart(notice.kind, host: notice.host)
         } catch {
+            // The reason is for the log; the toast says it plainly (ServerRestartOutcome.message).
+            Self.logger.error("restart of \(notice.serverLabel, privacy: .public) failed: \(String(describing: error))")
             return .failed(String(describing: error))
         }
         let previous = reported[key]
@@ -135,4 +138,6 @@ public final class ServerUpdateCoordinator {
             notices.append(notice)
         }
     }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "server-updates")
 }

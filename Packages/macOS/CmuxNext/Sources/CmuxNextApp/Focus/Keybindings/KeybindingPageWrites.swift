@@ -133,8 +133,7 @@ struct KeybindingPageWrites {
         var clause: WhenClause?
         if let when {
             do { clause = try WhenClause.parse(when) } catch {
-                throw PageError(code: "cmux.keybindings.invalid", message: KeybindingStrings.invalidBinding,
-                                details: ["reason": .string(String(describing: error))])
+                throw PageError(code: "cmux.keybindings.invalid", message: KeybindingStrings.invalidBinding, details: ["reason": .string(String(describing: error))])
             }
         }
         let values = args.compactMapValues { value -> ActionValue? in
@@ -147,8 +146,7 @@ struct KeybindingPageWrites {
         }
         let entry = KeyBinding(keys: keys, command: id, arguments: values, when: clause, source: .user)
         if case .failure(let kind) = KeyBindingLoader(registry).validated(entry) {
-            throw PageError(code: "cmux.keybindings.invalid", message: KeybindingStrings.invalidBinding,
-                            details: ["reason": .string(String(describing: kind))])
+            throw PageError(code: "cmux.keybindings.invalid", message: KeybindingStrings.invalidBinding, details: ["reason": .string(String(describing: kind))])
         }
         try assess(keys[0], for: id)
         if inConfig, let target { return try await split(id, row: target, keys: keys, when: clause?.text) }

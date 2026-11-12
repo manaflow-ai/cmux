@@ -1,3 +1,4 @@
+public import CmuxNextDesign
 import Foundation
 
 /// What a confirmed restart did.
@@ -30,5 +31,10 @@ extension ServerRestartOutcome {
     public var retryTitle: String? {
         guard case .failed = self else { return nil }
         return UpdaterStrings.retry
+    }
+
+    /// The result toast (`id`), naming the server as `serverLabel`, with ``retryTitle`` as its action.
+    public func toast(id: String, serverLabel: String) -> CmuxToast {
+        CmuxToast(id: id, message: message(serverLabel: serverLabel), action: retryTitle.map { CmuxToast.Action(title: $0) })
     }
 }

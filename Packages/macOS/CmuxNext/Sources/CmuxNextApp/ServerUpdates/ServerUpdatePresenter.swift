@@ -6,7 +6,6 @@ import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextUpdater
-import os
 
 /// Shows "Update ready for cmux-tui" (Restart) as a toast on the active window, asks the confirm
 /// on its button, runs the restart and reports the result (plans/cmux-next/server-updates-DESIGN.md).
@@ -129,26 +128,15 @@ final class ServerUpdatePresenter {
         }
     }
 
-    /// Runs the confirmed restart and reports it. A failure says so plainly with Try Again, which
-    /// restarts again (the person already confirmed); the reason goes to the log only.
+    /// Runs the confirmed restart and says how it went; a failure's Try Again runs it again.
     private func restart(_ notice: ServerUpdateNotice) {
         busy.insert(notice.id)
         Task { @MainActor in
             let outcome = await self.servers.restart(notice)
             self.busy.remove(notice.id)
-            if case .failed(let reason) = outcome {
-                Self.logger.error("restart of \(notice.serverLabel, privacy: .public) failed: \(reason)")
-            }
-            let result = CmuxToast(id: "server-update.result.\(notice.kind.rawValue)",
-                                   message: outcome.message(serverLabel: notice.serverLabel),
-                                   action: outcome.retryTitle.map { CmuxToast.Action(title: $0) })
-            if let window = self.activeWindow() {
-                let handle = CmuxToastCenter.shared.show(result, in: window)
-                if outcome.retryTitle != nil { handle.onAction = { [weak self] in self?.restart(notice) } }
-            }
+            let result = outcome.toast(id: "server-update.result.\(notice.kind.rawValue)", serverLabel: notice.serverLabel)
+            if let window = self.activeWindow() { CmuxToastCenter.shared.show(result, in: window).onAction = { [weak self] in self?.restart(notice) } }
             self.sync()
         }
     }
-
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "server-updates")
 }
