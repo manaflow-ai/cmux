@@ -78,8 +78,8 @@ extension WorkspaceRowView {
 
     override func updateLayer() {
         performWithTheme {
-            // An idle workspace nobody named reads quiet until it is selected, hovered or busy.
-            title.textColor = isQuiet && !isSelected && !isSecondarySelected && !isHovered ? Palette.textSecondary : Palette.sidebarTitle
+            // Every row's title, named or not ("workspace-1", "~"), reads in the same ink (Lucas 2026-11-12).
+            title.textColor = Palette.sidebarTitle
             // A detail line is the Codex sidebar's `text-tertiary` (#39956): quieter than the title by a full step.
             subtitle.setColor(Palette.textTertiary); [timeLabel, metaLabel].forEach { $0.setColor(Palette.textTertiary) }
             if isArchived { // dimmed (archiving-DESIGN.md)

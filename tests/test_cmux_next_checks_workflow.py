@@ -329,9 +329,10 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
         self.commit("sources")
         self.pinned = self.rev("HEAD")
         # The pin: app-ffi-pin.json, and Package.swift holding its one loader block (scripts/ci/app_ffi_pin.py).
-        spec = importlib.util.spec_from_file_location("app_ffi_pin", ROOT / "scripts/ci/app_ffi_pin.py")
-        pin = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(pin)
+        # Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+        if str(ROOT / "scripts/ci") not in sys.path:
+            sys.path.insert(0, str(ROOT / "scripts/ci"))
+        pin = importlib.import_module("app_ffi_pin")
         (self.repo / "Packages/macOS/CmuxNext/Package.swift").write_text(
             "import Foundation\nimport PackageDescription\n\n" + pin.loader(self.ZEROS))
         (self.repo / "Packages/macOS/CmuxNext/app-ffi-pin.json").write_text(pin.render(self.pinned, self.ZEROS))
@@ -1097,7 +1098,15 @@ class PathRoutingStructure(unittest.TestCase):
                     else:
                         wanted = "blacksmith-6vcpu-macos-26" if allocated_side or attempt > 1 and routed_role else expected
                     with self.subTest(job=name, event=event, attempt=attempt, actor=actor):
-                        self.assertEqual(evaluate(expression, context), wanted)
+                        if attempt > 1:
+                            # placed_attempt is 1: a carried reading, whoever re-ran. Its owned labels are as
+                            # stale as its slots, so no re-run waits on one (cmux#38484's run 42728317341;
+                            # test_ci_next_macos_cascade.CarriedPlacement covers every combination).
+                            label = evaluate(expression, context)
+                            self.assertNotEqual(label, "stale-owned-label")
+                            self.assertFalse(str(label).startswith("glaeda-"), label)
+                        else:
+                            self.assertEqual(evaluate(expression, context), wanted)
         # 7242a82b4a8 (#24763): the rescue re-admits a queued run, a free owned Mac first, then Blacksmith.
         self.assertIn("The rescue re-admits a queued run after the\n# five-minute queue alarm: placement first uses a free owned GUI/session Mac,\n# then the workflow's Blacksmith macOS route.", text)
         self.assertIn("Bot attempt 2 and later drop the stale placement output\n# and re-admits it through the same fast-checks/owned-Mac/Blacksmith order", text)
@@ -2542,7 +2551,7 @@ FAST_TIER_REPORT_CLAUSE = (
     "contains(fromJSON('[\"success\",\"failure\",\"cancelled\"]'), needs.fast-tier-fleet.result) "
     "&& needs.fast-tier-fleet.outputs.verdict != 'queued' "
     "&& fromJSON(vars.RUNNER_POOLS).linux_2 || "
-    "needs.fast-tier-fleet.outputs.verdict == 'queued' && needs.fast-tier-handback-placement.outputs.runner || "
+    "needs.fast-tier-fleet.outputs.verdict == 'queued' && needs.fast-tier-handback-placement.outputs.placed_attempt == format('{0}', github.run_attempt) && needs.fast-tier-handback-placement.outputs.runner || "
     "needs.fast-tier-fleet.outputs.verdict == 'queued' && fromJSON(vars.RUNNER_POOLS).macos_26 || "
 )
 
@@ -2626,8 +2635,11 @@ class ReservedLaneLabels(unittest.TestCase):
         self.assertEqual(evaluate(runs_on, context(fast, attempt=2, actor="github-actions[bot]",
                                                    retry_runner="blacksmith-6vcpu-macos-26")),
                          "blacksmith-6vcpu-macos-26")
-        # A person's re-run cannot reuse the owned label; it falls to Blacksmith.
-        self.assertEqual(evaluate(runs_on, context(fast, attempt=2)), "blacksmith-6vcpu-macos-26")
+        # A person's re-run cannot reuse the owned label; it falls to Blacksmith. macos-placement never runs on
+        # it (its `if`), so its reading is attempt 1's, carried, or none.
+        for placed in ("1", ""):
+            self.assertEqual(evaluate(runs_on, context(fast, attempt=2, placed_attempt=placed)),
+                             "blacksmith-6vcpu-macos-26")
         for actor in ("someone", "github-actions[bot]", "cmux-bot[bot]"):
             with self.subTest(actor=actor):
                 self.assertEqual(evaluate(runs_on, context(fast, attempt=4, actor=actor)),
@@ -4134,8 +4146,12 @@ esac
         self.assertEqual(place["needs"], ["fast-tier-fleet"])
         for label in ("glaeda-fast-light-xcode-26.6", "glaeda-side-std-xcode-26.6"):
             with self.subTest(handback=label):
-                self.assertEqual(evaluate(tier["runs-on"], {**base, "needs.fast-tier-handback-placement.outputs.runner": label}),
-                                 label)
+                handed = {**base, "needs.fast-tier-handback-placement.outputs.runner": label,
+                          "needs.fast-tier-handback-placement.outputs.placed_attempt": "1"}
+                self.assertEqual(evaluate(tier["runs-on"], handed), label)
+                # A re-run of failed jobs carries the hand-back's reading: never its label then.
+                self.assertEqual(evaluate(tier["runs-on"], {**handed, "github.run_attempt": 2}),
+                                 "blacksmith-6vcpu-macos-26")
         self.assertEqual(evaluate(tier["runs-on"], {**base, "needs.fast-tier-handback-placement.outputs.runner": ""}),
                          "blacksmith-6vcpu-macos-26")
         placed = {"github.repository_owner": "manaflow-ai", "vars.CI_PR_POOL_OWNED": "1",
