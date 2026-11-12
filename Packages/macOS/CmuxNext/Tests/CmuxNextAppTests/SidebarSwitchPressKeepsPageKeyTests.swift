@@ -42,6 +42,8 @@ struct SidebarSwitchPressKeepsPageKeyTests {
             bench = try await SpaceSwitchSameTurnTests.bench()
             window = try #require(bench.controller.window as? ShellWindow, "the bench's window is not a ShellWindow")
             window.contentView?.layoutSubtreeIfNeeded()
+            // A defined start: the list does not hold the keyboard (a page does).
+            window.makeFirstResponder(nil)
             let page = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered,
                                 defer: true)
             page.isReleasedWhenClosed = false
@@ -159,5 +161,58 @@ struct SidebarSwitchPressKeepsPageKeyTests {
             #expect(rig.keyRequests == 1, "a \(press.name) press on a row made \(rig.keyRequests) key requests (want 1)")
             #expect(rig.bench.shownWorkspace == shown, "a \(press.name) press showed \(rig.bench.shownWorkspace ?? "nothing")")
         }
+    }
+
+    /// The window's press path gives the row the press, and with it the drags and the release. A press that becomes a
+    /// drag lifts the row and shows the workspace of before again (`beginDrag`), and no key moves.
+    @Test func aRowPressThatBecomesADragLiftsTheRowAndShowsTheWorkspaceOfBefore() async throws {
+        let rig = try await Rig()
+        defer { rig.close() }
+        let shown = try #require(rig.bench.shownWorkspace)
+        let target = try rig.otherWorkspace()
+        let point = try rig.point(ofRow: target)
+        rig.list.leftButtonIsDown = { true }
+        try rig.send(.leftMouseDown, point)
+        #expect(rig.bench.shownWorkspace == target, "the press did not show \(target)")
+        for dy in [CGFloat(10), 40, 0] { try rig.send(.leftMouseDragged, NSPoint(x: point.x, y: point.y - dy)) }
+        #expect(rig.list.drag != nil, "the drags after the press did not reach the row: nothing lifted")
+        #expect(rig.bench.shownWorkspace == shown, "the drag left \(rig.bench.shownWorkspace ?? "nothing") shown, not \(shown)")
+        rig.list.leftButtonIsDown = { false }
+        try rig.send(.leftMouseUp, point)
+        #expect(rig.list.press == nil, "the release did not reach the row: its press is still held")
+        #expect(rig.keyRequests == 0, "the press, its drags and its release asked for \(rig.keyRequests) key changes")
+    }
+
+    /// The rail's mark is the other press that shows a workspace (`SidebarRailView`): the same rule on the window's
+    /// path. A press on the shown workspace's mark shows nothing else and keeps the key behaviour it had.
+    @Test func aRailMarkPressThatShowsAnotherWorkspaceAsksForNoKeyChange() async throws {
+        let rig = try await Rig()
+        defer { rig.close() }
+        let content = try #require(rig.window.contentView)
+        let rail = SidebarRailView()
+        rail.frame = NSRect(x: content.bounds.maxX - 12, y: 0, width: 8, height: content.bounds.height)
+        content.addSubview(rail)
+        defer { rail.removeFromSuperview() }
+        rail.bind(rig.bench.controller.sidebar.model)
+        rail.layoutSubtreeIfNeeded()
+        func mark(_ workspace: String) throws -> NSPoint {
+            let tick = try #require(rail.railLayout.ticks.first { $0.mark.target == .workspace(WorkspaceID(workspace)) }, "the rail has no mark for \(workspace)")
+            let row = rail.railLayout.row(of: tick, railWidth: rail.bounds.width)
+            let point = rail.convert(CGPoint(x: row.midX, y: row.midY), to: nil)
+            try #require(content.hitTest(point) === rail, "the press at \(point) does not land on the rail: the rig is wrong")
+            return point
+        }
+        let shown = try #require(rig.bench.shownWorkspace)
+        let own = try mark(shown)
+        try rig.send(.leftMouseDown, own)
+        try rig.send(.leftMouseUp, own)
+        #expect(rig.keyRequests == 1, "a press on the shown workspace's mark made \(rig.keyRequests) key requests (want 1)")
+        let target = try rig.otherWorkspace()
+        let other = try mark(target)
+        try rig.send(.leftMouseDown, other)
+        #expect(rig.keyRequests == 1, "the mark press asked to make the shell window key before the rail got it: the page loses the key")
+        #expect(rig.bench.shownWorkspace == target, "the mark press did not show \(target): the window shows \(rig.bench.shownWorkspace ?? "nothing")")
+        try rig.send(.leftMouseUp, other)
+        #expect(rig.keyRequests == 1, "the mark's release asked for a key change")
     }
 }

@@ -2018,6 +2018,22 @@ An empty group now keeps only its header at rest. The header's existing + appear
   leading spinner, no button and no x. The App shows it until the sessions connect. No row, group or rail changes.
   Tests: `DaemonRestoreProgressTests`.
 
+## A row press that shows another workspace moves no key while a page holds it (2026-11-12, SPACE SWITCH 4, for a590)
+
+While a Chromium page of the window holds the key (a browser tab, an agent chat), a press on a workspace row or a rail
+mark that shows ANOTHER workspace goes straight to the row (`KeyNeutralPressTarget.keepsKey(for:on:)`,
+`SidebarListView+WorkspacePress.swift`, `SidebarModel.clickShowsAnotherWorkspace`): the shell window is not made key
+first and the list does not become the first responder. The switch gives the keyboard to the new workspace's content in
+the same turn, as the key path does. Chrome's tab strip and page share one window that stays key through a tab click.
+Measured before (hold l1, aws-m4pro-8, 120 Hz, gated): the click was 14.9 ms behind the key at p50.
+
+Not changed (each keeps the window-key-first path and the list as first responder): a press with the shell window
+key; the shown row; a control-press (menu); a double-click (rename); a Command or Shift press (selection); a row of a
+multi-selection; a row's buttons; group headers; item rows; pinned tiles; the profile bar; `sidebar.sideBySide`
+(the release switches). One consequence: after such a press the arrow keys go to the new workspace's content, not
+to the list (they did so before only until the switch's focus change, which came in the same turn).
+Sidebar-Look: no visual change. Tests: `SidebarSwitchPressKeepsPageKeyTests`, `SidebarSwitchPressFocusTests`.
+
 ## Reviewed behavior-only commits
 
 The following Priority pointer behavior commits were reviewed as Sidebar-Look: no visual change:
