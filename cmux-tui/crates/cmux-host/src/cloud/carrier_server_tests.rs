@@ -964,7 +964,9 @@ fn a_resume_before_a_seeded_bind_is_handled_prefetches_for_register() {
 /// it waits for comes back. A job that acts on a resume (`Job::Resume`, or
 /// a `Job::Done` that a waiting resume takes) is acted on in a later step
 /// than its pick, as the fetch thread acts on it after the lock is
-/// released, so binds and resumes land in between.
+/// released, so binds and resumes land in between. A bind captures its
+/// generation and answer in one step and installs them in a later step;
+/// resumes can invalidate the answer before installation as well.
 mod model {
     use std::time::{Duration, Instant};
 
@@ -997,6 +999,14 @@ mod model {
         seeded: bool,
     }
 
+    /// The worker's bind request and answer, not yet installed on the ticket
+    /// threads. The worker makes only one bind at a time.
+    struct Binding {
+        before: u64,
+        prefetch: bool,
+        first: Option<Value>,
+    }
+
     struct Request {
         generation: u64,
         /// The binding whose client the request runs on.
@@ -1020,6 +1030,7 @@ mod model {
         hands: Hands<u64>,
         /// Binds made so far: the latest is the machine's binding.
         binds: u64,
+        binding: Option<Binding>,
         in_flight: Vec<Request>,
         asker: Option<Instant>,
         pending: Option<Pending>,
@@ -1043,7 +1054,7 @@ mod model {
         seeded_binds: u64,
         invalidated_seeds: u64,
         local_binds: u64,
-        /// Fresh bind seeds installed after a resume crossed their capture.
+        /// Fresh bind seeds presented for installation after resume crossed their capture.
         bind_seeds_crossing_resume: u64,
         trace: Vec<String>,
     }
@@ -1055,6 +1066,7 @@ mod model {
                 now_ms: START_MS,
                 hands: Hands::default(),
                 binds: 0,
+                binding: None,
                 in_flight: Vec::new(),
                 asker: None,
                 pending: None,
@@ -1268,18 +1280,33 @@ mod model {
             json!({ "ok": true, "ticket": format!("g{generation}-b{binding}-{}", self.issued), "expires_at": self.now_ms / 1000 + 300 })
         }
 
-        fn bind(&mut self, rng: &mut Rng) {
-            self.binds += 1;
+        fn begin_bind(&mut self, rng: &mut Rng) {
+            let before = self.core.generation;
             let prefetch = rng.below(2) == 0;
-            let seeded = prefetch && rng.below(2) == 0;
-            let warm = if seeded {
-                // Bind creates the next generation; use the model clock, just as
-                // replies do, so these tickets can be handed out and invalidated.
-                let reply = self.ticket(self.core.generation.wrapping_add(1), self.binds);
-                Some(Warm::of(&reply, self.now_ms).expect("fresh model seed"))
-            } else {
-                None
+            let first =
+                (prefetch && rng.below(2) == 0).then(|| self.ticket(before + 1, self.binds + 1));
+            // With no intervening resume, installation starts generation
+            // before + 1. Keep that origin on the answer across later steps;
+            // relabeling it at installation would hide the stale-ticket bug.
+            self.binding = Some(Binding { before, prefetch, first });
+        }
+
+        fn finish_bind(&mut self) {
+            let Some(Binding { before, prefetch, first }) = self.binding.take() else {
+                return;
             };
+            // Count seeds the expiry check alone would accept: this path
+            // requires the generation fence, not just a fresh timestamp.
+            if before != self.core.generation
+                && first.as_ref().is_some_and(|reply| Warm::of(reply, self.now_ms).is_some())
+            {
+                self.bind_seeds_crossing_resume += 1;
+            }
+            // The same production fence, within the bind's one transition.
+            let warm = first
+                .and_then(|reply| self.core.seed_from_bind(before, prefetch, &reply, self.now_ms));
+            self.binds += 1;
+            let seeded = warm.is_some();
             self.core.bind_with(Bind { binding: self.binds, prefetch, seeded }, warm);
         }
 
@@ -1317,16 +1344,17 @@ mod model {
             let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
             let mut model = Model::new();
             for _ in 0..STEPS {
-                let step = rng.below(12);
+                let step = rng.below(13);
                 model.trace.push(format!(
-                    "step {step}: generation {} want {} fetching {} warm {} answered {} in flight {} picked {}",
+                    "step {step}: generation {} want {} fetching {} warm {} answered {} in flight {} picked {} bind captured {:?}",
                     model.core.generation,
                     model.core.want,
                     model.core.fetching,
                     model.core.warm.is_some(),
                     model.core.answered.is_some(),
                     model.in_flight.len(),
-                    model.picked.is_some()
+                    model.picked.is_some(),
+                    model.binding.as_ref().map(|binding| binding.before)
                 ));
                 match step {
                     0 if model.asker.is_none() && model.pending.is_none() => {
@@ -1340,10 +1368,13 @@ mod model {
                     2 => model.hand_out(seed),
                     3 if rng.below(4) == 0 => model.leave(),
                     4 => model.core.note_resume(),
-                    5 if rng.below(3) == 0 => model.bind(&mut rng),
+                    5 if model.binding.is_none() && rng.below(3) == 0 => {
+                        model.begin_bind(&mut rng);
+                    }
                     6..=8 => model.fetch_step(seed, &mut rng),
                     9 | 10 => model.reply(&mut rng),
                     11 => model.now_ms += rng.below(120_000),
+                    12 => model.finish_bind(),
                     _ => {}
                 }
             }
