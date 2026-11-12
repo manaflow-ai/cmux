@@ -10,9 +10,10 @@
 //!
 //! - `first_list_ms`: from the daemon's spawn to its first `_acpmux/watch` reply (the app's list);
 //! - `peers_ms`: from the spawn until every peer's rows are listed;
-//! - `attach_ms`: the pane's attach to the god chat (`waitLogs: false`, 400 records, 128 KiB);
-//! - `send_first_token_ms`: a prompt to the god chat to its first streamed chunk (a stand-in
-//!   agent answers);
+//! - `attachUs`: the pane's attach to the god chat (`waitLogs: false`, 400 records, 128 KiB),
+//!   [`ROUNDS`] times: p50, p95 and max;
+//! - `firstSendFirstTokenMs`, `sendFirstTokenUs`: a prompt to the god chat to its first streamed
+//!   chunk (a stand-in agent answers), the first one (which starts the agent) and the rest;
 //! - `reconnect_ms`: every peer link cut at once, until every peer is listed again (three times);
 //! - `rss` and `peak_rss`: the daemon's resident bytes after all that, and at its peak;
 //! - the daemon's own gauges (`daemon status` `gauges`).
@@ -22,7 +23,8 @@
 //! peak and in total, grouped by the first acpmux frame, and the sites of its 640-byte blocks
 //! (serde_json's BTreeMap leaves). Manual, on Linux CI:
 //! `cargo test -p acpmux --release --test god_daemon -- --ignored --nocapture`, and the profile:
-//! `ACPMUX_GOD_DHAT=1 cargo test -p acpmux --release --features dhat-heap --test god_daemon -- --ignored --nocapture`.
+//! `CARGO_PROFILE_RELEASE_DEBUG=line-tables-only ACPMUX_GOD_DHAT=1 cargo test -p acpmux --release
+//! --features dhat-heap --test god_daemon -- --ignored --nocapture` (line tables name inlined frames).
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
@@ -52,8 +54,26 @@ use std::time::{Duration, Instant};
 /// How long any one step may take before the run says so and moves on.
 const STEP: Duration = Duration::from_secs(600);
 
+/// Times each repeated step (attach, send) is measured.
+const ROUNDS: usize = 20;
+
 fn ms(since: Instant) -> u64 {
     since.elapsed().as_millis() as u64
+}
+
+fn micros(since: Instant) -> u64 {
+    since.elapsed().as_micros() as u64
+}
+
+/// p50, p95 and max of `samples`, null when there are none.
+fn spread(samples: &[u64]) -> Value {
+    if samples.is_empty() {
+        return Value::Null;
+    }
+    let mut sorted = samples.to_vec();
+    sorted.sort_unstable();
+    let at = |q: f64| sorted[((sorted.len() - 1) as f64 * q).round() as usize];
+    json!({"n": sorted.len(), "p50": at(0.5), "p95": at(0.95), "max": sorted[sorted.len() - 1]})
 }
 
 /// A line client on the daemon's socket that keeps the notifications it reads.
@@ -276,7 +296,7 @@ async fn run(shape: Shape, dhat: bool) -> Value {
     let home = scratch.join("acpmux");
     let claude = daemon_env::home(&scratch).join(".claude");
     let written = Instant::now();
-    let made = god_fixture::write_home(&home, &claude, &shape).unwrap();
+    let made = god_fixture::write_home(&home, &claude, &scratch.join("work"), &shape).unwrap();
     let write_ms = ms(written);
     let (peer_config, proxies, _hubs) = peers(&shape, &scratch).await;
     let proxies = Arc::new(proxies);
@@ -299,24 +319,40 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             list.as_ref().map(|l| l["sessions"].as_array().map_or(0, Vec::len)).unwrap_or(0);
         let peers_ms = wait_listed(&mut rpc, shape.peers, rows).map(|_| ms(daemon.spawned));
 
-        let attached = Instant::now();
-        let attach = rpc.call(
-            "_acpmux/attach",
-            json!({"sessionId": god, "waitLogs": false, "limit": 400, "maxBytes": 131072}),
-        );
-        let attach_ms = ms(attached);
+        // The pane's open of the god chat, again and again: a page of its newest records.
+        let (mut attaches, mut attach) = (vec![], Ok(Value::Null));
+        for _ in 0..ROUNDS {
+            let attached = Instant::now();
+            attach = rpc.call(
+                "_acpmux/attach",
+                json!({"sessionId": god, "waitLogs": false, "limit": 400, "maxBytes": 131072}),
+            );
+            attaches.push(micros(attached));
+            rpc.notes.clear();
+        }
 
-        let sent = Instant::now();
-        let prompt = json!({"sessionId": god, "prompt": [{"type": "text", "text": "hello"}]});
-        let send = rpc.call("session/prompt", prompt).map(|_| ());
-        let chunk = send.is_ok().then(|| {
+        // A prompt to the god chat until its first streamed chunk; the first starts its agent.
+        let (mut sends, mut send) = (vec![], Ok(()));
+        for round in 0..ROUNDS {
+            let sent = Instant::now();
+            let text = format!("hello {round}");
+            let prompt = json!({"sessionId": god, "prompt": [{"type": "text", "text": text}]});
+            send = rpc.call("session/prompt", prompt).map(|_| ());
+            if send.is_err() {
+                break;
+            }
             rpc.wait_note(|v| {
                 v["method"] == "session/update"
                     && v["params"]["sessionId"] == json!(god)
                     && v["params"]["update"]["sessionUpdate"] == "agent_message_chunk"
-            })
-        });
-        let send_first_token_ms = chunk.map(|_| ms(sent));
+                    && v["params"]["update"]["content"]["text"]
+                        .as_str()
+                        .is_some_and(|t| t.contains(&text))
+            });
+            sends.push(micros(sent));
+            rpc.notes.clear();
+        }
+        let first_send_ms = sends.first().map(|us| us / 1000);
 
         let mut reconnect_ms = vec![];
         for _ in 0..3 {
@@ -337,8 +373,9 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             "godLogBytes": made.god_log_bytes, "godJsonlBytes": made.god_jsonl_bytes,
             "peers": shape.peers, "peerRows": shape.peer_rows, "listed": listed,
             "writeMs": write_ms, "readyMs": ready_ms, "firstListMs": first_list_ms,
-            "peersMs": peers_ms, "attachMs": attach_ms, "attachOk": attach.is_ok(),
-            "sendFirstTokenMs": send_first_token_ms, "sendError": send.err(),
+            "peersMs": peers_ms, "attachUs": spread(&attaches), "attachOk": attach.is_ok(),
+            "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(&sends[1..]),
+            "sendError": send.err(),
             "reconnectMs": reconnect_ms, "rss": rss, "peakRss": peak_rss,
             "gauges": status["gauges"], "heap": heap,
         })
@@ -466,11 +503,22 @@ async fn god_and_small_homes_in_one_harness() {
     }
     // The comparison the bar reads: god over small, for each number both have.
     if let [small, god] = &results[..] {
-        let ratio = |k: &str| match (small[k].as_f64(), god[k].as_f64()) {
+        let ratio = |k: &str| match (
+            small.pointer(k).and_then(Value::as_f64),
+            god.pointer(k).and_then(Value::as_f64),
+        ) {
             (Some(s), Some(g)) if s > 0.0 => json!(g / s),
             _ => Value::Null,
         };
-        let keys = ["firstListMs", "peersMs", "attachMs", "sendFirstTokenMs", "rss", "peakRss"];
+        let keys = [
+            "/firstListMs",
+            "/peersMs",
+            "/attachUs/p95",
+            "/firstSendFirstTokenMs",
+            "/sendFirstTokenUs/p95",
+            "/rss",
+            "/peakRss",
+        ];
         let ratios: serde_json::Map<String, Value> =
             keys.iter().map(|k| ((*k).to_owned(), ratio(k))).collect();
         println!("GOD-RATIO {}", Value::Object(ratios));

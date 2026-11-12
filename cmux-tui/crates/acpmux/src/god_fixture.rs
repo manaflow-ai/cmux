@@ -113,7 +113,14 @@ pub fn agent_session_id(index: usize) -> String {
 
 /// A session record shaped like a busy Claude chat's: config options, modes, tools, a preview,
 /// and the last turn.
-pub fn session_meta(id: &str, name: &str, agent_session: &str, last_seq: u64, at: u64) -> Value {
+pub fn session_meta(
+    id: &str,
+    name: &str,
+    cwd: &str,
+    agent_session: &str,
+    last_seq: u64,
+    at: u64,
+) -> Value {
     let options: Vec<Value> = (0..5)
         .map(|o| {
             json!({"category": if o == 0 { "model" } else { "other" }, "currentValue": "claude-opus-5-5",
@@ -123,7 +130,7 @@ pub fn session_meta(id: &str, name: &str, agent_session: &str, last_seq: u64, at
         .collect();
     json!({
         "schema": crate::store::META_SCHEMA, "id": id, "name": name, "harness": "claude",
-        "harnessArgv": ["claude"], "cwd": "/work/god", "agentSessionId": agent_session,
+        "harnessArgv": ["claude"], "cwd": cwd, "agentSessionId": agent_session,
         "status": "idle", "createdAt": at, "updatedAt": at + 5_000, "lastSeq": last_seq,
         "eventCount": last_seq, "turnCount": last_seq / 4,
         "agentInfo": {"name": "claude-stdio", "title": "Claude Code", "version": null},
@@ -145,6 +152,7 @@ pub fn peer_meta(peer: &str, index: usize) -> Value {
     session_meta(
         &id,
         &format!("{peer} lane {index}"),
+        &format!("/home/agent/work/{peer}/{index}"),
         &agent_session_id(index),
         400,
         AT + index as u64,
@@ -299,8 +307,9 @@ pub fn write_claude_jsonl(
 }
 
 /// The acpmux home `home` (its `sessions` through the store) and the Claude home `claude` (its
-/// `projects`) of `shape`.
-pub fn write_home(home: &Path, claude: &Path, shape: &Shape) -> io::Result<Home> {
+/// `projects`) of `shape`. Each chat works in a folder under `work` (50 of them, made here), so
+/// its agent can start.
+pub fn write_home(home: &Path, claude: &Path, work: &Path, shape: &Shape) -> io::Result<Home> {
     let mut cfg = crate::config::Config::default();
     cfg.store.mode = crate::config::StoreMode::Local;
     let store =
@@ -324,12 +333,15 @@ pub fn write_home(home: &Path, claude: &Path, shape: &Shape) -> io::Result<Home>
         let (log_bytes, last_seq) = append_log(store.as_ref(), &id, messages, bytes)?;
         let name = if god { "god".to_owned() } else { format!("chat-{index}") };
         let session = agent_session_id(index);
-        let meta = session_meta(&id, &name, &session, last_seq, AT + index as u64);
+        let folder = work.join(format!("p{}", index % 50));
+        std::fs::create_dir_all(&folder)?;
+        let cwd = folder.to_string_lossy().into_owned();
+        let meta = session_meta(&id, &name, &cwd, &session, last_seq, AT + index as u64);
         let meta = serde_json::from_value(meta).map_err(io::Error::other)?;
         store.save(&meta).map_err(|e| io::Error::other(e.to_string()))?;
-        let cwd = format!("/work/p{}", index % 50);
-        let jsonl =
-            projects.join(format!("-work-p{}", index % 50)).join(format!("{session}.jsonl"));
+        // Claude Code's project folder: the working folder with every `/` and `.` as `-`.
+        let project = cwd.replace(['/', '.'], "-");
+        let jsonl = projects.join(project).join(format!("{session}.jsonl"));
         let jsonl_bytes = write_claude_jsonl(&jsonl, &session, &cwd, messages, bytes)?;
         if god {
             (made.god_jsonl, made.god_log_bytes, made.god_jsonl_bytes) =
@@ -360,7 +372,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (home, claude) = (dir.path().join("acpmux"), dir.path().join("claude"));
         let shape = Shape::small();
-        let made = write_home(&home, &claude, &shape).unwrap();
+        let made = write_home(&home, &claude, &dir.path().join("work"), &shape).unwrap();
         assert_eq!(made.others.len(), shape.chats - 1);
         let jsonl = std::fs::read_to_string(&made.god_jsonl).unwrap();
         assert_eq!(jsonl.lines().count(), shape.god_messages);
