@@ -1,9 +1,10 @@
 //! `terminal-input-while-creating-v1` over the daemon socket (cx-wb5.78): input sent to the
 //! caller-minted `terminal_id` of a split that is still being created is queued, in order across
-//! connections, and written to the new terminal once it is live; a creation that outlives the
-//! expiry gives each sending connection its own bytes back in one `terminal-input-unclaimed`
-//! notice; a refused creation never takes input; more than 64 KiB is refused with
-//! `input.overflow`; a creation whose creator cancelled its input (`cancel-creating-input`, the
+//! connections, and written to the new terminal once it is live, however long the creation
+//! takes (the 120 s backstop for a creation that never ends is tested in cmux-tui-core,
+//! `mux::tests::input_queue_backstop`, on an injected clock); a failed creation gives each
+//! sending connection its own bytes back in one `terminal-input-unclaimed` notice; a refused
+//! creation never takes input; more than 64 KiB is refused with `input.overflow`; a creation whose creator cancelled its input (`cancel-creating-input`, the
 //! close of a pane that is still starting) writes none of it.
 
 use super::super::*;
@@ -220,37 +221,6 @@ fn a_refused_creation_takes_no_input() {
         serde_json::json!({"id": 21, "cmd": "read-screen", "surface": taken_surface}),
     );
     assert!(!screen["text"].as_str().unwrap().contains("REFUSED-INPUT"), "{screen}");
-}
-
-#[test]
-fn a_creation_that_outlives_the_expiry_gives_the_input_back() {
-    let mut harness = RecoveryHarness::start_unstarted("creating-input-expiry");
-    harness.host_ready_delay_ms = Some(3_000);
-    harness.extra_env.push(("CMUX_TUI_TEST_CREATING_INPUT_EXPIRY_MS".into(), "300".into()));
-    harness.restart();
-    let pane = first_pane(&harness, "creating-expiry");
-    let terminal_id = creating_terminal(3);
-    let split = spawn_request(
-        &harness.socket,
-        serde_json::json!({"id": 10, "cmd": "split", "pane": pane, "dir": "right", "terminal_id": terminal_id}),
-    );
-    let mut sender = Connection::open(&harness.socket);
-    queue(&mut sender, 20, &terminal_id, "EXPIRED-INPUT");
-    let notice = sender.unclaimed();
-    assert_eq!(notice["reason"], "expired", "{notice}");
-    assert_eq!(base64_text(&notice), "EXPIRED-INPUT");
-
-    // The split still commits; the expired input was not written to it.
-    let created = split.recv_timeout(test_timeout(Duration::from_secs(20))).unwrap();
-    assert_eq!(created["ok"], true, "{created}");
-    let surface = created["data"]["surface"].as_u64().unwrap();
-    let marker = "AFTER-EXPIRY";
-    let live = sender.call(serde_json::json!({
-        "id": 21, "cmd": "send", "terminal_id": terminal_id, "text": marker,
-    }));
-    assert_eq!(live["ok"], true, "{live}");
-    let screen = wait_for_screen(&harness.socket, surface, marker);
-    assert!(!screen.contains("EXPIRED-INPUT"), "expired input was written: {screen}");
 }
 
 /// A creation slower than the input expiry (a host start under load, or a split that waits for
