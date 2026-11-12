@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43309027544",
+  "recorded_at": "2026-11-12T21:31:23Z",
+  "reason": "cmux-tui 47bf1d71ffb4 changes the image's cmux-tui (pinned 2bbbfec30c52)",
+  "dry_run": false,
+  "cmux_tui": "47bf1d71ffb4ae9f4cc2de00184a4f9fcdf35e9d",
+  "fixes": [
+    {
+      "sha": "47bf1d71ffb4ae9f4cc2de00184a4f9fcdf35e9d",
+      "mergedAt": "2026-11-12T12:46:02-08:00",
+      "subject": "acpmux-book: harden segment and checkpoint writes (#42157)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T21:31:23Z",
+    "snapshot_id": "sh-5b370f7eb80b4b519045c936185693da",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43309027544): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2587eb120892399f0cbec2fe68c466a77881c079",
+    "image": "cloud-native-auto-47bf1d71-43309027544-1",
+    "revision": "ci-43309027544-1",
+    "at": "2026-11-12T21:31:23Z"
+  },
+  "rolled_back": false
+}
