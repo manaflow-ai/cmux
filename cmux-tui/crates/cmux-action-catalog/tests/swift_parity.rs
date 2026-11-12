@@ -162,6 +162,13 @@ fn english_catalog_equals_the_swift_dump() {
         actions
             .retain(|action| !action["id"].as_str().is_some_and(|id| AWAITING_REPIN.contains(&id)));
     }
+    // A palette family names them too.
+    let families = object.get_mut("palette").and_then(|p| p.get_mut("families"));
+    for family in families.and_then(Value::as_array_mut).into_iter().flatten() {
+        if let Some(members) = family.get_mut("members").and_then(Value::as_array_mut) {
+            members.retain(|id| !id.as_str().is_some_and(|id| AWAITING_REPIN.contains(&id)));
+        }
+    }
     if let Some(difference) = first_difference("$", &rust, &swift) {
         panic!("the Rust catalog differs from the Swift dump: {difference}");
     }
