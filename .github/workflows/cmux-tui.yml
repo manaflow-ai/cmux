@@ -662,26 +662,36 @@ jobs:
             if [[ "$RUNNER_OS" == "Linux" ]]; then
               test_threads=32
             fi
-            # --no-fail-fast: one failing test binary must not hide the rest,
-            # and the cmux-tui-core tests below still run. The step fails at
-            # the end with the workspace status.
+            # One run shows every red: --no-fail-fast runs every workspace test
+            # binary, each group below runs even after a red group, and the step
+            # fails at the end with the first red status.
             workspace_status=0
             ../scripts/ci/cargo-test-deadline.sh --workspace --exclude cmux-tui-core --locked --no-fail-fast \
               -- --test-threads="$test_threads" || workspace_status=$?
             mkdir -p target
-            cargo test -p cmux-tui-core --locked --no-run --message-format=json \
-              > target/cmux-tui-core-test-binaries.jsonl
-            python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py \
-              target/cmux-tui-core-test-binaries.jsonl \
-              crates/cmux-tui-core
-            ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --doc --locked
-            exit "$workspace_status"
+            core_status=0
+            if cargo test -p cmux-tui-core --locked --no-run --message-format=json \
+              > target/cmux-tui-core-test-binaries.jsonl; then
+              python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py \
+                target/cmux-tui-core-test-binaries.jsonl \
+                crates/cmux-tui-core || core_status=$?
+            else
+              core_status=$?
+            fi
+            doc_status=0
+            ../scripts/ci/cargo-test-deadline.sh -p cmux-tui-core --doc --locked || doc_status=$?
+            for status in "$workspace_status" "$core_status" "$doc_status"; do
+              if [[ "$status" -ne 0 ]]; then
+                exit "$status"
+              fi
+            done
+            exit 0
           fi
           if [[ "$TEST_FILTER" == "chatmux_relay" || "$TEST_FILTER" == "chatmux-relay" ]]; then
             # Cargo test names do not include their package name. Keep this
             # explicit selector so focused verification can exercise the
             # relay crate instead of silently selecting zero tests.
-            ../scripts/ci/cargo-test-deadline.sh -p chatmux-relay --locked
+            ../scripts/ci/cargo-test-deadline.sh -p chatmux-relay --locked --no-fail-fast
             exit 0
           fi
           cargo test --workspace --locked "$TEST_FILTER" -- --list \
@@ -711,7 +721,9 @@ jobs:
           ../scripts/ci/cargo-test-deadline.sh --workspace --locked --no-fail-fast "$TEST_FILTER"
 
       - name: Optional Iroh route and auth tests
-        if: inputs.mode == 'full'
+        # Runs after a red `cargo test` step too, so one run shows every red,
+        # but not when setup failed before `cargo test` ran.
+        if: ${{ !cancelled() && inputs.mode == 'full' && (steps.focused.outcome == 'success' || steps.focused.outcome == 'failure') }}
         working-directory: cmux-tui
         shell: bash
         run: |
@@ -725,7 +737,9 @@ jobs:
           done
 
       - name: crossterm parser tests
-        if: inputs.mode == 'full'
+        # Runs after a red `cargo test` step too, so one run shows every red,
+        # but not when setup failed before `cargo test` ran.
+        if: ${{ !cancelled() && inputs.mode == 'full' && (steps.focused.outcome == 'success' || steps.focused.outcome == 'failure') }}
         working-directory: cmux-tui
         # Single-threaded: crossterm's colored tests mutate process env vars
         # (COLORTERM/NO_COLOR) and race each other under parallel test
@@ -733,14 +747,18 @@ jobs:
         run: ../scripts/ci/cargo-test-deadline.sh --manifest-path vendor/crossterm/Cargo.toml --lib -- --test-threads=1
 
       - name: TUI smoke test (scripted pty)
-        if: inputs.mode == 'full'
+        # Runs after a red `cargo test` step too, so one run shows every red,
+        # but not when setup failed before `cargo test` ran.
+        if: ${{ !cancelled() && inputs.mode == 'full' && (steps.focused.outcome == 'success' || steps.focused.outcome == 'failure') }}
         working-directory: cmux-tui
         run: |
           cargo build -p cmux-tui
           python3 scripts/smoke-tui.py
 
       - name: Detach/reattach smoke test
-        if: inputs.mode == 'full'
+        # Runs after a red `cargo test` step too, so one run shows every red,
+        # but not when setup failed before `cargo test` ran.
+        if: ${{ !cancelled() && inputs.mode == 'full' && (steps.focused.outcome == 'success' || steps.focused.outcome == 'failure') }}
         working-directory: cmux-tui
         run: python3 scripts/smoke-attach.py
 
