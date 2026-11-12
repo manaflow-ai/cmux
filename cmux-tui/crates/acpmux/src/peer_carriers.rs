@@ -860,6 +860,8 @@ impl Peer {
                                 self.path_failed(via);
                                 break;
                             }
+                        } else {
+                            self.probe_frame(text.as_str());
                         }
                     }
                     Some(Ok(Frame::Close(_)) | Err(_)) | None => {

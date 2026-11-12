@@ -3125,6 +3125,18 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_name</key>
+			<string>appearance.metrics.sidebarRowHeight</string>
+			<key>pfm_range_max</key>
+			<real>48</real>
+			<key>pfm_range_min</key>
+			<real>20</real>
+			<key>pfm_title</key>
+			<string>Workspace Row Height</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
 			<key>pfm_default</key>
 			<string>default</string>
 			<key>pfm_description</key>
@@ -5756,7 +5768,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>dot</string>
+			<string>leftRail</string>
 			<key>pfm_description</key>
 			<string>How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.</string>
 			<key>pfm_name</key>
@@ -7460,6 +7472,18 @@
 			<string>Toolbar Buttons</string>
 			<key>pfm_type</key>
 			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>A thin progress line under the address bar while a page loads. The Stop button shows either way.</string>
+			<key>pfm_name</key>
+			<string>browser.showLoadingBar</string>
+			<key>pfm_title</key>
+			<string>Show Loading Bar</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -9657,6 +9681,18 @@
 			<string>diagnostics.hangReports</string>
 			<key>pfm_title</key>
 			<string>Send Hang Reports</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page.</string>
+			<key>pfm_name</key>
+			<string>diagnostics.usagePatterns</string>
+			<key>pfm_title</key>
+			<string>Record Usage Patterns</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

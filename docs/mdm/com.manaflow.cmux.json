@@ -1356,6 +1356,13 @@
       "title" : "Divider Thickness",
       "type" : "number"
     },
+    "appearance.metrics.sidebarRowHeight" : {
+      "description" : "appearance.metrics.sidebarRowHeight",
+      "maximum" : 48,
+      "minimum" : 20,
+      "title" : "Workspace Row Height",
+      "type" : "number"
+    },
     "appearance.metrics.sidebarWidth" : {
       "description" : "appearance.metrics.sidebarWidth",
       "maximum" : 420,
@@ -2088,6 +2095,12 @@
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
     },
+    "browser.showLoadingBar" : {
+      "default" : false,
+      "description" : "A thin progress line under the address bar while a page loads. The Stop button shows either way.",
+      "title" : "Show Loading Bar",
+      "type" : "boolean"
+    },
     "browser.siteEngines" : {
       "default" : {
         "amazon.com/gp/video" : "webkit",
@@ -2346,6 +2359,12 @@
       "default" : false,
       "description" : "Nightly builds send a daily report of hangs and slow frames: call stacks of cmux and macOS code, timings, your app and macOS versions, your Mac's chip and memory size, and rounded counts of open windows and tabs. It never includes file names, web addresses, terminal text, names or anything you type. View Hang Report shows exactly what is sent.",
       "title" : "Send Hang Reports",
+      "type" : "boolean"
+    },
+    "diagnostics.usagePatterns" : {
+      "default" : false,
+      "description" : "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page.",
+      "title" : "Record Usage Patterns",
       "type" : "boolean"
     },
     "diff.colors" : {
@@ -5710,7 +5729,7 @@
       "type" : "string"
     },
     "workspaceColors.indicatorStyle" : {
-      "default" : "dot",
+      "default" : "leftRail",
       "description" : "How a workspace's color shows in the sidebar: a dot before its name, a bar down the row's edge, or the whole row filled with the color.",
       "enum" : [
         "dot",

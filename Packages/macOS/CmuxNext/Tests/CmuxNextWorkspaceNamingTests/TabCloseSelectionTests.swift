@@ -6,7 +6,7 @@ import Testing
 /// and its rule state (`TabSelectionMemory.closeRule`), as a pane's strip drives them. The rows are the worked
 /// cases and the two decisions of the hand-off file /work/wt/handoff/tasks/close-selection-rule.md (R0 to R5;
 /// 14:02Z: a new tab right after the current one keeps its opener as a link's tab does, one at the end is the
-/// quick look-up; 14:20Z: no group preference). It replaces the 2026-11-08 "always the tab before" rule
+/// quick look-up; 14:20Z: no group preference, replaced 2026-11-11 by Chromium's group step). It replaces the 2026-11-08 "always the tab before" rule
 /// (#38316, #38328, #38419).
 @MainActor
 struct TabCloseSelectionTests {
@@ -18,11 +18,14 @@ struct TabCloseSelectionTests {
         var tabs: [String]
         /// The members of a collapsed group.
         var hidden: Set<String> = []
+        /// Each grouped tab's group.
+        var groups: [String: String] = [:]
         /// The tabs a pending close hides (the store's close intents, `DaemonStore.closingTabIDs`).
         var closing: Set<String> = []
 
-        init(_ tabs: [String], selected: String, id: String = "pane", memory: TabSelectionMemory = TabSelectionMemory()) {
-            (self.memory, self.id, self.tabs) = (memory, id, tabs)
+        init(_ tabs: [String], selected: String, id: String = "pane", groups: [String: String] = [:],
+             memory: TabSelectionMemory = TabSelectionMemory()) {
+            (self.memory, self.id, self.tabs, self.groups) = (memory, id, tabs, groups)
             memory.select(selected, in: id)
             sync()
         }
@@ -31,7 +34,8 @@ struct TabCloseSelectionTests {
 
         /// The pane's apply: the tab it shows for its tabs as they are now.
         @discardableResult
-        func sync() -> String? { memory.resolve(pane: id, tabs: tabs, defaultIndex: 0, hidden: hidden, closing: { self.closing }) }
+        func sync() -> String? { memory.resolve(pane: id, tabs: tabs, defaultIndex: 0, hidden: hidden,
+                                                groups: groups.filter { tabs.contains($0.key) }, closing: { self.closing }) }
 
         /// A person's new tab (Cmd-T, the +), right after the selected tab, or at the end. `link`: a link's page that
         /// shows before its store tab exists (the GitHub page), right after the selected tab.
@@ -405,11 +409,25 @@ struct TabCloseSelectionTests {
         #expect(opener.remove("n") == "b")
     }
 
-    /// Observed on Chrome 156 (decision 14:20Z): the next tab across a group's edge, the previous one only at
-    /// the end of the strip. No group is read.
-    @Test func aGroupsEdgeDoesNotChangeThePick() {
-        #expect(Pane(["a", "b", "c", "d"], selected: "c").remove("c") == "d") // A [B C*] D
-        #expect(Pane(["a", "b", "c", "d", "e"], selected: "d").remove("d") == "e") // A [B C D*] E
-        #expect(Pane(["a", "b", "c", "d"], selected: "d").remove("d") == "c") // A B [C D*]
+    /// G1, Chromium's `DetermineNewSelectedIndex` fourth preference (tab_strip_model.cc, main, read 2026-11-11):
+    /// a closed tab in a group selects the tab right after it in its group, else the one right before it in its
+    /// group, before the strip's next tab. It replaces the 14:20Z decision ("no group is read"), which the source
+    /// contradicts for the last tab of a group (Lawrence via Chief 2026-11-11: match Chrome inside groups).
+    @Test func aGroupedTabSelectsWithinItsGroupFirst() {
+        let group = ["b": "g", "c": "g"]
+        #expect(Pane(["a", "b", "c", "d"], selected: "c", groups: group).remove("c") == "b") // A [B C*] D: B, not D
+        #expect(Pane(["a", "b", "c", "d"], selected: "b", groups: group).remove("b") == "c") // A [B* C] D: C
+        let three = ["b": "g", "c": "g", "d": "g"]
+        #expect(Pane(["a", "b", "c", "d", "e"], selected: "d", groups: three).remove("d") == "c") // A [B C D*] E: C
+        // The group's only tab: the strip's rule (the next tab).
+        #expect(Pane(["a", "b", "c"], selected: "b", groups: ["b": "g"]).remove("b") == "c") // A [B*] C
+        // Two groups side by side: the next tab is in another group, so the one before in its own.
+        #expect(Pane(["a", "b", "c", "d"], selected: "c", groups: ["b": "g", "c": "g", "d": "h"]).remove("c") == "b")
+        // The opener ranks above the group: A opened N in group [N D], closing N at once returns to A.
+        let opener = Pane(["a", "d"], selected: "a")
+        opener.newTab("n")
+        opener.groups = ["n": "g", "d": "g"]
+        opener.sync()
+        #expect(opener.remove("n") == "a")
     }
 }
