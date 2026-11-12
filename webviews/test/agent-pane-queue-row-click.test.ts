@@ -372,6 +372,31 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
             focused: document.activeElement?.className ?? null,
           })),
         ).toEqual({ inactive: true, modality: "pointer", focused: "acpmux-queued" });
+        await page.waitForTimeout(1500);
+        const probe = await page.evaluate((row) => {
+          const li = document.querySelector(row)!;
+          const actions = li.querySelector(".acpmux-queued-actions")!;
+          const hits: string[] = [];
+          for (const sheet of Array.from(document.styleSheets)) {
+            let rules: CSSRuleList;
+            try {
+              rules = sheet.cssRules;
+            } catch {
+              continue;
+            }
+            const walk = (list: CSSRuleList) => {
+              for (const rule of Array.from(list)) {
+                if (rule instanceof CSSStyleRule) {
+                  if (rule.style.opacity && actions.matches(rule.selectorText))
+                    hits.push(`${rule.selectorText} => ${rule.style.opacity}`);
+                } else if ("cssRules" in rule) walk((rule as CSSGroupingRule).cssRules);
+              }
+            };
+            walk(rules);
+          }
+          return { opacity: getComputedStyle(actions).opacity, hits };
+        }, ROW);
+        expect(probe).toEqual({ opacity: "0", hits: [] });
         await hidden();
         await page.close();
       });
