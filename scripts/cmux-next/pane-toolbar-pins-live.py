@@ -23,6 +23,7 @@ import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -156,7 +157,7 @@ app = subprocess.Popen([BINARY], env={
     "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG,
     "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,800"},
     stdout=open(os.path.join(opts.out, "app.log"), "w"), stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
-print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
+safe_print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
 
 try:
     if not quiet_wait(lambda: os.path.exists(SOCKET) and panes(), 180):
@@ -164,7 +165,7 @@ try:
         raise SystemExit(1)
     # 1. The launch migration (after the first frames settle).
     migrated = quiet_wait(lambda: "toolbarButtons" in (read_config().get("tabs") or {}) and read_config(), 30) or read_config()
-    print("migrated config", json.dumps(migrated), flush=True)
+    safe_print("migrated config", json.dumps(migrated), flush=True)
     check((migrated.get("tabs") or {}) == {"toolbarButtons": ["splitRight", "openDiffViewer", "file.open", "toggleSplitZoom"]},
           f"launch moves tabs.hiddenButtons [splitDown] to tabs.toolbarButtons and drops the old key: {migrated}")
     write_config({})
@@ -179,13 +180,13 @@ try:
     # 2. Default: "…" only (no Search Tabs chevron), hidden at rest (tabs.restingControlOpacity 0), shown over the tabs.
     hover(None)
     pane = quiet_wait(lambda: (lambda p: p if p.get("toolbar") and not p["toolbar"]["revealed"] else None)(first()), 10) or first()
-    print("rest", json.dumps(pane.get("toolbar")), flush=True)
+    safe_print("rest", json.dumps(pane.get("toolbar")), flush=True)
     tool = pane.get("toolbar") or {}
     check(tool.get("buttons") == [] and (tool.get("more_alpha") or 0) == 0,
           f"default at rest: no buttons, \"…\" hidden: {tool}")
     rest_width = (tool.get("frame") or [0, 0, 0, 0])[2]
     snapshot("default-rest", pane)
-    print("hover", hover(strip_point(pane, height)), flush=True)
+    safe_print("hover", hover(strip_point(pane, height)), flush=True)
     pane = quiet_wait(lambda: (lambda p: p if (p.get("toolbar") or {}).get("revealed") else None)(first()), 10) or first()
     tool = pane.get("toolbar") or {}
     check(tool.get("revealed") is True, f"hovering the tab bar's tabs reveals \"…\": {tool.get('revealed')}")
@@ -193,7 +194,7 @@ try:
     snapshot("default-hover", pane)
     # 3. The menu.
     rows = menu_rows(pane)
-    print("menu", json.dumps(rows, ensure_ascii=False), flush=True)
+    safe_print("menu", json.dumps(rows, ensure_ascii=False), flush=True)
     check("Split Right" in rows and "Split Down" in rows, "\"…\" offers Split Right and Split Down")
     check(any(str(r).startswith("Search Tabs") for r in rows), f"\"…\" offers Search Tabs (was the bar's chevron): {rows}")
     pins = show_in_tab_bar(rows) or []
@@ -206,7 +207,7 @@ try:
     write_config({"tabs": {"toolbarButtons": ["splitDown", "splitRight"]}})
     pane = quiet_wait(lambda: (lambda p: p if len((p.get("toolbar") or {}).get("buttons") or []) > 1 else None)(first()), 20) or first()
     tool = pane.get("toolbar") or {}
-    print("pinned rest", json.dumps(tool, ensure_ascii=False), flush=True)
+    safe_print("pinned rest", json.dumps(tool, ensure_ascii=False), flush=True)
     check(tool.get("buttons") == ["Split Down", "Split Right"],
           f"pinned: Split Down and Split Right in the order written, no Search Tabs: {tool.get('buttons')}")
     check(tool.get("revealed") is False, "pinned buttons wait for the pointer too")
@@ -219,7 +220,7 @@ try:
           "hovering reveals the pinned buttons in place")
     snapshot("pinned-hover", pane)
     rows = menu_rows(pane)
-    print("menu pinned", json.dumps(rows, ensure_ascii=False), flush=True)
+    safe_print("menu pinned", json.dumps(rows, ensure_ascii=False), flush=True)
     check("Split Right" not in rows and "Split Down" not in rows, "the menu leaves out the pinned actions")
     pins = show_in_tab_bar(rows) or []
     check("✓ Split Right" in pins and "✓ Split Down" in pins, f"Show in Tab Bar checks the pinned actions: {pins}")

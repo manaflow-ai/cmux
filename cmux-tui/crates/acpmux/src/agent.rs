@@ -195,6 +195,9 @@ struct Hosted {
     /// it again (`resend_unlogged_answers`). Without this the agent waited for ever on an ask the
     /// person had answered (a permission, most often).
     unlogged_answers: std::sync::Mutex<Vec<UnloggedAnswer>>,
+    /// Held across a reattach: two that a lost link starts at once (the hub's notice and a
+    /// request, `ChildAgent::reattach_if_lost`) make one new link, not two.
+    reattach_turn: tokio::sync::Mutex<()>,
 }
 
 /// An answer [`Hosted::unlogged_answers`] keeps until the host logs it back.
@@ -2166,8 +2169,28 @@ impl ChildAgent {
     /// this process still holds the state the recovery would rebuild.
     /// Its replay counts as pending until `learn_replay_end` learns how far it goes.
     pub async fn reattach(self: &Arc<Self>) -> Result<()> {
-        use crate::agent_host::link::{Connect, connect};
         let Some(h) = &self.hosted else { return Ok(()) };
+        let _turn = h.reattach_turn.lock().await;
+        self.reattach_now(h).await
+    }
+
+    /// [`Self::reattach`] when this agent's link is lost (closed, broken or its reader stopped);
+    /// false when it is not, also when another reattach replaced it while this one waited.
+    pub async fn reattach_if_lost(self: &Arc<Self>) -> Result<bool> {
+        let Some(h) = &self.hosted else { return Ok(false) };
+        let _turn = h.reattach_turn.lock().await;
+        let lost = h.link().is_closed()
+            || h.broken.load(Ordering::SeqCst)
+            || h.stopped.load(Ordering::SeqCst);
+        if !lost {
+            return Ok(false);
+        }
+        self.reattach_now(h).await.map(|()| true)
+    }
+
+    /// [`Self::reattach`] under `h.reattach_turn`.
+    async fn reattach_now(self: &Arc<Self>, h: &Hosted) -> Result<()> {
+        use crate::agent_host::link::{Connect, connect};
         let record = h.link().record.clone();
         let after = *h.logged.borrow();
         let link: Arc<crate::agent_host::link::Link> = match connect(record, after).await? {
@@ -2364,6 +2387,7 @@ impl ChildAgent {
                 replay_to: std::sync::atomic::AtomicU64::new(0),
                 stopped: std::sync::atomic::AtomicBool::new(false),
                 unlogged_answers: std::sync::Mutex::new(Vec::new()),
+                reattach_turn: tokio::sync::Mutex::new(()),
                 exited: std::sync::atomic::AtomicBool::new(false),
                 exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
@@ -2483,19 +2507,48 @@ impl ChildAgent {
             reader_stop_hold().await;
             // The host died or another owner took it, or an acknowledgement failed: the link is
             // not heard from here, before anything is told. A detach hands the agent and its open
-            // requests to the next daemon; a replaced link hands them to its own reader.
+            // requests to the next daemon; a replaced link hands them to its own reader. A host
+            // that lives on keeps its agent's open requests for the reattach (the hub reattaches
+            // at the notice below, `hub/hosts.rs` `reach_lost_link`), which gets their real
+            // answers; they fail only once the host is proven gone (`fail_pending_once_host_ends`).
+            // Before, a takeover or a lost socket failed every open turn of a live agent.
+            let dead = crate::agent_host::host_dead_now(&link.record);
             {
                 let mut p = reader.pending.lock().await;
                 if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), &link) {
                     return;
                 }
                 hosted.stopped.store(true, Ordering::SeqCst);
-                for (_, tx) in p.map.drain() {
-                    let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
+                if dead {
+                    for (_, tx) in p.map.drain() {
+                        let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
+                    }
                 }
+            }
+            if !dead {
+                let agent = reader.clone();
+                let link = link.clone();
+                // task-owner: ends with the host (its live lock frees at its death), at once when
+                // that lock can not be watched, and does nothing once a reattach replaced `link`.
+                tokio::spawn(async move { agent.fail_pending_once_host_ends(&link).await });
             }
             let _ = hosted.inbound.send(Inbound::LinkBroken { agent: reader.generation }).await;
         });
+    }
+
+    /// The open requests of a link whose reader stopped while its host lived fail once that host is
+    /// proven gone ([`crate::agent_host::link::host_ended`]), or at once when its live lock can not
+    /// be watched (no proof keeps them open), unless a reattach or a detach took them first.
+    async fn fail_pending_once_host_ends(&self, link: &Arc<crate::agent_host::link::Link>) {
+        let Some(hosted) = &self.hosted else { return };
+        let _ = crate::agent_host::link::host_ended(&link.record).await;
+        let mut p = self.pending.lock().await;
+        if hosted.detached.load(Ordering::SeqCst) || !Arc::ptr_eq(&hosted.link(), link) {
+            return;
+        }
+        for (_, tx) in p.map.drain() {
+            let _ = tx.send(Err(RpcError::internal(AGENT_CLOSED)));
+        }
     }
 
     /// Log one host entry, then act on it. Returns whether its record was

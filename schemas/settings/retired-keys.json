@@ -67,6 +67,71 @@
       "why": "One close path for pinned and unpinned tabs (Lawrence 2026-11-08, cmux-ad i8: \"make it consistent, match chrome's behavior\"): no kept pinned tab."
     },
     {
+      "key": "tabs.newTabWidgets.greeting",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.projects",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.actions",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.chats",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.styleDots",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.weather",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.weatherCity",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.machines",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.clock",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.timer",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.warmGreeting",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.quote",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
+      "key": "tabs.newTabWidgets.order",
+      "reason": "New Tab has no widgets; it is the composer, and the other New Tab templates draw their own parts",
+      "why": "New Tab widgets removed (Lawrence 2026-11-09: \"remove widgets completely\")."
+    },
+    {
       "key": "ui.animations.bounce",
       "reason": "no animation passes its place; every spring stops exactly on it",
       "why": "No bounce in any motion (Lawrence 2026-11-10, plans/cmux-next/motion-first-principles-DESIGN.md principle 5): the Subtle choice is gone and None is the only behaviour."
