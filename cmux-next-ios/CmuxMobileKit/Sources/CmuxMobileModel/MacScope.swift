@@ -28,11 +28,12 @@ public final class MacFilter {
 
     private func key(_ teamID: String) -> String { Self.keyPrefix + teamID }
 
-    /// The stored scope for a team, resolved against its current Macs.
-    public func scope(in team: Team?) -> MacScope {
+    /// The stored scope for a team, resolved against its current Macs (and `cloudMachines`,
+    /// which the Workspaces list shows beside them).
+    public func scope(in team: Team?, cloudMachines: [MacDevice] = []) -> MacScope {
         guard let team else { return .all }
         let stored = scopes[team.id] ?? defaults.string(forKey: key(team.id)).map(MacScope.mac) ?? .all
-        return Self.resolve(stored, macs: team.macs)
+        return Self.resolve(stored, macs: team.macs + cloudMachines)
     }
 
     public func select(_ scope: MacScope, in teamID: String) {

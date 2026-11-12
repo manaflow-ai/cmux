@@ -581,10 +581,15 @@ public final class WorkspaceCreator {
         preferredMacID = defaults.string(forKey: Self.preferredMacKey)
     }
 
-    /// The active team's Macs this backend can create on, in team order.
+    /// The active team's Macs this backend can create on, in team order, then the running
+    /// Cloud machines it can create on.
     public var availableMacs: [MacDevice] {
-        (store.activeTeam?.listedMacs ?? []).filter { $0.isOnline && backend.canCreate(on: $0.id) }
+        store.workspaceMachines.filter { $0.isOnline && backend.canCreate(on: $0.id) }
     }
+
+    /// Cloud machine actions (Start, Retry, New Cloud Workspace); nil without Cloud (mock,
+    /// signed out, a build with no Cloud service).
+    public var cloud: (any CloudWorkspaceActions)?
 
     /// The preferred Mac when available, else the first available one.
     public var targetMac: MacDevice? {
@@ -656,7 +661,7 @@ public final class WorkspaceCreator {
     /// being created.
     public func canManage(_ workspace: Workspace) -> Bool {
         guard !store.isPending(workspace.id),
-              let mac = store.activeTeam?.macs.first(where: { $0.id == workspace.macID }), mac.isOnline else { return false }
+              let mac = store.machine(id: workspace.macID), mac.isOnline else { return false }
         return backend.canManage(on: mac.id)
     }
 
@@ -722,7 +727,7 @@ public final class WorkspaceCreator {
     }
 
     public func rights(onMac macID: String) -> MacRights {
-        guard let mac = store.activeTeam?.macs.first(where: { $0.id == macID }), mac.isOnline, backend.canManage(on: macID) else {
+        guard let mac = store.machine(id: macID), mac.isOnline, backend.canManage(on: macID) else {
             return .none
         }
         let arrange = arranger?.canArrange(on: macID) ?? false
@@ -815,6 +820,21 @@ public final class WorkspaceCreator {
         while taken.contains("\(base) \(n)") { n += 1 }
         return "\(base) \(n)"
     }
+}
+
+/// What the Workspaces list asks of the account's Cloud machines (the live coordinator's
+/// `LiveCloudWorkspaces`): each runs an op with the person's own token and reports through
+/// the store's `cloudMachines`.
+@MainActor
+public protocol CloudWorkspaceActions: AnyObject {
+    /// Start a paused machine (`cloud.machine.start`); Retry on a failed one.
+    func start(machineID: String)
+    /// New Cloud Workspace: a machine at the plan's default size, shown pending at once;
+    /// once it runs and its daemon answers, a workspace on it, passed to `open`. A refusal
+    /// (quota, plan, spending cap) removes the pending row and says why (`onRefusal`).
+    func newCloudWorkspace(open: @escaping @MainActor (Workspace) -> Void)
+    /// Whether a new machine can be asked for now (signed in, Cloud on, nothing else running).
+    var canCreateMachine: Bool { get }
 }
 
 /// No Mac is linked: nothing can be created, and a request says so (never a

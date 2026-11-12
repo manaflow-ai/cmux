@@ -154,14 +154,49 @@ public struct MacDevice: Identifiable, Hashable, Sendable, Codable {
     /// build on one Mac, so ``MacRoster`` lists that Mac once. Nil when the Mac
     /// never said (an older host); a name is never used instead.
     public var machineID: String?
+    /// A Cloud machine (`vm_…`) shown among the Macs on the Workspaces list: its state. Nil
+    /// for a Mac. Cloud machines never join a team's `macs` (Devices, pairing, presence).
+    public var cloud: CloudMachineState?
+
+    /// A Cloud machine, not a Mac.
+    public var isCloud: Bool { cloud != nil }
 
     public init(id: String, name: String, isOnline: Bool, lastSeenAt: Date? = nil, ownerUserID: String? = nil,
-                machineID: String? = nil) {
+                machineID: String? = nil, cloud: CloudMachineState? = nil) {
         self.id = id
         self.name = name
         self.isOnline = isOnline
         self.lastSeenAt = lastSeenAt
         self.ownerUserID = ownerUserID
         self.machineID = machineID
+        self.cloud = cloud
     }
+
+    /// A Cloud machine as a list machine: online while it runs.
+    public init(cloudMachine id: String, name: String, state: CloudMachineState, lastActiveAt: Date? = nil) {
+        self.init(id: id, name: name, isOnline: state.status == .running, lastSeenAt: lastActiveAt, cloud: state)
+    }
+}
+
+/// A Cloud machine's state as the Workspaces list shows it (CmuxMobileChief's `CloudMachine`,
+/// reduced to what a row, a fold line and creation need).
+public struct CloudMachineState: Hashable, Sendable, Codable {
+    public enum Status: String, Hashable, Sendable, Codable {
+        case provisioning, starting, running, pausing, paused, deleting, failed
+    }
+
+    public var status: Status
+    /// Why it is paused or failed, or why the phone can't reach it.
+    public var note: String?
+    /// This phone is creating it (New Cloud Workspace): a pending row until it runs.
+    public var pendingWorkspace: Bool
+
+    public init(status: Status, note: String? = nil, pendingWorkspace: Bool = false) {
+        self.status = status
+        self.note = note
+        self.pendingWorkspace = pendingWorkspace
+    }
+
+    /// Waking up: starting or being set up.
+    public var isWaking: Bool { status == .starting || status == .provisioning }
 }

@@ -59,6 +59,10 @@ public final class AppStore {
     /// What each Mac's host said it does (`version` service `capabilities`), for
     /// Macs this phone has linked to. Absent: unknown (older host, or never linked).
     public var macCapabilities: [String: Set<String>] = [:]
+    /// The account's Cloud machines (`MacDevice.cloud` set), listed with the Macs on the
+    /// Workspaces list. Never in a team's `macs`: Settings → Devices, pairing and presence
+    /// see Macs only. Empty when signed out, with Cloud off or no machines.
+    public var cloudMachines: [MacDevice] = [] { didSet { refreshAttentionCount() } }
     /// True once live data drives the store (false in mock mode).
     public var tracksMacData = false
     /// How many Macs the signed-in account has in any team or its personal
@@ -238,10 +242,25 @@ public final class AppStore {
         return try? JSONDecoder().decode(TeamAppearance.self, from: data)
     }
 
-    /// Workspaces on the active team's Macs.
+    /// Workspaces on the active team's Macs and the account's Cloud machines.
     public var activeWorkspaces: [Workspace] {
-        let macIDs = Set(activeTeam?.macs.map(\.id) ?? [])
+        let macIDs = Set((activeTeam?.macs ?? []).map(\.id) + cloudMachines.map(\.id))
         return workspaces.filter { macIDs.contains($0.macID) }
+    }
+
+    /// The machines workspaces live on: the active team's listed Macs, then the Cloud machines.
+    public var workspaceMachines: [MacDevice] {
+        (activeTeam?.listedMacs ?? []) + cloudMachines
+    }
+
+    /// A Mac of the active team or a Cloud machine, by id.
+    public func machine(id: String) -> MacDevice? {
+        activeTeam?.macs.first { $0.id == id } ?? cloudMachines.first { $0.id == id }
+    }
+
+    /// Whether `id` is one of the account's Cloud machines.
+    public func isCloudMachine(_ id: String) -> Bool {
+        cloudMachines.contains { $0.id == id }
     }
 
     /// The tab a workspace opens to: the last one used on this device, else
