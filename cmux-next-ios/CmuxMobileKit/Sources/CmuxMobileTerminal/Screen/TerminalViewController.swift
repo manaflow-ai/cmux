@@ -602,7 +602,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             guard let self else { return }
             // A refusal comes back as `.inputNotSent` from inside `send`.
             inputRefused = false
-            model.session.send(data)
+            // Ghostty's own replies to terminal queries are no keys the
+            // person typed: they never make the "not sent" notice.
+            if surface.isPerformingInput {
+                model.session.send(data)
+            } else {
+                model.session.sendReply(data)
+            }
         }
         // Held for a reattach (or a first attach still coming) is not sent:
         // the echo may never come, so nothing is predicted for it.
