@@ -110,7 +110,7 @@ public final class AgentPageRetirer {
     private func flush() {
         guard let entry = retiring.takeNext() else { return }
         readyToClose.append(entry)
-        entry.view.releaseHeldPrompts { [weak self] in
+        entry.view.releaseHeldPrompts { [weak self] _ in
             guard let self else { return }
             entry.ready = true
             self.closeTimer.scheduleIfIdle(after: Self.nextCloseDelay) { @MainActor [weak self] in self?.closeNext() }
@@ -122,7 +122,7 @@ public final class AgentPageRetirer {
     }
 
     private func closeNext() {
-        guard let entry = readyToClose.peek(), entry.ready else { return }
+        guard let entry = readyToClose.peek, entry.ready else { return }
         _ = readyToClose.takeNext()
         measure("agentPane.close") { entry.view.close() }
         guard !readyToClose.isEmpty else { return }
