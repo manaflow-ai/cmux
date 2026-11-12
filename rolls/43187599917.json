@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43187599917",
+  "recorded_at": "2026-11-12T09:09:54Z",
+  "reason": "cmux-tui d9c1a28df9f2 changes the image's cmux-tui (pinned 82c74d1cbb4a)",
+  "dry_run": false,
+  "cmux_tui": "d9c1a28df9f2c893131ceb956ad23d0d0658d58d",
+  "fixes": [
+    {
+      "sha": "d9c1a28df9f2c893131ceb956ad23d0d0658d58d",
+      "mergedAt": "2026-11-12T00:47:00-08:00",
+      "subject": "acpmux tests: two lib tests red under load wait for the state they assert on (#41627)"
+    },
+    {
+      "sha": "9dc6d10f0e15393120e1e9a56882cde1121a9d87",
+      "mergedAt": "2026-11-12T02:42:16-06:00",
+      "subject": "acpmux: a withdraw waits for its retraction notice's own accept, never a fixed 5 s"
+    },
+    {
+      "sha": "695d784994c5e04fbf16bf3d6a90a36135f29530",
+      "mergedAt": "2026-11-12T02:42:16-06:00",
+      "subject": "acpmux: test that a withdraw never reports failure for a notice still on its way"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T09:09:54Z",
+    "snapshot_id": "sh-ca2760c3968f4736a372113c205a93cc",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43187599917): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "72e2e417943084446ccae62345bec493d786d03b",
+    "image": "cloud-native-auto-d9c1a28d-43187599917-1",
+    "revision": "ci-43187599917-1",
+    "at": "2026-11-12T09:09:54Z"
+  },
+  "rolled_back": false
+}
