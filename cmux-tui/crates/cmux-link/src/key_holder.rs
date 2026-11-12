@@ -312,6 +312,37 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// A holder that lets go frees the lock at once, also while a child forked meanwhile still has
+    /// a copy of its descriptor (here one that keeps it until it is killed): the drop unlocks, it
+    /// does not only close. Before, the next taker waited out [`UNCLAIMED_WAIT`] and read
+    /// `KeyHeld` with no pid (`machine_tunnel`'s rekey tests under load, cmux-tui spec inventory
+    /// runs 42984207934 and 42981647994).
+    #[cfg(unix)]
+    #[test]
+    fn a_dropped_holder_frees_the_lock_while_a_forked_child_still_has_its_descriptor() {
+        let dir = tempfile_dir("forked-child-keeps");
+        let first = KeyHolder::acquire(&dir).unwrap();
+        // SAFETY: the child calls only pause, which is async-signal-safe, until SIGKILL ends it.
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0, "fork failed");
+        if child == 0 {
+            loop {
+                // SAFETY: as above.
+                unsafe { libc::pause() };
+            }
+        }
+        drop(first);
+        let again = KeyHolder::acquire(&dir);
+        let mut status = 0;
+        // SAFETY: `child` is this test's own child and `status` outlives the call.
+        unsafe {
+            libc::kill(child, libc::SIGKILL);
+            libc::waitpid(child, &mut status, 0);
+        }
+        again.expect("a dropped holder's lock is free while a forked child keeps its descriptor");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn key_files_resolve_in_their_directory() {
         let dir = Path::new("/state");
