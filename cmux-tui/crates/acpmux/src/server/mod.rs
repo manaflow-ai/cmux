@@ -667,12 +667,19 @@ impl Conn {
         seen: u64,
         anyway: bool,
     ) -> Option<bool> {
-        let mut line = list_reply::reply_line_in(id, result);
-        let bytes = line.len();
-        let whole = bytes <= crate::rpc::MAX_MESSAGE_BYTES;
-        if !whole {
-            line = Message::err(id.clone(), RpcError::too_large(line.len())).to_line();
-        }
+        // A result past the cap alone is refused before its line is made: no copy of it.
+        let (line, bytes, whole) = if result.len() > crate::rpc::MAX_MESSAGE_BYTES {
+            let error = Message::err(id.clone(), RpcError::too_large(result.len())).to_line();
+            (error, result.len(), false)
+        } else {
+            let line = list_reply::reply_line_in(id, result);
+            let bytes = line.len();
+            if bytes <= crate::rpc::MAX_MESSAGE_BYTES {
+                (line, bytes, true)
+            } else {
+                (Message::err(id.clone(), RpcError::too_large(bytes)).to_line(), bytes, false)
+            }
+        };
         let lag = || {
             let lag = json!({"watch": true, "dropped": 0, "reason": "list_changed"});
             Message::notification("_acpmux/lagged", lag).to_line()
@@ -2396,6 +2403,14 @@ mod list_pending_tests;
 #[cfg(test)]
 #[path = "list_web_page_tests.rs"]
 mod list_web_page_tests;
+
+#[cfg(test)]
+#[path = "ack_latency_bench.rs"]
+mod ack_latency_bench;
+
+#[cfg(test)]
+#[path = "reply_size_tests.rs"]
+mod reply_size_tests;
 
 #[cfg(test)]
 #[path = "session_list_pages_tests.rs"]
