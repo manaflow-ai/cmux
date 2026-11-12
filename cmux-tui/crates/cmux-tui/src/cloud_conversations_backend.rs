@@ -26,7 +26,16 @@ use tokio_tungstenite::tungstenite::{Error as WsError, Message};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
-const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+/// One connect (DNS, TCP and TLS) of a Cloud API call. One that times out
+/// sent nothing, so it is made again at once while the call's
+/// [`REQUEST_TIMEOUT`] lasts ([`reconnecting`]). It was a fixed 10 s with no
+/// retry: a connect sent before a fresh Cloud machine's network attach (this
+/// daemon runs there too) hung until the attach and failed the call at 10 s,
+/// the ceiling cmux-server's Cloud transport measured and lifted the same way.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+/// An attachment transfer's connect bound: a streamed body is not sent
+/// twice, so its connect is not made again and keeps the longer bound.
+const FILE_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 const SEND_TIMEOUT: Duration = Duration::from_secs(10);
 /// A Home read returns at most 200 messages of at most 64 KiB text each.
@@ -53,6 +62,9 @@ pub(crate) struct RemoteCloudBackend {
     /// Attachment slot and signed URLs: never follows a redirect (the URL
     /// the daemon checked is the one it talks to).
     files: reqwest::Client,
+    /// Platform calls with an install bearer: never follows a redirect, and
+    /// its connects are made again as `http`'s are.
+    platform: reqwest::Client,
 }
 
 impl RemoteCloudBackend {
@@ -71,11 +83,16 @@ impl RemoteCloudBackend {
             .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
             .build()?;
         let files = reqwest::Client::builder()
+            .connect_timeout(FILE_CONNECT_TIMEOUT)
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
+            .build()?;
+        let platform = reqwest::Client::builder()
             .connect_timeout(CONNECT_TIMEOUT)
             .redirect(reqwest::redirect::Policy::none())
             .user_agent(concat!("cmux-tui/", env!("CARGO_PKG_VERSION")))
             .build()?;
-        Ok(Self { runtime, http, files })
+        Ok(Self { runtime, http, files, platform })
     }
 }
 
@@ -168,27 +185,21 @@ impl CloudBackend for RemoteCloudBackend {
         client_version: Option<&str>,
         body: &Value,
     ) -> Result<HttpReply, TransportError> {
-        let mut request =
-            self.http.post(url).header(reqwest::header::ACCEPT, "application/json").json(body);
-        // A self-hosted server on the tailnet gets no Authorization header.
-        if let Some(bearer) = bearer {
-            request = request.bearer_auth(bearer);
-        }
-        if let Some(version) = client_version {
-            request = request.header(CLIENT_VERSION_HEADER, version);
-        }
-        self.runtime.block_on(async move {
-            let response = request.send().await.map_err(|error| transport(&error))?;
-            let status = response.status().as_u16();
-            let bytes = response.bytes().await.map_err(|error| transport(&error))?;
-            if bytes.len() > MAX_BODY_BYTES {
-                return Err(TransportError(format!(
-                    "reply of {} bytes exceeds the limit",
-                    bytes.len()
-                )));
+        let request = || {
+            let mut request =
+                self.http.post(url).header(reqwest::header::ACCEPT, "application/json").json(body);
+            // A self-hosted server on the tailnet gets no Authorization header.
+            if let Some(bearer) = bearer {
+                request = request.bearer_auth(bearer);
             }
-            Ok(HttpReply { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null) })
-        })
+            if let Some(version) = client_version {
+                request = request.header(CLIENT_VERSION_HEADER, version);
+            }
+            request
+        };
+        self.runtime.block_on(reconnecting(REQUEST_TIMEOUT, |left| {
+            json_attempt(request().timeout(left), reply_too_large)
+        }))
     }
 
     fn platform(
@@ -204,25 +215,21 @@ impl CloudBackend for RemoteCloudBackend {
             "PATCH" => reqwest::Method::PATCH,
             _ => return Err(TransportError("unsupported platform method".into())),
         };
-        // Reuse the no-redirect transport: an install bearer never follows an upstream redirect.
-        let mut request = self
-            .files
-            .request(method.clone(), url)
-            .timeout(REQUEST_TIMEOUT)
-            .header(reqwest::header::ACCEPT, "application/json")
-            .bearer_auth(bearer);
-        if method != reqwest::Method::GET {
-            request = request.json(body);
-        }
-        self.runtime.block_on(async move {
-            let response = request.send().await.map_err(|error| transport(&error))?;
-            let status = response.status().as_u16();
-            let bytes = response.bytes().await.map_err(|error| transport(&error))?;
-            if bytes.len() > MAX_BODY_BYTES {
-                return Err(TransportError("platform reply exceeds the limit".into()));
+        // The no-redirect transport: an install bearer never follows an upstream redirect.
+        let request = || {
+            let mut request = self
+                .platform
+                .request(method.clone(), url)
+                .header(reqwest::header::ACCEPT, "application/json")
+                .bearer_auth(bearer);
+            if method != reqwest::Method::GET {
+                request = request.json(body);
             }
-            Ok(HttpReply { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null) })
-        })
+            request
+        };
+        self.runtime.block_on(reconnecting(REQUEST_TIMEOUT, |left| {
+            json_attempt(request().timeout(left), |_| "platform reply exceeds the limit".into())
+        }))
     }
 
     fn get(
@@ -231,25 +238,20 @@ impl CloudBackend for RemoteCloudBackend {
         bearer: Option<&str>,
         client_version: Option<&str>,
     ) -> Result<HttpReply, TransportError> {
-        let mut request = self.http.get(url).header(reqwest::header::ACCEPT, "application/json");
-        if let Some(bearer) = bearer {
-            request = request.bearer_auth(bearer);
-        }
-        if let Some(version) = client_version {
-            request = request.header(CLIENT_VERSION_HEADER, version);
-        }
-        self.runtime.block_on(async move {
-            let response = request.send().await.map_err(|error| transport(&error))?;
-            let status = response.status().as_u16();
-            let bytes = response.bytes().await.map_err(|error| transport(&error))?;
-            if bytes.len() > MAX_BODY_BYTES {
-                return Err(TransportError(format!(
-                    "reply of {} bytes exceeds the limit",
-                    bytes.len()
-                )));
+        let request = || {
+            let mut request =
+                self.http.get(url).header(reqwest::header::ACCEPT, "application/json");
+            if let Some(bearer) = bearer {
+                request = request.bearer_auth(bearer);
             }
-            Ok(HttpReply { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null) })
-        })
+            if let Some(version) = client_version {
+                request = request.header(CLIENT_VERSION_HEADER, version);
+            }
+            request
+        };
+        self.runtime.block_on(reconnecting(REQUEST_TIMEOUT, |left| {
+            json_attempt(request().timeout(left), reply_too_large)
+        }))
     }
 
     fn put(
@@ -439,6 +441,62 @@ impl RemoteCloudBackend {
     }
 }
 
+/// One attempt of a Cloud API call ([`reconnecting`]).
+enum Attempt<T> {
+    /// Its connect timed out ([`CONNECT_TIMEOUT`]): nothing was sent.
+    ConnectTimedOut,
+    Done(Result<T, TransportError>),
+}
+
+/// `attempt`, given the time left, made again at once each time its connect
+/// timed out, until `bound` passes: a connect that hangs (sent before the
+/// network attached) costs one connect timeout, not the call, and a call
+/// that is only slow has all of `bound`. A peer that never answers ends at
+/// `bound`; a connect refused at once fails at once.
+async fn reconnecting<T, F, Fut>(bound: Duration, mut attempt: F) -> Result<T, TransportError>
+where
+    F: FnMut(Duration) -> Fut,
+    Fut: std::future::Future<Output = Attempt<T>>,
+{
+    let deadline = tokio::time::Instant::now() + bound;
+    loop {
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if left.is_zero() {
+            return Err(TransportError("timed out".into()));
+        }
+        match tokio::time::timeout(left, attempt(left)).await {
+            Ok(Attempt::ConnectTimedOut) => {}
+            Ok(Attempt::Done(result)) => return result,
+            Err(_) => return Err(TransportError("timed out".into())),
+        }
+    }
+}
+
+/// One JSON exchange: the reply's status and body, or `too_large`'s error
+/// past [`MAX_BODY_BYTES`].
+async fn json_attempt(
+    request: reqwest::RequestBuilder,
+    too_large: fn(usize) -> String,
+) -> Attempt<HttpReply> {
+    let response = match request.send().await {
+        Err(error) if error.is_connect() && error.is_timeout() => return Attempt::ConnectTimedOut,
+        Err(error) => return Attempt::Done(Err(transport(&error))),
+        Ok(response) => response,
+    };
+    let status = response.status().as_u16();
+    Attempt::Done(match response.bytes().await {
+        Err(error) => Err(transport(&error)),
+        Ok(bytes) if bytes.len() > MAX_BODY_BYTES => Err(TransportError(too_large(bytes.len()))),
+        Ok(bytes) => {
+            Ok(HttpReply { status, body: serde_json::from_slice(&bytes).unwrap_or(Value::Null) })
+        }
+    })
+}
+
+fn reply_too_large(len: usize) -> String {
+    format!("reply of {len} bytes exceeds the limit")
+}
+
 /// reqwest errors can include the request URL; they never include headers.
 fn transport(error: &reqwest::Error) -> TransportError {
     let kind = if error.is_timeout() {
@@ -545,6 +603,65 @@ mod tests {
     use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 
     use super::*;
+
+    /// A Cloud API connect sent before the network attaches at 12 s hangs
+    /// until its connect timeout; one sent after answers. The call answers at
+    /// 12 s: it failed at the fixed 10 s connect bound. Paused clock.
+    #[tokio::test(start_paused = true)]
+    async fn a_call_whose_network_attaches_after_10_s_answers() {
+        const ATTACH: Duration = Duration::from_secs(12);
+        let started = tokio::time::Instant::now();
+        let mut attempts = 0;
+        let answer = reconnecting(REQUEST_TIMEOUT, |_left| {
+            attempts += 1;
+            async move {
+                if started.elapsed() < ATTACH {
+                    tokio::time::sleep(CONNECT_TIMEOUT).await;
+                    Attempt::ConnectTimedOut
+                } else {
+                    Attempt::Done(Ok(200))
+                }
+            }
+        })
+        .await;
+        assert_eq!(answer.unwrap(), 200);
+        assert_eq!(started.elapsed(), ATTACH);
+        assert_eq!(attempts, 7);
+    }
+
+    /// A peer that takes the call and never answers, and one whose connect
+    /// never completes, both still end at the call's bound.
+    #[tokio::test(start_paused = true)]
+    async fn a_hung_peer_still_ends_at_the_call_bound() {
+        let started = tokio::time::Instant::now();
+        let hung = reconnecting(REQUEST_TIMEOUT, |_left| std::future::pending::<Attempt<u16>>());
+        assert_eq!(hung.await.unwrap_err().0, "timed out");
+        assert_eq!(started.elapsed(), REQUEST_TIMEOUT);
+
+        let started = tokio::time::Instant::now();
+        let never_connects = reconnecting(REQUEST_TIMEOUT, |_left| async {
+            tokio::time::sleep(CONNECT_TIMEOUT).await;
+            Attempt::<u16>::ConnectTimedOut
+        });
+        assert_eq!(never_connects.await.unwrap_err().0, "timed out");
+        assert_eq!(started.elapsed(), REQUEST_TIMEOUT);
+    }
+
+    /// A connect refused at once is no hang: the call fails at once, and is
+    /// not made again until the bound.
+    #[tokio::test(start_paused = true)]
+    async fn a_refused_call_fails_at_once() {
+        let started = tokio::time::Instant::now();
+        let mut attempts = 0;
+        let refused = reconnecting(REQUEST_TIMEOUT, |_left| {
+            attempts += 1;
+            async { Attempt::<u16>::Done(Err(TransportError("could not connect".into()))) }
+        })
+        .await;
+        assert_eq!(refused.unwrap_err().0, "could not connect");
+        assert_eq!(started.elapsed(), Duration::ZERO);
+        assert_eq!(attempts, 1);
+    }
 
     /// The declared part length is a hard boundary even when it is not a
     /// 64 KiB multiple. A server must never receive the next part's bytes.
