@@ -1124,6 +1124,7 @@ dependencies = [
 name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
+ "base64",
  "chacha20poly1305",
  "cmux-json",
  "getrandom 0.3.4",
@@ -1460,6 +1461,7 @@ name = "cmux-feed-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "cmux-json",
  "icu_normalizer",
  "serde",
  "serde_json",
