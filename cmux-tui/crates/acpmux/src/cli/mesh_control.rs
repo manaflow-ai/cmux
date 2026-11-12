@@ -281,6 +281,32 @@ mod tests {
         assert_eq!(starter_policy(&json!({}), true), None);
     }
 
+    /// Review P1 (#41877): a starter with its own restriction (ask, approve-reads, approve-edits)
+    /// may run in a full-access mode, because the policy gate still holds that policy there
+    /// (#38809). A start copies the restriction; it never makes up approve-all from the mode,
+    /// which would hand the remote session unrestricted tool execution.
+    #[test]
+    fn an_explicit_policy_in_a_full_access_mode_is_kept() {
+        for mode in crate::hub::start_mode::FULL_ACCESS_MODES {
+            for own in ["ask", "approve-reads", "approve-edits"] {
+                let info = json!({"policy": own, "currentModeId": mode,
+                    "enforcement": {"policy": own,
+                                    "detail": format!("claude mode {mode}; acpmux policy {own}")}});
+                assert_eq!(starter_policy(&info, true).as_deref(), Some(own), "{mode} {own}");
+            }
+            let all = json!({"policy": "approve-all", "currentModeId": mode,
+                             "enforcement": {"policy": "approve-all"}});
+            assert_eq!(starter_policy(&all, true).as_deref(), Some("approve-all"), "{mode}");
+            // Following the daemon default (no policy of its own), the mode still counts.
+            let default = json!({"policy": null, "currentModeId": mode,
+                "enforcement": {"policy": "ask",
+                    "detail": format!("claude mode {mode}; acpmux policy ask (the daemon default)")}});
+            assert_eq!(starter_policy(&default, true).as_deref(), Some("approve-all"), "{mode}");
+            let absent = json!({"currentModeId": mode, "enforcement": {"policy": "ask"}});
+            assert_eq!(starter_policy(&absent, true).as_deref(), Some("approve-all"), "{mode}");
+        }
+    }
+
     /// Review F1 (#41877): with full access off (MDM or a team policy) a stored approve-all runs
     /// as ask, and a mode that skips approvals does not run; the start sends the stricter policy.
     #[test]
