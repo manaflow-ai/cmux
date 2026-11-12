@@ -438,10 +438,13 @@ export default agentPaneEntry({
         await openMachineList(ctx);
         await ctx.click({ role: "option", name: /devbox/ });
         await typePrompt(ctx, "/customize make the sidebar compact");
+        // Picking a machine may itself call chat.new (the pick switches the draft); only a start
+        // after Enter would be /customize's.
+        const starts = () => galleryNativeCalls(ctx.document).filter((call) => call.method === "chat.new").length;
+        const before = starts();
         await ctx.press("Enter");
         await ctx.waitFor(() => !!ctx.document.body.textContent?.includes("changes cmux on this computer"));
-        if (galleryNativeCalls(ctx.document).some((call) => call.method === "chat.new"))
-          throw new Error("/customize started a chat on another machine");
+        if (starts() > before) throw new Error("/customize started a chat on another machine");
       },
     },
     empty: {
