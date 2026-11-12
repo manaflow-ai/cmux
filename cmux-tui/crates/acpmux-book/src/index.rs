@@ -48,7 +48,8 @@ pub const MAX_SUMMARY_BYTES: usize = 2 * 1024;
 const MAX_FIELD_BYTES: usize = 256;
 
 fn empty_object() -> Box<RawValue> {
-    RawValue::from_string("{}".to_owned()).expect("a static JSON object is valid")
+    // SAFETY: the literal is a complete JSON object and cannot change at runtime.
+    unsafe { RawValue::from_string_unchecked("{}".to_owned()) }
 }
 
 impl Clone for Summary {
