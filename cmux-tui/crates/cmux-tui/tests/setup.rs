@@ -1645,3 +1645,42 @@ fn cmux_setup_trust_forgets_a_decision_recorded_under_another_spelling() {
     assert_eq!(forgot["after"]["level"], "unknown", "{forgot}");
     assert_eq!(world.record(), Some(json!({})));
 }
+
+/// While the person has not answered the cmux Tools question (`agents.cmuxMcp`
+/// unset or `ask`), `cmux setup mcp` writes nothing into their agents, even
+/// with `"mcp": {"enabled": true}` (which is no answer: it is not a user-only
+/// key, so an agent can write it): it plans, names the question, and runs no
+/// CLI; `setup status` reports it as waiting on the person.
+#[test]
+fn cmux_setup_mcp_writes_nothing_until_the_person_answers() {
+    let world = World::new("mcp-ask").with_fake_mcp_clients();
+    let claude_json = world.home.join(".claude.json");
+    let codex_toml = world.home.join(".codex").join("config.toml");
+    for settings in [
+        json!({"mcp": {"enabled": true}}),
+        json!({"mcp": {"enabled": true}, "agents": {"cmuxMcp": "ask"}}),
+    ] {
+        world.settings(&settings);
+        let run = world.json(&["setup", "mcp"]);
+        let states =
+            run["clients"].as_array().unwrap().iter().map(|c| &c["state"]).collect::<Vec<_>>();
+        assert_eq!(states, [&json!("planned"), &json!("planned")], "{run}");
+        assert_eq!(run["state"], "needs_user", "{run}");
+        let text = run["user_action"]["text"].as_str().unwrap();
+        assert!(text.contains("agents.cmuxMcp"), "{text}");
+        assert!(!text.contains("\"mcp\": {\"enabled\": true}"), "{text}");
+        assert!(
+            world.take_mcp_calls().is_empty(),
+            "setup wrote before the person answered: {settings}"
+        );
+        assert!(!claude_json.exists() && !codex_toml.exists());
+        let status = world.json(&["setup", "status"]);
+        let check =
+            status["checks"].as_array().unwrap().iter().find(|c| c["task"] == "mcp").unwrap();
+        assert_eq!(check["state"], "needs_user", "{check}");
+        assert!(
+            check["clients"].as_array().unwrap().iter().all(|c| c["state"] == "ask"),
+            "{check}"
+        );
+    }
+}
