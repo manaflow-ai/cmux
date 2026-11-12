@@ -574,8 +574,9 @@ function promptOf(
     ];
     if (senders.length > 0) {
       // A task end the person never needs to see (agentNotice.ts `orphan`) leaves the card.
-      const parts = digestParts(text, provenance.messages).filter((part) => part.notice?.orphan !== "none");
-      if (parts.length === 0 && /^\d+ messages? from other agents/.test(text.trim())) return { kind: "hidden" };
+      const read = digestParts(text, provenance.messages);
+      const parts = read.filter((part) => part.notice?.orphan !== "none");
+      if (read.length > 0 && parts.length === 0) return { kind: "hidden" };
       // Tools' notices alone (a background command's end, acpmux hub/bg_notify.rs, waited behind a
       // busy turn with another): one notice, the most severe, the rest counted and opened below it.
       const notices = parts.flatMap((part) => (part.notice ? [part.notice] : []));
