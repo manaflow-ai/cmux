@@ -937,7 +937,7 @@ function restingAnchor(
 /// Where the warm rows are built from, as a row and how far into it: one string, so the deferred
 /// render that builds them runs only when it moves. A row holds its content as rows page in above
 /// it or a followed end moves under it; an offset into the whole stack did not, and a deferred one
-/// from the frame before picked rows turns away (`warmTop`).
+/// from the frame before picked rows turns away (`warmTop`). The row's index is a hint for the read.
 function warmAnchor(
   placed: Parameters<typeof visibleLayoutRange>[0],
   shown: readonly { id: string }[],
@@ -947,30 +947,22 @@ function warmAnchor(
   const index = visibleLayoutRange(placed, at, 0, 0).first;
   const row = shown[index];
   // In steps too: a row above that settles to its drawn height moves the row, not the anchor.
-  return row ? `${Math.round((at - layoutGeometry(placed).topAt(index)) / step) * step}\n${row.id}` : "";
+  return row ? `${Math.round((at - layoutGeometry(placed).topAt(index)) / step) * step}\n${index}\n${row.id}` : "";
 }
 
-/// The offset of `anchor` (warmAnchor) in `placed`: its row at the index it was last found at, or as
-/// far from the end (older history paged in above it), else looked for. Undefined once it is gone.
+/// The offset of `anchor` (warmAnchor) in `placed`: its row at the index it was found at, else looked
+/// for (older history paged in above it, once, until the deferred anchor catches up). Undefined once
+/// it is gone.
 function warmAnchorTop(
   placed: Parameters<typeof visibleLayoutRange>[0],
   shown: readonly { id: string }[],
   anchor: string,
-  hint: { index: number; fromEnd: number },
 ) {
-  const cut = anchor.indexOf("\n");
-  if (cut < 0) return undefined;
-  const id = anchor.slice(cut + 1);
-  const index =
-    shown[hint.index]?.id === id
-      ? hint.index
-      : shown[shown.length - hint.fromEnd]?.id === id
-        ? shown.length - hint.fromEnd
-        : shown.findIndex((row) => row.id === id);
-  if (index < 0) return undefined;
-  hint.index = index;
-  hint.fromEnd = shown.length - index;
-  return layoutGeometry(placed).topAt(index) + Number(anchor.slice(0, cut));
+  const [offset, hint, id] = anchor.split("\n");
+  if (id === undefined) return undefined;
+  const at = Number(hint);
+  const index = shown[at]?.id === id ? at : shown.findIndex((row) => row.id === id);
+  return index < 0 ? undefined : layoutGeometry(placed).topAt(index) + Number(offset);
 }
 
 /// Jump to latest's diameter, CSS px (conversation.css .acpmux-jump-latest): its fisheye filter is
@@ -1424,10 +1416,8 @@ function TranscriptView({
   const renderStart = acpmuxPerf.enabled ? performance.now() : 0;
   acpmuxPerf.span("vt.renders", 1);
   const scrollRef = useRef({ top: 0, delta: 0 });
-  /// Where the warm rows were built from (warmAnchor), held while a fast scroll outruns them (below),
-  /// and where its row was last found.
+  /// Where the warm rows were built from (warmAnchor), held while a fast scroll outruns them (below).
   const heldWarmAt = useRef<string | undefined>(undefined);
-  const warmHint = useRef({ index: -1, fromEnd: 0 });
   const scrollLeadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [, setScroll] = useState(scrollRef.current);
   const scheduleScrollLeadReset = () => {
@@ -3216,26 +3206,31 @@ function TranscriptView({
   // drew no row, and they came back as new nodes (Leo, 2026-11-11: "they just appear and disappear,
   // and then they constantly load and reload"). A follow the placement pass leaves where it is (a
   // jump's glide, the reader's held scroll input) keeps the old offset, as it does.
+  // Each ref once, here: the last pass's layout and rows, and the scroller's input state.
+  const placedBefore = previousLayout.current;
+  const placedRows = previousRows.current;
+  const scroller = ref.current;
   const followHeld =
     jumpTarget.current !== undefined ||
-    (ref.current !== null && userScrollIntent(ref.current).isHeld() && !followRequest.current?.());
-  const projectedTop = sessionSwitched
-    ? undefined
-    : followingRef.current
-      ? openedAtLatest && !followHeld && previousLayout.current !== layout
-        ? Math.max(0, layout.totalHeight - height)
-        : undefined
-      : previousLayout.current && previousLayout.current !== layout
-        ? preserveScrollAnchorTop({
-            oldLayout: previousLayout.current,
-            newLayout: layout,
-            oldRows: previousRows.current,
-            newRows: rows,
-            liveTop: unplacedScroll.top - origin,
-            anchorTop: unplacedScroll.top - origin,
-            folds: foldRide.current?.handedFolds(previousRows.current, drawn),
-          })
-        : undefined;
+    (scroller !== null && userScrollIntent(scroller).isHeld() && !followRequest.current?.());
+  const projectedTop =
+    sessionSwitched || placedBefore === layout
+      ? undefined
+      : followingRef.current
+        ? openedAtLatest && !followHeld
+          ? Math.max(0, layout.totalHeight - height)
+          : undefined
+        : placedBefore
+          ? preserveScrollAnchorTop({
+              oldLayout: placedBefore,
+              newLayout: layout,
+              oldRows: placedRows,
+              newRows: rows,
+              liveTop: unplacedScroll.top - origin,
+              anchorTop: unplacedScroll.top - origin,
+              folds: foldRide.current?.handedFolds(placedRows, drawn),
+            })
+          : undefined;
   const renderScroll = projectedTop === undefined ? unplacedScroll : { ...unplacedScroll, top: projectedTop + origin };
   const renderFollowing = sessionSwitched || followingRef.current;
   // The content in view starts at the offset less `lift`: rows drawn up by it show content that much
@@ -3278,7 +3273,7 @@ function TranscriptView({
       ? heldWarmAt.current
       : warmAnchor(layout, rows, liveWarmAt, warmStep);
   heldWarmAt.current = sessionSwitched ? undefined : warmAt;
-  const warmTop = warmAnchorTop(layout, rows, useDeferredValue(warmAt), warmHint.current) ?? liveWarmAt;
+  const warmTop = warmAnchorTop(layout, rows, useDeferredValue(warmAt)) ?? liveWarmAt;
   const warm = visibleLayoutRange(
     layout,
     warmTop - height * WARM_VIEWPORTS - warmStep / 2,
