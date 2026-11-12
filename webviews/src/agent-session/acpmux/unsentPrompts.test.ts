@@ -7,24 +7,20 @@ import { JSDOM } from "jsdom";
 import { resetKeptTailsForTests } from "./tailCache";
 import type { UnsentPromptRecord, UnsentPromptStore } from "./unsentPrompts";
 import { translate } from "./i18n";
+import { teardownDom } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
-const saved = {
-  window: "window" in scope,
-  document: "document" in scope,
-  values: { window: scope.window, document: scope.document },
-};
+const saved = (["window", "document"] as const).map((key) => [key, key in scope, scope[key]] as const);
 
 beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+// React finishes its queued work before the DOM globals go (test/support/domTeardown.ts).
+afterAll(async () => {
   resetKeptTailsForTests();
-  for (const key of ["window", "document"] as const)
-    if (saved[key]) scope[key] = saved.values[key];
-    else delete scope[key];
+  await teardownDom(saved, { scope });
 });
 
 type Row = { id: string; kind: string; text?: string; failed?: boolean; error?: string; pending?: boolean };
