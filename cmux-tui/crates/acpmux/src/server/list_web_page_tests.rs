@@ -294,7 +294,7 @@ async fn no_list_reply_passes_a_few_megabytes_on_any_connection_body() {
             sizes.len()
         );
         assert!(sizes.len() > 1, "{origin:?} session/list: a list past one page");
-        assert_eq!(sorted(ids), every_id(), "{origin:?} session/list");
+        assert_eq!(sorted(ids.clone()), every_id(), "{origin:?} session/list");
         assert!(sizes.len() > 1, "{origin:?} session/list: a list past one page goes in pages");
         // Every own chat once, and no id this daemon does not list.
         let unique: HashSet<&String> = ids.iter().collect();
