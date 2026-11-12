@@ -51,13 +51,8 @@ import {
 } from "./model";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { railOwnsWheel } from "./threadMinimap/railWheel";
-import {
-  animateScroll,
-  holdMomentum,
-  installMomentumHold,
-  MOTION_SCROLL_EVENT,
-  stopScroll,
-} from "./threadMinimap/scrollMotion";
+import { animateScroll, MOTION_SCROLL_EVENT, scrollRunning, stopScroll } from "./threadMinimap/scrollMotion";
+import { holdMomentum, installMomentumHold } from "./threadMinimap/momentumHold";
 import { JUMP_CURVE, jumpDuration, jumpGlideStart, transcriptFadeReach } from "./threadMinimap/model";
 import { cssTimeMs, foldMotion, foldMs } from "./conversation/fold";
 import { ChatMinimap } from "./chatMinimap/ChatMinimap";
@@ -4885,7 +4880,7 @@ function TranscriptView({
     dropFoldRoom(true);
     clearScrollOrigin(node);
     // The reader asked for the latest row: following holds through the input hold their fling
-    // left, as a send's does (its momentum is held too, scrollMotion.ts holdMomentum).
+    // left, as a send's does (its momentum is held too, momentumHold.ts holdMomentum).
     followRequest.current = userScrollIntent(node).request();
     follow(true, path);
     if (focused) focusComposer?.();
@@ -4998,7 +4993,7 @@ function TranscriptView({
     if (!node) return;
     const intent = userScrollIntent(node);
     // First on the window, so a fling's momentum held after a jump reaches no other listener.
-    const removeMomentumHold = installMomentumHold(node);
+    const removeMomentumHold = installMomentumHold(node, scrollRunning);
     const detachIntent = attachUserScrollIntent(node);
     const followIntent = (next: boolean) => followRef.current(next);
     const cancelProgrammatic = (event?: Event) => {

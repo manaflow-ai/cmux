@@ -1,5 +1,5 @@
 import { userScrollIntent } from "./conversation/userScroll";
-import { holdMomentum } from "./threadMinimap/scrollMotion";
+import { holdMomentum } from "./threadMinimap/momentumHold";
 
 /// cmux:// links the page copies (the deep links contract). The host hands over this build's URL
 /// scheme in the handshake (`linkScheme`, with the other bootstrap values); the page never hardcodes
