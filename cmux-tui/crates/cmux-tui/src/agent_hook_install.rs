@@ -198,6 +198,8 @@ const COPILOT_EVENTS: &[&str] =
 const CODEBUDDY_EVENTS: &[&str] = COPILOT_EVENTS;
 const FACTORY_EVENTS: &[&str] = COPILOT_EVENTS;
 const QODER_EVENTS: &[&str] = &["SessionStart", "Stop", "SessionEnd", "PreToolUse"];
+const QWEN_EVENTS: &[&str] =
+    &["SessionStart", "UserPromptSubmit", "Stop", "SessionEnd", "PreToolUse"];
 const KIMI_EVENTS: &[&str] = &[
     "SessionStart",
     "UserPromptSubmit",
@@ -388,6 +390,15 @@ const PROVIDERS: &[Provider] = &[
         override_relative_path: "settings.json",
         format: Format::Nested { timeout: COMMAND_HOOK_TIMEOUT_SECONDS, asynchronous: false },
         events: QODER_EVENTS,
+    },
+    Provider {
+        id: "qwen",
+        binary: "qwen",
+        default_path: ".qwen/settings.json",
+        override_env: Some("QWEN_DIR"),
+        override_relative_path: "settings.json",
+        format: Format::Nested { timeout: COMMAND_HOOK_TIMEOUT_SECONDS, asynchronous: false },
+        events: QWEN_EVENTS,
     },
     Provider {
         id: "kimi",
@@ -3946,6 +3957,7 @@ mod tests {
             "codebuddy",
             "factory",
             "qoder",
+            "qwen",
             "kimi",
         ];
         for provider in expected {
