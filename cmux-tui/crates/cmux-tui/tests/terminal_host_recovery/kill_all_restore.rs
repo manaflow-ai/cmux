@@ -897,6 +897,14 @@ const QUIT_CASES: &[QuitCase] = &[
     },
 ];
 
+/// One terminal of the matrix: its case, its transcript at quit, and the
+/// lines each reader restored, in reader order.
+struct MatrixRow {
+    case: &'static str,
+    at_quit: Vec<String>,
+    restored: Vec<Vec<String>>,
+}
+
 /// Copy the regular files and folders below `from` to `to`.
 fn copy_tree(from: &Path, to: &Path) {
     fs::create_dir_all(to).unwrap();
@@ -938,7 +946,7 @@ fn quit_then_reboot_matrix(
     name: &str,
     writer: Option<PathBuf>,
     readers: &[Option<PathBuf>],
-) -> Vec<(&'static str, Vec<String>, Vec<Vec<String>>)> {
+) -> Vec<MatrixRow> {
     let mut harness = RecoveryHarness::start_unstarted(name);
     harness.extra_env.push(("CMUX_TUI_TERMINAL_PERSISTENCE".into(), "snapshot".into()));
     eprintln!("QUIT-MATRIX start writer {writer:?}");
@@ -1010,7 +1018,7 @@ fn quit_then_reboot_matrix(
         .iter()
         .zip(before)
         .zip(restored)
-        .map(|(((case, _, _, _), before), restored)| (*case, before, restored))
+        .map(|(((case, _, _, _), at_quit), restored)| MatrixRow { case: *case, at_quit, restored })
         .collect()
 }
 
@@ -1024,17 +1032,13 @@ fn lost(expected: &[String], actual: &[String]) -> (usize, usize) {
 
 /// Assert that every reader restored the same text as the first one, and
 /// print one row per case: the reader, then same or lost lines/bytes.
-fn assert_readers_agree(
-    direction: &str,
-    labels: &[&str],
-    rows: &[(&'static str, Vec<String>, Vec<Vec<String>>)],
-) {
+fn assert_readers_agree(direction: &str, labels: &[&str], rows: &[MatrixRow]) {
     let mut differences = Vec::new();
-    for (case, before, restored) in rows {
+    for MatrixRow { case, at_quit, restored } in rows {
         let reference = &restored[0];
         for (label, lines) in labels.iter().zip(restored) {
             let (lines_lost, bytes_lost) = lost(reference, lines);
-            let (vs_quit_lines, _) = lost(before, lines);
+            let (vs_quit_lines, _) = lost(at_quit, lines);
             let verdict = if lines == reference {
                 "same".to_string()
             } else {
