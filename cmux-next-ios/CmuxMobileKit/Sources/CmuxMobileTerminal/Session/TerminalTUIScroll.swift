@@ -178,30 +178,50 @@ public struct TerminalTUITapClick: Equatable, Sendable {
 /// Where a finger's vertical drag over the terminal goes: the one rule every
 /// pan, fling and wheel on the phone follows (Leo, 2026-11-12: "this terminal
 /// projection nigh unusable due to me scroll and thumb land on subagent
-/// depiction").
+/// depiction"; then, of less, man and vim no longer scrolling: "But can't we
+/// do something here?").
 ///
-/// A drag is a scroll, never a keystroke. On the primary screen it moves the
-/// phone's own copy of the scrollback (the shell's page), sending nothing.
-/// On the alternate screen the history lives in the app (Claude Code's and
-/// Codex's full-screen renderers, vim, less, htop): the drag reaches the app
-/// only as wheel reports, and only when the app asked for them (mouse
-/// reporting, DECSET 1000/1002/1003), which is the app saying a wheel
-/// scrolls it. Without mouse reporting Ghostty's alternate scroll (DECSET
-/// 1007, on by default) would turn the wheel into cursor up/down keys; a
-/// person's drag then typed arrows into the app, which walked Claude Code's
-/// prompt history and its background-agent list instead of the transcript.
-/// So there the drag does nothing: the alternate screen keeps no scrollback
-/// on the phone, the page stays put and no byte goes out.
+/// A drag is a scroll, never a keystroke the app reads as anything else. On
+/// the primary screen it moves the phone's own copy of the scrollback (the
+/// shell's page), sending nothing. On the alternate screen the history lives
+/// in the app (Claude Code's and Codex's full-screen renderers, vim, less,
+/// htop), so the drag reaches the app in the form the app asked for:
+///
+/// - Mouse reporting (DECSET 1000/1002/1003): wheel reports, the app saying
+///   a wheel scrolls it.
+/// - No mouse reporting: Ghostty's alternate scroll (DECSET 1007, on by
+///   default) turns the wheel into cursor up/down keys, as on a Mac. They go
+///   out only in application cursor mode (DECCKM, `ESC O A`), which less,
+///   man, vim and other terminfo programs turn on with their keypad: there
+///   up and down move the page, like a Mac trackpad in Ghostty. Normal-mode
+///   keys (`ESC [ A`) are dropped: Claude Code with mouse capture off sends
+///   those, and they walked its prompt history and its background-agent list
+///   instead of the transcript (``scrollsPage(_:)``).
 public enum TerminalPanRoute: Equatable, Sendable {
     /// The phone's own scrollback scrolls; nothing is sent.
     case localScrollback
     /// The app gets wheel reports (it asked for the mouse).
     case wheelReports
-    /// Nothing moves and nothing is sent (an alternate screen without mouse reporting).
-    case none
+    /// The app gets Ghostty's alternate-scroll cursor keys, only where
+    /// ``scrollsPage(_:)`` passes them (an alternate screen without mouse
+    /// reporting).
+    case cursorKeys
 
     public static func route(alternateScreen: Bool, appReportsMouse: Bool) -> TerminalPanRoute {
         guard alternateScreen else { return .localScrollback }
-        return appReportsMouse ? .wheelReports : .none
+        return appReportsMouse ? .wheelReports : .cursorKeys
+    }
+
+    /// Whether the cursor keys Ghostty encoded for a wheel go out: only
+    /// application-mode up and down (`ESC O A`, `ESC O B`), Ghostty's
+    /// encoding while the app keeps DECCKM on. Ghostty reads the mode from
+    /// the terminal it mirrors, so these bytes are the mode as the app set it.
+    public static func scrollsPage(_ keys: Data) -> Bool {
+        let bytes = [UInt8](keys)
+        guard !bytes.isEmpty, bytes.count % 3 == 0 else { return false }
+        return stride(from: 0, to: bytes.count, by: 3).allSatisfy { at in
+            bytes[at] == 0x1B && bytes[at + 1] == UInt8(ascii: "O")
+                && (bytes[at + 2] == UInt8(ascii: "A") || bytes[at + 2] == UInt8(ascii: "B"))
+        }
     }
 }

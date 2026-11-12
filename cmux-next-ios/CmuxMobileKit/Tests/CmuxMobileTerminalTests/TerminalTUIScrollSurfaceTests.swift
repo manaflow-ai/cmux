@@ -7,8 +7,9 @@ import UIKit
 /// T-SCROLL-12 through the real Ghostty surface in mirror mode: the phone's
 /// wheel goes through Ghostty's own encoder, so the app gets what Ghostty
 /// sends on a Mac trackpad: SGR wheel reports when it asked for the mouse
-/// (DECSET 1000 + 1006), and nothing otherwise: never the cursor keys Ghostty's
-/// alternate scroll (DECSET 1007) would make of it (``TerminalPanRoute``).
+/// (DECSET 1000 + 1006), application-mode cursor keys from Ghostty's alternate
+/// scroll (DECSET 1007) to a pager (less, man, vim), and nothing otherwise:
+/// never normal-mode cursor keys (``TerminalPanRoute``).
 @MainActor
 @Suite(.serialized) struct TerminalTUIScrollSurfaceTests {
     /// A mirror surface in a window, its output fed and its input collected.
@@ -148,7 +149,7 @@ import UIKit
     /// and thumb land on subagent depiction". On the alternate screen without
     /// mouse reporting Ghostty's alternate scroll (DECSET 1007, its default)
     /// made the drag cursor keys, which walked Claude Code's prompt history
-    /// and its background-agent list. A drag is never a keystroke now.
+    /// and its background-agent list. Those normal-mode arrows never go out.
     @Test func theAlternateScreenWithoutMouseReportingGetsNoArrows() async throws {
         let rig = Rig()
         try #require(rig.surface.surface != nil)
@@ -160,10 +161,44 @@ import UIKit
         #expect(rig.sent.isEmpty)
     }
 
-    @Test func applicationCursorKeysGetNoArrowsEither() async throws {
+    /// Leo, 2026-11-12, of less, man and vim no longer scrolling: "But can't
+    /// we do something here?". They keep application cursor keys (DECCKM) on,
+    /// so the drag scrolls them with SS3 arrows, one per row, as on a Mac.
+    @Test func applicationCursorKeysScrollAPager() async throws {
+        let rig = Rig()
+        try #require(rig.surface.surface != nil)
+        await rig.feed("\u{1b}[?1049h\u{1b}[?1h\u{1b}=")
+        rig.sent = Data()
+        rig.wheel(rows: 2, column: 1, row: 1)
+        #expect(rig.text == "\u{1b}OA\u{1b}OA")
+        rig.sent = Data()
+        rig.wheel(rows: -1, column: 1, row: 1)
+        #expect(rig.text == "\u{1b}OB")
+        await rig.settle()
+        #expect(rig.text == "\u{1b}OB")
+    }
+
+    /// A pager that turned alternate scroll off gets nothing.
+    @Test func alternateScrollOffSendsNothing() async throws {
+        let rig = Rig()
+        try #require(rig.surface.surface != nil)
+        await rig.feed("\u{1b}[?1049h\u{1b}[?1h\u{1b}[?1007l")
+        rig.sent = Data()
+        rig.wheel(rows: 4, column: 1, row: 1)
+        await rig.settle()
+        #expect(rig.sent.isEmpty)
+    }
+
+    /// The app turning application cursor keys off mid-session (Claude Code
+    /// started from vim's `:!`, less quitting into a TUI) stops the arrows.
+    @Test func cursorKeysFollowTheModeLive() async throws {
         let rig = Rig()
         try #require(rig.surface.surface != nil)
         await rig.feed("\u{1b}[?1049h\u{1b}[?1h")
+        rig.sent = Data()
+        rig.wheel(rows: 1, column: 1, row: 1)
+        #expect(rig.text == "\u{1b}OA")
+        await rig.feed("\u{1b}[?1l")
         rig.sent = Data()
         rig.wheel(rows: 3, column: 1, row: 1)
         await rig.settle()

@@ -49,22 +49,32 @@ extension TerminalSurfaceView {
 
     /// A finger's wheel at `point` (this view's points), `deltaY` points
     /// (positive scrolls up, toward older content), through Ghostty's own
-    /// scroll path (T-SCROLL-12) when ``panRoute`` says the app takes it: an
-    /// app that asked for the mouse gets wheel reports at that cell and the
-    /// bytes reach `onInput`; Ghostty keeps the part of a row not yet sent for
-    /// the next event. Anything else sends nothing: Ghostty's alternate
-    /// scroll would make cursor keys of it, and a drag is never a keystroke.
+    /// scroll path (T-SCROLL-12) in the form ``panRoute`` says the app takes:
+    /// an app that asked for the mouse gets wheel reports at that cell; on
+    /// an alternate screen without it Ghostty's alternate scroll encodes
+    /// cursor keys, which are held and go out only when
+    /// ``TerminalPanRoute/scrollsPage(_:)`` passes them (less, man, vim).
+    /// Ghostty keeps the part of a row not yet sent for the next event.
     /// Returns whether the wheel went to the app.
     @discardableResult
     func scrollWheel(at point: CGPoint, deltaY: CGFloat, momentum: TerminalTUIScroll.Momentum) -> Bool {
-        guard let surface, panRoute == .wheelReports else { return false }
+        guard let surface else { return false }
+        let route = panRoute
+        guard route != .localScrollback else { return false }
         let scale = window?.screen.scale ?? contentScaleFactor
         // The person's own scroll: its reports are input, not a reply.
         let wasPerformingInput = isPerformingInput
         isPerformingInput = true
         defer { isPerformingInput = wasPerformingInput }
+        // The manual backend writes on this thread before the call returns.
+        if route == .cursorKeys { heldWheelKeys = Data() }
         ghostty_surface_mouse_pos(surface, Double(point.x), Double(point.y), GHOSTTY_MODS_NONE)
         ghostty_surface_mouse_scroll(surface, 0, Double(deltaY * scale), ghostty_input_scroll_mods_t(TerminalTUIScroll.mods(momentum)))
+        guard route == .cursorKeys else { return true }
+        let keys = heldWheelKeys ?? Data()
+        heldWheelKeys = nil
+        guard TerminalPanRoute.scrollsPage(keys) else { return false }
+        onInput?(keys)
         return true
     }
 

@@ -4,8 +4,9 @@ import UIKit
 /// T-SCROLL-12: in a full-screen app (the alternate screen) a vertical drag
 /// scrolls the app, like a Mac trackpad in Ghostty, and the page stays
 /// pinned. The drag and its fling become wheel events on the surface
-/// (`TerminalTUIScroll`, `TerminalTUIMomentum`), which reach the app only as
-/// wheel reports it asked for (`TerminalPanRoute`): never as cursor keys. A tap still focuses the terminal, a long press
+/// (`TerminalTUIScroll`, `TerminalTUIMomentum`), which reach the app only in
+/// a form it asked for (`TerminalPanRoute`): wheel reports, or a pager's
+/// application cursor keys. A tap still focuses the terminal, a long press
 /// still selects and a selection handle still moves: this pan starts only
 /// on a vertical drag that no selection gesture owns. A new touch stops a
 /// fling, as on a trackpad, and a tap that stops one does nothing else (it
@@ -24,6 +25,8 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
     private(set) var pan: UIPanGestureRecognizer?
     private var scroll = TerminalTUIScroll()
     private var momentum: TerminalTUIMomentum?
+    /// Some wheel of this drag reached the app (``TerminalPanRoute``).
+    private var dragReachedApp = false
     /// Where the drag began: every wheel of the drag and its fling is there.
     private var anchor = CGPoint.zero
     /// The touch that stopped a fling (the terminal's tap ignores it).
@@ -63,6 +66,7 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
         case .began:
             stopMomentum()
             scroll.began()
+            dragReachedApp = false
             dragBegan()
             // The finger's start, not where the pan recognized.
             let translation = pan.translation(in: surface)
@@ -75,8 +79,9 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
             send(scroll.moved(translationY: pan.translation(in: surface).y, velocityY: pan.velocity(in: surface).y))
         case .ended:
             send(scroll.moved(translationY: pan.translation(in: surface).y, velocityY: pan.velocity(in: surface).y))
-            // A fling only where the drag reached the app (TerminalPanRoute).
-            if isEnabled(), surface.panRoute == .wheelReports,
+            // A fling only where the drag reaches the app (TerminalPanRoute):
+            // an app taking wheel reports, or a pager this drag already moved.
+            if isEnabled(), surface.panRoute == .wheelReports || dragReachedApp,
                let fling = TerminalTUIMomentum(velocityY: pan.velocity(in: surface).y) {
                 startMomentum(fling)
             }
@@ -89,6 +94,7 @@ final class TerminalTUIScrollController: NSObject, @MainActor UIGestureRecognize
         guard let wheel, let surface, isEnabled() else { return }
         // Only a wheel the app got makes it scroll (TerminalPanRoute).
         if surface.scrollWheel(at: anchor, deltaY: wheel.dy, momentum: wheel.momentum) {
+            dragReachedApp = true
             tapClick.scrolled(at: CACurrentMediaTime())
         }
     }

@@ -39,6 +39,10 @@ final class TerminalSurfaceView: UIView {
     /// write delivered while this is clear is Ghostty's reply to a terminal
     /// query (a cursor, device, focus or mouse report), not a key.
     var isPerformingInput = false
+    /// Set while `scrollWheel` asks Ghostty for alternate-scroll cursor keys:
+    /// writes collect here instead of reaching `onInput`, and go out only
+    /// when they scroll a page (``TerminalPanRoute/scrollsPage(_:)``).
+    var heldWheelKeys: Data?
     /// The person typed, pressed a key or pasted (before the bytes go out).
     var onUserInput: (() -> Void)?
     var onEvent: ((TerminalSurfaceEvent) -> Void)?
@@ -111,6 +115,10 @@ final class TerminalSurfaceView: UIView {
         let box = InputBox()
         box.deliver = { [weak self] data in
             guard let self else { return }
+            if heldWheelKeys != nil {
+                heldWheelKeys?.append(data)
+                return
+            }
             let typed = isEncodingUserInput
             onInput?(data)
             // Only the person's own input, once the session took it: a

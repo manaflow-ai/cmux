@@ -5,8 +5,11 @@ import UIKit
 @testable import CmuxMobileTerminal
 
 /// Leo, 2026-11-12: "this terminal projection nigh unusable due to me scroll
-/// and thumb land on subagent depiction". A drag over the terminal is a
-/// scroll and never a keystroke (``TerminalPanRoute``). These feed the modes
+/// and thumb land on subagent depiction"; then, of less, man and vim: "But
+/// can't we do something here?". A drag over the terminal is a scroll in
+/// the form the app asked for (``TerminalPanRoute``): never a keystroke
+/// Claude Code reads as history or its agent list, and still a pager's
+/// application cursor keys. These feed the modes
 /// each program sets on start, captured from its PTY (Claude Code 2.1.322 with
 /// and without `CLAUDE_CODE_DISABLE_MOUSE`, Codex, less/vim-style full-screen
 /// apps, a plain shell), into a real Ghostty mirror surface, then drag ten rows
@@ -17,6 +20,8 @@ import UIKit
         let name: String
         let modes: String
         let route: TerminalPanRoute
+        /// The drag sends application-mode arrows (a pager).
+        var pagerArrows = false
         var description: String { name }
     }
 
@@ -27,12 +32,14 @@ import UIKit
         // Claude Code with mouse capture off: alt screen, no mouse reporting.
         // Ghostty's alternate scroll made each row of drag an arrow key here:
         // up walked the prompt history, down went into the agent list.
-        Program(name: "claude-code-no-mouse", modes: "\u{1b}[?1049h\u{1b}[?1004h\u{1b}[?2004h\u{1b}[?2031h", route: .none),
+        Program(name: "claude-code-no-mouse", modes: "\u{1b}[?1049h\u{1b}[?1004h\u{1b}[?2004h\u{1b}[?2031h", route: .cursorKeys,
+                pagerArrows: false),
         // Codex: alt screen, any-motion SGR mouse, alternate scroll off.
         Program(name: "codex", modes: "\u{1b}[?1049h\u{1b}[?1000h\u{1b}[?1002h\u{1b}[?1003h\u{1b}[?1004h\u{1b}[?1006h\u{1b}[?1007l\u{1b}[?2004h",
                 route: .wheelReports),
-        // less / vim without `mouse=a`: alt screen, application cursor keys.
-        Program(name: "less", modes: "\u{1b}[?1049h\u{1b}[?1h\u{1b}=", route: .none),
+        // less / man / vim without `mouse=a`: alt screen, application cursor
+        // keys (their keypad mode); up and down move the page.
+        Program(name: "less", modes: "\u{1b}[?1049h\u{1b}[?1h\u{1b}=", route: .cursorKeys, pagerArrows: true),
         // A plain shell: the primary screen, the phone's own scrollback.
         Program(name: "shell", modes: "\u{1b}[?2004h", route: .localScrollback),
     ]
@@ -75,9 +82,16 @@ import UIKit
             }
         }
 
+        /// Normal-mode arrows: what walked Claude Code's history and agent list.
         var arrowKeys: Int {
             let text = String(decoding: sent, as: UTF8.self)
-            return ["\u{1b}[A", "\u{1b}[B", "\u{1b}OA", "\u{1b}OB"].reduce(0) { $0 + text.components(separatedBy: $1).count - 1 }
+            return ["\u{1b}[A", "\u{1b}[B"].reduce(0) { $0 + text.components(separatedBy: $1).count - 1 }
+        }
+
+        /// Application-mode arrows: a pager's scroll.
+        var pagerArrows: Int {
+            let text = String(decoding: sent, as: UTF8.self)
+            return ["\u{1b}OA", "\u{1b}OB"].reduce(0) { $0 + text.components(separatedBy: $1).count - 1 }
         }
 
         var wheelReports: Int {
@@ -96,13 +110,17 @@ import UIKit
         rig.pan()
         let encode = ContinuousClock.now - start
         await rig.settle()
-        print("pan-route program=\(program.name) route=\(program.route) bytes=\(rig.sent.count) arrows=\(rig.arrowKeys) wheelReports=\(rig.wheelReports) encode=\(encode)")
+        print("pan-route program=\(program.name) route=\(program.route) bytes=\(rig.sent.count) arrows=\(rig.arrowKeys) pagerArrows=\(rig.pagerArrows) wheelReports=\(rig.wheelReports) encode=\(encode)")
         #expect(rig.arrowKeys == 0)
         switch program.route {
         case .wheelReports:
             // The app scrolls its own history: one report per row (a slow drag).
             #expect((9...10).contains(rig.wheelReports))
-        case .none, .localScrollback:
+        case .cursorKeys where program.pagerArrows:
+            // The pager moves one line per row of drag, like a Mac trackpad.
+            #expect((9...10).contains(rig.pagerArrows))
+            #expect(rig.sent.count == rig.pagerArrows * 3)
+        case .cursorKeys, .localScrollback:
             #expect(rig.sent.isEmpty)
         }
     }
@@ -123,7 +141,13 @@ import UIKit
         #expect(TerminalPanRoute.route(alternateScreen: false, appReportsMouse: false) == .localScrollback)
         #expect(TerminalPanRoute.route(alternateScreen: false, appReportsMouse: true) == .localScrollback)
         #expect(TerminalPanRoute.route(alternateScreen: true, appReportsMouse: true) == .wheelReports)
-        #expect(TerminalPanRoute.route(alternateScreen: true, appReportsMouse: false) == .none)
+        #expect(TerminalPanRoute.route(alternateScreen: true, appReportsMouse: false) == .cursorKeys)
+        #expect(TerminalPanRoute.scrollsPage(Data("\u{1b}OA\u{1b}OB\u{1b}OA".utf8)))
+        #expect(!TerminalPanRoute.scrollsPage(Data()))
+        #expect(!TerminalPanRoute.scrollsPage(Data("\u{1b}[A".utf8)))
+        #expect(!TerminalPanRoute.scrollsPage(Data("\u{1b}OA\u{1b}[B".utf8)))
+        #expect(!TerminalPanRoute.scrollsPage(Data("\u{1b}OC".utf8)))
+        #expect(!TerminalPanRoute.scrollsPage(Data("\u{1b}OA\u{1b}".utf8)))
     }
 }
 #endif
