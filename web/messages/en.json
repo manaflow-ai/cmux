@@ -832,7 +832,18 @@
         "grantedBody": "Team access was granted to {team} by the cmux team. There is no subscription to manage.",
         "seatsUsed": "{members} of {seats} used",
         "overSeat": "{team} has {members} members and {seats} paid seats. Seats follow the member count, so the subscription updates on its own.",
-        "addSeats": "Add seats"
+        "addSeats": "Add seats",
+        "enterprise": {
+          "current": "Current plan",
+          "body": "{team} is on a custom plan arranged with the cmux team. Contact the cmux team to change it.",
+          "price": "Price",
+          "perMonth": "{amount}/month",
+          "machines": "Cloud machines",
+          "pool": "Shared vCPUs / memory",
+          "largest": "Largest machine",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "No limit"
+        }
       },
       "teamList": {
         "heading": "Billing scopes",

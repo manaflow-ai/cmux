@@ -509,7 +509,18 @@
         "grantedBody": "cmux 팀이 {team}에 Team 액세스를 부여했습니다. 관리할 구독이 없습니다.",
         "seatsUsed": "{seats}개 중 {members}개 사용",
         "overSeat": "{team}에는 멤버가 {members}명 있고 유료 시트는 {seats}개입니다. 시트 수는 멤버 수를 따르므로 구독이 자동으로 갱신됩니다.",
-        "addSeats": "시트 추가"
+        "addSeats": "시트 추가",
+        "enterprise": {
+          "current": "현재 요금제",
+          "body": "{team}은(는) cmux 팀과 합의한 맞춤 요금제를 사용 중입니다. 변경하려면 cmux 팀에 문의하세요.",
+          "price": "가격",
+          "perMonth": "{amount}/월",
+          "machines": "클라우드 머신",
+          "pool": "공유 vCPU / 메모리",
+          "largest": "최대 머신",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "제한 없음"
+        }
       },
       "teamList": {
         "heading": "결제 범위",

@@ -19,7 +19,12 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 # jobs onto one; every minute the sweeper lists both names repository-wide
 # and gives each new run a thread running the per-run watch. A run marked
 # `owned-pool-watch-refusals` (cmux-next.yml, no free overflow) and its
-# re-runs are watched for refusals only: a long queue is left alone. Until
+# re-runs are watched for refusals only: a long queue is left alone. Every
+# five ticks the sweeper also scans every unfinished cmux-next pull request
+# run for an owned job stalled past a bound, queued with no runner or held by
+# a runner with no step progress, and moves it to Blacksmith while that label
+# has room, a few runs a sweeper at most (owned_pool_rescue.STALL_MOVE; run
+# 42878905180 queued over two hours on 2026-11-10). Until
 # 2026-09-25 each such run had its own owned-pool-watch job, a "Watch owned
 # pool jobs" check on the pull request, dispatching its own rescue run: 263
 # rescue runs in the 2 hours to 12:30 UTC, and 59 of the last 60 did nothing.
@@ -200,6 +205,10 @@ jobs:
           # reruns stay minis-first through attempt 2.
           SIDE_RESCUE_SECONDS: ${{ vars.CI_OWNED_POOL_RESCUE_SECONDS }}
           POOL_OWNED: ${{ vars.CI_PR_POOL_OWNED }}
+          # cmux-next.yml's Mac fallbacks past the bot's attempt 3 read these; the stall move judges each label's
+          # room, and moves nothing while one names an owned pool (owned_pool_rescue.stall_destinations()).
+          STALL_RUNNER: ${{ vars.MACOS_RUNNER_26 }}
+          STALL_POOLS: ${{ vars.RUNNER_POOLS }}
           WATCH_RUN_ID: ${{ inputs.run_id }}
           SWEEP: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' && !inputs.run_id) && '1' || '' }}
           # 1: wait for ci-macos.yml's late-placement before calling the run ephemeral.

@@ -509,7 +509,18 @@
         "grantedBody": "{team} ekibine Team erişimi cmux ekibi tarafından verildi. Yönetilecek bir abonelik yok.",
         "seatsUsed": "{seats} koltuğun {members} tanesi kullanılıyor",
         "overSeat": "{team} ekibinde {members} üye ve {seats} ücretli koltuk var. Koltuklar üye sayısını izler, bu yüzden abonelik kendiliğinden güncellenir.",
-        "addSeats": "Koltuk ekle"
+        "addSeats": "Koltuk ekle",
+        "enterprise": {
+          "current": "Mevcut plan",
+          "body": "{team}, cmux ekibiyle kararlaştırılan özel bir planda. Değiştirmek için cmux ekibiyle iletişime geçin.",
+          "price": "Fiyat",
+          "perMonth": "{amount}/ay",
+          "machines": "Bulut makineleri",
+          "pool": "Paylaşılan vCPU / bellek",
+          "largest": "En büyük makine",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "Sınır yok"
+        }
       },
       "teamList": {
         "heading": "Faturalandırma kapsamları",

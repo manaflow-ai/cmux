@@ -509,7 +509,18 @@
         "grantedBody": "cmux 团队已向 {team} 授予 Team 访问权限，没有需要管理的订阅。",
         "seatsUsed": "已使用 {members}/{seats}",
         "overSeat": "{team} 有 {members} 名成员和 {seats} 个付费席位。席位数跟随成员数，订阅会自动更新。",
-        "addSeats": "添加席位"
+        "addSeats": "添加席位",
+        "enterprise": {
+          "current": "当前方案",
+          "body": "{team} 正在使用与 cmux 团队商定的定制方案。如需更改，请联系 cmux 团队。",
+          "price": "价格",
+          "perMonth": "{amount}/月",
+          "machines": "云端机器",
+          "pool": "共享 vCPU / 内存",
+          "largest": "最大机器",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "无限制"
+        }
       },
       "teamList": {
         "heading": "账单范围",

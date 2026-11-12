@@ -509,7 +509,18 @@
         "grantedBody": "Tim cmux je timu {team} dodijelio pristup Team planu. Nema pretplate kojom treba upravljati.",
         "seatsUsed": "Iskorišteno {members} od {seats}",
         "overSeat": "{team} ima {members} članova i {seats} plaćenih mjesta. Mjesta prate broj članova, pa se pretplata ažurira sama.",
-        "addSeats": "Dodaj mjesta"
+        "addSeats": "Dodaj mjesta",
+        "enterprise": {
+          "current": "Trenutni plan",
+          "body": "{team} koristi prilagođeni plan dogovoren s cmux timom. Kontaktirajte cmux tim da ga promijenite.",
+          "price": "Cijena",
+          "perMonth": "{amount}/mjesečno",
+          "machines": "Cloud mašine",
+          "pool": "Dijeljeni vCPU / memorija",
+          "largest": "Najveća mašina",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "Bez ograničenja"
+        }
       },
       "teamList": {
         "heading": "Opsezi naplate",

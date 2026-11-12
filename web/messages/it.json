@@ -509,7 +509,18 @@
         "grantedBody": "L’accesso Team è stato concesso a {team} dal team di cmux. Non c’è alcun abbonamento da gestire.",
         "seatsUsed": "{members} di {seats} utilizzati",
         "overSeat": "{team} ha {members} membri e {seats} posti pagati. I posti seguono il numero di membri, quindi l’abbonamento si aggiorna da solo.",
-        "addSeats": "Aggiungi posti"
+        "addSeats": "Aggiungi posti",
+        "enterprise": {
+          "current": "Piano attuale",
+          "body": "{team} ha un piano personalizzato concordato con il team di cmux. Contatta il team di cmux per modificarlo.",
+          "price": "Prezzo",
+          "perMonth": "{amount}/mese",
+          "machines": "Macchine cloud",
+          "pool": "vCPU / memoria condivise",
+          "largest": "Macchina più grande",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "Nessun limite"
+        }
       },
       "teamList": {
         "heading": "Ambiti di fatturazione",

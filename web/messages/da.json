@@ -509,7 +509,18 @@
         "grantedBody": "cmux-teamet har givet {team} adgang til Team. Der er intet abonnement at administrere.",
         "seatsUsed": "{members} af {seats} brugt",
         "overSeat": "{team} har {members} medlemmer og {seats} betalte pladser. Pladser følger antallet af medlemmer, så abonnementet opdateres af sig selv.",
-        "addSeats": "Tilføj pladser"
+        "addSeats": "Tilføj pladser",
+        "enterprise": {
+          "current": "Nuværende plan",
+          "body": "{team} har en tilpasset plan aftalt med cmux-teamet. Kontakt cmux-teamet for at ændre den.",
+          "price": "Pris",
+          "perMonth": "{amount}/måned",
+          "machines": "Cloud-maskiner",
+          "pool": "Delte vCPU'er / hukommelse",
+          "largest": "Største maskine",
+          "size": "{vcpus} vCPU / {gb} GB",
+          "noLimit": "Ingen grænse"
+        }
       },
       "teamList": {
         "heading": "Faktureringsområder",
