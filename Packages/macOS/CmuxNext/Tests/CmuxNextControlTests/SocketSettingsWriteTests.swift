@@ -244,9 +244,11 @@ import Testing
             await router.handle(ControlRequest(id: "1", method: "settings.set",
                                                params: ["path": "notifications.mutedWorkspaces", "value": ["ws-1"], "origin": "script"]))
         }
-        // Room for the socket write to reach the file. Nothing reports "waiting for the lock", so
-        // this is a bounded wait: with the lock honored the write cannot finish inside it.
-        try await Task.sleep(for: .milliseconds(500))
+        // The socket write reaches the lock and waits its turn (SettingsFileLock's waits); one that
+        // ignored the lock would write and answer without ever waiting.
+        let deadline = ContinuousClock.now + .seconds(10)
+        while SettingsFileLock.waitingWrites == 0, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(5)) }
+        try #require(SettingsFileLock.waitingWrites > 0, "the socket write never waited for the lock another writer holds")
         #expect(try String(contentsOf: url, encoding: .utf8) == read, "the socket wrote the file while another writer held its lock")
         // The other writer publishes its edit of the text it read, then lets go of the lock.
         try Data(#"{"appearance":{"density":"compact"}}"#.utf8).write(to: url, options: .atomic)

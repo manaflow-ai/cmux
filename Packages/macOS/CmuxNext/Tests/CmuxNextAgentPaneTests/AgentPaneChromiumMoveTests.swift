@@ -210,7 +210,9 @@ struct AgentPaneChromiumMoveTests {
         let deadline = Date().addingTimeInterval(5)
         while asked == 0, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
         try #require(asked > 0, "no size wait was asked of the page")
-        try await Task.sleep(for: .milliseconds(500)) // the fake's answer comes back in a later turn
+        // The fake's answer comes back in a later turn: the wait then knows the page drew at the rest size.
+        while view.chromiumMoveWait?.drewAtRest != true, Date() < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        try #require(view.chromiumMoveWait?.drewAtRest == true, "the page's answer to its size wait never came")
         let atRest = pagePlace(view, in: NSRect(origin: .zero, size: rest)).size
         #expect(view.holdsPageAway, "the page came in while its pane is on its spring, at \(view.pageContent.frame.size)")
         #expect(view.pageContent.frame.size == atRest)
@@ -242,7 +244,9 @@ struct AgentPaneChromiumMoveTests {
         let atRest = pagePlace(view, in: NSRect(origin: .zero, size: rest)).size
         #expect(view.holdsPageAway, "the page shows in a pane on its spring: it gets a size in each spring frame")
         #expect(view.pageContent.frame.size == atRest, "the held page is at \(view.pageContent.frame.size), not at its pane's rest size \(atRest)")
-        try await Task.sleep(for: .milliseconds(200))
+        // The hold took the drawn path: it waits only for the pane to land and asks the page for no frame (an ask
+        // would leave drewAtRest false until the page's answer came back in a later turn).
+        #expect(view.chromiumMoveWait?.drewAtRest == true, "a page already drawn at the rest size was asked to wait for a size")
         #expect(sizeWaits(page) == 0, "a page already drawn at the rest size was asked to wait for a size")
         #expect(view.holdsPageAway, "the page came in while its pane is on its spring")
 
