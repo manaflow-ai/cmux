@@ -84,7 +84,8 @@ fn hint_text(err: String, spec: &str, hits: &[String], claude_harness: Option<&s
 /// chat on an agent that is not set up never ends on a bare "unknown harness"
 /// (cmuxterm-hq first-user journey, rule error-without-next-step): the Install
 /// command for an agent cmux installs itself, the shipped example profile for
-/// one it knows, else where to look. None for a name that is no harness at all.
+/// one it knows, the ACP Registry for another agent it knows by name. None for
+/// any other name (a typo, a model name): the bare error stays.
 fn missing_harness_step(spec: &str) -> Option<String> {
     let id = spec.split('/').next().unwrap_or(spec);
     if id.is_empty()
@@ -106,10 +107,14 @@ fn missing_harness_step(spec: &str) -> Option<String> {
              `cmux harness add {id} --example {id}`"
         ));
     }
-    Some(format!(
-        "{id:?} is not set up here: `cmux harness list` shows the harnesses this host has, \
-         and `cmux harness add --help` adds another"
-    ))
+    // An agent cmux knows by name (it has a mark) but ships no profile for: the ACP Registry adds it.
+    if crate::chats::brand::exact(id).is_some() {
+        return Some(format!(
+            "{id:?} is not set up here: install its CLI, then `cmux harness registry` lists the agents \
+             cmux can add with `cmux harness add ID --registry`"
+        ));
+    }
+    None
 }
 
 /// Whether `spec` has the shape of a Claude model id: a family release
@@ -189,9 +194,19 @@ mod tests {
             gemini.contains("`cmux harness add gemini --example gemini`"),
             "{gemini}"
         );
-        let grok = hint_text("unknown harness \"grok\"".into(), "grok/grok-4", &[], None);
-        assert!(grok.contains("\"grok\" is not set up here"), "{grok}");
-        assert!(grok.contains("`cmux harness list`"), "{grok}");
+        for agent in ["grok", "cursor", "antigravity"] {
+            let out = hint_text(
+                format!("unknown harness {agent:?}"),
+                &format!("{agent}/x"),
+                &[],
+                None,
+            );
+            assert!(
+                out.contains(&format!("{agent:?} is not set up here")),
+                "{out}"
+            );
+            assert!(out.contains("`cmux harness add ID --registry`"), "{out}");
+        }
         assert_eq!(hint_text("bad".into(), "a b", &[], None), "bad");
     }
 
