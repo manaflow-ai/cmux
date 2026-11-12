@@ -298,7 +298,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextAgentLanes",
                 "CmuxNextAgentPane",
                 "CmuxNextAgentPermissions",
-                "CmuxNextAgentQuestion",
                 "CmuxNextAgentUpdates",
                 "CmuxNextAppCore",
                 "CmuxNextAppHealth",
@@ -831,18 +830,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
                 "CmuxNextAgentPermissions",
                 "CmuxNextWakeupsTestSupport",
-            ],
-            swiftSettings: uiSwiftSettings
-        ),
-        .target(
-            name: "CmuxNextAgentQuestion",
-            dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                "CmuxNextDesign",
-                "CmuxNextIcons",
-                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
-            ],
-            resources: [
-                .process("Resources"),
             ],
             swiftSettings: uiSwiftSettings
         ),
