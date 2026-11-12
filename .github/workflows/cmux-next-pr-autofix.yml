@@ -383,7 +383,7 @@ jobs:
         timeout-minutes: 3
         run: |
           home="$RUNNER_TEMP/acpmux-home"
-          # The delete runs on every path (tests/test_ci_acpmux_job_home.py credits only one bash surely runs).
+          # The delete runs on every path: the job-home guard credits only a delete bash surely runs.
           if [[ -d "$home" ]]; then
             acpmux="$(PATH="$PATH:$HOME/.local/bin:$HOME/.cargo/bin:/opt/homebrew/bin:/usr/local/bin" command -v acpmux || true)"
             [[ -z "$acpmux" ]] || env -u ACPMUX_SOCKET ACPMUX_HOME="$home" "$acpmux" daemon shutdown --end-agents || true
