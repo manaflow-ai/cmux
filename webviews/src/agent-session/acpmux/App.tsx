@@ -2693,19 +2693,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       freshAgents.find((agent) => agent.id === id),
       `${t("subagents.of")} ${chatName}`,
     );
-  // For callbacks that keep one identity (showSubagent names a pane's tab with it).
-  const subagentTitleRef = useRef(subagentTitle);
-  subagentTitleRef.current = subagentTitle;
   // The mark its row draws, which its pane's tab draws too (subagentPanes.ts `subagentRowMark`).
   const senderBadge = useSenderIconLook().badge;
   const chatMark = knownMark(snapshot.summary?.harness, snapshot.summary?.family);
-  const subagentMarkRef = useRef((_id: string): string | undefined => undefined);
-  subagentMarkRef.current = (id: string) =>
+  const subagentMark = (id: string) =>
     subagentRowMark(
       freshAgents.find((agent) => agent.id === id),
       chatMark,
       senderBadge,
     );
+  // For callbacks that keep one identity (showSubagent names a pane's tab and its icon with them).
+  const subagentTitleRef = useRef({ title: subagentTitle, mark: subagentMark });
+  subagentTitleRef.current = { title: subagentTitle, mark: subagentMark };
   const workflowAdapter = useMemo(createWorkflowAdapter, []);
   const workflows = useMemo(
     () => (workflowLabsEnabled && shownSessionId ? workflowAdapter(freshAgents, shownSessionId) : []),
@@ -5157,9 +5156,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         panes: autoOpenSubagents,
         inSubagentPane: subagentPane.current,
         here: setSubagentView,
-        title: subagentTitleRef.current(id),
+        title: subagentTitleRef.current.title(id),
         tone: workflowPaneRequest(id) ? undefined : agentTone(id),
-        mark: workflowPaneRequest(id) ? undefined : subagentMarkRef.current(id),
+        mark: workflowPaneRequest(id) ? undefined : subagentTitleRef.current.mark(id),
         // Seed a new pane from this chat's kept tail before its own attach answers.
         beforeOpen: () => directClient.current?.handOverCurrentTail(),
       }),

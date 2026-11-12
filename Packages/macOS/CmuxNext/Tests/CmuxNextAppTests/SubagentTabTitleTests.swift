@@ -178,10 +178,10 @@ struct SubagentTabTitleTests {
 
     @Test func thePagesRequestCarriesTheName() throws {
         let request = AgentPaneRequest(body: ["method": "chat.subagentPane", "params": ["subagent": "agent-1", "focus": false, "title": "Audit the stack", "tone": 4]])
-        guard case .subagentPane(let agent, let focus, let title, let tone) = request else { Issue.record("not decoded: \(request)"); return }
+        guard case .subagentPane(let agent, let focus, let title, let tone, _) = request else { Issue.record("not decoded: \(request)"); return }
         #expect(agent == "agent-1" && !focus && title == "Audit the stack" && tone == 4)
         let old = AgentPaneRequest(body: ["method": "chat.subagentPane", "params": ["subagent": "agent-1"]])
-        guard case .subagentPane(_, _, let none, let noTone) = old else { Issue.record("not decoded: \(old)"); return }
+        guard case .subagentPane(_, _, let none, let noTone, _) = old else { Issue.record("not decoded: \(old)"); return }
         #expect(none == nil && noTone == nil, "a page that sends no name still opens the pane")
     }
 
