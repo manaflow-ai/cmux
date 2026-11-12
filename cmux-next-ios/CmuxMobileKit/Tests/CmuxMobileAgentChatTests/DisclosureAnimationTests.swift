@@ -392,7 +392,9 @@ import UIKit
             "%d+4|user 2003: “is cmux internal iOS failing? if so fix it?”; spawned a51 (ws_3b1966b8fdf399628b7f1ad4cf05b6b7, cmuxterm-hq, shown, medium) — owed: tell user…",
             "%d+2|a51 IOS INTERNAL CI: builds skipped since dcac15b, trigger reports success; synced CmuxTabsKit 2c32c2e and CmuxConversation 62e6c76; run 42336657004 archiving",
         ]
-        var lines: [String] = ["<chat>"]
+        // A pasted copy of a Chief turn: not the Chief's own envelope (that collapses, below), so
+        // the whole text stays in the bubble.
+        var lines: [String] = ["Pasted from a Chief turn:", "<chat>"]
         for line in 0 ..< 240 {
             lines.append(String(format: shapes[line % shapes.count], arguments: [line * 8]))
         }
@@ -440,6 +442,40 @@ import UIKit
         #expect(fits <= frameHeight + 1, "the text draws past its frame: \(detail)")
         #expect(abs(label.frame.minY - 11) <= 0.5, "the text starts 11 pt under the bubble's top: \(detail)")
         #expect(abs(rowHeight - (frameHeight + 22)) <= 0.5, "the bubble is the text plus its padding: \(detail)")
+    }
+
+    /// Aziz 2026-11-11 ("why is the <chat> tag shown in the text"): a Chief subagent's first prompt
+    /// is the Chief's view (`<chat>` … `</chat>`) then `Your task:` and the task. The phone showed it
+    /// all, tags included, in the bubble; the Mac shows the view as one collapsed line and the task as
+    /// the message. The phone now does the same: a "Context from the Chief" row, then a bubble that
+    /// holds only the task.
+    @Test func aChiefSubagentPromptShowsOnlyItsTaskUnderACollapsedView() async throws {
+        let view = "<chat>\n0+256|user: engine->codex gpt-6-sol high\n8+1|talk: started a52\n\n</chat>Your task:\n\nWork Linear ticket CMUX-54."
+        let chat = try await chat(prompt: { (n: Int) -> String in n == 29 ? view : "prompt \(n)" })
+        defer { chat.window.isHidden = true }
+        let ids: [String] = chat.list.layout.items.map { (item: ChatTranscriptLayout.Item) -> String in item.id }
+        // The view's row (`cx-<turn>`, its kind `.chiefContext`), then the task's bubble.
+        let contextIndex: Int? = ids.firstIndex { $0.hasPrefix("cx-") }
+        var promptTexts: [String] = []
+        for id in ids {
+            if case .prompt(let text, _, _, _)? = chat.list.row(id)?.kind { promptTexts.append(text) }
+        }
+        let context = try #require(contextIndex, "the Chief's view draws as its own row")
+        let next = try #require(context + 1 < ids.count ? ids[context + 1] : nil)
+        guard case .prompt(let task, _, _, _)? = chat.list.row(next)?.kind else {
+            Issue.record("the task's bubble follows the view's row")
+            return
+        }
+        #expect(task == "Work Linear ticket CMUX-54.", "the bubble holds only the task")
+        #expect(!promptTexts.contains { $0.contains("<chat>") || $0.contains("Your task:") }, "no bubble shows the envelope")
+        // Drawn: the row is on screen and the bubble's label says the task, not the tags.
+        let top = try #require(chat.list.layout.top(of: ids[context]))
+        chat.surface.following = false
+        chat.scroll.contentOffset.y = max(0, top - 100)
+        await chat.frames(20)
+        let cell = try #require(chat.list.cell(for: next))
+        let drawn: [String] = cell.contentView.subviews.compactMap { ($0 as? UILabel)?.attributedText?.string }
+        #expect(!drawn.contains { $0.contains("<chat>") }, "the bubble draws no <chat> tag: \(drawn)")
     }
 }
 #endif
