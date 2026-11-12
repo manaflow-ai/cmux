@@ -31,19 +31,11 @@ impl Hub {
                     if claude_harness.is_none() || name == "claude" {
                         claude_harness = Some(name);
                     }
-                    ids.extend(
-                        crate::claude_stdio::models()
-                            .iter()
-                            .map(|(id, _)| id.to_string()),
-                    )
+                    ids.extend(crate::claude_stdio::models().iter().map(|(id, _)| id.to_string()))
                 }
-                crate::config::HarnessKind::Acp => ids.extend(
-                    known
-                        .get(name)
-                        .into_iter()
-                        .flatten()
-                        .map(|(id, _)| id.clone()),
-                ),
+                crate::config::HarnessKind::Acp => {
+                    ids.extend(known.get(name).into_iter().flatten().map(|(id, _)| id.clone()))
+                }
                 crate::config::HarnessKind::Terminal => {}
             }
             if ids.contains(&spec)
@@ -88,11 +80,7 @@ fn hint_text(err: String, spec: &str, hits: &[String], claude_harness: Option<&s
 /// any other name (a typo, a model name): the bare error stays.
 fn missing_harness_step(spec: &str) -> Option<String> {
     let id = spec.split('/').next().unwrap_or(spec);
-    if id.is_empty()
-        || !id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-    {
+    if id.is_empty() || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
         return None;
     }
     if crate::harness_install::agent(id).is_ok() {
@@ -133,12 +121,9 @@ pub(super) fn looks_like_claude_model_id(spec: &str) -> bool {
     if rest.starts_with(|c: char| c.is_ascii_digit()) {
         return true;
     }
-    ["opus-", "sonnet-", "haiku-", "fable-"]
-        .iter()
-        .any(|family| {
-            rest.strip_prefix(family)
-                .is_some_and(|v| v.starts_with(|c: char| c.is_ascii_digit()))
-        })
+    ["opus-", "sonnet-", "haiku-", "fable-"].iter().any(|family| {
+        rest.strip_prefix(family).is_some_and(|v| v.starts_with(|c: char| c.is_ascii_digit()))
+    })
 }
 
 #[cfg(test)]
@@ -159,14 +144,9 @@ mod tests {
         ] {
             assert!(looks_like_claude_model_id(id), "{id}");
         }
-        for name in [
-            "claude-sr2",
-            "claude-sr2-pipe",
-            "claude",
-            "claude-opus",
-            "claude-work",
-            "claude-",
-        ] {
+        for name in
+            ["claude-sr2", "claude-sr2-pipe", "claude", "claude-opus", "claude-work", "claude-"]
+        {
             assert!(!looks_like_claude_model_id(name), "{name}");
         }
     }
@@ -177,10 +157,7 @@ mod tests {
         let out = hint_text(err, "claude-sr2", &[], Some("claude"));
         assert!(!out.contains("claude/claude-sr2"), "{out}");
         assert!(!out.contains("is a model id"), "{out}");
-        assert!(
-            out.contains("harness profile this host does not have"),
-            "{out}"
-        );
+        assert!(out.contains("harness profile this host does not have"), "{out}");
         assert!(out.contains("-m claude/claude-opus-5-5 -e medium"), "{out}");
         assert!(!out.contains("fable"), "{out}");
     }
@@ -190,21 +167,11 @@ mod tests {
         let codex = hint_text("unknown harness \"codex\"".into(), "codex", &[], None);
         assert!(codex.contains("`cmux harness install codex`"), "{codex}");
         let gemini = hint_text("unknown harness \"gemini\"".into(), "gemini", &[], None);
-        assert!(
-            gemini.contains("`cmux harness add gemini --example gemini`"),
-            "{gemini}"
-        );
+        assert!(gemini.contains("`cmux harness add gemini --example gemini`"), "{gemini}");
         for agent in ["grok", "cursor", "antigravity"] {
-            let out = hint_text(
-                format!("unknown harness {agent:?}"),
-                &format!("{agent}/x"),
-                &[],
-                None,
-            );
-            assert!(
-                out.contains(&format!("{agent:?} is not set up here")),
-                "{out}"
-            );
+            let out =
+                hint_text(format!("unknown harness {agent:?}"), &format!("{agent}/x"), &[], None);
+            assert!(out.contains(&format!("{agent:?} is not set up here")), "{out}");
             assert!(out.contains("`cmux harness add ID --registry`"), "{out}");
         }
         assert_eq!(hint_text("bad".into(), "a b", &[], None), "bad");
@@ -214,12 +181,7 @@ mod tests {
     fn real_model_id_still_suggests_claude_spelling() {
         assert!(looks_like_claude_model_id("claude-opus-5-5"));
         let hits = vec!["claude/claude-opus-5-5".to_owned()];
-        let out = hint_text(
-            "unknown harness".into(),
-            "claude-opus-5-5",
-            &hits,
-            Some("claude"),
-        );
+        let out = hint_text("unknown harness".into(), "claude-opus-5-5", &hits, Some("claude"));
         assert!(
             out.contains("\"claude-opus-5-5\" is a model id: write claude/claude-opus-5-5"),
             "{out}"
