@@ -150,8 +150,18 @@ except ValueError:
     d = None
 r = d[0] if isinstance(d, list) and d else d
 print(r.get("status", "") if isinstance(r, dict) else "")' 2>/dev/null)
-if [[ "$base_status" != stopped || "$(cat "$lume_home/$base.digest" 2>/dev/null)" != "$image_digest" ]]; then
-  # Only cu-driver-bench.sh pulls and checks the base (its digest pin); this run uses one it left.
+base_ok() { [[ "$(lume get "$base" -f json 2>/dev/null | python3 -I -c 'import json, sys
+d = json.load(sys.stdin); r = d[0] if isinstance(d, list) and d else d
+print(r.get("status", "") if isinstance(r, dict) else "")' 2>/dev/null)" == stopped && "$(cat "$lume_home/$base.digest" 2>/dev/null)" == "$image_digest" ]]; }
+if ! base_ok; then
+  # cu-driver-bench.sh pulls the base and checks it against the digest pin; its probe suite does only that
+  # (and one short boot of its own clone).
+  note "no checked base $base here (status '${base_status:-none}'): cu-driver-bench.sh suite=probe pulls it"
+  bash "$root/scripts/measure/cu-driver-bench.sh" suite=probe >"$out/bench-probe.log" 2>&1
+  note "cu-driver-bench.sh suite=probe exit $?"
+fi
+if ! base_ok; then
+  tail -20 "$out/bench-probe.log" 2>/dev/null
   finish "no checked base image $base on this worker (status '${base_status:-none}'): run cu-driver-bench.sh suite=probe here first"
   exit 4
 fi

@@ -106,7 +106,7 @@ static VZVirtualMachineConfiguration *make_config(Guest *g, uint64_t memMB, int 
   if (!cfg) return nil;
   NSData *hw = [[NSData alloc] initWithBase64EncodedString:cfg[@"hardwareModel"] ?: @"" options:0];
   NSData *mid = [[NSData alloc] initWithBase64EncodedString:cfg[@"machineIdentifier"] ?: @"" options:0];
-  VZMacPlatformConfiguration *p = [VZMacPlatformConfiguration new];
+  VZMacPlatformConfiguration *p = [[VZMacPlatformConfiguration alloc] init];
   p.hardwareModel = hw ? [[VZMacHardwareModel alloc] initWithDataRepresentation:hw] : nil;
   p.machineIdentifier = mid ? [[VZMacMachineIdentifier alloc] initWithDataRepresentation:mid] : nil;
   if (!p.hardwareModel || !p.machineIdentifier) {
@@ -114,20 +114,20 @@ static VZVirtualMachineConfiguration *make_config(Guest *g, uint64_t memMB, int 
     return nil;
   }
   p.auxiliaryStorage = [[VZMacAuxiliaryStorage alloc] initWithURL:[NSURL fileURLWithPath:[g.dir stringByAppendingPathComponent:@"nvram.bin"]]];
-  VZVirtualMachineConfiguration *c = [VZVirtualMachineConfiguration new];
+  VZVirtualMachineConfiguration *c = [[VZVirtualMachineConfiguration alloc] init];
   c.platform = p;
-  c.bootLoader = [VZMacOSBootLoader new];
+  c.bootLoader = [[VZMacOSBootLoader alloc] init];
   c.CPUCount = cpus;
   c.memorySize = memMB << 20;
-  VZMacGraphicsDeviceConfiguration *gr = [VZMacGraphicsDeviceConfiguration new];
+  VZMacGraphicsDeviceConfiguration *gr = [[VZMacGraphicsDeviceConfiguration alloc] init];
   gr.displays = @[ [[VZMacGraphicsDisplayConfiguration alloc] initWithWidthInPixels:1920 heightInPixels:1080 pixelsPerInch:80] ];
   c.graphicsDevices = @[ gr ];
   VZDiskImageStorageDeviceAttachment *disk =
       [[VZDiskImageStorageDeviceAttachment alloc] initWithURL:[NSURL fileURLWithPath:[g.dir stringByAppendingPathComponent:@"disk.img"]] readOnly:NO error:err];
   if (!disk) return nil;
   c.storageDevices = @[ [[VZVirtioBlockDeviceConfiguration alloc] initWithAttachment:disk] ];
-  VZVirtioNetworkDeviceConfiguration *net = [VZVirtioNetworkDeviceConfiguration new];
-  net.attachment = [VZNATNetworkDeviceAttachment new];
+  VZVirtioNetworkDeviceConfiguration *net = [[VZVirtioNetworkDeviceConfiguration alloc] init];
+  net.attachment = [[VZNATNetworkDeviceAttachment alloc] init];
   // A MAC of our own per folder (Lume's clones may share one), kept across save and restore.
   NSString *macFile = [g.dir stringByAppendingPathComponent:@"cud-mac.txt"];
   NSString *mac = [[NSString stringWithContentsOfFile:macFile encoding:NSUTF8StringEncoding error:nil] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -135,10 +135,10 @@ static VZVirtualMachineConfiguration *make_config(Guest *g, uint64_t memMB, int 
   net.MACAddress = [[VZMACAddress alloc] initWithString:mac];
   g.mac = mac;
   c.networkDevices = @[ net ];
-  c.keyboards = @[ [VZMacKeyboardConfiguration new] ];
-  c.pointingDevices = @[ [VZMacTrackpadConfiguration new] ];
-  c.entropyDevices = @[ [VZVirtioEntropyDeviceConfiguration new] ];
-  c.memoryBalloonDevices = @[ [VZVirtioTraditionalMemoryBalloonDeviceConfiguration new] ];
+  c.keyboards = @[ [[VZMacKeyboardConfiguration alloc] init] ];
+  c.pointingDevices = @[ [[VZMacTrackpadConfiguration alloc] init] ];
+  c.entropyDevices = @[ [[VZVirtioEntropyDeviceConfiguration alloc] init] ];
+  c.memoryBalloonDevices = @[ [[VZVirtioTraditionalMemoryBalloonDeviceConfiguration alloc] init] ];
   if (![c validateWithError:err]) return nil;
   if (![c validateSaveRestoreSupportWithError:err]) return nil;
   return c;
