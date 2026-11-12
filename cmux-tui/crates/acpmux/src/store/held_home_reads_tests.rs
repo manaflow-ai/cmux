@@ -616,6 +616,35 @@ fn the_lint_resolves_imported_fs_functions() {
             use crate::home_fs::{self as hfs, symlink_metadata};
             fn a(p: &Path) -> bool { symlink_metadata(p).is_ok() && hfs::metadata(p).is_ok() }
         }
+        mod test_only_fn {
+            use std::fs::*;
+            #[cfg(test)]
+            fn metadata(_: &Path) -> Option<u64> { None }
+            fn a(p: &Path) -> bool { metadata(p).is_ok() }
+        }
+        mod platform_fn {
+            use std::fs::*;
+            #[cfg(windows)]
+            fn exists(_: &Path) -> bool { true }
+            fn a(p: &Path) -> bool { exists(p).unwrap_or(false) }
+        }
+        mod platform_mod {
+            #[cfg(target_os = "macos")]
+            mod fs {
+                pub fn metadata(_: &Path) -> Option<u64> { None }
+            }
+            fn a(p: &Path) -> bool { fs::metadata(p).is_ok() }
+        }
+        mod platform_import {
+            #[cfg(windows)]
+            use crate::store::disk as fs;
+            fn a(p: &Path) -> bool { fs::metadata(p).is_ok() }
+        }
+        mod platform_std_import {
+            #[cfg(unix)]
+            use std::fs::symlink_metadata;
+            fn a(p: &Path) -> bool { symlink_metadata(p).is_ok() }
+        }
     "#;
     let file = syn::parse_file(fixture).unwrap();
     let rows: Vec<String> = rows_in("x.rs", &file)
@@ -633,6 +662,11 @@ fn the_lint_resolves_imported_fs_functions() {
             "fs::metadata(..)",
             "exists(..) (std::fs::exists)",
             "m(..) (std::fs::metadata)",
+            "metadata(..) (std::fs::metadata)",
+            "exists(..) (std::fs::exists)",
+            "fs::metadata(..)",
+            "fs::metadata(..)",
+            "symlink_metadata(..) (std::fs::symlink_metadata)",
         ],
     );
 }
