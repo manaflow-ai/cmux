@@ -21,8 +21,8 @@ final class TaskComposerCaptureUITests: UIStateCaptureCase {
     private static func type(_ app: XCUIApplication, _ text: String) -> String? {
         let field = any(app, "taskComposer.prompt")
         guard field.waitForExistence(timeout: 10) else { return "no prompt field" }
-        if !field.hasKeyboardFocus { field.tap() }
-        app.typeText(text)
+        field.tap()
+        field.typeText(text)
         return nil
     }
 
