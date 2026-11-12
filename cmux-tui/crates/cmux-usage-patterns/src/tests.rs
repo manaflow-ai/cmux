@@ -390,3 +390,98 @@ fn a_writer_without_a_watch_that_waits_for_its_write_stops_counting_at_that_writ
     }
     stop_writer(&recorder, &stop, writer);
 }
+
+/// A recorder counting into `dir/out` and its writer thread, which writes
+/// only an hour after a count: what a stop finds is unwritten.
+fn recorder_with_writer(
+    dir: &Path,
+    on: bool,
+) -> (Arc<Recorder>, Arc<AtomicBool>, std::thread::JoinHandle<()>) {
+    let recorder = Arc::new(Recorder::open(&dir.join("out"), "session-a", config(dir, on)));
+    let stop = Arc::new(AtomicBool::new(false));
+    let writer = {
+        let recorder = Arc::clone(&recorder);
+        let stop = Arc::clone(&stop);
+        std::thread::spawn(move || {
+            recorder.run_writer(Duration::from_secs(3600), &|| stop.load(Ordering::Relaxed));
+        })
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !recorder.wake.writer.load(Ordering::Acquire) {
+        assert!(Instant::now() < deadline, "the writer thread did not start");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    (recorder, stop, writer)
+}
+
+/// The stop's last write runs on another thread; the result, or None when it
+/// did not return within `within`.
+fn stop_flush(recorder: &Arc<Recorder>, within: Duration) -> Option<(bool, Duration)> {
+    let (sent, got) = std::sync::mpsc::channel();
+    let recorder = Arc::clone(recorder);
+    std::thread::spawn(move || {
+        let started = Instant::now();
+        let written = recorder.flush_within(STOP_FLUSH_WAIT);
+        let _ = sent.send((written, started.elapsed()));
+    });
+    got.recv_timeout(within).ok()
+}
+
+/// A stop writes the counts its daemon made since the last write, at once
+/// (the writer thread would write them only after its interval).
+#[test]
+fn a_stop_writes_the_unwritten_counts_at_once() {
+    let dir = scratch("stop-writes");
+    let (recorder, stop, writer) = recorder_with_writer(&dir, true);
+    recorder.count("command", "split");
+    let (written, took) = stop_flush(&recorder, Duration::from_secs(5)).expect("the stop returned");
+    assert!(written, "the stop did not write");
+    assert!(took <= STOP_FLUSH_WAIT, "the stop took {took:?}");
+    assert_eq!(read_dir(&dir.join("out")).rollup.counts["command"]["split"], 1);
+    stop.store(true, Ordering::Relaxed);
+    recorder.wake_writer();
+    writer.join().unwrap();
+}
+
+/// With counting off a stop writes nothing: no file appears.
+#[test]
+fn a_stop_with_counting_off_writes_nothing() {
+    let dir = scratch("stop-off");
+    let (recorder, stop, writer) = recorder_with_writer(&dir, false);
+    recorder.count("command", "split");
+    let (written, _) = stop_flush(&recorder, Duration::from_secs(5)).expect("the stop returned");
+    assert!(written);
+    assert!(!recorder.path().exists(), "a stop with counting off wrote a file");
+    assert!(!dir.join("out").exists(), "a stop with counting off made the folder");
+    stop.store(true, Ordering::Relaxed);
+    recorder.wake_writer();
+    writer.join().unwrap();
+}
+
+/// A disk that does not answer (here a pipe nobody reads, where the write's
+/// open blocks) costs a stop at most [`STOP_FLUSH_WAIT`]: the stop returns
+/// false and only the unwritten counts are lost. The stop used to write on
+/// its own thread and waited on such a disk for as long as it did not answer.
+#[test]
+fn a_stop_waits_on_a_disk_that_does_not_answer_at_most_its_bound() {
+    let dir = scratch("stop-stalled");
+    let (recorder, stop, writer) = recorder_with_writer(&dir, true);
+    std::fs::create_dir_all(dir.join("out")).unwrap();
+    let staged = recorder.path().with_extension("json.tmp");
+    let made = std::process::Command::new("mkfifo").arg(&staged).status().unwrap();
+    assert!(made.success(), "mkfifo failed");
+    recorder.count("command", "split");
+    let returned = stop_flush(&recorder, Duration::from_secs(5));
+    // Let the stalled write finish: a reader opens the pipe and drains it.
+    let drain = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut std::fs::File::open(&staged).unwrap(), &mut bytes);
+    });
+    let (written, took) = returned.expect("the stop waited on the stalled disk past 5 s");
+    assert!(!written, "the stop said the counts were written");
+    assert!(took < STOP_FLUSH_WAIT + Duration::from_secs(1), "the stop took {took:?}");
+    drain.join().unwrap();
+    stop.store(true, Ordering::Relaxed);
+    recorder.wake_writer();
+    writer.join().unwrap();
+}

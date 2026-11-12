@@ -35,7 +35,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -58,6 +58,11 @@ pub const MAX_WRITERS: usize = 64;
 pub const OTHER: &str = "other";
 /// How often a changed rollup is written.
 pub const FLUSH_EVERY: Duration = Duration::from_secs(30);
+/// How long a stopping daemon waits for its last counts to be written
+/// ([`flush`]). The write is one small file (the rollup is bounded), so it
+/// normally takes well under a millisecond; a disk that does not answer costs
+/// a stop this much and no more, and loses only those last counts.
+pub const STOP_FLUSH_WAIT: Duration = Duration::from_millis(250);
 const VERSION: u32 = 1;
 const FILE_SUFFIX: &str = ".json";
 
@@ -361,11 +366,19 @@ struct State {
 }
 
 /// What the writer thread waits on: a count made the rollup dirty, or the
-/// setting changed.
+/// setting changed, or a stop asked for its last write.
 #[derive(Default)]
 struct Wake {
     pending: Mutex<bool>,
     changed: Condvar,
+    /// A writer thread runs [`Recorder::run_writer`]: a stop asks it for the
+    /// last write instead of writing on the stopping thread.
+    writer: AtomicBool,
+    /// Last writes asked for by a stop ([`Recorder::flush_within`]).
+    asked: AtomicU64,
+    /// The newest ask the writer thread wrote for.
+    served: Mutex<u64>,
+    written: Condvar,
 }
 
 impl Recorder {
@@ -459,6 +472,8 @@ impl Recorder {
     /// waiting for.
     /// Returns only when `stop` says so (tests); the installed one never does.
     pub fn run_writer(&self, flush_every: Duration, stop: &dyn Fn() -> bool) {
+        self.wake.writer.store(true, Ordering::Release);
+        let mut served = 0;
         loop {
             {
                 let pending =
@@ -471,15 +486,17 @@ impl Recorder {
                 *pending = false;
             }
             if stop() {
+                self.wake.writer.store(false, Ordering::Release);
                 return;
             }
-            // Awake for a count or a setting change. A recorder whose watch
-            // did not start ([`watch_gate`] gave None) has no other reader of
-            // the setting, so it is reread here and before the timed write.
+            // Awake for a count, a setting change or a stop's ask. A recorder
+            // whose watch did not start ([`watch_gate`] gave None) has no
+            // other reader of the setting, so it is reread here and before
+            // the timed write.
             self.refresh_gate();
-            // Counting stopped: write what was counted now.
-            if !self.enabled() {
-                let _ = self.flush();
+            // Counting stopped, or a stop asked: write what was counted now.
+            if !self.enabled() || self.wake.asked.load(Ordering::Acquire) != served {
+                served = self.writer_flush();
                 continue;
             }
             let since = {
@@ -493,7 +510,9 @@ impl Recorder {
             let (mut pending, _) = self
                 .wake
                 .changed
-                .wait_timeout_while(pending, wait, |_| self.enabled() && !stop())
+                .wait_timeout_while(pending, wait, |_| {
+                    self.enabled() && !stop() && self.wake.asked.load(Ordering::Acquire) == served
+                })
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             // The write below takes every count made so far, the ones that
             // woke this wait included.
@@ -503,8 +522,47 @@ impl Recorder {
             // wait. The thread is awake for the write, so this adds no wake;
             // an unchanged file costs one `metadata` call.
             self.refresh_gate();
-            let _ = self.flush();
+            served = self.writer_flush();
         }
+    }
+
+    /// The writer thread's write: every count made before the newest stop's
+    /// ask is in it, so that stop may return. Returns the ask it served.
+    fn writer_flush(&self) -> u64 {
+        let asked = self.wake.asked.load(Ordering::Acquire);
+        let _ = self.flush();
+        let mut served = self.wake.served.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        *served = (*served).max(asked);
+        drop(served);
+        self.wake.written.notify_all();
+        asked
+    }
+
+    /// Writes the rollup for a stopping process, waiting at most `limit`.
+    /// With a writer thread the write runs there, so a disk that does not
+    /// answer holds that thread, not the stop; without one it runs here.
+    /// True when the write finished within `limit` (or nothing was left to
+    /// write); false when it did not, and then only the counts it carried are
+    /// lost. A failed write is ignored here, as every write's error is.
+    /// Nothing is written, and nothing waits, when no count is unwritten
+    /// (counting off).
+    pub fn flush_within(&self, limit: Duration) -> bool {
+        let dirty = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).dirty;
+        if !dirty {
+            return true;
+        }
+        if !self.wake.writer.load(Ordering::Acquire) {
+            return self.flush().is_ok();
+        }
+        let asked = self.wake.asked.fetch_add(1, Ordering::AcqRel) + 1;
+        self.wake_writer();
+        let served = self.wake.served.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (served, _) = self
+            .wake
+            .written
+            .wait_timeout_while(served, limit, |served| *served < asked)
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        *served >= asked
     }
 
     /// A copy of what this recorder holds now.
@@ -673,13 +731,15 @@ pub fn enabled() -> bool {
     GLOBAL.get().is_some_and(|recorder| recorder.enabled())
 }
 
-/// Writes this process's rollup now. Both daemons call it as they stop (a
-/// graceful shutdown, an update's SIGTERM): the writer thread writes a count
-/// up to [`FLUSH_EVERY`] after it was made, so the last counts would be lost
-/// with the process otherwise.
+/// Writes this process's rollup now, waiting at most [`STOP_FLUSH_WAIT`]
+/// ([`Recorder::flush_within`]). Both daemons call it as they stop (a graceful
+/// shutdown, an update's SIGTERM): the writer thread writes a count up to
+/// [`FLUSH_EVERY`] after it was made, so the last counts would be lost with
+/// the process otherwise. With counting off it writes nothing and waits for
+/// nothing.
 pub fn flush() {
     if let Some(recorder) = GLOBAL.get() {
-        let _ = recorder.flush();
+        let _ = recorder.flush_within(STOP_FLUSH_WAIT);
     }
 }
 
