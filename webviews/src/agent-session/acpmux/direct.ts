@@ -13435,6 +13435,8 @@ export class AcpmuxDirectClient {
       turnTokenSplit: this.turnTokenSplit,
       streamingAssistant: this.streamingAssistant,
       streamingAssistantMessageId: this.streamingAssistantMessageId,
+      // The live reply's segment (`replySegment`): the page's chunks never take its place.
+      streamingSegment: this.streamingSegment,
       assistantCut: this.assistantCut,
       streamingActivity: this.streamingActivity,
       planRow: this.planRow,
@@ -13479,6 +13481,7 @@ export class AcpmuxDirectClient {
     this.lastReplyRow = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
+    this.streamingSegment = undefined;
     this.assistantCut = false;
     this.streamingActivity = undefined;
     this.planRow = undefined;
