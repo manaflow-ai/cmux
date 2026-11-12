@@ -15,8 +15,8 @@ enum DiffHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let service = context.services.viewers.diffPages
         context.services.pages.register(service)
-        // An agent's turn ended: its repository's diff is precomputed once someone can see the chat (`whenSeen`).
-        AgentTurnStateStore.shared.turnEndedObservers.append { [weak service] session, folder in context.services.agentTabs.views.values.whenSeen(session: session, "diffWarm") { service?.warm(folder: folder) } }
+        // An agent's turn ended: its repository's diff is precomputed once someone can see the chat (`whenSeen`); a chat with no pane owes it to its next one.
+        AgentTurnStateStore.shared.turnEndedObservers.append { [weak service, weak services = context.services] session, folder in (services?.madeAgentTabs.map { Array($0.views.values) + $0.standaloneViews.allObjects } ?? []).whenSeen(session: session, "diffWarm") { service?.warm(folder: folder) } }
         for (action, command) in DiffPageCommand.forAction {
             registry.bind(ActionID(rawValue: action), run: { invocation in
                 guard let tab = context.scope(invocation).tab, let page = service.pageView(tab.id.rawValue) else {

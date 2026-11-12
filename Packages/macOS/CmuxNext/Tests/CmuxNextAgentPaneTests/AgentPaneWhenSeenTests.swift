@@ -69,4 +69,42 @@ struct AgentPaneWhenSeenTests {
         #expect(ran == 1)
         #expect(views[2].shownPushes.owedNames.isEmpty, "another chat's pane owes the work")
     }
+
+    /// A chat nobody looks at often has no pane: its page was released to save memory, or no tab
+    /// shows it yet. Its work is the chat's debt, and the pane made when the person comes takes it.
+    @Test func aChatWithNoPaneOwesItsWorkToThePaneMadeLater() async throws {
+        let owed = AgentPaneOwedWork()
+        var ran: [String] = []
+
+        // Two turns end while the chat has no pane.
+        for turn in 1...2 { owed.owe(session: "chat-a", "diffWarm", in: [AgentPaneView]()) { ran.append("turn \(turn)") } }
+        await Self.turns()
+        #expect(ran.isEmpty, "a chat with no pane ran \(ran)")
+        #expect(owed.owedSessions == ["chat-a"], "the chat owes one piece of work, the newest")
+
+        // The person comes to the chat: the tab store makes its pane and hands it the debt.
+        let views = try [Self.view(session: "chat-b"), Self.view(session: "chat-a")]
+        for view in views { view.shownPushes.isHidden = { _ in false } }
+        owed.hand(to: views)
+        #expect(views[0].shownPushes.owedNames.isEmpty, "another chat's pane took the work")
+        await Self.turns()
+        #expect(ran == ["turn 2"])
+        #expect(owed.owedSessions.isEmpty, "the work that ran is still owed")
+
+        // A second pane of the chat finds nothing to run.
+        let later = try Self.view(session: "chat-a")
+        later.shownPushes.isHidden = { _ in false }
+        owed.hand(to: [later])
+        await Self.turns()
+        #expect(ran == ["turn 2"], "the work ran again")
+    }
+
+    /// Chats that never get a pane again cannot grow the debts without end: the oldest go first.
+    @Test func theDebtsOfChatsWithNoPaneAreBounded() {
+        let owed = AgentPaneOwedWork()
+        for chat in 0...AgentPaneOwedWork.limit { owed.owe(session: "chat-\(chat)", "diffWarm", in: [AgentPaneView]()) {} }
+        #expect(owed.owedSessions.count == AgentPaneOwedWork.limit)
+        #expect(owed.owedSessions.first == "chat-1", "the oldest debt was not the one dropped")
+        #expect(owed.owedSessions.last == "chat-\(AgentPaneOwedWork.limit)")
+    }
 }
