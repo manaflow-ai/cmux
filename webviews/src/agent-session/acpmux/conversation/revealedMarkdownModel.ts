@@ -129,14 +129,12 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
         state.grewAt = now;
       }
       const raw = current.advance(target, now, !live);
-      const historicalReplacement = current.wasHistoricalReplacement;
       // A word shows once it is whole, never a letter at a time (#22339); the reveal's own count
       // runs on, so a word that completes shows at once. The last word counts as whole once text
       // stops arriving: before a tool call it has no space after it, and the agent may work on the
       // call for seconds.
       const paused = now - state.grewAt! >= StreamReveal.stallMs;
       let length = reduce.current ? raw : wordEdge(target, raw, !live || paused, before.length);
-      if (historicalReplacement) length = target.length;
       // After `advance`, which takes in the text received meanwhile: all of it shows.
       if (away) {
         current.flush();
@@ -145,7 +143,7 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
       // Nothing fades in on return, including the steps that were fading as the page hid.
       const fadeMs = freshFadeMs();
       const fresh = away ? [] : before.fresh.filter((step) => now - step.born < fadeMs);
-      if (length > before.length && !reduce.current && !away && !historicalReplacement)
+      if (length > before.length && !reduce.current && !away)
         fresh.push({ id: (nextId.current += 1), count: length - before.length, born: now });
       // A frame that only waits out a held last word commits nothing.
       if (length !== before.length || fresh.length || before.fresh.length) {

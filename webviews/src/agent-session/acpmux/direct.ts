@@ -12230,6 +12230,9 @@ export class AcpmuxDirectClient {
     // (`shownRowsToKeep`). The host's tail or the Mac's copy may hold fewer rows than are shown,
     // which would leave and come back.
     const onScreen = this.drawn?.sessionId === sessionId && this.drawn.rows.length > 0;
+    // Refresh the loaded transcript, not its bounded 400-record cache. Capture before changing
+    // the selection generation or resetting events so older visible replies survive a slow attach.
+    const fullRefreshTail = onScreen && previousSessionId === sessionId ? this.currentTail(true) : undefined;
     // The chat being left is kept for its own next open, while it is still the selected one.
     this.rememberCurrentTail();
     // The tail of a chat that left the list while drawn (`selectFallbackSession`), taken once.
@@ -12252,9 +12255,8 @@ export class AcpmuxDirectClient {
     this.resetSessionState("select");
     // A chat this page read already draws from what that visit left, on the frame the switch lands;
     // its attach lays what acpmux holds now over that (Leo: "instant if cached").
-    let keptThrough = this.drawKeptTail(sessionId);
-    // Listed again while held: its rows come back from what this page read, older pages too.
-    if (keptThrough === 0 && onScreen && leftTail) keptThrough = this.drawKeptTail(sessionId, leftTail);
+    // Listed again while held also prefers its full loaded tail, including older pages.
+    let keptThrough = this.drawKeptTail(sessionId, fullRefreshTail ?? (onScreen ? leftTail : undefined));
     if (keptThrough === 0 && !onScreen) {
       // A chat this page never read, which another tab did: the host's tail draws it here too. It
       // costs one in-process round trip, where the attach it stands in for is a daemon one. A

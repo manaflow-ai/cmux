@@ -47,11 +47,6 @@ export class StreamReveal {
   private smoothedRate = 0;
   private drainUntil: number | undefined;
   private reduceMotion: boolean;
-  /// A reconnect or page swap can briefly replay a shorter prefix of a completed reply. Keep the
-  /// replacement synchronous when the full text returns instead of treating it as new streaming
-  /// text and revealing the reply from the top again.
-  private replacementFloor: number | undefined;
-  private replacementFrame = false;
 
   constructor(options: StreamRevealOptions = {}) {
     this.shown = options.initial?.length ?? 0;
@@ -62,11 +57,6 @@ export class StreamReveal {
   /// Whether everything known so far shows.
   get settled(): boolean {
     return Math.floor(this.shown) >= this.received;
-  }
-
-  /// Whether the last advance handled a snapshot replacement rather than live growth.
-  get wasHistoricalReplacement(): boolean {
-    return this.replacementFrame;
   }
 
   /// Shows everything now (a hidden page, a session switch).
@@ -98,25 +88,6 @@ export class StreamReveal {
 
   /// The visible length of `text` for the frame at `now` (ms); `done` when the stream ended.
   advance(text: string, now: number, done: boolean): number {
-    this.replacementFrame = false;
-    if (text.length < this.received) {
-      this.replacementFloor = this.received;
-      this.shown = text.length;
-      this.received = text.length;
-      this.arrivals = [];
-      this.gaps = [];
-      this.lastArrival = undefined;
-      this.drainUntil = undefined;
-      this.replacementFrame = true;
-      return text.length;
-    }
-    if (this.replacementFloor !== undefined) {
-      this.received = text.length;
-      this.shown = text.length;
-      this.replacementFrame = true;
-      if (text.length >= this.replacementFloor) this.replacementFloor = undefined;
-      return text.length;
-    }
     const elapsed =
       this.lastFrame === undefined ? 0 : Math.min(StreamReveal.maxFrameMs, Math.max(0, now - this.lastFrame));
     this.lastFrame = now;
