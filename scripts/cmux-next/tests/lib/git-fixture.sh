@@ -29,6 +29,28 @@
 
 _git_fixture_opt_out=(maintenance.auto=false gc.auto=0 receive.autogc=false)
 
+# Variables that point git at another repository, index, object store or config file (GIT_DIR, GIT_INDEX_FILE,
+# GIT_CONFIG and so on): a test run from inside a git hook inherits them, and a fixture's `git -C "$tmp" commit`
+# then writes the hook's repository. Same rule as tests/git_fixture_env.py REPO_REDIRECTS: git's own list
+# (`git rev-parse --local-env-vars`) without the -c pairs (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT), unset here
+# for everything this shell runs.
+_git_fixture_redirects=()
+if _git_fixture_names=$(env -u GIT_DIR -u GIT_WORK_TREE -u GIT_COMMON_DIR git rev-parse --local-env-vars 2>/dev/null) \
+  && [[ -n "$_git_fixture_names" ]]; then
+  read -r -d '' -a _git_fixture_redirects <<<"$_git_fixture_names" || true
+else
+  _git_fixture_redirects=(GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CONFIG GIT_OBJECT_DIRECTORY GIT_DIR GIT_WORK_TREE
+    GIT_IMPLICIT_WORK_TREE GIT_GRAFT_FILE GIT_INDEX_FILE GIT_NO_REPLACE_OBJECTS GIT_REPLACE_REF_BASE GIT_PREFIX
+    GIT_SHALLOW_FILE GIT_COMMON_DIR)
+fi
+for _git_fixture_name in "${_git_fixture_redirects[@]}"; do
+  case "$_git_fixture_name" in
+    GIT_CONFIG_PARAMETERS | GIT_CONFIG_COUNT) ;;
+    *) unset "$_git_fixture_name" ;;
+  esac
+done
+unset _git_fixture_names _git_fixture_name _git_fixture_redirects
+
 _git_fixture_count=${GIT_CONFIG_COUNT:-0}
 for _git_fixture_pair in "${_git_fixture_opt_out[@]}"; do
   export "GIT_CONFIG_KEY_${_git_fixture_count}=${_git_fixture_pair%%=*}" \
@@ -40,46 +62,114 @@ unset _git_fixture_count _git_fixture_pair
 
 # git_fixture_trap_exit CMD: run CMD at exit, as `trap CMD EXIT` would (it replaces the previous CMD), and still
 # remove this file's folder first. The script's exit status is kept for CMD ($?) and for the shell.
+# The caller's action lives in its own variable, never in the trap text, and the dispatcher evals that variable.
+# `trap -p` (the wrapper below) prints the caller's action, not the dispatcher, so `saved=$(trap -p EXIT); trap -
+# EXIT; eval "$saved"` brings the cleared action back (review of hq#9715 F2: printing the dispatcher lost it). The
+# dispatcher text itself, saved through `builtin trap -p`, is never kept as the action: the trap would eval itself
+# until bash segfaulted (review of hq#9676 F1); that restore keeps the current action.
 git_fixture_trap_exit() {
+  [[ "$1" == "$_git_fixture_exit_trap" ]] && return 0
   _git_fixture_caller_exit=$1
 }
 
+# The pid of the shell that calls `$(_git_fixture_pid)`, what bash 4+ calls $BASHPID. macOS's /bin/bash is 3.2, which
+# has no BASHPID, and a `set -u` caller died sourcing this file (review of hq#9715 F1). The command substitution's
+# process execs sh, so sh's parent is the calling shell, a subshell included.
+_git_fixture_pid() { exec sh -c 'echo "$PPID"'; }
+
 # Removes the folder; the caller's cleanup then runs from the trap itself (not inside this function), so it sees the
 # script's own positional parameters, as a direct `trap CMD EXIT` would.
-# Only the shell that made the folder removes it: an EXIT trap a subshell sets must not delete it under us (cmux#41021).
+# Every folder this file made, as PID:PATH (_git_fixture_pid of the shell that made it): a second source after
+# GIT_CONFIG_GLOBAL is unset adds one, and each is removed (cmux#41021 review F2). Only the shell that made a folder
+# removes it: an EXIT trap a subshell sets must not delete it under us (cmux#41021). Never fails: a failed rm only
+# warns.
 _git_fixture_remove_dir() {
-  [[ "$BASH_SUBSHELL" == "${_git_fixture_owner_depth-}" ]] || return 0
-  [[ -z "$_git_fixture_cleanup_dir" ]] || rm -rf -- "$_git_fixture_cleanup_dir"
+  local entry pid
+  pid=$(_git_fixture_pid)
+  for entry in ${_git_fixture_cleanup_dirs[@]+"${_git_fixture_cleanup_dirs[@]}"}; do
+    [[ "${entry%%:*}" == "$pid" ]] || continue
+    rm -rf -- "${entry#*:}" || echo "git-fixture.sh: could not remove ${entry#*:}" >&2
+  done
+  return 0
 }
-_git_fixture_exit_trap='_git_fixture_status=$?; _git_fixture_remove_dir; (exit "$_git_fixture_status"); eval "${_git_fixture_caller_exit:-:}"'
+_git_fixture_return() { return "$1"; }
+# The exit trap: save the script's status first, turn errexit off (a test that failed under `set -e` would otherwise
+# end the trap at its first failing step, before the caller's cleanup ran: Codex F1 on cmux#41195), remove the
+# folders, run the caller's action with $? set back to the saved status by a function's return (not a subshell's
+# exit), then exit with that status (cmux#41021 review F1). An `exit` in the caller's action still wins.
+_git_fixture_exit_trap='_git_fixture_status=$?; set +e; _git_fixture_remove_dir; _git_fixture_return "$_git_fixture_status"; eval "${_git_fixture_caller_exit:-:}"; exit "$_git_fixture_status"'
+
+# Arms EXIT in this shell and records which shell that is.
+_git_fixture_arm_exit() {
+  _git_fixture_armed_pid=$(_git_fixture_pid)
+  builtin trap -- "$_git_fixture_exit_trap" EXIT
+}
 
 # Once per shell (a second source keeps the first folder and caller cleanup): the caller's exit cleanup starts as
-# what was trapped on EXIT before sourcing, then git_fixture_trap_exit replaces it.
-_git_fixture_previous_exit=$(trap -p EXIT)
-if [[ "$_git_fixture_previous_exit" != *_git_fixture_remove_dir* ]]; then
-  _git_fixture_caller_exit=${_git_fixture_previous_exit#trap -- }
-  eval "_git_fixture_caller_exit=${_git_fixture_caller_exit% EXIT}"
-  _git_fixture_cleanup_dir=
-  # shellcheck disable=SC2064  # expand the variable now: it holds the trap text, whose $? expands at exit
-  builtin trap -- "$_git_fixture_exit_trap" EXIT
+# what was trapped on EXIT before sourcing, then git_fixture_trap_exit replaces it. "This shell" is its pid, not
+# the trap text: a subshell still shows its parent's trap text but runs no EXIT trap until it sets one, so a guard on
+# the text never armed `(unset GIT_CONFIG_GLOBAL; source lib)` and left that subshell's folder (review of hq#9676
+# F2). The parent's action is not the subshell's: inherited dispatcher text starts it empty.
+_git_fixture_shell_pid=$(_git_fixture_pid)
+if [[ "${_git_fixture_armed_pid-}" != "$_git_fixture_shell_pid" ]]; then
+  _git_fixture_previous_exit=$(builtin trap -p EXIT)
+  if [[ "$_git_fixture_previous_exit" == *_git_fixture_remove_dir* ]]; then
+    _git_fixture_caller_exit=
+  else
+    _git_fixture_caller_exit=${_git_fixture_previous_exit#trap -- }
+    eval "_git_fixture_caller_exit=${_git_fixture_caller_exit% EXIT}"
+  fi
+  _git_fixture_cleanup_dirs=()
+  _git_fixture_arm_exit
+  unset _git_fixture_previous_exit
 fi
-unset _git_fixture_previous_exit
+
+# The caller's EXIT action as `trap -p` prints one (nothing when there is none), so eval of it restores the action.
+_git_fixture_print_exit() {
+  local q="'\\''" action
+  [[ -n "${_git_fixture_caller_exit-}" ]] || return 0
+  action=${_git_fixture_caller_exit//\'/$q}
+  printf "trap -- '%s' EXIT\n" "$action"
+}
+
+# `trap -p [SIGNAL...]`: the builtin's listing, with the caller's EXIT action in place of the helper's dispatcher.
+_git_fixture_trap_p() {
+  local listing signal status=0
+  if (( $# == 0 )); then
+    listing=$(builtin trap -p)
+    listing=${listing/"trap -- '$_git_fixture_exit_trap' EXIT"/}
+    _git_fixture_print_exit
+    listing=${listing#$'\n'}
+    listing=${listing//$'\n\n'/$'\n'}
+    [[ -z "$listing" ]] || printf '%s\n' "$listing"
+    return 0
+  fi
+  for signal in "$@"; do
+    case "$signal" in
+      EXIT | 0 | SIGEXIT) _git_fixture_print_exit ;;
+      *) builtin trap -p "$signal" || status=$? ;;
+    esac
+  done
+  return "$status"
+}
 
 # Most tests used to set their own `trap ... EXIT` after sourcing this file, which replaced the cleanup above and
 # left one folder per run (cmux#41021). So `trap` keeps it: an EXIT action goes to git_fixture_trap_exit (it runs
 # right after the folder is removed), `trap - EXIT`, `trap '' EXIT` or `trap EXIT` clear only that action, and the
-# helper's trap is set again (a subshell starts without it). Every other use goes straight to the builtin.
+# helper's trap is set again (a subshell starts without it); `trap -p` prints the caller's EXIT action, not the
+# helper's. Every other use goes straight to the builtin.
 # shellcheck disable=SC2064  # "$@" is the caller's own trap text, passed through unchanged
 trap() {
   local _git_fixture_action _git_fixture_signal _git_fixture_exit=0
   local -a _git_fixture_other=()
   case "${1-}" in
-    -p | -l | -lp | -pl) builtin trap "$@"; return ;;
+    -p) shift; _git_fixture_trap_p "$@"; return ;;
+    -l | -lp | -pl) builtin trap "$@"; return ;;
     --) shift ;;
   esac
   if (( $# == 1 )); then
     case "$1" in
-      EXIT | 0 | SIGEXIT) git_fixture_trap_exit ''; builtin trap -- "$_git_fixture_exit_trap" EXIT; return ;;
+      EXIT | 0 | SIGEXIT) git_fixture_trap_exit ''; _git_fixture_arm_exit; return ;;
       *) builtin trap -- "$@"; return ;;
     esac
   fi
@@ -100,7 +190,7 @@ trap() {
     -) git_fixture_trap_exit '' ;;
     *) git_fixture_trap_exit "$_git_fixture_action" ;;
   esac
-  builtin trap -- "$_git_fixture_exit_trap" EXIT
+  _git_fixture_arm_exit
 }
 
 # Only when unset: an empty GIT_CONFIG_GLOBAL means "no global config" and is kept (Codex F2 on cmux#40871).
@@ -113,16 +203,16 @@ if [[ -z "${GIT_CONFIG_GLOBAL+x}" ]]; then
     echo "git-fixture.sh: $_git_fixture_py --global-config-text failed; the fixture GIT_CONFIG_GLOBAL holds the opt-out alone" >&2
     _git_fixture_text=$'[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[receive]\n\tautogc = false'
   fi
-  if _git_fixture_cleanup_dir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-git-fixture.XXXXXXXX"); then
-    printf '%s\n' "$_git_fixture_text" >"$_git_fixture_cleanup_dir/global.gitconfig"
-    export GIT_CONFIG_GLOBAL="$_git_fixture_cleanup_dir/global.gitconfig"
-    _git_fixture_owner_depth=$BASH_SUBSHELL
+  if _git_fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-git-fixture.XXXXXXXX"); then
+    _git_fixture_cleanup_dirs+=("$_git_fixture_shell_pid:$_git_fixture_dir")
+    printf '%s\n' "$_git_fixture_text" >"$_git_fixture_dir/global.gitconfig"
+    export GIT_CONFIG_GLOBAL="$_git_fixture_dir/global.gitconfig"
   else
-    _git_fixture_cleanup_dir=
     echo "git-fixture.sh: mktemp -d failed; no fixture GIT_CONFIG_GLOBAL (repo config and env still opt out)" >&2
   fi
-  unset _git_fixture_text _git_fixture_py
+  unset _git_fixture_text _git_fixture_py _git_fixture_dir
 fi
+unset _git_fixture_shell_pid
 
 # Quiet git that still says why when it fails: a bare exit 128 told nobody which call broke.
 git_q() {
@@ -137,8 +227,23 @@ git_fixture_init() {
   local dir=${!#} pair
   git_q init -q "$@" || return
   for pair in "${_git_fixture_opt_out[@]}"; do
-    git_q -C "$dir" config "${pair%%=*}" "${pair#*=}" || return
+    _git_fixture_write_config "$dir" "${pair%%=*}" "${pair#*=}" || return
   done
+}
+
+# _git_fixture_write_config DIR KEY VALUE: `git config --local` in DIR with no redirect, no inherited -c pair and no
+# global or system config (tests/git_fixture_env.py write_env), so nothing the caller set takes the write.
+_git_fixture_write_config() {
+  local name err status=0
+  local -a strip=(-u GIT_CONFIG -u GIT_CONFIG_SYSTEM -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT -u GIT_DIR
+    -u GIT_WORK_TREE -u GIT_COMMON_DIR -u GIT_INDEX_FILE)
+  for name in $(compgen -e); do
+    [[ "$name" == GIT_CONFIG_KEY_* || "$name" == GIT_CONFIG_VALUE_* ]] && strip+=(-u "$name")
+  done
+  err=$(env "${strip[@]}" GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    git -C "$1" config --local "$2" "$3" 2>&1 >/dev/null) || status=$?
+  (( status == 0 )) || printf 'git config --local %s in %s: exit %d\n%s\n' "$2" "$1" "$status" "$err" >&2
+  return "$status"
 }
 
 # git_fixture_clone [git clone options...] SOURCE DEST: the clone's config gets the opt-out before it runs.
