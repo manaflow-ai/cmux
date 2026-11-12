@@ -496,11 +496,18 @@ impl Hub {
                 true
             });
             let mut state = session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner());
-            if tail.is_ok() && !state.initialized {
+            let installed = tail.is_ok() && !state.initialized;
+            if installed {
                 seeded.initialized = true;
                 *state = seeded;
             }
             state.seeding = false;
+            drop(state);
+            drop(_append);
+            // The chat pane and its census row carry the breakdown without waiting for a record.
+            if installed {
+                self.row_notice(session, "time_breakdown");
+            }
         } else {
             session.time_breakdown.lock().unwrap_or_else(|e| e.into_inner()).seeding = false;
         }
