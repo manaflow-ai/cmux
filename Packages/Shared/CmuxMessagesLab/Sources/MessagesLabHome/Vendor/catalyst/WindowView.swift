@@ -2580,13 +2580,15 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     }
 
     /// cmux: the red "!" beside my Not Delivered bubble (PartRenderer.draw: 14 pt left of the body's
-    /// vertical middle, 16 pt across). Its hit is 28 pt square, so the small mark is easy to press
-    /// (Lawrence 2026-11-12: the mark took no click, so the send could not be retried or deleted).
+    /// vertical middle, 16 pt across). Its hit is 40 pt tall (the desktop minimum) and runs from 34 pt
+    /// left of the body to 4 pt left of it, where the bubble's own hit (body ±4 pt) starts, so the
+    /// two never overlap (Lawrence 2026-11-12: the mark took no click, so the send could not be
+    /// retried or deleted).
     func failedMarkHit(_ p: CGPoint) -> Hit? {
         func check(_ spec: RowSpec, _ toSelf: (CGRect) -> CGRect) -> Hit? {
             guard case let .part(row) = spec.kind, row.failed else { return nil }
             let body = toSelf(RowDraw.bodyRect(spec))
-            let mark = CGRect(x: body.minX - 14 - 14, y: body.midY - 14, width: 28, height: 28)
+            let mark = CGRect(x: body.minX - 34, y: body.midY - 20, width: 30, height: 40)
             guard mark.contains(p) else { return nil }
             return Hit(row: row, body: body, key: spec.key, outline: toSelf(RowDraw.balloon(RowDraw.bodyRect(spec), row: row, scale: renderScale)))
         }
