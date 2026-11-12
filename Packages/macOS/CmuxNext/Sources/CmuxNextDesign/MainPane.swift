@@ -139,21 +139,19 @@ extension Metrics {
         return max(inset, PaneTabRowRim.height)
     }
     /// Black's alpha over the chrome around the main pane (the sidebar, the titlebar and the tab row
-    /// around the content card): ``mainPaneChromeShadeBase(isDark:)`` scaled by
-    /// `appearance.titleAreaContrast` (``DesignSettings/titleAreaContrast``, 1 by default, so the
-    /// default look is the base shade exactly). Leo, 2026-11-11, on the title area: "the contrast, I
-    /// guess it's fine, but I feel like it may be too intense for some people, so it needs to be
-    /// adjustable." At most 1.
+    /// around the content card): ``mainPaneChromeShadeBase(isDark:)`` scaled by ``titleAreaShadeScale``. Leo,
+    /// 2026-11-11, on the title area: "the contrast, I guess it's fine, but I feel like it may be too intense for
+    /// some people, so it needs to be adjustable." At most 1.
     public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {
         let base = mainPaneChromeShadeBase(isDark: isDark)
-        let contrast = effectiveTitleAreaContrast
-        return contrast == 1 ? base : min(1, max(0, base * contrast))
+        let scale = titleAreaShadeScale
+        return scale == 1 ? base : min(1, max(0, base * scale))
     }
 
     /// The least chrome shade under which a selected folder tab in the content's surface still reads
-    /// (``Palette/folderTabFill``): the default light shade (0.045) at a title area contrast of a half
-    /// still clears it; under it the tab keeps the selection fill.
-    public static let folderTabMinimumShade: CGFloat = 0.02
+    /// (``Palette/folderTabFill``): Subtle Tone's light frame (0.045 × ``TitleAreaTone/subtleShare``) still
+    /// clears it at a title area contrast of 0.5; under it the tab keeps the selection fill.
+    public static let folderTabMinimumShade: CGFloat = 0.012
 
     /// How strongly the tab row's divider draws (a share of `Palette.separator`): the line takes over from the
     /// tone as `appearance.titleAreaContrast` drops, so the tab row stays marked at any contrast. 0 at a
@@ -161,15 +159,20 @@ extension Metrics {
     /// selected tab's pill are the only separation). Leo, 2026-11-12: "THERE IS THE DIVIDER THERE ARE WAYS TO
     /// MAKE THE 'BACKGROUND' LESS CONTRAST THAN IT DOES NOW".
     public static var tabRowDividerStrength: CGFloat {
-        min(1, max(0, 1 - effectiveTitleAreaContrast))
+        min(1, max(0, 1 - titleAreaShadeScale))
     }
 
-    /// The title area contrast the chrome draws with: `appearance.titleAreaContrast` under two tones, 0 under one
-    /// colour (`appearance.titleAreaTone`), so the toggle and the slider move the same shade, corner, divider and
-    /// selected tab.
-    public static var effectiveTitleAreaContrast: CGFloat {
+    /// The share of ``mainPaneChromeShadeBase(isDark:)`` the chrome draws. On the default flush corner's frame
+    /// (``CornerFlush``) `appearance.titleAreaTone` decides it: 0 under One Color (the default, Lawrence's single
+    /// colour), ``TitleAreaTone/subtleShare`` × `appearance.titleAreaContrast` under Subtle Tone. Every other
+    /// chrome style (floating, blocks, card and the explicit two-tone style) keeps its own shade, scaled by the
+    /// contrast alone, so the default tone never flattens a look the user picked. Leo, 2026-11-12: "since lawrence
+    /// wanted the default to be mono ish (the tab bar the side bar the main view kinda the same-ish) we can make that
+    /// the default... but i still think at least a subtle toning might be a bit nice."
+    public static var titleAreaShadeScale: CGFloat {
         let design = DesignSettings.shared
-        return design.titleAreaTone == .oneColor ? 0 : design.titleAreaContrast
+        guard CornerFlush.current.isOn else { return design.titleAreaContrast }
+        return design.titleAreaTone == .oneColor ? 0 : TitleAreaTone.subtleShare * design.titleAreaContrast
     }
 
     /// The chrome's shade before `appearance.titleAreaContrast`: the shade of the

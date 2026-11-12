@@ -3,9 +3,9 @@ import CoreGraphics
 
 /// `appearance.titleAreaContrast` in cmux-next.json (Settings > Appearance > Panes, Title Area Contrast): how
 /// strongly the chrome around the content (the titlebar, the tab row and the sidebar) is shaded, as a share
-/// of the theme's shade (`Metrics.mainPaneChromeShade(isDark:)`). Leo, 2026-11-11: "the contrast, I guess
+/// of the theme's shade (`Metrics.titleAreaShadeScale`). Leo, 2026-11-11: "the contrast, I guess
 /// it's fine, but I feel like it may be too intense for some people, so it needs to be adjustable."
-/// 1, the default, is the shade as it was. A missing key is the default; a value that is no number is the
+/// 1 is the default: Subtle Tone's shade, and a picked chrome style's own shade. A missing key is the default; a value that is no number is the
 /// default plus a diagnostic; a number outside the range is clamped, with a diagnostic. A theme file can set
 /// it like any other `appearance.*` key. Its path, default and range are generated from
 /// schemas/settings/source/appearance.json.
@@ -39,7 +39,7 @@ extension SettingsApplier {
 }
 
 /// `appearance.titleAreaTone` in cmux-next.json (Settings > Appearance > Panes, Title Area): "oneColor" (the
-/// default) or "twoTone" (`TitleAreaTone`). A missing key is the default; a bad value is the default plus a
+/// default) or "subtleTone" (`TitleAreaTone`). A missing key is the default; a bad value is the default plus a
 /// diagnostic. Its path, default and choices are generated from schemas/settings/source/appearance.json.
 public nonisolated struct TitleAreaToneSetting: Sendable {
     public init() {}

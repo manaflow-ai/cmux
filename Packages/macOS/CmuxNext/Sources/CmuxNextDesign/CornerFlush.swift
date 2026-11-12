@@ -237,7 +237,7 @@ public final class CornerFlushChrome: NSView {
             markTopRow(card: nil, in: root)
             if let content { Self.roundBottomOnly(content, false) }
             shade?.update(card: drawn.card, radius: drawn.radius, alpha: drawn.alpha,
-                          divider: Self.dividerLine(card: card, radius: 0, squareLeading: true))
+                          divider: Self.dividerLine(card: tabRowEdge(card: card, in: root), radius: 0, squareLeading: true))
             return
         }
         if let content { Self.roundBottomOnly(content, true) }
@@ -248,7 +248,7 @@ public final class CornerFlushChrome: NSView {
         // The shade under a translucent terminal would show the rounded corner the wedge no longer draws.
         shade?.update(card: card, radius: drawn.radius, alpha: drawn.alpha, squareTopLeading: square,
                       folders: folderHoles(card: card, in: root),
-                      divider: Self.dividerLine(card: card, radius: drawn.radius, squareLeading: square && drawn.sidebarOnLeft,
+                      divider: Self.dividerLine(card: tabRowEdge(card: card, in: root), radius: drawn.radius, squareLeading: square && drawn.sidebarOnLeft,
                                                 squareTrailing: square && !drawn.sidebarOnLeft))
     }
 
@@ -261,6 +261,25 @@ public final class CornerFlushChrome: NSView {
         let r = min(radius, card.width / 2, card.height / 2)
         let minX = card.minX + (squareLeading ? 0 : r), maxX = card.maxX - (squareTrailing ? 0 : r)
         return CGRect(x: minX, y: card.maxY, width: max(0, maxX - minX), height: 0)
+    }
+
+    /// `card` with its top on the top row's strips' bottom edge, where the tab row's divider sits. The card's top
+    /// (the content less ``Metrics/tabStripHeight``) can sit a point inside the panes' content, under their opaque
+    /// tops, so a divider drawn there was hidden at the default 1 pt (cmux#41640's one-colour captures). The strips
+    /// report their frames (``TabStripCorner/cornerFrameInWindow``); with none on the row the card is unchanged.
+    /// O(strips).
+    private func tabRowEdge(card: CGRect, in root: NSView) -> CGRect {
+        var bottom: CGFloat?
+        for case let strip as (any TabStripCorner & NSView) in strips.allObjects where strip.window === root.window {
+            guard !strip.isHiddenOrHasHiddenAncestor else { continue }
+            let minY = root.convert(strip.cornerFrameInWindow, from: nil).minY
+            guard abs(minY - card.maxY) < 2 else { continue }
+            bottom = max(bottom ?? minY, minY)
+        }
+        guard let bottom else { return card }
+        var edge = card
+        edge.size.height = max(0, bottom - card.minY)
+        return edge
     }
 
     /// The selected folder tabs of the strips on the card's top row, in the shade's coordinates: the

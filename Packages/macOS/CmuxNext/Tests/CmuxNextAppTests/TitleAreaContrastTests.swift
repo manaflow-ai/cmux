@@ -18,11 +18,11 @@ import Testing
                                  validMetrics: SettingsApplier.validMetrics)
     }
 
-    /// `contrast` under two tones, the only tone the contrast shades (one colour, the default, has no shade).
+    /// `contrast` under Subtle Tone, the tone the contrast shades (one colour, the default, has no shade).
     func withContrast<T>(_ contrast: CGFloat, _ body: () throws -> T) rethrows -> T {
         let saved = (DesignSettings.shared.titleAreaContrast, DesignSettings.shared.titleAreaTone)
         DesignSettings.shared.titleAreaContrast = contrast
-        DesignSettings.shared.titleAreaTone = .twoTone
+        DesignSettings.shared.titleAreaTone = .subtleTone
         defer { (DesignSettings.shared.titleAreaContrast, DesignSettings.shared.titleAreaTone) = saved }
         return try body()
     }
@@ -53,13 +53,17 @@ import Testing
         #expect(DesignSettings.shared.titleAreaContrast == 1)
     }
 
-    /// The default draws the shade exactly as before; other values scale it, never past opaque black.
+    /// The contrast scales the shade linearly, never past opaque black: on the flush corner's frame Subtle Tone's
+    /// share of it (contrast 2 is the older two tones), on any other chrome the style's own shade.
     @Test(arguments: [true, false]) func theContrastScalesTheChromeShade(isDark: Bool) {
         let base = Metrics.mainPaneChromeShadeBase(isDark: isDark)
-        withContrast(1) { #expect(Metrics.mainPaneChromeShade(isDark: isDark) == base) }
-        withContrast(0.5) { #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - base * 0.5) < 1e-9) }
-        withContrast(1.5) { #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - min(1, base * 1.5)) < 1e-9) }
-        withContrast(0) { #expect(Metrics.mainPaneChromeShade(isDark: isDark) == 0) }
+        let share = CornerFlush.current.isOn ? TitleAreaTone.subtleShare : 1
+        for contrast in [0, 0.5, 1, 1.5, 2] as [CGFloat] {
+            withContrast(contrast) {
+                #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - min(1, base * share * contrast)) < 1e-9)
+            }
+        }
+        if CornerFlush.current.isOn { withContrast(2) { #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - base) < 1e-9) } }
     }
 
     /// The folder tab paints what the content paints while the shade sets it apart; with no shade left it
@@ -72,8 +76,8 @@ import Testing
             #expect((Palette.folderTabFill != nil) == reads)
             if reads { #expect(Palette.folderTabFill == Palette.paneFill) }
         }
-        // The default light shade (0.045) still reads at half contrast.
-        #expect(0.045 * 0.5 >= Metrics.folderTabMinimumShade)
+        // Subtle Tone's light frame (0.045 of black) still opens a folder tab at half contrast: never a gray pill.
+        #expect(0.045 * TitleAreaTone.subtleShare * 0.5 >= Metrics.folderTabMinimumShade)
     }
 
     /// The chrome's shade leaves the selected folder tabs out, as it leaves out the card: the tab shows the
@@ -94,13 +98,18 @@ import Testing
         #expect(closed.contains(CGPoint(x: 120, y: 265), using: rule), "a deselected folder's hole stayed open")
     }
 
-    /// The tab row's divider takes over from the tone as the contrast drops (Leo, 2026-11-12: "THERE IS THE
-    /// DIVIDER"): none at the shipped contrast, half at 0.5, full at one colour.
+    /// The tab row's divider takes over from the tone as the shade drops (Leo, 2026-11-12: "THERE IS THE
+    /// DIVIDER"): none at the full older shade, the rest of the shade scale between, full at one colour.
     @Test func theDividerStrengthGrowsAsTheContrastDrops() {
-        withContrast(1) { #expect(Metrics.tabRowDividerStrength == 0) }
-        withContrast(1.5) { #expect(Metrics.tabRowDividerStrength == 0) }
-        withContrast(0.5) { #expect(abs(Metrics.tabRowDividerStrength - 0.5) < 1e-9) }
+        for contrast in [0, 0.5, 1, 1.5, 2] as [CGFloat] {
+            withContrast(contrast) {
+                #expect(abs(Metrics.tabRowDividerStrength - min(1, max(0, 1 - Metrics.titleAreaShadeScale))) < 1e-9)
+            }
+        }
         withContrast(0) { #expect(Metrics.tabRowDividerStrength == 1) }
+        guard CornerFlush.current.isOn else { return }
+        withContrast(1) { #expect(abs(Metrics.tabRowDividerStrength - (1 - TitleAreaTone.subtleShare)) < 1e-9) }
+        withContrast(2) { #expect(Metrics.tabRowDividerStrength == 0) }
     }
 
     /// The divider runs along the card's top between its rounded corners; a square corner (the first tab
@@ -122,13 +131,15 @@ import Testing
         let line = try #require(view.layer?.sublayers?.compactMap { $0 as? CAShapeLayer }.last)
         try withContrast(0.5) {
             view.update(card: card, radius: 12, alpha: 0.14, folders: [folder], divider: divider)
+            guard Metrics.tabRowDividerStrength > 0 else { return }
             let path = try #require(line.path, "no divider at contrast 0.5")
             #expect(path.contains(CGPoint(x: 300, y: 250.2), using: .evenOdd), "no divider under the unselected tabs")
             #expect(!path.contains(CGPoint(x: 120, y: 250.2), using: .evenOdd), "the divider crosses the folder tab")
         }
-        withContrast(1) {
+        withContrast(2) {
+            guard Metrics.tabRowDividerStrength == 0 else { return }
             view.update(card: card, radius: 12, alpha: 0.28, folders: [folder], divider: divider.offsetBy(dx: 1, dy: 0))
-            #expect(line.path == nil, "the shipped contrast drew a divider")
+            #expect(line.path == nil, "the full older shade drew a divider")
         }
     }
 
@@ -138,14 +149,14 @@ import Testing
         #expect(TitleAreaToneSetting.fallback == .oneColor)
         #expect(DesignSettings().titleAreaTone == .oneColor)
         #expect(TitleAreaToneSetting.effective(in: snapshot([:])) == .oneColor)
-        #expect(TitleAreaToneSetting.effective(in: snapshot(["titleAreaTone": .string("twoTone")])) == .twoTone)
-        let bad = snapshot(["titleAreaTone": .string("mono")])
+        #expect(TitleAreaToneSetting.effective(in: snapshot(["titleAreaTone": .string("subtleTone")])) == .subtleTone)
+        let bad = snapshot(["titleAreaTone": .string("twoTone")])
         #expect(TitleAreaToneSetting.effective(in: bad) == .oneColor)
         #expect(bad.diagnostics.contains { $0.path == "appearance.titleAreaTone" && $0.kind == .invalidValue })
         let saved = DesignSettings.shared.titleAreaTone
         defer { DesignSettings.shared.titleAreaTone = saved }
-        SettingsApplier.applyPlacement(snapshot(["titleAreaTone": .string("twoTone")]), to: DesignSettings.shared)
-        #expect(DesignSettings.shared.titleAreaTone == .twoTone)
+        SettingsApplier.applyPlacement(snapshot(["titleAreaTone": .string("subtleTone")]), to: DesignSettings.shared)
+        #expect(DesignSettings.shared.titleAreaTone == .subtleTone)
         SettingsApplier.applyPlacement(snapshot([:]), to: DesignSettings.shared)
         #expect(DesignSettings.shared.titleAreaTone == .oneColor)
     }
@@ -153,6 +164,7 @@ import Testing
     /// One Color moves every piece the contrast moves, together: no shade, the divider at full strength, and the
     /// selected tab back on its pill. Toggling back restores the contrast the slider holds, untouched.
     @Test(arguments: [true, false]) func oneColorMovesTheShadeDividerAndTabTogether(isDark: Bool) {
+        guard CornerFlush.current.isOn else { return } // the tone is the flush corner frame's; other chrome keeps its shade
         let saved = DesignSettings.shared.titleAreaTone
         defer { DesignSettings.shared.titleAreaTone = saved }
         withContrast(0.5) {
@@ -161,10 +173,10 @@ import Testing
             #expect(Metrics.tabRowDividerStrength == 1)
             #expect(Palette.folderTabFill == nil)
             #expect(DesignSettings.shared.titleAreaContrast == 0.5)
-            DesignSettings.shared.titleAreaTone = .twoTone
-            let base = Metrics.mainPaneChromeShadeBase(isDark: isDark)
-            #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - base * 0.5) < 1e-9)
-            #expect(abs(Metrics.tabRowDividerStrength - 0.5) < 1e-9)
+            DesignSettings.shared.titleAreaTone = .subtleTone
+            let base = Metrics.mainPaneChromeShadeBase(isDark: isDark), scale = TitleAreaTone.subtleShare * 0.5
+            #expect(abs(Metrics.mainPaneChromeShade(isDark: isDark) - base * scale) < 1e-9)
+            #expect(abs(Metrics.tabRowDividerStrength - (1 - scale)) < 1e-9)
         }
     }
 
@@ -178,11 +190,28 @@ import Testing
         #expect(abs(divider.alphaComponent - min(1, separator.alphaComponent * strength)) < 1e-6)
         #expect(ChromeTunables.dividerStrength.defaultValue > 1, "the chrome's dividers are no stronger than a list's hairline")
         if separator.alphaComponent > 0 { #expect(divider.alphaComponent > separator.alphaComponent) }
+        guard CornerFlush.current.isOn else { return }
         let saved = DesignSettings.shared.titleAreaTone
         defer { DesignSettings.shared.titleAreaTone = saved }
         DesignSettings.shared.titleAreaTone = .oneColor
         #expect(Metrics.tabRowDividerStrength == 1)
         #expect(Metrics.mainPaneChromeShade(isDark: true) == 0 && Metrics.mainPaneChromeShade(isDark: false) == 0)
+    }
+
+    /// The default tone flattens only the flush corner's frame: a picked chrome style (floating, blocks, card) keeps
+    /// its own shade under One Color, scaled by the contrast alone.
+    @Test func aPickedChromeStyleKeepsItsShadeUnderOneColor() {
+        let design = DesignSettings.shared
+        let saved = (design.chromeStyle, design.titleAreaTone)
+        defer { (design.chromeStyle, design.titleAreaTone) = saved }
+        design.titleAreaTone = .oneColor
+        design.chromeStyle = .blocks
+        guard !CornerFlush.current.isOn else { return }
+        #expect(Metrics.titleAreaShadeScale == design.titleAreaContrast)
+        if design.titleAreaContrast == 1 {
+            #expect(Metrics.mainPaneChromeShade(isDark: true) == Metrics.mainPaneChromeShadeBase(isDark: true))
+            #expect(Metrics.mainPaneChromeShade(isDark: true) > 0, "One Color flattened the blocks style")
+        }
     }
 
     /// #40282 made the flush corner the default, which made `Metrics.mainPaneCurved` true under the stock chrome,

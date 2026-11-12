@@ -1709,6 +1709,24 @@
       "title" : "Theme File",
       "type" : "string"
     },
+    "appearance.titleAreaContrast" : {
+      "default" : 1,
+      "description" : "How much darker the title bar, the tab bar and the sidebar are than the content. 1 is the default; lower is softer, higher is stronger.",
+      "maximum" : 1.5,
+      "minimum" : 0,
+      "title" : "Title Area Contrast",
+      "type" : "number"
+    },
+    "appearance.titleAreaTone" : {
+      "default" : "oneColor",
+      "description" : "Two Tones shades the title bar, the tab bar and the sidebar apart from the content, and the selected tab opens into the content. One Color draws them in the content's color, with a divider under the tabs and a highlighted selected tab.",
+      "enum" : [
+        "twoTone",
+        "oneColor"
+      ],
+      "title" : "Title Area",
+      "type" : "string"
+    },
     "appearance.wallpaperTint" : {
       "default" : true,
       "description" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",

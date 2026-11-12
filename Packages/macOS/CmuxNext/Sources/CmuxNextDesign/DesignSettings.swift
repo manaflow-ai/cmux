@@ -289,9 +289,8 @@ public final class DesignSettings {
     public var titleAreaContrast: CGFloat = 1 {
         didSet { if titleAreaContrast != oldValue { ThemeScope.app.store.repaintAll() } }
     }
-    /// `appearance.titleAreaTone`: one colour (the default) or two tones (the chrome shaded apart from the
-    /// content) (``TitleAreaTone``). One colour overrides ``titleAreaContrast`` to no shade; a change repaints, as
-    /// the contrast does.
+    /// `appearance.titleAreaTone`: one colour (the default) or a subtle tone (``TitleAreaTone``,
+    /// ``Metrics/titleAreaShadeScale``); a change repaints, as the contrast does.
     public var titleAreaTone: TitleAreaTone = .oneColor {
         didSet { if titleAreaTone != oldValue { ThemeScope.app.store.repaintAll() } }
     }

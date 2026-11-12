@@ -1,5 +1,5 @@
 {
- "title": "Chrome dividers under One Color (the default): the sidebar's edge line, the split panes' lines and the tab row's divider, in four weights and contrasts (chrome.dividerStrength, appearance.metrics.dividerThickness), then Two Tones and a configured sidebar.border off",
+ "title": "Title area: One Color (the default: the sidebar's edge line, the split panes' lines and the tab row's divider) against Subtle Tone at four shades, over art and plain, then sidebar.border off",
  "settings": {
   "appearance": {
    "background": "hokusai-great-wave"
@@ -137,6 +137,101 @@
    "shot": false
   },
   {
+   "title": "Over art, One Color (default)",
+   "wait": 1
+  },
+  {
+   "title": "Title area subtleTone",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaTone",
+    "subtleTone"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Contrast 0.7",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "0.7"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Over art, Subtle Tone at 0.35 of the frame shade",
+   "wait": 1
+  },
+  {
+   "title": "Contrast 1",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "1"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Over art, Subtle Tone at 0.5, the default of the frame shade",
+   "wait": 1
+  },
+  {
+   "title": "Contrast 1.4",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "1.4"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Over art, Subtle Tone at 0.7 of the frame shade",
+   "wait": 1
+  },
+  {
+   "title": "Contrast 2",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "2"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Over art, Subtle Tone at 1, the older two tones of the frame shade",
+   "wait": 1
+  },
+  {
+   "title": "Contrast default",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaContrast"
+   ],
+   "wait": 1,
+   "shot": false
+  },
+  {
+   "title": "Back to One Color",
+   "cmux": [
+    "settings",
+    "unset",
+    "appearance.titleAreaTone"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
    "title": "Plain window",
    "cmux": [
     "settings",
@@ -147,457 +242,92 @@
    "shot": false
   },
   {
-   "title": "Divider strength 1",
-   "rpc": {
-    "method": "debug.tunables",
-    "params": {
-     "action": "set",
-     "key": "chrome.dividerStrength",
-     "value": 1
-    }
-   },
-   "shot": false,
-   "optional": "debug.tunables is DEBUG only"
+   "title": "Plain, One Color (default)",
+   "wait": 1
   },
   {
-   "title": "Divider thickness 1",
+   "title": "Title area subtleTone",
    "cmux": [
     "settings",
     "set",
-    "appearance.metrics.dividerThickness",
+    "appearance.titleAreaTone",
+    "subtleTone"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Contrast 0.7",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
+    "0.7"
+   ],
+   "wait": 2,
+   "shot": false
+  },
+  {
+   "title": "Plain, Subtle Tone at 0.35 of the frame shade",
+   "wait": 1
+  },
+  {
+   "title": "Contrast 1",
+   "cmux": [
+    "settings",
+    "set",
+    "appearance.titleAreaContrast",
     "1"
    ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Repaint (two tones)",
-   "cmux": [
-    "settings",
-    "set",
-    "appearance.titleAreaTone",
-    "twoTone"
-   ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Repaint (one colour)",
-   "cmux": [
-    "settings",
-    "unset",
-    "appearance.titleAreaTone"
-   ],
    "wait": 2,
    "shot": false
   },
   {
-   "title": "Plain, One Color (default), V1: 1 pt at the separator (a list's hairline)",
+   "title": "Plain, Subtle Tone at 0.5, the default of the frame shade",
    "wait": 1
   },
   {
-   "title": "Divider strength 1.75",
-   "rpc": {
-    "method": "debug.tunables",
-    "params": {
-     "action": "set",
-     "key": "chrome.dividerStrength",
-     "value": 1.75
-    }
-   },
-   "shot": false,
-   "optional": "debug.tunables is DEBUG only"
-  },
-  {
-   "title": "Divider thickness 1",
+   "title": "Contrast 1.4",
    "cmux": [
     "settings",
     "set",
-    "appearance.metrics.dividerThickness",
-    "1"
-   ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Repaint (two tones)",
-   "cmux": [
-    "settings",
-    "set",
-    "appearance.titleAreaTone",
-    "twoTone"
-   ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Repaint (one colour)",
-   "cmux": [
-    "settings",
-    "unset",
-    "appearance.titleAreaTone"
+    "appearance.titleAreaContrast",
+    "1.4"
    ],
    "wait": 2,
    "shot": false
   },
   {
-   "title": "Plain, One Color (default), V2: 1 pt at 1.75x the separator",
+   "title": "Plain, Subtle Tone at 0.7 of the frame shade",
    "wait": 1
   },
   {
-   "title": "Divider strength 2.5",
-   "rpc": {
-    "method": "debug.tunables",
-    "params": {
-     "action": "set",
-     "key": "chrome.dividerStrength",
-     "value": 2.5
-    }
-   },
-   "shot": false,
-   "optional": "debug.tunables is DEBUG only"
-  },
-  {
-   "title": "Divider thickness 0.5",
+   "title": "Contrast 2",
    "cmux": [
     "settings",
     "set",
-    "appearance.metrics.dividerThickness",
-    "0.5"
-   ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Repaint (two tones)",
-   "cmux": [
-    "settings",
-    "set",
-    "appearance.titleAreaTone",
-    "twoTone"
-   ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Repaint (one colour)",
-   "cmux": [
-    "settings",
-    "unset",
-    "appearance.titleAreaTone"
+    "appearance.titleAreaContrast",
+    "2"
    ],
    "wait": 2,
    "shot": false
   },
   {
-   "title": "Plain, One Color (default), V3: a device hairline at 2.5x the separator",
+   "title": "Plain, Subtle Tone at 1, the older two tones of the frame shade",
    "wait": 1
   },
   {
-   "title": "Divider strength 1.75",
-   "rpc": {
-    "method": "debug.tunables",
-    "params": {
-     "action": "set",
-     "key": "chrome.dividerStrength",
-     "value": 1.75
-    }
-   },
-   "shot": false,
-   "optional": "debug.tunables is DEBUG only"
-  },
-  {
-   "title": "Divider thickness 1.5",
-   "cmux": [
-    "settings",
-    "set",
-    "appearance.metrics.dividerThickness",
-    "1.5"
-   ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Repaint (two tones)",
-   "cmux": [
-    "settings",
-    "set",
-    "appearance.titleAreaTone",
-    "twoTone"
-   ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Repaint (one colour)",
+   "title": "Contrast default",
    "cmux": [
     "settings",
     "unset",
-    "appearance.titleAreaTone"
-   ],
-   "wait": 2,
-   "shot": false
-  },
-  {
-   "title": "Plain, One Color (default), V4: 1.5 pt at 1.75x the separator",
-   "wait": 1
-  },
-  {
-   "title": "Over art",
-   "cmux": [
-    "settings",
-    "set",
-    "appearance.background",
-    "hokusai-great-wave"
-   ],
-   "wait": 2,
-   "shot": false
-  },
-  {
-   "title": "Divider strength 1",
-   "rpc": {
-    "method": "debug.tunables",
-    "params": {
-     "action": "set",
-     "key": "chrome.dividerStrength",
-     "value": 1
-    }
-   },
-   "shot": false,
-   "optional": "debug.tunables is DEBUG only"
-  },
-  {
-   "title": "Divider thickness 1",
-   "cmux": [
-    "settings",
-    "set",
-    "appearance.metrics.dividerThickness",
-    "1"
+    "appearance.titleAreaContrast"
    ],
    "wait": 1,
    "shot": false
   },
   {
-   "title": "Repaint (two tones)",
-   "cmux": [
-    "settings",
-    "set",
-    "appearance.titleAreaTone",
-    "twoTone"
-   ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Repaint (one colour)",
-   "cmux": [
-    "settings",
-    "unset",
-    "appearance.titleAreaTone"
-   ],
-   "wait": 2,
-   "shot": false
-  },
-  {
-   "title": "Over art, One Color (default), V1: 1 pt at the separator (a list's hairline)",
-   "wait": 1
-  },
-  {
-   "title": "Divider strength 1.75",
-   "rpc": {
-    "method": "debug.tunables",
-    "params": {
-     "action": "set",
-     "key": "chrome.dividerStrength",
-     "value": 1.75
-    }
-   },
-   "shot": false,
-   "optional": "debug.tunables is DEBUG only"
-  },
-  {
-   "title": "Divider thickness 1",
-   "cmux": [
-    "settings",
-    "set",
-    "appearance.metrics.dividerThickness",
-    "1"
-   ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Repaint (two tones)",
-   "cmux": [
-    "settings",
-    "set",
-    "appearance.titleAreaTone",
-    "twoTone"
-   ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Repaint (one colour)",
-   "cmux": [
-    "settings",
-    "unset",
-    "appearance.titleAreaTone"
-   ],
-   "wait": 2,
-   "shot": false
-  },
-  {
-   "title": "Over art, One Color (default), V2: 1 pt at 1.75x the separator",
-   "wait": 1
-  },
-  {
-   "title": "Divider strength 2.5",
-   "rpc": {
-    "method": "debug.tunables",
-    "params": {
-     "action": "set",
-     "key": "chrome.dividerStrength",
-     "value": 2.5
-    }
-   },
-   "shot": false,
-   "optional": "debug.tunables is DEBUG only"
-  },
-  {
-   "title": "Divider thickness 0.5",
-   "cmux": [
-    "settings",
-    "set",
-    "appearance.metrics.dividerThickness",
-    "0.5"
-   ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Repaint (two tones)",
-   "cmux": [
-    "settings",
-    "set",
-    "appearance.titleAreaTone",
-    "twoTone"
-   ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Repaint (one colour)",
-   "cmux": [
-    "settings",
-    "unset",
-    "appearance.titleAreaTone"
-   ],
-   "wait": 2,
-   "shot": false
-  },
-  {
-   "title": "Over art, One Color (default), V3: a device hairline at 2.5x the separator",
-   "wait": 1
-  },
-  {
-   "title": "Divider strength 1.75",
-   "rpc": {
-    "method": "debug.tunables",
-    "params": {
-     "action": "set",
-     "key": "chrome.dividerStrength",
-     "value": 1.75
-    }
-   },
-   "shot": false,
-   "optional": "debug.tunables is DEBUG only"
-  },
-  {
-   "title": "Divider thickness 1.5",
-   "cmux": [
-    "settings",
-    "set",
-    "appearance.metrics.dividerThickness",
-    "1.5"
-   ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Repaint (two tones)",
-   "cmux": [
-    "settings",
-    "set",
-    "appearance.titleAreaTone",
-    "twoTone"
-   ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Repaint (one colour)",
-   "cmux": [
-    "settings",
-    "unset",
-    "appearance.titleAreaTone"
-   ],
-   "wait": 2,
-   "shot": false
-  },
-  {
-   "title": "Over art, One Color (default), V4: 1.5 pt at 1.75x the separator",
-   "wait": 1
-  },
-  {
-   "title": "Divider strength 1.75",
-   "rpc": {
-    "method": "debug.tunables",
-    "params": {
-     "action": "set",
-     "key": "chrome.dividerStrength",
-     "value": 1.75
-    }
-   },
-   "shot": false,
-   "optional": "debug.tunables is DEBUG only"
-  },
-  {
-   "title": "Thickness default",
-   "cmux": [
-    "settings",
-    "unset",
-    "appearance.metrics.dividerThickness"
-   ],
-   "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Over art, Two Tones (opt-in), V2 dividers",
-   "cmux": [
-    "settings",
-    "set",
-    "appearance.titleAreaTone",
-    "twoTone"
-   ],
-   "wait": 2
-  },
-  {
-   "title": "Plain window again",
-   "cmux": [
-    "settings",
-    "unset",
-    "appearance.background"
-   ],
-   "wait": 2,
-   "shot": false
-  },
-  {
-   "title": "Plain, Two Tones (opt-in), V2 dividers",
-   "wait": 1
-  },
-  {
-   "title": "Back to the default",
+   "title": "Back to One Color",
    "cmux": [
     "settings",
     "unset",

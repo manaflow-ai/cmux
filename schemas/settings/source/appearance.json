@@ -1681,39 +1681,40 @@
         },
         {
           "key": "appearance.titleAreaTone",
-          "note": "One colour (the default: no shade; the sidebar's edge line, the split panes' lines, the tab row's divider and the selected tab's pill separate) or two tones (the chrome shaded apart from the content by appearance.titleAreaContrast). Leo 2026-11-12: Lawrence wants the default without the two tones, with the divider kept across most panes; two tones stays an option that toggles back and forth.",
+          "note": "One colour (the default: no shade; the sidebar's edge line, the split panes' lines, the tab row's divider and the selected tab's pill separate) or a subtle tone (half the flush corner's frame shade, scaled by appearance.titleAreaContrast; the selected tab is a folder tab in the content's glass). Only the default flush-corner frame follows it; a picked chrome style keeps its own shade. Leo 2026-11-12: the default is mono-ish as Lawrence wants, with the divider kept across most panes; a refined subtle tone is the option.",
           "title": {
             "key": "settings.appearance.titleAreaTone",
             "text": "Title Area"
           },
           "help": {
             "key": "settings.appearance.titleAreaTone.help",
-            "text": "Two Tones shades the title bar, the tab bar and the sidebar apart from the content, and the selected tab opens into the content. One Color draws them in the content's color, with a divider under the tabs and a highlighted selected tab."
+            "text": "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content."
           },
           "summary": {
             "key": "settings.appearance.titleAreaTone.summary",
-            "text": "Two tones or one color for the title and tab bar"
+            "text": "One color or a subtle tone for the title bar, tab bar and sidebar"
           },
           "kind": "choice",
           "choices": [
-            {
-              "value": "twoTone",
-              "title": {
-                "key": "settings.choice.titleAreaTone.twoTone",
-                "text": "Two Tones"
-              }
-            },
             {
               "value": "oneColor",
               "title": {
                 "key": "settings.choice.titleAreaTone.oneColor",
                 "text": "One Color"
               }
+            },
+            {
+              "value": "subtleTone",
+              "title": {
+                "key": "settings.choice.titleAreaTone.subtleTone",
+                "text": "Subtle Tone"
+              }
             }
           ],
           "default": "oneColor",
           "keywords": [
             "tone",
+            "subtle tone",
             "two tone",
             "one color",
             "single color",
@@ -1736,14 +1737,14 @@
         },
         {
           "key": "appearance.titleAreaContrast",
-          "note": "Scales the chrome's shade around the content card (Metrics.mainPaneChromeShade); 1 is the shade as it was. Leo 2026-11-11: the title area's contrast may be too intense for some people, so it needs to be adjustable.",
+          "note": "Scales the chrome's shade around the content card (Metrics.titleAreaShadeScale): Subtle Tone's share of the flush corner's frame, or a picked chrome style's own shade; 2 under Subtle Tone is the older two-tone shade. Leo 2026-11-11: the title area's contrast may be too intense for some people, so it needs to be adjustable.",
           "title": {
             "key": "settings.appearance.titleAreaContrast",
             "text": "Title Area Contrast"
           },
           "help": {
             "key": "settings.appearance.titleAreaContrast.help",
-            "text": "How much darker the title bar, the tab bar and the sidebar are than the content. 1 is the default; lower is softer, higher is stronger."
+            "text": "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger."
           },
           "summary": {
             "key": "settings.appearance.titleAreaContrast.summary",
@@ -1753,7 +1754,7 @@
           "swift_owner": "TitleAreaContrastSetting",
           "range": {
             "min": 0,
-            "max": 1.5,
+            "max": 2,
             "step": 0.05,
             "unit": "fraction",
             "placeholder": 1
