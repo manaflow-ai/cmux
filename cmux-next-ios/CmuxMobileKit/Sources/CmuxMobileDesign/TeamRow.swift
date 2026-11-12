@@ -4,8 +4,9 @@ import SwiftUI
 private let theme = CmuxMobileTheme.standard
 
 /// A team row (SPEC 3.3): 36 pt avatar, team name, and up to five Mac presence
-/// dots (green online, gray offline) followed by "+N". 60 pt tall; the selected
-/// row gets a `fillSelected` rounded background.
+/// dots (green online, gray offline) followed by "+N". 60 pt tall. The selected
+/// row in the drawer is the content's surface joined to the card like a folder
+/// tab (``CmuxMobileSelectedSurface``); elsewhere it gets a `fillSelected` background.
 public struct SidebarTeamRow: View {
     let name: String
     let colorHex: String?
@@ -15,8 +16,13 @@ public struct SidebarTeamRow: View {
     let overflow: Int
     let onlineCount: Int
     let isSelected: Bool
+    /// The drawer's rows: the selected one reaches the drawer's trailing edge,
+    /// where the card begins, and takes the card's surface.
+    let joinsContent: Bool
 
-    public init(name: String, colorHex: String?, emoji: String?, transparent: Bool = false, dots: [Bool], overflow: Int, onlineCount: Int, isSelected: Bool) {
+    public init(name: String, colorHex: String?, emoji: String?, transparent: Bool = false, dots: [Bool], overflow: Int, onlineCount: Int,
+                isSelected: Bool, joinsContent: Bool = false) {
+        self.joinsContent = joinsContent
         self.name = name
         self.colorHex = colorHex
         self.emoji = emoji
@@ -50,9 +56,19 @@ public struct SidebarTeamRow: View {
         .padding(.horizontal, theme.metrics.sideMargin - theme.metrics.selectedRowInset)
         .frame(height: theme.metrics.teamRowHeight)
         .background {
-            RoundedRectangle(cornerRadius: theme.metrics.selectedRowRadius, style: .continuous)
-                .fill(theme.colors.fillSelected)
-                .opacity(isSelected ? 1 : 0)
+            if joinsContent {
+                if isSelected {
+                    let radius = theme.metrics.selectedRowRadius
+                    CmuxMobileSelectedSurface(UnevenRoundedRectangle(topLeadingRadius: radius, bottomLeadingRadius: radius, style: .continuous))
+                        // To the drawer's edge: the row and the card join there.
+                        .padding(.trailing, -theme.metrics.selectedRowInset)
+                        .transition(.opacity)
+                }
+            } else {
+                RoundedRectangle(cornerRadius: theme.metrics.selectedRowRadius, style: .continuous)
+                    .fill(theme.colors.fillSelected)
+                    .opacity(isSelected ? 1 : 0)
+            }
         }
         .contentShape(.rect)
         .accessibilityElement(children: .ignore)

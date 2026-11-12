@@ -128,7 +128,8 @@ struct TeamSidebar: View {
                 dots: presence.dots,
                 overflow: presence.overflow,
                 onlineCount: team.listedMacs.filter(\.isOnline).count,
-                isSelected: selected
+                isSelected: selected,
+                joinsContent: true
             )
             .animation(theme.motion.snap.animation.unlessReduceMotion, value: selected)
         }

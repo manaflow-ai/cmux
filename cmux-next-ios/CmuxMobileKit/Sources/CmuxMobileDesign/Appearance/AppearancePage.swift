@@ -102,3 +102,48 @@ final class PageContainersView: UIView {
     }
 }
 #endif
+
+#if os(iOS)
+/// The surface a selected row takes (Leo, 2026-11-10: a selected tab or row
+/// is the foreground, "how folder tabs look"; never a grey pill): the content
+/// it opens. That is the page color (`bg`), or over a backdrop picture the
+/// backdrop itself, laid out in screen coordinates so the row reads as the
+/// same page the card shows. The card's own hairline and shadow set it apart
+/// where the chrome around it shares the page's color (the neutral look).
+public struct CmuxMobileSelectedSurface<S: InsettableShape>: View {
+    private let shape: S
+    private let appearance = CmuxMobileAppearance.shared
+
+    public init(_ shape: S) {
+        self.shape = shape
+    }
+
+    public var body: some View {
+        let metrics = CmuxMobileTheme.standard.metrics
+        surface
+            .clipShape(shape)
+            .overlay { shape.strokeBorder(CmuxMobileTheme.standard.colors.cardStroke.color, lineWidth: metrics.cardStrokeWidth) }
+            .shadow(color: CmuxMobileTheme.standard.colors.scrim.color.opacity(Double(metrics.cardShadowOpacity)),
+                    radius: metrics.cardShadowRadius / 2, x: metrics.cardShadowOffset.width / 2)
+    }
+
+    @ViewBuilder private var surface: some View {
+        if appearance.backdrop != nil {
+            GeometryReader { proxy in
+                let frame = proxy.frame(in: .global)
+                let screen = Self.screenSize ?? proxy.size
+                CmuxMobileBackdrop()
+                    .frame(width: screen.width, height: screen.height)
+                    .offset(x: -frame.minX, y: -frame.minY)
+            }
+        } else {
+            CmuxMobileTheme.standard.colors.bg.color
+        }
+    }
+
+    /// The window's size: the page backdrop under the sidebar fills it.
+    @MainActor private static var screenSize: CGSize? {
+        UIApplication.shared.connectedScenes.lazy.compactMap { ($0 as? UIWindowScene)?.screen.bounds.size }.first
+    }
+}
+#endif
