@@ -834,7 +834,6 @@ function ComposerFrame({
   const pendingRef = useRef(pending);
   pendingRef.current = pending;
   const originalUploadsRef = useRef(originalUploads);
-  originalUploadsRef.current = originalUploads;
   /// Whether the chat's kept chips were read (useKeptAttachments, below); the stash waits for it.
   const keptReadRef = useRef(false);
   /// A new chat's text as the host keeps it (`onUnsentDraft`): the person's words only. The host keeps
@@ -966,9 +965,8 @@ function ComposerFrame({
         return behind ? [...others, ...restoredAttachments] : [...restoredAttachments, ...others];
       });
   };
-  /// The handle's restore, the current render's (the handle is made once).
+  /// The handle's restore, the last committed render's (the handle is made once).
   const restoreNow = useRef(restoreDraft);
-  restoreNow.current = restoreDraft;
   // Stash (composer/useDraftStash.ts): ⌃S puts the draft aside and empties the prompt; ⌃S on an empty
   // prompt, or a pick from the Stashed chip, brings the newest (or the picked) one back,
   // before what was typed meanwhile, so nothing typed is ever replaced.
@@ -1248,7 +1246,13 @@ function ComposerFrame({
     keptAttachments,
     () => !suppressedAttachmentCarry.current && carryPrompt.current,
   );
-  keptReadRef.current = keptRead;
+  // What the stash and the handle read later, from the render that committed (a ref written in
+  // render could hold one React discards).
+  useLayoutEffect(() => {
+    originalUploadsRef.current = originalUploads;
+    restoreNow.current = restoreDraft;
+    keptReadRef.current = keptRead;
+  });
   // Run after useKeptAttachments' session read/effects. Recovery copied text only; ordinary
   // switching can carry attachments again once the destination session is shown.
   useEffect(() => {
