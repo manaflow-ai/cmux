@@ -32,6 +32,7 @@ extension CEFPaneHost {
     func holdFirstFrameIfAppeared(_ tab: CEFTab) { // perf-hot: 10ms tab-switch (every Chromium tab show)
         guard visibleTab === tab, tab.appearedThisTurn, !hostView.isHidden, tab.browserID != nil, !tab.awaitsWindowMove else { return }
         let windowInWindow = shownWithWindowOut !== tab && tab.pageWindow != nil
+        if hostView.layerHosting.onHoldStep == nil { hostView.layerHosting.onHoldStep = { [weak self] step in self?.visibleTab.map { self?.lifecycleTrace.record($0.id, "hold \(step)") } } }
         // The hold's end grants the kept ask of the tab this host shows then (a tab switch in the hold).
         hostView.layerHosting.pageAppeared(windowInWindow: windowInWindow) { [weak self] in
             self?.visibleTab.map { self?.lifecycleTrace.record($0.id, "first-frame hold ended") }

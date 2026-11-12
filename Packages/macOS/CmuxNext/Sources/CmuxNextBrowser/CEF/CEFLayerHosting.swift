@@ -144,6 +144,8 @@ final class CEFLayerHosting {
     private var afterFirstFrame: (@MainActor () -> Void)?
     /// That ask after the fork refused the hold's attach: the attach that brings the window in grants it.
     private var owedGrant: (@MainActor () -> Void)?
+    /// The steps of a first-frame hold, for the lifecycle trace.
+    var onHoldStep: (@MainActor (String) -> Void)?
 
     /// - Parameters:
     ///   - isEnabled: whether hosting is wanted; always by default (tests pass their own).
@@ -376,7 +378,11 @@ final class CEFLayerHosting {
     /// which came 30 to 40 ms after the key in half the presses). `grant` runs once the fork ordered the window in.
     /// A page in a resize motion, already detached, or not hosted is left as it is.
     func pageAppeared(windowInWindow: Bool, then grant: @escaping @MainActor () -> Void) {
-        guard !windowInWindow, firstFrameHold == .none, !isDetached, !inResizeMotion, setDetached(true) else { return }
+        guard !windowInWindow, firstFrameHold == .none, !isDetached, !inResizeMotion, setDetached(true) else {
+            onHoldStep?("not begun: in-window=\(windowInWindow) hold=\(firstFrameHold) detached=\(isDetached) motion=\(inResizeMotion) page=\(page != nil)")
+            return
+        }
+        onHoldStep?("begun")
         firstFrameHold = .detached
         afterFirstFrame = grant
         runAfterFrameShown { [weak self] in self?.attachAfterFirstFrame() }
@@ -401,6 +407,7 @@ final class CEFLayerHosting {
         let client = FrameClient(owner: "cef.first-frame-attach", isAnimation: false,
                                  scheduler: { [weak view] in view.map(FrameScheduler.forView) ?? .app },
                                  dropped: { [weak self] in
+                                     self?.onHoldStep?("frame dropped")
                                      self?.afterFirstFrame = nil
                                      shown()
                                  }) { _ in
@@ -412,6 +419,7 @@ final class CEFLayerHosting {
     }
 
     private func attachAfterFirstFrame() {
+        onHoldStep?("frame shown: hold=\(firstFrameHold) detached=\(isDetached) motion=\(inResizeMotion)")
         guard firstFrameHold == .detached else { return }
         // A motion that began meanwhile owns the detached page: its landing attaches it, a grant attaches it now.
         guard !inResizeMotion else { return endFirstFrameHold() }
@@ -427,6 +435,7 @@ final class CEFLayerHosting {
 
     private func endFirstFrameHold() {
         let grant = afterFirstFrame
+        onHoldStep?("ended: grant=\(grant != nil) attach-owed=\(attachOwed) detached=\(isDetached)")
         firstFrameHold = .none
         afterFirstFrame = nil
         // The fork refused the attach: the page has no window to make key. The ask stays kept (the tab's pending
@@ -556,6 +565,7 @@ final class CEFLayerHosting {
 
     private func dropPage() {
         // The fork ends detached hosting when hosting goes off or the page window goes.
+        if firstFrameHold != .none || owedGrant != nil { onHoldStep?("page dropped in hold=\(firstFrameHold) owed=\(owedGrant != nil)") }
         isDetached = false
         attachOwed = false
         firstFrameHold = .none
