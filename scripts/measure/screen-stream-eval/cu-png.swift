@@ -74,7 +74,7 @@ func scaled(_ buffer: CVPixelBuffer) -> CGImage? {
           let data = context.data else { return nil }
     var destination = vImage_Buffer(data: data, height: vImagePixelCount(size.1), width: vImagePixelCount(size.0),
                                     rowBytes: context.bytesPerRow)
-    guard vImageScale_ARGB8888(&source, &destination, nil, vImage_Flags(kvImageHighQualityResampling)) == kvImageNoError else { return nil }
+    guard vImageScale_ARGB8888(&source, &destination, nil, vImage_Flags(kvImageNoFlags)) == kvImageNoError else { return nil } // as ComputerUseFrameRing.scaled
     return context.makeImage()
 }
 

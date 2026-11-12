@@ -14,9 +14,11 @@ case "$verb" in
     swiftc -O -o "$EVAL_BIN/screen-eval-window-id" "$here/window-id.swift"
     ;;
   host-start)
-    # Only the window rows need the scene's window; the latency stage has none to stream.
-    "$EVAL_BIN/screen-eval-window-id" screen-eval-scene >"$EVAL_STATE/window" ||
-      { echo "cu-png: no scene window (this target measures the window rows only)" >&2; exit 1; }
+    # Only the window rows need the scene's window. The latency stage has none (and nothing to
+    # measure here), so no window starts nothing; a window row with no window then fails its view.
+    rm -f "$EVAL_STATE/window"
+    window=$("$EVAL_BIN/screen-eval-window-id" screen-eval-scene) || exit 0
+    echo "$window" >"$EVAL_STATE/window"
     ;;
   host-stop) rm -f "$EVAL_STATE/window" ;;
   latency-view | latency-report) exit 0 ;;

@@ -16,8 +16,10 @@ case "$verb" in
     swiftc -O -o "$EVAL_BIN/screen-eval-window-id" "$here/../window-id.swift"
     ;;
   host-start)
-    window=$("$EVAL_BIN/screen-eval-window-id" screen-eval-scene) ||
-      { echo "rd-window: no scene window (this target measures the window rows only)" >&2; exit 1; }
+    # The latency stage has no scene window (this target measures the window rows only): start
+    # nothing then; a window row with no host fails its view.
+    rm -f "$EVAL_STATE/host.pid"
+    window=$("$EVAL_BIN/screen-eval-window-id" screen-eval-scene) || exit 0
     head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' >"$EVAL_STATE/token"
     chmod 600 "$EVAL_STATE/token"
     : >"$EVAL_STATE/host.log"
