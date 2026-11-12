@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43165214133",
+  "recorded_at": "2026-11-12T06:08:42Z",
+  "reason": "cmux-tui 5490a2907851 changes the image's cmux-tui (pinned 5c018426fbeb)",
+  "dry_run": false,
+  "cmux_tui": "5490a290785187678031200134110c0a4261e472",
+  "fixes": [
+    {
+      "sha": "5eef26c4c90b45cae12db842879ecd7aeeb421b2",
+      "mergedAt": "2026-11-11T21:48:08-08:00",
+      "subject": "test(focus): the address bar survives a stand-in tab's swap through the app's expectation"
+    },
+    {
+      "sha": "650fd32b59b9a079e9f9697c44fdd064410607cb",
+      "mergedAt": "2026-11-11T21:48:08-08:00",
+      "subject": "feat(workspace): a terminal workspace is one daemon request"
+    },
+    {
+      "sha": "93dbb021017f81cc68f3c588fbee32eecdea82bc",
+      "mergedAt": "2026-11-11T21:48:07-08:00",
+      "subject": "test(daemon): create-terminal makes its workspace in one request (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T06:08:42Z",
+    "snapshot_id": "sh-b713e4f20e5949ffb9a4bb0ac23ec2a8",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43165214133): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "2b4a719b0911fbb2646e82730e9d74c5c03227d8",
+    "image": "cloud-native-auto-5490a290-43165214133-1",
+    "revision": "ci-43165214133-1",
+    "at": "2026-11-12T06:08:42Z"
+  },
+  "rolled_back": false
+}
