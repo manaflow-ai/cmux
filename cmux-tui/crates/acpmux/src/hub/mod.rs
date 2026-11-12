@@ -133,6 +133,7 @@ pub mod media_read;
 mod mesh_book;
 mod mesh_rows;
 pub(crate) mod native_history;
+pub(crate) mod result_image_files;
 pub(crate) mod subagent_transcript;
 mod team_information;
 mod team_sent;
