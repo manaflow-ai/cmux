@@ -150,7 +150,11 @@ impl Controller for Cubic {
         let w_est = {
             let alpha = if self.w_est >= self.cwnd_prior as f64 { 1.0 } else { ALPHA_CUBIC };
 
-            self.w_est += alpha * self.mss as f64 * segment as f64 / self.cwnd as f64;
+            // cmux patch: RFC 9438 counts all newly acknowledged bytes in
+            // congestion avoidance. The one-MSS cap belongs to slow start;
+            // using it here penalizes delayed ACKs and cumulative ACKs after
+            // a repaired hole, starving a busy stream of window growth.
+            self.w_est += alpha * self.mss as f64 * len as f64 / self.cwnd as f64;
             self.w_est
         };
 
@@ -172,7 +176,7 @@ impl Controller for Cubic {
 
         // TODO: clamps to 0 on small w_cubic_target (i.e. close to plateau)
         // add additional counter (linux `cwnd_cnt`?) to track "lost" bytes
-        let increment = (w_cubic_target as usize).saturating_sub(self.cwnd) * segment / self.cwnd;
+        let increment = (w_cubic_target as usize).saturating_sub(self.cwnd) * len / self.cwnd;
         self.cwnd = (self.cwnd + increment).min(self.rwnd).max(self.mss);
     }
 
