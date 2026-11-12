@@ -12,11 +12,13 @@
 //! of the operation grows with the history around it:
 //!
 //! - restart: a new store and `Hub::new` over the chat (the daemon's start, its log restore
-//!   included), in bytes the process reads (`/proc/self/io` `rchar`) and milliseconds;
+//!   included), in bytes the process reads (`/proc/self/io` `rchar`) and milliseconds, then what
+//!   its background work reads until the process goes quiet;
 //! - open: `_acpmux/attach` of the chat as the app opens it, in bytes read and reply bytes;
-//! - stream: one agent text delta through `Hub::append`, in bytes read and written, with
-//!   [`WATCHERS`] attached connections, one never reading: every other one still receives every
-//!   delta, and the stalled one holds no more memory per delta.
+//! - stream: 6,000 agent text deltas through `Hub::append`, in bytes read and written per
+//!   delta, with [`WATCHERS`] attached connections whose queues are a daemon's: every reader
+//!   receives every delta, and the one that never reads holds at most its queue and is told it
+//!   lagged (`_acpmux/lagged`), so it reads again instead of the hub holding a delta for it.
 //!
 //! The god size is 48 MB by default, a run of seconds; the GB run, for numbers:
 //! `ACPMUX_STRESS_GOD_MB=1024 cargo test -p acpmux --lib stress::god_chat -- --ignored --nocapture`.
@@ -35,8 +37,8 @@ const SMALL_BYTES: u64 = 1 << 20;
 const GOD: &str = "god";
 /// Attached connections while the chat streams; the first never reads its output.
 const WATCHERS: usize = 32;
-/// Deltas streamed per measured run.
-const DELTAS: u64 = 2_000;
+/// Deltas streamed per run: more than a connection's queue holds ([`OUTPUT`]).
+const DELTAS: u64 = 6_000;
 
 /// The god chat's log size: `ACPMUX_STRESS_GOD_MB` (default 48) MB.
 fn god_bytes() -> u64 {
@@ -123,15 +125,22 @@ fn turn(turn: u64, seq: &mut u64, at: u64) -> Vec<EventRecord> {
     out
 }
 
-/// A home whose one chat has a log of at least `bytes`, saved as a clean stop leaves it.
-fn fill(bytes: u64) -> (tempfile::TempDir, u64) {
+/// The god chat's own folder (its log segments and their indexes), or the whole home.
+fn chat_bytes(store: &dyn crate::store::Store, home: &std::path::Path) -> u64 {
+    disk_bytes(&store.session_dir(GOD).unwrap_or_else(|| home.to_path_buf()))
+}
+
+/// A home whose one chat has a log of at least `bytes`, saved as a clean stop leaves it, with
+/// the log's size on disk.
+fn fill(bytes: u64) -> (tempfile::TempDir, u64, u64) {
     let home = tempfile::tempdir().unwrap();
     let cfg = config();
     let store = crate::store::open(&cfg.store, home.path()).unwrap();
     let meta = |last_seq: u64| -> SessionMeta {
         serde_json::from_value(json!({
-            "schema": META_SCHEMA, "id": GOD, "name": "god chat", "harness": "fake", "cwd": "/w", "status": "idle", "createdAt": 1,
-            "updatedAt": 2, "lastSeq": last_seq, "eventCount": last_seq,
+            "schema": META_SCHEMA, "id": GOD, "name": "god chat", "harness": "fake",
+            "cwd": "/w", "status": "idle", "createdAt": 1, "updatedAt": 2,
+            "lastSeq": last_seq, "eventCount": last_seq,
         }))
         .unwrap()
     };
@@ -144,21 +153,29 @@ fn fill(bytes: u64) -> (tempfile::TempDir, u64) {
             store.append(GOD, &r).unwrap();
         }
         n += 1;
-        if n % 64 == 0 && disk_bytes(home.path()) >= bytes {
-            break;
+        if n % 64 == 0 {
+            store.flush().unwrap();
+            if chat_bytes(store.as_ref(), home.path()) >= bytes {
+                break;
+            }
         }
     }
     store.save(&meta(seq)).unwrap();
     store.flush().unwrap();
     store.close_log(GOD);
-    (home, seq)
+    let size = chat_bytes(store.as_ref(), home.path());
+    store.seal();
+    (home, seq, size)
 }
+
+/// A connection's queues as a daemon's WebSocket has them (`server/mod.rs`): 256 in, 4096 out.
+const OUTPUT: usize = 4096;
 
 async fn connect(
     hub: &Arc<Hub>,
 ) -> (tokio::sync::mpsc::Sender<String>, tokio::sync::mpsc::Receiver<String>) {
-    let (tx, input) = tokio::sync::mpsc::channel(8);
-    let (output, rx) = tokio::sync::mpsc::channel(8);
+    let (tx, input) = tokio::sync::mpsc::channel(256);
+    let (output, rx) = tokio::sync::mpsc::channel(OUTPUT);
     tokio::spawn(crate::server::serve_connection(hub.clone(), input, output));
     tx.send(Message::request(1, "initialize", json!({"protocolVersion": 1})).to_line())
         .await
@@ -182,43 +199,64 @@ async fn reply(rx: &mut tokio::sync::mpsc::Receiver<String>, id: u64) -> (Value,
     }
 }
 
-/// The app's open of the chat: its newest page, without waiting for the full restore.
+/// The app's open of the chat (webviews `direct.ts` `sendAttach`): its newest 400 records in at
+/// most 128 KB, without waiting for the full restore, with the event stream.
 fn attach(id: u64) -> String {
     Message::request(
         id,
         crate::rpc::method::MUX_ATTACH,
-        json!({"sessionId": GOD, "waitLogs": false}),
+        json!({"sessionId": GOD, "waitLogs": false, "limit": 400, "maxBytes": 128 * 1024,
+               "kinds": ["transcript"], "eventStream": true, "visible": true}),
     )
     .to_line()
+}
+
+/// Waits until this process has read nothing more for 300 ms (at most 20 s): the restart's
+/// background work (a hub's watchers, the journal's checkpoint). Returns the bytes it read.
+async fn settle() -> u64 {
+    let (first, deadline) = (process_read(), Instant::now() + Duration::from_secs(20));
+    let mut last = first;
+    while Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let now = process_read();
+        if now == last {
+            break;
+        }
+        last = now;
+    }
+    last - first
 }
 
 struct Costs {
     log_mb: f64,
     restart_read: f64,
     restart_ms: f64,
+    restart_after_read: f64,
     open_read: f64,
     open_reply: f64,
     open_ms: f64,
     delta_read: f64,
     delta_written: f64,
     delta_us: f64,
-    stalled_rss_per_delta: f64,
+    rss_per_delta: f64,
 }
 
 /// Restart, open and stream at one history size, in this process (the meters are process-wide).
 fn costs(bytes: u64) -> Costs {
-    let (home, last_seq) = fill(bytes);
-    let log_mb = disk_bytes(home.path()) as f64 / (1 << 20) as f64;
+    let (home, last_seq, log_bytes) = fill(bytes);
+    let log_mb = log_bytes as f64 / (1 << 20) as f64;
     let runtime =
         tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
-    runtime.block_on(async {
+    let costs = runtime.block_on(async {
         // Restart: the store opened again and the daemon's hub over it, its restore included.
         let (read, wall) = (process_read(), Instant::now());
         let cfg = config();
         let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, home.path()).unwrap());
         let restart_read = (process_read() - read) as f64;
         let restart_ms = wall.elapsed().as_secs_f64() * 1e3;
-        let session = hub.sessions().into_iter().find(|s| s.id == GOD).expect("the god chat is listed");
+        let restart_after_read = settle().await as f64;
+        let session =
+            hub.sessions().into_iter().find(|s| s.id == GOD).expect("the god chat is listed");
         assert_eq!(session.meta().last_seq, last_seq, "the restart sees the whole log");
 
         // Open: the first connection attaches as the app does.
@@ -240,27 +278,29 @@ fn costs(bytes: u64) -> Costs {
             watchers.push((tx, rx));
         }
         // The first watcher stops reading: its output fills and stays full.
-        let (stalled_tx, stalled_rx) = watchers.remove(0);
+        let (stalled_tx, mut stalled_rx) = watchers.remove(0);
         let mut readers = Vec::new();
         for (tx, mut rx) in watchers {
             readers.push(tokio::spawn(async move {
                 let _keep = tx;
                 // A notification may carry several deltas: count each delta's index once.
-                let mut seen = std::collections::HashSet::new();
+                let (mut seen, mut lagged) = (std::collections::HashSet::new(), false);
                 while (seen.len() as u64) < DELTAS {
                     let Ok(Some(line)) =
                         tokio::time::timeout(Duration::from_secs(60), rx.recv()).await
                     else {
                         break;
                     };
+                    lagged |= line.contains("_acpmux/lagged");
                     for part in line.split("god-stream-delta ").skip(1) {
-                        let digits: String = part.chars().take_while(char::is_ascii_digit).collect();
+                        let digits: String =
+                            part.chars().take_while(char::is_ascii_digit).collect();
                         if let Ok(i) = digits.parse::<u64>() {
                             seen.insert(i);
                         }
                     }
                 }
-                seen.len() as u64
+                (seen.len() as u64, lagged)
             }));
         }
 
@@ -279,7 +319,7 @@ fn costs(bytes: u64) -> Costs {
         let (read, written, wall) = (process_read(), process_written(), Instant::now());
         for i in warm..DELTAS {
             hub.append(&session, "in", "agent_message_chunk", delta(i));
-            if i % 64 == 0 {
+            if i % 16 == 0 {
                 tokio::task::yield_now().await;
             }
         }
@@ -287,42 +327,63 @@ fn costs(bytes: u64) -> Costs {
         let delta_us = wall.elapsed().as_secs_f64() * 1e6 / ops;
         let delta_read = (process_read() - read) as f64 / ops;
         let delta_written = (process_written() - written) as f64 / ops;
-        let stalled_rss_per_delta = (rss_bytes().unwrap_or(0) as f64 - rss_before).max(0.0) / ops;
+        let rss_per_delta = (rss_bytes().unwrap_or(0) as f64 - rss_before).max(0.0) / ops;
         for (i, reader) in readers.into_iter().enumerate() {
-            let seen = reader.await.unwrap();
-            assert_eq!(seen, DELTAS, "watcher {} of {WATCHERS} beside a stalled one got {seen} of {DELTAS} deltas", i + 2);
+            let (seen, lagged) = reader.await.unwrap();
+            assert_eq!(
+                seen,
+                DELTAS,
+                "watcher {} of {WATCHERS}, beside a stalled one, got {seen} of {DELTAS} deltas \
+                 (told it lagged: {lagged})",
+                i + 2
+            );
         }
+        // The stalled watcher holds at most its queue, and is told it lagged so it reads again.
+        let (mut held, mut told) = (0, false);
+        while let Ok(line) = stalled_rx.try_recv() {
+            held += 1;
+            told |= line.contains("_acpmux/lagged");
+        }
+        assert!(held <= OUTPUT, "a stalled watcher held {held} lines, past its {OUTPUT}");
+        assert!(told, "a stalled watcher that missed deltas was not told it lagged");
         drop((stalled_tx, stalled_rx));
+        drop(session);
+        drop(hub);
         Costs {
             log_mb,
             restart_read,
             restart_ms,
+            restart_after_read,
             open_read,
             open_reply: open_reply as f64,
             open_ms,
             delta_read,
             delta_written,
             delta_us,
-            stalled_rss_per_delta,
+            rss_per_delta,
         }
-    })
+    });
+    // The hub's tasks end with its runtime, before the next size is measured.
+    runtime.shutdown_timeout(Duration::from_secs(5));
+    costs
 }
 
 fn print(size: &str, c: &Costs) {
     eprintln!(
-        "STRESS god chat {size}: log={:.1} MB restart read={:.0} B in {:.1} ms; open read={:.0} B \
-         reply={:.0} B in {:.1} ms; per delta read={:.0} B written={:.0} B {:.1} us, \
-         rss {:.0} B/delta with a stalled watcher of {WATCHERS}",
+        "STRESS god chat {size}: log={:.1} MB; restart read={:.0} B in {:.1} ms, then {:.0} B \
+         in the background; open read={:.0} B reply={:.0} B in {:.1} ms; per delta to \
+         {WATCHERS} watchers (1 stalled) read={:.0} B written={:.0} B in {:.1} us, rss {:.0} B",
         c.log_mb,
         c.restart_read,
         c.restart_ms,
+        c.restart_after_read,
         c.open_read,
         c.open_reply,
         c.open_ms,
         c.delta_read,
         c.delta_written,
         c.delta_us,
-        c.stalled_rss_per_delta,
+        c.rss_per_delta,
     );
 }
 
@@ -344,37 +405,19 @@ fn god_chat_alone() {
     let god = costs(god_bytes());
     print("god", &god);
     // Fixed costs (the store's files, the hub's state files) sit under each floor; what grows
-    // with the log is over it.
-    assert_flat_with_size(
-        "god chat restart bytes read",
-        small.restart_read,
-        god.restart_read,
-        1 << 20,
+    // with the log is over it. Times and memory are printed, not judged: a loaded runner moves them.
+    let flat = |what: &str, small: f64, god: f64, floor: f64| {
+        assert_flat_with_size(&format!("god chat {what}"), small, god, floor)
+    };
+    flat("restart bytes read", small.restart_read, god.restart_read, 1024.0 * 1024.0);
+    flat(
+        "restart background bytes read",
+        small.restart_after_read,
+        god.restart_after_read,
+        1024.0 * 1024.0,
     );
-    assert_flat_with_size(
-        "god chat open bytes read",
-        small.open_read,
-        god.open_read,
-        256.0 * 1024.0,
-    );
-    assert_flat_with_size(
-        "god chat open reply bytes",
-        small.open_reply,
-        god.open_reply,
-        64.0 * 1024.0,
-    );
-    assert_flat_with_size("god chat bytes read per delta", small.delta_read, god.delta_read, 512.0);
-    assert_flat_with_size(
-        "god chat bytes written per delta",
-        small.delta_written,
-        god.delta_written,
-        512.0,
-    );
-    // A stalled watcher's queue is bounded: memory per delta is noise, not the delta's bytes
-    // times the deltas it missed.
-    assert!(
-        god.stalled_rss_per_delta < 4096.0,
-        "a stalled watcher holds {:.0} B per delta",
-        god.stalled_rss_per_delta
-    );
+    flat("open bytes read", small.open_read, god.open_read, 256.0 * 1024.0);
+    flat("open reply bytes", small.open_reply, god.open_reply, 64.0 * 1024.0);
+    flat("bytes read per delta", small.delta_read, god.delta_read, 512.0);
+    flat("bytes written per delta", small.delta_written, god.delta_written, 512.0);
 }
