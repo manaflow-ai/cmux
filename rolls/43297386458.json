@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43297386458",
+  "recorded_at": "2026-11-12T20:18:58Z",
+  "reason": "cmux-tui 53df879fb060 changes the image's cmux-tui (pinned 8ea06419e41e)",
+  "dry_run": false,
+  "cmux_tui": "53df879fb06057fceda6d31023f7156b7a6564ff",
+  "fixes": [
+    {
+      "sha": "53df879fb06057fceda6d31023f7156b7a6564ff",
+      "mergedAt": "2026-11-12T11:39:27-08:00",
+      "subject": "acpmux transfer tests: unlink their /tmp/acpmux-move-*.sock when the test ends (#42120)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T20:18:58Z",
+    "snapshot_id": "sh-c3218f11cefc450084c074ae7bdc3542",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43297386458): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "df4228e1fd2f25070bf3e2a4c68ea90e83d91880",
+    "image": "cloud-native-auto-53df879f-43297386458-1",
+    "revision": "ci-43297386458-1",
+    "at": "2026-11-12T20:18:58Z"
+  },
+  "rolled_back": false
+}
