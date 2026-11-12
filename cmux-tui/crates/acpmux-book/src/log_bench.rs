@@ -24,7 +24,7 @@
 //! `cargo test -p acpmux-book --release --lib god_vs_small -- --ignored --nocapture`
 //! The kill-at-every-byte tests are in `recover_tests.rs` and run with the ordinary suite.
 
-use crate::log::{Anchor, Edge, Log, MAX_PAGE_BYTES, StateWriter, section};
+use crate::log::{Anchor, Edge, Log, MAX_PAGE_BYTES, RawRange, StateWriter, section};
 use crate::testkit::{open, text};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -162,11 +162,12 @@ struct Appends {
 /// Appends rows `from..=to`, timing each, with a checkpoint every 256 rows and one
 /// `ROWS_AFTER_CHECKPOINT` rows before `end`.
 fn timed_appends(log: &mut Log, from: u64, to: u64, end: u64, into: &mut Appends) {
+    let raw_file = log.append_raw_file(b"bench/raw.ndjson").unwrap();
     for id in from..=to {
         let text = text(id);
         let before = log.stats().bytes_written;
         let start = Instant::now();
-        log.append_settled(id, 1, &text).unwrap();
+        log.append_settled(id, 1, RawRange { file: raw_file, off: id, len: 1 }, &text).unwrap();
         into.times.push(nanos(start));
         into.written += log.stats().bytes_written - before;
         into.text_bytes += text.len() as u64;
@@ -248,7 +249,8 @@ fn torn_open(dir: &Path) -> u64 {
     {
         let (mut log, _) = open(dir);
         let id = log.max_row() + 1;
-        log.append_settled(id, 1, &text(id)).unwrap();
+        let raw_file = log.append_raw_file(b"bench/raw.ndjson").unwrap();
+        log.append_settled(id, 1, RawRange { file: raw_file, off: id, len: 1 }, &text(id)).unwrap();
     }
     let last =
         std::fs::read_dir(dir.join("rows")).unwrap().map(|entry| entry.unwrap().path()).max();
@@ -289,9 +291,10 @@ fn god_vs_small() {
     // ---- append: one book of 2M rows; its last 20,000 appends are the ones timed ----
     let build = Instant::now();
     let (mut log, _) = open(&god_dir);
+    let raw_file = log.append_raw_file(b"bench/raw.ndjson").unwrap();
     let untimed = GOD_ROWS - TIMED_ROWS;
     for id in 1..=untimed {
-        log.append_settled(id, 1, &text(id)).unwrap();
+        log.append_settled(id, 1, RawRange { file: raw_file, off: id, len: 1 }, &text(id)).unwrap();
         if id.is_multiple_of(4096) {
             log.write_checkpoint(actor_state(id).as_bytes()).unwrap();
         }

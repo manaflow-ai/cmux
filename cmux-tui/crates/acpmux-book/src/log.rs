@@ -2,11 +2,12 @@
 //!
 //! ```text
 //! <chat>/book/
-//!   rows/000001.seg ...   settled rows, append-only, in settle order; a segment closes at 64 MB
+//!   rows/000001.seg ...   `ABSG` + version, then settled rows in settle order; a segment closes at 64 MB
 //!   rows.idx              16-byte entries by rowId: segment, offset, length, rev; mapped
 //!   seq.idx               every 256th settle seq to its segment and offset
 //!   blobs/<rowId>         bodies over 16 KB
 //!   checkpoint            under 64 KB, written atomically
+//!   raw.map               the chat's raw files by number, append-only
 //!   lock                  held by the book's one owner
 //! ```
 //!
@@ -54,20 +55,43 @@ use crate::row::MAX_ROW_TEXT;
 use checkpoint::Mark;
 use index::{Entry, RowIndex, SeqIndex};
 use std::fs::{self, File, OpenOptions, TryLockError};
-use std::io::{self, Write};
+use std::io::{self, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 /// A segment closes when the next record would take it past this.
 pub const SEGMENT_BYTES: u64 = 64 * 1024 * 1024;
+/// The segment preamble (`magic u32 | version u32`).
+pub const SEGMENT_HEADER_LEN: u64 = 8;
+const SEGMENT_MAGIC: u32 = u32::from_le_bytes(*b"ABSG");
+const SEGMENT_VERSION: u32 = 1;
 /// `seq.idx` has an entry for every seq that is a multiple of this.
 pub const SEQ_STRIDE: u64 = 256;
 /// The most segment files kept open for reading besides the last one.
 const MAX_READERS: usize = 4;
+/// The most row ids examined for post-checkpoint index repair. Row ids are monotonic, so this
+/// covers one checkpoint interval plus the bounded open-row tail without walking a whole index.
+const REPAIR_ROWS: u64 = 512;
 /// How long `open` waits for the book's lock before it is [`Error::Busy`]: 100 tries, 2 ms apart.
 const LOCK_TRIES: u32 = 100;
 const LOCK_WAIT: std::time::Duration = std::time::Duration::from_millis(2);
 /// The most bytes one [`Log::read_blob`] returns.
 pub const MAX_BLOB_READ: usize = 1024 * 1024;
+
+/// The raw bytes that fed a settled row. `file == 0` and `len == 0` mean the daemon made the
+/// row itself (for example a queued prompt or a notice).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RawRange {
+    /// The one-based line number in `raw.map`, or 0 when there are no raw bytes.
+    pub file: u32,
+    /// The byte offset in the raw file as the harness wrote it.
+    pub off: u64,
+    /// The number of raw bytes. Zero for a daemon-created row.
+    pub len: u32,
+}
+
+impl RawRange {
+    pub const NONE: RawRange = RawRange { file: 0, off: 0, len: 0 };
+}
 
 /// What can go wrong.
 #[derive(Debug)]
@@ -102,6 +126,12 @@ pub enum Error {
     /// The files do not agree with each other. The book is derived from the raw file: the
     /// owner deletes the book and translates it again.
     Corrupt(&'static str),
+    /// A segment's magic or version is not understood. The book must be rebuilt from raw; this
+    /// is never treated as a torn tail.
+    Rebuild(&'static str),
+    /// A write left the in-memory value unable to prove that its files agree. Reopen it before
+    /// accepting another append.
+    Stopped,
 }
 
 impl std::fmt::Display for Error {
@@ -122,6 +152,8 @@ impl std::fmt::Display for Error {
                 write!(f, "book: a checkpoint of {bytes} bytes (it must be under 65536)")
             }
             Error::Corrupt(what) => write!(f, "book: {what}"),
+            Error::Rebuild(what) => write!(f, "book: rebuild this book from raw ({what})"),
+            Error::Stopped => write!(f, "book: a write failed; open the book again"),
         }
     }
 }
@@ -200,6 +232,8 @@ struct Tail {
 pub struct Log {
     dir: PathBuf,
     rows_dir: PathBuf,
+    raw_map: File,
+    raw_files: u32,
     options: Options,
     /// Held for the lock on it.
     _lock: File,
@@ -208,7 +242,7 @@ pub struct Log {
     seqs: SeqIndex,
     /// Older segments open for reading, the most recently used first.
     readers: Vec<(u32, File)>,
-    /// The record being written; at most a row text and its 28 bytes.
+    /// The record being written; at most a row text and its 44 bytes.
     scratch: Vec<u8>,
     last_seq: u64,
     min_row: u64,
@@ -223,6 +257,35 @@ pub struct Log {
 
 fn segment_path(rows_dir: &Path, seg: u32) -> PathBuf {
     rows_dir.join(format!("{seg:06}.seg"))
+}
+
+fn count_raw_files(file: &File) -> Result<u32, Error> {
+    let mut bytes = Vec::new();
+    let mut reader = file.try_clone()?;
+    reader.seek(SeekFrom::Start(0))?;
+    std::io::Read::read_to_end(&mut reader, &mut bytes)?;
+    let lines = bytes.iter().filter(|byte| **byte == b'\n').count();
+    u32::try_from(lines).map_err(|_| Error::Corrupt("raw.map has too many files"))
+}
+
+fn check_segment_header(file: &File) -> Result<(), Error> {
+    let mut bytes = [0u8; SEGMENT_HEADER_LEN as usize];
+    if fsio::read_at(file, &mut bytes, 0)? != bytes.len() {
+        return Err(Error::Rebuild("a segment has no complete header"));
+    }
+    let mut magic_bytes = [0u8; 4];
+    let mut version_bytes = [0u8; 4];
+    magic_bytes.copy_from_slice(&bytes[..4]);
+    version_bytes.copy_from_slice(&bytes[4..]);
+    let magic = u32::from_le_bytes(magic_bytes);
+    let version = u32::from_le_bytes(version_bytes);
+    if magic != SEGMENT_MAGIC {
+        return Err(Error::Rebuild("a segment has the wrong magic"));
+    }
+    if version != SEGMENT_VERSION {
+        return Err(Error::Rebuild("a segment has an unknown version"));
+    }
+    Ok(())
 }
 
 /// The highest segment number in `rows_dir`; 0 when there is none.
@@ -258,6 +321,13 @@ impl Log {
         let rows_dir = dir.join("rows");
         fs::create_dir_all(&rows_dir)?;
         fs::create_dir_all(dir.join("blobs"))?;
+        let raw_map = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(dir.join("raw.map"))?;
+        let raw_files = count_raw_files(&raw_map)?;
         let lock = OpenOptions::new()
             .read(true)
             .write(true)
@@ -316,6 +386,7 @@ impl Log {
                         "seq.idx",
                         (mark.last_seq / SEQ_STRIDE).saturating_add(1).saturating_mul(8),
                     ))
+                && mark.off >= SEGMENT_HEADER_LEN
         });
         let mut recovered = Recovered { checkpoint: saved.is_some(), ..Recovered::default() };
         let mark = match saved {
@@ -323,7 +394,7 @@ impl Log {
                 recovered.state = state.to_vec();
                 mark
             }
-            None => Mark { last_seq: 0, min_row: 0, max_row: 0, seg: 1, off: 0 },
+            None => Mark { last_seq: 0, min_row: 0, max_row: 0, seg: 1, off: SEGMENT_HEADER_LEN },
         };
         let rebuild = !recovered.checkpoint;
         let mut rows = RowIndex::open(&dir.join("rows.idx"), rebuild)?;
@@ -331,34 +402,25 @@ impl Log {
 
         let (mut last_seq, mut min_row, mut max_row) = (mark.last_seq, mark.min_row, mark.max_row);
         let (mut rewritten, mut rewrites) = (0u64, 0u64);
+        let mut scanned = Vec::new();
+        let mut scan_seq = last_seq;
         for seg in mark.seg..=last {
             let path = segment_path(&rows_dir, seg);
             let file = OpenOptions::new().read(true).write(seg == last).open(&path)?;
-            let from = if seg == mark.seg { mark.off } else { 0 };
+            check_segment_header(&file)?;
+            let from = if seg == mark.seg { mark.off } else { SEGMENT_HEADER_LEN };
             let scan = recover::scan(&file, from, |offset, header| {
-                if last_seq.checked_add(1) != Some(header.seq) {
+                if header.raw_len != 0 && (header.raw_file == 0 || header.raw_file > raw_files) {
+                    return Err(Error::Corrupt("a record names a raw file absent from raw.map"));
+                }
+                if scan_seq.checked_add(1) != Some(header.seq) {
                     return Ok(false);
                 }
-                let Ok(off) = u32::try_from(offset) else {
+                if u32::try_from(offset).is_err() {
                     return Ok(false);
-                };
-                // After a clean stop the entries are already there: an open then writes nothing.
-                let entry = Entry { seg, off, len: header.len, rev: header.rev };
-                if rows.get(header.row_id) != Some(entry) {
-                    rewritten = rewritten.saturating_add(rows.set(header.row_id, entry)?);
-                    rewrites = rewrites.saturating_add(1);
                 }
-                if header.seq.is_multiple_of(SEQ_STRIDE) {
-                    let slot = header.seq / SEQ_STRIDE;
-                    if seqs.get(slot)? != Some((seg, off)) {
-                        rewritten = rewritten.saturating_add(seqs.set(slot, seg, off)?);
-                        rewrites = rewrites.saturating_add(1);
-                    }
-                }
-                last_seq = header.seq;
-                min_row = if min_row == 0 { header.row_id } else { min_row.min(header.row_id) };
-                max_row = max_row.max(header.row_id);
-                recovered.replayed = recovered.replayed.saturating_add(1);
+                scanned.push((seg, offset, *header));
+                scan_seq = header.seq;
                 Ok(true)
             })?;
             if scan.torn {
@@ -373,9 +435,65 @@ impl Log {
             }
         }
 
+        let found_rows: Vec<u64> = scanned.iter().map(|(_, _, header)| header.row_id).collect();
+        let found_slots: Vec<u64> = scanned
+            .iter()
+            .filter_map(|(_, _, header)| {
+                header.seq.is_multiple_of(SEQ_STRIDE).then_some(header.seq / SEQ_STRIDE)
+            })
+            .collect();
+
+        // An index write can be durable even when its record was not. Row ids are monotonic in
+        // the book, so only the tail after the checkpoint's max can have such an entry; clear
+        // that bounded tail before replay can settle the rows again.
+        if recovered.checkpoint {
+            let last_index_row = mark.max_row.saturating_add(REPAIR_ROWS).min(rows.max_row_id());
+            let mut row_id = mark.max_row.saturating_add(1);
+            while row_id <= last_index_row {
+                if !found_rows.contains(&row_id) && rows.get(row_id).is_some() {
+                    rewritten = rewritten.saturating_add(rows.clear(row_id)?);
+                    rewrites = rewrites.saturating_add(1);
+                }
+                row_id = row_id.saturating_add(1);
+            }
+            let last_slot = seqs.max_slot();
+            let mut slot = mark.last_seq / SEQ_STRIDE + 1;
+            while slot <= last_slot {
+                if !found_slots.contains(&slot) && seqs.get(slot)?.is_some() {
+                    rewritten = rewritten.saturating_add(seqs.clear(slot)?);
+                    rewrites = rewrites.saturating_add(1);
+                }
+                slot = slot.saturating_add(1);
+            }
+        }
+
+        // Replay the scanned records only after stale index entries have been cleared. A clean
+        // reopen therefore writes nothing, while a power-loss tail gets exactly the records that
+        // survived in the segment.
+        for (seg, offset, header) in scanned {
+            let off =
+                u32::try_from(offset).map_err(|_| Error::Corrupt("a segment is past 4 GiB"))?;
+            let entry = Entry { seg, off, len: header.len, rev: header.rev };
+            if rows.get(header.row_id) != Some(entry) {
+                rewritten = rewritten.saturating_add(rows.set(header.row_id, entry)?);
+                rewrites = rewrites.saturating_add(1);
+            }
+            if header.seq.is_multiple_of(SEQ_STRIDE) {
+                let slot = header.seq / SEQ_STRIDE;
+                if seqs.get(slot)? != Some((seg, off)) {
+                    rewritten = rewritten.saturating_add(seqs.set(slot, seg, off)?);
+                    rewrites = rewrites.saturating_add(1);
+                }
+            }
+            last_seq = header.seq;
+            min_row = if min_row == 0 { header.row_id } else { min_row.min(header.row_id) };
+            max_row = max_row.max(header.row_id);
+            recovered.replayed = recovered.replayed.saturating_add(1);
+        }
+
         let tail = if last == 0 {
             let file = Self::create_segment(&rows_dir, 1)?;
-            Tail { seg: 1, file, len: 0 }
+            Tail { seg: 1, file, len: SEGMENT_HEADER_LEN }
         } else {
             let file =
                 OpenOptions::new().read(true).append(true).open(segment_path(&rows_dir, last))?;
@@ -388,6 +506,8 @@ impl Log {
         let log = Log {
             dir: dir.to_path_buf(),
             rows_dir,
+            raw_map,
+            raw_files,
             options,
             _lock: lock,
             tail,
@@ -406,12 +526,16 @@ impl Log {
     }
 
     fn create_segment(rows_dir: &Path, seg: u32) -> Result<File, Error> {
-        let file = OpenOptions::new()
+        let mut file = OpenOptions::new()
             .read(true)
-            .append(true)
+            .write(true)
             .create_new(true)
             .open(segment_path(rows_dir, seg))?;
+        file.write_all(&SEGMENT_MAGIC.to_le_bytes())?;
+        file.write_all(&SEGMENT_VERSION.to_le_bytes())?;
+        fsio::sync(&file)?;
         fsio::sync_dir(rows_dir)?;
+        file.seek(SeekFrom::End(0))?;
         Ok(file)
     }
 
@@ -461,18 +585,64 @@ impl Log {
         self.entry(row_id).map(|entry| RowRef::of(row_id, 0, &entry))
     }
 
+    /// Reads the raw range from a row's record header. Index entries intentionally stay 16
+    /// bytes, so callers that got a row from a window or page ask for this small header read when
+    /// they need the cold source location.
+    pub fn raw_range(&mut self, row: &RowRef) -> Result<RawRange, Error> {
+        let offset = u64::from(row.off).saturating_sub(record::HEADER_LEN_U64);
+        let mut head = [0u8; HEADER_LEN];
+        if self.read_segment(row.seg, offset, &mut head)? != HEADER_LEN {
+            return Err(Error::Corrupt("a row points past its segment"));
+        }
+        let Some(header) = record::Header::parse(&head) else {
+            return Err(Error::Corrupt("a segment record is damaged"));
+        };
+        if header.row_id != row.row_id || header.rev != row.rev || header.len != row.len {
+            return Err(Error::Corrupt("a row index entry does not match its record"));
+        }
+        if header.raw_len != 0 && (header.raw_file == 0 || header.raw_file > self.raw_files) {
+            return Err(Error::Corrupt("a record names a raw file absent from raw.map"));
+        }
+        Ok(RawRange { file: header.raw_file, off: header.raw_off, len: header.raw_len })
+    }
+
+    /// Appends one line to `raw.map`, syncs it, and returns its one-based file number. A record
+    /// may name this number only after this method returns.
+    pub fn append_raw_file(&mut self, line: &[u8]) -> Result<u32, Error> {
+        if line.iter().any(|byte| *byte == b'\n' || *byte == b'\r') {
+            return Err(Error::Corrupt("a raw.map line contains a newline"));
+        }
+        let file = self.raw_files.checked_add(1).ok_or(Error::Corrupt("raw.map is full"))?;
+        self.raw_map.seek(SeekFrom::End(0))?;
+        self.raw_map.write_all(line)?;
+        self.raw_map.write_all(b"\n")?;
+        fsio::sync(&self.raw_map)?;
+        self.raw_files = file;
+        self.stats.bytes_written = self.stats.bytes_written.saturating_add(line.len() as u64 + 1);
+        self.stats.writes = self.stats.writes.saturating_add(1);
+        self.stats.syncs = self.stats.syncs.saturating_add(1);
+        Ok(file)
+    }
+
     /// Appends a row that has just settled; its seq. `text` is the row's wire text
-    /// ([`crate::row::Row::encode`]); it is stored as it is and never parsed. Costs the row's
-    /// length: one write to the segment and one index entry. The record is in the kernel on
-    /// return (a kill of the process keeps it); [`Log::sync`] puts it on the disk.
-    pub fn append_settled(&mut self, row_id: u64, rev: u32, text: &[u8]) -> Result<u64, Error> {
+    /// ([`crate::row::Row::encode`]); it is stored as it is and never parsed. `raw` must name a
+    /// line already synced by [`Log::append_raw_file`] when it has bytes. Costs the row's length:
+    /// one write to the segment and one index entry. A raw-backed record is in the kernel on
+    /// return; a daemon-created record is synced before its index entry is written.
+    pub fn append_settled(
+        &mut self,
+        row_id: u64,
+        rev: u32,
+        raw: RawRange,
+        text: &[u8],
+    ) -> Result<u64, Error> {
         if row_id == 0 {
             return Err(Error::ZeroRowId);
         }
         if self.settled(row_id)?.is_some() {
             return Err(Error::AlreadySettled { row_id });
         }
-        self.write_record(row_id, rev, text)
+        self.write_record(row_id, rev, raw, text)
     }
 
     /// The index entry of `row_id`, once its record's header says it is that row's. An entry
@@ -495,27 +665,47 @@ impl Log {
     }
 
     /// Appends a new rev of a settled row (a permission answered, a rewind); its seq. The old
-    /// record stays where it is; the row index now points at this one.
-    pub fn patch(&mut self, row_id: u64, rev: u32, text: &[u8]) -> Result<u64, Error> {
+    /// record stays where it is; the row index now points at this one. `raw` is the range of the
+    /// line that caused the patch, or [`RawRange::NONE`] for a daemon-created change.
+    pub fn patch(
+        &mut self,
+        row_id: u64,
+        rev: u32,
+        raw: RawRange,
+        text: &[u8],
+    ) -> Result<u64, Error> {
         let Some(entry) = self.settled(row_id)? else {
             return Err(Error::NotSettled { row_id });
         };
         if rev <= entry.rev {
             return Err(Error::StaleRev { row_id, have: entry.rev, got: rev });
         }
-        self.write_record(row_id, rev, text)
+        self.write_record(row_id, rev, raw, text)
     }
 
-    fn write_record(&mut self, row_id: u64, rev: u32, text: &[u8]) -> Result<u64, Error> {
+    fn write_record(
+        &mut self,
+        row_id: u64,
+        rev: u32,
+        raw: RawRange,
+        text: &[u8],
+    ) -> Result<u64, Error> {
         if self.broken {
-            return Err(Error::Corrupt("a write failed; open the book again"));
+            return Err(Error::Stopped);
+        }
+        if raw.len == 0 {
+            if raw.file != 0 {
+                return Err(Error::Corrupt("a raw range with no bytes has a file number"));
+            }
+        } else if raw.file == 0 || raw.file > self.raw_files {
+            return Err(Error::Corrupt("a record names a raw file absent from raw.map"));
         }
         let len = u32::try_from(text.len())
             .ok()
             .filter(|len| *len != 0 && text.len() <= MAX_ROW_TEXT)
             .ok_or(Error::RowText { len: text.len() })?;
         let seq = self.last_seq.checked_add(1).ok_or(Error::Corrupt("the seq overflowed"))?;
-        record::encode(&mut self.scratch, seq, row_id, rev, text);
+        record::encode(&mut self.scratch, seq, row_id, rev, raw.file, raw.off, raw.len, text);
         let record_len = self.scratch.len() as u64;
         if self.tail.len != 0
             && self.tail.len.saturating_add(record_len) > self.options.segment_bytes
@@ -539,6 +729,14 @@ impl Log {
         self.min_row = if self.min_row == 0 { row_id } else { self.min_row.min(row_id) };
         self.max_row = self.max_row.max(row_id);
         self.unsynced = true;
+        // Patches and daemon-created rows have no raw replay behind them. Their record must be
+        // on disk before the index can name it, or a power loss could leave an un-replayable
+        // index entry.
+        if raw.len == 0 {
+            fsio::sync(&self.tail.file)?;
+            self.stats.syncs = self.stats.syncs.saturating_add(1);
+            self.unsynced = false;
+        }
         let mut written = record_len;
         let mut writes = 1u64;
         let entry = Entry { seg: self.tail.seg, off, len, rev };
@@ -595,7 +793,7 @@ impl Log {
     /// any moment leaves the old checkpoint or the new one.
     pub fn write_checkpoint(&mut self, state: &[u8]) -> Result<(), Error> {
         if self.broken {
-            return Err(Error::Corrupt("a write failed; open the book again"));
+            return Err(Error::Stopped);
         }
         let mark = Mark {
             last_seq: self.last_seq,

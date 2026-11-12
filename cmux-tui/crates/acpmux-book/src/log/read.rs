@@ -11,7 +11,7 @@
 
 use super::index::Entry;
 use super::record::{HEADER_LEN, HEADER_LEN_U32, HEADER_LEN_U64, Header};
-use super::{Error, Log, SEQ_STRIDE};
+use super::{Error, Log, RawRange, SEQ_STRIDE};
 use std::ops::Range;
 
 /// The most rows one window, page or resume returns.
@@ -38,9 +38,12 @@ pub struct RowRef {
     /// (the index does not hold it).
     pub seq: u64,
     pub seg: u32,
-    /// Where the row text starts in the segment (24 bytes after its record).
+    /// Where the row text starts in the segment (40 bytes after its record).
     pub off: u32,
     pub len: u32,
+    /// The raw bytes that produced this record. Windows and pages fill this lazily at the
+    /// segment read; resume rows carry it immediately because they already inspect headers.
+    pub raw: RawRange,
 }
 
 impl RowRef {
@@ -52,6 +55,7 @@ impl RowRef {
             seg: entry.seg,
             off: entry.off.saturating_add(HEADER_LEN_U32),
             len: entry.len,
+            raw: RawRange::NONE,
         }
     }
 }
@@ -350,6 +354,11 @@ impl Log {
                         off: u32::try_from(text)
                             .map_err(|_| Error::Corrupt("a segment is past 4 GiB"))?,
                         len: header.len,
+                        raw: RawRange {
+                            file: header.raw_file,
+                            off: header.raw_off,
+                            len: header.raw_len,
+                        },
                     });
                     since.cursor = header.seq;
                     left = left.saturating_sub(len);
@@ -418,6 +427,15 @@ impl Log {
                 });
                 if !same {
                     return Err(Error::Corrupt("a row index entry does not match its record"));
+                }
+                if let Some(header) = header {
+                    if header.raw_len != 0
+                        && (header.raw_file == 0 || header.raw_file > self.raw_files)
+                    {
+                        return Err(Error::Corrupt(
+                            "a record names a raw file absent from raw.map",
+                        ));
+                    }
                 }
                 let text = header_at.saturating_add(HEADER_LEN);
                 at.push(text..text.saturating_add(row.len as usize));

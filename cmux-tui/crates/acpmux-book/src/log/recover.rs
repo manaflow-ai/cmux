@@ -22,11 +22,14 @@ pub(crate) struct Scan {
 /// Reads the records of `file` from `from`, handing each whole one to `apply` with its offset.
 /// `apply` returns false for a record that cannot follow the one before (its seq is not the
 /// next one); the scan treats it as torn, like a bad crc.
-pub(crate) fn scan(
+pub(crate) fn scan<E>(
     file: &File,
     from: u64,
-    mut apply: impl FnMut(u64, &Header) -> io::Result<bool>,
-) -> io::Result<Scan> {
+    mut apply: impl FnMut(u64, &Header) -> Result<bool, E>,
+) -> Result<Scan, E>
+where
+    E: From<io::Error>,
+{
     let mut chunk = vec![0u8; CHUNK];
     let mut offset = from;
     loop {
