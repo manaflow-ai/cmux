@@ -714,7 +714,7 @@ import { contextAttachment, floatingStatus, type QuickFloating } from "./floatin
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedSendsContext, type FailedSends } from "./conversation/promptDeliveryModel";
-import { failedRuns, failedSendText, type FailedRun } from "./sendFailure";
+import { type FailedRun, failedRuns, failedSendText, heldSendNotice } from "./sendFailure";
 import { clientWaiter, keepLostPrompt, lostPrompt, resentAfterLoss } from "./lostPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
@@ -11859,7 +11859,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         if (outcome === "shown") return promptLanded.current();
                         if (outcome === "failed") return;
                         giveBack();
-                        directClient.current?.notice(failedSendText(error, false, attachments));
+                        const line = heldSendNotice(error, attachments);
+                        if (line) directClient.current?.notice(line);
                       },
                     );
                   },
@@ -11958,7 +11959,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 if (heldRefusal(error)) return true as const;
                 if (lostPrompt(error)) {
                   if (await resentAfterLoss(error, connectedClients, sentOn)) return true as const;
-                  directClient.current?.notice(failedSendText(error, false, attachments));
+                  const line = heldSendNotice(error, attachments);
+                  if (line) directClient.current?.notice(line);
                 }
                 throw error;
               });

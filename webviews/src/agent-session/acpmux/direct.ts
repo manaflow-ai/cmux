@@ -151,7 +151,7 @@ import { PlanBuildRows } from "./planBuild/planBuildRows";
 import { OfferChildren } from "./offer/offerChildren";
 import type { OfferPicks } from "./offer/offerChoice";
 import { errorMessage, startCancelled } from "./transportErrors";
-import { failedSendText, retryHelps, sendCause } from "./sendFailure";
+import { failedSendText, heldSendNotice, retryHelps, sendCause } from "./sendFailure";
 import { isLostConnection, lostPrompt, type LostPrompt } from "./lostPrompt";
 import { SessionPageError, SessionPager, type SessionPage, withUsage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
@@ -10191,12 +10191,15 @@ export class AcpmuxDirectClient {
         // for want of a real key or click (dictation's autoSend after a session ended by itself)
         // says just that, not the generic refusal's pick wording (cx-w2p8r).
         // A lost prompt the host sends again says nothing yet: its sender says it if it never shows.
-        if (held && !isTrustRefusal(error) && !lostPrompt(error))
-          this.notice(
-            code === "transport.gesture_required"
+        // One that waited for the agent service and gave up says nothing here (sendFailure.ts
+        // heldSendNotice): its words are back in the composer and the host line says why.
+        const line =
+          held && !isTrustRefusal(error) && !lostPrompt(error)
+            ? code === "transport.gesture_required"
               ? translate("prompt.notSentAgain")
-              : failedSendText(error, false, sendAttachments),
-          );
+              : heldSendNotice(error, sendAttachments)
+            : undefined;
+        if (line) this.notice(line);
         else this.emit();
         throw error;
       }
