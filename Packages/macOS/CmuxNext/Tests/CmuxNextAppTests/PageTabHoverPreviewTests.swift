@@ -83,4 +83,28 @@ import Testing
         #expect(await services.previews.previewImage(for: TabID(key), maxPixelSize: Self.size) != nil)
         #expect(camera.taken == 2)
     }
+
+    /// A page whose theme changes before it hears of it (AppKit may tell a view late).
+    private final class QuietPage: PagePictureSubject {
+        let pictureKey = "local-page:markdown:quiet"
+        let shownGeneration = 1
+        let isOnScreen = true
+        var pictureLook = "NSAppearanceNameAqua"
+        func picture(maxPixelWidth: CGFloat) async -> CGImage? { nil }
+    }
+
+    /// The dark card of a capture showed the page's light picture: the kept picture stood for the page
+    /// until the page counted a theme change, and a card can ask before the page has counted it.
+    @Test func aPictureFromTheOtherThemeIsTakenAgainBeforeThePageHearsOfIt() async throws {
+        _ = NSApplication.shared
+        let pictures = PageTabPictures()
+        let camera = Camera()
+        camera.image = try NewTabHoverPreviewTests.striped()
+        pictures.capture = { _ in camera.capture() }
+        let page = QuietPage()
+        #expect(await pictures.picture(of: page, maxPixelSize: Self.size) != nil)
+        page.pictureLook = "NSAppearanceNameDarkAqua"
+        #expect(await pictures.picture(of: page, maxPixelSize: Self.size) != nil)
+        #expect(camera.taken == 2, "the card showed the page's picture from the other theme")
+    }
 }
