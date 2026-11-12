@@ -2478,6 +2478,12 @@ _FFI_LISTED: dict = {}  # FFI_WALK_ROOT -> (inputs, excluded, ffi_rust_units), o
 def ffi_listing() -> tuple[list[str], list[str]] | None:
     """(the inputs, the excluded paths) of the app FFI walk of FFI_WALK_ROOT's HEAD (app_ffi_pin.listed), read once a
     process; None when the walk refuses (ffi_walk_refusal says why, and it goes to stderr)."""
+    listed = _ffi_walk()
+    return None if isinstance(listed, str) else listed[:2]
+
+
+def _ffi_walk() -> tuple[list[str], list[str], frozenset[str]] | str:
+    """The cached walk of FFI_WALK_ROOT's HEAD: (inputs, excluded, ffi_rust_units), or the walk's refusal (a str)."""
     if FFI_WALK_ROOT not in _FFI_LISTED:
         try:
             _FFI_LISTED[FFI_WALK_ROOT] = (*app_ffi_pin.listed(FFI_WALK_ROOT), ffi_rust_units(FFI_WALK_ROOT))
@@ -2485,14 +2491,12 @@ def ffi_listing() -> tuple[list[str], list[str]] | None:
             print(f"base_red_excuse: the app FFI inputs cannot be listed ({why}); no path counts as one, so no pin red "
                   "is excused as a step-A change", file=sys.stderr)
             _FFI_LISTED[FFI_WALK_ROOT] = f"the app FFI walk of this checkout refused: {why}"
-    listed = _FFI_LISTED[FFI_WALK_ROOT]
-    return None if isinstance(listed, str) else listed[:2]
+    return _FFI_LISTED[FFI_WALK_ROOT]
 
 
 def ffi_walk_refusal() -> str | None:
     """Why the app FFI walk of FFI_WALK_ROOT's HEAD refused, for a refusal to name; None when it listed."""
-    ffi_listing()
-    refusal = _FFI_LISTED[FFI_WALK_ROOT]
+    refusal = _ffi_walk()
     return refusal if isinstance(refusal, str) else None
 
 
@@ -2515,8 +2519,9 @@ def ffi_input(path: str) -> bool:
 # Lead decision 3 (2026-11-11): the walk above is of this classifier's own checkout (the base), never the PR's head,
 # and a PR can change which files are inputs at its head without touching one the base's walk lists: a Cargo.toml (a
 # new dependency edge, the cmux-tui/Cargo.toml workspace members) or a Cargo.lock anywhere, or a path in a crate or
-# folder of the Rust tree that the base does not have (cmux-tui/crates/NAME, cmux-tui/bindings/NAME, else
-# cmux-tui/NAME: a new crate, a new folder). The base walk reached every crate and folder the base has, so a path in one
+# folder of the Rust tree that the base does not have (cmux-tui/crates/NAME, cmux-tui/bindings/NAME,
+# cmux-tui/vendor/NAME, else cmux-tui/NAME: a new crate, a new folder; a vendored source tree such as a C library a
+# build script compiles needs no Cargo.toml, so a new vendor folder counts as well). The base walk reached every crate and folder the base has, so a path in one
 # it did not list (acpmux, cmux-tui-core, bindings/python: about 85 crates no FFI crate reaches) is vouched for. When
 # the walk refuses, it vouches for no cmux-tui path. Paths outside cmux-tui/ that are not Cargo files (Swift, web, docs,
 # scripts) are not this rule; those the walk lists above the crates (the cargo configs, toolchain files,
@@ -2526,22 +2531,22 @@ def ffi_input(path: str) -> bool:
 # F1): it goes to the published base pin rule, which reads no walk, and that rule's refusal names the next step.
 FFI_RUST_TREE = "cmux-tui/"
 FFI_CARGO_FILES = ("Cargo.toml", "Cargo.lock")
-FFI_RUST_UNIT_PARENTS = ("cmux-tui", "cmux-tui/crates", "cmux-tui/bindings")
+FFI_RUST_UNIT_PARENTS = ("cmux-tui", "cmux-tui/crates", "cmux-tui/bindings", "cmux-tui/vendor")
 FFI_UNVOUCHED_NEXT_STEP = ("make the FFI pin green for this change (publish the pin from this head), or split the "
                            "Cargo change into its own PR whose pin is green")
 
 
 def ffi_rust_unit(path: str) -> str:
-    """The crate or folder of the Rust tree that PATH (under cmux-tui/) is in: its entry under cmux-tui/crates/ or
-    cmux-tui/bindings/, else its entry under cmux-tui/."""
+    """The crate or folder of the Rust tree that PATH (under cmux-tui/) is in: its entry under cmux-tui/crates/,
+    cmux-tui/bindings/ or cmux-tui/vendor/, else its entry under cmux-tui/."""
     parts = path.split("/")
     depth = 3 if len(parts) >= 3 and "/".join(parts[:2]) in FFI_RUST_UNIT_PARENTS[1:] else 2
     return "/".join(parts[:depth])
 
 
 def ffi_rust_units(root: Path) -> frozenset[str]:
-    """Every entry of ROOT's HEAD tree directly under cmux-tui/, cmux-tui/crates/ and cmux-tui/bindings/ (git, never the
-    disk), what ffi_rust_unit names. Raises app_ffi_pin.Unresolved when git cannot list them."""
+    """Every entry of ROOT's HEAD tree directly under cmux-tui/ and each of FFI_RUST_UNIT_PARENTS (git, never the disk),
+    what ffi_rust_unit names. Raises app_ffi_pin.Unresolved when git cannot list them."""
     try:
         listed = subprocess.run(["git", "-C", str(root), "ls-tree", "-z", "--name-only", "HEAD", "--",
                                  *(f"{parent}/" for parent in FFI_RUST_UNIT_PARENTS)],
@@ -2554,8 +2559,9 @@ def ffi_rust_units(root: Path) -> frozenset[str]:
 def ffi_walk_unvouched(paths: list[str]) -> list[str]:
     """The PATHS the walk of this checkout cannot vouch for at the PR's head (lead decision 3 above): every Cargo.toml and
     Cargo.lock, and every path under cmux-tui/ whose crate or folder (ffi_rust_unit) the base's tree does not have
-    (every cmux-tui path when the walk refuses)."""
-    units = _FFI_LISTED[FFI_WALK_ROOT][2] if ffi_listing() is not None else frozenset()
+    (every cmux-tui path when the walk refuses). It reads the walk through _ffi_walk, never by indexing the cache."""
+    walk = _ffi_walk()
+    units = frozenset() if isinstance(walk, str) else walk[2]
     return [path for path in paths if path.rsplit("/", 1)[-1] in FFI_CARGO_FILES
             or (path.startswith(FFI_RUST_TREE) and ffi_rust_unit(path) not in units)]
 
