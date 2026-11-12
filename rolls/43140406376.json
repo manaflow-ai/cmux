@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43140406376",
+  "recorded_at": "2026-11-12T02:25:58Z",
+  "reason": "cmux-tui 7ae2c9707413 changes the image's cmux-tui (pinned 4d5739a9d264)",
+  "dry_run": false,
+  "cmux_tui": "7ae2c9707413c95ceaa89f006ae7ca6dd3d9058e",
+  "fixes": [
+    {
+      "sha": "7ae2c9707413c95ceaa89f006ae7ca6dd3d9058e",
+      "mergedAt": "2026-11-11T18:04:00-08:00",
+      "subject": "acpmux: your own Mac's chat is never refused as remote after a restart; the refusal says what to do (#41629)"
+    },
+    {
+      "sha": "77422c64651116d269b414deae715d280ff7536f",
+      "mergedAt": "2026-11-11T18:00:08-08:00",
+      "subject": "cmux-tui tests: wall-clock ratios and percentiles leave the parallel run; the default run checks counts (#41508)"
+    },
+    {
+      "sha": "85ab108288278ab16b355e06c7883e5d7d679b4c",
+      "mergedAt": "2026-11-12T01:58:24Z",
+      "subject": "cmux-layout-reducer-ffi: cargo fmt tests/sidebar_caps.rs (base red: workspace fmt --check) (#41522)"
+    },
+    {
+      "sha": "69e9a7640ddfd1012be174ddf339a07ed11a3237",
+      "mergedAt": "2026-11-11T17:57:39-08:00",
+      "subject": "Cloud start: a too-big folder that isn't a repo is refused before any machine, with the repos inside it; a failed start deletes its machine (#40957)"
+    },
+    {
+      "sha": "524625aa445b097108e41ae1a49c02993f662ec5",
+      "mergedAt": "2026-11-11T19:52:47-06:00",
+      "subject": "cmux-tui-core: a quit stores only what the tail cannot carry"
+    },
+    {
+      "sha": "24fb74f0da8a67060fcc038cfa7452b5145b44a3",
+      "mergedAt": "2026-11-11T19:52:46-06:00",
+      "subject": "cmux-tui-core: test that a quit writes only what the tail cannot carry"
+    },
+    {
+      "sha": "d0571f6082230d104946f72ebc3329ae5cdbebb9",
+      "mergedAt": "2026-11-11T19:52:46-06:00",
+      "subject": "cmux-tui-core: the daemon logs where its shutdown spent its time"
+    },
+    {
+      "sha": "954567603215940cd9fb4d390b54bd63f3a76417",
+      "mergedAt": "2026-11-11T17:51:45-08:00",
+      "subject": "acpmux: every list reply is a page of at most 1 MiB; never serialize a frame past the cap (#41559)"
+    },
+    {
+      "sha": "a2175918b46066c35d1ee42a68b5af41646a22c5",
+      "mergedAt": "2026-11-12T01:48:56Z",
+      "subject": "Fix history.entries.list refused by its catalog while the History fold is behind (#41639)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T02:25:58Z",
+    "snapshot_id": "sh-8106205a29b0445b8a7828ba81b79695",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43140406376): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "c44cdf7648d48939a9cf24c5a6cb582cf3ceda99",
+    "image": "cloud-native-auto-7ae2c970-43140406376-1",
+    "revision": "ci-43140406376-1",
+    "at": "2026-11-12T02:25:58Z"
+  },
+  "rolled_back": false
+}
