@@ -318,7 +318,10 @@ def possible(script: str) -> set[str]:
 
 class AgainstBash(unittest.TestCase):
     def test_coproc_program_position_is_not_any_program(self) -> None:
-        for script in ("env coproc a", "time env coproc a", "X=1 coproc a"):
+        for script in (
+                "env coproc a", "time env coproc a", "X=1 coproc a",
+                "time X=1 coproc a", "X=1 time coproc a", '"time" coproc a',
+                "X=1 ! coproc a", '"!" coproc a', '"coproc" a'):
             with self.subTest(script=script):
                 self.assertFalse(may_run_program(script, "a"))
 
