@@ -365,3 +365,71 @@ fn acpmux_daemon_writes_its_usage_counts_when_it_stops() {
     let _ = fs::remove_dir_all(&dir);
     assert!(counted >= 1, "the connection counted before the stop was not written");
 }
+
+/// Waits up to 20 s for a daemon log line that holds `text`.
+fn log_line(lines: &std::sync::mpsc::Receiver<String>, text: &str, what: &str) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        match lines.recv_timeout(left) {
+            Ok(line) if line.contains(text) => return,
+            Ok(_) => {}
+            Err(_) => panic!("{what}: no log line '{text}' within 20 s"),
+        }
+    }
+}
+
+/// The desktop bridge sets no timer while it is off (it used to reread its setting every
+/// 15 s), so it must follow `agents.desktopBridge.enabled` through the settings watch with no
+/// restart: a settings file absent at start and created later in a folder made later, a file
+/// replaced by rename (editors and the settings writer save that way), and one written in
+/// place, each turn it on or off.
+#[test]
+fn acpmux_desktop_bridge_follows_its_setting_with_no_restart() {
+    let dir = scratch("bridge");
+    let home = daemon_env::home(&dir);
+    fs::create_dir_all(&home).unwrap();
+    let folder = home.join(".config").join("cmux");
+    let settings = folder.join("cmux-next.json");
+    let socket = dir.join("s.sock");
+    let mut child = daemon_env::acpmux(&dir)
+        .args(["daemon", "run", "--memory", "--ready-fd", "1", "--log", "info"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let (sent, lines) = std::sync::mpsc::channel();
+    let stdout = child.stdout.take().unwrap();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+            if sent.send(line).is_err() {
+                return;
+            }
+        }
+    });
+    let bridge = |on: bool| format!("{{\"agents\":{{\"desktopBridge\":{{\"enabled\":{on}}}}}}}");
+    let replace = |on: bool| {
+        let staged = folder.join("cmux-next.json.tmp");
+        fs::write(&staged, bridge(on)).unwrap();
+        fs::rename(&staged, &settings).unwrap();
+    };
+    log_line(&lines, "\"ready\"", "start");
+    assert!(!folder.exists(), "the test home has a settings folder");
+    // Absent at start, its folder too: created later.
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(&settings, bridge(true)).unwrap();
+    log_line(&lines, "desktop bridge: on", "a settings file created later");
+    replace(false);
+    log_line(&lines, "desktop bridge: off", "a settings file replaced by rename");
+    fs::write(&settings, bridge(true)).unwrap();
+    log_line(&lines, "desktop bridge: on", "a settings file written in place");
+    replace(false);
+    log_line(&lines, "desktop bridge: off", "a second replace by rename");
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = fs::remove_dir_all(&dir);
+}
