@@ -23,11 +23,13 @@ const KEYS = [
   "cancelAnimationFrame",
   "IS_REACT_ACT_ENVIRONMENT",
 ] as const;
-const saved = new Map<string, unknown>();
+// Each global as it was before the test, or absent: a global the test added is deleted afterwards, not
+// set to undefined, so the next file starts with none (test/support/leakDetector.ts).
+const saved = new Map<string, { value: unknown } | undefined>();
 
 beforeEach(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true });
-  for (const key of KEYS) saved.set(key, scope[key]);
+  for (const key of KEYS) saved.set(key, key in scope ? { value: scope[key] } : undefined);
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -47,7 +49,11 @@ afterEach(() => {
   root = undefined;
   act(() => endFinishMoment());
   dom.window.close();
-  for (const key of KEYS) scope[key] = saved.get(key);
+  for (const key of KEYS) {
+    const before = saved.get(key);
+    if (before) scope[key] = before.value;
+    else delete scope[key];
+  }
 });
 
 const draw = (node: React.ReactNode) => {
