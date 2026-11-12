@@ -462,3 +462,11 @@
   -webkit-mask-image: none;
   mask-image: none;
 }
+
+/* A select's options never run past the room on its side: a long list scrolls inside. Here, not in
+   ui.css, so the agent pane (which loads this sheet and not ui.css) scrolls its selects too: the
+   Share dialog's pickers. */
+.ui-menu.ui-select-popup {
+  max-height: min(420px, var(--available-height, 420px));
+  overflow-y: auto;
+}
