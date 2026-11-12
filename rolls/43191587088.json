@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43191587088",
+  "recorded_at": "2026-11-12T09:35:03Z",
+  "reason": "cmux-tui 30c7de6ad5c3 changes the image's cmux-tui (pinned 956a479cd95f)",
+  "dry_run": false,
+  "cmux_tui": "30c7de6ad5c3669cef1f94a5681ee89f24a1fd80",
+  "fixes": [
+    {
+      "sha": "30c7de6ad5c3669cef1f94a5681ee89f24a1fd80",
+      "mergedAt": "2026-11-12T03:13:15-06:00",
+      "subject": "perf(cmux-tui): an idle host link holds no 64 KiB read buffer"
+    },
+    {
+      "sha": "a23049d78863b996d08e8f765bc8640cc3d8a7a5",
+      "mergedAt": "2026-11-12T03:13:15-06:00",
+      "subject": "test(cmux-tui): an idle host link holds no large read buffer after a burst"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T09:35:03Z",
+    "snapshot_id": "sh-5457a1e0f52d45d7883230d6e7a72494",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43191587088): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "146fd3a68b3f352676151f45e01845c313c938ef",
+    "image": "cloud-native-auto-30c7de6a-43191587088-1",
+    "revision": "ci-43191587088-1",
+    "at": "2026-11-12T09:35:03Z"
+  },
+  "rolled_back": false
+}
