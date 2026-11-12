@@ -1,0 +1,450 @@
+/* The page's look (Lucas 2026-11-11, after the standup's "fewer lines, less table, more like
+   ChatGPT"): Aside's and Codex's settings. Codex's cards, each group one filled card with a faint
+   outline and a hairline between its rows kept off the card's sides; Aside's section titles, muted
+   and on the rows' text edge; a sidebar with its own faint fill and a divider. Loaded last
+   (page.css), so these rules win over refined.css's at equal weight.
+
+   Every line takes the window sidebar's edge line color (WebTheme --cmux-sidebar-line: "the same
+   colour as the main cmux sidebar line, so that it all matches"); the page's own faint ink before
+   the host speaks. Borders: None clears it. This replaces refined.css's one background for page and
+   sidebar with no divider (user, 2026-10-30). */
+:root[data-settings-look="refined"] {
+  --polish-edge: var(
+    --cmux-sidebar-line,
+    light-dark(
+      color-mix(in srgb, var(--polish-ink) 10%, transparent),
+      color-mix(in srgb, var(--polish-ink) 8%, transparent)
+    )
+  );
+}
+
+:root[data-settings-look="refined"]:is([data-borders="none"], [data-cmux-borders="none"]) {
+  --polish-edge: transparent;
+}
+
+:root[data-settings-look="refined"]:is([data-borders="none"], [data-cmux-borders="none"]) .settings {
+  --look-control-line: transparent;
+}
+
+:root[data-settings-look="refined"] .settings {
+  /* The window sidebar's workspace row (the host sends --cmux-sidebar-row-*; Compact's before it). */
+  --look-nav-height: var(--cmux-sidebar-row-height, var(--grid-row));
+  --look-nav-radius: var(--cmux-sidebar-row-radius, var(--ds-radius-md));
+  --look-nav-inset: var(--cmux-sidebar-row-inset, var(--ds-space-3));
+  --look-card-fill: color-mix(in srgb, var(--polish-ink) 3%, transparent);
+  --look-line: var(--polish-edge);
+  --look-row-pad-y: var(--ds-space-3);
+  --look-row-pad-x: var(--ds-space-4);
+  /* How far a row's divider stays off the card's sides: none, the line runs edge to edge (Lucas
+     2026-11-11: "full lines instead of the padded ones"). */
+  --look-line-inset: 0px;
+  --look-card-radius: 16px;
+  --look-section-gap: var(--ds-space-6);
+  --settings-row-inset: var(--look-row-pad-x);
+  /* Rounder everywhere on the page (Lucas 2026-11-11: "a bit more rounded ... looks a bit cheap"):
+     the scale's steps one notch up, so every control, field, menu button, segment and card takes
+     them, and nested corners stay concentric (a segment 6 inside its 10 track with a 4 inset). */
+  --ds-radius-sm: 6px;
+  --ds-radius-md: 8px;
+  --ds-radius-lg: 10px;
+  --ds-radius-xl: 14px;
+  --ds-radius-control: 8px;
+}
+
+/* Titles as Codex and ChatGPT weigh them: the sidebar's "Settings" at the title size, under the
+   page's own title ("Notifications") at the heading size (the type scale's nearest steps). */
+:root[data-settings-look="refined"] .settings .sidebar-title {
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+}
+
+:root[data-settings-look="refined"] .settings .section-title {
+  font-size: var(--text-heading);
+  line-height: var(--text-heading--line-height);
+}
+
+/* The content is a rounded panel beside the sidebar, as the window's main pane sits beside the app
+   sidebar and the New Tab page's card under the tab bar (Lucas 2026-11-12). The panel's spread
+   shadow is the sidebar's fill: the window sidebar's own (WebTheme --cmux-sidebar-surface; Lawrence
+   did not like the lighter fill), none by default, the user's sidebar color or the separate chrome
+   shade when one is set. It also fills outside the panel's left corners. No line parts them: only
+   the two fills (Lucas 2026-11-12). */
+:root[data-settings-look="refined"] .settings {
+  isolation: isolate;
+}
+
+:root[data-settings-look="refined"] .settings > .sidebar {
+  border-right: 0;
+  background: transparent;
+}
+
+:root[data-settings-look="refined"] .settings::before {
+  content: "";
+  position: absolute;
+  z-index: var(--layer-backdrop);
+  inset: 0 0 0 var(--sidebar-width);
+  border-radius: var(--ds-radius-lg) 0 0 var(--ds-radius-lg);
+  box-shadow: 0 0 0 100vmax var(--cmux-sidebar-surface, transparent);
+  pointer-events: none;
+}
+
+/* Its rows are the window sidebar's list rows at every density (#39984: Codex's 30 px row, 10 px
+   corner and 8 px content inset at Default), with a small gap so the current row's fill and a
+   hovered one below it never read as one block. The current one fills; its weight stays, so
+   selecting never widens its name. */
+:root[data-settings-look="refined"] .settings .section-link {
+  min-height: var(--look-nav-height);
+  padding: 0 var(--look-nav-inset);
+  border-radius: var(--look-nav-radius);
+}
+
+:root[data-settings-look="refined"] .settings .sidebar-section {
+  gap: calc(var(--ds-space-1) / 2);
+}
+
+/* Hover follows the pointer at once, as a native sidebar's does (Lucas 2026-11-11: a quick pass
+   over the rows lagged behind the pointer: each fill faded in over the hover duration). A press
+   sinks the row a little and lets it snap back on release, with the timing measured from a
+   recording of Aside's sidebar (Lucas 2026-11-11): in and back over the quick motion token, no
+   overshoot. The sink is shallower than Aside's 97 %, which was still "too much". Only the transform
+   moves, so nothing around the row shifts, and Reduce Motion and the motion settings end it (the
+   page's bootstrap sheet). */
+:root[data-settings-look="refined"] .settings .section-link,
+:root[data-settings-look="refined"] .settings .section-link:hover {
+  transition: transform var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+
+:root[data-settings-look="refined"] .settings .section-link:active {
+  transform: scale(0.99);
+  transition: transform var(--cmux-motion-quick) var(--cmux-ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-settings-look="refined"] .settings .section-link:active {
+    transform: none;
+  }
+}
+
+:root[data-settings-look="refined"] .settings .section-link[aria-current] .section-name {
+  font-weight: inherit;
+}
+
+/* A group: its muted title flush left on the card's border, then one card; its rows part by one hairline each. */
+:root[data-settings-look="refined"] .settings .group {
+  margin-bottom: var(--look-section-gap);
+}
+
+:root[data-settings-look="refined"] .settings .group-title {
+  /* Flush left on the card's border, in line with the page title ("Appearance", "General"; Lucas
+     2026-11-12), as the 2026-10-30 flush-left titles were. */
+  margin: 0 0 var(--ds-space-2);
+  color: var(--polish-muted);
+  font-size: var(--text-control);
+  font-weight: var(--weight-regular);
+}
+
+/* A group's lead-in line ("This Mac runs 1.0.0.") sits on its title's edge, a gap above its card. */
+:root[data-settings-look="refined"] .settings .group > .row-help {
+  margin: 0 0 var(--ds-space-2);
+}
+
+:root[data-settings-look="refined"] .settings .rows {
+  border: 1px solid var(--look-line);
+  border-radius: var(--look-card-radius);
+  background: var(--look-card-fill);
+}
+
+/* A group with several cards (Updates > Channels: the daemon, each channel): the cards part by a
+   small gap instead of touching. */
+:root[data-settings-look="refined"] .settings .rows + .rows {
+  margin-top: var(--ds-space-3);
+}
+
+:root[data-settings-look="refined"] .settings :is(.row, .more-options) {
+  padding: var(--look-row-pad-y) var(--look-row-pad-x);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* The line sits on top of every row after the first, drawn as a background image so it stays off
+   the card's sides and a hover fill keeps it. A collapsed row has no height and so no line. The More
+   Options toggle draws none, above or below: it reads as the card's quiet last line, and the rows it
+   opens part from each other only (Lucas 2026-11-11: the lines around it "felt weird"). */
+:root[data-settings-look="refined"] .settings .rows > .row:not(:first-child),
+:root[data-settings-look="refined"] .settings .more-options-rows .row:not(:first-child),
+:root[data-settings-look="refined"] .settings .rows > .collapse[data-open] ~ .collapse[data-open] .row {
+  background-image: linear-gradient(var(--look-line), var(--look-line));
+  background-position: center top;
+  background-size: calc(100% - 2 * var(--look-line-inset)) 1px;
+  background-repeat: no-repeat;
+}
+
+/* Controls as Aside draws them (Lucas 2026-11-12: "make the inputs a little bit cleaner"): every
+   button, menu button, text field and segmented control is the same soft fill with one hairline edge
+   in the card's line color, so a control reads as a shape and not as a smudge of fill. The edge is an
+   inset shadow (or the border the control already has), so no control changes size. Hover steps the
+   fill up one notch; the edge stays. Borders: None clears the edge with the card lines. */
+:root[data-settings-look="refined"] .settings {
+  /* A control is the card's own background with one hairline (Lucas 2026-11-12: "match the
+     background ... do not make it black"; Aside's "Google ⌃⌄"): no fill of its own at rest, a faint
+     ink lift on hover, and the edge, solid and mixed into the base so it recedes on dark, does the
+     drawing. */
+  /* A clear control read darker than its card inside the brighter edge (Lucas 2026-11-12), so it
+     takes the card's own lift once more: the inside reads as the card's grey, a step up at most. */
+  --look-control-fill: color-mix(in srgb, var(--polish-ink) 4%, transparent);
+  --look-control-fill-hover: color-mix(in srgb, var(--polish-ink) 7%, transparent);
+  --look-control-line: light-dark(
+    color-mix(in srgb, var(--polish-ink) 14%, transparent),
+    color-mix(in srgb, var(--polish-ink) 14%, var(--polish-base))
+  );
+  --look-control-edge: inset 0 0 0 1px var(--look-control-line);
+}
+
+:root[data-settings-look="refined"] .settings :is(.ui-btn[data-variant="subtle"], .ui-select-button) {
+  background: var(--look-control-fill);
+  box-shadow: var(--look-control-edge);
+}
+
+:root[data-settings-look="refined"] .settings :is(.ui-btn[data-variant="subtle"], .ui-select-button):is(:hover, [data-popup-open]):not(:disabled, [data-disabled]) {
+  background: var(--look-control-fill-hover);
+}
+
+:root[data-settings-look="refined"] .settings .row-control .button:not(.ui-btn) {
+  border-color: var(--look-control-line);
+  background: var(--look-control-fill);
+}
+
+/* A segmented control is the system's (Lucas 2026-11-12, after a trackless try): one soft track with
+   no edge, the chosen segment a lighter pill raised on it with the switch thumb's shadow. No outline
+   on either, so the card holds one shape and not a box drawn inside a box ("containers inside
+   containers"). The others take a faint fill under the pointer. */
+:root[data-settings-look="refined"] .settings .segmented {
+  border-color: transparent;
+  /* The track keeps a soft fill of its own: the controls' clear fill would leave no track. */
+  background: color-mix(in srgb, var(--polish-ink) 5%, transparent);
+}
+
+:root[data-settings-look="refined"] .settings .segment {
+  color: var(--polish-muted);
+}
+
+:root[data-settings-look="refined"] .settings .segment:hover:not([data-checked]) {
+  background: transparent;
+  color: var(--polish-ink);
+}
+
+:root[data-settings-look="refined"] .settings .segment[data-checked] {
+  background: light-dark(var(--polish-base), color-mix(in srgb, var(--polish-ink) 14%, var(--polish-base)));
+  box-shadow: var(--elevation-1);
+  color: var(--polish-ink);
+}
+
+/* Focus is the control's own edge, brighter, never a second ring outside it (Lucas 2026-11-12:
+   "there's like 2 borders"): the page's button ring (refined.css) drew 2 px off the hairline, so a
+   menu that closed and handed focus back showed edge, gap and ring. */
+:root[data-settings-look="refined"] .settings :is(.ui-btn[data-variant="subtle"], .ui-select-button, .row-control .button):focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--polish-focus);
+}
+
+/* The bordered ones (the page's field border is their hairline) brighten that border instead. */
+:root[data-settings-look="refined"] .settings .row-control :is(.ui-select-button, .button):not(.ui-btn):focus-visible {
+  border-color: var(--polish-focus);
+  box-shadow: none;
+}
+
+/* Text and number fields: the same shape as the menus beside them. A focused field's edge steps up
+   to the focus ink; a refused value keeps its danger edge. */
+:root[data-settings-look="refined"] .settings .ui-input[data-variant="filled"] {
+  background: var(--look-control-fill);
+  box-shadow: var(--look-control-edge);
+}
+
+:root[data-settings-look="refined"] .settings .ui-input[data-variant="filled"]:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--polish-focus);
+}
+
+:root[data-settings-look="refined"] .settings .ui-input[data-variant][aria-invalid="true"] {
+  box-shadow: inset 0 0 0 1px var(--ds-color-danger);
+}
+
+/* Every pop-up on the page ends in the same small caret (Lucas 2026-11-12: "just the \/ caret ...
+   make sure it's aligned"): a plain down chevron, 6.5 px wide with a 1.5 stroke, muted, its middle on
+   the text's middle and its end 12 px in from the button's end, so it reads as a hint, not a glyph.
+   The row menus (ui/Select's chevron, a mask of the path) and the Theme, Accent and Font pickers
+   (icons.tsx `chevron.popup`, the same path) draw it the same. */
+:root[data-settings-look="refined"] .settings .ui-select-button .ui-select-chevron {
+  top: 50%;
+  right: var(--ds-space-2);
+  width: var(--ds-icon-16);
+  height: var(--ds-icon-16);
+  border: 0;
+  background-color: currentColor;
+  color: var(--polish-muted);
+  opacity: 1;
+  transform: translateY(-50%);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='black' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m4.75 6.4 3.25 3.25 3.25-3.25'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+
+:root[data-settings-look="refined"] .settings .popup-caret {
+  margin-inline-end: calc(var(--ds-space-1) * -1);
+  color: var(--polish-muted);
+  stroke-width: 1.5;
+}
+
+/* Switches at Aside's size (Lucas 2026-11-12: "a bit bigger/fatter"): 20 px tall, 36 wide, so the
+   knob is 16 px, the slider knob's size, instead of the small switch's 12. */
+:root[data-settings-look="refined"] .settings .ui-switch {
+  --ui-switch-h: var(--ds-control-icon);
+  --ui-switch-w: calc(var(--ds-control-icon) * 1.8);
+}
+
+/* An off switch shows a light knob on a grey track, as the system switch and Aside's do; the dark
+   surface knob sank into the track. The on switch keeps the shared accent track and knob. */
+:root[data-settings-look="refined"] .settings .ui-switch:not([data-checked]) .ui-switch-thumb {
+  background: light-dark(var(--polish-base), color-mix(in srgb, var(--polish-ink) 90%, var(--polish-base)));
+}
+
+/* The glass cards (Chief) are their group's container already: the rows inside draw no second one. */
+:root[data-settings-look="refined"] .settings .group.ui-glass > .rows {
+  border: 0;
+  border-radius: 0;
+  background-color: transparent;
+}
+
+/* More Options: the card's row that opens the rows behind it in place (MoreOptions.tsx). Quiet at
+   rest (muted label, count and chevron). */
+.more-options {
+  display: flex;
+  align-items: center;
+  gap: var(--ds-space-2);
+  width: 100%;
+  min-height: var(--ds-control-primary);
+  border: 0;
+  background-color: transparent;
+  color: var(--muted-text);
+  font: inherit;
+  font-size: var(--text-control);
+  text-align: start;
+  cursor: default;
+  transition: color var(--motion-hover);
+}
+
+/* Its hover and press fill is a rounded shape inside the card, with no line above or below it
+   (Lucas 2026-11-11: a fill between two hairlines looked weird; text alone was too little). It sits
+   a step off the card's sides, and as the card's last row (closed) a step off its bottom, with the
+   control radius, near the card corner less the inset. The label, count and chevron brighten with
+   it. The keyboard ring goes around the same shape. */
+.more-options {
+  position: relative;
+  isolation: isolate;
+}
+
+.more-options::before {
+  content: "";
+  position: absolute;
+  inset: var(--ds-space-1) var(--ds-space-2);
+  z-index: var(--layer-backdrop);
+  border-radius: var(--ds-radius-md);
+  pointer-events: none;
+}
+
+.more-options:last-child::before {
+  bottom: var(--ds-space-2);
+}
+
+.more-options:hover,
+.more-options[data-open] {
+  color: var(--text);
+}
+
+.more-options:hover::before {
+  background-color: var(--polish-hover, var(--accent-soft));
+}
+
+.more-options:active::before {
+  background-color: var(--polish-pressed, var(--row-focus));
+}
+
+.more-options:focus-visible,
+:root[data-settings-look="refined"] .settings .more-options:focus-visible {
+  /* The ring is the rounded shape's (below); the page's square button ring must not draw too. */
+  outline: none;
+}
+
+.more-options:focus-visible::before {
+  box-shadow: 0 0 0 2px var(--polish-focus, var(--accent));
+}
+
+.more-options-label {
+  flex: 1;
+}
+
+.more-options-count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The shared chevron points down. Closed, it is turned to point at the label; open, it points down
+   at the rows that opened below. The turn is the only change: label and count keep their place. */
+.more-options-chevron {
+  width: var(--ds-icon-12);
+  height: var(--ds-icon-12);
+  rotate: -90deg;
+  transition: rotate var(--motion-hover) var(--motion-ease);
+}
+
+.more-options[data-open] .more-options-chevron {
+  rotate: 0deg;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .more-options,
+  .more-options-chevron {
+    transition: none;
+  }
+}
+
+/* A narrow pane stacks the categories over the content (refined.css): the strip keeps only its
+   bottom line. */
+@media (max-width: 600px) {
+  :root[data-settings-look="refined"] .settings > .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid var(--look-line);
+    background: var(--cmux-sidebar-surface, transparent);
+  }
+
+  :root[data-settings-look="refined"] .settings::before { display: none; }
+}
+
+/* Menu buttons at the comfortable control height (Lucas 2026-11-12: "a bit fatter"), each as wide as
+   its value, as Aside's ("Google ⌃⌄"), right-aligned so its end never moves. */
+:root[data-settings-look="refined"] .settings .row-control .select .ui-select-button {
+  width: auto;
+  min-width: 0;
+  min-height: var(--ds-control-primary);
+  padding-inline-start: var(--ds-space-3);
+}
+
+/* The Settings pop-up menus mark the chosen row as Aside does (Lucas 2026-11-12: the check sat on
+   the highlight's left edge): every label starts on AppKit's plain leading, with no state column, and
+   the check is a small muted mark on the trailing side, the shortcut's place, centred on its row. The
+   label keeps clear of it, so a long one ellipsizes before the mark. Only this page's selects; the
+   app's other menus keep the shared leading check column (ui/popupSurface.css). */
+:root[data-settings-look="refined"] .ui-popup.ui-select-popup:has(.ui-menu-check) {
+  --ui-menu-lead: var(--cmux-menu-icon-x);
+}
+
+:root[data-settings-look="refined"] .ui-popup.ui-select-popup .ui-menu-item {
+  padding-inline-end: calc(
+    var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset) + var(--cmux-menu-icon-size) +
+      var(--cmux-menu-icon-gap)
+  );
+}
+
+:root[data-settings-look="refined"] .ui-popup.ui-select-popup .ui-menu-item .ui-menu-check {
+  inset-inline-start: auto;
+  inset-inline-end: calc(var(--cmux-menu-trailing) - var(--cmux-menu-highlight-inset));
+  color: var(--polish-muted);
+  font-size: var(--text-caption);
+}

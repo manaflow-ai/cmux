@@ -25,7 +25,7 @@ import WebKit
 /// the tab the pane showed, then each character as a key-down: the page is left before its field
 /// could report readiness, so its key hold must end and the keys reach the tab shown (nightly
 /// 2026-10-11: they waited forever and Cmd-T opened nothing).
-/// `drop_spare` drops the prewarmed spare, so the next opening loads cold.
+/// `drop_spare` drops the prewarmed spare, so the next opening loads cold; with `slow`, WebKit's setup is also marked slow.
 @MainActor
 enum DebugNewTab {
     static func handle(_ params: [String: JSONValue], _ services: AppServices?) async -> JSONValue {
@@ -59,7 +59,7 @@ enum DebugNewTab {
             return await DebugFrameStrip.run(params, controller, services)
         case "drop_spare":
             // The next opening loads cold, as after memory pressure (scripts/ci/frame-pacing/golden.py).
-            services.newTabSpares.dropAll()
+            services.newTabSpares.dropAll(); if params["slow"]?.boolValue == true { services.newTabSpares.webKit.markSlow() } // `slow`: as a spare that took over 1 s
             return await state(services)
         case "capacity":
             // How many spares the pool keeps (A/B of one against two on one build).

@@ -2,7 +2,7 @@
 import ast
 import contextlib
 import copy
-import re
+import hashlib
 import io
 import importlib.util
 import json
@@ -38,6 +38,21 @@ if str(ROOT / "scripts/ci") not in sys.path:
 # (GlaedaKeptLog).
 os.environ["CMUX_GLAEDA_GH"] = ""
 import base_red_excuse as excuse  # noqa: E402
+import git_tree  # noqa: E402
+
+
+def tree_blob(tree):
+    """A GitHub.blob that reads TREE (git_tree.GitTree): a path the tree cannot serve as text is Refused as GitHub's
+    blob would be, but a blob a partial clone lacks raises NeedsFullTree, never a Refused a caller could take for a
+    missing file."""
+    def blob(repo, ref, path):
+        try:
+            return tree.text(path)
+        except git_tree.NeedsFullTree:
+            raise
+        except git_tree.Unreadable as why:
+            raise excuse.Refused(f"{repo}@{ref}: {why}") from None
+    return blob
 # Another repo's files are read with git first (excuse.git_text, a network fetch), then GraphQL. Tests read them from
 # their fakes only; SourceReads runs the real git reader against a local repository.
 REAL_GIT_TEXT = getattr(excuse, "git_text", None)
@@ -4171,11 +4186,22 @@ if args[:2] == ["api", "graphql"]:
     ref, _, path = fields["expression"].partition(":")
     found = os.path.join(os.environ["SOURCE_GH_TREE"], fields["owner"], fields["name"], ref, path)
     blob = None
-    if os.path.isfile(found):
-        blob = {"text": open(found).read(), "isBinary": False, "isTruncated": False}
+    if os.path.islink(found):  # GitHub serves a symlink's blob: its target's name
+        blob = {"text": os.readlink(found), "isBinary": False, "isTruncated": False}
+    elif os.path.isfile(found):
+        data = open(found, "rb").read()
+        blob = {"text": None if b"\\0" in data else data.decode(), "isBinary": b"\\0" in data, "isTruncated": False}
     elif os.path.isdir(found):
         blob = {}  # a commit (a ref GitHub resolves) or a tree: none of the Blob fields
-    print(json.dumps({"data": {"repository": {"object": blob}}}))
+    parent = None
+    if "parent" in fields:
+        where = os.path.join(os.environ["SOURCE_GH_TREE"], fields["owner"], fields["name"], ref,
+                             fields["parent"].partition(":")[2])
+        if os.path.isdir(where) and not os.path.islink(where):
+            parent = {"entries": [{"name": entry, "mode": 0o120000 if os.path.islink(os.path.join(where, entry))
+                                   else 0o40000 if os.path.isdir(os.path.join(where, entry)) else 0o100644}
+                                  for entry in sorted(os.listdir(where))]}
+    print(json.dumps({"data": {"repository": {"object": blob, "parent": parent}}}))
     sys.exit(0)
 sys.stderr.write("fake gh: unexpected call " + " ".join(args) + "\\n")
 sys.exit(1)
@@ -4240,7 +4266,7 @@ class GhReadByMethod(unittest.TestCase):
     def test_the_clients_own_reads_are_reads(self):
         owner, _, name = REPO.partition("/")
         blob = ["api", "graphql", "-f", f"query={excuse.BLOB_QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
-                "-f", f"expression={HEAD}:Package.swift"]
+                "-f", f"expression={HEAD}:Package.swift", "-f", f"parent={HEAD}:"]
         self.assertTrue(excuse.gh_read(blob))
         self.assertTrue(excuse.gh_read(["api", f"repos/{REPO}/commits/{HEAD}/status", "--jq", "."]))
 
@@ -4258,7 +4284,8 @@ class OneReadPerJudgement(unittest.TestCase):
             def __init__(self, argv, stdout, stderr, **kwargs):
                 calls[tuple(argv)] += 1
                 blob = {"text": "t", "isBinary": False, "isTruncated": False}
-                stdout.write(json.dumps({"data": {"repository": {"object": blob}}} if "graphql" in argv
+                parent = {"entries": [{"name": "Package.swift", "mode": 0o100644}]}
+                stdout.write(json.dumps({"data": {"repository": {"object": blob, "parent": parent}}} if "graphql" in argv
                                         else {"workflow_run_id": 5}).encode())
                 self.returncode = 0
 
@@ -4401,6 +4428,74 @@ class SourceReads(unittest.TestCase):
             text = excuse.source_text(HQ, "main", ".github/workflows/skills-tests.yml", excuse.GitHub())
         self.assertEqual(text, SKILLS_YML)
         self.assertEqual([call["args"][:2] for call in self.calls()], [["api", "graphql"]])
+
+    def test_graphql_follows_a_symlink_inside_the_repository_and_refuses_one_out_of_it(self):
+        workflows = self.tree / HQ / "main/.github/workflows"
+        (workflows / "linked.yml").symlink_to("skills-tests.yml")
+        (workflows / "out.yml").symlink_to("../../../../elsewhere.yml")
+        (workflows / "bin.yml").write_bytes(b"\x00\x01")
+        self.assertEqual(excuse.GitHub().blob(HQ, "main", ".github/workflows/linked.yml"), SKILLS_YML)
+        for path, said in (("out.yml", "is a symlink to ../../../../elsewhere.yml, outside the repository"),
+                           ("bin.yml", "is not a text file GitHub served (binary)"),
+                           ("none.yml", "is not a text file GitHub served (missing, or not a file)")):
+            with self.subTest(path=path), self.assertRaisesRegex(excuse.Refused, re.escape(said)):
+                excuse.GitHub().blob(HQ, "main", f".github/workflows/{path}")
+
+    def test_git_follows_a_symlink_to_its_target(self):
+        work = self.origin()
+        (work / ".github/workflows/linked.yml").symlink_to("skills-tests.yml")
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "add", ".", cwd=work)
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "link", cwd=work)
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: work.as_uri()):
+            text = excuse.source_text(HQ, "main", ".github/workflows/linked.yml", excuse.GitHub())
+        self.assertIn("From git", text)
+        self.assertEqual(self.calls(), [])
+
+    def git_reads(self, *paths):
+        """Each of PATHS at HQ@main through the real git_text, against self.origin() with the links below committed:
+        its text, or the Refused it raised. GraphQL is never asked (self.calls())."""
+        work = self.origin()
+        workflows = work / ".github/workflows"
+        (workflows / "linked-dir").symlink_to(".")
+        (work / ".github/flows").symlink_to("workflows")
+        (workflows / "bin.dat").write_bytes(b"PK\x00\x01binary")
+        (workflows / "bin.yml").symlink_to("bin.dat")
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "add", ".", cwd=work)
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "links", cwd=work)
+        said = {}
+        with unittest.mock.patch.object(excuse, "git_text", REAL_GIT_TEXT), \
+                unittest.mock.patch.object(excuse, "git_remote", lambda repo: work.as_uri()):
+            for path in paths:
+                try:
+                    said[path] = excuse.source_text_if_present(HQ, "main", path, excuse.GitHub())
+                except excuse.Refused as why:
+                    said[path] = why
+        self.assertEqual(self.calls(), [], "git answered each read; GraphQL was never asked")
+        return said
+
+    def test_review_f1_git_refuses_a_symlink_to_a_directory_as_git_tree_does(self):
+        # Review of cmux#41314 (F1): git_text showed a symlink to a directory as git's tree listing, text no file has.
+        # GitTree refuses a directory by name; git_text reads through it, so it says the same.
+        said = self.git_reads(".github/workflows/linked-dir")[".github/workflows/linked-dir"]
+        self.assertIsInstance(said, excuse.Refused, said)
+        self.assertIn("is a directory, not a file", str(said))
+
+    def test_review_f1_git_reads_a_file_through_a_symlinked_parent_as_git_tree_does(self):
+        # Review of cmux#41314 (F1): `git ls-tree` does not follow a symlinked parent, so git_text read
+        # .github/flows/skills-tests.yml as absent. GitTree follows it to the file, as a checkout's filesystem does.
+        said = self.git_reads(".github/flows/skills-tests.yml")[".github/flows/skills-tests.yml"]
+        self.assertIsInstance(said, str, said)
+        self.assertIn("From git", said)
+
+    def test_review_f2_git_refuses_a_symlink_to_a_binary_blob(self):
+        # Review of cmux#41314 (F2): following a link to a binary blob returned its bytes decoded. The binary
+        # refusal GitTree and GraphQL apply holds through a link and on the blob itself.
+        said = self.git_reads(".github/workflows/bin.yml", ".github/workflows/bin.dat")
+        for path, answer in said.items():
+            with self.subTest(path=path):
+                self.assertIsInstance(answer, excuse.Refused, answer)
+                self.assertIn("is binary, not text", str(answer))
 
     def test_no_code_path_sets_the_shims_source_override(self):
         sources = [ROOT / "scripts/ci" / name for name in ("base_red_excuse.py", "main_fix_evidence.py",
@@ -5574,60 +5669,6 @@ class KitFixedOnBaseGitHub(FixedOnBaseGitHub):
         return self.files[path]
 
 
-class TrackedTree:
-    """This checkout's tree as the classifier reads a tree at a sha: every path git tracks, its text from the working
-    tree when it is checked out, else from the index. A sparse checkout leaves whole folders (cmux-next-ios among
-    them) out of the working tree, so a reader of the working tree alone sees a cargo root the code under test reaches
-    as missing. Nothing here names a root: whatever the code discovers, the tree serves."""
-
-    def __init__(self, root: Path):
-        self.root = root
-        out = subprocess.run(["git", "-C", str(root), "ls-files", "-s", "-z"], capture_output=True, check=True).stdout
-        self.blobs = {}
-        for entry in out.decode().split("\0"):
-            if entry:
-                meta, path = entry.split("\t", 1)
-                mode, blob, _stage = meta.split()
-                if mode != "160000":  # a submodule has no text here
-                    self.blobs[path] = blob
-        self.cache: dict[str, str] = {}
-
-    def __contains__(self, path: str) -> bool:
-        return path in self.blobs
-
-    def files(self, under: str, suffix: str = "") -> list[str]:
-        return sorted(p for p in self.blobs if p.startswith(f"{under}/") and p.endswith(suffix))
-
-    def texts(self, paths) -> dict[str, str]:
-        """{path: its text} of the tracked PATHS, the ones not checked out read in one `git cat-file --batch`."""
-        missing = [p for p in paths if p in self.blobs and p not in self.cache and not (self.root / p).is_file()]
-        for path in paths:
-            if path in self.blobs and path not in self.cache and path not in missing:
-                self.cache[path] = (self.root / path).read_text(errors="replace")
-        if missing:
-            out = subprocess.run(["git", "-C", str(self.root), "cat-file", "--batch"], check=True, capture_output=True,
-                                 input="".join(f"{self.blobs[p]}\n" for p in missing).encode()).stdout
-            at = 0
-            for path in missing:
-                end = out.index(b"\n", at)
-                size = int(out[at:end].split()[2])
-                self.cache[path] = out[end + 1:end + 1 + size].decode(errors="replace")
-                at = end + 1 + size + 1
-        return {p: self.cache[p] for p in paths if p in self.cache}
-
-    def text(self, path: str) -> str | None:
-        return self.texts([path]).get(path)
-
-    def write(self, dest: Path, under: list[str], suffixes: tuple[str, ...]) -> Path:
-        """DEST holding every tracked file below UNDER that ends in one of SUFFIXES: a tree a reader of files
-        (cargo_test_verdict.crate_inputs) walks as it walks a full checkout."""
-        paths = sorted({p for d in under for p in self.files(d) if p.endswith(suffixes)})
-        for path, text in self.texts(paths).items():
-            (dest / path).parent.mkdir(parents=True, exist_ok=True)
-            (dest / path).write_text(text)
-        return dest
-
-
 class PackageFixedOnBase(unittest.TestCase):
     """A package job red on a head whose diff cannot reach the package, fixed on the base after its merge-base."""
 
@@ -5821,23 +5862,17 @@ class PackageFixedOnBase(unittest.TestCase):
         spec.loader.exec_module(cargo)
         reads = package["reads"] + excuse.GUARD_READS_DEFAULT
         github = KitFixedOnBaseGitHub(files={})
-        # The fake serves this checkout's whole tree, read the way the classifier reads a sha's tree (TrackedTree):
-        # the cargo roots and crates are the ones cargo_crates discovers, so a new root needs no list here.
-        tree = TrackedTree(ROOT)
-
-        def served(repo, ref, path):
-            text = tree.text(path)
-            if text is None:
-                raise excuse.Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
-            return text
-        github.blob = served
+        # The commit's tree from git's objects, never the working tree: a sparse checkout (wt new leaves
+        # cmux-next-ios/ out) refused cmux-next-ios/rust/Cargo.toml as "not a text file GitHub served" (2026-11-11).
+        # The cargo roots and crates are the ones cargo_crates discovers, so a new root needs no list here.
+        tree = git_tree.GitTree(ROOT)
+        self.addCleanup(tree.close)
+        github.blob = tree_blob(tree)
         crates = sorted(excuse.cargo_crates(REPO, HEAD, package["cargo_lock"], github))
         self.assertIn("cmux-tui/crates/cmux-wg", crates)
         self.assertNotIn("cmux-tui/crates/cmux-agent-pane-policy", crates)
-        built = tree.write(Path(tempfile.mkdtemp()), crates + [cargo.WORKSPACE], (".rs", "Cargo.toml"))
-        self.addCleanup(shutil.rmtree, built)
         for crate in crates:
-            dirs, files = cargo.crate_inputs(built, crate)
+            dirs, files = cargo.crate_inputs(ROOT, crate, tree)
             for path in [f"{d}/Cargo.toml" for d in dirs] + files:
                 with self.subTest(path=path):
                     self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
@@ -5849,13 +5884,160 @@ class PackageFixedOnBase(unittest.TestCase):
                        if root == "cmux-next-ios/CmuxMobileKit" or "Tests" not in source.split("/")]
             # the job runs the kit's own tests; the packages it reaches build only their sources
             self.assertTrue(sources, f"{root} has no Swift in this tree")
-            for source, text in tree.texts(sources).items():
-                for found in literal.finditer(text):
+            for source in sources:
+                for found in literal.finditer(tree.text(source, errors="replace")):
                     path = found.group(1)
-                    if path in tree:
+                    if tree.is_file(path):
                         with self.subTest(path=path, source=source):
                             self.assertTrue(any(excuse.touches(path, read) for read in reads), path)
         self.assertEqual(excuse.package_reads(REPO, HEAD, package, github), package["reads"])
+
+
+class SparseTreeReads(unittest.TestCase):
+    """The class behind PackageFixedOnBase.test_the_declared_reads_cover_the_tree's red (2026-11-11): a tree reader
+    that takes every declared path for a plain text file on disk. In a sparse checkout (wt new leaves cmux-next-ios/
+    out) the commit has the path and the working tree does not, and the reader said "not a text file GitHub served".
+    git_tree.GitTree reads the commit instead; here a sparse fixture missing a declared directory, a symlink, a binary
+    file, a submodule and a partial clone each get the right answer or the right refusal."""
+
+    def git(self, *args, cwd=None):
+        done = subprocess.run(["git", *args], cwd=cwd or self.repo, capture_output=True, text=True,
+                              env=git_fixture_env.fixture_env(), stdin=subprocess.DEVNULL)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return done.stdout
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="bre-sparse-"))
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.repo = self.tmp / "repo"
+        files = {
+            "cmux-tui/Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n[workspace.dependencies]\n'
+                                   'b = { path = "crates/b" }\n',
+            "cmux-tui/crates/a/Cargo.toml": '[package]\nname = "a"\n[dependencies]\nb = { workspace = true }\n',
+            "cmux-tui/crates/a/src/lib.rs": "",
+            "cmux-tui/crates/b/Cargo.toml": '[package]\nname = "b"\n',
+            "cmux-tui/crates/b/src/lib.rs": 'const SPEC: &str = include_str!("../../../../schemas/spec.json");\n',
+            "schemas/spec.json": "{}\n",
+            "kit/Sources/Kit.swift": 'let spec = "schemas/spec.json"\n',
+        }
+        for path, text in files.items():
+            (self.repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / path).write_text(text)
+        (self.repo / "bin.dat").write_bytes(b"PK\x00\x01binary")
+        (self.repo / "workspace.toml").symlink_to("cmux-tui/Cargo.toml")
+        (self.repo / "kit/Spec").symlink_to("../schemas")
+        (self.repo / "outside.toml").symlink_to("../elsewhere/Cargo.toml")
+        (self.repo / "loop").symlink_to("loop")
+        self.git("init", "-q", "-b", "main", str(self.repo), cwd=self.tmp)
+        self.git("add", ".")
+        self.git("update-index", "--add", "--cacheinfo", f"160000,{'a' * 40},vendored")
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "tree")
+        self.git("config", "uploadpack.allowFilter", "true")
+        # The sparse set wt new uses: top-level files and the named directories only; cmux-tui/ and kit/ are left out.
+        self.git("sparse-checkout", "set", "--no-cone", "/*", "!/*/", "/schemas/")
+        self.assertFalse((self.repo / "cmux-tui/Cargo.toml").exists(), "the fixture is sparse")
+        self.tree = git_tree.GitTree(self.repo)
+        self.addCleanup(self.tree.close)
+
+    def test_a_path_the_sparse_checkout_leaves_out_is_read_from_the_commit(self):
+        self.assertTrue(self.tree.is_file("cmux-tui/crates/a/Cargo.toml"))
+        self.assertIn('name = "a"', self.tree.text("cmux-tui/crates/a/Cargo.toml"))
+        self.assertEqual(self.tree.files("cmux-tui", ".rs"),
+                         ["cmux-tui/crates/a/src/lib.rs", "cmux-tui/crates/b/src/lib.rs"])
+        self.assertEqual(self.tree.files("kit", ".swift"), ["kit/Sources/Kit.swift"])
+
+    def test_the_classifiers_blob_reads_a_sparse_tree(self):
+        blob = tree_blob(self.tree)
+        self.assertIn("[workspace]", blob(REPO, HEAD, "cmux-tui/Cargo.toml"))
+        with self.assertRaisesRegex(excuse.Refused, "cmux-next-ios/rust/Cargo.toml is not in the tree"):
+            blob(REPO, HEAD, "cmux-next-ios/rust/Cargo.toml")
+
+    def test_crate_inputs_reads_a_sparse_tree(self):
+        spec = importlib.util.spec_from_file_location("cargo_test_verdict", ROOT / "scripts/ci/cargo_test_verdict.py")
+        cargo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cargo)
+        self.assertEqual(cargo.crate_inputs(self.repo, "cmux-tui/crates/a", self.tree),
+                         (["cmux-tui/crates/a", "cmux-tui/crates/b"], ["schemas/spec.json"]))
+        # With no tree given it reads the repository's HEAD the same way.
+        self.assertEqual(cargo.crate_inputs(self.repo, "cmux-tui/crates/a")[1], ["schemas/spec.json"])
+
+    def test_an_absolute_path_is_outside_the_tree(self):
+        """Codex on #41314 (F1): GitTree.resolve stripped a leading "/", so a path dependency `path = "/dep"` read as
+        the repository's `dep`, and a change to that unrelated crate counted as an input. An absolute path is outside
+        the tree, as Path.resolve put it: a manifest's, a workspace's or an include's."""
+        repo = self.tmp / "absolute"
+        files = {
+            "cmux-tui/Cargo.toml": '[workspace]\nmembers = ["crates/a"]\n[workspace.dependencies]\n'
+                                   'w = { path = "/w" }\n',
+            "cmux-tui/crates/a/Cargo.toml": '[package]\nname = "a"\n[dependencies]\ndep = { path = "/dep" }\n'
+                                            'w = { workspace = true }\n',
+            "cmux-tui/crates/a/src/lib.rs": 'const S: &str = include_str!("/schemas/spec.json");\n',
+            "dep/Cargo.toml": '[package]\nname = "dep"\n',
+            "dep/src/lib.rs": "",
+            "w/Cargo.toml": '[package]\nname = "w"\n',
+            "schemas/spec.json": "{}\n",
+            "cmux-tui/Cargo.lock": 'version = 3\n[[package]]\nname = "a"\n[[package]]\nname = "dep"\n'
+                                   '[[package]]\nname = "w"\n',
+        }
+        for path, text in files.items():
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (repo / path).write_text(text)
+        self.git("init", "-q", "-b", "main", str(repo), cwd=self.tmp)
+        self.git("add", ".", cwd=repo)
+        self.git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "tree", cwd=repo)
+        spec = importlib.util.spec_from_file_location("cargo_test_verdict", ROOT / "scripts/ci/cargo_test_verdict.py")
+        cargo = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cargo)
+        with git_tree.GitTree(repo) as tree:
+            self.assertEqual(cargo.crate_inputs(repo, "cmux-tui/crates/a", tree), (["cmux-tui/crates/a"], []))
+            self.assertEqual(cargo.touches(repo, "cmux-tui/crates/a", ["dep/src/lib.rs", "w/Cargo.toml"]), [])
+            for path in ("/schemas/spec.json", "/dep/Cargo.toml", "//schemas/spec.json"):
+                with self.subTest(path=path):
+                    with self.assertRaisesRegex(git_tree.Unreadable, "outside the tree"):
+                        tree.resolve(path)
+                    with self.assertRaisesRegex(git_tree.Unreadable, "outside the tree"):
+                        tree.text(path)
+                    self.assertFalse(tree.is_file(path))
+            with self.assertRaisesRegex(git_tree.Unreadable, "outside the tree"):
+                tree.files("/schemas")
+            self.assertEqual(tree.text("schemas/spec.json"), "{}\n")  # the same path, relative, still reads
+            # The classifier's own crate walk (cargo_crates) refuses the absolute path dependency by name.
+            github = unittest.mock.Mock(blob=tree_blob(tree))
+            with self.assertRaisesRegex(excuse.Refused, r"a path crate of cmux-tui/Cargo.lock is outside the "
+                                                        r"repository \(/(dep|w)\)"):
+                excuse.cargo_crates(REPO, HEAD, "cmux-tui/Cargo.lock", github)
+
+    def test_a_symlink_is_followed_inside_the_tree(self):
+        self.assertEqual(self.tree.text("workspace.toml"), self.tree.text("cmux-tui/Cargo.toml"))
+        self.assertTrue(self.tree.is_file("kit/Spec/spec.json"))  # through a symlinked directory
+        self.assertEqual(self.tree.text("kit/Spec/spec.json"), "{}\n")
+
+    def test_each_path_that_is_not_a_text_file_is_refused_by_name(self):
+        for path, said in (("bin.dat", "bin.dat is binary"),
+                           ("outside.toml", "outside.toml is a symlink to ../elsewhere/Cargo.toml, outside the tree"),
+                           ("loop", "loop is a symlink loop"),
+                           ("vendored", "vendored is a submodule"),
+                           ("cmux-tui", "cmux-tui is a directory"),
+                           ("no/such.toml", "no/such.toml is not in the tree")):
+            with self.subTest(path=path):
+                with self.assertRaisesRegex(git_tree.Unreadable, re.escape(said)):
+                    self.tree.text(path)
+                # A binary file is still a regular file of the tree (rglob lists it); only its text is refused.
+                self.assertEqual(self.tree.is_file(path), path == "bin.dat")
+
+    def test_a_blob_a_partial_clone_lacks_needs_a_full_tree(self):
+        partial = self.tmp / "partial"
+        self.git("clone", "-q", "--filter=blob:none", "--no-checkout", self.repo.as_uri(), str(partial),
+                 cwd=self.tmp)
+        self.git("remote", "set-url", "origin", (self.tmp / "gone").as_uri(), cwd=partial)  # no lazy fetch can answer
+        with git_tree.GitTree(partial) as tree:
+            self.assertTrue(tree.files("cmux-tui", ".toml"))  # trees are there: the paths are listed
+            with self.assertRaisesRegex(git_tree.NeedsFullTree, "this check needs a full tree"):
+                tree.text("cmux-tui/Cargo.toml")
+            with self.assertRaises(git_tree.NeedsFullTree):  # a link it cannot read is unknown, never "not a file"
+                tree.is_file("workspace.toml")
+            with self.assertRaises(git_tree.NeedsFullTree):  # never a Refused a caller reads as a missing file
+                tree_blob(tree)(REPO, HEAD, "cmux-tui/Cargo.toml")
 
 
 class FixedOnBase(unittest.TestCase):
@@ -6269,6 +6451,49 @@ class LostRunnerIsInfra(unittest.TestCase):
             excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
         self.assertNotIsInstance(caught.exception, excuse.Infra)
         self.assertIn("somethingNew", str(caught.exception))
+
+class PullRequestOnlyRerunAskIsInfra(unittest.TestCase):
+    """A pull-request-only check (language-boundaries) has no base run. Its red that only asks for a re-run (cmux#41500
+    at d059d7bd, job 130862862041: the PR-files listing rate-limited, the merge-ref fallback unusable) is Infra, a
+    refusal naming the re-run; any other red of it keeps the "no base run" refusal."""
+
+    NAME = "language-boundaries"
+    STEP = "Check the changed files against the language boundaries"
+
+    def judge(self, *lines):
+        github = FakeGitHub()
+        del github.jobs[2]  # no base run has the job: it runs on pull requests only
+        github.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        github.logs[1] = log(self.NAME, self.STEP, *lines)
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_red_that_only_asks_for_a_re_run_is_infra(self):
+        with self.assertRaisesRegex(excuse.Infra, "is infra, not a verdict .*re-run this check.*needs a re-run"):
+            self.judge("gh: API rate limit exceeded for installation. (HTTP 403)",
+                       "##[warning]The REST file listing failed; reading the changed files from refs/pull/41500/merge.",
+                       "##[error]Could not list the changed files; re-run this check.",
+                       "##[error]Process completed with exit code 1.")
+
+    def test_a_red_with_a_verdict_beside_the_ask_is_not_infra(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge("##[error]Could not list the changed files; re-run this check.",
+                       "##[error]language-boundaries: Sources/New.swift adds Swift to a Swift-minimal area",
+                       "##[error]Process completed with exit code 1.")
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+        self.assertIn("no feat-cmux-next run of its workflow", str(caught.exception))
+
+    def test_a_real_boundary_red_keeps_the_no_base_refusal(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge("##[error]language-boundaries: Sources/New.swift adds Swift to a Swift-minimal area",
+                       "##[error]Process completed with exit code 1.")
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+        self.assertIn("no feat-cmux-next run of its workflow", str(caught.exception))
+
+    def test_only_the_ask_line_matches(self):
+        self.assertIsNotNone(excuse.RERUN_ASK.search("Could not read the reviews; re-run this check."))
+        self.assertIsNotNone(excuse.RERUN_ASK.search("Could not list the changed paths; re-run this check"))
+        self.assertIsNone(excuse.RERUN_ASK.search("the check said: please re-run this checker"))
+
 
 class WsCheckGitHub:
     """teamleaderleo/leo-workspace: a `ws-check` commit status on each commit, linking a cmuxterm-hq run whose one job
@@ -7249,6 +7474,63 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
         with self.assertRaisesRegex(excuse.Refused, "more on this head: .*red check: Localization"):
             self.judge()
 
+    GENERATED = "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy+Fields.generated.swift"
+    LINT = "Package conventions lint"
+
+    def placed_warn_only(self, listed=("Package conventions lint",)):
+        """cmux#40449 at d375f032 (job 130887709749), placed: the pin red, a continue-on-error style guard that printed
+        its own `##[error]` line, and the rollup listing LISTED as warn-only with the pin its one red check."""
+        steps = [(self.PIN, "success", 10, 11), (self.LINT, "success", 12, 13), (self.ROLLUP, "failure", 14, 15)]
+        lines = [(self.PIN, 10, "##[group]Run scripts/cmux-next/check-app-ffi-pin.sh"),
+                 (self.PIN, 10.4, f"error: the app FFI sources changed since the pinned source {self.PINNED}:"),
+                 (self.PIN, 10.6, EXIT),
+                 (self.LINT, 12, "##[group]Run scripts/ci/run-checks-concurrently.sh --wait x package-conventions"),
+                 (self.LINT, 12.3, "FAIL: convention violations found (ERROR lines above)."),
+                 (self.LINT, 12.4, "1 checks, 16 at a time: 0 passed, 1 failed"),
+                 (self.LINT, 12.5, "##[error]./scripts/lint-ios-package-conventions.sh"),
+                 (self.LINT, 12.6, EXIT),
+                 (self.ROLLUP, 14, "##[group]Run failed=()"), (self.ROLLUP, 14.1, "##[endgroup]")]
+        if listed:
+            lines += [(self.ROLLUP, 14.2, f"##[warning]{self.LINT} found issues; see that step's log"),
+                      (self.ROLLUP, 14.3, f"### {len(listed)} style guard(s) reported findings (warn-only)"),
+                      (self.ROLLUP, 14.4, "")]
+            lines += [(self.ROLLUP, 14.5, f"- {name}") for name in listed]
+            lines += [(self.ROLLUP, 14.6, "")]
+        lines += [(self.ROLLUP, 14.7, f"##[error]red check: {self.PIN}"), (self.ROLLUP, 14.8, EXIT)]
+        self.gh.jobs[1] = dict(self.gh.jobs[1], steps=framed_steps(steps))
+        self.gh.logs[1] = framed_log(lines, job_name=self.JOB)
+        self.assertIsNot(excuse.failed_view(copy.deepcopy(self.gh.jobs[1]), self.gh.logs[1], base=False, **UNKNOWN),
+                         excuse.UNPLACED)
+
+    def test_40449_generated_data_swift_and_a_warn_only_guard_leave_a_step_a_pin_excused(self):
+        self.placed_warn_only()
+        self.pr_files(*self.RUST, self.GENERATED)
+        said = self.judge()
+        self.assertEqual(len(said), 1, said)
+        self.assertTrue(said[0].startswith(f"excused '{self.JOB}': only '{self.PIN}' is red"), said)
+
+    def test_a_guard_the_rollup_does_not_list_as_warn_only_still_sets_the_pin_aside(self):
+        self.pr_files(*self.RUST)
+        for listed in ((), (self.PIN,), ("Some other guard",)):
+            with self.subTest(listed=listed):
+                self.placed_warn_only(listed)
+                with self.assertRaises(excuse.Refused) as raised:
+                    self.judge()
+                self.assertNotIn("excused", str(raised.exception))
+
+    def test_hand_written_swift_beside_the_generated_file_is_still_refused(self):
+        self.placed_warn_only()
+        self.pr_files(*self.RUST, self.GENERATED, "Packages/macOS/CmuxNext/Sources/CmuxNextApp/AppActions.swift")
+        with self.assertRaisesRegex(excuse.Refused, r"#37292 changes Swift \(Packages/.*AppActions.swift\)"):
+            self.judge()
+
+    def test_data_only_swift_is_a_named_list_of_generated_files(self):
+        for path in excuse.FFI_PIN_DATA_SWIFT:
+            self.assertTrue(path.endswith(".generated.swift"), path)
+            text = (ROOT / path).read_text()
+            self.assertTrue(text.startswith("// GENERATED by "), path)
+            self.assertNotRegex(text, r"\bfunc\b|\bimport\b|\bvar\b|\binit\(|\{\s*\$|\bCCmuxAppFFI\b", path)
+
     def test_a_pr_of_more_than_one_page_of_files_is_read_to_its_last_file(self):
         # cmux#37362 at 54470673 changes 108 files; GitHub lists at most 100 per page.
         crates = tuple(f"cmux-tui/crates/cmux-actions/src/action_{i}.rs" for i in range(105))
@@ -7365,15 +7647,19 @@ class StaleFfiPinOfAStepARustChange(unittest.TestCase):
                 text = {excuse.FFI_PIN_MANIFEST: self.manifest, excuse.FFI_PIN_FILE: self.pin_file}.get(path)
                 answer.returncode, answer.stdout = (128, b"") if text is None else (0, text.encode())
             elif "ls-tree" in argv:
-                # The definite-absence read (git_text's MISSING): the tree names the path only when the head has it.
-                # pin_unread: git cannot list the tree either, so the read falls through to GitHub.
-                path = argv[-1]
-                self.reads[("git ls-tree", path)] += 1
-                text = {excuse.FFI_PIN_MANIFEST: self.manifest, excuse.FFI_PIN_FILE: self.pin_file}.get(path)
+                # The tree listing git_text reads paths by (git_tree_entries): the head's files and their directories,
+                # so a file the head lacks is a definite absence (git_text's MISSING). pin_unread: git cannot list the
+                # tree either, so the read falls through to GitHub.
+                self.reads[("git ls-tree", argv[-1])] += 1
+                files = {path: text for path, text in {excuse.FFI_PIN_MANIFEST: self.manifest,
+                                                       excuse.FFI_PIN_FILE: self.pin_file}.items() if text is not None}
+                dirs = {"/".join(path.split("/")[:at]) for path in files for at in range(1, path.count("/") + 1)}
                 if self.pin_unread:
                     answer.returncode = 128
-                elif text is not None:
-                    answer.stdout = path.encode() + b"\n"
+                else:
+                    answer.stdout = b"".join([f"040000 tree {'d' * 40}\t{path}\0".encode() for path in sorted(dirs)]
+                                             + [f"100644 blob {hashlib.sha1(text.encode()).hexdigest()}\t{path}\0".encode()
+                                                for path, text in sorted(files.items())])
             return answer
         cache = tempfile.TemporaryDirectory(prefix="bre-git-")
         self.addCleanup(cache.cleanup)
@@ -9764,6 +10050,7 @@ COMPARATORS = ("signature", "step_errors", "compare_window", "crash_signals", "r
 # a red is excused: each reads failed_views alone (a FailedView parameter, never a raw log), and none places a line
 # itself. A function with a FailedView parameter that is not here fails the scan too.
 VIEW_COMPARATORS = frozenset({
+    "asks_only_rerun", "warn_only_steps", "without_warn_only",
     "signature", "step_errors", "section_lines", "compare_window", "crash_signals", "ratchet_red",
     "ratchet_unmatched", "package_tests", "guard_tests", "fixed_on_base", "guard_group", "quarantined_only",
     "ffi_pin_step_a", "validate_guard_routes", "judge", "view_text", "fixed_on_base_by_step", "step_evidence",
@@ -12399,6 +12686,9 @@ SCANNERS = {
     "base_red_excuse.guard_red_steps": lambda f: excuse.guard_red_steps(f.log),
     "base_red_excuse.section_lines": lambda f: excuse.section_lines(f.view),
     "base_red_excuse.quarantined_only": lambda f: excuse.quarantined_only(f.view, {}),
+    "base_red_excuse.warn_only_steps": lambda f: (excuse.warn_only_steps(f.view), excuse.warn_only_steps(f.base_view)),
+    "base_red_excuse.without_warn_only": lambda f: excuse.without_warn_only(f.view, {"x"}),
+    "base_red_excuse.asks_only_rerun": lambda f: (excuse.asks_only_rerun(f.view), excuse.asks_only_rerun(f.base_view)),
     "base_red_excuse.ws_check_step": lambda f: excuse.ws_check_step(
         [*f.lines[:-1], "##[group]Tests", *f.lines[-1:]], len(f.lines), "Tests"),
     "base_red_excuse.gallery_replay_crash": lambda f: excuse.gallery_replay_crash(f.job, f.log),
@@ -12599,40 +12889,57 @@ def module_patterns():
                         yield f"{short}.{key}[{index}]", item
 
 
+def pattern_pin(rx):
+    """The first 12 hex digits of sha256 over RX's flags and source. One pin is one regex, so one cost on one engine:
+    whether a pinned KNOWN_SUPERLINEAR entry is still super-linear needs no clock."""
+    import hashlib
+    return hashlib.sha256(f"{rx.flags}\0{rx.pattern}".encode()).hexdigest()[:12]
+
+
 # Patterns a long line makes super-linear, found by PrLogPatternsScale when it came in (#41220's review at 9ae6ba5d,
-# F1's class): each reads to the line's end from every opener on it. A ratchet: a new one fails the sweep, and one
-# made linear fails it until it leaves this list. The follow-up that makes them linear is cmux#41374.
+# F1's class): each reads to the line's end from every opener on it. Each is pinned (pattern_pin) at the regex that was
+# measured. A ratchet both ways, and the shrink way is never a timing verdict (cmux run 43087045630 failed a PR on
+# one fast look at STARTED): a new super-linear pattern fails the sweep, measured as assert_scales measures; a known one
+# stays known with no measurement while its regex is its pin; an edited one (or one gone) fails until it leaves this
+# list (linear now) or takes its new pin (still super-linear). The follow-up that makes them linear is cmux#41374.
 KNOWN_SUPERLINEAR = {
-    "base_red_excuse.TEST_RUN_SUMMARY": "`^=+ .*\\bin [\\d.]+s\\b.*=+$`: two `.*` around a literal",
-    "test_reds.BUN_ABSOLUTE": "`/[^\\s'\"()]*?/(?:webviews|web)/` from every slash",
-    "test_reds.BUN_PACKAGE": "`(?:\\./)*(?:\\S*?/)?`: two repeats that read the same `./`",
-    "test_reds.CRASH": "`process didn't exit successfully: .*\\(signal: \\d+` from every opener",
-    "test_reds.FAILED[0]": "`\u2718 Test (\"[^\"\\n]*\"|.+?\\))` from every opener",
-    "test_reds.FAILURE_MARKERS[2]": "`^=+ .*\\b\\d+ failed\\b.*=+$`: two `.*` around a literal",
-    "test_reds.STARTED": "`\u25c7 Test (?:case passing .+? to )?(\\w+)\\((.*?)\\) started` from every opener",
-    "test_reds.SWIFT_ISSUE_LINE": "`\u2718 (?:Test|Suite) .* recorded an issue` from every opener",
-    "test_reds.WEB_AT": "`\\bat .*?/webviews/` from every `at `",
-    "test_reds.XCRESULT_FAILED": "`^FAILED: (?:.+ / )?([^/]+?) / ([^/]+?\\(.*\\))$`: overlapping repeats",
+    "base_red_excuse.TEST_RUN_SUMMARY": ("b9ab98f93034", "`^=+ .*\\bin [\\d.]+s\\b.*=+$`: two `.*` around a literal"),
+    "test_reds.BUN_ABSOLUTE": ("7f337d818ed0", "`/[^\\s'\"()]*?/(?:webviews|web)/` from every slash"),
+    "test_reds.BUN_PACKAGE": ("999d94fa66c8", "`(?:\\./)*(?:\\S*?/)?`: two repeats that read the same `./`"),
+    "test_reds.CRASH": ("064f1e415ab4", "`process didn't exit successfully: .*\\(signal: \\d+` from every opener"),
+    "test_reds.FAILED[0]": ("17ecd505c4cc", "`\u2718 Test (\"[^\"\\n]*\"|.+?\\))` from every opener"),
+    "test_reds.FAILURE_MARKERS[2]": ("2e80cc2dd812", "`^=+ .*\\b\\d+ failed\\b.*=+$`: two `.*` around a literal"),
+    "test_reds.STARTED": ("57352dda5830",
+                          "`\u25c7 Test (?:case passing .+? to )?(\\w+)\\((.*?)\\) started` from every opener"),
+    "test_reds.SWIFT_ISSUE_LINE": ("4c22f87ac051", "`\u2718 (?:Test|Suite) .* recorded an issue` from every opener"),
+    "test_reds.WEB_AT": ("315348257a77", "`\\bat .*?/webviews/` from every `at `"),
+    "test_reds.XCRESULT_FAILED": ("7bfba5bbb900",
+                                  "`^FAILED: (?:.+ / )?([^/]+?) / ([^/]+?\\(.*\\))$`: overlapping repeats"),
 }
 
 
 class PrLogPatternsScale(unittest.TestCase):
     """F1's class for one line: a PR prints its lines, so a line is as long as it likes. Each module pattern of
-    base_red_excuse.py and test_reds.py (module_patterns) runs through finditer on each of its openers
-    (regex_openers) repeated to LINE and 4 LINE characters; a pair over SCALING_LIMIT on a quick look is measured
-    again with assert_scales' protocol (scaling_failure), and what is super-linear there must be in
-    KNOWN_SUPERLINEAR."""
+    base_red_excuse.py and test_reds.py (module_patterns) not in KNOWN_SUPERLINEAR runs through finditer on each of its
+    openers (regex_openers) repeated to LINE and 4 LINE characters; a pair over SCALING_LIMIT on a quick look is
+    measured again with assert_scales' protocol (scaling_failure), and what is super-linear there fails. A
+    KNOWN_SUPERLINEAR entry is checked against its pin, not a clock; an edited one is measured SHRINK_REPEATS times
+    only to say whether to drop it or re-pin it, and fails either way."""
     LINE = 3000
     MEASURABLE = 0.0005
     MOST = 200_000
     CEILING = 10
+    SHRINK_REPEATS = 5
 
-    def superlinear(self):
+    def quick_look(self, name, rx, openers, confirm):
+        """Why RX is super-linear on its first opener over SCALING_LIMIT, else None. CONFIRM measures that opener again
+        with scaling_failure (a new pattern); without it the quick look's ratio is the answer (an edited known one,
+        whose verdict only words the message)."""
         import gc
         import signal
         import time
 
-        def once(rx, text):
+        def once(text):
             gc.disable()
             try:
                 began = time.process_time()
@@ -12644,49 +12951,105 @@ class PrLogPatternsScale(unittest.TestCase):
         def expire(signum, frame):
             raise ScalingHang()
         previous = signal.getsignal(signal.SIGALRM)
-        found, seen = {}, 0
-        for name, rx in module_patterns():
-            for opener in regex_openers(rx.pattern, rx.flags):
-                seen += 1
-                if name in found:
-                    continue  # one opener is enough
-                count = max(1, self.LINE // len(opener))
+        for opener in openers:
+            count = max(1, self.LINE // len(opener))
 
-                def build(size, rx=rx, opener=opener):
-                    text = opener * size
-                    return lambda: [None for _ in rx.finditer(text)]
-                # Long enough that the smaller line takes a measurable time (MEASURABLE), up to MOST characters.
-                signal.signal(signal.SIGALRM, expire)
-                signal.setitimer(signal.ITIMER_REAL, self.CEILING)  # a hang guard, never a timing bound
-                try:
-                    while (small := min(once(rx, opener * count) for _ in range(2))) < self.MEASURABLE \
-                            and 16 * count * len(opener) <= self.MOST:
-                        count *= 4
-                    large = min(once(rx, opener * 4 * count) for _ in range(2))
-                except ScalingHang:
-                    found[name] = (f"{name} on {opener[:30]!r}: still running after {self.CEILING} s at "
-                                   f"{4 * count * len(opener):,} characters (a hang guard, not a timing bound)")
-                    continue
-                finally:
-                    signal.setitimer(signal.ITIMER_REAL, 0)
-                    signal.signal(signal.SIGALRM, previous)
-                if large < self.MEASURABLE or large / max(small, 1e-9) < SCALING_LIMIT:
-                    continue
-                # A known one is over the bound every time (about 16x); a new one is measured again as any is.
-                if name in KNOWN_SUPERLINEAR:
-                    found.setdefault(name, f"{large / small:.1f}x")
-                elif why := scaling_failure(build, count, f"{name} on {opener[:30]!r}", ceiling=10):
-                    found.setdefault(name, why)
-        return found, seen
+            def build(size, opener=opener):
+                text = opener * size
+                return lambda: [None for _ in rx.finditer(text)]
+            # Long enough that the smaller line takes a measurable time (MEASURABLE), up to MOST characters.
+            signal.signal(signal.SIGALRM, expire)
+            signal.setitimer(signal.ITIMER_REAL, self.CEILING)  # a hang guard, never a timing bound
+            try:
+                while (small := min(once(opener * count) for _ in range(2))) < self.MEASURABLE \
+                        and 16 * count * len(opener) <= self.MOST:
+                    count *= 4
+                large = min(once(opener * 4 * count) for _ in range(2))
+            except ScalingHang:
+                return (f"{name} on {opener[:30]!r}: still running after {self.CEILING} s at "
+                        f"{4 * count * len(opener):,} characters (a hang guard, not a timing bound)")
+            finally:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+                signal.signal(signal.SIGALRM, previous)
+            if large < self.MEASURABLE or large / max(small, 1e-9) < SCALING_LIMIT:
+                continue
+            if not confirm:
+                return f"{large / small:.1f}x on {opener[:30]!r}"
+            if why := scaling_failure(build, count, f"{name} on {opener[:30]!r}", ceiling=10):
+                return why
+        return None
+
+    def superlinear(self):
+        """(new, edited, seen): NEW maps each super-linear module pattern outside KNOWN_SUPERLINEAR to why; EDITED maps
+        each KNOWN_SUPERLINEAR entry whose pattern is gone or no longer its pin to what to do; SEEN counts openers."""
+        patterns = dict(module_patterns())
+        openers = {name: regex_openers(rx.pattern, rx.flags) for name, rx in patterns.items()}
+        new = {}
+        for name, rx in patterns.items():
+            if name not in KNOWN_SUPERLINEAR and (why := self.quick_look(name, rx, openers[name], confirm=True)):
+                new[name] = why
+        edited = {}
+        for name, (pin, _) in KNOWN_SUPERLINEAR.items():
+            if name not in patterns:
+                edited[name] = "no such module pattern now: drop it from KNOWN_SUPERLINEAR"
+                continue
+            if (now := pattern_pin(patterns[name])) == pin:
+                continue  # the regex that was measured super-linear: no clock can make it linear
+            for _ in range(self.SHRINK_REPEATS):
+                if why := self.quick_look(name, patterns[name], openers[name], confirm=False):
+                    edited[name] = f"edited and still super-linear ({why}): pin it at {now!r}"
+                    break
+            else:
+                edited[name] = (f"edited ({pin!r} is now {now!r}) and linear on each of {self.SHRINK_REPEATS} "
+                                "sweeps: drop it from KNOWN_SUPERLINEAR")
+        return new, edited, sum(map(len, openers.values()))
 
     def test_every_pattern_costs_linear_in_a_line(self):
-        found, seen = self.superlinear()
+        new, edited, seen = self.superlinear()
         self.assertGreater(seen, 300, "the sweep found the patterns")
-        new = {name: why for name, why in found.items() if name not in KNOWN_SUPERLINEAR}
         self.assertEqual(new, {}, "a pattern that reads a PR's line in super-linear time: make it linear (a "
                          "lookbehind that starts it once per run, no two overlapping repeats, a cut at its last closer)")
-        self.assertEqual(KNOWN_SUPERLINEAR.keys() - found.keys(), set(),
-                         "linear now: drop it from KNOWN_SUPERLINEAR")
+        self.assertEqual(edited, {}, "a KNOWN_SUPERLINEAR entry whose regex changed: drop it or re-pin it")
+
+
+class SuperlinearShrinkIsNotATimingVerdict(unittest.TestCase):
+    """cmux run 43087045630 (job 130754109413): PrLogPatternsScale failed a PR with "'test_reds.STARTED' : linear now:
+    drop it from KNOWN_SUPERLINEAR" while base passed the same step (run 43089094009): one wall-clock look on a fast
+    runner called a pattern nobody had touched linear. The shrink direction of the ratchet may never be a timing
+    verdict. The detector: a clock under which every sample is fast and equal (each look costs the same at LINE and 4
+    LINE characters, so every pattern looks linear) must leave the sweep green."""
+
+    @staticmethod
+    def fast_clock():
+        ticks = iter(range(10**9))
+        return unittest.mock.patch("time.process_time", lambda: next(ticks) * PrLogPatternsScale.MEASURABLE * 2)
+
+    def test_a_clock_where_every_sample_is_fast_never_fails_the_sweep(self):
+        with self.fast_clock():
+            PrLogPatternsScale("test_every_pattern_costs_linear_in_a_line").test_every_pattern_costs_linear_in_a_line()
+
+    def test_a_pinned_entry_is_never_timed(self):
+        looked = []
+        real = PrLogPatternsScale.quick_look
+
+        def spy(case, name, *args, **kwargs):
+            looked.append(name)
+            return real(case, name, *args, **kwargs)
+        with self.fast_clock(), unittest.mock.patch.object(PrLogPatternsScale, "quick_look", spy):
+            new, edited, _ = PrLogPatternsScale().superlinear()
+        self.assertEqual((new, edited), ({}, {}))
+        self.assertTrue(looked, "the sweep times the patterns outside KNOWN_SUPERLINEAR")
+        self.assertEqual(set(looked) & KNOWN_SUPERLINEAR.keys(), set(), "a pinned entry was timed")
+
+    def test_an_edited_or_gone_entry_fails_whatever_the_clock_says(self):
+        known = dict(KNOWN_SUPERLINEAR, **{"test_reds.STARTED": ("000000000000", "an older STARTED"),
+                                           "test_reds.NO_SUCH_PATTERN": ("000000000000", "a removed pattern")})
+        with self.fast_clock(), unittest.mock.patch.dict(globals(), KNOWN_SUPERLINEAR=known):
+            _, edited, _ = PrLogPatternsScale().superlinear()
+        self.assertEqual(edited.keys(), {"test_reds.STARTED", "test_reds.NO_SUCH_PATTERN"})
+        self.assertIn(f"linear on each of {PrLogPatternsScale.SHRINK_REPEATS} sweeps: drop it",
+                      edited["test_reds.STARTED"])
+        self.assertIn("no such module pattern now", edited["test_reds.NO_SUCH_PATTERN"])
 
 
 # cmux#41205 at ba8ff399 and cmux#41220 at c7b757f0 (2026-11-11): both red in cmux-next-guards.yml's own-change job
@@ -12974,7 +13337,7 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-chromium-currency.yml", "ci-cache-receipts.yml"),
         "guard checks of their own whose reds are judged as any job's: no guard test declares its reads yet": (
             "ci-artifact-transport.yml", "classic-api-guard.yml", "cmux-next-batch.yml", "cmux-next-car-guards.yml",
-            "cmux-next-fast-gates.yml", "fleet-artifact-cdn.yml", "ios-shared-packages-sync.yml", "pr-checks.yml",
+            "cmux-next-fast-gates.yml", "fleet-artifact-cdn.yml", "pr-checks.yml",
             "release-rails.yml", "repair-nightly-appcast-content-types.yml", "risk-tier-tests.yml"),
     }
 

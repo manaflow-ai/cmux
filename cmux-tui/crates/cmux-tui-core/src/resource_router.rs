@@ -1154,6 +1154,8 @@ mod pane_move_tests;
 #[cfg(test)]
 mod partial_create_tests;
 #[cfg(test)]
+mod split_fit_tests;
+#[cfg(test)]
 mod split_focus_tests;
 #[cfg(test)]
 mod terminal_get_tests;

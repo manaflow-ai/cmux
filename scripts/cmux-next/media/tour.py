@@ -99,7 +99,10 @@ from typing import Any
 MAX_SECONDS = 300
 
 STEP_KEYS = {"title", "relaunch", "cmux", "rpc", "daemon", "wait", "shot", "display", "optional", "expect", "windows", "capture",
-             "collect"}
+             "collect",
+             # Read by `cmux-ci capture` only (whats-new-clips.py CAPTURE_ONLY_STEP_KEYS): where a clip's
+             # steps are and where its video starts. A tour run takes them and does nothing with them.
+             "clip", "record"}
 # A `collect` image's file name; it is kept as shots/NN-collect-<name>.png, a shot name publish.py takes.
 COLLECT_NAME = re.compile(r"([a-z0-9][a-z0-9-]{0,31})\.png")
 # Other windows a step shoots beside the main one (floating panels, popovers,

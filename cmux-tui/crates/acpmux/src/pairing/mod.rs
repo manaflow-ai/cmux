@@ -200,7 +200,7 @@ impl Pairing {
         let store = match std::fs::read(&path) {
             Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|e| {
                 tracing::warn!("pairing.json does not parse ({e}); starting with no tickets");
-                let _ = std::fs::rename(&path, path.with_extension("json.bad"));
+                let _ = crate::home_fs::rename(&path, path.with_extension("json.bad"));
                 Store::default()
             }),
             Err(_) => Store::default(),

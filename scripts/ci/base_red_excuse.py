@@ -463,25 +463,72 @@ class GitHub(_evidence.GitHub):
     def blob(self, repo: str, ref: str, path: str) -> str:
         """PATH's text in REPO at REF over GraphQL (`object(expression: "REF:PATH")`), never the contents API: an
         agent host's gh shim refuses `gh api repos/O/R/contents/...` as a source read that spends the shared REST
-        quota (source_text). Refused when the object is missing, not a file, or binary."""
-        return self.blob_text(repo, ref, path, self.named_object(repo, f"{ref}:{path}"))
+        quota (source_text). The same query reads the mode of PATH's entry in its parent tree: a symlink's blob is the
+        name of its target, never the target's text, so a symlink is followed inside the repository (symlinked_path)
+        and read again. Refused when the object is missing, not a file, binary, or a symlink out of the repository."""
+        return self.followed(repo, ref, path, *self.entry(repo, ref, path))
 
     def blob_if_present(self, repo: str, ref: str, path: str) -> str | None:
-        """blob, or None only when GitHub answers that REF resolves in REPO and REF:PATH names nothing there. Every
-        other answer (a failed request, a ref GitHub does not resolve, a binary or truncated file) is Refused, never
-        taken for an absent file."""
-        found = self.named_object(repo, f"{ref}:{path}")
-        if found is None:
+        """blob, or None only when GitHub answers that REF resolves in REPO and REF:PATH names nothing there (no object
+        and no entry in its parent tree). Every other answer (a failed request, a ref GitHub does not resolve, a binary
+        or truncated file, a symlink out of the repository) is Refused, never taken for an absent file."""
+        found, mode = self.entry(repo, ref, path)
+        if found is None and mode is None:
             if self.named_object(repo, ref) is None:
                 raise Refused(f"{repo}@{ref}: GitHub resolves no such ref, so {path} is unread, not absent")
             return None
-        return self.blob_text(repo, ref, path, found)
+        return self.followed(repo, ref, path, found, mode)
 
-    def named_object(self, repo: str, expression: str) -> dict | None:
-        """The object EXPRESSION names in REPO (BLOB_QUERY: a blob's fields, {} for a commit or tree), or None when
-        it names none. Refused when GitHub does not serve REPO or answers with errors."""
+    def entry(self, repo: str, ref: str, path: str) -> tuple[dict | None, int | None]:
+        """The object REF:PATH names in REPO (a blob's fields, {} for a commit or tree, None for none) and the mode of
+        PATH's entry in its parent tree (None when that tree lists no such entry), both from one BLOB_QUERY. Refused
+        when GitHub does not serve REPO or answers with errors."""
         owner, _, name = repo.partition("/")
         found = json.loads(self.run(["api", "graphql", "-f", f"query={BLOB_QUERY}", "-f", f"owner={owner}",
+                                     "-f", f"name={name}", "-f", f"expression={ref}:{path}",
+                                     "-f", f"parent={ref}:{path.rpartition('/')[0]}"]))
+        repository = (found.get("data") or {}).get("repository") if isinstance(found, dict) else None
+        if not isinstance(repository, dict) or found.get("errors"):
+            raise Refused(f"{repo}: GitHub did not serve {ref}:{path}")
+        blob = repository.get("object")
+        parent = repository.get("parent")
+        entries = parent.get("entries") if isinstance(parent, dict) else None
+        base = path.rpartition("/")[2]
+        mode = next((entry.get("mode") for entry in entries or () if isinstance(entry, dict)
+                     and entry.get("name") == base), None)
+        return (blob if isinstance(blob, dict) else None), mode
+
+    def followed(self, repo: str, ref: str, path: str, blob: dict | None, mode: int | None) -> str:
+        """The text of PATH's blob, BLOB and MODE as entry read them: a symlink is followed inside the repository
+        (symlinked_path), up to SYMLINK_HOPS links, and its target read again."""
+        hops = 0
+        while True:
+            if isinstance(blob, dict) and blob.get("isBinary") and mode != GIT_SYMLINK_MODE:
+                raise Refused(f"{repo}@{ref}: {path} is not a text file GitHub served (binary)")
+            if not isinstance(blob, dict) or not isinstance(blob.get("text"), str):
+                why = "a symlink with no target" if mode == GIT_SYMLINK_MODE else "missing, or not a file"
+                raise Refused(f"{repo}@{ref}: {path} is not a text file GitHub served ({why})")
+            if mode is None:
+                # No entry for PATH in its parent tree (no parent read, or PATH runs through a symlinked directory):
+                # a symlink's blob would read as its target's name, so nothing is taken from it.
+                raise Refused(f"{repo}@{ref}: {path} has no entry GitHub served in its parent tree (a path through "
+                              "a symlinked directory is not followed)")
+            if mode == GIT_SYMLINK_MODE:
+                hops += 1
+                if hops > SYMLINK_HOPS:
+                    raise Refused(f"{repo}@{ref}: {path} is a symlink loop (over {SYMLINK_HOPS} hops)")
+                path = symlinked_path(repo, ref, path, blob["text"])
+                blob, mode = self.entry(repo, ref, path)
+                continue
+            if blob.get("isTruncated"):
+                raise Refused(f"{repo}@{ref}: {path} was served truncated")
+            return blob["text"]
+
+    def named_object(self, repo: str, expression: str) -> dict | None:
+        """The object EXPRESSION names in REPO (OBJECT_QUERY: a blob's fields, {} for a commit or tree), or None when
+        it names none. Refused when GitHub does not serve REPO or answers with errors."""
+        owner, _, name = repo.partition("/")
+        found = json.loads(self.run(["api", "graphql", "-f", f"query={OBJECT_QUERY}", "-f", f"owner={owner}",
                                      "-f", f"name={name}", "-f", f"expression={expression}"]))
         repository = (found.get("data") or {}).get("repository") if isinstance(found, dict) else None
         if not isinstance(repository, dict) or found.get("errors"):
@@ -489,17 +536,27 @@ class GitHub(_evidence.GitHub):
         named = repository.get("object")
         return named if isinstance(named, dict) else None
 
-    @staticmethod
-    def blob_text(repo: str, ref: str, path: str, blob: dict | None) -> str:
-        if not isinstance(blob, dict) or blob.get("isBinary") or not isinstance(blob.get("text"), str):
-            raise Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
-        if blob.get("isTruncated"):
-            raise Refused(f"{repo}@{ref}: {path} was served truncated")
-        return blob["text"]
+
+BLOB_QUERY = ("query($owner: String!, $name: String!, $expression: String!, $parent: String!) { repository(owner: "
+              "$owner, name: $name) { object(expression: $expression) { ... on Blob { text isBinary isTruncated } } "
+              "parent: object(expression: $parent) { ... on Tree { entries { name mode } } } } }")
+OBJECT_QUERY = ("query($owner: String!, $name: String!, $expression: String!) { repository(owner: $owner, name: $name) "
+                "{ object(expression: $expression) { ... on Blob { text isBinary isTruncated } } } }")
+# A tree entry's mode for a symlink (0o120000; GraphQL's TreeEntry.mode is the integer), and how many links one read
+# follows before it is refused as a loop.
+GIT_SYMLINK_MODE = 0o120000
+SYMLINK_HOPS = 40
 
 
-BLOB_QUERY = ("query($owner: String!, $name: String!, $expression: String!) { repository(owner: $owner, name: $name) "
-              "{ object(expression: $expression) { ... on Blob { text isBinary isTruncated } } } }")
+def symlinked_path(repo: str, ref: str, link: str, target: str) -> str:
+    """The repository path the symlink LINK (whose blob is TARGET) names; Refused when it leaves the repository."""
+    import posixpath
+    joined = posixpath.normpath(posixpath.join(posixpath.dirname(link), target))
+    if target.startswith("/") or joined in ("..", ".") or joined.startswith("../"):
+        raise Refused(f"{repo}@{ref}: {link} is a symlink to {target}, outside the repository")
+    return joined
+
+
 # Where git_text keeps its shallow, blob-less fetches of other repos (one bare repo each). Override for tests or a
 # host whose cache lives elsewhere.
 SOURCE_CACHE_ENV = "BASE_RED_EXCUSE_SOURCE_CACHE"
@@ -590,30 +647,79 @@ def git_commit(repo: str, ref: str) -> str | None:
                 pass
 
 
+def git_tree():
+    """scripts/ci/git_tree.py, the one reader of a commit's tree: imported by name, so one module object (and one
+    Unreadable) is shared with every other caller."""
+    if str(SCRIPT_DIR) not in sys.path:
+        sys.path.insert(0, str(SCRIPT_DIR))
+    import git_tree as module
+    return module
+
+
+@once_per_judgement("git tree")
+def git_tree_entries(repo: str, commit: str) -> dict[str, tuple[str, str]] | None:
+    """Every entry of COMMIT's tree in git_cache(REPO) (GitTree.entries: one `ls-tree -r -t`, which the blob-less
+    fetch holds), or None when git cannot list it. Once per commit per judgement, however many paths are read."""
+    tree = git_tree().GitTree(source_cache() / (repo.replace("/", "__") + ".git"), commit)
+    try:
+        return tree.entries()
+    except git_tree().Unreadable:
+        return None
+    finally:
+        tree.close()
+
+
 @once_per_judgement("git")
 def git_text(repo: str, ref: str, path: str, *, missing=None):
     """PATH's text in REPO at REF from git, or None when git cannot answer (no network, no credentials, no ref).
     MISSING, when given, is returned instead when git fetched REF and its tree has no PATH: a definite absence.
 
-    A bare repo per REPO (git_cache), fetched once per ref per judgement (git_commit), so a read costs one ref fetch
-    and the one blob `git show` asks for, and no GitHub API quota at all."""
+    A bare repo per REPO (git_cache), fetched once per ref per judgement (git_commit), so a read costs one ref fetch,
+    one tree listing (git_tree_entries) and the blobs `git show` asks for, and no GitHub API quota at all. What PATH
+    names is git_tree.GitTree's answer, the reader every other tree read uses (review of cmux#41314, F1, F2): a
+    symlink is followed inside the tree, a symlinked parent too; a directory, a submodule, a binary blob (through a
+    link or not), a link out of the tree and a loop are each Refused by name, never read as text or as absent."""
     commit = git_commit(repo, ref)
     if commit is None:
         return None
+    module = git_tree()
     try:
         git = git_cache(repo)
-        if git is None:
-            return None
-        shown = git("show", f"{commit}:{path}")
-        if shown.returncode:
-            if missing is not None:
-                listed = git("ls-tree", "--name-only", commit, "--", path)
-                if listed.returncode == 0 and not listed.stdout.strip():
-                    return missing
-            return None
-        return shown.stdout.decode()
-    except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
+        entries = git_tree_entries(repo, commit) if git is not None else None
+    except (OSError, subprocess.SubprocessError):
         return None
+    if entries is None:
+        return None
+    shown: dict[str, bytes] = {}
+
+    def read_blob(where: str, oid: str) -> bytes:
+        # The cache is a promisor clone: `git show` fetches the one blob it lacks (git_cache's partialclonefilter).
+        if oid not in shown:
+            try:
+                done = git("show", f"{commit}:{where}")
+            except (OSError, subprocess.SubprocessError) as why:
+                raise module.NeedsFullTree(f"{repo}@{ref}: git show {where} failed: {why}") from None
+            if done.returncode:
+                raise module.NeedsFullTree(f"{repo}@{ref}: git show {where} failed")
+            shown[oid] = done.stdout
+        return shown[oid]
+
+    tree = module.GitTree(source_cache() / (repo.replace("/", "__") + ".git"), commit, entries=entries,
+                          read_blob=read_blob)
+    try:
+        if tree.resolve(path) is None:
+            # REF's tree has no PATH: a definite absence for the path asked for, never for a link's target.
+            parts = [part for part in path.strip("/").split("/") if part not in ("", ".")]
+            linked = any(entries.get("/".join(parts[:at]), ("",))[0] == module.SYMLINK
+                         for at in range(1, len(parts) + 1))
+            return missing if missing is not None and not linked else None
+        return tree.text(path)
+    except module.NeedsFullTree:
+        return None
+    except module.Unreadable as why:
+        raise Refused(f"{repo}@{ref}: {why}") from None
+    finally:
+        tree.close()
 
 
 @once_per_judgement("source", lambda repo, ref, path, github: (repo, ref, path))
@@ -2490,6 +2596,14 @@ def ffi_input(path: str) -> bool:
 # licence list (cmux#37869), which do not decide the verdict (review of cmux#39471).
 FFI_PIN_CHECK_CODE = ("scripts/cmux-next/check-app-ffi-pin.sh", "scripts/ci/app_ffi_pin.py", "scripts/ci/api_call_log/",
                       "scripts/ci/base_red_excuse.py", ".github/workflows/cmux-next.yml")
+# Generated Swift that is data only, never a call into the app FFI: step A's "changes Swift" rule ignores it. A step-A
+# Rust PR that changes the daemon's request schema regenerates it in the same PR (generated-files.json keeps it fresh),
+# so the rule refused every such PR (cmux#40449 at d375f032 and #40455, 2026-11-12: their one Swift file is this). Only
+# a file whose generator emits literals and nothing callable belongs here.
+FFI_PIN_DATA_SWIFT = frozenset({
+    # scripts/cmux-next/gen-phone-lane-fields.py from cmux-tui/spec/sdk-schema.json: one [String: Set<String>] literal.
+    "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy+Fields.generated.swift",
+})
 FFI_RELEASE_SECONDS = 30
 FFI_ASSET = "CCmuxAppFFI.xcframework.zip"
 
@@ -2584,6 +2698,49 @@ def ffi_published_base_pin(repo: str, base: str, sha: str, github) -> tuple[str 
             "against that pin and passed"), ""
 
 
+# The checks job's rollup ("Fail on any red check") lets a style guard's red pass as a warning: it lists each one
+# under "### N style guard(s) reported findings (warn-only)" and gives it no `red check:` line. Its step is
+# continue-on-error, so a placed head view keeps its ERRORED section, and that guard's `##[error]` lines (cmux#40449 at
+# d375f032: `##[error]./scripts/lint-ios-package-conventions.sh`, run-checks-concurrently.sh's line for a failed
+# check) stood beside the pin as another red and set the step-A excuse aside, though the job was red on the pin alone.
+# The pin rule drops the error lines that only those listed steps printed. The list is the head's own rollup, but a PR
+# that edits it edits cmux-next.yml, which FFI_PIN_CHECK_CODE refuses first; the pin's own step is never warn-only.
+WARN_ONLY_HEADER = re.compile(r"^### \d+ style guard\(s\) reported findings \(warn-only\)$")
+WARN_ONLY_ITEM = re.compile(r"^- (\S.*)$")
+
+
+def warn_only_steps(view: "FailedView | Unplaced") -> frozenset[str]:
+    """The step names VIEW's rollup step (FFI_PIN_ROLLUP_STEP) lists as warn-only style guards (WARN_ONLY_HEADER),
+    never FFI_PIN_CHECK; empty for an unplaced view or a rollup that lists none."""
+    if view is UNPLACED:
+        return frozenset()
+    found: set[str] = set()
+    for step, lines in section_lines(view):
+        if step.get("name") != FFI_PIN_ROLLUP_STEP:  # step-name: classify
+            continue
+        listing = False
+        for line in lines:
+            text = STAMP.sub("", line, count=1).strip()
+            if WARN_ONLY_HEADER.match(text):
+                listing = True
+            elif listing and (item := WARN_ONLY_ITEM.match(text)):
+                found.add(item[1].strip())
+            elif listing and text:
+                listing = False
+    return frozenset(found - {FFI_PIN_CHECK})
+
+
+def without_warn_only(view: FailedView, errors: set[str]) -> set[str]:
+    """ERRORS less each line printed only by steps VIEW's rollup lists as warn-only (warn_only_steps)."""
+    warned = warn_only_steps(view)
+    if not warned:
+        return errors
+    printers: dict[str, set[str]] = {}
+    for step, error in step_errors(view):
+        printers.setdefault(error, set()).add(step)
+    return {error for error in errors if not (printers.get(error) and printers[error] <= warned)}
+
+
 def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: Counter, errors: set[str], tests: set[str],
                    crashes: set[str], github, *, seen: dict | None = None) -> tuple[str | None, str | None]:
     """The audit line for a cmux-next checks job whose only red is the stale app FFI pin of a step-A Rust PR, or of a
@@ -2611,7 +2768,7 @@ def ffi_pin_step_a(repo: str, base: str, sha: str, name: str, steps: Counter, er
     if moved := [path for path in FFI_PIN_PATHS if path in paths]:
         why = (f"#{number} changes {moved[0]}: a PR that moves the pin must pin a release built from its own "
                "sources")
-    elif swift := [path for path in paths if path.endswith(".swift")]:
+    elif swift := [path for path in paths if path.endswith(".swift") and path not in FFI_PIN_DATA_SWIFT]:
         why = (f"#{number} changes Swift ({'; '.join(swift[:5])}): app code may call what the pinned library lacks; "
                "land the Rust alone, then the Swift after the re-pin")
     elif not any(ffi_input(path) for path in paths):
@@ -3779,7 +3936,7 @@ def cargo_crates(repo: str, sha: str, lock: str, github) -> dict[str, str]:
         if where in seen:
             continue
         seen.add(where)
-        if where.startswith(".."):
+        if where.startswith("..") or where.startswith("/"):
             raise Refused(f"a path crate of {lock} is outside the repository ({where})")
         found = manifest(where, True) or {}
         package = found.get("package")
@@ -3845,7 +4002,7 @@ def package_reads(repo: str, sha: str, package: dict, github) -> tuple[str, ...]
                           "read; it could reach a package outside the declared reads")
         for found in SWIFT_PATH_PACKAGE.finditer(code):
             path = posixpath.normpath(posixpath.join(where, found.group(1)))
-            if path.startswith(".."):
+            if path.startswith("..") or path.startswith("/"):
                 raise Refused(f"{where}/Package.swift reaches {found.group(1)}, outside the repository")
             queue.append(path)
     crates = cargo_crates(repo, sha, package["cargo_lock"], github)
@@ -4689,6 +4846,28 @@ class Infra(Refused):
 def infra(name: str, job: dict, why: str) -> Infra:
     return Infra(f"'{name}' is infra, not a verdict (job {job.get('id')}: {why}); it is never this PR's own red "
                  "and needs a re-run, like a cancelled job")
+
+
+# A check that runs on pull requests only (language-boundaries.yml, classic-api-guard.yml: pull_request_target) never
+# has a base verdict, so each of its reds was refused as "no feat-cmux-next run of its workflow has a verdict for it to
+# compare with", the one an agent reads as "the red cannot be judged". When its failed steps printed nothing but the
+# check's own "could not read its input; re-run this check" line, it decided nothing about the PR: cmux#41500 at
+# d059d7bd (job 130862862041, 2026-11-11), whose PR-files listing hit the installation's rate limit and whose merge-ref
+# fallback did not match the moved base; its re-run passed. Such a red is Infra: still refused (never excused, the PR
+# is not judged by it), named as the re-run it needs. Any other error line, a failing test, or a log not placed on its
+# steps keeps the refusal below.
+RERUN_ASK = re.compile(r"\bre-run this check(?:[.;]|$)", re.I)
+
+
+def asks_only_rerun(view: "FailedView | Unplaced") -> str | None:
+    """The error line VIEW's failed steps printed when each of them only asks for a re-run (RERUN_ASK), else None."""
+    sig = signature(view)
+    if sig is UNPLACED:
+        return None
+    steps, tests, errors = sig
+    if not steps or tests or not errors or not all(RERUN_ASK.search(error) for error in errors):
+        return None
+    return sorted(errors)[0].strip()
 
 
 def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
@@ -6173,7 +6352,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         if early is not UNPLACED:
             head_steps, head_tests, head_errors = early
             # By (name, conclusion), counted (failed_step_keys), never the names signature() keeps.
-            pinned, aside = ffi_pin_step_a(repo, base, sha, name, failed_step_keys(view.job), head_errors, head_tests,
+            pinned, aside = ffi_pin_step_a(repo, base, sha, name, failed_step_keys(view.job),
+                                           without_warn_only(view, head_errors), head_tests,
                                            crash_signals(view), github, seen=run_reads)
         elif got.unplaced is not None:
             # The pin's rules read this PR's paths, never the log's layout: an unplaced head is judged by them too.
@@ -6237,6 +6417,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     base_run is None or before_merge_base(repo, base, sha, pushed_run, github, evidence) is None):
                 base_run, base_job, verdicts, base_workflow = pushed_run, pushed_job, pushed, caller
         if base_run is None:
+            if (asked := asks_only_rerun(view)) is not None:
+                raise infra(name, job, f"its check could not run and printed only {asked!r}")
             dispatch = base_dispatch(repo, base, workflow_info, evidence.runs(workflow), github)
             raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
                           f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "

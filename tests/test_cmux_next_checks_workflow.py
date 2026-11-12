@@ -329,9 +329,10 @@ class AppFfiPinStepJudgesWithTheBaseCopy(unittest.TestCase):
         self.commit("sources")
         self.pinned = self.rev("HEAD")
         # The pin: app-ffi-pin.json, and Package.swift holding its one loader block (scripts/ci/app_ffi_pin.py).
-        spec = importlib.util.spec_from_file_location("app_ffi_pin", ROOT / "scripts/ci/app_ffi_pin.py")
-        pin = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(pin)
+        # Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+        if str(ROOT / "scripts/ci") not in sys.path:
+            sys.path.insert(0, str(ROOT / "scripts/ci"))
+        pin = importlib.import_module("app_ffi_pin")
         (self.repo / "Packages/macOS/CmuxNext/Package.swift").write_text(
             "import Foundation\nimport PackageDescription\n\n" + pin.loader(self.ZEROS))
         (self.repo / "Packages/macOS/CmuxNext/app-ffi-pin.json").write_text(pin.render(self.pinned, self.ZEROS))
