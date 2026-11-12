@@ -1034,11 +1034,11 @@ export function JumpToLatest({
   );
 }
 
-/// Jump up (jumpUp.ts): Jump to latest's companion, stacked on it in the bottom-center zone
-/// (overlayLayout.ts, jumpPair.css): the same glass disc, size and fade, its arrow up. It goes to
-/// where the reader left off (the unread "New" line, else their last prompt or where they last
-/// stopped scrolling) while that place is off screen; pressed, it points down and a second press or
-/// Esc goes back to where the view was.
+/// Jump up (jumpUp.ts): Jump to latest's companion in the bottom-center zone (overlayLayout.ts,
+/// jumpPair.css): the same glass disc, size and fade, its arrow up, never shown with Jump to latest.
+/// It goes to where the reader left off (the unread "New" line, else where they went idle once a
+/// screen of new content came in) while that place is off screen; pressed, it points down and a
+/// second press or Esc goes back to where the view was.
 export function JumpUp({
   shown,
   back,
@@ -4901,6 +4901,19 @@ function TranscriptView({
     const reduce = isAgentMotionOff() || globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     // The layout the room just taken committed (flushSync above), not the one this render closed over.
     const target = Math.max(0, latestLayout.current.layout.totalHeight - node.clientHeight);
+    // The reader's own press: Jump up's mark goes and an idle stretch starts at the latest message, so
+    // Jump up never comes up just because they pressed this (Leo, 2026-11-12: "after clicking the
+    // jump to bottom button, this appears... maybe a bit extra?").
+    if (jumpButton) {
+      const { layout: placed, rows: shown } = latestLayout.current;
+      idle.current = {
+        sessionId,
+        state: readerScrolled(
+          idle.current.state,
+          restingAnchor(target + node.clientHeight / 3, false, placed, shown) ?? undefined,
+        ),
+      };
+    }
     stopJump();
     rideToLatest(node, target, reduce, true);
   };
@@ -5542,8 +5555,9 @@ function TranscriptView({
   useEffect(() => {
     if (idleKey === undefined || idleKey === idleKept.current) return;
     idleKept.current = idleKey;
-    if (idleWrite.current?.sessionId !== sessionId) flushIdle();
-    else clearTimeout(idleWrite.current.timer);
+    const waiting = idleWrite.current;
+    if (waiting?.sessionId !== sessionId) flushIdle();
+    else clearTimeout(waiting.timer);
     idleWrite.current = { sessionId, state: idleNow, timer: setTimeout(flushIdle, IDLE_KEEP_MS) };
     // Written when what is kept changes, not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5552,12 +5566,15 @@ function TranscriptView({
   const upIndex = upTarget ? indexOfRow(rows, upTarget.rowId, jumpUpHint) : -1;
   const upTop = upIndex >= 0 ? layout.geometry.topAt(upIndex) + (upTarget?.offset ?? 0) : undefined;
   const upOff = placeOffView(upTop, { shownTop, height, threadTop: THREAD_TOP, topInset, dockSpace });
-  const upShown = jumpButton && jumpUpShown(upOff, jumpBackHeld ? jumpBack.current : undefined);
+  // One control at a time: while Jump to latest shows, Jump up waits (Leo, 2026-11-12: the two
+  // stacked are "a bit extra"). A held way back is still Esc's, and Jump to latest goes there too.
+  const latestShown = jumpButton && (behind || (needsYou?.elsewhere ?? 0) > 0);
+  const upShown = jumpButton && !latestShown && jumpUpShown(upOff, jumpBackHeld ? jumpBack.current : undefined);
   const upTopRef = useRef({ top: upTop, place: upTarget });
   upTopRef.current = { top: upTop, place: upTarget };
   // The button's own `shown` (JumpToLatest below), reported once per change so the pane's toast deck
   // moves in the same frame the button starts to fade in or out.
-  const jumpVisible = jumpButton && (behind || (needsYou?.elsewhere ?? 0) > 0);
+  const jumpVisible = latestShown;
   const jumpShownReport = useRef(onJumpShownChange);
   jumpShownReport.current = onJumpShownChange;
   useLayoutEffect(() => {

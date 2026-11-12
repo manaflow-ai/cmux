@@ -77,7 +77,10 @@ thread."
 
 - **Jump to latest** (unchanged): a glass disc on the composer's center line while the reader is scrolled up.
 - **Jump up** stands one control and one gap above it (`jumpPair.css`): the same disc, size, glass, focus and
-  fade, its arrow up. The two read as one column, and neither moves for the other.
+  fade, its arrow up. Only one of the two shows at a time: while Jump to latest shows, Jump up waits (Leo,
+  2026-11-12: "after clicking the jump to bottom button, this appears... and then it appears again when you
+  went up. which is cute, but... maybe a bit extra?"). A press of Jump to latest is the reader's own act, so
+  Jump up never comes up just because of it.
 - It goes to where the reader left off (`jumpUp.ts`): the New line while it is unread, else where their view was
   when they went idle, once a full screen of new content came in below it (Leo, 2026-11-12: "it's more so,
   like, idle detection... when you have, like, at least one full screen of idleness, that's when it starts
@@ -86,7 +89,8 @@ thread."
   app updates, hot reloads, the view's own moves and notice rows never move it. It is kept per chat across
   reloads.
 - It shows only while that place is off screen.
-- Pressed, it holds where the view was and points down: a second press, or Esc, goes back there. A scroll by
+- Pressed, it holds where the view was: Esc goes back there (Jump to latest, which shows once the view is
+  up, goes to the latest message). A scroll by
   hand lets go of the way back. Esc that something else takes (the composer's Stop, a menu) is left to it.
 
 ## Putting a waiting card away
