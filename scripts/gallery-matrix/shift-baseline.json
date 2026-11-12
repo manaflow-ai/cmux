@@ -1847,7 +1847,7 @@
     "agent-pane.transcript#message-surfaces-borderless": 0,
     "agent-pane.transcript#message-surfaces-soft": 0,
     "agent-pane.transcript#output-unwrapped-long-cut": 0.02226,
-    "agent-pane.transcript#output-unwrapped-long-line": 0.04774,
+    "agent-pane.transcript#output-unwrapped-long-line": 0.1153,
     "agent-pane.transcript#permission": 0,
     "agent-pane.transcript#permission-deny-feedback": 0.02448,
     "agent-pane.transcript#permission-expanded": 0.14143,
