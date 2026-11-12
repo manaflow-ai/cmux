@@ -4048,8 +4048,10 @@ function TranscriptView({
         // thread is drawn back by the rise and slides up on the send's glide, the prompt rising out
         // from behind the composer, instead of the whole chat moving up a row in one frame.
         // The send's own effect runs after this pass, so a send in this commit counts here too.
+        // On a 0 send clock (the product's) the thread is in place at once, whichever commit the
+        // prompt came in (review of #41550): no glide and no chase.
         const sentHere = sentBeforeOpen.current || sends !== seenSends.current;
-        if (sentHere && at < 0 && node.scrollTop - before > 0.5) {
+        if (sentHere && at < 0 && node.scrollTop - before > 0.5 && sendClockMs(node) > 0) {
           if (chasing) followChase.current?.shift(thread.current, before - node.scrollTop);
           else followGlide.current?.sent(thread.current, node.scrollTop - before);
         }

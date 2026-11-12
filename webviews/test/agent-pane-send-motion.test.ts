@@ -149,7 +149,7 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
   /// The thread's rise follows the follow-motion experiment (#37614): its default arms chase each
   /// move on a spring, and its eased arm is the glide this send clock drives (followGlide `sent`).
   /// The rise's clock is read in that arm; the bubble and thinking row take the send clock in every arm.
-  /// `follow`: the follow-motion arm, the product's (`blocks`) when undefined.
+  /// `follow`: the follow-motion arm; the product's is `blocks`.
   const openTurns = async (page: Page, follow: string | undefined = "eased") => {
     if (follow)
       await page.addInitScript(
@@ -212,7 +212,7 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
   test("with the default follow motion, the sent prompt and the thread are in place at once", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 520 } });
     try {
-      await openTurns(page, undefined);
+      await openTurns(page, "blocks");
       const line = "what else do you think would be good across the project";
       await watchSend(page, line);
       await send(page, line);
@@ -228,7 +228,7 @@ await requireBrowserLane("agent-pane-send-motion.test.ts", async () => {
   test("with Reduce Motion, the sent prompt and its thinking row are whole at once, no fade", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 520 }, reducedMotion: "reduce" });
     try {
-      await openTurns(page, undefined);
+      await openTurns(page, "blocks");
       const line = "what else do you think would be good across the project";
       await watchSend(page, line);
       await send(page, line);
