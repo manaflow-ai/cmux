@@ -70,6 +70,29 @@ class BenchAppTests(unittest.TestCase):
         self.assertIn("no app at", done.stderr + done.stdout)
 
 
+class BuildConfigTests(unittest.TestCase):
+    def app(self, root, marker):
+        import plistlib
+        app = os.path.join(root, "cmux DEV t.app")
+        os.makedirs(os.path.join(app, "Contents", "MacOS"))
+        with open(os.path.join(app, "Contents", "Info.plist"), "wb") as handle:
+            plistlib.dump({"CFBundleExecutable": "cmux DEV"}, handle)
+        with open(os.path.join(app, "Contents", "MacOS", "cmux DEV"), "wb") as handle:
+            handle.write(b"\x00binary" + (pb.BENCH_MARKER if marker else b"") + b"\x00")
+        return app
+
+    def test_a_bench_build_is_judged_against_the_bench_baseline(self):
+        """A Release-optimized (bench) build must never be compared with the Debug baseline: it is faster
+        in places, which would hide a regression; a Debug run keeps the old file (the perf cron's)."""
+        with tempfile.TemporaryDirectory() as root:
+            bench, debug = self.app(os.path.join(root, "b"), True), self.app(os.path.join(root, "d"), False)
+            self.assertEqual(pb.build_config(bench), "bench")
+            self.assertEqual(pb.build_config(debug), "debug")
+            self.assertEqual(pb.build_config(os.path.join(root, "missing.app")), "debug")
+        self.assertEqual(pb.baseline_name("apple-m4-pro-macos27", "bench"), "apple-m4-pro-macos27-bench.json")
+        self.assertEqual(pb.baseline_name("apple-m4-pro-macos27", "debug"), "apple-m4-pro-macos27.json")
+
+
 class GateTests(unittest.TestCase):
     def test_regression_needs_ten_percent_and_the_floor(self):
         rows = [{"name": "a", "p95": 11.5, "floor": 1.0},   # +15 %, +1.5 ms: regressed

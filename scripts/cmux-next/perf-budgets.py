@@ -24,7 +24,9 @@ bench launches and quits the app itself), and maps their reports to budget rows 
   (rows, raw report paths, host), a Markdown table in the log.
 
 Gate (--gate): a row regresses when its p95 is more than 10 % over the stored baseline for this host
-class (scripts/cmux-next/perf-budgets-baseline/<chip>-macos<major>.json) and more than the row's
+class and build (scripts/cmux-next/perf-budgets-baseline/<chip>-macos<major>.json for a Debug build,
+<chip>-macos<major>-bench.json for a bench build: Release optimization, split-spring.sh --config=bench)
+and more than the row's
 noise floor (1 ms; 0.3 points of CPU). Exit 1 on any regression. Rows over their absolute budget are
 listed ("over budget") but do not fail the gate: the gate stops new regressions, the budgets are the
 target the fixes work toward. --write-baseline FILE writes this run's p95s as a baseline.
@@ -102,6 +104,28 @@ def host_class():
         pass
     major = (platform.mac_ver()[0] or "0").split(".")[0]
     return re.sub(r"[^a-z0-9]+", "-", chip.lower()).strip("-") + f"-macos{major}"
+
+
+BENCH_MARKER = b"CMUX_BENCH_HOOKS" + b"_BUILD"  # scripts/cmux-next/check-no-bench-hooks.sh; split so this file has no marker
+
+
+def build_config(app):
+    """'bench' for a bench build (reload.sh --config bench: Release optimization with the debug.* commands the
+    benches drive; its executable carries the bench marker), 'debug' for any other build."""
+    try:
+        with open(os.path.join(app, "Contents", "Info.plist"), "rb") as handle:
+            import plistlib
+            exe = plistlib.load(handle).get("CFBundleExecutable") or ""
+        with open(os.path.join(app, "Contents", "MacOS", exe), "rb") as handle:
+            return "bench" if BENCH_MARKER in handle.read() else "debug"
+    except (OSError, ValueError):
+        return "debug"
+
+
+def baseline_name(cls, config):
+    """The baseline of a host class and build: a Debug build's numbers never judge a Release build's, or the
+    reverse (a Release build is several times faster in places, so it would hide a regression)."""
+    return f"{cls}.json" if config == "debug" else f"{cls}-{config}.json"
 
 
 # ---------- bench runs ----------
@@ -438,7 +462,8 @@ def main():
     ap.add_argument("--acp-fling-seconds", type=float, default=3, help="duration of the native transcript traversal")
     ap.add_argument("--scroll-target-hz", type=float, help="target refresh rate for transcript and sidebar dropped slots")
     ap.add_argument("--gate", action="store_true")
-    ap.add_argument("--baseline", help="baseline JSON (default: perf-budgets-baseline/<host class>.json)")
+    ap.add_argument("--baseline", help="baseline JSON (default: perf-budgets-baseline/<host class>.json for a Debug "
+                                       "build, <host class>-bench.json for a bench build)")
     ap.add_argument("--write-baseline")
     ap.add_argument("--bench-timeout", type=int, default=900)
     ap.add_argument("--raw", default="", help="benches whose whole report goes into the --json result (under raw)")
@@ -548,7 +573,8 @@ def finish(opts, budgets, only, runs, values):
                      "unit": spec.get("unit", "ms"), "floor": spec.get("floor", 1.0), "interaction": spec.get("what")})
 
     cls = host_class()
-    base_path = opts.baseline or os.path.join(BASELINE_DIR, f"{cls}.json")
+    config = build_config(opts.app)
+    base_path = opts.baseline or os.path.join(BASELINE_DIR, baseline_name(cls, config))
     baseline = (load(base_path) or {}).get("p95", {})
     regressed = compare(rows, baseline)
     over = over_budget(rows)
@@ -574,7 +600,8 @@ def finish(opts, budgets, only, runs, values):
     for r in incomplete:
         print(f"PERF-BUDGETS-INCOMPLETE {r['name']}: {r['reason']}")
 
-    result = {"tag": opts.tag, "host_class": cls, "host": platform.node(), "baseline_file": base_path if baseline else None,
+    result = {"tag": opts.tag, "host_class": cls, "build_config": config, "host": platform.node(),
+              "baseline_file": base_path if baseline else None,
               "rows": rows, "regressed": regressed, "over_budget": over, "incomplete": incomplete,
               "counts": counts, "runs": runs,
               "raw": {name: load(run["report"]) for name, run in runs.items()
@@ -586,7 +613,7 @@ def finish(opts, budgets, only, runs, values):
     if opts.write_baseline and incomplete:
         print("PERF-BUDGETS-BASELINE refused: the run is incomplete; provide measured rows for every expected entry")
     elif opts.write_baseline:
-        json.dump({"host_class": cls, "p95": {r["name"]: r["p95"] for r in rows if r["p95"] is not None}},
+        json.dump({"host_class": cls, "build_config": config, "p95": {r["name"]: r["p95"] for r in rows if r["p95"] is not None}},
                   open(opts.write_baseline, "w"), indent=1, sort_keys=True)
     if opts.gate and not baseline:
         print(f"PERF-BUDGETS-GATE no baseline at {base_path}: incomplete")
