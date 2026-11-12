@@ -533,6 +533,16 @@ class UnderPython39(unittest.TestCase):
                   "@unittest." "skipUnless(sys.version_info < (3, 10), 'old')\ndef p():\n    return ast.MatchAs  # bare: ast.MatchAs\n"
                   "@unittest." "skipUnless(hasattr(ast, 'MatchAs'), 'match')\ndef q():\n    return ast.MatchAs\n")
 
+    def test_a_hasattr_of_a_name_3_9_has_guards_nothing(self):
+        """cmux#41827 review (F1): _on39 read every hasattr/getattr as False on 3.9, so a test of a name 3.9 has
+        (True there) hid the 3.10 read under it. A guard is False only for a name 3.9 lacks."""
+        self.scan("import ast, sys\n"
+                  "if hasattr(sys, 'version_info'):\n    a = ast.match_case  # bare: ast.match_case\n"
+                  "if hasattr(ast, 'match_case'):\n    b = ast.match_case\n"
+                  "if getattr(sys, 'version_info', None):\n    c = ast.match_case  # bare: ast.match_case\n"
+                  "if getattr(ast, 'match_case', None):\n    d = ast.match_case\n"
+                  "if hasattr(thing, 'x'):\n    e = ast.match_case  # bare: ast.match_case\n")
+
     def test_an_exit_gate_protects_what_follows_it(self):
         """devbuild's `if sys.version_info < (3, 11): ... raise SystemExit(...)`, codex-review-box's sys.exit, a return."""
         self.scan("import sys, ast\n"
