@@ -310,5 +310,66 @@ class GitHubRelationTests(unittest.TestCase):
         self.assertEqual(self.relation({"status": "diverged", "ahead_by": 1, "behind_by": 1593}), "diverged")
 
 
+class InitTimeoutTests(unittest.TestCase):
+    """A busy runner makes the shallow submodule clone slower, never red on its own (cmux#41742's class).
+
+    Each case fakes a slow `git submodule update`: the guard's run() answers it with the timeout's exit 124.
+    """
+
+    # The same fixture, without running SubmoduleForwardOnlyTests' cases a second time.
+    setUp = SubmoduleForwardOnlyTests.setUp
+    commit_sub = SubmoduleForwardOnlyTests.commit_sub
+    pointer = SubmoduleForwardOnlyTests.pointer
+
+    def guard_in_process(self, timeouts: int) -> tuple[int, str, list[float]]:
+        """main() in the superrepo, with the first TIMEOUTS submodule updates timing out. Returns (exit code,
+        stderr, the limit each submodule update got)."""
+        real = submodule_forward_only.run
+        limits: list[float] = []
+
+        def slow(*args: str, cwd: str | None = None, timeout: float = submodule_forward_only.FETCH_TIMEOUT_SECONDS):
+            if args[:3] == ("git", "submodule", "update"):
+                limits.append(timeout)
+                if len(limits) <= timeouts:
+                    return subprocess.CompletedProcess(args, 124, stdout="", stderr="command timed out")
+            return real(*args, cwd=cwd, timeout=timeout)
+
+        env = {"GITHUB_TOKEN": "", "GH_TOKEN": "", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "protocol.file.allow",
+               "GIT_CONFIG_VALUE_0": "always"}
+        here = os.getcwd()
+        err = io.StringIO()
+        try:
+            os.chdir(self.superrepo)
+            with patch.object(submodule_forward_only, "run", slow), patch.dict(os.environ, env), \
+                    patch.object(sys, "argv", ["submodule_forward_only.py", "--base", self.base, "--head", "HEAD"]), \
+                    contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                code = submodule_forward_only.main()
+        finally:
+            os.chdir(here)
+        return code, err.getvalue(), limits
+
+    def test_an_untouched_submodule_never_waits_on_a_clone(self) -> None:
+        shutil.rmtree(self.superrepo / "deps/sample")
+        code, err, limits = self.guard_in_process(timeouts=99)
+        self.assertEqual((code, limits), (0, []), err)
+
+    def test_a_timed_out_update_is_retried_once_with_a_longer_limit(self) -> None:
+        self.pointer(self.commit_sub("forward subject"))
+        shutil.rmtree(self.superrepo / "deps/sample")
+        code, err, limits = self.guard_in_process(timeouts=1)
+        self.assertEqual(code, 0, err)
+        self.assertEqual(len(limits), 2, limits)
+        self.assertGreater(limits[1], limits[0])
+
+    def test_a_changed_submodule_that_times_out_twice_fails_and_says_it_timed_out(self) -> None:
+        """The change moved this gitlink, so the guard cannot pass it unjudged: it fails, naming the timeout."""
+        self.pointer(self.commit_sub("forward subject"))
+        shutil.rmtree(self.superrepo / "deps/sample")
+        code, err, limits = self.guard_in_process(timeouts=2)
+        self.assertEqual(code, 1, err)
+        self.assertEqual(len(limits), 2, limits)
+        self.assertIn(f"timed out after {limits[0]:g} s and again after {limits[1]:g} s", err)
+
+
 if __name__ == "__main__":
     unittest.main()

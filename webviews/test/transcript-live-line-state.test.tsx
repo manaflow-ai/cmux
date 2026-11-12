@@ -4,7 +4,7 @@
 // accounting is also off pretty frequently", on "Thinking 1h 24m 7s" for a turn that had spent
 // nearly all of its 1.5 h waiting on its foreground subagents, and an "Opened 1 agent session" step
 // that read 1h 22m 31s for a 3.5 min call.
-import { expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { renderToStaticMarkup as renderMarkup } from "react-dom/server";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
@@ -18,6 +18,17 @@ import { GALLERY_NOW } from "../src/gallery/clock";
 
 import type { ReactNode } from "react";
 import { StatusVerbContext } from "../src/agent-session/acpmux/statusVerbs";
+
+// The clock on the live line (liveTurnClock.experiment.ts `line`), which this file times; with the
+// shipped `top` the line says only "Thinking" and "Working for" over the work holds the clock
+// (transcript-live-turn-clock.test.ts).
+const CLOCK_ON_LINE = { "live-turn-clock": "line" };
+beforeEach(() => {
+  globalThis.cmuxExperiments = { ...CLOCK_ON_LINE };
+});
+afterEach(() => {
+  delete globalThis.cmuxExperiments;
+});
 
 // These assertions cover turn state and time, independently of decorative verb rotation.
 const renderToStaticMarkup = (node: ReactNode) =>
@@ -256,5 +267,13 @@ test("Thinking past the first step shows only the thoughts' streamed time, the w
   ]).at(-1)!;
   expect(line).toMatchObject({ kind: THINKING, thoughtMs: 8_000, turnTotal: true });
   expect(line.doing).toBeUndefined();
-  expect(drawn(line, t0 + 454_000)).toBe("Thinking 8s · turn 7m 34s");
+  (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = {
+    ...CLOCK_ON_LINE,
+    "live-line-times": "labelled",
+  };
+  try {
+    expect(drawn(line, t0 + 454_000)).toBe("Thinking 8s · turn 7m 34s");
+  } finally {
+    delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
+  }
 });
