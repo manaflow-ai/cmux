@@ -63,10 +63,12 @@ struct AgentPaneWhenSeenTests {
         for view in views { view.shownPushes.isHidden = { _ in false } }
         var ran = 0
 
-        AgentPaneOwedWork().owe(session: "chat-a", "diffWarm", in: views) { ran += 1 }
+        let owed = AgentPaneOwedWork()
+        owed.owe(session: "chat-a", "diffWarm", in: views) { ran += 1 }
         await Self.turns()
 
         #expect(ran == 1)
+        #expect(owed.owedSessions.isEmpty, "the work that ran is still owed")
         #expect(views[2].shownPushes.owedNames.isEmpty, "another chat's pane owes the work")
     }
 
@@ -97,6 +99,54 @@ struct AgentPaneWhenSeenTests {
         owed.hand(to: [later])
         await Self.turns()
         #expect(ran == ["turn 2"], "the work ran again")
+    }
+
+    /// A pane can change its chat in place (the person starts a new chat on the same page, or the
+    /// quick panel moves it): no pane is made, so the pane itself asks for the new chat's debt.
+    @Test func aPaneThatChangesItsChatInPlaceTakesTheNewChatsDebt() async throws {
+        let owed = AgentPaneOwedWork()
+        var ran = 0
+        owed.owe(session: "chat-b", "diffWarm", in: [AgentPaneView]()) { ran += 1 }
+
+        // The tab store made a pane of another chat, and someone sees it.
+        let view = try Self.view(session: "chat-a")
+        view.shownPushes.isHidden = { _ in false }
+        owed.hand(to: [view])
+        await Self.turns()
+        #expect(ran == 0, "a pane of another chat ran the work")
+
+        // The page moves to the chat that owes the work.
+        view.model.adoptSession("chat-b")
+        await Self.turns()
+        #expect(ran == 1, "the pane that came to the chat in place did not take its debt")
+        #expect(owed.owedSessions.isEmpty)
+    }
+
+    /// A hidden pane holds its chat's work; when its page moves to another chat before anyone
+    /// sees it, the work stays the first chat's and does not run for the chat the person sees.
+    @Test func aHiddenPaneThatLeftItsChatLeavesThatChatsWorkOwed() async throws {
+        let owed = AgentPaneOwedWork()
+        let view = try Self.view(session: "chat-a")
+        var hidden = true
+        view.shownPushes.isHidden = { _ in hidden }
+        var ran = 0
+        owed.owe(session: "chat-a", "diffWarm", in: [view]) { ran += 1 }
+        await Self.turns()
+
+        // The page moves to another chat while it is hidden, then the person comes to it.
+        view.model.adoptSession("chat-b")
+        hidden = false
+        view.shownPushes.flush(view)
+        await Self.turns()
+        #expect(ran == 0, "the work of the chat the pane left ran when the pane showed another chat")
+        #expect(owed.owedSessions == ["chat-a"], "the chat the pane left lost its debt")
+
+        // A pane of the first chat still takes it.
+        let back = try Self.view(session: "chat-a")
+        back.shownPushes.isHidden = { _ in false }
+        owed.hand(to: [back])
+        await Self.turns()
+        #expect(ran == 1)
     }
 
     /// Chats that never get a pane again cannot grow the debts without end: the oldest go first.
