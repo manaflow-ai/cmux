@@ -2088,8 +2088,9 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
         }
         return;
     }
-    // A chat's cold archive came or went (`hub/cold_archive.rs`): its row's `coldArchive`. Not a
-    // logged record, so nothing but this notice goes out for it.
+    // A chat's cold archive came or went (`hub/cold_archive.rs`): its row's `coldArchive`; or
+    // another unlogged row change (`row_notice`). Not a logged record, so nothing but this
+    // notice goes out for it.
     if ev.record.dir == crate::hub::COLD_CHANGED {
         let attached = conn.sub_opts(&ev.session_id).is_some();
         if (attached || conn.watch_all.load(Ordering::SeqCst))
@@ -2102,7 +2103,7 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             };
             conn.send(&Message::notification(
                 method::MUX_SESSION_CHANGED,
-                json!({"sessionId": ev.session_id, "session": session, "kind": crate::hub::COLD_CHANGED, "recordKind": crate::hub::COLD_CHANGED, "seq": s.meta().last_seq, "listSeq": ev.list_seq}),
+                json!({"sessionId": ev.session_id, "session": session, "kind": ev.record.kind, "recordKind": ev.record.kind, "seq": s.meta().last_seq, "listSeq": ev.list_seq}),
             ));
         }
         return;
