@@ -23,7 +23,9 @@ check   For each tracked Cargo.lock, `cargo update --workspace --locked` in its 
         runner makes the check slower, never red: cmux#41586, run 43124136001, 2026-11-12, 30 workspaces, 0 stale,
         5 timed out after 120 s waiting on each other on a 2-vCPU runner with an empty cargo home. A workspace's
         tree stops at a Cargo.toml below it with a [workspace] of its own or in its `exclude`: that is another
-        workspace, so a change only there does not touch the outer one (cmux#41742 review F1).
+        workspace, so a change only there does not touch the outer one (cmux#41742 review F1). A package reached by
+        path brings its `{ workspace = true }` dependencies' paths from its own workspace's [workspace.dependencies]
+        (cmux#41767 review: cmux-next-ios/rust reaches cmux-tui crates, which inherit paths from cmux-tui).
         The whole check ends by --deadline seconds (default with no usable --base: NO_BASE_DEADLINE): past it no
         resolve starts, a running one is cut at it, and what is left is `unchecked` (a timeout). Every caller
         without a base has an outer limit of its own: the pre-push gate's (it passes --deadline below it), the
@@ -219,10 +221,29 @@ def path_specs(table: object, in_dependencies: bool = False) -> list[str]:
     return found
 
 
+def inherited_names(table: object) -> list[str]:
+    """The dependencies a manifest table takes from its workspace (`name = { workspace = true }` or
+    `name.workspace = true`) in [dependencies], [dev-dependencies], [build-dependencies] and their
+    [target.*] forms."""
+    found: list[str] = []
+    if isinstance(table, dict):
+        for key, value in table.items():
+            if not isinstance(value, dict):
+                continue
+            if key in DEPENDENCY_KEYS[:3]:
+                found += [name for name, spec in value.items()
+                          if isinstance(spec, dict) and spec.get("workspace") is True]
+            elif key == "target":
+                for platform in value.values():
+                    found += inherited_names(platform)
+    return found
+
+
 def touched_roots(repo: Path, roots: list[str], base: str) -> set[str] | None:
     """The workspaces whose lock the change since BASE can reach: a Cargo.toml or Cargo.lock under the workspace, in
-    a package it reaches by path, or a workspace manifest above one of those. None (all of them) with no usable base.
-    An over-count only keeps a workspace strict."""
+    a package it reaches by path (directly or through a `{ workspace = true }` dependency's path), or a workspace
+    manifest above one of those. None (all of them) with no usable base. An over-count only keeps a workspace
+    strict."""
     if not base or set(base) == {"0"}:
         return None
     try:
@@ -275,21 +296,46 @@ def touched_roots(repo: Path, roots: list[str], base: str) -> set[str] | None:
         inner = nearest(path)
         return inner is None or inner == directory or not under(inner, directory)
 
+    def workspace_of(directory: str) -> str | None:
+        """The workspace whose manifest DIRECTORY's package inherits from: the nearest one at or above it, never
+        one past a nested workspace or an exclude."""
+        own = nearest(directory) or "."
+        return own if "workspace" in manifests.get(own, {}) and owns(own, directory) else None
+
+    def targets(directory: str) -> list[str]:
+        """The package directories DIRECTORY's manifest uses by path: its own `path =` entries, and each
+        `{ workspace = true }` dependency's path in its workspace's [workspace.dependencies] (cmux#41767 review:
+        cmux-next-ios/rust reaches cmux-tui crates, and they inherit paths from cmux-tui's manifest)."""
+        manifest = manifests.get(directory, {})
+        found = [os.path.normpath(str(PurePosixPath(directory) / spec)) for spec in path_specs(manifest)]
+        own = workspace_of(directory)
+        if own is not None:
+            table = manifests[own]["workspace"]
+            shared = table.get("dependencies", {}) if isinstance(table, dict) else {}
+            for name in inherited_names(manifest):
+                spec = shared.get(name) if isinstance(shared, dict) else None
+                if isinstance(spec, dict) and isinstance(spec.get("path"), str):
+                    found.append(os.path.normpath(str(PurePosixPath(own) / spec["path"])))
+        return found
+
     def reach(root: str) -> set[str]:
+        # seen: directories whose whole tree the workspace watches. read: those whose manifests are queued. A
+        # workspace a reached package inherits from is watched (its manifest is read for the package) but not read:
+        # its other members are followed only when something names them, so a member there that reaches out of
+        # the tree, or into a nested workspace, is still followed.
         seen = {root or "."}
+        read = {root or "."}
         queue = [directory for directory in manifests if owns(root or ".", directory)]
         while queue:
             directory = queue.pop()
-            for spec in path_specs(manifests.get(directory, {})):
-                target = os.path.normpath(str(PurePosixPath(directory) / spec))
-                if target.startswith("..") or any(owns(known, target) for known in seen):
+            for target in targets(directory):
+                if target.startswith("..") or any(owns(known, target) for known in read):
                     continue
                 seen.add(target)
+                read.add(target)
                 queue += [other for other in manifests if owns(target, other)]
-                # A package that inherits from its own workspace reads that workspace's manifest: the nearest one
-                # at or above it, never one past a nested workspace or an exclude.
-                own = nearest(target) or "."
-                if own != target and "workspace" in manifests.get(own, {}) and owns(own, target):
+                own = workspace_of(target)
+                if own is not None and own != target:
                     seen.add(own)
         return seen
 

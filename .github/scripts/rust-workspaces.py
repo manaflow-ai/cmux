@@ -146,11 +146,16 @@ class Tree:
         members = self.members(root)
         seen = members | {root}
         manifest = self.manifests[root]
+        queue = [(member, DEPENDENCY_TABLES) for member in members]
         for spec in manifest.get("patch", {}).values():
             for patched in spec.values():
                 if isinstance(patched, dict) and "path" in patched:
-                    seen.add(os.path.normpath(str(PurePosixPath(root) / patched["path"])))
-        queue = [(member, DEPENDENCY_TABLES) for member in members]
+                    # A patched crate builds like a dependency: its own path and `{ workspace = true }` dependencies
+                    # are this workspace's too (cmux#41767 review class: cmux-next-ios/rust patches smoltcp).
+                    directory = os.path.normpath(str(PurePosixPath(root) / patched["path"]))
+                    if directory not in seen:
+                        seen.add(directory)
+                        queue.append((directory, ("dependencies", "build-dependencies")))
         while queue:
             directory, kinds = queue.pop()
             for dependency in self.path_dependencies(directory, kinds):
