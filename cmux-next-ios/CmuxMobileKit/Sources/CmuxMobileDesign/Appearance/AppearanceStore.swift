@@ -179,7 +179,9 @@ private struct AppearanceWindowTrait: UIViewRepresentable {
 
         func push() {
             guard let window else { return }
-            if window.traitOverrides[CmuxMobileAppearanceRevisionTrait.self] != revision {
+            // Reading an override that was never set throws: compare the window's resolved trait.
+            if window.traitCollection[CmuxMobileAppearanceRevisionTrait.self] != revision
+                || !window.traitOverrides.contains(CmuxMobileAppearanceRevisionTrait.self) {
                 window.traitOverrides[CmuxMobileAppearanceRevisionTrait.self] = revision
             }
             let style: UIUserInterfaceStyle = switch scheme {
