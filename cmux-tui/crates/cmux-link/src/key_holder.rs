@@ -347,6 +347,73 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// An update hands the key over: the old daemon drops its holder while the new one, another
+    /// process, waits for the lock. The drop removes its own record first and unlocks last, so
+    /// the new holder's lock and record stay. An unlock frees only the lock of its own open file
+    /// description, which the new daemon never shares (the next test).
+    #[cfg(unix)]
+    #[test]
+    fn a_drop_in_a_handoff_leaves_the_new_holders_lock_and_record() {
+        use std::io::{BufRead as _, BufReader};
+        use std::process::{Command, Stdio};
+        let dir = tempfile_dir("handoff");
+        let old = KeyHolder::acquire(&dir).unwrap();
+        // The new holder: waits for the lock, writes its record as `acquire` does, and keeps the
+        // lock until its stdin closes.
+        let script = "import fcntl, os, sys\n\
+lock = open(sys.argv[1], 'r+')\n\
+print('waiting', flush=True)\n\
+fcntl.flock(lock, fcntl.LOCK_EX)\n\
+open(sys.argv[2], 'w').write(f'{os.getpid()}\\n')\n\
+print('held', flush=True)\n\
+sys.stdin.read()\n";
+        let mut new = Command::new("python3")
+            .arg("-c")
+            .arg(script)
+            .arg(dir.join(LOCK_FILE))
+            .arg(dir.join(PID_FILE))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("python3 runs");
+        let new_pid = new.id();
+        let (said, heard) = std::sync::mpsc::channel();
+        let out = new.stdout.take().unwrap();
+        std::thread::spawn(move || {
+            for line in BufReader::new(out).lines().map_while(Result::ok) {
+                let _ = said.send(line);
+            }
+        });
+        let next = || heard.recv_timeout(Duration::from_secs(30)).ok();
+        assert_eq!(next().as_deref(), Some("waiting"), "the new holder never started");
+        drop(old);
+        let held = next();
+        let record = recorded_pid(&dir);
+        let seen = holder(&dir);
+        drop(new.stdin.take());
+        let _ = new.wait();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(held.as_deref(), Some("held"), "the new holder never got the lock");
+        assert_eq!(record, Some(new_pid), "the old holder's drop removed the new holder's record");
+        assert_eq!(seen.unwrap(), Some(Some(new_pid)), "the new holder's lock did not stay held");
+    }
+
+    /// The lock's descriptor closes at every exec: a process the holder starts (a new daemon in an
+    /// update) never shares its open file description, so the holder's unlock never frees a lock
+    /// that process took.
+    #[cfg(unix)]
+    #[test]
+    fn the_lock_descriptor_closes_at_exec() {
+        use std::os::fd::AsRawFd as _;
+        let dir = tempfile_dir("cloexec");
+        let held = KeyHolder::acquire(&dir).unwrap();
+        // SAFETY: F_GETFD only reads the flags of a descriptor `held` keeps open through the call.
+        let flags = unsafe { libc::fcntl(held.lock.as_raw_fd(), libc::F_GETFD) };
+        drop(held);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(flags >= 0 && flags & libc::FD_CLOEXEC != 0, "the key lock outlives an exec");
+    }
+
     #[test]
     fn key_files_resolve_in_their_directory() {
         let dir = Path::new("/state");
