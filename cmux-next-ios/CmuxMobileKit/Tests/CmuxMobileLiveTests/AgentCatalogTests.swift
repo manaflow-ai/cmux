@@ -260,3 +260,16 @@ import Testing
         }
     }
 }
+
+/// New Task's first message: the prompt as one text block, then each image a model takes.
+@Suite struct TaskPromptBlockTests {
+    @Test func textThenSupportedImagesOnly() {
+        let png = TaskImage(id: "a", data: Data([0x89, 0x50, 0x4E, 0x47] + Array(repeating: 0, count: 12)))
+        let heic = TaskImage(id: "b", data: Data(Array("ftypheic0000".utf8)))
+        let blocks = LiveWorkspaceCreationBackend.taskPromptBlocks(AgentTask(prompt: "Match this", images: [png, heic]))
+        #expect(blocks.count == 2)
+        #expect(blocks[0]["type"]?.stringValue == "text" && blocks[0]["text"]?.stringValue == "Match this")
+        #expect(blocks[1]["type"]?.stringValue == "image" && blocks[1]["mimeType"]?.stringValue == "image/png")
+        #expect(blocks[1]["data"]?.stringValue == png.data.base64EncodedString())
+    }
+}
