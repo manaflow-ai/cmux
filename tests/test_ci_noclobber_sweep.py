@@ -30,12 +30,14 @@ import hashlib
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 import importlib.util as _git_fixture_importlib  # noqa: E402
 from os import path as _git_fixture_path  # noqa: E402
 # The scratch repositories below are git writes: the helper drops an inherited GIT_DIR and turns maintenance off.
@@ -162,7 +164,7 @@ def code(line: str) -> str:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
 
-SHELL_TREE_SHA256 = "b0db4ad88027c6be1b156619a585eda27a88f02721b1833a8566e4fd1a3aa9f1"
+SHELL_TREE_SHA256 = "aa41e3640d1b4995c343676c9ad1bc493202afc5c05ea4252aa92b49ce7cf61d"
 
 
 def without_templates(line: str) -> str:
@@ -445,6 +447,88 @@ class NoclobberSweep(unittest.TestCase):
         self.assertEqual([u.split(":")[1] for u in unapproved(found, both)], ["2"], found)
         self.assertIsNone(approves(("scripts/a.sh", '"/tmp/x-$tag"', 4), found))
 
+    def own_runs(self) -> list[str]:
+        """The scratch folders bash_writes() makes from here on, each the HOME of every process its run starts; at
+        cleanup each process whose environment names one (made by mkdtemp, so this test's alone) is killed."""
+        roots: list[str] = []
+        real = tempfile.mkdtemp
+
+        def mkdtemp(*args, **kwargs):
+            got = real(*args, **kwargs)
+            if kwargs.get("prefix") == "shell-tree-":
+                roots.append(got)
+            return got
+
+        def kill_left():
+            for pid in left(roots):
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+
+        patcher = mock.patch.object(shell_tree.tempfile, "mkdtemp", mkdtemp)
+        patcher.start()
+        self.addCleanup(kill_left)
+        self.addCleanup(patcher.stop)
+        return roots
+
+    def test_a_reaper_that_fails_is_no_answer(self):
+        """A review of this copy, F2 (the detector for its class): a reaper that crashed exited 1, and bash_writes()
+        read the scratch folder as bash's answer, False, while bash ran on. A reaper that fails, whatever the reason,
+        is OracleUnavailable, never True or False, and what it left running is stopped."""
+        roots = self.own_runs()
+        crash = shell_tree.REAPER.replace("\nwhile reap(False):", "\nraise RuntimeError('injected')\nwhile reap(False):")
+        self.assertNotEqual(crash, shell_tree.REAPER)
+        with mock.patch.object(shell_tree, "REAPER", crash):
+            for text in ("SECONDS=0; while ((SECONDS < 20)); do :; done", ": > /tmp/out.$$; SECONDS=0; "
+                         "while ((SECONDS < 20)); do :; done"):
+                with self.subTest(text=text):
+                    with self.assertRaises(shell_tree.OracleUnavailable) as raised:
+                        shell_tree.bash_writes(text, timeout=5)
+                    self.assertIn("reaper exited 1", raised.exception.reason)
+                    self.assertFalse(raised.exception.skipped)
+        self.assertEqual(len(roots), 2)
+        self.assertEqual(left(roots), [], "processes of the run outlived it")
+
+    def test_a_reaper_with_no_sigtimedwait_still_answers(self):
+        """A review of this copy, F2: macOS has no signal.sigtimedwait, so the reaper crashed on every row there. With
+        it taken away, the reaper still waits for every process the run leaves and answers as it does with it."""
+        self.own_runs()
+        portable = "import signal\ndel signal.sigtimedwait\n" + shell_tree.REAPER
+        rows = [(": > /tmp/out.$$", True), ("d=$(mktemp -d /tmp/x.XXXXXX)", False)]
+        if os.path.isdir("/proc/self"):  # the child subreaper waits for an orphan (Linux)
+            rows.append(("{ x=0; while ((x < 20000)); do ((x++)); done; : > /tmp/late.$$; } & exit 0", True))
+        with mock.patch.object(shell_tree, "REAPER", portable):
+            for text, wrote in rows:
+                with self.subTest(text=text):
+                    self.assertIs(shell_tree.bash_writes(text, timeout=10), wrote)
+
+    def test_bash_source_in_a_sourced_file_is_that_file(self):
+        """A review of this copy, F1: a test for "0" in the argument took ${BASH_SOURCE[0]} for $0, so a source inside
+        a sourced file resolved against the script's folder. $0 is the script's in every file; each BASH_SOURCE form
+        is the file being read. lib/b.sh defines mktemp(), b.sh (beside the script) does not: the template is a hit
+        only when the source is read as lib/b.sh."""
+        use = 'd=$(mktemp -d /tmp/x.$$.XXXXXX)\n'
+        here = 'here=$(cd "$(dirname "$0")" && pwd)\n'
+        rows = []
+        for form in ('"${BASH_SOURCE[0]}"', '"${BASH_SOURCE}"', '"$BASH_SOURCE"'):
+            rows.append((f'h2=$(cd "$(dirname {form})" && pwd)\n. "$h2/b.sh"\n', True))
+            rows.append((f'. "$(dirname {form})/b.sh"\n', True))
+        for form in ('"$0"', "$0", '"${0}"'):
+            rows.append((f'h2=$(cd "$(dirname {form})" && pwd)\n. "$h2/b.sh"\n', False))
+            rows.append((f'. "$(dirname {form})/b.sh"\n', False))
+        with tempfile.TemporaryDirectory() as tmp:
+            for n, (lib, hit) in enumerate(rows):
+                root = Path(tmp) / str(n)
+                files = {"s.sh": here + '. "$here/lib/a.sh"\n' + use, "lib/a.sh": lib, "b.sh": "",
+                         "lib/b.sh": "mktemp() { :; }\n"}
+                for path, text in files.items():
+                    (root / path).parent.mkdir(parents=True, exist_ok=True)
+                    (root / path).write_text(text)
+                with self.subTest(row=n, lib=lib):
+                    scan = "\n".join(shell_tree.scan_file("s.sh", files["s.sh"], root=str(root)))
+                    self.assertEqual(bool(SHARED_TMP.search(scan)), hit, scan)
+
     def test_shell_tree_is_the_shared_copy(self):
         """shell_tree.py is vendored byte for byte from a pinned upstream blob (its docstring); this pin is its
         SHA-256."""
@@ -456,6 +540,23 @@ class NoclobberSweep(unittest.TestCase):
         self.assertTrue(app_named('sock="/tmp/cmux-debug-$tag.sock"'))
         self.assertFalse(app_named('cp "/tmp/cmux-debug-$tag.log" "/tmp/mine-$$.log"'))
         self.assertFalse(app_named('f=/tmp/out.$$'))
+
+
+def left(roots: list[str]) -> list[int]:
+    """The pids of live (not zombie) processes whose environment has HOME set to one of ROOTS (Linux: /proc)."""
+    marks = [b"HOME=" + r.encode() + b"\0" for r in roots]
+    out = []
+    for d in os.listdir("/proc") if marks and os.path.isdir("/proc/self") else ():
+        try:
+            with open(f"/proc/{d}/environ", "rb") as f:
+                env = f.read()
+            with open(f"/proc/{d}/stat") as f:
+                state = f.read().rsplit(")", 1)[1].split()[0]
+        except (OSError, IndexError):
+            continue
+        if state != "Z" and any(m in env for m in marks):
+            out.append(int(d))
+    return out
 
 
 if __name__ == "__main__":
