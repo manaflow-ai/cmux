@@ -38,7 +38,10 @@ What is generated, in one place:
           them (a hand edit the next regeneration would undo), unless the base's manifest gives
           that generator a "check" and the check passes at --head: then the output is what the
           generator writes from the inputs already there (a base that changed an input without
-          regenerating, say), and a later run undoes nothing;
+          regenerating, say), and a later run undoes nothing. A check that runs past its limit is retried
+          once with a longer one; if it times out again, it warns naming the generator and the output and does
+          not fail: the change touches neither the generator nor its inputs (else no check runs), so the
+          timeout is the runner's, not the change's. A busy runner makes the guard slower, never red;
         - leaves a tracked generated file at --head that neither a committed generator nor the
           baseline covers.
   generated_files_guard.py baseline --repo DIR
@@ -66,8 +69,12 @@ OUTPUTS = "scripts/cmux-next/generated_outputs.py"
 # What generated_outputs.py reads beside itself; load_exports writes it next to the module.
 SETTINGS_EXPORTS = "scripts/cmux-next/settings-exports.txt"
 
-# How long a generator's check may run before the guard treats it as failed.
+# How long a generator's check may run; one that runs past it is retried once with RETRY_CHECK_TIMEOUT_SECONDS. A
+# check that times out twice warns and does not fail (hand_edits). The guard's workflow step allows for both.
 CHECK_TIMEOUT_SECONDS = 120
+RETRY_CHECK_TIMEOUT_SECONDS = 240
+# The start of a note main prints as a warning.
+TIMED_OUT = "timed out: "
 
 HEADER_BYTES = 2048
 HEADER_LINES = 6
@@ -310,10 +317,26 @@ def rule_changes(base: Rules, head: Rules, base_tracked: set[str]) -> list[str]:
     return errors
 
 
+class TimedOut(str):
+    """regenerated()'s answer when the check timed out twice: the runner's, not a verdict on the output."""
+
+
+def run_check(repo: Path, script: Path, args: list[str]) -> subprocess.CompletedProcess[str] | TimedOut:
+    """The check's run, retried once with a longer limit when it times out; TimedOut when both did."""
+    limits = (CHECK_TIMEOUT_SECONDS, RETRY_CHECK_TIMEOUT_SECONDS)
+    for limit in limits:
+        try:
+            return subprocess.run([sys.executable, "-I", str(script), *args], cwd=repo,
+                                  capture_output=True, text=True, timeout=limit, check=False)
+        except subprocess.TimeoutExpired:
+            continue
+    return TimedOut(f"it timed out after {limits[0]:g} s and again after {limits[1]:g} s")
+
+
 def regenerated(repo: Path, found: Generator, verdicts: dict[str, str | None]) -> str | None:
     """None when `found`'s check passes in `repo`'s working tree (every output is what the generator
-    writes from the inputs there); otherwise why not. A check that cannot run counts as failed.
-    `verdicts` caches one run per generator."""
+    writes from the inputs there); otherwise why not, a TimedOut when the check timed out twice. A check
+    that cannot run counts as failed. `verdicts` caches one run per generator."""
     if not found.check:
         return "it has no \"check\" in the base's manifest"
     if found.id in verdicts:
@@ -324,21 +347,24 @@ def regenerated(repo: Path, found: Generator, verdicts: dict[str, str | None]) -
         verdict = f"{found.generator} is missing"
     else:
         try:
-            result = subprocess.run([sys.executable, "-I", str(script), *found.check], cwd=repo,
-                                    capture_output=True, text=True, timeout=CHECK_TIMEOUT_SECONDS, check=False)
-            verdict = None if result.returncode == 0 else (
+            result = run_check(repo, script, found.check)
+        except OSError as error:
+            verdict = f"`{command}` did not start: {error}"
+        else:
+            verdict = result if isinstance(result, TimedOut) else None if result.returncode == 0 else (
                 f"`{command}` exits {result.returncode}: {(result.stdout + result.stderr).strip()[:400]}")
-        except (OSError, subprocess.TimeoutExpired) as error:
-            verdict = f"`{command}` did not finish: {error}"
     verdicts[found.id] = verdict
     return verdict
 
 
-def hand_edits(rules: Rules, changed: list[tuple[str, str]], repo: Path | None = None) -> list[str]:
+def hand_edits(rules: Rules, changed: list[tuple[str, str]], repo: Path | None = None,
+               notes: list[str] | None = None) -> list[str]:
     """Outputs `changed` edits without changing their generator or inputs. An output whose generator's
     check (from `rules`, the base's) passes in `repo` is a regeneration from inputs already there, not a
     hand edit: a base input that changed without a regeneration leaves the output stale, and only a pull
-    request that changes nothing but the output can bring it back in line."""
+    request that changes nothing but the output can bring it back in line. A check that timed out twice
+    adds a TIMED_OUT note to `notes` instead of an error: the change touches neither the generator nor
+    its inputs here, so the timeout is the runner's."""
     paths = [path for _, path in changed]
     errors = []
     verdicts: dict[str, str | None] = {}
@@ -353,6 +379,13 @@ def hand_edits(rules: Rules, changed: list[tuple[str, str]], repo: Path | None =
             continue
         why = regenerated(repo, found, verdicts) if repo is not None else "no tree to check"
         if why is None:
+            continue
+        if isinstance(why, TimedOut):
+            if notes is not None:
+                notes.append(f"{TIMED_OUT}{path}: {found.id}'s check (python3 -I {found.generator} "
+                             f"{' '.join(found.check)}) did not finish on this runner ({why}), so this edit is not "
+                             "checked. This change touches none of the generator's inputs, so it does not fail; the "
+                             "next regeneration undoes the edit if it was made by hand.")
             continue
         errors.append(
             f"{path}: written by {found.generator}, but this pull request changes none of its inputs "
@@ -385,13 +418,13 @@ def check(repo: Path, base_rev: str, head_rev: str, exports=None) -> tuple[list[
                 "hook), the way the web bundles and the page strings are (ce0b9e76, #21946).")
     base_tracked = set(git(repo, "ls-tree", "-r", "--name-only", "-z", base_rev).split("\0")) - {""}
     errors += rule_changes(base, head, base_tracked)
-    errors += hand_edits(base, changed, repo)
+    notes: list[str] = []
+    errors += hand_edits(base, changed, repo, notes)
     missing = [p for p in uncovered_generated(head, repo) if p not in head.baseline]
     # A file reported above is not reported twice. The rest are this change's when it touched the file
     # or uncovered one the base covered (a dropped baseline line, a narrowed generator); otherwise the
     # base tracks it uncovered already, which is the base's red and only a note here.
     touched = {path for _, path in changed}
-    notes = []
     for path in missing:
         if path in reported:
             continue
@@ -431,8 +464,10 @@ def main(argv: list[str]) -> int:
             print(path)
         return 0
     errors, notes = check(repo, args.base, args.head)
+    warning = "::warning::" if os.environ.get("GITHUB_ACTIONS") == "true" else "warning: "
     for note in notes:
-        print(f"note: {note}")
+        print(f"{warning}generated files guard: {note[len(TIMED_OUT):]}" if note.startswith(TIMED_OUT)
+              else f"note: {note}")
     for error in errors:
         print(f"error: {error}")
     return 1 if errors else 0

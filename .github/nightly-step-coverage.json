@@ -69,6 +69,7 @@
         "Collect the light-job placement": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow", "note": "joins the background placement the step above starts and copies its outputs; tests/test_nightly_trusted_routing.py holds the pair"},
         "Resolve immutable SSH daemon metadata": {"nightly_only": "reads the compiled Release app version and checks the current nightly feed build floors"},
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
+        "Mint the glaeda read token for the unsigned restore": {"nightly_only": "mints a glaeda-route GitHub App token with actions and contents read only, for the unsigned restore's run, artifact and compare reads, only on a nightly-next sign dispatch; an empty token falls back to GITHUB_TOKEN"},
         "Restore the original unsigned nightly inputs": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
         "Checkout build ref (warm nightly-next builder)": {"plumbing": true}, "Select Xcode": {"plumbing": true}, "Select the SDK of the selected Xcode": {"plumbing": true},
