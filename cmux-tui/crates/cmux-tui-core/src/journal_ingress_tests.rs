@@ -301,6 +301,7 @@ fn shutdown_has_a_deadline_when_the_journal_stays_locked() {
         &root,
     )
     .unwrap();
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
     let database_path = std::fs::read_dir(&root)
         .unwrap()
         .filter_map(Result::ok)
@@ -319,7 +320,7 @@ fn shutdown_has_a_deadline_when_the_journal_stays_locked() {
     mux.shutdown();
 
     assert!(
-        started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
+        started.elapsed() < JOURNAL_DEADLINE_TEST_WAIT + Duration::from_secs(2),
         "a locked journal must not prevent shutdown forever"
     );
     assert!(
@@ -346,6 +347,7 @@ fn producer_receipt_and_sqlite_retries_share_one_deadline() {
     let mux =
         Mux::open_persistent("journal-producer-locked", crate::SurfaceOptions::default(), &root)
             .unwrap();
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
     let database_path = std::fs::read_dir(&root)
         .unwrap()
         .filter_map(Result::ok)
@@ -377,7 +379,7 @@ fn producer_receipt_and_sqlite_retries_share_one_deadline() {
 
     assert!(error.to_string().contains("timed out"));
     assert!(
-        started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
+        started.elapsed() < JOURNAL_DEADLINE_TEST_WAIT + Duration::from_secs(2),
         "a producer receipt must not wait without a limit"
     );
     assert!(failed_receiver.recv_timeout(Duration::from_millis(200)).is_err());
@@ -404,6 +406,7 @@ fn producer_deadline_includes_registry_connection_admission() {
         &root,
     )
     .unwrap();
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
     let locked_mux = mux.clone();
     let (entered, entered_receiver) = sync_channel(1);
     let (release, release_receiver) = sync_channel(1);
@@ -434,7 +437,7 @@ fn producer_deadline_includes_registry_connection_admission() {
 
     assert!(error.to_string().contains("timed out"));
     assert!(
-        started.elapsed() < JOURNAL_DURABLE_WAIT + Duration::from_secs(2),
+        started.elapsed() < JOURNAL_DEADLINE_TEST_WAIT + Duration::from_secs(2),
         "registry connection admission must not outlive the producer deadline"
     );
     assert!(failed_receiver.recv_timeout(Duration::from_millis(200)).is_err());
@@ -465,6 +468,7 @@ fn producer_deadline_prevents_a_late_transaction_commit() {
         &root,
     )
     .unwrap();
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
     let (entered, entered_receiver) = sync_channel(1);
     let (release, release_receiver) = sync_channel(1);
     mux.install_journal_before_commit_for_test(entered, release_receiver);
@@ -497,7 +501,7 @@ fn producer_deadline_prevents_a_late_transaction_commit() {
     entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
 
     let error = result_receiver
-        .recv_timeout(JOURNAL_DURABLE_WAIT + Duration::from_secs(1))
+        .recv_timeout(JOURNAL_DEADLINE_TEST_WAIT + Duration::from_secs(1))
         .expect("producer must return at its fixed deadline")
         .unwrap_err();
     assert!(error.to_string().contains("timed out"));
@@ -529,6 +533,7 @@ fn producer_waits_for_an_admitted_commit_past_its_deadline() {
         &root,
     )
     .unwrap();
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
     let (entered, entered_receiver) = sync_channel(1);
     let (release, release_receiver) = sync_channel(1);
     mux.install_journal_after_commit_admission_for_test(entered, release_receiver);
@@ -559,7 +564,9 @@ fn producer_waits_for_an_admitted_commit_past_its_deadline() {
     entered_receiver.recv_timeout(Duration::from_secs(1)).unwrap();
 
     assert!(
-        result_receiver.recv_timeout(JOURNAL_DURABLE_WAIT + Duration::from_millis(100)).is_err(),
+        result_receiver
+            .recv_timeout(JOURNAL_DEADLINE_TEST_WAIT + Duration::from_millis(100))
+            .is_err(),
         "an admitted commit must not report a timeout while its result is unknown"
     );
     release.send(()).unwrap();
@@ -589,6 +596,7 @@ fn producer_bounds_an_admitted_commit_with_an_indeterminate_result() {
         &root,
     )
     .unwrap();
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
     let (entered, entered_receiver) = sync_channel(1);
     let (release, release_receiver) = sync_channel(1);
     mux.install_journal_after_commit_admission_for_test(entered, release_receiver);
@@ -621,7 +629,7 @@ fn producer_bounds_an_admitted_commit_with_an_indeterminate_result() {
     let started = Instant::now();
     let error = result_receiver
         .recv_timeout(
-            JOURNAL_DURABLE_WAIT
+            JOURNAL_DEADLINE_TEST_WAIT
                 .saturating_add(JOURNAL_COMMIT_RESULT_WAIT)
                 .saturating_add(Duration::from_secs(1)),
         )
@@ -630,7 +638,7 @@ fn producer_bounds_an_admitted_commit_with_an_indeterminate_result() {
     assert!(error.to_string().contains("outcome is indeterminate"));
     assert!(
         started.elapsed()
-            < JOURNAL_DURABLE_WAIT
+            < JOURNAL_DEADLINE_TEST_WAIT
                 .saturating_add(JOURNAL_COMMIT_RESULT_WAIT)
                 .saturating_add(Duration::from_secs(1)),
         "an admitted commit result must remain bounded"
@@ -667,6 +675,7 @@ fn shutdown_returns_when_an_admitted_commit_stays_blocked() {
         &root,
     )
     .unwrap();
+    mux.set_journal_durable_wait_for_test(JOURNAL_DEADLINE_TEST_WAIT);
     let (entered, entered_receiver) = sync_channel(1);
     let (release, release_receiver) = sync_channel(1);
     mux.install_journal_after_commit_admission_for_test(entered, release_receiver);

@@ -14,7 +14,7 @@ use std::collections::VecDeque;
 use std::sync::atomic::Ordering;
 use std::time::Instant;
 
-use super::{JournalIngressReceivers, QueuedJournalEvent, journal_durable_wait};
+use super::{JournalIngressReceivers, QueuedJournalEvent};
 
 /// A lock or commit deadline that expired while another writer held the
 /// workspace registry. Callers downcast to tell it from a store error.
@@ -78,11 +78,11 @@ pub(super) fn expire(
         &waiting,
         format!(
             "session journal writer timed out after {} ms: {detail}",
-            journal_durable_wait().as_millis()
+            receivers.state.durable_wait().as_millis()
         ),
     );
     *batch = kept;
-    *retry_deadline = Instant::now() + journal_durable_wait();
+    *retry_deadline = Instant::now() + receivers.state.durable_wait();
     true
 }
 
@@ -105,6 +105,7 @@ mod tests {
         let mux =
             Mux::open_persistent("journal-contention", crate::SurfaceOptions::default(), &root)
                 .unwrap();
+        mux.set_journal_durable_wait_for_test(crate::journal_ingress::JOURNAL_DEADLINE_TEST_WAIT);
         let (failed, failed_receiver) = sync_channel(1);
         mux.install_journal_failure_notifier_for_test(failed);
 
@@ -124,7 +125,7 @@ mod tests {
             b"output while the registry is busy".to_vec(),
         );
         std::thread::sleep(
-            crate::journal_ingress::JOURNAL_DURABLE_WAIT + Duration::from_millis(1500),
+            crate::journal_ingress::JOURNAL_DEADLINE_TEST_WAIT + Duration::from_millis(1500),
         );
         release.send(()).unwrap();
         blocker.join().unwrap();
