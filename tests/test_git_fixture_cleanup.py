@@ -730,8 +730,10 @@ class RandomTraps:
         return self.signals_of.get(tag.group(1), set()) if tag else set()
 
     def tag_fn(self, line: str) -> tuple[str | None, str | None]:
-        """(tag, the function a DEBUG leaf ran in), or (tag, None) for a line no DEBUG leaf printed."""
-        found = re.match(r"([A-Z]\d+)(?::(\S*))?", line.rstrip("\\"))
+        """(tag, the function a DEBUG leaf ran in), or (tag, None) for a line no DEBUG leaf printed. A leaf that ends
+        in a backslash prints one after the function's name, and only that one is set aside here: a second is no
+        function's name, so the line is compared as the caller's (review of hq#9885 F1)."""
+        found = re.match(r"([A-Z]\d+)(?::(\S*))?", line[:-1] if line.endswith("\\") else line)
         if not found:
             return None, None
         token = found.group(2)
@@ -747,19 +749,21 @@ class RandomTraps:
         return bool(tag and "DEBUG" in self.signals_of.get(tag, set()) and self.own(fn))
 
     def normal(self, line: str) -> str:
-        """A trailing backslash dropped (an action ending in one prints it), the caller's own function names in a
-        DEBUG line made `*`, and bash's FUNCNAME loss after errexit in a function (it drops FUNCNAME once the EXIT
-        trap calls any function) made `*` in a RETURN line."""
-        line = line.rstrip("\\")
+        """The caller's own function names in a DEBUG line made `*`, and bash's FUNCNAME loss after errexit in a
+        function (it drops FUNCNAME once the EXIT trap calls any function) made `*` in a RETURN line. A trailing
+        backslash (an action ending in one prints it) is kept and compared exactly: dropping every one hid a run that
+        lost it or doubled it (review of hq#9885 F1)."""
         tag, fn = self.tag_fn(line)
         if fn is not None and not self.own(fn):
-            line = re.sub(r"^([A-Z]\d+:\S*)@\S*", r"\1@*", line)
-        return re.sub(r"^(R\d+) (?:f|g|top)$", r"\1 *", line)
+            line = re.sub(r"^([A-Z]\d+:\S*)@[^\s\\]*", r"\1@*", line)
+        return re.sub(r"^(R\d+) (?:f|g|top)(\\?)$", r"\1 *\2", line)
 
     def skip_err(self, lines: list[str], at: int, tag: str) -> int:
-        """At most one ERR run right after a DEBUG run, and only when that DEBUG leaf fails."""
+        """At most one ERR run right after a DEBUG run at a wrapper step, and only when that DEBUG leaf fails. An
+        action set on both DEBUG and ERR prints the same line for either run, so such a line counts once per signal:
+        as this ERR run, which runs inside the wrapper only under set -E (review of cmux#41922 F2, seed 1238)."""
         if (tag in self.fails and at < len(lines) and "ERR" in self.signals(lines[at])
-                and not self.internal(lines[at])):
+                and (not self.internal(lines[at]) or "-E" in self.flags)):
             return at + 1
         return at
 
@@ -769,9 +773,10 @@ class RandomTraps:
         under set -T, at most three per wrapper call (bash's run as the function is entered, then `local`, then the
         suspend), right after the DEBUG run at that call; and under set -T at exit, at most two in
         _git_fixture_exit_prep (entry, then its suspend), once. One more DEBUG run is allowed once, for
-        the dispatcher's first step, after the last line the script body printed. Each may be followed by one ERR run
-        when its DEBUG leaf fails. After those are taken out, the wrapped output must equal the plain one line for
-        line: no DEBUG line may go missing and no other line may be added."""
+        the dispatcher's first step, after the last line the script body printed, and prep's two come right after it.
+        Each may be followed by one ERR run when its DEBUG leaf fails (under set -E, inside the wrapper). After those
+        are taken out, the wrapped output must equal the plain one line for line: no DEBUG line may go missing and no
+        other line may be added."""
         if plain[1:] != wrapped[1:]:
             return False
         p = [self.normal(line) for line in plain[0].splitlines()]
@@ -779,7 +784,8 @@ class RandomTraps:
         traced = "-T" in self.flags
         kept: list[str] = []
         anchor = None  # the tag of the kept DEBUG run just before: a wrapper call there may show one group
-        err_ok = prepped = False
+        err_ok = False
+        prep_at = None  # where in `kept` prep's steps came: they must follow the dispatcher's first step
         at = 0
         while at < len(w):
             line = w[at]
@@ -791,8 +797,8 @@ class RandomTraps:
                     return False
                 if fn == "trap":
                     limit = 3
-                elif fn == "_git_fixture_exit_prep" and not prepped:
-                    prepped, limit = True, 2
+                elif fn == "_git_fixture_exit_prep" and prep_at is None:
+                    prep_at, limit = len(kept), 2
                 else:
                     return False
                 count = 0
@@ -810,13 +816,18 @@ class RandomTraps:
                 anchor = None
             at += 1
         if kept == p:
-            return True
+            return prep_at is None
         # The dispatcher's first step: one DEBUG run (and its ERR run when it fails), after the body's last line.
+        # Prep's steps, when shown, come right after it: prep is that step (review of hq#9885 F2: bounded by count
+        # alone, they passed anywhere a DEBUG run came before them, inside the body too).
         extra = len(kept) - len(p)
         if extra not in (1, 2):
             return False
         body_end = max((index + 1 for index, line in enumerate(kept) if not self.tag_fn(line)[0]), default=0)
-        for start in range(body_end, len(kept) - extra + 1):
+        starts = range(body_end, len(kept) - extra + 1) if prep_at is None else [prep_at - extra]
+        for start in starts:
+            if start < body_end:
+                return False
             block = kept[start:start + extra]
             tag = self.tag_fn(block[0])[0]
             if (kept[:start] + kept[start + extra:] == p and "DEBUG" in self.signals(block[0])
@@ -864,7 +875,8 @@ class RandomTrapsAllowanceIsBounded(unittest.TestCase):
             # Review of hq#9885 F2: prep's allowance was bounded by count, not by place. Prep runs from the EXIT trap,
             # right after the dispatcher's first step, never inside the body.
             ("prep's steps before the body ends", head + self.PREP + tail),
-            ("prep's steps before the body ends, the dispatcher's step after it", head + self.PREP + tail + self.DISPATCH),
+            ("prep's steps before the body ends, the dispatcher's step after it",
+             head + self.PREP + tail + self.DISPATCH),
         ]
 
     def test_the_allowance_rejects_what_its_bound_forbids(self):
