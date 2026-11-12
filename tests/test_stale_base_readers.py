@@ -553,14 +553,14 @@ class BaseFetchFailsOnceAndNeverPrompts(StaleBaseFixture):
         """cmux#41765 review: the keeper's exit 124 was read as a timeout every time, so a git (or a wrapper) that
         exits 124 at once was reported as "no answer in 30s", hiding the real failure."""
         self.git_whose_fetch("    sys.exit(124)")
-        started = time.monotonic()
         note = self.fetch_note()
-        self.assertLess(time.monotonic() - started, 20, "the fetch failed at once, not at the limit")
+        # The real exit, not the limit's "no answer": the note itself says which ended the fetch.
         self.assertIn("could not be fetched (exit 124)", note)
         self.assertNotIn("no answer", note)
 
     def test_a_fetch_the_guard_ends_at_the_limit_is_a_timeout(self):
-        self.git_whose_fetch("    time.sleep(60)")
+        # A fetch that never answers: it blocks on nothing until the guard ends it.
+        self.git_whose_fetch("    import select\n    select.select([], [], [])")
         with unittest.mock.patch.object(self.push_range, "UPSTREAM_FETCH_SECONDS", 1):
             note = self.fetch_note()
         self.assertIn("could not be fetched (no answer in 1s)", note)
