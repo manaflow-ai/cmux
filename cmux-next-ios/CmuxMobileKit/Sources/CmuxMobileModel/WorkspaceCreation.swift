@@ -20,13 +20,16 @@ public struct NewWorkspaceRequest: Hashable, Sendable {
     public var start: NewWorkspaceStart
     /// Where it goes in the Mac's sidebar once the Mac lists it (nil: where the Mac puts it).
     public var placement: NewWorkspacePlacement?
+    /// New Task: the first message the agent gets, and the model it runs (an `.agent` start only).
+    public var task: AgentTask?
 
     public init(macID: String, directory: String? = nil, start: NewWorkspaceStart = .terminal,
-                placement: NewWorkspacePlacement? = nil) {
+                placement: NewWorkspacePlacement? = nil, task: AgentTask? = nil) {
         self.macID = macID
         self.directory = directory
         self.start = start
         self.placement = placement
+        self.task = task
     }
 }
 
@@ -568,6 +571,11 @@ public final class WorkspaceCreator {
     }
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private var tasks: [String: Task<Void, Never>] = [:]
+    /// New Task's unsent composer: kept while the sheet is closed, cleared by Start, and given
+    /// back when every workspace it started was refused (TaskComposer.swift).
+    public var taskDraft = TaskDraft()
+    /// The draft each New Task placeholder came from, by placeholder id, until the Mac answers.
+    @ObservationIgnored var taskOrigins: [String: TaskDraft] = [:]
     /// The last group request of each Mac: group requests go to a Mac one
     /// after another, so the Mac applies quick taps in the order they came.
     @ObservationIgnored var groupRequestTail: [String: Task<Void, Never>] = [:]
@@ -641,14 +649,19 @@ public final class WorkspaceCreator {
         let dir = options.directories ? (directory ?? defaultDirectory(on: mac.id)) : nil
         let request = NewWorkspaceRequest(macID: mac.id, directory: dir, start: start, placement: placement)
         let placeholder = Self.placeholder(for: request, existing: store.workspaces.filter { $0.macID == mac.id }.map(\.title))
+        begin(request, placeholder: placeholder, focus: true)
+        return placeholder
+    }
+
+    /// Inserts the optimistic row and starts its creation. `focus`: the row opens when pushed.
+    func begin(_ request: NewWorkspaceRequest, placeholder: Workspace, focus: Bool) {
         store.insertPending(placeholder)
-        store.requestFocusOnOpen(placeholder.id)
+        if focus { store.requestFocusOnOpen(placeholder.id) }
         phases[placeholder.id] = .pending
-        if let dir { recents.note(dir, macID: mac.id) }
+        if let dir = request.directory { recents.note(dir, macID: request.macID) }
         tasks[placeholder.id] = Task { [weak self] in
             await self?.run(request, placeholder: placeholder)
         }
-        return placeholder
     }
 
     /// Whether a workspace can be renamed or closed from this phone now:
@@ -764,11 +777,13 @@ public final class WorkspaceCreator {
                 store.noteOpened(tabID: tab.id, in: real.id)
             }
             phases[placeholder.id] = .created(real.id)
+            taskOrigins[placeholder.id] = nil
             if let placement = request.placement { await place(real, placement) }
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             store.removePending(placeholder.id)
             phases[placeholder.id] = .failed(message)
+            restoreTaskDraft(after: placeholder.id)
             onFailure?(placeholder, message)
         }
     }
@@ -878,11 +893,26 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     public func unavailableTabKinds(on macID: String) -> [(kind: NewTabKind, reason: String)] { unavailable }
 
+    /// What `agentCatalog` answers: the catalog, none (`empty`), a refusal (`failed`), or the
+    /// catalog after `catalogDelay` (`slow`, the loading state).
+    public enum CatalogMode: String, Sendable { case normal, empty, failed, slow }
+    public var catalogMode: CatalogMode = .normal
+    public var catalogDelay: Duration = .seconds(30)
+
     public func agentCatalog(on macID: String) async throws -> AgentCatalog {
-        AgentCatalog(harnesses: [
+        switch catalogMode {
+        case .normal: break
+        case .empty: return AgentCatalog(harnesses: [])
+        case .failed: throw WorkspaceCreationError("Agents on this Mac aren't connected. Try again in a moment.", isForPerson: true)
+        case .slow: try await clock.sleep(for: catalogDelay)
+        }
+        return AgentCatalog(harnesses: [
             AgentHarnessChoice(id: "claude", name: "Claude Code", family: "claude", isDefault: true,
                                models: [AgentModelChoice(id: "opus", name: "Opus"), AgentModelChoice(id: "sonnet", name: "Sonnet")],
                                defaultModel: "opus"),
+            AgentHarnessChoice(id: "claude-cr", name: "Claude Code Router", family: "claude",
+                               models: [AgentModelChoice(id: "gpt-5.5", name: "GPT-5.5"), AgentModelChoice(id: "kimi-k2", name: "Kimi K2")],
+                               defaultModel: "gpt-5.5"),
             AgentHarnessChoice(id: "codex", name: "Codex", family: "codex", unavailableReason: AgentCatalog.refusedReason),
         ])
     }

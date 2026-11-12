@@ -156,6 +156,14 @@ final class ShellModel {
         mockCreation = mock
         // `-cmux-mobile-refuse-next-tab`: the next tab request is refused like the live report's
         // (the Mac's cwd policy), for the new-tab captures.
+        // `-cmux-mobile-task-catalog empty|failed|slow`: New Task's agent list states, for its captures.
+        if let mode = UserDefaults.standard.string(forKey: "cmux-mobile-task-catalog").flatMap(MockWorkspaceCreationBackend.CatalogMode.init) {
+            mock.catalogMode = mode
+        }
+        // `-cmux-mobile-refuse-next-create`: the next workspace the Mac makes is refused (New Task's draft comes back).
+        if CommandLine.arguments.contains("-cmux-mobile-refuse-next-create") {
+            mock.failNext = "Agent chats start in a project folder, not the home folder. Pick a project folder."
+        }
         if CommandLine.arguments.contains("-cmux-mobile-refuse-next-tab") {
             mock.failNext = "cwd is refused: a remote WebSocket connection may use only a known project or a configured webRoots folder"
         }

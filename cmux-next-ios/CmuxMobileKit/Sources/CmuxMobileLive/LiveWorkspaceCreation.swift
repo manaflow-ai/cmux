@@ -87,6 +87,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 _ = try? await client.request("close-workspace", params: ["key": key])
                 throw error
             }
+            if let task = request.task { try await sendFirstPrompt(task, session: session, macID: request.macID) }
             let tree = try await sync.listNow()
             guard let workspace = tree.workspaces.first(where: { $0.id == key }) else {
                 throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
@@ -95,6 +96,38 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         } catch let error as DaemonReplyError {
             throw WorkspaceCreationError(error.message)
         }
+    }
+
+    /// New Task's prompt and images as the chat's first message: acpmux `session/prompt`,
+    /// once per `promptId`, as the chat's own Send. The workspace stands if it is refused; the
+    /// refusal says so, and the creator gives the draft back to send again.
+    func sendFirstPrompt(_ task: AgentTask, session: String, macID: String) async throws {
+        guard let acpmux, acpmux.isReady else {
+            throw WorkspaceCreationError("The chat started, but your task didn't reach it: agents on this Mac aren't connected.",
+                                         isForPerson: true)
+        }
+        let meta: JSONValue = .object(["acpmux": .object([
+            "promptId": .string(UUID().uuidString), "steer": .bool(false), "resend": .bool(false),
+        ])])
+        do {
+            _ = try await acpmux.request("session/prompt", .object([
+                "sessionId": .string(session), "prompt": .array(Self.taskPromptBlocks(task)), "_meta": meta,
+            ]), timeout: .seconds(30))
+        } catch {
+            throw WorkspaceCreationError("The chat started, but your task didn't reach it: \(AcpmuxSessionSource.message(error))",
+                                         isForPerson: true)
+        }
+    }
+
+    /// ACP content for a task: the text, then each image a model takes as an `image` block.
+    nonisolated static func taskPromptBlocks(_ task: AgentTask) -> [JSONValue] {
+        var blocks: [JSONValue] = [.object(["type": .string("text"), "text": .string(task.prompt)])]
+        for image in task.images {
+            guard let mime = image.mimeType else { continue }
+            blocks.append(.object(["type": .string("image"), "mimeType": .string(mime),
+                                   "data": .string(image.data.base64EncodedString())]))
+        }
+        return blocks
     }
 
     nonisolated static let chatFolderRefusal = "Agent chats start in a folder that's open on the Mac. Open a workspace there first (New Workspace › Open Folder…), then start the chat."
@@ -128,7 +161,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
             throw WorkspaceCreationError("Not connected")
         }
         if case .agent(let harness) = request.start {
-            return try await createChatWorkspace(request, start: AgentChatStart(harness: harness.isEmpty ? nil : harness),
+            return try await createChatWorkspace(request, start: AgentChatStart(harness: harness.isEmpty ? nil : harness,
+                                                                                model: request.task?.model),
                                                  placeholder: placeholder, client: client)
         }
         do {
