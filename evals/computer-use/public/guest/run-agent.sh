@@ -68,8 +68,11 @@ if [[ $arm == cmux-cu ]]; then
   pgrep -f "cmux-remote worker computer-use" >/dev/null || { echo "cmux worker did not start" > "$out/stderr.txt"; echo setup > "$out/rc"; cat "$out/rc"; exit 0; }
 fi
 launchctl bootout "gui/$uid/$label" 2>/dev/null || true
-rm -f "$out/rc"
+rm -f "$out/rc" "$out/started"
 start=$(date +%s)
+# The runner tells a lost guest after this point (the agent ran: a failed
+# attempt) from one before it (infrastructure) by this file.
+date +%s > "$out/started"
 launchctl bootstrap "gui/$uid" "$plist"
 # Wait on the job's own result file, bounded by the task timeout.
 while [[ ! -f $out/rc ]]; do

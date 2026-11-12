@@ -256,11 +256,6 @@ def mab_check(env, root: str) -> tuple[float, dict]:
 
 # ------------------------------------------------------------------ attempt
 
-# An agent that ran this long before the guest became unreachable started
-# work; its attempt is scored, not dropped as infrastructure.
-AGENT_STARTED_SECONDS = 20
-
-
 def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
     aid = f"{task['id'].replace('/', '_')}__{arm}__{trial}"
     adir = os.path.join(out_dir, "attempts", aid)
@@ -280,6 +275,16 @@ def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
             vm.put(pf, "~/cub/prompt.txt")
             vm.put(os.path.join(HERE, "guest", "run-agent.sh"), "~/cub/run-agent.sh")
             t0 = time.monotonic()
+            # Watch for run-agent.sh's "started" file on a second connection, so a
+            # guest lost later is known to have run the agent.
+            def watch_started(vm=vm, deadline=time.monotonic() + args.timeout):
+                while time.monotonic() < deadline and not getattr(vm, "agent_started", False):
+                    p = vm.ssh("test -f ~/cub/out/started && echo started")
+                    if p.returncode == 0 and "started" in p.stdout:
+                        vm.agent_started = True
+                        return
+                    time.sleep(5)  # bounded poll of a guest file over ssh (no event to wait on)
+            threading.Thread(target=watch_started, daemon=True).start()
             r = vm.ssh(f"bash ~/cub/run-agent.sh {arm} {shlex.quote(args.model)} {args.effort} "
                        f"{args.timeout} ~/cub/prompt.txt ~/cub/out", timeout=args.timeout + 120)
             row["agent_seconds"] = round(time.monotonic() - t0, 1)
@@ -292,11 +297,15 @@ def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
             # graded like any attempt; only one that never started is an
             # infrastructure failure, counted for neither arm.
             if not r.stdout.strip() and r.returncode != 0:
-                probe = vm.ssh("cat ~/cub/out/rc 2>/dev/null; test -s ~/cub/out/events.jsonl && echo ran")
+                ask = "cat ~/cub/out/rc 2>/dev/null; test -s ~/cub/out/events.jsonl && echo ran; test -f ~/cub/out/started && echo started"
+                probe = vm.ssh(ask)
+                if probe.returncode != 0:
+                    probe = vm.ssh(ask)  # once more: one dropped connection is not a lost guest
                 said = probe.stdout.split() if probe.returncode == 0 else []
-                if probe.returncode != 0 and row["agent_seconds"] >= AGENT_STARTED_SECONDS:
-                    # The guest is gone after the agent ran for a while (it
-                    # rebooted, logged out or crashed the guest): a failed
+                started = "started" in said or "ran" in said
+                if probe.returncode != 0 and getattr(vm, "agent_started", False):
+                    # The guest is gone after run-agent.sh started the agent
+                    # (it rebooted, logged out or crashed the guest): a failed
                     # attempt of that arm, never dropped from its denominator.
                     row.update(agent_rc="guest lost after the agent ran", score=0.0, success=False,
                                check={"guest": "unreachable after the agent ran"})
@@ -305,7 +314,7 @@ def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
                     with open(os.path.join(adir, "row.json"), "w") as f:
                         json.dump(row, f, indent=1)
                     return row
-                if "ran" not in said:
+                if not started:
                     raise RuntimeError(f"ssh to the guest failed (exit {r.returncode}) before the agent ran")
                 row["agent_rc"] = next((w for w in said if w != "ran"), f"ssh {r.returncode} after the agent ran")
             vm.get("~/cub/out/events.jsonl", adir)
@@ -414,12 +423,19 @@ def cmd_report(args):
     # Paired: only (task, trial) pairs every arm scored, one row each (the
     # latest), so infrastructure losses, which drop an attempt from one arm,
     # cannot give either arm more tries or a smaller denominator.
+    # The first scored row of each (task, trial, arm): a later re-run of one
+    # arm's failures must not give it a second chance the other arm lacked.
     latest = {}
-    for r in rows:
+    reruns = 0
+    for r in sorted(rows, key=lambda r: r.get("finished", 0)):
         if r.get("score") is not None:
             key = (r["task"], r.get("trial", 0), r["arm"])
-            if key not in latest or r.get("finished", 0) >= latest[key].get("finished", 0):
+            if key in latest:
+                reruns += 1
+            else:
                 latest[key] = r
+    if reruns:
+        print(f"note: {reruns} later scored row(s) of the same (task, trial, arm) ignored (the first counts)")
     arms = sorted(by)
     pairs = {(t, tr) for (t, tr, _) in latest}
     paired = sorted(p for p in pairs if all((*p, a) in latest for a in arms))
