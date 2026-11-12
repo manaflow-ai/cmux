@@ -238,3 +238,41 @@ fn hook_order_each_event_carries_when_its_hook_started() {
         "observed_at_ms {observed:?} is not between {before} and {after}: {request}"
     );
 }
+
+/// Each event also carries the monotonic clock of the machine its hook runs
+/// on (`boot_id`, `monotonic_ns`): the daemon orders one agent's events by
+/// it, so a wall clock step cannot reorder them.
+#[test]
+fn hook_seq_each_event_carries_the_monotonic_clock_of_its_machine() {
+    let read = |name: &str| {
+        let socket = socket_path(name);
+        let listener = UnixListener::bind(&socket).unwrap();
+        let mut child = Command::new(env!("CARGO_BIN_EXE_cmux-tui-hook"))
+            .args(["claude", "Stop"])
+            .env("CMUX_TUI_SOCKET", &socket)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(b"{\"session_id\":\"clock-1\"}\n").unwrap();
+        let (stream, _) = listener.accept().unwrap();
+        let request = read_request(&stream);
+        reply(&stream, &request);
+        let _ = wait_with_output(child, Duration::from_secs(3));
+        let _ = std::fs::remove_file(&socket);
+        let value: serde_json::Value = serde_json::from_str(&request).unwrap();
+        let normalized = value["params"]["event"]["payload"]["normalized"].clone();
+        let boot = normalized["boot_id"].as_str().map(str::to_owned);
+        let nanos = normalized["monotonic_ns"].as_str().and_then(|text| text.parse::<u64>().ok());
+        (boot, nanos, request)
+    };
+    let (first_boot, first, request) = read("clock-a");
+    let (second_boot, second, _) = read("clock-b");
+    assert!(first_boot.as_deref().is_some_and(|boot| !boot.is_empty()), "no boot_id: {request}");
+    assert_eq!(first_boot, second_boot, "one machine, one boot");
+    assert!(
+        matches!((first, second), (Some(first), Some(second)) if first < second),
+        "monotonic_ns {first:?} then {second:?}: {request}"
+    );
+}

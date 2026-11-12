@@ -95,6 +95,8 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
         .duration_since(std::time::UNIX_EPOCH)
         .ok()
         .and_then(|since| u64::try_from(since.as_millis()).ok());
+    // The order key the daemon prefers: this machine's monotonic clock.
+    let started_clock = cmux_tui_core::hook_monotonic_now();
     // Read once, before any decision: a Claude hook stands down by the
     // payload's `session_id` (plugin_copy.rs).
     let payload = read_payload_bytes(io::stdin().lock())?;
@@ -105,7 +107,15 @@ fn run(args: Args, exe_prefix: &[&str]) -> anyhow::Result<()> {
         return Ok(());
     }
     let context = session_context::applies(&args.source, &args.native_event, getenv);
-    let route = deliver(&args, exe_prefix, &payload, session, started, started_at_ms)?;
+    let route = deliver(
+        &args,
+        exe_prefix,
+        &payload,
+        session,
+        started,
+        started_at_ms,
+        started_clock.as_ref(),
+    )?;
     if context {
         // After the handoff: the read connects from a helper thread, which
         // must not exist when the detached child forks.
@@ -130,6 +140,7 @@ fn deliver(
     session: Option<&str>,
     started: Instant,
     started_at_ms: Option<u64>,
+    started_clock: Option<&(String, u64)>,
 ) -> anyhow::Result<Option<(PathBuf, Option<String>)>> {
     if shadowed_by_grok(&args.source, env::var_os("GROK_HOOK_EVENT").as_deref()) {
         return Ok(None);
@@ -155,6 +166,9 @@ fn deliver(
     )?;
     if let Some(observed_at_ms) = started_at_ms {
         cmux_tui_core::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+    }
+    if let Some(clock) = started_clock {
+        cmux_tui_core::stamp_agent_hook_monotonic(&mut ingress, clock);
     }
     let event = serde_json::to_value(ingress)?;
     let (request_id, encoded) = encode_request(event)?;

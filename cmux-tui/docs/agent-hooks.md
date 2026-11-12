@@ -28,22 +28,28 @@ the only evidence that the agent stopped waiting.
 One agent's hooks run one after another, but each hands its event to the
 session on its own connection, and the session serves each connection on its
 own thread, so the journal can take a `Stop` before the prompt that came
-first. Each event carries when its hook started (`observed_at_ms`, ms since
-the epoch, from the clock of the machine the hook runs on). The agent's
-state, in the agent list and in the roster that the sidebar, tab badges and
-attention jump read, follows the latest-started event of its session: an
-event of the same session that started earlier than the latest applied one,
-by at most 5 s (the reorder window), is kept in the journal but does not
-change the state. The session's start and end, and an event that shows a
-dialog, a question, a plan review or an error, always apply (parallel
-subagents of one session can each raise a dialog; the next later event
-clears it). Limits: two events that start in the same millisecond keep
-journal order. An event that started more than 5 s earlier applies, since
-a clock stepped back is likelier than a reorder that long. The times come
-from the machine that runs the agent: for an agent on a remote host, a
-step of that host's clock (by NTP, say) within 5 s can drop the state of
-the event after it until the agent's next event. After a session restart,
-the agent list orders by journal sequence until the next event.
+first. Each event carries when its hook started, from the machine the hook
+runs on: its monotonic clock (`boot_id`, `monotonic_ns`) and its wall clock
+(`observed_at_ms`, ms since the epoch). The agent's state, in the agent list
+and in the roster that the sidebar, tab badges and attention jump read,
+follows the latest-started event of its session: an event of the same
+session that started earlier than the latest applied one is kept in the
+journal but does not change the state. One session runs on one machine, so
+the monotonic clock decides, however far apart the events are; a wall clock
+step does not change the order. Two events with the same monotonic value
+keep journal order. An event of another boot (a resume after a reboot)
+applies, even if its clock reads less. The session's start and end, and an
+event that opens a dialog, a question or a plan review, always apply
+(parallel subagents of one session can each open one, and it stays open
+until answered). An error report is a state like any other: a late one does
+not replace a newer state. The latest stamp is stored with the agent's hook
+state, so the order holds across a session restart.
+
+The monotonic clock is `CLOCK_MONOTONIC`, one system-wide clock per boot. On
+macOS that is `mach_continuous_time`, which counts while the Mac sleeps. An
+event with no monotonic stamp (an older hook helper, or a platform that gives
+no boot id) applies in journal order: the wall clock (`observed_at_ms`) is
+kept for the record and does not order events.
 
 ## Agents in a tmux session started elsewhere
 

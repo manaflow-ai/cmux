@@ -373,11 +373,13 @@ pub(crate) struct AgentRoster {
     hook_order: HashMap<String, HookOrder>,
 }
 
-/// See [`AgentRoster::hook_order`].
+/// See [`AgentRoster::hook_order`]. The stamp is flattened, so a snapshot
+/// from before the monotonic stamp (`session`, `observed_at_ms`) still reads.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 struct HookOrder {
     session: Option<String>,
-    observed_at_ms: u64,
+    #[serde(flatten)]
+    stamp: crate::agent_hooks::HookOrderStamp,
 }
 
 impl AgentRoster {
@@ -518,29 +520,26 @@ impl AgentRoster {
         match source {
             AgentSource::Hook => {
                 let session = event.normalized("agent_session_id");
-                let observed_at_ms = crate::agent_hooks::hook_observed_at_ms(event.payload);
-                let last_observed_at_ms = self
+                let stamp = crate::agent_hooks::HookOrderStamp::of(event.payload);
+                let last_order = self
                     .hook_order
                     .get(terminal_id)
                     .filter(|order| order.session.as_deref() == session)
-                    .map(|order| order.observed_at_ms);
-                if crate::agent_hooks::hook_event_is_reordered(
-                    event.kind,
-                    observed_at_ms,
-                    last_observed_at_ms,
-                ) {
+                    .map(|order| &order.stamp);
+                if crate::agent_hooks::hook_event_is_reordered(event.kind, &stamp, last_order) {
                     return Vec::new();
                 }
+                let order = stamp.applied_over(last_order);
                 if let Some(existing) = self.entries.get(terminal_id)
                     && existing.agent_source() == AgentSource::Hook
                     && !timestamp_is_current(existing.updated_at_ms, updated_at_ms)
                 {
                     return Vec::new();
                 }
-                if let Some(observed_at_ms) = observed_at_ms.max(last_observed_at_ms) {
+                if !order.is_empty() {
                     self.hook_order.insert(
                         terminal_id.to_string(),
-                        HookOrder { session: session.map(str::to_owned), observed_at_ms },
+                        HookOrder { session: session.map(str::to_owned), stamp: order },
                     );
                 }
             }
