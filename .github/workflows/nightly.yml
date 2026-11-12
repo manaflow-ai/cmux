@@ -2069,6 +2069,8 @@ jobs:
       cmux_tui_commit: ${{ steps.install_client.outputs.commit || steps.resume.outputs.cmux_tui_commit }}
       # A sign stage restored the push run's prepared app: the sign run prepares nothing again.
       prepared: ${{ steps.resume.outputs.prepared }}
+      # Its sha256, checked through the zip's artifact digest: prepare-nightly-variant records it for admission.
+      prepared_sha256: ${{ steps.resume.outputs.prepared_sha256 }}
       light_mini_runner: ${{ steps.place-light.outputs.mini_runner }}
       light_mini_jobs: ${{ steps.place-light.outputs.mini_jobs }}
       light_attempt: ${{ steps.place-light.outcome == 'success' && github.run_attempt || '' }}
@@ -3646,11 +3648,18 @@ jobs:
           PRIMARY_RESULT: ${{ needs.prepare-nightly-variant-primary.result }}
           RESUMED_PREPARED: ${{ needs.build-nightly-app.outputs.prepared }}
           ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          PREPARED_SHA256: ${{ needs.build-nightly-app.outputs.prepared_sha256 }}
+          NIGHTLY_SHOULD_PUBLISH: ${{ needs.decide.outputs.should_publish }}
         run: |
           set -euo pipefail
           # Every primary leg uploaded its prepared app; no API call, so a spent
           # installation rate limit cannot fail this no-op leg.
           # A sign stage's build-nightly-app re-uploaded the push run's digest-checked prepared app.
+          # No primary ran then: record the restored tarball's sha256 as the preparation did (nightly-sign.yml admits by it).
+          if [ "$PRIMARY_RESULT" != success ] && [ "$RESUMED_PREPARED" = true ]; then
+            [[ "$PREPARED_SHA256" =~ ^[0-9a-f]{64}$ ]] || { echo "no sha256 for the resumed prepared app" >&2; exit 1; }
+            echo "::notice title=nightly-prepared-app::variant=${NIGHTLY_VARIANT} artifact=${ARTIFACT} sha256=${PREPARED_SHA256} publish=${NIGHTLY_SHOULD_PUBLISH} fast=${NIGHTLY_FAST_BUILD}"
+          fi
           if [ "$PRIMARY_RESULT" = success ] || [ "$RESUMED_PREPARED" = true ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; exit 0; fi
           # This read runs before the checkout (no budget wait yet); a refused one prepares here.
           if ! count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | length')"; then

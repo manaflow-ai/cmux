@@ -18,6 +18,7 @@ is needed by either command.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.util
 import json
 import os
@@ -202,6 +203,17 @@ def restore(receipt, root):
     return version
 
 
+def prepared_sha256(root):
+    """The sha256 of the restored prepared tarball. restore() checked its zip against the push run's artifact
+    digest; prepare-nightly-variant records this sha256 (nightly-prepared-app) for nightly-sign.yml's admission,
+    as the preparation that uploaded it did."""
+    digest = hashlib.sha256()
+    with (root / "prepared" / "cmux-prepared-app.tar.gz").open("rb") as tarball:
+        while chunk := tarball.read(1 << 20):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def bundled_client_commit(root, folder="app"):
     # The uploaded app artifact contains the precompressed unsigned tarball.
     # Open it only after the authenticated ZIP extraction and read the one
@@ -249,6 +261,7 @@ def main():
         outputs["version"] = restore(receipt, args.out)
         outputs["cmux_tui_commit"] = bundled_client_commit(args.out, "prepared" if receipt["prepared"] else "app")
         outputs["prepared"] = "true" if receipt["prepared"] else "false"
+        outputs["prepared_sha256"] = prepared_sha256(args.out) if receipt["prepared"] else ""
         (args.out / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     with open(os.environ["GITHUB_OUTPUT"], "a") as output:
         for key, value in outputs.items():
