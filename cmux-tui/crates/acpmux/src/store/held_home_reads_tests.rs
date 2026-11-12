@@ -823,6 +823,68 @@ fn the_lint_resolves_self_super_through_aliases() {
     assert_eq!(rows, ["sm(..) (std::fs::symlink_metadata)", "m(..) (std::fs::metadata)"],);
 }
 
+/// A `#[cfg(test)]` or `#[test]` fn (or module) is not built outside tests, so it shadows no
+/// import there: `metadata(p)` and a child's `super::metadata(p)` under `use std::fs::metadata;`
+/// are std's although a test-only `fn metadata` sits beside the import (#42026 review). A plain
+/// local `fn metadata` still shadows.
+#[test]
+fn the_lint_ignores_test_only_items_that_shadow_an_import() {
+    let fixture = r#"
+        mod own_cfg_test {
+            use std::fs::metadata;
+            #[cfg(test)]
+            fn metadata(_: &Path) -> bool { true }
+            fn a(p: &Path) -> bool { metadata(p).is_ok() }
+        }
+        mod own_test_attr {
+            use std::fs::metadata;
+            #[test]
+            fn metadata() {}
+            fn a(p: &Path) -> bool { metadata(p).is_ok() }
+        }
+        mod parent_cfg_test {
+            use std::fs::metadata;
+            #[cfg(test)]
+            fn metadata(_: &Path) -> bool { true }
+            mod child {
+                fn a(p: &Path) -> bool { super::metadata(p).is_ok() }
+            }
+        }
+        mod parent_test_mod {
+            use std::fs::metadata;
+            #[cfg(test)]
+            mod metadata {}
+            mod child {
+                fn a(p: &Path) -> bool { super::metadata(p).is_ok() }
+            }
+        }
+        mod own_local {
+            fn metadata(_: &Path) -> bool { true }
+            fn a(p: &Path) -> bool { metadata(p) }
+        }
+        mod parent_local {
+            fn metadata(_: &Path) -> bool { true }
+            mod child {
+                fn a(p: &Path) -> bool { super::metadata(p) }
+            }
+        }
+    "#;
+    let file = syn::parse_file(fixture).unwrap();
+    let rows: Vec<String> = rows_in("x.rs", &file)
+        .into_iter()
+        .map(|row| row.split_once(' ').map(|(_, what)| what.to_string()).unwrap_or(row))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "metadata(..) (std::fs::metadata)",
+            "metadata(..) (std::fs::metadata)",
+            "super::metadata(..) (std::fs::metadata)",
+            "super::metadata(..) (std::fs::metadata)",
+        ],
+    );
+}
+
 /// The rows of the tree rooted at `src/store.rs` under `src`, sorted.
 fn tree_rows(src: &Path) -> Vec<String> {
     let mut out = Vec::new();
