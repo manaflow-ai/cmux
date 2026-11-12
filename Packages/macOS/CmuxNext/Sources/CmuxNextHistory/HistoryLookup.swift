@@ -5,4 +5,9 @@ public nonisolated enum HistoryLookup: Sendable {
     /// (``DaemonHistoryList/isStillLoading(id:)``): the entry is not known, so it is not "gone". Ask again.
     case stillLoading
     case gone
+
+    /// The entry, when the read found it.
+    public var entry: HistoryEntry? {
+        if case .found(let entry) = self { entry } else { nil }
+    }
 }

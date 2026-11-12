@@ -1,4 +1,3 @@
-import CmuxAgentBrands
 import CmuxNextHistory
 import CmuxNextHistoryDaemon
 import CmuxNextPalette
@@ -71,18 +70,6 @@ enum HistoryPalettePages {
                     primary: PaletteCommand(id: "retry", title: HistoryRead.tryAgain, symbol: "arrow.clockwise", effect: .performKeepingOpen {}))
     }
 
-    /// The brand mark an agent session's row draws (its provider's), or nil.
-    nonisolated static func agentBrand(_ entry: HistoryEntry) -> String? {
-        switch entry.payload {
-        case .agent(let session):
-            return AgentBrandCatalog.brand(for: session.provider)?.rawValue
-        case .closed(let item):
-            return AgentBrandCatalog.brand(for: item.agentSession?.harness)?.rawValue
-        default:
-            return nil
-        }
-    }
-
     static func item(for entry: HistoryEntry, services: AppServices) -> PaletteItem {
         let restorer = HistoryRestorer(services: services)
         var secondary: [PaletteCommand] = []
@@ -122,18 +109,8 @@ enum HistoryPalettePages {
         let subtitle = [entry.detail, entry.machineName].compactMap { $0 }.joined(separator: " · ")
         return PaletteItem(
             id: entry.id, title: entry.title, subtitle: subtitle.isEmpty ? nil : subtitle, accessory: accessory,
-            symbol: symbol(entry.kind), brand: agentBrand(entry), keywords: [entry.searchText], isEnabled: entry.isAvailable,
+            symbol: entry.kind.symbol, brand: entry.agentBrand, keywords: [entry.searchText], isEnabled: entry.isAvailable,
             primary: PaletteCommand(id: "open", title: primaryTitle, symbol: "return", effect: .perform { restorer.open(entry) }),
             secondary: secondary)
-    }
-
-    static func symbol(_ kind: HistoryEntry.Kind) -> String {
-        switch kind {
-        case .page: "globe"
-        case .location: "location"
-        case .closed: "arrow.uturn.backward"
-        case .command: "terminal"
-        case .agent: "sparkles"
-        }
     }
 }
