@@ -191,33 +191,20 @@ struct ChiefConversationHooksTests {
         #expect(button.menu == nil && !button.showsMenuAsPrimaryAction)
     }
 
-    /// The ••• menu lifts the trailing button out and puts it back as it closes: both previews
-    /// are the button's glass circle on a clear background, never its square bounds on UIKit's
-    /// default platter (the square that flashed after the menu closed).
-    @Test(.timeLimit(.minutes(1))) func headerMenuPreviewsKeepTheTrailingButtonCircular() async throws {
+    /// The ••• menu morphs out of the trailing glass and back into it. iOS 26 draws that morph
+    /// from the view's corner configuration: the glass is a capsule there (a 22 pt radius on
+    /// its 44 pt circle), not a square that only the layer radius rounds.
+    @Test(.timeLimit(.minutes(1))) func headerMenuGlassIsACapsuleForTheMenuMorph() async throws {
+        guard #available(iOS 26.0, *) else { return }
         let (controller, window) = try await loaded([])
         defer { ConversationThemeOwners.disappeared(controller); controller.store.stop(); window.isHidden = true }
-        let menu = UIMenu(children: [UIAction(title: "Invite to cmux") { _ in }])
-        controller.headerActionMenu = menu
+        controller.headerActionMenu = UIMenu(children: [UIAction(title: "Invite to cmux") { _ in }])
         controller.view.layoutIfNeeded()
-        let button = controller.header.trailingButton
-        let interaction = try #require(button.contextMenuInteraction)
-        let configuration = UIContextMenuConfiguration(identifier: nil, previewProvider: nil) { _ in menu }
-        let previews = [
-            button.contextMenuInteraction(interaction, previewForHighlightingMenuWithConfiguration: configuration),
-            button.contextMenuInteraction(interaction, previewForDismissingMenuWithConfiguration: configuration),
-        ]
-        #expect(button.bounds.size == CGSize(width: 44, height: 44))
-        for preview in previews {
-            let preview = try #require(preview)
-            #expect(preview.view === button)
-            #expect(preview.parameters.backgroundColor == .clear)
-            let path = try #require(preview.parameters.visiblePath)
-            #expect(path.bounds == button.bounds)
-            #expect(path.contains(CGPoint(x: 22, y: 22)))
-            // Inside the square, outside the circle: the corners are not drawn.
-            #expect(!path.contains(CGPoint(x: 2, y: 2)))
-            #expect(!path.contains(CGPoint(x: 42, y: 42)))
+        let glass = controller.header.trailingGlass
+        #expect(glass.bounds.size == CGSize(width: 44, height: 44))
+        #expect(glass.cornerConfiguration == .capsule())
+        for corner in [UIRectCorner.topLeft, .topRight, .bottomLeft, .bottomRight] {
+            #expect(glass.effectiveRadius(corner: corner) == 22)
         }
     }
 
