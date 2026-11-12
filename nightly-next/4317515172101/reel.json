@@ -1,0 +1,185 @@
+{
+  "version": 1,
+  "build": "4317515172101",
+  "notes": "notes/4317515172101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41748,
+      "title": "base_red_excuse: git_text reads paths through GitTree, the one tree reader (#41314 review F1, F2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41725,
+      "title": "Agent pane: the paint hold ends on the settled frame drawn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41472,
+      "title": "Settings: BrowserVimKeysSetting and BrowserLoadingBarSetting pass the namespace lint (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41785,
+      "title": "ci: list HeaderTerminalSplitAtOnceTests among the display suites; the base autofix keeps the list current (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41685,
+      "title": "Composer: a screenshot the clipboard holds twice attaches once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41700,
+      "title": "Agent chat: an older saved copy never replaces a newer one across reconnects",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41720,
+      "title": "fix(ci): an absolute path is outside the tree, in GitTree and every path walk beside it (#41314 follow-up)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41459,
+      "title": "ci: wire test_portable_jobs_bring_their_python into the portable placement guard step",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41692,
+      "title": "cmux-next iOS Screen Sharing: an always-visible trackpad under the screen",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41684,
+      "title": "cmux-tui: link relay and hop count without unchecked arithmetic (#40108's 16 tracked hits)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41779,
+      "title": "tests(history): count fetches and retry pauses, not elapsed time (#41758 review)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41781,
+      "title": "shell_tree ends a $'...' string at its first NUL, as bash does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41213,
+      "title": "cmux next: agent chat folds a turn like the codex app",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41773,
+      "title": "cmux-next: a long dialog message ends halfway through a line, so it reads as scrolling",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41772,
+      "title": "git fixture trap wrapper: every form reads and prints as bash's builtin does (hq#9715, cmux#41713 follow-ups)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41702,
+      "title": "nightly-next: a timed-out runner pick no longer skips a started build; sign stage waits out a refused artifact download",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41765,
+      "title": "fix(base-fetch): the base fetch ends with the fast tier that cancels it; BatchMode=yes goes first",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41724,
+      "title": "base red: the held-paste test asserts the resume, not a wall-clock bound",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41730,
+      "title": "Agent chat: a page that falls behind loses stream notifications, never its connection (the reconnect loop)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41747,
+      "title": "tests: test stubs leave sys.modules as found; load-helper imports join the one-object check",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41751,
+      "title": "Agent chat: no second action row under the person's message when the agent said nothing after it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41745,
+      "title": "shell_tree reads eval x=$'...' and a shell's grouped and long options before -c as bash does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41742,
+      "title": "cargo-locks: a busy runner makes the lock check slower, never red",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41212,
+      "title": "feat(ui): unify chrome and refine model picker sizing",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41750,
+      "title": "base fetch: a failed fetch is stamped per hook run; nothing the fetch starts can prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41510,
+      "title": "cmux NEXT: every menu, popover and picker is one translucent material",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41657,
+      "title": "prod logs: print the vm_personal_tenant_marked sync outcome (CMUX-380)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41740,
+      "title": "cmux NEXT: menu and Session Info glass follows a trackpad pinch zoom",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41758,
+      "title": "tests: a history fetch waits only on git's own lock line, not any \".lock\" in the error (#41716 F1)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
