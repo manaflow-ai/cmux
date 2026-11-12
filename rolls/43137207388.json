@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43137207388",
+  "recorded_at": "2026-11-12T01:58:28Z",
+  "reason": "cmux-tui 3037e02b9860 changes the image's cmux-tui (pinned 499d55e3687e)",
+  "dry_run": false,
+  "cmux_tui": "3037e02b986073cbcd5495c8d60952f0b42dd03b",
+  "fixes": [
+    {
+      "sha": "3037e02b986073cbcd5495c8d60952f0b42dd03b",
+      "mergedAt": "2026-11-11T17:36:30-08:00",
+      "subject": "cmux customize: change cmux by asking, live preview, generations, rollback (CLI, MCP, /customize) (#40533)"
+    },
+    {
+      "sha": "b031f6b7810a9b66a051b314f4f06746db808ecd",
+      "mergedAt": "2026-11-11T17:36:13-08:00",
+      "subject": "acpmux: a prompt's long body is logged once, and daemon.log stays bounded (#41526)"
+    },
+    {
+      "sha": "82f62f1fd88b7a7a0bfe9976a08d7296002d11a3",
+      "mergedAt": "2026-11-12T01:35:39Z",
+      "subject": "acpmux: one MCP helper process per chat instead of five (330 MB, 400 threads back at 18 live chats) (#41572)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T01:58:28Z",
+    "snapshot_id": "sh-12053f2acd104644988529cc4e21dadb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43137207388): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9eeddae0dbf855a98ce0b068c4eaf1120c3ee7cf",
+    "image": "cloud-native-auto-3037e02b-43137207388-1",
+    "revision": "ci-43137207388-1",
+    "at": "2026-11-12T01:58:28Z"
+  },
+  "rolled_back": false
+}
