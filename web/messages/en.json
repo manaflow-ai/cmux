@@ -18,7 +18,7 @@
     "description": "Return to your terminal to finish setup."
   },
   "emailSignInCallback": {
-    "title": "Finish signing in in the cmux app",
+    "title": "Enter the code in the cmux app",
     "body": "Go back to the cmux app and type the 6-character code from this email. Opening this link does not sign the app in.",
     "browserPrompt": "Want to use cmux in this browser instead?",
     "browserSignIn": "Sign in on cmux.com"

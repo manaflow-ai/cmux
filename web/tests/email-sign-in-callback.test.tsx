@@ -53,7 +53,7 @@ describe("email sign-in link target", () => {
     const html = renderToStaticMarkup(await EmailSignInCallbackPage());
 
     expect(html).toContain("data-email-sign-in-callback");
-    expect(html).toContain("Finish signing in in the cmux app");
+    expect(html).toContain("Enter the code in the cmux app");
     expect(html).toContain("6-character code");
     expect(html).toContain('href="/handler/sign-in"');
     expect(html).not.toContain("abc123nonce");
