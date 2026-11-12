@@ -26139,6 +26139,22 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Whether the agent rows' fence for `terminal_id`, as `mux` holds it,
+    /// skips `ingress` as journaled out of send order.
+    fn hook_seq_fence_skips(
+        mux: &Arc<Mux>,
+        terminal_id: &TerminalPublicId,
+        ingress: &crate::JournalIngress,
+    ) -> bool {
+        let fences = mux.agent_hook_fences.lock().unwrap();
+        let fence = fences.get(terminal_id).filter(|fence| fence.session_id == "order-1");
+        crate::agent_hooks::hook_event_is_reordered(
+            &ingress.kind,
+            crate::agent_hooks::hook_observed_at_ms(&ingress.payload),
+            fence.and_then(|fence| fence.observed_at_ms),
+        )
+    }
+
     #[test]
     fn hook_seq_the_order_survives_a_session_restart() {
         let (mux, terminal_id, root) = hook_seq_test_mux("restart");
@@ -26151,8 +26167,22 @@ mod tests {
         drop(mux);
         let reopened = open_persistent_test_mux("hook-seq", &root);
         // The prompt the hooks sent before the Stop arrives after the restart.
-        append_clocked(&reopened, &terminal_id, &[("UserPromptSubmit", 2_000, 2_000)]);
-        assert_hook_seq_state(&reopened, &terminal_id, AgentState::Idle);
+        // The test terminal is not live after the reopen, so the agent rows
+        // hold the event until it is; the fence they restored must skip it.
+        let late = clocked_hook(&terminal_id, "UserPromptSubmit", "boot-a", 2_000, 2_000);
+        assert!(
+            hook_seq_fence_skips(&reopened, &terminal_id, &late),
+            "the agent rows' restored fence lost the session's order"
+        );
+        // The roster folds the journal, so it keeps the order too.
+        let key = format!("hook-seq-{}", crate::workspace_registry::new_uuid_v4());
+        reopened.append_journal_ingress(&late, "t", &key).unwrap();
+        let entries = reopened.agent_roster.lock().unwrap().roster.entries.clone();
+        assert_eq!(
+            entries.get(terminal_id.as_str()).map(|entry| entry.state.as_str()),
+            Some("idle"),
+            "roster"
+        );
         reopened.shutdown();
         drop(reopened);
         let _ = std::fs::remove_dir_all(&root);
