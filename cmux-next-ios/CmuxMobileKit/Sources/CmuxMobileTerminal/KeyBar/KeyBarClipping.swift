@@ -174,22 +174,23 @@ public struct TerminalFontZoom: Sendable {
     }
 }
 
-/// Where the joystick's thumb is drawn while dragged (user note 2026-10-14):
-/// it follows the finger past the circle, so the finger does not cover it, up
-/// to 48 pt from the center; the direction is still read from the whole vector.
+/// Where the joystick's thumb is drawn while dragged: like classic cmux iOS's
+/// arrow nub (`TerminalArrowNubView`), the dot stays inside the circle, at
+/// most `circle / 2 - 8` pt from the center on each axis. The direction and
+/// repeat rate still read the finger's whole vector, so a long drag works
+/// while the dot stays put.
 public struct JoystickGeometry: Sendable {
     /// The circle's diameter in the key row (classic cmux iOS's arrow nub).
     public static let circle: CGFloat = TerminalDockMetrics.keyRowHeight
-    /// How far the thumb may travel from the center.
-    public static let travel: CGFloat = 48
+    /// How far the thumb may travel from the center on each axis (classic:
+    /// `nubSize / 2 - 8`).
+    public static let travel: CGFloat = circle / 2 - 8
 
     public init() {}
 
     public func thumbOffset(for translation: CGSize) -> CGSize {
-        let distance = hypot(translation.width, translation.height)
-        guard distance > Self.travel else { return translation }
-        let scale = Self.travel / distance
-        return CGSize(width: translation.width * scale, height: translation.height * scale)
+        CGSize(width: min(max(translation.width, -Self.travel), Self.travel),
+               height: min(max(translation.height, -Self.travel), Self.travel))
     }
 }
 
@@ -204,8 +205,9 @@ public struct JoystickRepeat: Sendable {
     public static let initialDelay: Duration = .milliseconds(400)
     public static let slowestRate = 10.0
     public static let fastestRate = 18.0
-    /// Where the fastest rate is reached (the thumb's travel cap).
-    public static let fastestAt: CGFloat = JoystickGeometry.travel
+    /// The finger's distance from the center where the fastest rate is
+    /// reached (the thumb itself stops at `JoystickGeometry.travel`).
+    public static let fastestAt: CGFloat = 48
 
     public init() {}
 
