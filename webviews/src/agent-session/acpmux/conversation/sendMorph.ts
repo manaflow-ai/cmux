@@ -53,6 +53,8 @@ const ROW_MS = 1000;
 /// The composer's chips on screen by attachment id: the strip's slot and a chip placed in the text
 /// register here (`chipRef`; attachmentIntake.tsx, inlineAttachments.tsx).
 const chips = new Map<string, Element>();
+/// On the pane's shell while copies of the composer's words fly: the composer hides its placeholder.
+export const SEND_MORPH_ATTR = "data-send-morphing";
 let pending: Origin | undefined;
 let flight: Flight | undefined;
 /// A prompt's row that mounted in this commit before the transcript's send effect ran (a row drawn
@@ -278,6 +280,9 @@ class Flight {
   readonly base: { left: number; top: number };
   readonly glass: HTMLElement;
   readonly typed?: HTMLElement;
+  shell?: HTMLElement;
+  /// The shell's glass opacity as it starts: 1 under a raised composer's words (below).
+  glassFrom = 0;
   content?: HTMLElement;
   row?: HTMLElement;
   bubble?: HTMLElement;
@@ -315,7 +320,14 @@ class Flight {
       pointerEvents: "none",
       contain: "strict",
     });
-    (scroller.closest(".acpmux-shell") ?? doc.body).appendChild(this.layer);
+    const shell = scroller.closest(".acpmux-shell");
+    (shell ?? doc.body).appendChild(this.layer);
+    // The composer has emptied under the words' copy: its placeholder stays out of the copy's way
+    // until the copies land (markdownField.css), so no frame draws two texts in one field.
+    if (this.origin.words && shell instanceof HTMLElement) {
+      shell.setAttribute(SEND_MORPH_ATTR, "");
+      this.shell = shell;
+    }
     const placed = this.layer.getBoundingClientRect();
     this.base = { left: placed.left, top: placed.top };
     // The bubble's glass: the sent bubble's own rules (conversation.css .cv-user__bubble in the pane).
@@ -323,6 +335,13 @@ class Flight {
     Object.assign(this.glass.style, { padding: "0", maxWidth: "none", opacity: "0" });
     const card = origin.card?.rect ?? origin.words?.rect;
     if (card) this.place(this.glass, card, origin.card?.radius ?? 0);
+    // A raised composer (a draft of more than a line) shrinks to its one line as it empties, before
+    // the sent row mounts: its words' copy would float over the transcript with no card under them,
+    // so the glass is drawn under them from the start.
+    if (style === "shell" && origin.card && origin.words && !origin.words.oneLine) {
+      this.glassFrom = 1;
+      this.glass.style.opacity = "1";
+    }
     if (origin.words) {
       this.typed = this.piece("text");
       this.typed.appendChild(origin.words.copy);
@@ -353,6 +372,9 @@ class Flight {
       this.frame = view.requestAnimationFrame(() => {
         this.frame = view.requestAnimationFrame(() => {
           if (this.row || this.done) return;
+          // Only the words fade where they are: the card's glass under a raised draft (above) would
+          // fade over the queue and the transcript as a box with nothing in it.
+          if (this.glassFrom > 0) this.glass.style.opacity = "0";
           this.fade = this.layer.animate([{ opacity: 1 }, { opacity: 0 }], {
             duration: this.duration,
             easing: "ease-out",
@@ -530,7 +552,9 @@ class Flight {
         this.style === "shell" && card ? mix(card.radius, this.bubbleRadius, progress) : this.bubbleRadius,
       );
       // The shell's glass grows out of the card; the lift's fills in where the bubble is.
-      this.glass.style.opacity = String(this.style === "shell" ? span(progress, 0, 0.45) : progress);
+      this.glass.style.opacity = String(
+        this.style === "shell" ? mix(this.glassFrom, 1, span(progress, 0, 0.45)) : progress,
+      );
       const end = { left: to.left + this.pad.left, top: to.top + this.pad.top };
       const start = words?.rect ?? end;
       const left = mix(start.left, end.left, progress);
@@ -564,6 +588,7 @@ class Flight {
     if (this.clock) this.clock.oncancel = null;
     if (this.fade) this.fade.onfinish = null;
     this.layer.remove();
+    this.shell?.removeAttribute(SEND_MORPH_ATTR);
     for (const element of this.hidden) element.style.visibility = "";
     if (flight === this) flight = undefined;
   }

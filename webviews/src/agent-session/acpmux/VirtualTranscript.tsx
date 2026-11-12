@@ -1675,7 +1675,7 @@ function TranscriptView({
     below = Number.POSITIVE_INFINITY,
     moveAtOnce = false,
     held = false,
-    arrived = false,
+    arrived: boolean | "sent" = false,
   ) => {
     const chase = followChase.current!;
     const rowTop = (id: string) => {
@@ -3922,7 +3922,7 @@ function TranscriptView({
             if (arrivedAtTail(oldRows, rows)) arrivedAt.current = now;
             const arrived = now - arrivedAt.current < ARRIVAL_PASS_MS;
             tailAnchor = chaseAnchor.current?.id;
-            chaseFollow(node, layout, rows, below, atOnce, held, arrived);
+            chaseFollow(node, layout, rows, below, atOnce, held, sentRows ? "sent" : arrived);
             tailGlides = !atOnce && followChase.current?.arm !== "instant";
           }
         }
