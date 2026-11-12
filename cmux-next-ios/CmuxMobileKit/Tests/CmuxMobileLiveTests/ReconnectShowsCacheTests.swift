@@ -143,7 +143,8 @@ import UIKit
         numbers.timeToContentMs = model.coldFrame == nil ? (CACurrentMediaTime() - back) * 1000 : -1
         if let since = blankSince { numbers.blankMs += (CACurrentMediaTime() - since) * 1000 }
         numbers.transportBytes = session.bytesBeforeAttach
-        print("reconnect-harness: \(numbers) total_ms=\(Int((CACurrentMediaTime() - started) * 1000))")
+        Attachment.record("reconnect-harness: \(numbers) total_ms=\(Int((CACurrentMediaTime() - started) * 1000))",
+                          named: "reconnect-harness.txt")
         return (numbers, session, model)
     }
 
@@ -193,8 +194,8 @@ import UIKit
 
     /// Before/after captures of the page on a forced disconnect (PR proof):
     /// the embedded page (`TerminalTabPage`, its overlay and composer) right
-    /// after the failed attach, and again after the quiet line's 10 s. Each
-    /// PNG is printed base64 between markers in the test's console output.
+    /// after the failed attach, and again after the quiet line's 10 s, as
+    /// test attachments.
     @Test func captureTheTabPageOnAForcedDisconnect() async throws {
         let daemon = FakeTerminalDaemon()
         daemon.failNextAttaches = 1
@@ -228,9 +229,8 @@ import UIKit
                 window.drawHierarchy(in: bounds, afterScreenUpdates: true)
             }
             guard let png = image.pngData() else { return }
-            print("CAPTURE-BEGIN \(name)")
-            print(png.base64EncodedString())
-            print("CAPTURE-END \(name)")
+            // Exported with the run's test attachments (kit-attachments/).
+            Attachment.record(Array(png), named: "\(name).png")
         }
         try await waitUntil(5) { if case .failed = inner.connectionState { true } else { false } }
         let failedAt = CACurrentMediaTime()
@@ -238,7 +238,7 @@ import UIKit
         capture("reconnect-0s")
         try await waitUntil(12) { CACurrentMediaTime() - failedAt > 10.8 }
         capture("reconnect-11s")
-        print("reconnect-capture: coldFrame=\(model.coldFrame != nil) state=\(model.connectionState)")
+        Attachment.record("coldFrame=\(model.coldFrame != nil) state=\(model.connectionState)", named: "reconnect-capture.txt")
     }
 }
 
