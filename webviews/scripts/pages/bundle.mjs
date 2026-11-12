@@ -47,6 +47,29 @@ const result = await build({
     katexStylePlugin({ split: false }),
   ],
 });
+// esbuild's multi-entry CSS graph can reorder rules shared by different entries. Compile
+// each document's CSS with its original isolated import graph; only JavaScript is shared.
+// No React Compiler pass is needed to collect stylesheets, and the unused JS stays in memory.
+for (const page of pages) {
+  const styles = await build({
+    entryPoints: [path.join(srcRoot, "pages", page, "main.tsx")],
+    outfile: path.join(outdir, page, "styles.js"),
+    bundle: true,
+    write: false,
+    format: "esm",
+    platform: "browser",
+    target: "es2022",
+    define: { "process.env.NODE_ENV": '"production"' },
+    minify: true,
+    legalComments: "none",
+    loader: { ".png": "dataurl", ".woff2": "dataurl" },
+    alias: { shiki: path.join(srcRoot, page === "github" ? "pages/github/shiki" : "agent-session/acpmux/shiki") },
+    logLevel: "warning",
+    plugins: [artifactRuntimePlugin(), tailwindPlugin, jsonParsePlugin, katexStylePlugin({ split: false })],
+  });
+  const css = styles.outputFiles.find((file) => file.path.endsWith(".css"));
+  await writeFile(path.join(outdir, page, "app.css"), css?.contents ?? "");
+}
 await writeFile(path.join(outdir, "metafile.json"), JSON.stringify(result.metafile));
 console.error(`pages React compiler (${mode}): ${compiled.size} compiled; ${bailouts.length} diagnostics`);
 for (const item of bailouts) console.error(`${item.file}:${item.line ?? "?"}: ${item.reason}`);
