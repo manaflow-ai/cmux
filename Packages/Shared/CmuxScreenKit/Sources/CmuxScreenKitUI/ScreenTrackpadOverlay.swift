@@ -58,7 +58,7 @@ final class ScreenTrackpadPadView: UIView, UIGestureRecognizerDelegate {
         accessibilityHint = "Move one finger to move the pointer, tap to click."
         accessibilityTraits = .allowsDirectInteraction
         finger.onEvent = { [weak self] event in
-            if case .down = event, self?.link?.padTouched == false { self?.link?.padTouched = true }
+            if case .down = event { self?.noteTouch() }
             self?.link?.controller?.padTouch(event)
         }
         twoFingerTap.numberOfTouchesRequired = 2
@@ -90,47 +90,30 @@ final class ScreenTrackpadPadView: UIView, UIGestureRecognizerDelegate {
     }
 
     @objc private func handleTwoFingerTap() {
+        noteTouch()
         link?.controller?.padRightClick()
     }
 
+    private func noteTouch() {
+        if link?.padTouched == false { link?.padTouched = true }
+    }
+
     @objc private func handleTwoFingerPan(_ recognizer: UIPanGestureRecognizer) {
+        if recognizer.state == .began { noteTouch() }
         let translation = recognizer.translation(in: self)
         recognizer.setTranslation(.zero, in: self)
         link?.controller?.padScroll(by: translation, began: recognizer.state == .began)
     }
 }
-/// Shows what the pad is each time a viewer opens with it up: a pointing
-/// hand glides across it as if moving the pointer, then taps, twice over,
-/// then fades. It only plays (the Mac's pointer does not move), never takes
-/// touches, and its owner removes it at the first touch on the pad. Under
-/// Reduce Motion a still hand shows instead, until that touch.
-struct ScreenTrackpadHint: View {
-    let reduceMotion: Bool
-    /// The hint has played through: the owner stops drawing it.
-    let finished: () -> Void
-    @State private var progress = 0.0
+/// The hint's length: both strokes and the fade (seconds). Its owner animates
+/// `progress` from 0 to 1 over it, once per viewer.
+let screenTrackpadHintDuration = 4.8
 
-    /// Seconds for both strokes and the fade.
-    static let duration = 4.8
-
-    var body: some View {
-        ScreenTrackpadHintFrame(progress: reduceMotion ? nil : progress)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-            .onAppear {
-                guard !reduceMotion else { return }
-                // motion: allow one linear timeline that the hand's pose is read from; Reduce Motion draws a still hand
-                withAnimation(.linear(duration: Self.duration)) {
-                    progress = 1
-                } completion: {
-                    finished()
-                }
-            }
-    }
-}
-
-/// One frame of the hint at `progress` (0...1 over the whole hint; nil: the still hand).
-/// Animatable, so SwiftUI draws it for every value in between.
+/// Shows what the pad is: a pointing hand glides across it as if moving the
+/// pointer, then taps, twice over, then fades (`progress` 0...1, animated by
+/// its owner); nil draws a still hand (Reduce Motion). It only plays (the
+/// Mac's pointer does not move), takes no touches and is hidden from
+/// accessibility. Animatable, so SwiftUI draws every value in between.
 struct ScreenTrackpadHintFrame: View, Animatable {
     var progress: Double?
 
@@ -142,7 +125,7 @@ struct ScreenTrackpadHintFrame: View, Animatable {
 
     var body: some View {
         let pose = ScreenTrackpadHintPose(progress: progress)
-        GeometryReader { proxy in
+        return GeometryReader { proxy in
             let point = CGPoint(x: pose.x * proxy.size.width, y: pose.y * proxy.size.height)
             ZStack {
                 // The tap's ripple where the fingertip lands.
@@ -161,6 +144,8 @@ struct ScreenTrackpadHintFrame: View, Animatable {
             }
             .opacity(pose.opacity)
         }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
@@ -183,6 +168,8 @@ struct ScreenTrackpadHintPose: Equatable {
         let glide = Self.ease(min(local / 0.55, 1))
         x = from.x + (to.x - from.x) * glide
         y = from.y + (to.y - from.y) * glide
+        // Between the strokes the hand lifts away and comes back, not jumps.
+        if stroke < 1 { opacity *= min(1, (1 - local) / 0.06) } else { opacity *= min(1, local / 0.06) }
         // After the glide: press (to 0.86) and release, with a ripple that fades as it grows.
         let tap = max(0, (local - 0.62) / 0.3)
         if tap > 0, tap < 1 {
@@ -242,10 +229,13 @@ final class ScreenKeyboardProbeView: UIView {
         let overlap = max(0, safeAreaLayoutGuide.layoutFrame.maxY - keyboardLayoutGuide.layoutFrame.minY)
         guard reported.map({ abs($0 - overlap) > 0.5 }) ?? true else { return }
         reported = overlap
-        let changed = changed
-        // After this layout pass: SwiftUI state is not written while it lays out.
+        // After this layout pass (SwiftUI state is not written while it lays out), with the
+        // newest value when it runs: a burst of changes hands over the last one.
         // task-owner: one main-actor hop that hands the value over; nothing waits on it
-        Task { @MainActor in changed?(overlap) }
+        Task { @MainActor [weak self] in
+            guard let self, let value = reported else { return }
+            changed?(value)
+        }
     }
 }
 #endif

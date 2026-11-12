@@ -89,9 +89,10 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
             // over to the screen instead of letting it go.
             // task-owner: one main-actor hop; nothing waits on it
             Task { @MainActor [weak self] in
-                guard let self, !keyInput.isFirstResponder else { return }
-                becomeFirstResponder()
+                guard let self else { return }
                 onKeyboardHidden?()
+                // Only when nothing took it meanwhile (a sign-in field the person tapped).
+                if Self.currentFirstResponder() == nil { becomeFirstResponder() }
             }
         }
         // UI tests drive the screen through this element (a query by id stays cheap while it redraws).
@@ -157,6 +158,19 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
     /// (`pressesBegan`). Without one it stays unfocused: a focused screen
     /// had UIKit raise the software keyboard whenever a menu opened over it.
     override public var canBecomeFirstResponder: Bool { GCKeyboard.coalesced != nil }
+
+    private static weak var foundFirstResponder: UIResponder?
+
+    /// The responder that holds the focus now, if any: a nil-targeted action reaches it.
+    private static func currentFirstResponder() -> UIResponder? {
+        foundFirstResponder = nil
+        UIApplication.shared.sendAction(#selector(UIResponder.screenReportFirstResponder), to: nil, from: nil, for: nil)
+        return foundFirstResponder
+    }
+
+    fileprivate static func reportFirstResponder(_ responder: UIResponder) {
+        foundFirstResponder = responder
+    }
 
     /// Called when the software keyboard was hidden by anything but `isKeyboardVisible`.
     public var onKeyboardHidden: (() -> Void)?
@@ -963,6 +977,12 @@ public final class ScreenViewController: UIViewController, UIScrollViewDelegate,
 
     override public func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         if !keyInput.forward(presses, down: false) { super.pressesCancelled(presses, with: event) }
+    }
+}
+extension UIResponder {
+    /// Answers `ScreenViewController.currentFirstResponder()`: the action goes to the focus.
+    @objc fileprivate func screenReportFirstResponder() {
+        ScreenViewController.reportFirstResponder(self)
     }
 }
 #endif

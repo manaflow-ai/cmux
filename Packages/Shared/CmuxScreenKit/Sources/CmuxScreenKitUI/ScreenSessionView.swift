@@ -76,7 +76,7 @@ public struct ScreenSessionView: View {
     @GestureState(resetTransaction: Transaction(animation: .spring(duration: 0.3, bounce: 0.1)))
     private var trackpadDrag: CGFloat = 0
     @State private var trackpadLink = ScreenTrackpadLink()
-    /// The viewer's size inside the safe area, above the software keyboard while it is up.
+    /// The viewer's size inside the safe area, laid out as if the keyboard were down.
     @State private var containerSize = CGSize.zero
     /// How much of the bottom of the safe area the keyboard (or only its key bar,
     /// with a hardware keyboard) covers; 0 while it is down.
@@ -84,8 +84,12 @@ public struct ScreenSessionView: View {
     /// In landscape the trackpad starts tucked away (height is short there) and
     /// does not touch the remembered choice, which is for portrait.
     @State private var landscapeTrackpadOpen = false
-    /// The trackpad's hint plays once per viewer: from its first showing until it ends or the pad is touched.
-    @State private var trackpadHintShown = true
+    /// The trackpad's hint (0...1, animated once per viewer from the trackpad's first
+    /// showing); nil before it starts. Kept here, so tucking, turning or reconnecting
+    /// neither restarts nor ends it.
+    @State private var trackpadHintProgress: Double?
+    /// The hint has played through (or the pad was touched).
+    @State private var trackpadHintDone = false
     /// The toolbar's measured height (with the shortcuts bar) while it shows.
     @State private var chromeHeight: CGFloat = 0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -118,9 +122,14 @@ public struct ScreenSessionView: View {
                 }
                 // Laid out as if the keyboard were down (the room it takes is `keyboardOverlap`),
                 // the same in every presentation.
-                .background { ScreenKeyboardProbe { keyboardOverlap = $0 } }
+                .background {
+                    ZStack {
+                        ScreenKeyboardProbe { keyboardOverlap = $0 }
+                        // The viewer's size (the stack fills the room it is offered).
+                        Color.clear.onGeometryChange(for: CGSize.self) { $0.size } action: { containerSize = $0 }
+                    }
+                }
                 .ignoresSafeArea(.keyboard)
-                .onGeometryChange(for: CGSize.self) { $0.size } action: { containerSize = $0 }
             } else {
                 screenView.ignoresSafeArea()
                 if chromeVisible { chrome }
@@ -145,6 +154,7 @@ public struct ScreenSessionView: View {
             if features.contains(.resumeOnForeground), scenePhase == .active { session.resumeIfNeeded() }
         }
         .onChange(of: session.preferences.quality) { session.applyQuality() }
+        .onChange(of: trackpadShown, initial: true) { startTrackpadHint() }
         // On the root, not the picker: a stall that hides the button while the picker is open keeps the pick.
         .onChange(of: pickedPhoto) { paste(pickedPhoto) }
         .onDisappear {
@@ -236,7 +246,7 @@ public struct ScreenSessionView: View {
     /// The software keyboard is up (more than a key bar): the trackpad goes under it
     /// and the screen reaches down to the keyboard. With only the key bar (a hardware
     /// keyboard), the trackpad rises above the bar instead.
-    private var keyboardHidesTrackpad: Bool { keyboardOverlap > 100 }
+    private var keyboardHidesTrackpad: Bool { keyboardOverlap > trackpadDrawerHeight / 2 }
 
     /// The trackpad is up on a connected screen (its pad drives the pointer).
     private var trackpadShown: Bool {
@@ -285,6 +295,20 @@ public struct ScreenSessionView: View {
     /// away, in between while the notch is dragged.
     private var trackpadOffset: CGFloat {
         min(max((trackpadOpen ? 0 : trackpadTravel) + trackpadDrag, 0), trackpadTravel)
+    }
+
+    /// Starts the hint the first time the trackpad shows in this viewer. Under Reduce
+    /// Motion the still hand stays until the first touch.
+    private func startTrackpadHint() {
+        guard trackpadShown, trackpadHintProgress == nil else { return }
+        trackpadHintProgress = 0
+        guard !reduceMotion else { return }
+        // motion: allow one linear timeline that the hand's pose is read from; Reduce Motion draws a still hand
+        withAnimation(.linear(duration: screenTrackpadHintDuration)) {
+            trackpadHintProgress = 1
+        } completion: {
+            trackpadHintDone = true
+        }
     }
 
     private func setTrackpad(open: Bool) {
@@ -342,8 +366,8 @@ public struct ScreenSessionView: View {
             }
             // Shows what the surface is: a hand that plays at using it, until the first touch.
             .overlay {
-                if trackpadHintShown, !trackpadLink.padTouched {
-                    ScreenTrackpadHint(reduceMotion: reduceMotion) { trackpadHintShown = false }
+                if !trackpadHintDone, !trackpadLink.padTouched, let progress = trackpadHintProgress {
+                    ScreenTrackpadHintFrame(progress: reduceMotion ? nil : progress)
                         .clipShape(RoundedRectangle(cornerRadius: 16))
                         .transition(.opacity)
                 }
