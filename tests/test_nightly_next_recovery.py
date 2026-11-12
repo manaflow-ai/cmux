@@ -290,6 +290,17 @@ RECOVERED = dict(
 
 
 class WorkflowTests(unittest.TestCase):
+    def test_recovered_artifact_runs_the_blocking_bundle_budget_before_smoke(self):
+        job = workflow()["jobs"]["verify-recovered-nightly-next"]
+        budget = step(job, "Bundle size budget (recovered)")
+        self.assertNotIn("continue-on-error", budget)
+        self.assertIn("bundle-size.py", budget["run"])
+        self.assertIn("BUNDLE_SIZE_DMG_PATH", budget["run"])
+        self.assertIn("python3 -I", budget["run"])
+        self.assertEqual(budget["env"]["BUDGET_VARIANT"], "arm64")
+        self.assertEqual(budget["env"]["BUNDLE_SIZE_DMG_PATH"], "recovered/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg")
+        self.assertLess(job["steps"].index(budget), job["steps"].index(step(job, "Launch smoke from a fresh home")))
+
     def test_recovery_jobs_run_only_for_published_nightly_next(self):
         jobs = workflow()["jobs"]
         for name in ("find-nightly-next-recovery", "recover-nightly-next-notarization"):

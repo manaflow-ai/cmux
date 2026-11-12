@@ -5183,6 +5183,16 @@ jobs:
       - name: Verify recovered DMG artifact
         run: bash scripts/ci/nightly-steps/recover-verify-dmg.sh
 
+      # Recovery publishes the continued notarization artifact through the
+      # same path as an ordinary nightly. Keep all app, component, and DMG
+      # budgets blocking before the recovered build can be selected.
+      - name: Bundle size budget (recovered)
+        timeout-minutes: 5
+        env:
+          BUNDLE_SIZE_DMG_PATH: recovered/${{ needs.decide.outputs.dmg_prefix }}-arm64.dmg
+          BUDGET_VARIANT: arm64
+        run: bash scripts/ci/nightly-steps/verify-final-dmg-bundle-size-budget.sh
+
       # As verify-final-dmg-nightly: a recovered build that crashes at launch is never published.
       - name: Launch smoke from a fresh home
         timeout-minutes: 12

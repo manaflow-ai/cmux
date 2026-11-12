@@ -12,7 +12,9 @@
 set -euo pipefail
 # The Linux checks job skips this macOS-only test of the release strip.
 /bin/bash tests/test_strip_release_bundle_atom_info.sh
-release="final-dmg/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}.dmg"
+# Recovery verifies the same signed artifact from `recovered/`; keeping the
+# checker shared prevents the recovery path from silently losing a budget.
+release="${BUNDLE_SIZE_DMG_PATH:-final-dmg/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}.dmg}"
 mnt="$RUNNER_TEMP/bundle-size-mnt"
 mkdir -p "$mnt"
 hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$release" >/dev/null
