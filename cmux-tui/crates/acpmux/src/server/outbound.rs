@@ -70,6 +70,8 @@ struct State {
     /// The sizes of the lines the pump sent to the transport that may still be in its channel,
     /// oldest first.
     sent: VecDeque<usize>,
+    /// Lines the pump took and has not sent yet (waiting for the durable gate, or for room).
+    taken: usize,
     /// The transport, to read its room. Weak: once the pump ends, nothing holds it open.
     transport: mpsc::WeakSender<String>,
     capacity: usize,
@@ -150,6 +152,7 @@ impl Shared {
                     return false;
                 }
                 if !state.queue.is_empty() {
+                    state.taken += state.queue.len();
                     batch.extend(state.queue.drain(..));
                     return true;
                 }
@@ -227,7 +230,7 @@ impl Outbound {
         let mut state = self.shared.lock();
         state.settle();
         Gauge {
-            lines: state.queue.len() + state.sent.len(),
+            lines: state.queue.len() + state.taken + state.sent.len(),
             bytes: state.held,
             bound: self.shared.bound,
             overrun: state.overrun.is_some(),
@@ -237,7 +240,8 @@ impl Outbound {
 
 /// A connection's queue as `daemon status` shows it.
 pub(super) struct Gauge {
-    /// Lines queued or in the transport's channel (a line the pump holds is in `bytes` only).
+    /// Lines queued, held by the pump (the durable gate holds them for the journal), or in the
+    /// transport's channel.
     pub(super) lines: usize,
     /// Bytes queued and not yet read: what counts against `bound`.
     pub(super) bytes: usize,
@@ -292,6 +296,7 @@ impl Pump {
             return false;
         }
         permit.send(line);
+        state.taken = state.taken.saturating_sub(1);
         state.sent.push_back(size);
         // Forget what the reader took meanwhile, so `sent` stays as short as the channel.
         state.settle();
@@ -346,6 +351,7 @@ pub(super) fn start_bounded(
             queue: VecDeque::new(),
             held: 0,
             sent: VecDeque::new(),
+            taken: 0,
             transport: transport.downgrade(),
             capacity: transport.max_capacity(),
             finished: false,
