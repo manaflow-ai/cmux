@@ -46,6 +46,9 @@ final class AgentPaneSessionInfoPanel: NSView {
         super.init(frame: .zero)
         content.translatesAutoresizingMaskIntoConstraints = true
         stage.translatesAutoresizingMaskIntoConstraints = true
+        // The content can be larger than the stage (a panel the page's edge cuts off): only the stage's part draws.
+        stage.wantsLayer = true
+        stage.layer?.masksToBounds = true
         stage.addSubview(content)
         addSubview(stage)
         edge.autoresizingMask = [.height, .maxXMargin]

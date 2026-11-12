@@ -227,7 +227,7 @@ extension AgentPaneView {
         if let badge = actAsMePill.badge, !badge.isHidden, !badge.bounds.isEmpty {
             rects.append(page.convert(badge.bounds, from: badge))
         }
-        if let panel = model.sessionInfo.panel {
+        if let panel = model.sessionInfo.panel, !panel.isHidden {
             // The panel less the page's popups over it, so Chromium draws those whole.
             rects += panel.uncoveredRects().map { page.convert($0, from: panel) }
         }
