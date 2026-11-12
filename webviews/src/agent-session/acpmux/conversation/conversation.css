@@ -955,7 +955,7 @@
   .acpmux-turnSummary:hover .cv-turn-time,
   .acpmux-assistant:hover .cv-reply-actions .cv-turn-time,
   .cv-recap[data-terminal]:hover .cv-recap__close,
-  .cv-recap[data-terminal]:focus-within .cv-recap__close,
+  :root:not([data-page-inactive]) .cv-recap[data-terminal]:has(:focus-visible) .cv-recap__close,
   .cv-recap[data-terminal]:has([data-popup-open]) .cv-recap__close {
     transition: opacity var(--cv-actions-in) var(--cv-actions-in-ease);
   }
@@ -5185,7 +5185,7 @@ a.cv-sha:focus-visible {
   opacity: 0;
 }
 .cv-recap[data-terminal]:hover .cv-recap__close,
-.cv-recap[data-terminal]:focus-within .cv-recap__close,
+:root:not([data-page-inactive]) .cv-recap[data-terminal]:has(:focus-visible) .cv-recap__close,
 .cv-recap[data-terminal]:has([data-popup-open]) .cv-recap__close {
   opacity: 1;
 }
