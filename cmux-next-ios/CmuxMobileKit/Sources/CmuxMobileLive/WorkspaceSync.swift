@@ -26,6 +26,10 @@ public final class WorkspaceSync {
     @ObservationIgnored public var onRows: (@MainActor (DaemonTree, Set<String>, Bool) -> Void)?
     /// A notification was posted on the Mac (terminal agents, `cmux notify`).
     @ObservationIgnored public var onNotification: (@MainActor (NotificationPost) -> Void)?
+    /// The Mac's look may have changed: `connected` after a bind (its setup
+    /// answered), else an `appearance-changed` or a lost subscription
+    /// (AppearanceSync reads `get-appearance` again).
+    @ObservationIgnored public var onAppearanceChanged: (@MainActor (_ connected: Bool) -> Void)?
     @ObservationIgnored private var client: DaemonClient?
     @ObservationIgnored private var eventTask: Task<Void, Never>?
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
@@ -181,6 +185,7 @@ public final class WorkspaceSync {
             lastError = nil
             initializing = false
             onTree?(next)
+            onAppearanceChanged?(true)
             drain()
             // The Mac's own order and pins follow in one more round trip.
             Task {
@@ -226,6 +231,17 @@ public final class WorkspaceSync {
 
     private func receive(_ event: DaemonEvent, sequence: UInt64, from client: DaemonClient) {
         guard self.client === client else { return }
+        switch event {
+        case .appearanceChanged:
+            // Not a tree change: no queue, no snapshot ordering (the reply is the whole look).
+            onAppearanceChanged?(false)
+            return
+        case .resubscribe:
+            // Lost events may include an appearance change.
+            onAppearanceChanged?(false)
+        default:
+            break
+        }
         enqueue(event, sequence: sequence)
     }
 

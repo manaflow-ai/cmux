@@ -22,6 +22,8 @@ struct CmuxMobileApp: App {
         ClassicLeftovers.cleanUpIfDue()
         // Settings, account and outboxes saved under the pre-rename (cnx) names move first.
         LegacyStorage.migrate()
+        // The last stored look (a Mac's theme and background), before the first frame.
+        ShellAppearance.loadAtLaunch()
         #if !DEBUG
         // Release and Production have no Developer page: remove any developer
         // setting (mock data, a scripted demo, relay only) an earlier Debug
@@ -63,6 +65,7 @@ struct CmuxMobileApp: App {
             RootView(auth: auth, store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []))
             #endif
             }
+            .cmuxMobileShellAppearanceRoot()
             .modifier(ChiefCallCover(
                 controller: ChiefVoice.controller,
                 scenePhase: scenePhase,

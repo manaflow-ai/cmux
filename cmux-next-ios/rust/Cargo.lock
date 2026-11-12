@@ -551,6 +551,7 @@ dependencies = [
  "cmux-rd-ffi",
  "cmux-rd-proto",
  "cmux-terminal-prediction",
+ "cmux-theme-tokens",
  "serde_json",
  "sha2",
  "tempfile",
@@ -605,6 +606,10 @@ dependencies = [
 
 [[package]]
 name = "cmux-terminal-prediction"
+version = "0.1.0"
+
+[[package]]
+name = "cmux-theme-tokens"
 version = "0.1.0"
 
 [[package]]

@@ -15,10 +15,14 @@ use tokio::runtime::Runtime;
 mod browser;
 mod classic_leftovers;
 mod terminal_prediction;
+mod theme;
 
 pub use browser::{BrowserFrame, BrowserObserver, BrowserStats, BrowserStream};
 pub use classic_leftovers::{ClassicCleanupPlan, KeychainDelete, KeychainLeftover};
 pub use terminal_prediction::{PredictedGlyph, PredictionLayout, TerminalPrediction};
+pub use theme::{
+    DerivedThemeTokens, ThemeColor, ThemeInputWire, derive_theme_tokens, theme_contrast, theme_readable,
+};
 
 uniffi::setup_scaffolding!();
 

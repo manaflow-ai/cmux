@@ -294,6 +294,10 @@ public struct RootView: View {
         .onChange(of: settings.appearance, initial: true) { _, mode in
             applyAppearance(mode)
         }
+        // A Mac theme that holds one scheme (`follows_system: false`) sets "System".
+        .onChange(of: CmuxMobileAppearance.shared.colorScheme) { _, _ in
+            applyAppearance(settings.appearance)
+        }
     }
 
     private func open(_ opened: OpenedURL) {
@@ -504,10 +508,17 @@ public struct RootView: View {
     #endif
 
     private func applyAppearance(_ mode: AppearanceMode) {
+        // "System" follows the phone, unless the Mac's theme holds one scheme
+        // (its light and dark are the same theme): then that scheme.
+        let system: UIUserInterfaceStyle = switch CmuxMobileAppearance.shared.colorScheme {
+        case .dark?: .dark
+        case .light?: .light
+        default: .unspecified
+        }
         let style: UIUserInterfaceStyle = switch mode {
         case .light: .light
         case .dark: .dark
-        case .system: .unspecified
+        case .system: system
         }
         for scene in UIApplication.shared.connectedScenes {
             guard let windowScene = scene as? UIWindowScene else { continue }

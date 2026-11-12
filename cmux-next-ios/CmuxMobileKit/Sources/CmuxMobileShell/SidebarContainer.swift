@@ -80,13 +80,21 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = theme.colors.bg.uiColor
+        // The page under the sidebar and under the card: the Mac's backdrop
+        // (its picture and tint) when the phone matches one, else `bg`.
+        let pageBackdrop = CmuxMobileBackdropUIView(frame: view.bounds)
+        pageBackdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(pageBackdrop)
 
         addChild(sidebarController)
-        sidebarController.view.backgroundColor = theme.colors.bg.uiColor
+        // Two-tone (the Mac's separate sidebar surface): the sidebar a shade
+        // apart from the card; clear when they share the window's surface.
+        sidebarController.view.backgroundColor = theme.colors.sidebarShade.uiColor
         view.addSubview(sidebarController.view)
         sidebarController.didMove(toParent: self)
 
-        shadowView.backgroundColor = theme.colors.bg.uiColor
+        // Only its shadow shows (the card covers it): an opaque surface casts it under any theme.
+        shadowView.backgroundColor = theme.colors.sheet.uiColor
         shadowView.layer.shadowColor = UIColor.black.cgColor
         shadowView.layer.shadowOpacity = theme.metrics.cardShadowOpacity
         shadowView.layer.shadowRadius = theme.metrics.cardShadowRadius
@@ -100,6 +108,9 @@ final class SidebarContainerViewController: UIViewController, UIGestureRecognize
         cardView.layer.cornerCurve = .continuous
         cardView.backgroundColor = theme.colors.bg.uiColor
         view.addSubview(cardView)
+        let cardBackdrop = CmuxMobileBackdropUIView(frame: cardView.bounds)
+        cardBackdrop.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        cardView.addSubview(cardBackdrop)
         addChild(contentController)
         cardView.addSubview(contentController.view)
         contentController.didMove(toParent: self)
@@ -519,6 +530,8 @@ struct SidebarContainer<Sidebar: View, Content: View>: UIViewControllerRepresent
         let sidebarHost = UIHostingController(rootView: sidebar)
         let contentHost = UIHostingController(rootView: content)
         sidebarHost.view.backgroundColor = .clear
+        // The card's own backdrop shows through (screens paint `bg`, clear over a backdrop).
+        contentHost.view.backgroundColor = .clear
         return SidebarContainerViewController(model: model, sidebar: sidebarHost, content: contentHost)
     }
 

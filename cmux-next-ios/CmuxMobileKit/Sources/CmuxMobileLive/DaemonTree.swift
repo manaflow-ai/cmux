@@ -619,6 +619,9 @@ public enum DaemonEvent: Equatable, Sendable {
     /// A notification was posted (`notification`): the tree's markers and the
     /// notification ledger changed. It carries the agent's memory-only texts.
     case notification(NotificationPost)
+    /// The Mac's look changed (`appearance-changed`, `appearance-v1`): read
+    /// `get-appearance` again (AppearanceSync). Not a tree event.
+    case appearanceChanged(revision: Int)
     case other
 
     public static func parse(_ line: Data) -> DaemonEvent {
@@ -637,6 +640,8 @@ public enum DaemonEvent: Equatable, Sendable {
             return .titleChanged(surface: surface, title: object["title"] as? String ?? "")
         case "notification":
             return .notification(NotificationPost(json: object))
+        case "appearance-changed":
+            return .appearanceChanged(revision: object["revision"] as? Int ?? 0)
         case "workspace-added", "workspace-closed", "workspace-renamed", "workspace-moved", "workspace-changed",
              "screen-added", "screen-closed", "screen-renamed", "screen-changed",
              "pane-added", "pane-closed", "tab-added", "tab-closed", "tab-renamed", "tab-changed":

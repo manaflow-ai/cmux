@@ -96,6 +96,20 @@ extension LiveCoordinator {
             ])
         }
         session.workspaces.onNotification = { [weak session] post in session?.terminalFeed.notificationPosted(post) }
+        // The Mac's theme, background and accents (PROTOCOL.md "Appearance"): read on bind and on
+        // each `appearance-changed`; the image over this Mac's own served link only.
+        session.workspaces.onAppearanceChanged = { [weak session] connected in
+            guard let session, let client = session.workspaces.daemon else { return }
+            let macID = session.macID
+            let link = session.servedLink
+            AppearanceSync.shared.changed(AppearanceSync.Connection(
+                macID: macID,
+                request: { try await client.request("get-appearance") },
+                openAsset: { sha256 in
+                    guard let link else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
+                    return try await link.openChannel(service: "appearance-asset", args: ["sha256": sha256])
+                }), connected: connected)
+        }
         session.acpmux.onWatchEvent = { [weak session] event in
             guard let session else { return }
             session.feed.handle(event, sessions: session.acpmux.sessions)

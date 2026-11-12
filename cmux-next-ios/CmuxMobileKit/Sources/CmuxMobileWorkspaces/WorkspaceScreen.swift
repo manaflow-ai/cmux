@@ -10,8 +10,8 @@ import UIKit
 private let theme = CmuxMobileTheme.standard
 
 extension TabsKitTheme {
-    /// TabsKit on mobile tokens: true-black pages, a neutral grid wallpaper,
-    /// and a neutral accent. Done keeps TabsKit's white checkmark, so the
+    /// TabsKit on mobile tokens: the appearance's pages (true black in the
+    /// neutral look), a grid wallpaper from its surfaces, and a neutral accent. Done keeps TabsKit's white checkmark, so the
     /// accent is a near-black in light mode and a mid gray in dark mode
     /// (the mobile white accent would hide the glyph).
     public static var mobile: TabsKitTheme {
@@ -19,8 +19,15 @@ extension TabsKitTheme {
         tabs.colors.label = theme.colors.label.color
         tabs.colors.secondaryLabel = theme.colors.label2.color
         tabs.colors.pageBackground = theme.colors.bg.color
-        tabs.colors.overviewTop = TabsKitTheme.Colors.pair(0xF2F2F7, 0x1C1C1E)
-        tabs.colors.overviewBottom = TabsKitTheme.Colors.pair(0xE5E5EA, 0x000000)
+        if CmuxMobileAppearance.shared.isThemed {
+            // A Mac's theme: the grid's wallpaper runs from the theme's card
+            // surface down to its page (clear over the Mac's backdrop).
+            tabs.colors.overviewTop = theme.colors.card.color
+            tabs.colors.overviewBottom = theme.colors.bg.color
+        } else {
+            tabs.colors.overviewTop = TabsKitTheme.Colors.pair(0xF2F2F7, 0x1C1C1E)
+            tabs.colors.overviewBottom = TabsKitTheme.Colors.pair(0xE5E5EA, 0x000000)
+        }
         tabs.colors.accent = TabsKitTheme.Colors.pair(0x1C1C1E, 0x636366)
         return tabs
     }

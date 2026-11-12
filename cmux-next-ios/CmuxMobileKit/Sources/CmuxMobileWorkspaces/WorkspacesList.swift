@@ -1356,14 +1356,91 @@ struct BulkClose: Identifiable {
     }
 }
 
-/// The Mac's workspace color swatch (its `GroupColor.swatch` hue, chroma and brightness).
+/// The Mac's workspace color swatch (its `GroupColor.swatch` hue, chroma and
+/// brightness), drawn from the Mac's group palette when the phone matches a
+/// Mac (`sidebar.groupPalette`: its theme's ANSI colors, greys, or its
+/// gradient), as the Mac's sidebar draws one stored color from each palette.
 enum WorkspaceSwatch {
     static func color(_ color: WorkspaceColor) -> Color {
+        let appearance = CmuxMobileAppearance.shared
+        // Read in the body: the row redraws when the palette changes.
+        let palette = appearance.resolved.map { ($0.groupPalette, $0.groupGradient) }
         let (hue, chroma) = color.hueAndChroma
         return Color(UIColor { traits in
             let dark = traits.userInterfaceStyle == .dark
+            if let palette, let drawn = drawn(color, palette: palette.0, gradient: palette.1, dark: dark, appearance: appearance) {
+                return drawn
+            }
             return UIColor(hue: hue / 360, saturation: (dark ? 0.40 : 0.42) * chroma, brightness: dark ? 0.68 : 0.64, alpha: 1)
         })
+    }
+
+    /// `color` in the Mac's palette `palette`; nil for the palettes that draw
+    /// cmux's own (vibrant) colors (`glass`, `vibrant`, and the picture-based
+    /// ones, which need the Mac's desktop picture).
+    static func drawn(_ color: WorkspaceColor, palette: String, gradient: String, dark: Bool,
+                      appearance: CmuxMobileAppearance) -> UIColor? {
+        switch palette {
+        case "theme":
+            // The theme's ANSI slot for the color (the Mac's `GroupColor.paletteRGB` theme slots).
+            let ansi = appearance.terminal.colors(dark: dark).palette
+            let slot: Int = switch color {
+            case .grey: 8
+            case .red, .orange: 1
+            case .green: 2
+            case .yellow: 3
+            case .blue: 4
+            case .pink, .purple: 5
+            case .cyan: 6
+            }
+            guard slot < ansi.count else { return nil }
+            return ansi[slot].uiColor
+        case "grayscale":
+            let index = Double(WorkspaceColor.allCases.firstIndex(of: color) ?? 0)
+            let level = dark ? 0.42 + index * 0.05 : 0.30 + index * 0.05
+            let cast = index.truncatingRemainder(dividingBy: 2) == 0 ? 0.015 : -0.015
+            return UIColor(red: level + cast, green: level, blue: level - cast, alpha: 1)
+        case "gradient":
+            // The gradient's color at the color's place among the palette's colors.
+            let stops = gradientStops(gradient)
+            let index = Double(WorkspaceColor.allCases.firstIndex(of: color) ?? 0)
+            let t = index / Double(max(WorkspaceColor.allCases.count - 1, 1)) * Double(stops.count - 1)
+            let lower = min(Int(t), stops.count - 2), f = t - Double(lower)
+            let (a, b) = (stops[lower], stops[lower + 1])
+            var dh = b.2 - a.2
+            if dh > 180 { dh -= 360 } else if dh < -180 { dh += 360 }
+            return oklch(a.0 + (b.0 - a.0) * f, a.1 + (b.1 - a.1) * f, a.2 + dh * f)
+        default:
+            return nil
+        }
+    }
+
+    /// The Mac's `GroupGradient` stops (OKLCH lightness, chroma, hue).
+    static func gradientStops(_ name: String) -> [(Double, Double, Double)] {
+        switch name {
+        case "aurora": [(0.72, 0.17, 300), (0.74, 0.14, 200), (0.78, 0.17, 150)]
+        case "lagoon": [(0.70, 0.16, 265), (0.76, 0.13, 205), (0.80, 0.15, 165)]
+        case "two-tone", "twoTone": [(0.70, 0.18, 300), (0.76, 0.17, 50)]
+        default: [(0.70, 0.19, 350), (0.72, 0.18, 40), (0.84, 0.16, 85)]
+        }
+    }
+
+    /// OKLCH to sRGB (Björn Ottosson's OKLab), clamped.
+    static func oklch(_ l: Double, _ c: Double, _ hDegrees: Double) -> UIColor {
+        let h = hDegrees * .pi / 180
+        let a = c * cos(h), b = c * sin(h)
+        let l_ = l + 0.3963377774 * a + 0.2158037573 * b
+        let m_ = l - 0.1055613458 * a - 0.0638541728 * b
+        let s_ = l - 0.0894841775 * a - 1.2914855480 * b
+        let (lc, mc, sc) = (l_ * l_ * l_, m_ * m_ * m_, s_ * s_ * s_)
+        let lin = [4.0767416621 * lc - 3.3077115913 * mc + 0.2309699292 * sc,
+                   -1.2684380046 * lc + 2.6097574011 * mc - 0.3413193965 * sc,
+                   -0.0041960863 * lc - 0.7034186147 * mc + 1.7076147010 * sc]
+        let encoded = lin.map { v -> Double in
+            let x = min(max(v, 0), 1)
+            return x <= 0.0031308 ? 12.92 * x : 1.055 * pow(x, 1 / 2.4) - 0.055
+        }
+        return UIColor(red: encoded[0], green: encoded[1], blue: encoded[2], alpha: 1)
     }
 
     /// A stored color: a palette name, or `#RRGGBB`.

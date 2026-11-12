@@ -967,6 +967,8 @@ struct UserBubble: View {
                 SentAttachments(attachments: attachments)
             }
             bubbleText
+                // The Mac's bubble ink with its bubble color (`home.bubbleColors`), else the label.
+                .foregroundStyle(CmuxMobileTheme.standard.colors.onBubble)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 11)
                 .background(Color.cmuxMobileBubble, in: .rect(cornerRadius: 20, style: .continuous))

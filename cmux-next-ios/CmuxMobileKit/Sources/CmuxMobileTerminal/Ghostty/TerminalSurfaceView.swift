@@ -75,6 +75,11 @@ final class TerminalSurfaceView: UIView {
         isAccessibilityElement = true
         accessibilityLabel = "Terminal"
         accessibilityTraits = .allowsDirectInteraction
+        // The terminal takes the window's scheme of the current theme (a Mac's
+        // light and dark themes); a theme change itself reaches it through the app.
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (self: Self, _) in
+            self.app?.setDark(self.traitCollection.userInterfaceStyle != .light)
+        }
     }
 
     @available(*, unavailable)
@@ -99,7 +104,11 @@ final class TerminalSurfaceView: UIView {
         super.didMoveToWindow()
         updateOcclusion()
         guard window != nil else { return }
-        guard surface != nil else { return createSurface() }
+        guard surface != nil else {
+            createSurface()
+            app?.setDark(traitCollection.userInterfaceStyle != .light)
+            return
+        }
         // Back in a window: its screen's scale may differ from the one the
         // size was last given at.
         syncSize()

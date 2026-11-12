@@ -141,7 +141,7 @@ public actor WorkspaceProjection {
             case .notification:
                 // The event carries text, but unread markers live in the snapshot.
                 throw ProjectionError.needsSnapshot
-            case .other:
+            case .other, .appearanceChanged:
                 return nil
             case .treeChanged, .resubscribe:
                 throw ProjectionError.needsSnapshot

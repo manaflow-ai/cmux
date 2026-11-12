@@ -334,11 +334,28 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if outputPaused { model.session.setOutputPaused(false) }
     }
 
+    /// The appearance or the scheme changed: the gradients made from the
+    /// terminal's background take its new color (layers keep resolved colors).
+    private func terminalThemeChanged() {
+        let style: UIUserInterfaceStyle = CmuxMobileAppearance.shared.isThemed ? .unspecified : .dark
+        if overrideUserInterfaceStyle != style { overrideUserInterfaceStyle = style }
+        let base = CmuxMobileGhosttyApp.background.resolvedColor(with: traitCollection)
+        bottomFade.gradient.colors = [base.withAlphaComponent(0).cgColor, base.cgColor]
+        if statusScrim.gradient.colors != nil {
+            statusScrim.gradient.colors = [base.cgColor, base.cgColor, base.withAlphaComponent(0).cgColor]
+        }
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = CmuxMobileGhosttyApp.background
-        // The terminal theme is dark: chrome, glass and the keyboard follow it.
-        overrideUserInterfaceStyle = .dark
+        // The built-in terminal theme is dark: chrome, glass and the keyboard
+        // follow it. A Mac's theme has a light and a dark terminal: the page
+        // follows the phone's scheme then, as the Mac's terminal follows its own.
+        overrideUserInterfaceStyle = CmuxMobileAppearance.shared.isThemed ? .unspecified : .dark
+        registerForTraitChanges([CmuxMobileAppearanceRevisionTrait.self, UITraitUserInterfaceStyle.self]) { (self: Self, _) in
+            self.terminalThemeChanged()
+        }
         view.clipsToBounds = true
 
         scrollView.delegate = self
@@ -408,7 +425,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         bottomBacking.isUserInteractionEnabled = false
         bottomBacking.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(bottomBacking)
-        let base = CmuxMobileGhosttyApp.background
+        let base = CmuxMobileGhosttyApp.background.resolvedColor(with: traitCollection)
         bottomFade.gradient.colors = [base.withAlphaComponent(0).cgColor, base.cgColor]
         bottomFade.isUserInteractionEnabled = false
         bottomFade.alpha = 0
@@ -483,7 +500,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if #unavailable(iOS 27) {
                 statusScrim.isUserInteractionEnabled = false
                 statusScrim.translatesAutoresizingMaskIntoConstraints = false
-                let base = CmuxMobileGhosttyApp.background
+                let base = CmuxMobileGhosttyApp.background.resolvedColor(with: traitCollection)
                 // A top bar under the status bar: solid terminal background
                 // to the status bar's bottom, then a short fade. (A 92 %
                 // gradient left scrollback legible under the clock; on iOS 26

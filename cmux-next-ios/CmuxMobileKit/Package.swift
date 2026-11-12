@@ -59,7 +59,11 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxSpinner"),
     ],
     targets: [
-        .target(name: "CmuxMobileDesign", dependencies: [.product(name: "CmuxSpinner", package: "CmuxSpinner")], resources: [.process("Resources")]),
+        // The Mac's theme derivation (cmux-theme-tokens) comes over CmuxMobileLinkFFI (PROTOCOL.md "Appearance").
+        .target(name: "CmuxMobileDesign", dependencies: [
+            .product(name: "CmuxSpinner", package: "CmuxSpinner"),
+            .target(name: "CmuxMobileLinkFFI", condition: .when(platforms: [.iOS])),
+        ], resources: [.process("Resources")]),
         // Push payloads, notification buttons, the App Group outbox and chat
         // snapshots: Foundation and UserNotifications only, so the notification
         // extensions link it without the app's modules (verify/rich-push.md).

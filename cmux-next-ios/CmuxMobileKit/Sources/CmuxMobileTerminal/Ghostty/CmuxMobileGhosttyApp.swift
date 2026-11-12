@@ -1,4 +1,5 @@
 #if os(iOS)
+import CmuxMobileDesign
 import Foundation
 import GhosttyNextKit
 import UIKit
@@ -12,14 +13,20 @@ final class CmuxMobileGhosttyApp {
     enum Failure: Error { case initFailed(Int32), appCreationFailed }
 
     let app: ghostty_app_t
-    private let config: ghostty_config_t
+    /// The config the app runs with; replaced (and the old one freed) on each theme change.
+    private var config: ghostty_config_t
+    /// The text `config` was loaded from: an identical one is not applied again.
+    private var configText: String
     private var tickScheduled = false
+    /// Whether the terminal draws its dark or light colors (the window's scheme).
+    private var isDark = true
 
     private static var current: CmuxMobileGhosttyApp?
     nonisolated static let wakeupGate = WakeupGate()
 
-    /// Terminal theme: true black like the app chrome, the cmux-next ANSI palette.
-    static let background = UIColor(red: 0, green: 0, blue: 0, alpha: 1)
+    /// The terminal's background: the current appearance's terminal theme
+    /// (true black in the neutral look), resolved per scheme and per theme.
+    static var background: UIColor { CmuxMobileColorRole.terminalBackground.uiColor }
 
     static func shared() throws -> CmuxMobileGhosttyApp {
         if let current { return current }
@@ -90,9 +97,8 @@ final class CmuxMobileGhosttyApp {
     private init() throws {
         let status = ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv)
         guard status == GHOSTTY_SUCCESS else { throw Failure.initFailed(status) }
-        guard let config = ghostty_config_new() else { throw Failure.appCreationFailed }
-        Self.loadProductConfig(config)
-        ghostty_config_finalize(config)
+        let text = Self.productConfig(theme: CmuxMobileAppearance.shared.terminal, dark: true)
+        guard let config = Self.makeConfig(text) else { throw Failure.appCreationFailed }
         // Built outside the main actor: Ghostty calls these from its own
         // threads, and a closure formed in this @MainActor init would carry
         // main-actor isolation (Swift traps when the renderer thread calls it).
@@ -103,26 +109,72 @@ final class CmuxMobileGhosttyApp {
         }
         self.app = app
         self.config = config
+        configText = text
+        CmuxMobileAppearance.shared.observe("terminal") { _ in CmuxMobileGhosttyApp.current?.applyTheme() }
+    }
+
+    /// The window's scheme changed (a surface saw it): the terminal takes that scheme's colors.
+    func setDark(_ dark: Bool) {
+        guard dark != isDark else { return }
+        isDark = dark
+        applyTheme()
+    }
+
+    /// Gives every surface the current theme (`ghostty_app_update_config`
+    /// updates each live surface): colors, palette, cursor, selection and the
+    /// font family. The font size stays the phone's setting.
+    func applyTheme() {
+        let text = Self.productConfig(theme: CmuxMobileAppearance.shared.terminal, dark: isDark)
+        guard text != configText, let next = Self.makeConfig(text) else { return }
+        ghostty_app_update_config(app, next)
+        ghostty_config_free(config)
+        config = next
+        configText = text
+    }
+
+    private static func makeConfig(_ text: String) -> ghostty_config_t? {
+        guard let config = ghostty_config_new() else { return nil }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-mobile-ghostty.conf")
+        if (try? Data(text.utf8).write(to: url, options: .atomic)) != nil {
+            url.path.withCString { ghostty_config_load_file(config, $0) }
+        }
+        ghostty_config_finalize(config)
+        return config
     }
 
     /// Product settings: no padding (rows land on exact multiples of the cell
-    /// height, which native scrolling relies on), the app's black, the
-    /// scrollback cap, and no auto-scroll: the screen owns the viewport.
-    private static func loadProductConfig(_ config: ghostty_config_t) {
-        let text = """
-        scrollback-limit-bytes = \(8 * 1024 * 1024)
-        window-padding-x = 0
-        window-padding-y = 0
-        window-padding-balance = false
-        background = #000000
-        foreground = #E6E6E6
-        cursor-style = block
-        cursor-style-blink = false
-        scroll-to-bottom = no-keystroke,no-output
-        """
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-mobile-ghostty.conf")
-        guard (try? Data(text.utf8).write(to: url, options: .atomic)) != nil else { return }
-        url.path.withCString { ghostty_config_load_file(config, $0) }
+    /// height, which native scrolling relies on), the scrollback cap, no
+    /// auto-scroll (the screen owns the viewport), and the theme: the Mac's
+    /// terminal colors and font family when the phone matches a Mac
+    /// (`theme`), else the app's black. A family the phone does not have is
+    /// left out, so the terminal keeps its own font.
+    static func productConfig(theme: CmuxMobileTerminalTheme, dark: Bool) -> String {
+        let colors = theme.colors(dark: dark)
+        var lines = [
+            "scrollback-limit-bytes = \(8 * 1024 * 1024)",
+            "window-padding-x = 0",
+            "window-padding-y = 0",
+            "window-padding-balance = false",
+            "background = \(colors.background.hex)",
+            "foreground = \(colors.foreground.hex)",
+            "cursor-style = block",
+            "cursor-style-blink = false",
+            "scroll-to-bottom = no-keystroke,no-output",
+        ]
+        for (index, color) in colors.palette.prefix(16).enumerated() { lines.append("palette = \(index)=\(color.hex)") }
+        if let cursor = colors.cursor { lines.append("cursor-color = \(cursor.hex)") }
+        if let selection = colors.selectionBackground { lines.append("selection-background = \(selection.hex)") }
+        if let selection = colors.selectionForeground { lines.append("selection-foreground = \(selection.hex)") }
+        if let family = theme.fontFamily, isInstalled(family: family) { lines.append("font-family = \(family)") }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Whether iOS has a font family of that name (the Mac's family may not be on the phone).
+    static func isInstalled(family: String) -> Bool {
+        let wanted = family.trimmingCharacters(in: .whitespaces)
+        guard !wanted.isEmpty, !wanted.contains("\n"), !wanted.contains("\"") else { return false }
+        return UIFont.familyNames.contains { $0.caseInsensitiveCompare(wanted) == .orderedSame }
+            || UIFont(name: wanted, size: 12) != nil
     }
 
     private func scheduleTick() {
