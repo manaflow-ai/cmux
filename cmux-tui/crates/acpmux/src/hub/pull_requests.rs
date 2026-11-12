@@ -23,7 +23,7 @@ static PULL_URL: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// A session keeps at most this many; a runaway loop stops growing its meta here.
-const MAX_PULL_REQUESTS: usize = 200;
+pub(super) const MAX_PULL_REQUESTS: usize = 200;
 
 /// The shell script a tool call runs: `rawInput.command` as a string, or an argv (the script of
 /// `bash -lc SCRIPT`, else the words joined); for a call without one, its title.
@@ -179,6 +179,88 @@ fn is_gh_pr_create(script: &str) -> bool {
         *w == "env" || w.split_once('=').is_some_and(|(k, _)| !k.is_empty() && !k.starts_with('-'))
     });
     matches!((words.next(), words.next(), words.next()), (Some("gh"), Some("pr"), Some("create")))
+}
+
+/// One of the script's top-level commands is `gh pr merge` or `gh pr close` (after `VAR=value`
+/// words or `env`), wherever it stands: what gh printed says which pull request it settled, so
+/// a pipe after it (`2>&1 | tail -3`) or a step before it changes nothing.
+fn is_gh_pr_close(script: &str) -> bool {
+    commands(script).iter().any(|(command, _)| {
+        let mut words = command.split_whitespace().skip_while(|w| {
+            *w == "env"
+                || w.split_once('=').is_some_and(|(k, _)| !k.is_empty() && !k.starts_with('-'))
+        });
+        matches!(
+            (words.next(), words.next(), words.next()),
+            (Some("gh"), Some("pr"), Some("merge" | "close"))
+        )
+    })
+}
+
+/// The lines gh prints once a pull request is settled: `✓ Squashed and merged pull request
+/// o/r#5 (title)` (also `Merged`, `Rebased and merged`, `Closed`), `! Pull request o/r#5 was
+/// already merged` (or `closed`), and a merge wrapper's `merged o/r#5 at SHA`. `--auto`'s "will be
+/// automatically merged" is none of them: nothing is merged yet.
+/// `None` only if the constant pattern failed to build, which its tests rule out.
+static SETTLED: LazyLock<Option<Regex>> = LazyLock::new(|| {
+    Regex::new(
+        r"(?m)(?:(?:Squashed and merged|Rebased and merged|Merged|Closed) pull request |Pull request |^merged )([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)#([0-9]+)(?: was already (?:merged|closed)| at [0-9a-f]{7,}|[ ]\(|$)",
+    )
+    .ok()
+});
+
+/// The pull requests `output` says gh merged or closed, as their URLs, once each.
+fn settled_urls(output: &str) -> Vec<String> {
+    let mut urls: Vec<String> = vec![];
+    let Some(settled) = SETTLED.as_ref() else { return urls };
+    for found in settled.captures_iter(output) {
+        let url = format!("https://github.com/{}/pull/{}", &found[1], &found[2]);
+        if !urls.contains(&url) {
+            urls.push(url);
+        }
+    }
+    urls
+}
+
+/// Notes a `tool_call` or `tool_call_update` into `m`: a shell call that runs `gh pr merge` or
+/// `gh pr close` is remembered, and the pull requests its output says it merged or closed join
+/// `m.closed_pull_requests` once it completes, whoever's session opened them. Returns the URLs
+/// that joined it, for the review queue (`review_queue.rs`).
+pub(super) fn absorb_closed(session: &Session, update: &Value, m: &mut SessionMeta) -> Vec<String> {
+    let mut calls = session.pr_closes.lock().unwrap_or_else(|e| e.into_inner());
+    let mut joined = vec![];
+    for url in track_closed(&mut calls, update) {
+        if m.closed_pull_requests.contains(&url) {
+            continue;
+        }
+        if m.closed_pull_requests.len() >= MAX_PULL_REQUESTS {
+            m.closed_pull_requests.remove(0);
+        }
+        m.closed_pull_requests.push(url.clone());
+        joined.push(url);
+    }
+    joined
+}
+
+/// Follows one update of a `gh pr merge` or `gh pr close` call in `calls`: the pull requests to
+/// record once the call completes. gh prints its line only on success, so a failed call's line
+/// still counts (a `| tail` after gh makes the call's status the pipe's, not gh's).
+fn track_closed(calls: &mut HashMap<String, Vec<String>>, update: &Value) -> Vec<String> {
+    let Some(id) = update.get("toolCallId").and_then(Value::as_str) else { return vec![] };
+    let execute = update.get("kind").and_then(Value::as_str) == Some("execute");
+    if execute && script(update).is_some_and(|s| is_gh_pr_close(&s)) {
+        calls.entry(id.to_owned()).or_default();
+    }
+    let Some(seen) = calls.get_mut(id) else { return vec![] };
+    for url in settled_urls(&output_text(update)) {
+        if !seen.contains(&url) {
+            seen.push(url);
+        }
+    }
+    match update.get("status").and_then(Value::as_str) {
+        Some("completed" | "failed") => calls.remove(id).unwrap_or_default(),
+        _ => vec![],
+    }
 }
 
 /// The text a tool update reports as its output: `rawOutput.stdout` when the harness keeps stdout
@@ -337,6 +419,69 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn a_gh_pr_merge_or_close_anywhere_in_the_script_counts() {
+        for yes in [
+            "gh pr merge 5 --squash",
+            "gh pr merge 5 --squash --match-head-commit abc 2>&1 | tail -3",
+            "cd /src && GH_HOST=github.com gh pr close 5 -c done",
+            "git fetch; gh pr merge https://github.com/o/r/pull/5",
+        ] {
+            assert!(is_gh_pr_close(yes), "{yes}");
+        }
+        for no in
+            ["grep 'gh pr merge' log", "echo gh pr close 5", "gh pr view 5", "cat merges.log", ""]
+        {
+            assert!(!is_gh_pr_close(no), "{no}");
+        }
+    }
+
+    #[test]
+    fn settled_urls_are_what_gh_says_it_merged_or_closed() {
+        let out = "✓ Squashed and merged pull request o/r#5 (Fix it)\n\
+            ✓ Rebased and merged pull request o/r#6 (x)\n\
+            ✓ Merged pull request a-b/c.d#7 (x)\n\
+            ✓ Closed pull request o/r#8 (x)\n\
+            ! Pull request o/r#9 was already merged\n\
+            ! Pull request o/r#10 was already closed\n\
+            merged o/r#11 at 0123456789ab (head fedcba9876)\n\
+            ✓ Squashed and merged pull request o/r#5 (Fix it)\n";
+        let urls: Vec<String> =
+            (5..=11).map(|n| format!("https://github.com/o/r/pull/{n}")).collect();
+        let mut want = urls.clone();
+        want[2] = "https://github.com/a-b/c.d/pull/7".into();
+        assert_eq!(settled_urls(out), want);
+        for none in [
+            "✓ Pull request o/r#5 will be automatically merged via squash when all requirements are met",
+            "! Pull request o/r#5 is not mergeable: the merge commit cannot be cleanly created",
+            "X Pull request o/r#5 is not mergeable",
+            "the branch was merged o/r#5 earlier",
+        ] {
+            assert!(settled_urls(none).is_empty(), "{none}");
+        }
+    }
+
+    #[test]
+    fn a_closed_pull_request_counts_once_its_call_ends() {
+        let mut calls = std::collections::HashMap::new();
+        let start = json!({"toolCallId": "t1", "kind": "execute",
+            "rawInput": {"command": "gh pr merge 5 --squash 2>&1 | tail -2"}});
+        let printed = json!({"toolCallId": "t1", "status": "in_progress",
+            "rawOutput": {"stdout": "✓ Squashed and merged pull request o/r#5 (x)\n"}});
+        assert!(track_closed(&mut calls, &start).is_empty());
+        assert!(track_closed(&mut calls, &printed).is_empty());
+        // gh printed it, so it merged, whatever the pipe after it exited with.
+        assert_eq!(
+            track_closed(&mut calls, &json!({"toolCallId": "t1", "status": "failed"})),
+            vec!["https://github.com/o/r/pull/5".to_owned()]
+        );
+        assert!(calls.is_empty());
+        // Another call's output says nothing.
+        let other = json!({"toolCallId": "t2", "status": "completed",
+            "rawOutput": {"stdout": "✓ Closed pull request o/r#6 (x)\n"}});
+        assert!(track_closed(&mut calls, &other).is_empty());
     }
 
     #[test]

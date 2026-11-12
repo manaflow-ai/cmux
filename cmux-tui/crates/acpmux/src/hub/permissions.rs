@@ -400,6 +400,9 @@ impl Hub {
                     self.review_index.note_pr(&session.id, &url, at);
                     self.ledger.note_pull_request(&session.id, &url);
                 }
+                for url in super::pull_requests::absorb_closed(session, update, &mut m) {
+                    self.review_index.note_closed(&url);
+                }
                 super::touched::absorb(session, update, &mut m, replayed);
                 super::lineage::note_tool_call(session, update);
             }
