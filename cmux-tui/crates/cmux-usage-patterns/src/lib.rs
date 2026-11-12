@@ -340,6 +340,9 @@ pub struct Recorder {
     path: PathBuf,
     config: PathBuf,
     enabled: AtomicBool,
+    /// One reread of the setting at a time ([`Recorder::refresh_gate`]): the
+    /// watch's thread and the writer thread both reread it.
+    reread: Mutex<()>,
     state: Mutex<State>,
     wake: Wake,
 }
@@ -376,6 +379,7 @@ impl Recorder {
             path,
             config,
             enabled: AtomicBool::new(false),
+            reread: Mutex::new(()),
             wake: Wake::default(),
             state: Mutex::new(State {
                 written: loaded.is_some(),
@@ -444,6 +448,8 @@ impl Recorder {
     /// The writer thread's loop ([`install`]): waits with no timeout until a
     /// count or a setting change, then writes what was counted
     /// [`FLUSH_EVERY`] after the last write (at once when counting stopped).
+    /// It rereads the setting before each timed write, so a recorder with no
+    /// watch stops counting at that write when the setting went off.
     /// Returns only when `stop` says so (tests); the installed one never does.
     pub fn run_writer(&self, flush_every: Duration, stop: &dyn Fn() -> bool) {
         loop {
@@ -482,6 +488,10 @@ impl Recorder {
             // woke this wait included.
             *pending = false;
             drop(pending);
+            // A recorder whose watch did not start ([`watch_gate`] gave None)
+            // has no other reader of the setting. The thread is awake for a
+            // write here, so this adds no wake: one `metadata` call a write.
+            self.refresh_gate();
             let _ = self.flush();
         }
     }
@@ -494,6 +504,10 @@ impl Recorder {
     /// Rereads the setting when its file changed (size or modification
     /// time). Returns whether counting is on.
     pub fn refresh_gate(&self) -> bool {
+        // Held from the stamp to the swap: a second caller that read the file
+        // earlier cannot store its older answer after a newer one. A count
+        // never takes this lock, so it never waits for the file read.
+        let _reread = self.reread.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let stamp =
             std::fs::metadata(&self.config).ok().map(|meta| (meta.modified().ok(), meta.len()));
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -605,7 +619,11 @@ pub fn install(writer: &str) -> Option<Arc<Recorder>> {
 /// whenever the file changes: written in place, replaced by rename (editors,
 /// the settings writer), created later, or its folder created later
 /// (`cmux_config::watch` watches the nearest existing folder until then).
-/// None when the watch cannot start; the setting is then read only at start.
+/// None when the watch cannot start. The writer thread then rereads the
+/// setting at each timed write ([`Recorder::run_writer`]): counting stops at
+/// most [`FLUSH_EVERY`] after the first count that follows the change to off.
+/// A change to on is then read only at the next start, because a recorder that
+/// counts nothing has no thread awake to read it.
 pub fn watch_gate(recorder: &Arc<Recorder>) -> Option<cmux_config::watch::Watcher> {
     let gate = Arc::clone(recorder);
     cmux_config::watch::Watcher::start(vec![recorder.config.clone()], move || {
