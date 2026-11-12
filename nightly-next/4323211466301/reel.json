@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4323211466301",
+  "notes": "notes/4323211466301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41602,
+      "title": "Agent chat: cold-restart settle harness; fresh page tail on every lost connection",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41597,
+      "title": "Agent chat: a finished turn folds in order around a message that came in mid-turn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41870,
+      "title": "acpmux: the chats page's text follows a transcript from its last read, so a 1 GB chat costs what a small one does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41882,
+      "title": "acpmux: god and small homes, a heap profile of the daemon over them, and gauges in daemon status",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41938,
+      "title": "acpmux: RootEntries exists only on macOS, where the folder watch sends it (fixes feat clippy)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41937,
+      "title": "acpmux: reply segments survive usage ticks and hidden todo calls (#41540 review F1, F2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42027,
+      "title": "cmux-tui tests: a running daemon follows the usage patterns setting, and one that counts stays idle",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41580,
+      "title": "acpmux: a session-list page costs its own rows, not every chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41831,
+      "title": "Jump up: set where you left off only after idle and a screen of new content; never with Jump to latest",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41988,
+      "title": "cmux-next-ios: the unreachable notice stops chattering; a growing draft stays in the composer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41806,
+      "title": "Agent chat: a long chat costs the same per update at any length; a rebuild's cut never splits a row or a subagent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41795,
+      "title": "tests: sys.modules snapshots tell an absent name from a stored None",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41793,
+      "title": "acpmux: a chat's settled view, written at turn end and answered first by a settled attach (hq#9655 stage 1, slice A)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
