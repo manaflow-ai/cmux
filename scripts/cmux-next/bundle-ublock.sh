@@ -31,4 +31,23 @@ if ! src="$("$script_dir/fetch-ublock.sh")" || [[ ! -f "$src/manifest.json" ]]; 
 fi
 mkdir -p "$dest"
 /usr/bin/rsync -a --delete "$src/" "$dest/"
-echo "bundled uBlock Origin from $src"
+# uBlock ships 72 _locales catalogs (3.8 MB); keep the ones CEF keeps for cmux's 21 languages
+# (cef-locale-allowlist.sh), so its UI speaks the language Chromium does. Chromium reads the
+# browser locale's catalog and falls back to the manifest's default_locale, which is always kept.
+# shellcheck source=scripts/cmux-next/cef-locale-allowlist.sh
+source "$script_dir/cef-locale-allowlist.sh"
+keep="$(cef_locale_allowlist)"
+default_locale="$(/usr/bin/python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("default_locale", "en"))' "$dest/manifest.json")"
+removed=0
+for locale_dir in "$dest/_locales"/*/; do
+  locale="$(basename "$locale_dir")"
+  case $'\n'"$keep"$'\n'"$default_locale"$'\n' in
+    *$'\n'"$locale"$'\n'*) ;;
+    *) rm -rf "$locale_dir"; removed=$((removed + 1)) ;;
+  esac
+done
+# GPL-3.0 section 5(a): a modified copy says so.
+printf '%s\n' "cmux modified this copy of uBlock Origin: it removed the _locales catalogs of languages" \
+  "cmux does not ship ($removed of them; scripts/cmux-next/bundle-ublock.sh). Everything else is the" \
+  "release SOURCE.txt names, unchanged." > "$dest/CMUX-MODIFICATIONS.txt"
+echo "bundled uBlock Origin from $src ($removed locale catalogs removed)"
