@@ -107,6 +107,14 @@ describe("the login installer is idempotent", () => {
       // Installed again on top of its own install: success.
       expect(s.install(TOKEN_A, "user_a").code).toBe(0);
 
+      // The probe's case (hq run 43141069827): after the install, something points Claude at a loopback endpoint. The
+      // same account's same login is still a no-op success; it sends nothing new there. Another account's still refuses.
+      const installed = s.settings();
+      writeFileSync(settingsPath, JSON.stringify({ ...installed, env: { ...installed.env, ANTHROPIC_BASE_URL: "http://127.0.0.1:1" } }));
+      expect(s.install(TOKEN_A, "user_a")).toEqual({ code: 0, payloadLeft: false });
+      expect(s.settings().env.ANTHROPIC_BASE_URL).toBe("http://127.0.0.1:1");
+      expect(s.install(TOKEN_B, "user_b")).toEqual({ code: 72, payloadLeft: false });
+
       writeFileSync(settingsPath, JSON.stringify({ env: { ANTHROPIC_BASE_URL: "https://my-proxy.example.test" } }));
       expect(s.install(TOKEN_B, "user_b")).toEqual({ code: 72, payloadLeft: false });
       expect(s.settings().env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
