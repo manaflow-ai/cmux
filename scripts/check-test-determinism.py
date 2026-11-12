@@ -4310,7 +4310,7 @@ _TRAP_STATUS_RESTORE = re.compile(r"\(\s*exit\b|^\s*return\s+\S|^\s*\w*(?:return
 _TRAP_RERAISE = re.compile(r"\(\s*exit\b|^\s*(?:exit|return)\b")
 _TRAP_ERREXIT_OFF = re.compile(r"^\s*set\s+\+[a-zA-Z]*e")
 # A step that cleans up: removes files, stops a process, removes a worktree, or runs the caller's/a cleanup action.
-_TRAP_CLEANUP = re.compile(r"\b(?:rm|rmdir|kill|pkill|umount|eval)\b|worktree\s+remove|\w*(?:cleanup|remove|teardown)\w*")
+_TRAP_CLEANUP = re.compile(r"\b(?:rm|rmdir|p?kill|umount|eval)\b|worktree\s+remove|\w*(?:cleanup|remove|teardown)\w*")
 
 
 def _trap_statements(action: str) -> list[str]:
