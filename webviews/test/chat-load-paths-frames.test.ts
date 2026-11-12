@@ -15,6 +15,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { AcpmuxDirectClient, type EventRecord } from "../src/agent-session/acpmux/direct";
 import { rowFrameKey, type AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { prng } from "../bench/godFixture";
 import { FakeDaemon, logFor, VirtualClock } from "../bench/stateGrowth";
 
 const CHAT = "load-chat";
@@ -53,13 +54,20 @@ type Run = {
   clock: VirtualClock;
   /// The chat's records after the ones the daemon held at open, to stream in.
   live: EventRecord[];
+  /// The share of streamed records the pane never gets (acpmux drops a slow client's chunks; never a turn's result,
+  /// which starts the repair read), and the seeded draw.
+  lose: number;
+  random: () => number;
+  /// What the path did, so a path that silently does nothing fails: records streamed, older pages that added rows.
+  streamed: number;
+  pagedIn: number;
 };
 
 const isMessage = (row: AcpmuxRow) => row.kind === "user" || row.kind === "assistant";
 
 /// Opens CHAT (its first `heldTurns` turns in the daemon's log, the rest in `live`) with OTHER beside it, and records
 /// every snapshot's prompt and reply frames.
-async function open(heldTurns: number, snapshots: Snapshot[]): Promise<Run> {
+async function open(heldTurns: number, snapshots: Snapshot[], lose: number, seed: number): Promise<Run> {
   clock = new VirtualClock().install();
   const daemon = new FakeDaemon();
   const events = chunked(CHAT, 30);
@@ -88,7 +96,7 @@ async function open(heldTurns: number, snapshots: Snapshot[]): Promise<Run> {
   for (let step = 0; step < 200 && !client; step++) await clock.advance(10);
   await clock.advance(50);
   if (!client) throw new Error("the client did not connect");
-  return { client, daemon, clock, live: events.slice(held) };
+  return { client, daemon, clock, live: events.slice(held), lose, random: prng(seed), streamed: 0, pagedIn: 0 };
 }
 
 /// Streams `count` live records (all when unset) into the chat, 16 ms apart.
@@ -96,8 +104,10 @@ async function stream(run: Run, count = run.live.length, during?: (index: number
   const session = run.daemon.sessions.get(CHAT)!;
   const batch = run.live.splice(0, count);
   for (let index = 0; index < batch.length; index++) {
-    session.history.push(batch[index]!);
-    run.daemon.deliver(batch[index]!);
+    const event = batch[index]!;
+    session.history.push(event);
+    run.streamed += 1;
+    if (event.kind === "turn_result" || run.random() >= run.lose) run.daemon.deliver(event);
     await during?.(index);
     await run.clock.advance(16);
   }
@@ -106,11 +116,16 @@ async function stream(run: Run, count = run.live.length, during?: (index: number
 /// Pages older history in until none is left (or `pages` pages).
 async function pageAll(run: Run, pages = 40) {
   for (let page = 0; page < pages; page++) {
+    const from = historyFrom(run);
     const read = run.client.loadOlder();
     await run.clock.advance(200);
     await read.catch(() => undefined);
+    if (historyFrom(run) < from) run.pagedIn += 1;
   }
 }
+
+/// The oldest record the pane holds.
+const historyFrom = (run: Run) => (run.client as unknown as { firstSeq?: number }).firstSeq ?? Infinity;
 
 async function switchAwayAndBack(run: Run) {
   const away = run.client.select(OTHER);
@@ -127,27 +142,51 @@ async function reconnect(run: Run) {
 }
 
 /// The load paths, each from an open of a chat with older history left. One row per way the pane loads a chat.
-const PATHS: Record<string, (run: Run) => Promise<void>> = {
-  "cold open, then settle": async () => undefined,
-  "page every older page in": (run) => pageAll(run),
-  "page older history in while a reply streams": (run) =>
-    stream(run, 400, async (index) => {
-      if (index % 40 === 0) void run.client.loadOlder().catch(() => undefined);
-    }),
-  "a reply streams, then its turn ends and is read back": (run) => stream(run),
-  "switch to another chat and back": (run) => switchAwayAndBack(run),
-  "page in, then switch away and back": async (run) => {
-    await pageAll(run, 4);
-    await switchAwayAndBack(run);
+/// `pages` and `streams`: the path must page older history in, or stream records, or it tested nothing.
+type Path = { drive: (run: Run) => Promise<void>; pages?: boolean; streams?: boolean };
+const PATHS: Record<string, Path> = {
+  "cold open, then settle": { drive: async () => undefined },
+  "page every older page in": { drive: (run) => pageAll(run), pages: true },
+  "page older history in while a reply streams": {
+    drive: async (run) => {
+      await stream(run, 400, async (index) => {
+        if (index % 40 === 0) await pageAll(run, 1);
+      });
+    },
+    pages: true,
+    streams: true,
   },
-  "reconnect while idle": (run) => reconnect(run),
-  "reconnect while a reply streams": (run) =>
-    stream(run, 400, async (index) => {
-      if (index === 200) await reconnect(run);
-    }),
-  "page in, then reconnect": async (run) => {
-    await pageAll(run, 4);
-    await reconnect(run);
+  "a reply streams, then its turn ends and is read back": { drive: (run) => stream(run), streams: true },
+  "switch to another chat and back": { drive: (run) => switchAwayAndBack(run) },
+  "page in, then switch away and back": {
+    drive: async (run) => {
+      await pageAll(run, 4);
+      await switchAwayAndBack(run);
+    },
+    pages: true,
+  },
+  "stream, switch away and back, stream on": {
+    drive: async (run) => {
+      await stream(run, 200);
+      await switchAwayAndBack(run);
+      await stream(run);
+    },
+    streams: true,
+  },
+  "reconnect while idle": { drive: (run) => reconnect(run) },
+  "reconnect while a reply streams": {
+    drive: (run) =>
+      stream(run, 400, async (index) => {
+        if (index === 200) await reconnect(run);
+      }),
+    streams: true,
+  },
+  "page in, then reconnect": {
+    drive: async (run) => {
+      await pageAll(run, 4);
+      await reconnect(run);
+    },
+    pages: true,
   },
 };
 
@@ -172,16 +211,28 @@ function judge(snapshots: Snapshot[], sessionId: string): string[] {
   return found;
 }
 
-for (const [name, drive] of Object.entries(PATHS))
+for (const [name, path] of Object.entries(PATHS))
   test(`no prompt or reply leaves and comes back, and no blank, when: ${name}`, async () => {
-    const snapshots: Snapshot[] = [];
-    const run = await open(24, snapshots);
-    await drive(run);
-    // Long enough for every repair read and its retries, and a reconnect's backoff.
-    await run.clock.advance(120_000);
-    run.client.close();
-    expect(snapshots.some((snapshot) => snapshot.sessionId === CHAT && snapshot.frames.size > 0)).toBe(true);
-    expect(judge(snapshots, CHAT)).toEqual([]);
+    const failures: string[] = [];
+    for (const lose of [0, 0.05, 0.15])
+      for (const seed of [1, 2, 3]) {
+        const snapshots: Snapshot[] = [];
+        const run = await open(24, snapshots, lose, seed);
+        await path.drive(run);
+        // Long enough for every repair read and its retries, and a reconnect's backoff.
+        await run.clock.advance(120_000);
+        run.client.close();
+        clock?.uninstall();
+        clock = undefined;
+        const label = `lose ${lose} seed ${seed}`;
+        if (!snapshots.some((snapshot) => snapshot.sessionId === CHAT && snapshot.frames.size > 0))
+          failures.push(`${label}: the chat never drew a prompt or reply`);
+        if (path.pages && run.pagedIn === 0) failures.push(`${label}: no older page came in`);
+        if (path.streams && run.streamed === 0) failures.push(`${label}: nothing streamed`);
+        const found = judge(snapshots, CHAT);
+        if (found.length) failures.push(`${label}: ${found.length} flips or blanks: ${found.slice(0, 6).join("; ")}`);
+      }
+    expect(failures).toEqual([]);
   });
 
 // The judge itself: a frame that leaves and comes back, and a blank, are each found; a switch away is not a flip.
