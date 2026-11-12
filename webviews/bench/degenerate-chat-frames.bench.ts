@@ -343,7 +343,7 @@ async function openScrollFling(ctx: Ctx, fixture: Fixture): Promise<Phase[]> {
       fixture: fixture.name,
       phase: "fling",
       ...phaseStats(buffers.frames, buffers.long, flingFrom, flingTo),
-      note: `${fling.distance_px ?? "?"} px over ${FLING_S} s, ${fling.viewports_per_frame ?? "?"} viewports/frame, ${fling.rows ?? "?"} rows${fling.error ? ` (${String(fling.error)})` : ""}`,
+      note: `${String(fling.distance_px ?? "?")} px over ${FLING_S} s, ${String(fling.viewports_per_frame ?? "?")} viewports/frame, ${String(fling.rows ?? "?")} rows${fling.error ? ` (${String(fling.error)})` : ""}`,
     });
   } finally {
     await page.close();
@@ -440,7 +440,8 @@ async function startTrace(cdp: CDPSession, file: string): Promise<() => Promise<
           eof: boolean;
           base64Encoded?: boolean;
         };
-        fs.writeSync(out, base64Encoded ? Buffer.from(data, "base64") : data);
+        if (base64Encoded) fs.writeSync(out, Buffer.from(data, "base64"));
+        else fs.writeSync(out, data);
         if (eof) break;
       }
     } finally {
@@ -464,7 +465,11 @@ export function traceSelfTimes(
   for (const event of events) {
     if (event.name !== "ProfileChunk") continue;
     const key = `${event.pid}:${event.id}`;
-    const profile = profiles.get(key) ?? { nodes: new Map(), samples: [], deltas: [] };
+    const profile = profiles.get(key) ?? {
+      nodes: new Map<number, ProfileNode>(),
+      samples: [] as number[],
+      deltas: [] as number[],
+    };
     profiles.set(key, profile);
     const data = event.args?.data as
       | { cpuProfile?: { nodes?: ProfileNode[]; samples?: number[] }; timeDeltas?: number[] }
