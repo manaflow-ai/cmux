@@ -53,8 +53,9 @@ try {
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
             timeout: 90_000,
           });
+          // Only one of the pair shows at a time (jumpUp.ts): these variants park the reader mid-chat,
+          // where Jump to latest shows and Jump up waits.
           await page.waitForSelector(".acpmux-jump-latest:not(.acpmux-jump-up)[data-shown]", { timeout: 30_000 });
-          if (variant !== "single") await page.waitForSelector(".acpmux-jump-up[data-shown]", { timeout: 30_000 });
           await page.waitForTimeout(600);
           await page.screenshot({ path: path.join(out, `${variant}-${scheme}.png`) });
           const latest = await page.locator(".acpmux-jump-latest:not(.acpmux-jump-up)").boundingBox();

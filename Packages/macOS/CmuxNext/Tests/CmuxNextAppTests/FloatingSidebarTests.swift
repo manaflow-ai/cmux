@@ -199,6 +199,55 @@ import Testing
         try await until("resting on the edge floats the sidebar") { model.isFloating }
     }
 
+    /// Lawrence 2026-11-11 (msg 29542): "when hiding sidebar, and my mouse is near left side of screen, it kinda hides
+    /// and reappears". Hiding puts the edge zone under a pointer that is already on the window's edge: its probe reads
+    /// "inside" at once, and the open delay floated the sidebar straight back. Only an entry opens it: the zone
+    /// appearing under the pointer does not count until the pointer has left it once.
+    @Test func hidingUnderAPointerOnTheEdgeDoesNotFloatItBack() async throws {
+        let clock = ManualClock()
+        let model = SidebarModel() // shown
+        let reveal = FloatingSidebarReveal(model: model, clock: clock)
+        model.presentation = .hidden
+        // The zone appears under the still pointer (`HoverRevealProbe.readPointer`), then the window's layout reconciles.
+        reveal.setEdgeEngaged(true)
+        reveal.reconcile()
+        try? await clock.waitForSleeper(within: .milliseconds(300))
+        clock.advance(by: FloatingSidebarReveal.openDelay)
+        try? await clock.waitForSleeper(within: .milliseconds(100))
+        #expect(!model.isFloating, "the sidebar the person just hid floated back under a pointer that never moved in")
+        // A real entry after the hide floats it.
+        reveal.setEdgeEngaged(false)
+        reveal.setEdgeEngaged(true)
+        try await clock.waitForSleeper()
+        clock.advance(by: FloatingSidebarReveal.openDelay)
+        try await until("an entry after the hide floats it") { model.isFloating }
+    }
+
+    /// The hide's slide is not over yet: an edge entry during it opens nothing (it reads as part of the hide, not a
+    /// peek), and the pointer still there when the slide lands has not entered either.
+    @Test func noFloatWhileTheHideSlideRuns() async throws {
+        let clock = ManualClock()
+        let model = SidebarModel()
+        let reveal = FloatingSidebarReveal(model: model, clock: clock)
+        var settling = true
+        reveal.isSettling = { settling }
+        model.presentation = .hidden
+        reveal.reconcile()
+        reveal.setEdgeEngaged(true) // moved onto the edge mid-slide
+        try? await clock.waitForSleeper(within: .milliseconds(300))
+        clock.advance(by: FloatingSidebarReveal.openDelay)
+        settling = false
+        reveal.reconcile() // the slide's last frame
+        try? await clock.waitForSleeper(within: .milliseconds(100))
+        clock.advance(by: FloatingSidebarReveal.openDelay)
+        #expect(!model.isFloating, "an edge reached during the hide's slide floated the sidebar back")
+        reveal.setEdgeEngaged(false)
+        reveal.setEdgeEngaged(true)
+        try await clock.waitForSleeper()
+        clock.advance(by: FloatingSidebarReveal.openDelay)
+        try await until("an entry after the slide floats it") { model.isFloating }
+    }
+
     @Test func leavingClosesAfterTheGraceDelayAndReturningKeepsIt() async throws {
         let clock = ManualClock()
         let model = SidebarModel()

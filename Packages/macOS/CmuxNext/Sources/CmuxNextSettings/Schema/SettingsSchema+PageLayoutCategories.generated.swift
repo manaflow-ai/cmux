@@ -104,8 +104,7 @@ extension SettingsPageLayout {
     private static let newTabCategory = CategorySpec(
         id: "newTab", title: SettingsText.keyed("settings.pageGroup.newTabPage", "New Tab Page"), symbol: "plus.square",
         groups: [
-            GroupSpec(keys: ["tabs.newTabTemplate", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying", "tabs.newTabWidgets.greeting", "tabs.newTabWidgets.warmGreeting", "tabs.newTabWidgets.styleDots", "tabs.newTabWidgets.order"], title: SettingsText.keyed("settings.pageGroup.newTabPage", "New Tab Page")),
-            GroupSpec(keys: ["tabs.newTabWidgets.projects", "tabs.newTabWidgets.actions", "tabs.newTabWidgets.chats", "tabs.newTabWidgets.machines", "tabs.newTabWidgets.weather", "tabs.newTabWidgets.weatherCity", "tabs.newTabWidgets.clock", "tabs.newTabWidgets.timer", "tabs.newTabWidgets.quote"], title: SettingsText.keyed("settings.pageGroup.newTabWidgets", "New Tab Widgets")),
+            GroupSpec(keys: ["tabs.newTabTemplate", "tabs.nativeNewTabPage", "sidebar.showChats", "tabs.newTabNowPlaying"], title: SettingsText.keyed("settings.pageGroup.newTabPage", "New Tab Page")),
         ]
     )
 

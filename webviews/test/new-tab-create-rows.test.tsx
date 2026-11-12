@@ -12,7 +12,13 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../src/agent-session/acpmux/omnibar";
-import { inStrip, screenRows, type ScreenRow } from "../src/agent-session/acpmux/newtab/screenModel";
+import {
+  arrowStep,
+  inStrip,
+  screenRows,
+  stripStep,
+  type ScreenRow,
+} from "../src/agent-session/acpmux/newtab/screenModel";
 import type { SuggestionOrder } from "../src/agent-session/acpmux/newtab/suggestionOrder";
 import { teardownDom } from "./support/domTeardown";
 
@@ -64,6 +70,29 @@ test("the strip rows come last, so the arrow keys reach them after the rows", ()
   const rows = screenRows("ff", context(scratch));
   expect(rows.slice(-3).map(inStrip)).toEqual([true, true, true]);
   expect(rows.slice(0, -3).some(inStrip)).toBe(false);
+});
+
+test("↑ and ↓ take the strip as one line, entered at the column ← and → chose", () => {
+  // ask, workspace, search, then the strip: terminal (3), browser (4), chat (5).
+  const rows = screenRows("ff", context(scratch));
+  expect(arrowStep(rows, -1, 1)).toBe(0);
+  expect(arrowStep(rows, 2, 1)).toBe(3);
+  expect(arrowStep(rows, 2, 1, 2)).toBe(5);
+  expect(arrowStep(rows, 2, 1, 9)).toBe(5);
+  expect(arrowStep(rows, -1, -1, 1)).toBe(4);
+  // From any strip action, ↓ wraps to the first row and ↑ goes to the last row.
+  for (const at of [3, 4, 5]) {
+    expect(arrowStep(rows, at, 1)).toBe(0);
+    expect(arrowStep(rows, at, -1)).toBe(2);
+  }
+  expect(stripStep(rows, 3, 1)).toBe(4);
+  expect(stripStep(rows, 5, 1)).toBe(5);
+  expect(stripStep(rows, 3, -1)).toBe(3);
+  expect(stripStep(rows, 1, 1)).toBeUndefined();
+  expect(stripStep(rows, -1, 1)).toBeUndefined();
+  // No strip (chat-first order): plain rows, one step each.
+  const chat = screenRows("ff", context(scratch, "chat"));
+  expect(arrowStep(chat, 3, 1, 2)).toBe(4);
 });
 
 test("an empty field and shell mode still show no rows and no strip", () => {
@@ -192,17 +221,66 @@ test("a create action opens what its button opens, from the strip or a named row
 
   calls.length = 0;
   await render(calls);
-  // Up from the top row goes back to the text; from there Up takes the last row, the strip's New
-  // chat, which Return takes.
+  // Up from the top row goes back to the text; from there Up takes the last line, the strip, at
+  // its first action. → steps along it, and Return takes the action the arrows picked.
   const field2 = await type("ff");
-  for (let press = 0; press < 2; press += 1)
-    await act(async () =>
-      field2.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true, cancelable: true })),
-    );
-  const selected = rows().find((row) => row.getAttribute("aria-selected") === "true")!;
-  expect(label(selected)).toBe("New chat");
-  await act(async () =>
-    field2.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true })),
-  );
-  expect(calls).toEqual([["ask", "claude", "ff", undefined, "claude-opus-5-5"]]);
+  for (let press = 0; press < 2; press += 1) await key(field2, "ArrowUp");
+  expect(label(selectedRow())).toBe("New terminal");
+  await key(field2, "ArrowRight");
+  await key(field2, "Enter");
+  expect(calls).toEqual([["create", "browser"]]);
+});
+
+const key = (field: Element, name: string) =>
+  act(async () => {
+    field.dispatchEvent(new window.KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true }));
+  });
+const selectedRow = () => rows().find((row) => row.getAttribute("aria-selected") === "true")!;
+
+test("Down reaches the create strip as one line, and ← and → step along it", async () => {
+  await render([]);
+  const field = await type("ff");
+  const seen: string[] = [];
+  const press = async (name: string) => {
+    await key(field, name);
+    seen.push(label(selectedRow()));
+  };
+  // Ask, ff-scratch, Search the web, then the strip at New terminal; one more Down wraps to Ask,
+  // never New browser tab.
+  for (const name of ["ArrowDown", "ArrowDown", "ArrowDown", "ArrowDown"]) await press(name);
+  expect(seen.splice(0)).toEqual(["ff-scratch", "Search the web for ff", "New terminal", "Ask Claude Code"]);
+  // Along the strip, stopping at its ends; Up leaves it for the last row, Down comes back at the
+  // action ← and → last chose.
+  await key(field, "ArrowUp");
+  await key(field, "ArrowUp");
+  for (const name of ["ArrowRight", "ArrowRight", "ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown"]) await press(name);
+  expect(seen).toEqual([
+    "New browser tab",
+    "New chat",
+    "New chat",
+    "New browser tab",
+    "Search the web for ff",
+    "New browser tab",
+  ]);
+});
+
+test("Tab to a strip action counts too: Up then Down comes back to it", async () => {
+  await render([]);
+  const field = await type("ff");
+  // Ask is selected; Tab steps every option: ff-scratch, Search, New terminal, New browser tab, New chat.
+  for (let press = 0; press < 5; press += 1) await key(field, "Tab");
+  expect(label(selectedRow())).toBe("New chat");
+  await key(field, "ArrowUp");
+  expect(label(selectedRow())).toBe("Search the web for ff");
+  await key(field, "ArrowDown");
+  expect(label(selectedRow())).toBe("New chat");
+});
+
+test("← and → on a listed row leave the strip alone and give the arrows back to the text", async () => {
+  await render([]);
+  const field = await type("ff");
+  await key(field, "ArrowDown");
+  expect(label(selectedRow())).toBe("ff-scratch");
+  await key(field, "ArrowRight");
+  expect(rows().some((row) => row.getAttribute("aria-selected") === "true" && strip().includes(row))).toBe(false);
 });
