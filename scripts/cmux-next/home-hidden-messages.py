@@ -32,6 +32,7 @@ import re
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from home_pixels import SKIPPED, check_rows  # noqa: E402
 import home_classic  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -234,7 +235,7 @@ try:
             below = {r["key"] for r in half["rows"][hk.index("preview") + 1:]} if "preview" in hk else set()
             preview = next((r for r in half["rows"] if r["kind"] == "preview"), None)
             if preview:
-                print(f"     thread preview row: {preview['height']} pt", flush=True)
+                safe_print(f"     thread preview row: {preview['height']} pt", flush=True)
             check_rows(check, "thread, half pixel, under the preview", half, half_shot, keys=below, min_rows=1)
 finally:
     if pid:

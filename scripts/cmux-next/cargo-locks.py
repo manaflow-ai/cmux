@@ -290,7 +290,12 @@ def touched_roots(repo: Path, roots: list[str], base: str) -> set[str] | None:
     cargo_files = [path for path in out.split("\0") if PurePosixPath(path).name in ("Cargo.toml", "Cargo.lock")]
     if not cargo_files:
         return set()
-    import tomllib  # Python 3.11; only CI passes --base
+    try:
+        import tomllib  # Python 3.11; only CI passes --base (the pre-push hook's python3 can be macOS's 3.9)
+    except ImportError:
+        print(f"cargo-locks: --base needs Python 3.11+ (tomllib), not {sys.version.split()[0]}; every workspace "
+              "counts as touched", file=sys.stderr)
+        return None
 
     listed = subprocess.run(["git", "-C", str(repo), "ls-files", "-z", "--", "*Cargo.toml"], capture_output=True,
                             check=True).stdout.decode("utf-8", "surrogateescape")
