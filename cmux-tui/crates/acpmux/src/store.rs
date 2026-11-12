@@ -1107,6 +1107,47 @@ pub trait Store: Send + Sync {
             if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
         })
     }
+    /// `scan_kinds` of the records past `after` only: a log load that begins at a restore point
+    /// (`hub/restore_point.rs`). A file store reads from the segment that holds `after + 1`.
+    fn scan_kinds_after(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        if after == 0 {
+            return self.scan_kinds(id, kinds, visit);
+        }
+        self.scan(id, after, &mut |rec| {
+            if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
+        })
+    }
+    /// `scan_kinds_after`, strict as `scan_kinds_strict` is.
+    fn scan_kinds_after_strict(
+        &self,
+        id: &str,
+        after: u64,
+        kinds: &[&str],
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        if after == 0 {
+            return self.scan_kinds_strict(id, kinds, visit);
+        }
+        self.scan_strict(id, after, &mut |rec| {
+            if kinds.contains(&rec.kind.as_str()) { visit(rec) } else { true }
+        })
+    }
+    /// The restore point `id`'s last log load saved (`hub/restore_point.rs`), as saved. None in a
+    /// store that keeps none.
+    fn restore_point(&self, _id: &str) -> Option<Vec<u8>> {
+        None
+    }
+    /// Saves `bytes` as `id`'s restore point, whole or not at all. A store that keeps none
+    /// drops it.
+    fn save_restore_point(&self, _id: &str, _bytes: &[u8]) -> Result<()> {
+        Ok(())
+    }
     /// `scan` from the start, passing each record's head ([`RecordHead`]) until `visit` returns
     /// false; the reader parses only the records it needs (`RecordHead::record`). A file store
     /// reads a head without parsing its line: adopting a host after a restart reads its whole
@@ -1313,6 +1354,9 @@ mod memory;
 pub use memory::MemoryStore;
 
 // ----------------------------------------------------------------- local
+
+/// A chat's restore point, beside its `session.json` (`hub/restore_point.rs`).
+const RESTORE_POINT: &str = "restore-point.json";
 
 pub struct LocalStore {
     root: PathBuf,
@@ -1993,6 +2037,18 @@ impl Store for LocalStore {
         visit: &mut dyn FnMut(EventRecord) -> bool,
     ) -> Result<()> {
         self.scan_kinds_in(id, kinds, true, visit)
+    }
+
+    fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
+        std::fs::read(self.dir(id).join(RESTORE_POINT)).ok()
+    }
+
+    fn save_restore_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        let _open = self.writable()?;
+        let dir = self.dir(id);
+        // A chat whose folder went away (a delete) gets no file of its own again.
+        anyhow::ensure!(dir.is_dir(), "no folder for {id}");
+        write_atomic(&dir.join(RESTORE_POINT), bytes)
     }
 
     fn text_entries(

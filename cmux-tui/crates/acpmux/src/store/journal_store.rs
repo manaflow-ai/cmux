@@ -755,6 +755,12 @@ impl Store for JournalStore {
     fn tail_after(&self, id: &str, after: u64) -> Result<(u64, u64)> {
         self.inner.fenced(|| Store::tail_after(&self.inner.local, id, after))
     }
+    fn restore_point(&self, id: &str) -> Option<Vec<u8>> {
+        Store::restore_point(&self.inner.local, id)
+    }
+    fn save_restore_point(&self, id: &str, bytes: &[u8]) -> Result<()> {
+        Store::save_restore_point(&self.inner.local, id, bytes)
+    }
     fn scan_kinds(
         &self,
         id: &str,
