@@ -23,10 +23,11 @@
 //   scroll would clamp to and the map, find or a jump would aim by, so the transcript places the
 //   rows before the input reaches anything;
 // - the mounted rows, where they are placed or moved, do not reach past the view's end: a close
-//   would show a gap the virtualizer has not mounted rows for, or the transcript's end is in view
-//   or within a screen of it,
+//   would show a gap the virtualizer has not mounted rows for, or the transcript's end is in view,
 //   which the transcript places itself (the bottom pinned while a fold plays there, the room under
 //   the last reply and the dock's); or a close would end the scroll range above the view.
+//   A transcript's end that stays under the view's end shows nothing of that, however near it is:
+//   the rows ride there too, until the frame the last row would end over the view's end.
 // Work per frame is O(mounted rows), never O(transcript rows).
 import { heightFoldInFlight, heightFoldUntil } from "./fold";
 
@@ -129,11 +130,11 @@ export class FoldRide {
     const worn = parseFloat(last.node.style.translate.split(" ")[1] ?? "") || 0;
     const placedBottom = last.node.getBoundingClientRect().bottom - worn;
     const reach = Math.min(placedBottom, placedBottom + shiftOf(last.index));
+    // No wider than that: the ride once stood aside while the transcript's last row was within a
+    // screen of the view's end. A close that brought it there mid-fold then placed every row on each
+    // later frame (a 50-row chat's "Show more": 45 row renders for 21 mounted rows), for an end the
+    // reader never saw.
     if (reach < view.bottom) return this.release();
-    // The transcript's last row within a screen of the view's end: the end's room and its hold on
-    // the latest row are the transcript's to place.
-    if (Number(last.node.getAttribute("aria-setsize")) === last.index && reach < view.bottom + view.height)
-      return this.release();
     // A row still playing its own animation (a live row's entry) may set its translate itself, over
     // the one the ride would write: the transcript places the rows while it plays.
     if (rows.some(({ node, index }) => Math.abs(shiftOf(index)) >= 0.01 && animating(node))) return this.release();
