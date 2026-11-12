@@ -190,6 +190,8 @@ class GalleryHealthBaseReds(unittest.TestCase):
         upload = next(entry for entry in job["steps"] if entry.get("name") == "Upload the base gallery")
         fetch = step("Fetch the base gallery")
         self.assertEqual(upload["with"]["name"], fetch["with"]["name"])
+        # A whole-workflow rerun uploads the same name again under the same run (review F1 of #41429).
+        self.assertIs(upload["with"].get("overwrite"), True)
         self.assertEqual(fetch["with"]["path"], "${{ runner.temp }}/base-gallery")
         self.assertIs(fetch.get("continue-on-error"), True)
         self.assertIn("steps.render.outcome == 'failure'", fetch["if"])

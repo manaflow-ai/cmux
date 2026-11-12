@@ -21,6 +21,7 @@ import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { useNativePopup, type NativePopupDescription, type NativePopupEvent } from "./nativePopup";
 import { popupAction } from "./popupDescriptors";
 import { cx } from "./cx";
+import { MenuCheckGlyph } from "./MenuCheckGlyph";
 import { useScrollEdges } from "./scrollEdges";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { popupCollision, type UiPopupFlip } from "./openSide";
@@ -603,7 +604,9 @@ export function MenuCheckboxItem({ className, disabled, checked, onCheckedChange
       }}
     >
       <span className="ui-menu-check" aria-hidden="true">
-        <BaseMenu.CheckboxItemIndicator>✓</BaseMenu.CheckboxItemIndicator>
+        <BaseMenu.CheckboxItemIndicator>
+          <MenuCheckGlyph />
+        </BaseMenu.CheckboxItemIndicator>
       </span>
       {children}
     </BaseMenu.CheckboxItem>
@@ -659,7 +662,9 @@ export function MenuRadioItem({
       }}
     >
       <span className="ui-menu-check" aria-hidden="true">
-        <BaseMenu.RadioItemIndicator>✓</BaseMenu.RadioItemIndicator>
+        <BaseMenu.RadioItemIndicator>
+          <MenuCheckGlyph />
+        </BaseMenu.RadioItemIndicator>
       </span>
       {children}
       {shortcut ? <span className="ui-menu-shortcut">{shortcut}</span> : null}

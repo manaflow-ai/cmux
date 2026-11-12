@@ -78,6 +78,40 @@ Detectors (all line/regex heuristics, never an AST):
   lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-$UID-v1.gitconfig,
   and a file planted there with core.hooksPath ran a hook in every fixture
   repo. Make the path with mktemp -d / tempfile.mkdtemp instead.
+- git-fixture-exit-trap: a shell test that sources
+  scripts/cmux-next/tests/lib/git-fixture.sh and then sets `trap ... EXIT`
+  itself. That replaces the helper's EXIT trap, so its private
+  GIT_CONFIG_GLOBAL folder is never removed (Codex F2 on cmux#40939:
+  web-bundles-readonly-sources.test.sh's `trap cleanup EXIT`). Call
+  `git_fixture_trap_exit CMD` instead; it runs CMD after the helper's cleanup.
+- wall-clock-expiry (Rust): a test sets something to expire a few seconds
+  or less ahead on the real clock (`now_ms() + 50`, under 10 s) and then waits
+  the expiry out on that clock: a `while ... now_ms()` loop, or a sleep at the
+  test's own level at least as long as the expiry is ahead. The setup and the
+  first check before the wait race the same clock: on a loaded runner the
+  thing had expired before the test first looked at it (cmux#41466,
+  activity_batch_does_not_keep_expired_parent_relationship). Move a test clock
+  past the expiry instead (`store::test_clock::advance`, tokio's start_paused,
+  a ManualClock); a test that uses one is not flagged.
+- flock-released-by-close (Rust): a test takes `flock(f.as_raw_fd(),
+  LOCK_EX)`, frees it only by closing (`drop(f)`, no `LOCK_UN`), and checks at
+  once that the lock is free. A test on another thread that starts a process
+  copies every open descriptor into the child until its exec closes them, and
+  a flock belongs to the open file, so the close leaves the copy holding it
+  for that moment (cmux#41466,
+  a_held_lock_is_alive_a_free_one_is_dead_and_none_is_no_proof). Unlock with
+  `flock(f.as_raw_fd(), LOCK_UN)` before the drop.
+- exec-of-a-file-written-in-process (Rust): a test writes a program itself
+  (`fs::copy(src, &p)`, `fs::write(&p, ...)`) and then runs it
+  (`Command::new(&p)`). While this process holds the write descriptor, a test
+  on another thread that starts a process hands a copy of it to that child
+  until its exec, and running the program then fails with ETXTBSY ("Text file
+  busy"; agent_host::tree's exe_still_names_a_program_whose_file_was_replaced).
+  Have a child write it (`cp`, or `sh -c 'cat >"$1"'` as
+  cmux-tui's test_exec::write_executable does); a hard link writes nothing.
+  Rust files are scanned under RUST_ROOTS, and only their test code: a
+  `*_tests.rs`, `tests.rs` or `tests/` file whole, any other file from its first
+  `#[cfg(test)]` on. They get only these three rules.
 - isolated-import (--strict only): a Python test, run as `python3 -I`, fails to
   import a module that sits beside it or in tests/ (-I puts no script folder on
   sys.path). Each changed test file, and each that loads git_fixture_env, is
@@ -107,6 +141,13 @@ from typing import Iterable, Optional
 # Configuration
 # ---------------------------------------------------------------------------
 
+# Rust trees: scanned for their `.rs` test code only, and only for RUST_RULES.
+RUST_ROOTS: tuple[str, ...] = (
+    "cmux-tui/crates",
+    "cmux-next-ios/rust",
+    "first-party-apps/cloud",
+)
+
 DEFAULT_ROOTS: tuple[str, ...] = (
     "Packages",
     "cmux-next-ios",
@@ -114,6 +155,7 @@ DEFAULT_ROOTS: tuple[str, ...] = (
     "tests_v2",
     "web/tests",
     "webviews/test",
+    *RUST_ROOTS,
 )
 
 # Scanned only for GIT_FIXTURE_RULES: the other rules were never applied there.
@@ -129,7 +171,7 @@ DEFAULT_ALLOWLIST = ".github/test-determinism-allowlist.txt"
 # are broad (sources and tests side by side), so we additionally require a Tests
 # path segment for files under them.
 TESTS_SEGMENT_ROOTS = ("Packages", "cmux-next-ios")
-SCANNED_SUFFIXES = (".swift", ".py", ".sh", ".ts", ".tsx", ".js", ".mjs")
+SCANNED_SUFFIXES = (".swift", ".py", ".sh", ".ts", ".tsx", ".js", ".mjs", ".rs")
 
 IGNORED_PATH_PARTS = (
     "/.build/",
@@ -153,6 +195,10 @@ RULE_GIT_FIXTURE_ENV_DROPPED = "git-fixture-env-dropped"
 RULE_GIT_BARE_REPO_UNMANAGED = "git-bare-repo-unmanaged"
 RULE_ISOLATED_IMPORT = "isolated-import"
 RULE_PREDICTABLE_TMP_PATH = "predictable-tmp-path"
+RULE_GIT_FIXTURE_EXIT_TRAP = "git-fixture-exit-trap"
+RULE_WALL_CLOCK_EXPIRY = "wall-clock-expiry"
+RULE_FLOCK_RELEASED_BY_CLOSE = "flock-released-by-close"
+RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS = "exec-of-a-file-written-in-process"
 
 ALL_RULES = (
     RULE_ASSERT_ON_DURATION,
@@ -166,12 +212,18 @@ ALL_RULES = (
     RULE_GIT_BARE_REPO_UNMANAGED,
     RULE_ISOLATED_IMPORT,
     RULE_PREDICTABLE_TMP_PATH,
+    RULE_GIT_FIXTURE_EXIT_TRAP,
+    RULE_WALL_CLOCK_EXPIRY,
+    RULE_FLOCK_RELEASED_BY_CLOSE,
+    RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS,
 )
+RUST_RULES = (RULE_WALL_CLOCK_EXPIRY, RULE_FLOCK_RELEASED_BY_CLOSE, RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS)
 GIT_FIXTURE_RULES = (
     RULE_GIT_TEMP_REPO_MAINTENANCE,
     RULE_GIT_FIXTURE_ENV_DROPPED,
     RULE_GIT_BARE_REPO_UNMANAGED,
     RULE_PREDICTABLE_TMP_PATH,
+    RULE_GIT_FIXTURE_EXIT_TRAP,
 )
 
 # ---------------------------------------------------------------------------
@@ -4212,6 +4264,35 @@ def detect_git_bare_repo_unmanaged(code_lines: list[str], path_suffix: str) -> l
 
 
 
+# The path may hold spaces inside a substitution: source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh".
+_SH_SOURCES_GIT_FIXTURE = re.compile(r"(?:^|[\s;&|(])(?:source|\.)\s+[^;&|\n]*git-fixture\.sh\b")
+_SH_TRAP = re.compile(r"(?:^|[\s;&|(])trap\s+(?!-[pl]\b)(.*)")
+_SH_QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
+_SH_EXIT_SIGNAL = re.compile(r"(?:^|\s)(?:EXIT|SIGEXIT|0)(?=\s|[;&|)]|$)")
+
+
+def detect_git_fixture_exit_trap(code_lines: list[str], path_suffix: str) -> list[int]:
+    """0-based lines that set an EXIT trap after the file sources lib/git-fixture.sh (it replaces the helper's)."""
+    if path_suffix != ".sh":
+        return []
+    hits: list[int] = []
+    sourced = False
+    for index, line in enumerate(code_lines):
+        if _SH_SOURCES_GIT_FIXTURE.search(line):
+            sourced = True
+            continue
+        if not sourced:
+            continue
+        match = _SH_TRAP.search(line)
+        if not match:
+            continue
+        # The command is quoted (or one word); the signals follow it. Drop quoted text, then the command word.
+        words = _SH_QUOTED.sub(" CMD ", match.group(1)).split(None, 1)
+        if len(words) == 2 and _SH_EXIT_SIGNAL.search(words[1].split(";")[0]):
+            hits.append(index)
+    return hits
+
+
 # A temp base (no word, $, /, . or } before it, so "$TMP/build/tmp/x" is not one) and then a literal name.
 _TMP_BASE_SH = r"""(?<![\w$/.}-])(?:/tmp|/var/tmp|\$TMPDIR|\$\{TMPDIR\}|\$\{TMPDIR:-/tmp/?\})/[\w.$"{-]"""
 _SH_TMP_ASSIGN = re.compile(r"""^\s*(?:export\s+|local\s+|readonly\s+|declare\s+(?:-\w+\s+)?)?\w+=["']?""" + _TMP_BASE_SH)
@@ -4376,6 +4457,9 @@ def _looks_like_test_file(rel_posix: str, root: str) -> bool:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
     if suffix not in SCANNED_SUFFIXES:
         return False
+    # A Rust tree holds only Rust tests for this gate; a Rust file elsewhere follows its root's rules.
+    if root in RUST_ROOTS or any(rel_posix.startswith(r + "/") for r in RUST_ROOTS):
+        return suffix == ".rs"
     # Under Packages/ and cmux-next-ios/, only scan files inside a Tests path segment.
     if root in TESTS_SEGMENT_ROOTS and "/Tests/" not in ("/" + rel_posix):
         return False
@@ -4465,8 +4549,228 @@ def _logical_network_chunks(
     return chunks
 
 
+_RUST_FN = re.compile(r"^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const\s+)?(?:async\s+)?(?:unsafe\s+)?fn\s+\w+")
+_RUST_TEST_CFG = re.compile(r"^\s*#\[cfg\((?:all\(\s*)?test\b")
+_RUST_SHORT_EXPIRY = re.compile(r"\bnow_ms\(\)\s*\+\s*(\d[\d_]*)(?![\w.])")
+_RUST_SHORT_EXPIRY_MS = 10_000
+_RUST_WALL_CLOCK_LOOP = re.compile(r"^\s*while\b.*\bnow_ms\(\)")
+_RUST_SLEEP = re.compile(
+    r"\b(?:thread|time)::sleep\s*\(\s*(?:std::time::|tokio::time::)?Duration::from_(millis|secs)\(\s*(\d[\d_]*)\s*\)"
+)
+_RUST_FAKE_CLOCK = re.compile(r"\btest_clock::|\bstart_paused\b|\bManualClock\b|\btime::pause\(")
+_RUST_FLOCK_EXCLUSIVE = re.compile(r"\bflock\(\s*(\w+)\.as_raw_fd\(\)\s*,\s*libc::LOCK_EX\b")
+_RUST_WRITES_FILE = re.compile(r"\bfs::(?:copy\([^,]+,\s*&?(\w+)\s*\)|write\(\s*&?(\w+)\s*,)")
+_RUST_ASSERTION = re.compile(r"^\s*(?:debug_)?assert(?:_eq|_ne|_matches)?!\s*\(")
+
+
+def _rust_code_lines(raw_lines: list[str]) -> list[str]:
+    """Each line with its `//` comment and the inside of its string literals blanked, and block
+    comments and raw strings across lines blanked whole (a lexer for brace counting, not Rust's)."""
+    code: list[str] = []
+    in_block = 0
+    raw_end: Optional[str] = None
+    for line in raw_lines:
+        out: list[str] = []
+        i = 0
+        in_string = False
+        while i < len(line):
+            if raw_end is not None:
+                if line.startswith(raw_end, i):
+                    out.append(" " * len(raw_end))
+                    i += len(raw_end)
+                    raw_end = None
+                else:
+                    out.append(" ")
+                    i += 1
+                continue
+            if in_block:
+                if line.startswith("*/", i):
+                    in_block -= 1
+                    out.append("  ")
+                    i += 2
+                elif line.startswith("/*", i):
+                    in_block += 1
+                    out.append("  ")
+                    i += 2
+                else:
+                    out.append(" ")
+                    i += 1
+                continue
+            ch = line[i]
+            if in_string:
+                if ch == "\\":
+                    out.append("  ")
+                    i += 2
+                    continue
+                if ch == '"':
+                    in_string = False
+                    out.append(ch)
+                else:
+                    out.append(" ")
+                i += 1
+                continue
+            if line.startswith("//", i):
+                break
+            if line.startswith("/*", i):
+                in_block += 1
+                out.append("  ")
+                i += 2
+                continue
+            raw = re.match(r'b?r(#*)"', line[i:])
+            if raw and (i == 0 or not (line[i - 1].isalnum() or line[i - 1] == "_")):
+                raw_end = '"' + raw.group(1)
+                out.append(" " * raw.end())
+                i += raw.end()
+                continue
+            if ch == "'" and re.match(r"'(?:\\.|[^\\'])'", line[i:]):
+                char_len = re.match(r"'(?:\\.|[^\\'])'", line[i:]).end()
+                out.append(" " * char_len)
+                i += char_len
+                continue
+            if ch == '"':
+                in_string = True
+            out.append(ch)
+            i += 1
+        code.append("".join(out))
+    return code
+
+
+def _rust_test_code_start(rel_posix: str, code: list[str]) -> Optional[int]:
+    """The first line of `rel_posix`'s test code: 0 for a test file, else its first
+    `#[cfg(test)]`; None when it has none."""
+    path = "/" + rel_posix
+    if path.endswith("_tests.rs") or path.endswith("/tests.rs") or "/tests/" in path:
+        return 0
+    return next((i for i, line in enumerate(code) if _RUST_TEST_CFG.match(line)), None)
+
+
+def _rust_functions(code: list[str], start: int) -> Iterable[tuple[int, int]]:
+    """`(first, last)` of each outermost fn from line `start` on, its body found by braces."""
+    i = start
+    while i < len(code):
+        match = _RUST_FN.match(code[i])
+        if not match:
+            i += 1
+            continue
+        depth = 0
+        opened = False
+        j = i
+        while j < len(code):
+            depth += code[j].count("{") - code[j].count("}")
+            opened = opened or "{" in code[j]
+            if opened and depth <= 0:
+                break
+            if not opened and code[j].rstrip().endswith(";"):
+                break
+            j += 1
+        yield i, min(j, len(code) - 1)
+        i = j + 1
+
+
+def _rust_sleep_ms(line: str) -> Optional[int]:
+    match = _RUST_SLEEP.search(line)
+    if not match:
+        return None
+    amount = int(match.group(2).replace("_", ""))
+    return amount if match.group(1) == "millis" else amount * 1000
+
+
+def detect_rust_wall_clock_expiry(code: list[str], start: int) -> list[int]:
+    hits: list[int] = []
+    for first, last in _rust_functions(code, start):
+        body = code[first : last + 1]
+        if any(_RUST_FAKE_CLOCK.search(line) for line in body):
+            continue
+        statement_indent = None
+        for line in body[1:]:
+            if line.strip():
+                statement_indent = len(line) - len(line.lstrip())
+                break
+        for k, line in enumerate(body):
+            match = _RUST_SHORT_EXPIRY.search(line)
+            if not match:
+                continue
+            ahead = int(match.group(1).replace("_", ""))
+            if ahead >= _RUST_SHORT_EXPIRY_MS:
+                continue
+            for later in body[k + 1 :]:
+                if _RUST_WALL_CLOCK_LOOP.match(later):
+                    hits.append(first + k)
+                    break
+                slept = _rust_sleep_ms(later)
+                at_test_level = len(later) - len(later.lstrip()) == statement_indent
+                if slept is not None and slept >= ahead and at_test_level:
+                    hits.append(first + k)
+                    break
+    return hits
+
+
+def detect_rust_flock_released_by_close(code: list[str], start: int) -> list[int]:
+    hits: list[int] = []
+    for first, last in _rust_functions(code, start):
+        body = code[first : last + 1]
+        for k, line in enumerate(body):
+            match = _RUST_FLOCK_EXCLUSIVE.search(line)
+            if not match:
+                continue
+            name = re.escape(match.group(1))
+            unlocked = re.compile(r"\bflock\(\s*" + name + r"\.as_raw_fd\(\)\s*,\s*libc::LOCK_UN\b")
+            closed = re.compile(r"^\s*drop\(\s*" + name + r"\s*\)\s*;")
+            for n in range(k + 1, len(body)):
+                if unlocked.search(body[n]):
+                    break
+                if closed.match(body[n]):
+                    following = next((later for later in body[n + 1 :] if later.strip()), "")
+                    if _RUST_ASSERTION.match(following):
+                        hits.append(first + n)
+                    break
+    return hits
+
+
+def detect_rust_exec_of_file_written_in_process(code: list[str], start: int) -> list[int]:
+    hits: list[int] = []
+    for first, last in _rust_functions(code, start):
+        body = code[first : last + 1]
+        for k, line in enumerate(body):
+            match = _RUST_WRITES_FILE.search(line)
+            if not match:
+                continue
+            name = re.escape(match.group(1) or match.group(2))
+            runs = re.compile(r"\bCommand::new\(\s*&?" + name + r"\s*\)")
+            if any(runs.search(later) for later in body[k + 1 :]):
+                hits.append(first + k)
+    return hits
+
+
+def scan_rust_text(rel_posix: str, text: str) -> list[Finding]:
+    # Most Rust files have no rule's anchor: skip the lexer for them (6,500 files).
+    if "now_ms()" not in text and "LOCK_EX" not in text and "Command::new" not in text:
+        return []
+    raw_lines = text.splitlines()
+    code = _rust_code_lines(raw_lines)
+    start = _rust_test_code_start(rel_posix, code)
+    if start is None:
+        return []
+    findings = [
+        Finding(rel_posix, i + 1, RULE_WALL_CLOCK_EXPIRY, raw_lines[i].strip())
+        for i in detect_rust_wall_clock_expiry(code, start)
+    ]
+    findings += [
+        Finding(rel_posix, i + 1, RULE_FLOCK_RELEASED_BY_CLOSE, raw_lines[i].strip())
+        for i in detect_rust_flock_released_by_close(code, start)
+    ]
+    findings += [
+        Finding(rel_posix, i + 1, RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS, raw_lines[i].strip())
+        for i in detect_rust_exec_of_file_written_in_process(code, start)
+    ]
+    findings.sort(key=lambda f: (f.line, f.rule))
+    return findings
+
+
 def scan_text(rel_posix: str, text: str) -> list[Finding]:
     suffix = pathlib.PurePosixPath(rel_posix).suffix
+    if suffix == ".rs":
+        return scan_rust_text(rel_posix, text)
     raw_lines = text.splitlines()
     code_lines = [_strip_comment(line, suffix) for line in raw_lines]
     findings: list[Finding] = []
@@ -4528,6 +4832,8 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         findings.append(Finding(rel_posix, bare_line + 1, RULE_GIT_BARE_REPO_UNMANAGED, raw_lines[bare_line].strip()))
     for tmp_line in detect_predictable_tmp_path(raw_lines, rel_posix):
         findings.append(Finding(rel_posix, tmp_line + 1, RULE_PREDICTABLE_TMP_PATH, raw_lines[tmp_line].strip()))
+    for trap_line in detect_git_fixture_exit_trap(code_lines, suffix):
+        findings.append(Finding(rel_posix, trap_line + 1, RULE_GIT_FIXTURE_EXIT_TRAP, raw_lines[trap_line].strip()))
     findings.sort(key=lambda f: (f.line, f.rule))
     return findings
 
@@ -4657,6 +4963,74 @@ def _isolated_import_self_test() -> list[str]:
 def _self_test() -> int:
     # (filename, source, expected rules present, rules that must NOT be present)
     positives: list[tuple[str, str, set[str]]] = [
+        # cmux#41466: a 50 ms tag life on the real clock, waited out by a loop on that clock.
+        (
+            "cmux-tui/crates/acpmux/src/chats/activity_tests.rs",
+            (
+                "#[test]\n"
+                "fn activity_batch_does_not_keep_expired_parent_relationship() {\n"
+                "    let expires = crate::store::now_ms() + 50;\n"
+                "    let hub = make_hub(expires);\n"
+                "    assert_eq!(decorate(&hub)[\"parent\"], \"claude-code:root\");\n"
+                "    while crate::store::now_ms() < expires {\n"
+                "        std::thread::yield_now();\n"
+                "    }\n"
+                "    assert_eq!(decorate(&hub)[\"parent\"], Value::Null);\n"
+                "}\n"
+            ),
+            {RULE_WALL_CLOCK_EXPIRY},
+        ),
+        # The same, waited out by a sleep at the test's own level, in a #[cfg(test)] module.
+        (
+            "cmux-tui/crates/acpmux/src/server/windows.rs",
+            (
+                "fn product() {}\n"
+                "#[cfg(test)]\n"
+                "mod tests {\n"
+                "    #[tokio::test(flavor = \"multi_thread\")]\n"
+                "    async fn an_archive_that_lapses() {\n"
+                "        let soon = crate::store::now_ms() + 400;\n"
+                "        archive(soon);\n"
+                "        tokio::time::sleep(Duration::from_millis(600)).await;\n"
+                "        assert!(folded());\n"
+                "    }\n"
+                "}\n"
+            ),
+            {RULE_WALL_CLOCK_EXPIRY},
+        ),
+        # cmux#41466: a held flock freed only by a close, then probed at once.
+        (
+            "cmux-tui/crates/acpmux/src/agent_host/wait.rs",
+            (
+                "#[cfg(all(test, unix))]\n"
+                "mod dead_now_tests {\n"
+                "    #[test]\n"
+                "    fn a_free_lock_is_a_dead_host() {\n"
+                "        let host = std::fs::File::create(&path).unwrap();\n"
+                "        assert_eq!(unsafe { libc::flock(host.as_raw_fd(), libc::LOCK_EX) }, 0);\n"
+                "        drop(host);\n"
+                "        assert!(dead_now_in(&dirs, \"s1\", \"n1\"), \"a free lock is a dead host\");\n"
+                "    }\n"
+                "}\n"
+            ),
+            {RULE_FLOCK_RELEASED_BY_CLOSE},
+        ),
+        # A program this test process wrote, then ran (ETXTBSY when another thread forks meanwhile).
+        (
+            "cmux-tui/crates/acpmux/src/agent_host/tree.rs",
+            (
+                "#[cfg(test)]\n"
+                "mod census_tests {\n"
+                "    #[test]\n"
+                "    fn exe_still_names_a_replaced_program() {\n"
+                "        let program = dir.join(\"server\");\n"
+                "        std::fs::copy(\"/bin/sleep\", &program).unwrap();\n"
+                "        let mut child = std::process::Command::new(&program).arg(\"30\").spawn().unwrap();\n"
+                "    }\n"
+                "}\n"
+            ),
+            {RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS},
+        ),
         # A temp git repo with git's detached auto maintenance still on (the Errno 39 '.git' race).
         (
             "tests/git_temp_repo.py",
@@ -4735,6 +5109,22 @@ def _self_test() -> int:
             "scripts/cmux-next/tests/bare.test.sh",
             'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nd=$(mktemp -d)\ngit_q clone --bare "$d/src" "$d/o.git"\n',
             {RULE_GIT_BARE_REPO_UNMANAGED},
+        ),
+        # An EXIT trap after sourcing the helper replaces its cleanup: the GIT_CONFIG_GLOBAL folder leaks (cmux#40939 F2).
+        (
+            "scripts/cmux-next/tests/trap_after.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\ntmp=$(mktemp -d)\ntrap \'rm -rf "$tmp"\' EXIT\n',
+            {RULE_GIT_FIXTURE_EXIT_TRAP},
+        ),
+        (
+            "scripts/cmux-next/tests/trap_after_dirname.test.sh",
+            'source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # opt out\ntmp=$(mktemp -d)\ntrap \'rm -rf "$tmp"\' EXIT\n',
+            {RULE_GIT_FIXTURE_EXIT_TRAP},
+        ),
+        (
+            "tests/trap_after_word.sh",
+            '. "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\ncleanup() { rm -rf "$T"; }\nT=$(mktemp -d); trap cleanup EXIT INT\n',
+            {RULE_GIT_FIXTURE_EXIT_TRAP},
         ),
         # A measured duration read with a string key is still code's data, not an assertion message.
         (
@@ -5863,6 +6253,13 @@ def _self_test() -> int:
     ]
 
     negatives: list[tuple[str, str]] = [
+        # Exit cleanup through the helper; an EXIT trap set before sourcing; INT alone; `trap -p EXIT`.
+        (
+            "scripts/cmux-next/tests/trap_ok.test.sh",
+            'trap \'echo early\' EXIT\nsource "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\n'
+            'tmp=$(mktemp -d)\ngit_fixture_trap_exit \'rm -rf "$tmp"\'\ntrap \'exit 130\' INT\nprev=$(trap -p EXIT)\n'
+            'trap "echo EXIT" TERM\n',
+        ),
         # A clock the test advances by hand.
         (
             "webviews/test/fake_clock_window.test.ts",
@@ -6594,6 +6991,90 @@ def _self_test() -> int:
         (
             "tests/n29.py",
             'assert span < 5, "the duration was off"\n',
+        ),
+        # Rust: a test clock moved past the expiry, not waited for.
+        (
+            "cmux-tui/crates/acpmux/src/chats/n_rs1_tests.rs",
+            (
+                "fn expired() {\n"
+                "    let expires = crate::store::now_ms() + 50;\n"
+                "    assert!(live(expires));\n"
+                "    crate::store::test_clock::advance(50);\n"
+                "    while crate::store::now_ms() < expires {}\n"
+                "}\n"
+            ),
+        ),
+        # Rust: a short sleep for distinct stamps, shorter than the instant is ahead; and a sleep
+        # inside a fake server's closure, not at the test's own level.
+        (
+            "cmux-tui/crates/acpmux/src/hub/n_rs2_tests.rs",
+            (
+                "async fn stamps() {\n"
+                "    let cutoff = now_ms() + 1000;\n"
+                "    std::thread::sleep(std::time::Duration::from_millis(2));\n"
+                "    assert!(untouched(cutoff));\n"
+                "}\n"
+                "fn hangs() {\n"
+                "    let soon = now_ms() + 300;\n"
+                "    let hang = Arc::new(move |request: &str| {\n"
+                "        std::thread::sleep(Duration::from_secs(4));\n"
+                "        mint(soon)\n"
+                "    });\n"
+                "    assert_eq!(run(hang), Ok(3));\n"
+                "}\n"
+            ),
+        ),
+        # Rust: an unlock before the close, and a close followed by other work, not a probe.
+        (
+            "cmux-tui/crates/acpmux/src/hub/n_rs3_tests.rs",
+            (
+                "fn unlocked() {\n"
+                "    assert_eq!(unsafe { libc::flock(host.as_raw_fd(), libc::LOCK_EX) }, 0);\n"
+                "    assert_eq!(unsafe { libc::flock(host.as_raw_fd(), libc::LOCK_UN) }, 0);\n"
+                "    drop(host);\n"
+                "    assert!(dead_now_in(&dirs, \"s1\", \"n1\"));\n"
+                "}\n"
+                "fn joined() {\n"
+                "    assert_eq!(unsafe { libc::flock(runner.as_raw_fd(), libc::LOCK_EX) }, 0);\n"
+                "    drop(runner);\n"
+                "    daemon.join().unwrap();\n"
+                "    assert!(stopped.is_ok());\n"
+                "}\n"
+            ),
+        ),
+        # Rust: a program written by a child (`cp`), or linked, then run; a copy that is never run.
+        (
+            "cmux-tui/crates/acpmux/src/n_rs5_tests.rs",
+            (
+                "fn by_cp() {\n"
+                "    let copied = Command::new(\"cp\").arg(\"/bin/sleep\").arg(&program).status();\n"
+                "    let child = Command::new(&program).spawn();\n"
+                "}\n"
+                "fn linked() {\n"
+                "    fs::hard_link(exe, &daemon).unwrap();\n"
+                "    let child = Command::new(&daemon).spawn();\n"
+                "}\n"
+                "fn data_only() {\n"
+                "    fs::copy(\"/bin/sleep\", &program).unwrap();\n"
+                "    let child = Command::new(\"ls\").arg(&program).spawn();\n"
+                "}\n"
+            ),
+        ),
+        # Rust product code with no #[cfg(test)] is not a test; nor is a pattern in a string.
+        (
+            "cmux-tui/crates/acpmux/src/n_rs4.rs",
+            (
+                "fn waits() {\n"
+                "    let soon = now_ms() + 50;\n"
+                "    while now_ms() < soon {}\n"
+                "}\n"
+                "#[cfg(test)]\n"
+                "mod tests {\n"
+                "    fn text() {\n"
+                "        let src = \"let soon = now_ms() + 50; while now_ms() < soon {}\";\n"
+                "    }\n"
+                "}\n"
+            ),
         ),
         # A sleep inside a deadline-bounded Swift `repeat { } while` poll is a poll body.
         (

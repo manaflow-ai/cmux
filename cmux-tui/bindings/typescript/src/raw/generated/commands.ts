@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 1a6166df73d405404f1ff03c1ff225da9bcd2c4651b610d13b72dc5c7af633bb. */
+/* cmux-tui mux protocol 12, IR 171330201d11c2429081f13ed3be4a8847c540a74f0391d1b9804ad004e870f5. */
 
 
 import type * as T from "./types.js";
@@ -221,6 +221,15 @@ export interface BrowserWheelGuardedRequest extends CmuxRequestBase {
   "y_px": number;
 }
 export type BrowserWheelGuardedResult = T.EmptyResult;
+
+/** Protocol v12; authority: control. */
+export interface CancelCreatingInputRequest extends CmuxRequestBase {
+  cmd: "cancel-creating-input";
+  "terminal_id": string;
+}
+export type CancelCreatingInputResult = {
+  "cancelled": boolean;
+};
 
 /** Protocol v12; authority: local-admin. */
 export interface ChiefInspectRequest extends CmuxRequestBase {
@@ -3040,6 +3049,7 @@ export type CmuxRequest =
   | BrowserReloadRequest
   | BrowserWheelRequest
   | BrowserWheelGuardedRequest
+  | CancelCreatingInputRequest
   | ChiefInspectRequest
   | ChiefWorkRequest
   | ClearHistoryRequest
@@ -3481,6 +3491,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "frontend";
     since: 10;
     capability: "browser-pointer-frame-guard-v1";
+    stream: null;
+  };
+  "cancel-creating-input": {
+    request: CancelCreatingInputRequest;
+    result: CancelCreatingInputResult;
+    authority: "control";
+    since: 12;
+    capability: "creating-input-cancel-v1";
     stream: null;
   };
   "chief-inspect": {
