@@ -2889,15 +2889,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// Reads the Mac terminal's foreground program for the drag's route
     /// (``TerminalPanRoute``): when the alternate screen comes and when a drag
-    /// begins on it. Leaving it forgets the program, and until a read answers
-    /// a drag there sends nothing.
+    /// begins on it. Each read forgets the program first: until it answers a
+    /// drag there sends nothing, so a name from before (less, before Claude
+    /// Code took the screen in an output hold that never showed the primary
+    /// screen) never sends Claude Code a key.
     private func readForegroundProgram() {
         programRead?.cancel()
         programRead = nil
-        guard model.isTUI else {
-            surface.foregroundProgram = nil
-            return
-        }
+        surface.foregroundProgram = nil
+        guard model.isTUI else { return }
         let session = model.session
         programRead = Task { [weak self] in
             let program = await session.foregroundProgram()

@@ -553,14 +553,6 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
-    /// The reader scrolled up to the mirror's oldest row and the Mac has
-    /// older ones (``historyRowsOmitted``): a second attach with
-    /// ``historyChunkRows`` more rows of history (all of them when that many
-    /// or fewer are left) replaces this one. The mirror resets and the
-    /// screen keeps the reader's place (`TerminalReadingMark`), as for a
-    /// reattach, but the connection stays attached throughout. One at a time;
-    /// a no-op while a key is on its way (it must not be sent twice), and
-    /// against a daemon without `attach-replay-history-rows-v1`.
     /// The Mac terminal's foreground program (`process-info`
     /// `foreground_executable`, the foreground job leader's name), nil while
     /// not attached, on a refusal or after ``processInfoDeadline``. One bounded
@@ -585,6 +577,14 @@ public final class DaemonTerminalSession: TerminalSession {
     /// How long a drag's `process-info` may take (the Mac answers in one PTY query).
     nonisolated static let processInfoDeadline: Duration = .seconds(1)
 
+    /// The reader scrolled up to the mirror's oldest row and the Mac has
+    /// older ones (``historyRowsOmitted``): a second attach with
+    /// ``historyChunkRows`` more rows of history (all of them when that many
+    /// or fewer are left) replaces this one. The mirror resets and the
+    /// screen keeps the reader's place (`TerminalReadingMark`), as for a
+    /// reattach, but the connection stays attached throughout. One at a time;
+    /// a no-op while a key is on its way (it must not be sent twice), and
+    /// against a daemon without `attach-replay-history-rows-v1`.
     public func loadOlderHistory() {
         guard attached, !attaching, replacing == nil, tailReplay, historyRowsOmitted > 0,
               let allowance = historyAllowance, inputInFlight == 0, let client else { return }
