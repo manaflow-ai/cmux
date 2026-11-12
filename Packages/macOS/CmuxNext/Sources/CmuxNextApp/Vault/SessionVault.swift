@@ -17,8 +17,14 @@ final class SessionVault {
     var selection: String?
     /// The list's search text.
     var filter = ""
-    /// A reload is running.
-    private(set) var isLoading = false
+    /// The reads of the list: one per reload, and again while a list that is not complete shows.
+    @ObservationIgnored let reads = VaultListReads()
+    /// The first read of a reload is running.
+    var isLoading: Bool { reads.isLoading }
+    /// The source's list is not complete yet (a daemon's fold is behind): the rows are the sessions read so far.
+    var isPartial: Bool { reads.isPartial }
+    /// The source holds its whole list now: a session that it does not have does not exist.
+    var holdsWholeList: Bool { source.isComplete }
     @ObservationIgnored private let source: any VaultSessionSource
     @ObservationIgnored let pullRequests: VaultPullRequests
     @ObservationIgnored let copyText: @MainActor (String) -> Void
@@ -41,12 +47,11 @@ final class SessionVault {
     /// The rows the search keeps.
     var shownRows: [VaultRow] { rows.filter { $0.matches(filter) } }
 
-    /// Reads new sessions, then rebuilds the rows (a gone selection is cleared).
+    /// Reads new sessions, then rebuilds the rows (a gone selection is cleared). A list that is not complete is
+    /// read again while a vault surface is on screen (`VaultListReads`), so this returns when the list is
+    /// complete, no surface shows it, or the reads reached their limit.
     func reload() async {
-        isLoading = true
-        await source.refresh()
-        rebuild()
-        isLoading = false
+        await reads.reload(source) { rebuild() }
     }
 
     /// Rebuilds the rows from what the source already holds.

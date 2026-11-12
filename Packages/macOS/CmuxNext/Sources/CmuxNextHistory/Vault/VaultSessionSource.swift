@@ -10,4 +10,16 @@ package protocol VaultSessionSource: AnyObject {
     func sessions() -> [AgentSession]
     /// Whether the session's agent still runs in a tab this app can show.
     func isLive(_ session: AgentSession) -> Bool
+    /// Whether `sessions()` is the whole list. False while a daemon's list is not complete (its fold of the
+    /// journal is behind): a session that is not in `sessions()` can still exist.
+    var isComplete: Bool { get }
+    /// Suspends before the read that follows `reads` reads of a list that is not complete (a clock sleep that
+    /// backs off); it throws when the reader goes away.
+    func waitForPending(afterReads reads: Int) async throws
+}
+
+package extension VaultSessionSource {
+    /// A source whose list is always whole (fixed sessions).
+    var isComplete: Bool { true }
+    func waitForPending(afterReads reads: Int) async throws {}
 }

@@ -35,10 +35,12 @@ public struct DaemonHistoryClient: Sendable {
     /// The daemon lists each agent session whole (`history-agent-sessions-v1`).
     public static let agentSessionsCapability = DaemonCapability.historyAgentSessions.rawValue
 
-    /// Every agent session the daemon lists, as sessions of `machine` (the daemon keeps at most 500). While the
-    /// daemon's fold is behind (`pending_kinds` names `agent`), these are the sessions the fold has reached.
-    public func agentSessions(machine: String) async throws -> [AgentSession] {
-        try await list(kinds: [.agent], text: "", range: .all, limit: 5_000).entries.compactMap { $0.agentSession(machine: machine) }
+    /// Every agent session the daemon lists, as sessions of `machine` (the daemon keeps at most 500), and whether
+    /// that list is complete. While the daemon's fold is behind (`pending_kinds` names `agent`) it is not: these
+    /// are the sessions the fold has reached.
+    public func agentSessions(machine: String) async throws -> (sessions: [AgentSession], isComplete: Bool) {
+        let reply = try await list(kinds: [.agent], text: "", range: .all, limit: 5_000)
+        return (reply.entries.compactMap { $0.agentSession(machine: machine) }, !reply.pendingKinds.contains(.agent))
     }
 
     /// Runs `read` up to `attempts` times, spaced by `backoff` (a busy daemon times out once, then

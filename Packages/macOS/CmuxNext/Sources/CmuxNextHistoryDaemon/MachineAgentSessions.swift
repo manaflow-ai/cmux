@@ -44,12 +44,16 @@ public struct MachineAgentSessions: Sendable {
     /// only ever the daemon's own answer.
     public mutating func read(list daemon: DaemonHistoryClient) async {
         let machine = machine
-        guard let sessions = await DaemonHistoryClient.retrying({ try await daemon.agentSessions(machine: machine) }) else { return }
-        take(listed: sessions)
+        guard let list = await DaemonHistoryClient.retrying({ try await daemon.agentSessions(machine: machine) }) else { return }
+        take(listed: list.sessions, complete: list.isComplete)
     }
 
-    /// The daemon's list replaces every session read before, a journal fold of the same daemon's older build too.
-    public mutating func take(listed sessions: [AgentSession]) {
+    /// Whether the list is the daemon's whole list (red commit: not read from the daemon's answer yet).
+    public var isComplete: Bool { true }
+
+    /// The daemon's list replaces every session read before, a journal fold of the same daemon's older build too
+    /// (red commit: `complete` is not used yet).
+    public mutating func take(listed sessions: [AgentSession], complete: Bool = true) {
         listed = sessions
         fold = AgentSessionFold(machine: machine)
         generation = nil
