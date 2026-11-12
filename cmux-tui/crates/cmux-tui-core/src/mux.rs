@@ -26196,15 +26196,68 @@ mod tests {
             &[("SessionStart", 50_000, 1_000), ("Stop", 90_000, 41_000)],
         );
         // `claude --resume` after a reboot keeps the session id; the new
-        // boot's monotonic clock starts again near zero.
+        // boot's monotonic clock starts again near zero, and here the wall
+        // clock is also 0.5 s behind (it was set back at the boot). Both
+        // clocks are smaller; the new boot id still applies the event.
         let key = format!("hook-seq-{}", crate::workspace_registry::new_uuid_v4());
         mux.append_journal_ingress(
-            &clocked_hook(&terminal_id, "UserPromptSubmit", "boot-b", 2_000, 900_000),
+            &clocked_hook(&terminal_id, "UserPromptSubmit", "boot-b", 2_000, 40_500),
             "t",
             &key,
         )
         .unwrap();
         assert_hook_seq_state(&mux, &terminal_id, AgentState::Working);
+        mux.shutdown();
+        drop(mux);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn hook_seq_equal_monotonic_stamps_apply_in_arrival_order() {
+        let (mux, terminal_id, root) = hook_seq_test_mux("tie");
+        // Two hooks read the same monotonic value: neither is a reorder, so
+        // the journal order decides and the later one sets the state.
+        append_clocked(
+            &mux,
+            &terminal_id,
+            &[
+                ("SessionStart", 1_000, 1_000),
+                ("Stop", 3_000, 3_000),
+                ("UserPromptSubmit", 3_000, 3_000),
+            ],
+        );
+        assert_hook_seq_state(&mux, &terminal_id, AgentState::Working);
+        append_clocked(&mux, &terminal_id, &[("Stop", 3_000, 3_000)]);
+        assert_hook_seq_state(&mux, &terminal_id, AgentState::Idle);
+        mux.shutdown();
+        drop(mux);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn hook_seq_an_event_with_no_boot_id_applies_in_arrival_order() {
+        let (mux, terminal_id, root) = hook_seq_test_mux("no-boot-id");
+        append_clocked(
+            &mux,
+            &terminal_id,
+            &[("SessionStart", 1_000, 1_000), ("Stop", 3_000, 3_000)],
+        );
+        // An older hook helper stamps only the wall clock (no boot id). Its
+        // event applies in journal order, even with an earlier wall clock.
+        let append_wall_only = |event: &str, observed_at_ms: u64| {
+            let key = format!("hook-seq-{}", crate::workspace_registry::new_uuid_v4());
+            mux.append_journal_ingress(
+                &ordered_hook(&terminal_id, event, observed_at_ms),
+                "t",
+                &key,
+            )
+            .unwrap();
+        };
+        append_wall_only("UserPromptSubmit", 2_000);
+        assert_hook_seq_state(&mux, &terminal_id, AgentState::Working);
+        // Two events of the older helper: journal order too.
+        append_wall_only("Stop", 1_500);
+        assert_hook_seq_state(&mux, &terminal_id, AgentState::Idle);
         mux.shutdown();
         drop(mux);
         let _ = std::fs::remove_dir_all(&root);
