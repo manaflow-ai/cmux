@@ -167,7 +167,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
 
 /// RFC3339 seconds, independent of local timezone. Missing timestamps inherit checkpoint `at`.
 fn timestamp(s: &str) -> Option<u64> {
-    let n = |r| s.get(r)?.parse::<i64>().ok();
+    let n = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
     let y = n(0..4)?;
     let m = n(5..7)?;
     let d = n(8..10)?;

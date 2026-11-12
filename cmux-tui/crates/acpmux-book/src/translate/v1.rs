@@ -212,7 +212,8 @@ fn agent(
         }
         "tool_call" | "tool_call_update" => {
             let fallback = format!("@{}", state.last_v1_seq);
-            let key = if u.tool_call_id.is_empty() { &fallback } else { &u.tool_call_id };
+            let key: &str =
+                if u.tool_call_id.is_empty() { &fallback } else { u.tool_call_id.as_ref() };
             let mut metadata = Vec::new();
             for (k, v) in [
                 ("kind", u.kind.as_ref()),
