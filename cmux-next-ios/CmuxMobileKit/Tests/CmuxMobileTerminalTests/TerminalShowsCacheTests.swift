@@ -73,7 +73,7 @@ import UIKit
                       .failed(message: "daemon channel closed")] {
             let line = state.quietLine ?? ""
             #expect(!line.isEmpty)
-            #expect(!line.contains("daemon") && !line.contains("channel"), line)
+            #expect(!line.contains("daemon") && !line.contains("channel"), "\(line)")
         }
         #expect(TerminalConnectionState.attached.quietLine == nil)
     }
