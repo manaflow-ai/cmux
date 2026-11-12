@@ -4231,9 +4231,9 @@ fn an_unanswered_external_connect_holds_a_ledger_slot_and_its_retry_replays_its_
         .send_mutation::<protocol::CreateMachineResult>(create_in_scope(others))
         .expect_err("the connect's slot fills the ledger");
     assert!(refused.downcast_ref::<UnsettledMutationsFull>().is_some(), "{refused:#}");
-    let refused = runtime
-        .connect_external_after_refresh("PAIR OTHER".into())
-        .expect_err("a new connect is refused by the full ledger too");
+    let Err(refused) = runtime.connect_external_after_refresh("PAIR OTHER".into()) else {
+        panic!("a new connect must be refused by the full ledger too");
+    };
     assert!(refused.downcast_ref::<UnsettledMutationsFull>().is_some(), "{refused:#}");
     assert!(
         runtime.pending_external_connect.is_some(),
