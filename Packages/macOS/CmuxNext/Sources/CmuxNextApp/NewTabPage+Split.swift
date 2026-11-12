@@ -49,7 +49,7 @@ extension NewTabPage {
         // The page moves to the new pane: its choices act in the pane that shows it now.
         var handler = Self.handler(services, cwd: cwd) { [weak services] key, request in
             guard let services, let pane = Self.hosting(key, services, onMachine: machineID) else { return }
-            Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: pane)
+            Self.replace(key, with: request, cwd: NewTerminalStart.pagePick(request, page: cwd, kind: .split, in: pane), in: pane)
         }
         handler.inputReady = { [weak input] key, token in input?.pageReady(token, key: key) }
         let jump = handler.jump

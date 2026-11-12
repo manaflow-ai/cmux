@@ -208,9 +208,12 @@ export function NewTabPage({
         cwd));
   // Where the chips' picks start the chat: the project, never the tab's inherited `~` or agent-home
   // folder by itself (cmux#40938: a Codex pick then started in the home folder, which the pane
-  // refuses). None: the host starts the chat in its own start folder. A terminal still opens in
-  // the tab's folder (`projectCwd`).
+  // refuses). None: the host starts the chat in its own start folder.
   const chatCwd = projectCwd === cwd && !isStartableProject(cwd) ? undefined : projectCwd;
+  // A terminal opens in the folder of the terminal the person worked in (Ghostty's
+  // `*-inherit-working-directory`), `~` too, never the remembered chat project; a folder picked
+  // on the page wins. None: the host decides (its Ghostty keys and `working-directory`).
+  const terminalCwd = picked ?? cwd;
   // Agent's harness and model before a pick, as the New Tab screen reads them (newTabStart): the
   // chips pick on this snapshot, and Return starts the chat on the same harness and model.
   const remembered = useLastPick(projectCwd);
@@ -383,7 +386,8 @@ export function NewTabPage({
   }, [selected]);
   // A pane without a known folder names none rather than showing "No folder".
   const selectedProject = projectCwd ? projectLabel(projectCwd) : undefined;
-  const folder = projectCwd ? projectLabel(projectCwd) : "";
+  const shownCwd = kind === "terminal" ? terminalCwd : projectCwd;
+  const folder = shownCwd ? projectLabel(shownCwd) : "";
   const agent = agentDisplayName(harness ?? "agent");
   const placeholder = NEW_TAB_LABELS.placeholder[kind](t, kind === "agent" ? agent : folder);
 
@@ -461,11 +465,11 @@ export function NewTabPage({
       case "folder":
         return make("terminal", "", row.path);
       case "command":
-        return make("terminal", row.command, projectCwd);
+        return make("terminal", row.command, terminalCwd);
       case "history":
         return make("browser", row.url);
       case "run":
-        return make("terminal", row.text, projectCwd);
+        return make("terminal", row.text, terminalCwd);
       case "open":
         return make("browser", row.text);
       case "ask":
@@ -495,7 +499,7 @@ export function NewTabPage({
     const row = rows[selected];
     if (row) return activate(row);
     if (kind === "browser" && !query.trim()) return;
-    make(kind, query.trim(), kind === "browser" ? undefined : projectCwd);
+    make(kind, query.trim(), kind === "browser" ? undefined : kind === "terminal" ? terminalCwd : projectCwd);
   };
   const keyDown = (event: KeyboardEvent) => {
     if (composing.current || event.isComposing || event.keyCode === 229) return;

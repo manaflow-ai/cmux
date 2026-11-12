@@ -148,6 +148,9 @@ extension AppActions {
         // Only a window shows the machine's progress; without one, or without Cloud, it opens here and says so.
         let cloudRoute = CloudHandlers.startNewWorkspaceInCloud(invocation, cwd: spawn.cwd ?? spawn.inheritedCwd, window: focus.shows ? sourceWindow?.state : nil, services)
         guard case .thisMac(let cloudNotice) = cloudRoute else { return }
+        // Nothing to inherit (the key is false, or no terminal or chat was focused): Ghostty's
+        // `working-directory` folder, else home, never the daemon's launch folder. This Mac only.
+        if byPerson, invocation["machine"] == nil, spawn.inheritedCwd == nil { spawn.inheritedCwd = NewTerminalStart.defaultStart }
 
         // Shown: the active window, or a new one when none is open. Not
         // shown (the CLI default): the most recent window lists it, or a new

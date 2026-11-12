@@ -40,8 +40,6 @@ public nonisolated struct GhosttyKeySupport: Sendable {
             "split-divider-color", "split-preserve-zoom",
             // Processes: the daemon spawns them with cmux's own rules.
             "command", "initial-command", "env", "input", "wait-after-command", "abnormal-command-exit-runtime",
-            // The *-inherit-working-directory keys apply (GhosttyWorkingDirectoryInheritance).
-            "working-directory",
             "notify-on-command-finish", "notify-on-command-finish-action", "notify-on-command-finish-after",
             // Terminal surface.
             "scrollbar", "link-previews", "window-inherit-font-size", "title-report", "osc-color-report-format",

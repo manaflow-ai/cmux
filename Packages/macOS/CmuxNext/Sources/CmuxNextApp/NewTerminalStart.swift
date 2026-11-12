@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextTerminal
 
@@ -6,13 +7,14 @@ import CmuxNextTerminal
 /// passes the focused terminal's folder or nothing, and the daemon's
 /// new-terminal resolver decides. Ghostty's `window-`, `tab-` or
 /// `split-inherit-working-directory = false` turns that off for its kind:
-/// the terminal starts in the home folder, an explicit folder still wins.
+/// the terminal starts in the `working-directory` folder (else the home
+/// folder), an explicit folder still wins.
 /// Only on this Mac's daemon: the home folder is this Mac's path, so a
 /// terminal of another machine (its daemon, or a remote terminal tab beside
 /// it) keeps its own folder rules.
 enum NewTerminalStart {
     /// The start folder of a new terminal of `kind` whose caller named none,
-    /// opened on `daemon` beside `tab`: nil while it inherits, else the home folder.
+    /// opened on `daemon` beside `tab`: nil while it inherits, else the `working-directory` folder (else home).
     @MainActor static func uninherited(_ kind: GhosttyWorkingDirectoryInheritance.Kind, services: AppServices,
                                        daemon: DaemonService, besides tab: TabModel?) -> String? {
         guard daemon === services.daemon, tab?.kind != .remoteTerminal else { return nil }
@@ -22,6 +24,25 @@ enum NewTerminalStart {
     /// Whether a new terminal of `kind` inherits the focused terminal's folder (the config key).
     @MainActor static func inherits(_ kind: GhosttyWorkingDirectoryInheritance.Kind) -> Bool {
         GhosttyRuntime.shared.workingDirectoryInheritance.inherits(kind)
+    }
+
+    /// Where a new terminal on this Mac starts with no folder to inherit (Ghostty's first window):
+    /// the Ghostty config's `working-directory` folder, else the home folder.
+    @MainActor static var defaultStart: String {
+        GhosttyRuntime.shared.workingDirectoryInheritance.defaultStart()
+    }
+
+    /// The folder of what New Tab page `request` opens in `pane`, the page showing `page`'s folder.
+    /// A folder the person picked on the page (another than the page's) wins. A terminal on the
+    /// page's own folder follows Ghostty's `kind` key (`tab-` for Cmd-T's page, `split-` for a
+    /// split's): false starts it in the `working-directory` folder (``uninherited``), as does a page
+    /// with no folder to inherit on this Mac (no terminal or chat in its workspace or window).
+    @MainActor static func pagePick(_ request: AgentPaneOpenTab, page: String?, kind: GhosttyWorkingDirectoryInheritance.Kind,
+                                    in pane: PaneController) -> String? {
+        let folder = request.cwd ?? page
+        guard request.kind == .terminal, folder == page else { return folder }
+        if let start = uninherited(kind, services: pane.services, daemon: pane.daemon, besides: nil) { return start }
+        return folder ?? (pane.daemon === pane.services.daemon ? defaultStart : nil)
     }
 
     /// The folder a new terminal inherits from `tab`, the tab the person works in: a terminal's

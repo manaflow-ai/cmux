@@ -67,7 +67,7 @@ extension NewTabPage {
         let machineID = pane.daemon.machineID
         var handler = Self.handler(services, cwd: cwd) { [weak pane, weak services] key, request in
             guard let target = services.flatMap({ Self.hosting(key, $0, onMachine: machineID) }) ?? pane else { return }
-            BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: request.cwd ?? cwd, in: target) }
+            BenchSpans.measure("newTab.replace") { Self.replace(key, with: request, cwd: NewTerminalStart.pagePick(request, page: cwd, kind: .tab, in: target), in: target) }
         }
         handler.inputReady = { [weak pane] _, token in
             guard let pane else { return }
