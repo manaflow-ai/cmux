@@ -667,6 +667,7 @@ import {
   newWorktree,
   pickFolder,
 } from "./startFolderModel";
+import { useSyncedRef } from "../../diff-viewer/useSyncedRef";
 import { WorktreeSetupNotice, useWorktreeSetupStart } from "./worktreeSetup";
 import { NewTabFolderAsk } from "./NewTabFolderAsk";
 import { MissingFolder } from "./missingFolder";
@@ -7078,9 +7079,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const freshRef = useRef(false);
   freshRef.current = freshChat && !snapshot.sessionId;
   /// The tab's own folder (a New Tab's, `~` in a fresh workspace): a terminal's folder, never a new
-  /// chat's by itself (newChatFolder).
-  const inheritedFolderRef = useRef(newTab?.cwd);
-  inheritedFolderRef.current = newTab?.cwd;
+  /// chat's by itself (newChatFolder). Synced after render, not written during it (React Doctor).
+  const inheritedFolderRef = useSyncedRef(newTab?.cwd);
   /// The project the person picked in this pane's project picker, until they send in it: that send
   /// makes it the New Tab default (newtab/startedProject.ts). A folder the host or an agent named
   /// is no pick.
@@ -9303,6 +9303,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     cloudTypingPrewarm,
     notices,
     quoteReply,
+    inheritedFolderRef,
   ]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot }>
