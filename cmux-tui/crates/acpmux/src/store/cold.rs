@@ -166,7 +166,9 @@ fn decode(
     path: &Path,
     open: &mut dyn FnMut(&Entry) -> Result<Option<File>>,
 ) -> Result<(Header, Vec<String>)> {
-    let file = crate::config::private_state_file(path)?;
+    // Read in the held home (#41462 review F1): an archive a replacement home holds at the same
+    // path is never what a removal here decides by.
+    let file = crate::home_fs::private_state_file(path)?;
     let mut reader = BufReader::with_capacity(256 * 1024, zstd::stream::read::Decoder::new(file)?);
     let header: Header = serde_json::from_slice(&read_line(&mut reader, "header")?)
         .context("the cold archive's header does not read")?;
@@ -200,11 +202,12 @@ fn decode(
 /// Whether every file of the archive at `archive` is in `events` as the start of the file
 /// there: the same bytes, checked against the archive's hashes. Length alone is no proof: an
 /// older build that does not read the archive starts a new `000001.ndjson` of its own, which can
-/// be as long (review of #39141).
+/// be as long (review of #39141). The archive and the log are both read in the held home
+/// (`home_fs`), the folder the removal this decides acts on (#41462 review F1).
 fn log_holds(archive: &Path, events: &Path) -> Result<bool> {
     let (header, hashes) = decode(archive, &mut |_| Ok(None))?;
     for (entry, archived) in header.files.iter().zip(&hashes) {
-        let Ok(file) = File::open(events.join(&entry.name)) else {
+        let Ok(file) = crate::home_fs::private_state_file(events.join(&entry.name)) else {
             return Ok(false);
         };
         let mut hash = Sha256::new();
@@ -239,22 +242,39 @@ impl LocalStore {
     /// The files of `events/` with their paths, or None when there is no log to archive: no
     /// segment, or a file a log does not hold (a retention rewrite's copy, a fork's history being
     /// written), which leaves the chat as it is for now.
+    /// Listed in the held home (`home_fs`): the commit renames that `events/` aside.
     fn log_files(&self, id: &str) -> Result<Option<Vec<(String, PathBuf)>>> {
-        let Ok(rd) = std::fs::read_dir(self.dir(id).join("events")) else { return Ok(None) };
+        let events = self.dir(id).join("events");
+        let Ok(rd) = crate::home_fs::read_dir(&events) else { return Ok(None) };
         let mut out = Vec::new();
         for entry in rd {
-            let entry = entry?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if !entry.file_type()?.is_file() || !log_file(&name) {
+            let name = entry.name.to_string_lossy().into_owned();
+            if !entry.is_file || !log_file(&name) {
                 return Ok(None);
             }
-            out.push((name, entry.path()));
+            out.push((name, events.join(&entry.name)));
         }
         out.sort();
         if !out.iter().any(|(name, _)| name != super::compact::MARKER) {
             return Ok(None);
         }
         Ok(Some(out))
+    }
+
+    /// Whether the chat's `events/` holds a segment, read in the held home (`home_fs`): the
+    /// settle and the rehydrate decide by it what to remove there (#41462 review F1).
+    fn held_has_segment(&self, id: &str) -> Result<bool> {
+        match crate::home_fs::read_dir(self.dir(id).join("events")) {
+            Ok(entries) => Ok(entries.iter().any(|entry| {
+                entry
+                    .name
+                    .to_str()
+                    .and_then(|name| name.strip_suffix(".ndjson"))
+                    .is_some_and(|stem| stem.parse::<u32>().is_ok())
+            })),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(e.into()),
+        }
     }
 
     /// An archive beside a log ([module docs](self)): removed when every file it holds starts the
@@ -295,19 +315,23 @@ impl LocalStore {
     /// chat removed the first one's archive as covered, and the first then removed the log).
     fn settle_cold_locked(&self, id: &str, _cold: &std::sync::MutexGuard<'_, ()>) -> Result<()> {
         let dir = self.dir(id);
-        // Every removal and rename below goes through the held home (`home_fs`).
+        // Every removal and rename below goes through the held home (`home_fs`), and so does
+        // every read it decides by: the folder's names, the archive and the log it checks the
+        // archive against. Read by path, a home replaced after this check would show its own
+        // archive and the log that holds it, and the removal would take the held home's archive,
+        // its only copy of the chat (#41462 review F1).
         crate::config::refuse_lost_home(&dir)?;
-        if let Ok(rd) = std::fs::read_dir(&dir) {
+        if let Ok(rd) = crate::home_fs::read_dir(&dir) {
             let mine = format!("{COLD_FILE}.tmp-{}-", std::process::id());
-            for entry in rd.flatten() {
-                let name = entry.file_name().to_string_lossy().into_owned();
+            for entry in rd {
+                let name = entry.name.to_string_lossy().into_owned();
                 if name.starts_with(&format!("{COLD_FILE}.tmp-")) && !name.starts_with(&mine) {
-                    let _ = crate::home_fs::remove_file(entry.path());
+                    let _ = crate::home_fs::remove_file(dir.join(&entry.name));
                 }
             }
         }
         let archive = self.cold_path(id);
-        if std::fs::symlink_metadata(&archive).is_err() || self.segment_files(id)?.is_empty() {
+        if !crate::home_fs::exists_nofollow(&archive) || !self.held_has_segment(id)? {
             return Ok(());
         }
         remove_dir_if_there(&dir.join(THAW_DIR))?;
@@ -337,7 +361,7 @@ impl LocalStore {
         // since is not in the archive, and the commit refuses the log.
         let mut opened = Vec::with_capacity(files.len());
         for (name, path) in files {
-            let file = crate::config::private_state_file(&path)?;
+            let file = crate::home_fs::private_state_file(&path)?;
             let len = file.metadata()?.len();
             opened.push((Entry { name, len }, file));
         }
@@ -392,7 +416,8 @@ impl LocalStore {
                 now.len() == staged.files.len()
                     && now.iter().zip(&staged.files).all(|((name, path), entry)| {
                         *name == entry.name
-                            && std::fs::symlink_metadata(path).is_ok_and(|m| m.len() == entry.len)
+                            && crate::home_fs::private_state_file(path)
+                                .is_ok_and(|f| f.metadata().is_ok_and(|m| m.len() == entry.len))
                     })
             });
             if !unchanged {
@@ -432,11 +457,13 @@ impl LocalStore {
         #[cfg(test)]
         super::log_sync::note(&NOTE_BEFORE_COLD_LOCK, "rehydrate");
         let cold = self.cold.lock_or_recover();
-        if std::fs::symlink_metadata(&archive).is_err() {
+        // From here on, read in the held home (`home_fs`), where the rehydrate writes and
+        // removes: the archive it decodes and removes is the held home's (#41462 review F1).
+        if !crate::home_fs::exists_nofollow(&archive) {
             return Ok(false);
         }
         let _sealed = self.unsealed(id)?;
-        if !self.segment_files(id)?.is_empty() {
+        if self.held_has_segment(id)? {
             self.settle_cold_locked(id, &cold)?;
             return Ok(false);
         }

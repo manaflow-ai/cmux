@@ -298,6 +298,62 @@ class ExitStatusAndDoubleSource(unittest.TestCase):
                 self.assertNoFolder(done)
 
 
+# A line that calls git_fixture_trap_exit (not a comment naming it).
+TRAP_EXIT_CALL = re.compile(r"^[^#]*\bgit_fixture_trap_exit\b")
+# The callers cmux#41447 moved to git_fixture_trap_exit; each must be among those run below.
+CMUX_41447_CALLERS = (
+    "scripts/ci/tests/feat-parity-check.test.sh",
+    "scripts/ci/tests/ios-sim-fetch-commit.test.sh",
+    "scripts/ci/tests/run-webviews-tests-retry.test.sh",
+    "scripts/cmux-next/tests/check-react-pages.test.sh",
+)
+# Logs every path mktemp makes (the caller's own temp dirs and the helper's folder), wherever it puts them.
+MKTEMP_LOG = 'mktemp() { local p; p=$(command mktemp "$@") || return; printf "%s\\n" "$p" >>"$PROBE_LOG"; printf "%s\\n" "$p"; }\n'
+
+
+def trap_exit_callers() -> list[str]:
+    """Tracked shell files that hand their exit cleanup to git_fixture_trap_exit."""
+    listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z", "--", "*.sh"], capture_output=True, text=True,
+                            check=True, timeout=120, stdin=subprocess.DEVNULL).stdout.split("\0")
+    lib = LIB.relative_to(ROOT).as_posix()
+    return [rel for rel in listed if rel and rel != lib and (ROOT / rel).is_file()
+            and any(TRAP_EXIT_CALL.match(line) for line in (ROOT / rel).read_text(errors="replace").splitlines())]
+
+
+class EveryTrapExitCallerUnderErrexit(unittest.TestCase):
+    """Every real caller of git_fixture_trap_exit, failed under `set -e` right after its call, leaves nothing.
+
+    Codex F1 (P1) on cmux#41447: at 505f0f5c the helper's EXIT trap restored the status with `(exit "$status")`,
+    which under `set -e` ended the trap before the caller's cleanup ran, so a failing feat-parity-check.test.sh (and
+    each caller #41447 converted) left its temp workspace. Each caller here runs as itself (its own lines up to and
+    including its first git_fixture_trap_exit, from its own folder), then fails with `false`.
+    """
+
+    def test_each_caller_keeps_status_1_and_removes_every_temp_dir(self):
+        callers = trap_exit_callers()
+        self.assertFalse(set(CMUX_41447_CALLERS) - set(callers), "a cmux#41447 caller no longer calls the helper")
+        for rel in callers:
+            with self.subTest(caller=rel):
+                tmp = Path(tempfile.mkdtemp(prefix="git-fixture-caller-"))
+                self.addCleanup(subprocess.run, ["rm", "-rf", str(tmp)], check=False)
+                env = Env.clean(tmp)
+                log = tmp / "mktemp.log"
+                env["PROBE_LOG"] = str(log)
+                lines = (ROOT / rel).read_text(errors="replace").splitlines()
+                cut = next(index for index, line in enumerate(lines) if TRAP_EXIT_CALL.match(line))
+                head = "\n".join(lines[:cut + 1]).replace("${BASH_SOURCE[0]}", "$0")
+                done = subprocess.run(["bash", "-c", MKTEMP_LOG + head + "\nset -e\nfalse\necho unreachable\n",
+                                       str(ROOT / rel)], env=env, capture_output=True, text=True, timeout=300,
+                                      stdin=subprocess.DEVNULL, cwd=ROOT)
+                self.assertEqual(done.returncode, 1, done.stderr[-2000:])
+                self.assertNotIn("unreachable", done.stdout)
+                made = log.read_text().split() if log.exists() else []
+                self.assertTrue(made, f"{rel} made no temp dir before its git_fixture_trap_exit")
+                left = [path for path in made if os.path.lexists(path)]
+                self.assertEqual(left, [], f"{rel} failed under set -e and left: {left}\n{done.stderr[-2000:]}")
+                self.assertEqual(sorted(os.listdir(env["TMPDIR"])), [], "the fixture folder was left")
+
+
 class SavedTrapAndSubshellSource(unittest.TestCase):
     """The review of hq#9676, ported (guard-causes-the-harm): the helper's own EXIT guard skipped the cleanup it exists
     for.
@@ -390,7 +446,33 @@ class TrapMatchesTheBuiltin(unittest.TestCase):
     EXIT action. The class of bug is the wrapper reading its arguments differently from the builtin, so this row runs
     each form once under the wrapper and once in plain bash and compares stdout, the exit status and stderr (minus the
     `FILE: line N:` prefix, which names the wrapper's file). Each form also exits through its EXIT action, so what
-    runs at exit is compared too. Run on the CI runner's bash and in the `bash:3.2` image (macOS /bin/bash)."""
+    runs at exit is compared too. Run on the CI runner's bash and in the `bash:3.2` image (macOS /bin/bash).
+
+    The review of cmux#41772 / hq#9759 (Codex) added the trap state around the wrapper. F1: git_fixture_trap_exit kept
+    the "ignored" mark, so `trap '' EXIT; git_fixture_trap_exit 'echo unexpected'; trap '' EXIT; exit 3` printed
+    "unexpected". F2: a caller's DEBUG trap ran for the wrapper's own steps and the exit dispatcher's, and a RETURN
+    trap set through the wrapper ran as the wrapper returned. The sweep found the dispatcher's status step tripping a
+    caller's ERR trap, and the wrapper's own failing steps tripping it again under set -E."""
+
+    def test_a_debug_trap_still_set_at_exit_sees_one_dispatcher_step(self):
+        """A DEBUG trap still set at exit runs before each command of the caller's EXIT action, as in plain bash, and
+        once more for the dispatcher's first step (the step that hides it, which no trap can skip). It ran seven
+        more times before the action and once after it."""
+        script = ('n=0; trap \'n=$((n+1)); echo "debug $n"\' DEBUG\n'
+                  'trap \'echo "bye $?"; echo "bye again"\' EXIT\nexit 3\n')
+        for errexit in ("", "set -euo pipefail\n"):
+            with self.subTest(errexit=bool(errexit)):
+                tmpdir = self.tmp / f"tmpdir-debug-at-exit-{bool(errexit)}"
+                tmpdir.mkdir()
+                plain = self.run_side(errexit + script, tmpdir)
+                wrapped = self.run_side(errexit + 'source "$1"\n' + script, tmpdir)
+                self.assertEqual(plain[1:], (3, ""))
+                self.assertEqual(wrapped[1:], (3, ""), wrapped)
+                plain_lines, wrapped_lines = plain[0].splitlines(), wrapped[0].splitlines()
+                self.assertEqual([line for line in wrapped_lines if not line.startswith("debug")],
+                                 [line for line in plain_lines if not line.startswith("debug")])
+                self.assertEqual(len(wrapped_lines), len(plain_lines) + 1, wrapped[0])
+                self.assertEqual(sorted(os.listdir(tmpdir)), [], "a fixture folder was left")
 
     # (name, script lines). Each line is followed by `echo "rc=$?"`, and every script ends with a full `trap -p`
     # listing and `exit 3`, so the EXIT action runs and its $? is printed.
@@ -439,10 +521,59 @@ class TrapMatchesTheBuiltin(unittest.TestCase):
                                   r'eval "$saved"', r"trap -p EXIT"]),
         ("a blank line inside an action", [r"trap $'echo a\n\necho b' INT", r"""trap 'echo "bye $?"' EXIT""",
                                            r"trap -p"]),
+        # Review of cmux#41772 / hq#9759, F1: git_fixture_trap_exit left the "ignored" mark set.
+        ("git_fixture_trap_exit clears the ignored mark", [r"trap '' EXIT", r"git_fixture_trap_exit 'echo unexpected'",
+                                                          r"trap '' EXIT"]),
+        ("git_fixture_trap_exit '' after an ignored reset", [r"trap '' EXIT", r"trap - EXIT", r"git_fixture_trap_exit ''",
+                                                             r"trap -p EXIT", r"""git_fixture_trap_exit 'echo "bye $?"'""",
+                                                             r"trap -p EXIT"]),
+        ("git_fixture_trap_exit replaces an action", [r"git_fixture_trap_exit 'echo first'",
+                                                      r"""git_fixture_trap_exit 'echo "bye $?"'""", r"trap -p EXIT"]),
+        # F2: the caller's DEBUG and RETURN traps ran for the wrapper's own steps. Each row counts or prints what the
+        # trap saw, then resets it with the builtin: inside a shell function (the wrapper is one) bash hides DEBUG,
+        # RETURN and ERR from `trap -p` and puts a reset one back on return, which no function can change.
+        ("a DEBUG trap set through the wrapper", [r"n=0", r"trap 'n=$((n+1))' DEBUG", r"trap 'echo int' INT",
+                                                  r"trap -p INT", r"""trap 'echo "bye $?"' EXIT""",
+                                                  r"builtin trap - DEBUG", r'echo "debug ran $n times"']),
+        ("DEBUG and INT in one call", [r"n=0", r"trap 'n=$((n+1))' DEBUG INT", r"trap -p INT", r"builtin trap - DEBUG",
+                                       r'echo "debug ran $n times"']),
+        ("DEBUG and EXIT in one call", [r"n=0", r"trap 'n=$((n+1))' DEBUG EXIT", r"trap -p EXIT",
+                                        r"builtin trap - DEBUG", r'echo "debug ran $n times"']),
+        ("DEBUG ignored through the wrapper", [r"builtin trap 'echo debug' DEBUG", r"trap '' DEBUG", r"echo quiet",
+                                               r"builtin trap -p DEBUG", r"builtin trap - DEBUG"]),
+        ("a DEBUG trap set with the builtin", [r"n=0", r"builtin trap 'n=$((n+1))' DEBUG", r"trap 'echo int' INT",
+                                               r"trap -p INT", r"""trap 'echo "bye $?"' EXIT""",
+                                               r"builtin trap - DEBUG", r'echo "debug ran $n times"']),
+        ("a RETURN trap set through the wrapper", [r"""trap 'echo "return from ${FUNCNAME[0]-top}"' RETURN""",
+                                                   r"f() { :; }; f", r"source /dev/null", r"trap 'echo int' INT",
+                                                   r"builtin trap -p RETURN", r"builtin trap - RETURN"]),
+        ("RETURN and INT in one call", [r"""trap 'echo "return from ${FUNCNAME[0]-top}"' RETURN INT""",
+                                        r"source /dev/null", r"builtin trap -p RETURN", r"builtin trap - RETURN"]),
+        ("a RETURN trap set with the builtin", [r"""builtin trap 'echo "return from ${FUNCNAME[0]-top}"' RETURN""",
+                                                r"trap 'echo int' INT", r"source /dev/null", r"builtin trap - RETURN"]),
+        # The sweep: the exit dispatcher's own steps tripped a caller's ERR trap (three cmux tests set one before
+        # sourcing, and a failed test printed a second "exited" line), and the wrapper's own failing steps under set -E.
+        ("ERR set through the wrapper, still set at exit", [r"""trap 'echo "err $?"' ERR""",
+                                                            r"""trap 'echo "bye $?"' EXIT""", r"false"]),
+        ("ERR set before sourcing, still set at exit", [r"""trap 'echo "bye $?"' EXIT""", r"false"]),
+        ("ERR under set -E, still set at exit", [r"set -E", r"""trap 'echo "err $?"' ERR""",
+                                                 r"""trap 'echo "bye $?"' EXIT""", r"f() { false; }; f"]),
+        ("failing trap calls under set -E", [r"set -E", r"""trap 'echo "err $?"' ERR""", r"trap 'echo x' NOPE",
+                                             r"trap -p NOPE", r"trap -x", r"trap x"]),
+        ("the EXIT action sees the exit command and its status",
+         [r"""trap 'echo "cmd=$BASH_COMMAND status=$?"' EXIT""", r"false"]),
     ]
     # Set before the script (and before sourcing, under the wrapper).
     BEFORE = {"ignored before sourcing": "trap '' EXIT\n",
-              "ignored and reset before sourcing": "trap '' EXIT\ntrap - EXIT\n"}
+              "ignored and reset before sourcing": "trap '' EXIT\ntrap - EXIT\n",
+              "ERR set before sourcing, still set at exit": "trap 'echo \"err $?\"' ERR\n"}
+    # Plain bash has no git_fixture_trap_exit: there it is `trap CMD EXIT`.
+    PLAIN = dict.fromkeys([name for name, _ in CASES if name.startswith("git_fixture_trap_exit")],
+                          'git_fixture_trap_exit() { builtin trap -- "$1" EXIT; }\n')
+    # These keep ERR set until exit, so they end on the builtin's listing of it (the wrapper's own `trap -p` runs in
+    # a function, where bash hides ERR).
+    TAIL = dict.fromkeys([name for name, _ in CASES if "still set at exit" in name or name.startswith("failing trap")],
+                         "echo ==\nbuiltin trap -p ERR\nexit 3\n")
     PREFIX = re.compile(r"^.*?\bline \d+: ", re.M)
 
     def setUp(self) -> None:
@@ -462,9 +593,10 @@ class TrapMatchesTheBuiltin(unittest.TestCase):
                     # A TMPDIR per form, so a folder one form leaves is charged to that form alone.
                     tmpdir = self.tmp / f"tmpdir-{bool(errexit)}-{number}"
                     tmpdir.mkdir()
-                    body = "".join(f'{line}\necho "rc=$?"\n' for line in lines) + "echo ==\ntrap -p\nexit 3\n"
+                    body = "".join(f'{line}\necho "rc=$?"\n' for line in lines) + self.TAIL.get(
+                        name, "echo ==\ntrap -p\nexit 3\n")
                     before = errexit + self.BEFORE.get(name, "")
-                    plain = self.run_side(before + body, tmpdir)
+                    plain = self.run_side(before + self.PLAIN.get(name, "") + body, tmpdir)
                     wrapped = self.run_side(before + 'source "$1"\n' + body, tmpdir)
                     self.assertEqual(wrapped, plain, f"script:\n{before}{body}")
                     self.assertEqual(sorted(os.listdir(tmpdir)), [], "a fixture folder was left")
