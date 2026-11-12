@@ -73,6 +73,11 @@ function restore(view: HTMLElement, hold: Hold) {
   view.scrollTop += row.getBoundingClientRect().bottom - view.getBoundingClientRect().top - hold.edge;
 }
 
+/// The block that draws row `id`: the row's own, or the run it folded into.
+function unitHolding(units: readonly TranscriptBlock[], id: string): string | undefined {
+  return units.find((unit) => (unit.type === "row" ? unit.id === id : unit.rows.some((row) => row.id === id)))?.id;
+}
+
 /// A row the transcript drew is gone. Streaming keeps every row where it was and appends below, so the
 /// common case is one pass comparing ids in place, with nothing allocated; only rows that moved build a
 /// set.
@@ -131,11 +136,7 @@ export function SubagentTranscript({
   // (two sentinels in view, paging back and forth by themselves). The task opened from the list
   // anchors the window on the block that holds it.
   const units = useMemo(() => transcriptBlocks(rows, runFold(look)), [rows, look]);
-  const anchorUnit =
-    anchor === undefined
-      ? undefined
-      : units.find((unit) => (unit.type === "row" ? unit.id === anchor : unit.rows.some((row) => row.id === anchor)))
-          ?.id;
+  const anchorUnit = anchor === undefined ? undefined : unitHolding(units, anchor);
   const [range, setRange] = useState(() => windowRange(units, anchorUnit));
   // Opened before acpmux streamed any of its rows: the window is taken from the first rows that
   // arrive, so a long transcript still mounts one window, not every row.
@@ -151,14 +152,6 @@ export function SubagentTranscript({
   // below. carryRange moves each end of the window to the block that now holds its row, so the rows
   // the reader was on stay the ones mounted. A row is the same row by its id: a page that reuses ids
   // for other content reads as the same rows changing, as a streaming update does.
-  const [seen, setSeen] = useState({ rows, units });
-  if (rows !== seen.rows || units !== seen.units) {
-    const before = seen;
-    setSeen({ rows, units });
-    if (rowsRemoved(before.rows, rows)) setRange(windowRange(units));
-    else if (before.units.length > 0 && blocksMoved(before.units, units))
-      setRange((current) => sameRange(current, carryRange(before.units, units, current)));
-  }
   const atBottom = useRef(anchor === undefined);
   // While the mounted window moves (rows added above, rows unmounted above, older text merged into a
   // row): the row the reader is on and where its bottom edge sat in the view. Each render puts that
@@ -166,6 +159,22 @@ export function SubagentTranscript({
   // (rows replaced), the distance from the bottom holds instead. `settled` once the rows are in: the
   // next render applies it and lets go.
   const held = useRef<Hold | undefined>(undefined);
+  const [seen, setSeen] = useState({ rows, units });
+  if (rows !== seen.rows || units !== seen.units) {
+    const before = seen;
+    setSeen({ rows, units });
+    if (rowsRemoved(before.rows, rows)) {
+      // Scrolled up, the row the reader is on stays in view when it is among the new rows: the window
+      // is taken around it and its edge held, never the newest window, which sent the reader to the
+      // bottom (Leo, 2026-11-12: "IT JUST [...] SENDS ME TO THE BOTTOM").
+      const view = scroller.current;
+      const hold = view && !atBottom.current ? capture(view, true) : undefined;
+      const unit = hold?.id === undefined ? undefined : unitHolding(units, hold.id);
+      if (hold && unit !== undefined) held.current = hold;
+      setRange(windowRange(units, unit));
+    } else if (before.units.length > 0 && blocksMoved(before.units, units))
+      setRange((current) => sameRange(current, carryRange(before.units, units, current)));
+  }
   const placed = useRef(false);
   const first = Math.min(range.start, Math.max(0, units.length - 1));
   const last = range.end === undefined || range.end >= units.length ? undefined : range.end;

@@ -4,7 +4,10 @@
 // For transcript-tail-scroll.test.ts: `?tail=N` opens on the last N rows, `?latency=ms` sets how
 // long each page takes, and `?prompts` passes the chat's prompt count, as the pane does, so the room
 // for the unloaded history is held above the rows (conversation/olderReserve.ts).
-import { useCallback, useState } from "react";
+// For transcript-older-scroll.test.ts's reconnect case: `__older.live()` appends a turn, as a reply
+// streaming on does, and `__older.reconnect("tail" | "empty")` draws what a reconnect or a rebuild
+// draws first: only the chat's newest tail (the older pages read so far gone), or no rows for a frame.
+import { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { VirtualTranscript } from "../../src/agent-session/acpmux/App";
 import { syntheticRows } from "../../src/agent-session/acpmux/synthetic";
@@ -19,7 +22,9 @@ document.documentElement.style.height = document.body.style.height = "100%";
 document.body.style.margin = "0";
 Object.assign(root.style, { height: "100%", display: "flex", flexDirection: "column" });
 
-const all = syntheticRows(3000);
+/// Rows past the chat's first 3000 that `live()` appends, a turn (three rows) at a time.
+const LIVE = 300;
+const all = syntheticRows(3000 + LIVE);
 const PAGE = 30;
 type Older = {
   latency: number;
@@ -27,16 +32,37 @@ type Older = {
   asks: { at: number; top: number; landed?: number }[];
   loaded: () => number;
   total: number;
+  live: () => void;
+  reconnect: (draws: "tail" | "empty") => void;
 };
 const query = new URLSearchParams(location.search);
 const TAIL = Number(query.get("tail") ?? 2 * PAGE);
-const older: Older = { latency: Number(query.get("latency") ?? 400), asks: [], loaded: () => 0, total: all.length };
+const older: Older = {
+  latency: Number(query.get("latency") ?? 400),
+  asks: [],
+  loaded: () => 0,
+  total: all.length - LIVE,
+  live: () => {},
+  reconnect: () => {},
+};
 (window as unknown as { __older: Older }).__older = older;
 
 function Transcript() {
+  const [end, setEnd] = useState(all.length - LIVE);
   // `?all`: every row from the start and nothing to page, the control the paging is measured against.
-  const [from, setFrom] = useState(query.has("all") ? 0 : all.length - TAIL);
-  older.loaded = () => all.length - from;
+  const [from, setFrom] = useState(query.has("all") ? 0 : all.length - LIVE - TAIL);
+  const [blank, setBlank] = useState(false);
+  older.loaded = () => end - from;
+  older.total = end;
+  older.live = () => setEnd((at) => Math.min(all.length, at + 3));
+  older.reconnect = (draws) => {
+    if (draws === "empty") setBlank(true);
+    else setFrom(Math.max(0, end - TAIL));
+  };
+  // A rebuild's empty frame lasts one commit: the rows it held come back in the next.
+  useEffect(() => {
+    if (blank) setBlank(false);
+  }, [blank]);
   const onLoadOlder = useCallback(() => {
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
     const ask: Older["asks"][number] = { at: performance.now(), top: scroller?.scrollTop ?? -1 };
@@ -52,12 +78,12 @@ function Transcript() {
   }, []);
   return (
     <VirtualTranscript
-      rows={turnView(all.slice(from), new Set())}
+      rows={blank ? [] : turnView(all.slice(from, end), new Set())}
       sessionId="session-older"
       onToggleActivity={() => {}}
       expanded={new Set()}
       canLoadOlder={from > 0}
-      promptCount={query.has("prompts") && from > 0 ? all.length / 3 : undefined}
+      promptCount={query.has("prompts") && from > 0 ? end / 3 : undefined}
       onLoadOlder={onLoadOlder}
     />
   );
