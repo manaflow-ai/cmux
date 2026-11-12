@@ -2504,7 +2504,7 @@
       "socketModeDesc": "Substituir modo de acesso (cmuxOnly, allowAll, off). Também aceita cmux-only/cmux_only e allow-all/allow_all",
       "workspaceIdDesc": "Definido automaticamente: ID do workspace atual",
       "surfaceIdDesc": "Definido automaticamente: ID da superfície atual",
-      "termProgramDesc": "Definido como ghostty",
+      "termProgramDesc": "Definido como cmux",
       "termDesc": "Definido como xterm-ghostty",
       "envCallout": "Valores legados de CMUX_SOCKET_MODE full e notifications ainda são aceitos para compatibilidade.",
       "detectingCmux": "Detectando o cmux",

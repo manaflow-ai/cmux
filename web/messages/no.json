@@ -2504,7 +2504,7 @@
       "socketModeDesc": "Overstyr tilgangsmodus (cmuxOnly, allowAll, off). Godtar også cmux-only/cmux_only og allow-all/allow_all",
       "workspaceIdDesc": "Automatisk satt: gjeldende arbeidsområde-ID",
       "surfaceIdDesc": "Automatisk satt: gjeldende overflate-ID",
-      "termProgramDesc": "Satt til ghostty",
+      "termProgramDesc": "Satt til cmux",
       "termDesc": "Satt til xterm-ghostty",
       "envCallout": "Eldre CMUX_SOCKET_MODE-verdier full og notifications godtas fortsatt for kompatibilitet.",
       "detectingCmux": "Oppdage cmux",

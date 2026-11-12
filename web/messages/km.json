@@ -2504,7 +2504,7 @@
       "socketModeDesc": "បដិសេធមុខងារចូលប្រើ (cmuxOnly, allowAll, off)។ ទទួលផងដែរ cmux-only/cmux_only និង allow-all/allow_all",
       "workspaceIdDesc": "កំណត់ស្វ័យប្រវត្តិ: ID workspace បច្ចុប្បន្ន",
       "surfaceIdDesc": "កំណត់ស្វ័យប្រវត្តិ: ID surface បច្ចុប្បន្ន",
-      "termProgramDesc": "កំណត់ទៅ ghostty",
+      "termProgramDesc": "កំណត់ទៅ cmux",
       "termDesc": "កំណត់ទៅ xterm-ghostty",
       "envCallout": "តម្លៃ CMUX_SOCKET_MODE ចាស់ full និង notifications នៅតែទទួលបានសម្រាប់ភាពឆបគ្នា។",
       "detectingCmux": "កំណត់ cmux",

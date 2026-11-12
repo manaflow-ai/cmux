@@ -2485,7 +2485,7 @@
       "socketModeDesc": "Перевизначити режим доступу (cmuxOnly, allowAll, off). Також приймаються cmux-only/cmux_only і allow-all/allow_all",
       "workspaceIdDesc": "Установлюється автоматично: ID поточного робочого простору",
       "surfaceIdDesc": "Установлюється автоматично: ID поточної поверхні",
-      "termProgramDesc": "Установлюється в ghostty",
+      "termProgramDesc": "Установлюється в cmux",
       "termDesc": "Установлюється в xterm-ghostty",
       "envCallout": "Застарілі значення CMUX_SOCKET_MODE full і notifications досі приймаються для сумісності.",
       "detectingCmux": "Виявлення cmux",

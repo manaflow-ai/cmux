@@ -2504,7 +2504,7 @@
       "socketModeDesc": "覆寫存取模式（cmuxOnly、allowAll、off）。也接受 cmux-only/cmux_only 和 allow-all/allow_all",
       "workspaceIdDesc": "自動設定：目前工作區 ID",
       "surfaceIdDesc": "自動設定：目前 surface ID",
-      "termProgramDesc": "設定為 ghostty",
+      "termProgramDesc": "設定為 cmux",
       "termDesc": "設定為 xterm-ghostty",
       "envCallout": "舊版的 CMUX_SOCKET_MODE 值 full 和 notifications 仍然接受以保持相容性。",
       "detectingCmux": "偵測 cmux",

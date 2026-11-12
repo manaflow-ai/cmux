@@ -3795,7 +3795,7 @@
       "socketModeDesc": "Override access mode (cmuxOnly, allowAll, off). Also accepts cmux-only/cmux_only and allow-all/allow_all",
       "workspaceIdDesc": "Auto-set: current workspace ID",
       "surfaceIdDesc": "Auto-set: current surface ID",
-      "termProgramDesc": "Set to ghostty",
+      "termProgramDesc": "Set to cmux",
       "termDesc": "Set to xterm-ghostty",
       "envCallout": "Legacy CMUX_SOCKET_MODE values full and notifications are still accepted for compatibility.",
       "detectingCmux": "Detecting cmux",

@@ -2505,7 +2505,7 @@
       "socketModeDesc": "Nadpisz tryb dostępu (cmuxOnly, allowAll, off). Akceptuje też cmux-only/cmux_only i allow-all/allow_all",
       "workspaceIdDesc": "Ustawiane automatycznie: ID bieżącego workspace'a",
       "surfaceIdDesc": "Ustawiane automatycznie: ID bieżącego surface'a",
-      "termProgramDesc": "Ustawione na ghostty",
+      "termProgramDesc": "Ustawione na cmux",
       "termDesc": "Ustawione na xterm-ghostty",
       "envCallout": "Starsze wartości CMUX_SOCKET_MODE full i notifications są nadal akceptowane dla kompatybilności.",
       "detectingCmux": "Wykrywanie cmux",

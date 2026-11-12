@@ -2504,7 +2504,7 @@
       "socketModeDesc": "Zaobiđite način pristupa (cmuxOnly, allowAll, off). Takođe prihvata cmux-only/cmux_only i allow-all/allow_all",
       "workspaceIdDesc": "Automatski postavljeno: ID trenutnog radnog prostora",
       "surfaceIdDesc": "Automatski postavljeno: ID trenutne površine",
-      "termProgramDesc": "Postavljeno na ghostty",
+      "termProgramDesc": "Postavljeno na cmux",
       "termDesc": "Postavljeno na xterm-ghostty",
       "envCallout": "Starije CMUX_SOCKET_MODE vrijednosti full i notifications se još prihvataju radi kompatibilnosti.",
       "detectingCmux": "Detekcija cmux-a",

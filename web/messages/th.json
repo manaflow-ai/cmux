@@ -2507,7 +2507,7 @@
       "socketModeDesc": "Override โหมดการเข้าถึง (cmuxOnly, allowAll, off) รับ cmux-only/cmux_only และ allow-all/allow_all ด้วย",
       "workspaceIdDesc": "ตั้งอัตโนมัติ: workspace ID ปัจจุบัน",
       "surfaceIdDesc": "ตั้งอัตโนมัติ: surface ID ปัจจุบัน",
-      "termProgramDesc": "ตั้งเป็น ghostty",
+      "termProgramDesc": "ตั้งเป็น cmux",
       "termDesc": "ตั้งเป็น xterm-ghostty",
       "envCallout": "ค่า CMUX_SOCKET_MODE แบบเก่า full และ notifications ยังรับได้เพื่อความเข้ากันได้",
       "detectingCmux": "การตรวจจับ cmux",

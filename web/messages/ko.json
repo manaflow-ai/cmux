@@ -2504,7 +2504,7 @@
       "socketModeDesc": "접근 모드 오버라이드 (cmuxOnly, allowAll, off). cmux-only/cmux_only, allow-all/allow_all도 허용",
       "workspaceIdDesc": "자동 설정: 현재 워크스페이스 ID",
       "surfaceIdDesc": "자동 설정: 현재 서피스 ID",
-      "termProgramDesc": "ghostty로 설정됨",
+      "termProgramDesc": "cmux로 설정됨",
       "termDesc": "xterm-ghostty로 설정됨",
       "envCallout": "레거시 CMUX_SOCKET_MODE 값 full 및 notifications는 호환성을 위해 여전히 허용됩니다.",
       "detectingCmux": "cmux 감지",

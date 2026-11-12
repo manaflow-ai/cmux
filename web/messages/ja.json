@@ -3702,7 +3702,7 @@
       "socketModeDesc": "アクセスモードを上書き（cmuxOnly、allowAll、off）。cmux-only/cmux_onlyやallow-all/allow_allも使用可能",
       "workspaceIdDesc": "自動設定：現在のワークスペースID",
       "surfaceIdDesc": "自動設定：現在のサーフェスID",
-      "termProgramDesc": "ghosttyに設定",
+      "termProgramDesc": "cmuxに設定",
       "termDesc": "xterm-ghosttyに設定",
       "envCallout": "レガシーのCMUX_SOCKET_MODE値fullとnotificationsは互換性のため引き続き使用可能です。",
       "detectingCmux": "cmuxの検出",

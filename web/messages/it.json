@@ -2504,7 +2504,7 @@
       "socketModeDesc": "Sovrascrivi la modalità di accesso (cmuxOnly, allowAll, off). Accetta anche cmux-only/cmux_only e allow-all/allow_all",
       "workspaceIdDesc": "Auto-impostato: ID del workspace attuale",
       "surfaceIdDesc": "Auto-impostato: ID della superficie attuale",
-      "termProgramDesc": "Impostato a ghostty",
+      "termProgramDesc": "Impostato a cmux",
       "termDesc": "Impostato a xterm-ghostty",
       "envCallout": "I vecchi valori CMUX_SOCKET_MODE full e notifications sono ancora accettati per compatibilità.",
       "detectingCmux": "Rilevare cmux",

@@ -2505,7 +2505,7 @@
       "socketModeDesc": "覆盖访问模式（cmuxOnly、allowAll、off）。也接受 cmux-only/cmux_only 和 allow-all/allow_all",
       "workspaceIdDesc": "自动设置：当前工作区 ID",
       "surfaceIdDesc": "自动设置：当前 surface ID",
-      "termProgramDesc": "设置为 ghostty",
+      "termProgramDesc": "设置为 cmux",
       "termDesc": "设置为 xterm-ghostty",
       "envCallout": "旧版 CMUX_SOCKET_MODE 值 full 和 notifications 仍然兼容。",
       "detectingCmux": "检测 cmux",

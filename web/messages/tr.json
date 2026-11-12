@@ -2504,7 +2504,7 @@
       "socketModeDesc": "Erişim modunu geçersiz kılın (cmuxOnly, allowAll, off). Ayrıca cmux-only/cmux_only ve allow-all/allow_all kabul eder",
       "workspaceIdDesc": "Otomatik ayarlı: geçerli çalışma alanı ID",
       "surfaceIdDesc": "Otomatik ayarlı: geçerli yüzey ID",
-      "termProgramDesc": "ghostty olarak ayarlı",
+      "termProgramDesc": "cmux olarak ayarlı",
       "termDesc": "xterm-ghostty olarak ayarlı",
       "envCallout": "Eski CMUX_SOCKET_MODE değerleri full ve notifications uyumluluk için hâlâ kabul edilir.",
       "detectingCmux": "cmux'u algılama",

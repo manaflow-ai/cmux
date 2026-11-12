@@ -2504,7 +2504,7 @@
       "socketModeDesc": "Overskriv adgangstilstand (cmuxOnly, allowAll, off). Accepterer også cmux-only/cmux_only og allow-all/allow_all",
       "workspaceIdDesc": "Auto-sat: nuværende workspace-ID",
       "surfaceIdDesc": "Auto-sat: nuværende surface-ID",
-      "termProgramDesc": "Sat til ghostty",
+      "termProgramDesc": "Sat til cmux",
       "termDesc": "Sat til xterm-ghostty",
       "envCallout": "Legacy CMUX_SOCKET_MODE-værdier full og notifications accepteres stadig for kompatibilitet.",
       "detectingCmux": "Detektering af cmux",

@@ -2504,7 +2504,7 @@
       "socketModeDesc": "تجاوز وضع الوصول (cmuxOnly, allowAll, off). يقبل أيضاً cmux-only/cmux_only وallow-all/allow_all",
       "workspaceIdDesc": "يُعين تلقائياً: معرف مساحة العمل الحالية",
       "surfaceIdDesc": "يُعين تلقائياً: معرف السطح الحالي",
-      "termProgramDesc": "مُعين إلى ghostty",
+      "termProgramDesc": "مُعين إلى cmux",
       "termDesc": "مُعين إلى xterm-ghostty",
       "envCallout": "قيم CMUX_SOCKET_MODE القديمة full وnotifications لا تزال مقبولة للتوافق.",
       "detectingCmux": "كشف cmux",
