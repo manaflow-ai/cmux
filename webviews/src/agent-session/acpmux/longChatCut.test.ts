@@ -402,3 +402,26 @@ test("a second cut, older than the first, still sees a subagent that started abo
   expect(cut.subagentViews?.helper?.length).toBe(whole.subagentViews?.helper?.length);
   expect(shown(cut)).toEqual(shown(whole));
 });
+
+test("a row's write by an older record than the newest noted still spans a cut", async () => {
+  // Second review of this fix: a repair's record refolded past a cut writes a row after newer
+  // records' writes were noted; that write was dropped, so a later cut between it and the row's
+  // start split the row (a compaction drew a second note).
+  const { OrderedRows } = await import("./direct");
+  const rows = new OrderedRows();
+  const write = (seq: number, id: string, version: number) => {
+    rows.current = seq;
+    rows.set(id, { id, version, at: seq, seq, kind: "compaction" } as never);
+    rows.current = undefined;
+  };
+  write(6_990, "compaction-6990", 1);
+  write(11_990, "reply", 1);
+  write(12_000, "reply", 2);
+  write(7_050, "compaction-6990", 2);
+  expect(rows.spanningFrom(7_001)).toBe(6_990);
+  // A refold past a cut writes its changes again from the cut on, without growing the log.
+  rows.forgetChangesFrom(7_001);
+  write(7_050, "compaction-6990", 3);
+  expect(rows.spanningFrom(7_001)).toBe(6_990);
+  expect(rows.spanningFrom(7_051)).toBe(Infinity);
+});
