@@ -38,7 +38,10 @@ fn fallback_session() -> String {
 }
 
 /// Runs the server on stdin and stdout.
-pub async fn run() -> Result<()> {
+/// `primary`: cmux Computer Use is the agent's only Computer Use (the
+/// agent's own is turned off), so it is not presented as a second choice
+/// (`cmux computer-use mcp --primary`).
+pub async fn run(primary: bool) -> Result<()> {
     let var = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
     // `cmux computer-use mcp` started by an agent's own config: its session
     // is the one cmux names in the agent's env.
@@ -48,17 +51,24 @@ pub async fn run() -> Result<()> {
     let label = var(LABEL_ENV).unwrap_or_else(|| "An agent".to_owned());
     crate::parent_watch::exit_with_parent();
     let caller = Arc::new(Caller::new(SocketDaemon::from_env(), session, label));
-    serve(caller, tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout()).await
+    serve(caller, primary, tokio::io::BufReader::new(tokio::io::stdin()), tokio::io::stdout()).await
 }
 
 /// Whether the client is an agent with its own Computer Use that people
 /// usually prefer (Codex: Codex Computer Use). Then cmux Computer Use is the
 /// second choice, used only when the person asks for it.
 pub fn defers_to_own_computer_use(params: &Value) -> bool {
-    params
-        .pointer("/clientInfo/name")
-        .and_then(Value::as_str)
-        .is_some_and(|name| name.to_ascii_lowercase().contains("codex"))
+    client_defers(params, false)
+}
+
+/// defers_to_own_computer_use, unless the server was started as the agent's
+/// only Computer Use (`primary`).
+pub fn client_defers(params: &Value, primary: bool) -> bool {
+    !primary
+        && params
+            .pointer("/clientInfo/name")
+            .and_then(Value::as_str)
+            .is_some_and(|name| name.to_ascii_lowercase().contains("codex"))
 }
 
 /// What an agent that has its own Computer Use is told.
@@ -71,8 +81,12 @@ pub const DEFER_PREFIX: &str =
 
 /// The `initialize` result.
 pub fn initialize(params: &Value) -> Value {
-    let instructions =
-        if defers_to_own_computer_use(params) { DEFER_INSTRUCTIONS } else { tools::INSTRUCTIONS };
+    initialize_with(params, defers_to_own_computer_use(params))
+}
+
+/// The `initialize` result, deferring or not.
+pub fn initialize_with(params: &Value, defer: bool) -> Value {
+    let instructions = if defer { DEFER_INSTRUCTIONS } else { tools::INSTRUCTIONS };
     json!({
         "protocolVersion": crate::secret_mcp::protocol_version(params),
         "capabilities": {"tools": {"listChanged": false}},
@@ -98,7 +112,12 @@ pub fn tools_list(defer: bool) -> Value {
 
 /// Serves MCP on `input`/`output` until `input` closes, then ends the
 /// session on the worker.
-pub async fn serve<D, R, W>(caller: Arc<Caller<D>>, input: R, mut output: W) -> Result<()>
+pub async fn serve<D, R, W>(
+    caller: Arc<Caller<D>>,
+    primary: bool,
+    input: R,
+    mut output: W,
+) -> Result<()>
 where
     D: Daemon + 'static,
     R: AsyncBufRead + Unpin,
@@ -130,8 +149,8 @@ where
                 {
                     caller.set_label(name);
                 }
-                defer = defers_to_own_computer_use(&params);
-                initialize(&params)
+                defer = client_defers(&params, primary);
+                initialize_with(&params, defer)
             }
             "ping" => json!({}),
             "tools/list" => tools_list(defer),
@@ -204,8 +223,13 @@ mod defer_tests {
         for tool in listed["tools"].as_array().unwrap() {
             assert!(tool["description"].as_str().unwrap().starts_with(DEFER_PREFIX));
         }
+        // Codex whose own Computer Use is off (served with --primary):
+        // cmux Computer Use is its Computer Use, not a second choice.
+        assert!(!client_defers(&codex, true));
+        assert_eq!(initialize_with(&codex, false)["instructions"], tools::INSTRUCTIONS);
         let claude = json!({"clientInfo": {"name": "claude-code", "version": "2"}});
         assert!(!defers_to_own_computer_use(&claude));
+        assert!(!client_defers(&claude, false));
         assert_eq!(initialize(&claude)["instructions"], tools::INSTRUCTIONS);
         assert!(
             !tools_list(false)["tools"][0]["description"]

@@ -38,6 +38,9 @@ fn outcome_after(route: &str, before: Option<String>, el: &Ax) -> ActionOutcome 
     out
 }
 
+/// How long a foreground action waits for its app to become the active app.
+const RAISE_WAIT: std::time::Duration = std::time::Duration::from_millis(1000);
+
 impl MacDesktop {
     /// Raises the window and its app for a Foreground delivery. This is the
     /// only path that changes what is in front, and only when asked.
@@ -47,7 +50,19 @@ impl MacDesktop {
         if let Some(yes) = Cf::boolean(true) {
             app.set("AXFrontmost", &yes).map_err(|e| ax_error(e, "bringing the app forward"))?;
         }
-        Ok(())
+        // AXFrontmost asks the app to activate; the window server makes it
+        // the active app a little later (and may refuse under cooperative
+        // activation). System-wide input (the HID tap) goes to whatever is
+        // really active, so wait for the app's activation notification, up to
+        // RAISE_WAIT, and refuse rather than send input elsewhere.
+        let pid = t.window.pid;
+        if super::ax::wait_activated(pid, RAISE_WAIT, &|| super::frontmost_pid() == Some(pid)) {
+            return Ok(());
+        }
+        Err(DesktopError::Unsupported(format!(
+            "window {}'s app did not come to the front when asked, so system-wide input would reach another app; try again, or use delivery background",
+            t.window.id
+        )))
     }
 
     /// The route for pointer events into a window.
@@ -72,7 +87,7 @@ impl MacDesktop {
     /// so it is pressed only when the target window is that window (or keys
     /// would reach it, see key_route); one that opens a submenu is refused
     /// (it would open a menu), and one the deny list blocks is refused.
-    fn check_menu_item(&self, t: &Target, el: &Ax) -> DResult<()> {
+    fn check_menu_item(&self, t: &Target, el: &Ax, delivery: Delivery) -> DResult<()> {
         if !super::ax::in_menu_bar(el) {
             return Ok(());
         }
@@ -91,7 +106,9 @@ impl MacDesktop {
             ));
         }
         // Menu commands act on the app's key window: the same rule as keys.
-        self.key_route(t, Delivery::Background).map(|_| ())
+        // In the foreground the window is raised first (it becomes the key
+        // window), as for keys.
+        self.key_route(t, delivery).map(|_| ())
     }
 
     /// The route for key events. Keys posted to a process go to its key
@@ -101,6 +118,20 @@ impl MacDesktop {
         self.require_input()?;
         if delivery == Delivery::Foreground {
             self.raise(t)?;
+            // Raising does not prove the window takes keys: an app-modal alert,
+            // a sheet or a floating panel of the app can stay its key window,
+            // and keys (or a menu command such as Close or Delete) would act
+            // there instead. Refused only when the app names a different focused
+            // window: an app just activated may report none yet, and some apps
+            // (not AppKit) do not report one at all; those are typed into, as
+            // the person's keys would be.
+            let (app, win) = self.ax_window(t)?;
+            if app.element("AXFocusedWindow").is_some_and(|f| !f.same(&win)) {
+                return Err(DesktopError::Unsupported(format!(
+                    "window {} did not become the app's key window when raised (an alert, sheet or panel of the app has it), so keys would reach another window; take a screenshot of the app and deal with that window first",
+                    t.window.id
+                )));
+            }
             return Ok(Route::Hid);
         }
         let (app, win) = self.ax_window(t)?;
@@ -436,9 +467,14 @@ pub(super) fn click(
             d.refuse_denied_at(&t, roles::center(&frame))?;
         }
     }
-    d.check_menu_item(&t, &el)?;
-    let semantic =
-        spec.delivery == Delivery::Background && spec.modifiers.is_empty() && spec.count <= 1;
+    d.check_menu_item(&t, &el, spec.delivery)?;
+    // A menu bar item has no screen frame to click while its menu is closed:
+    // after check_menu_item raised the window (foreground) it is pressed
+    // through AX in either delivery.
+    let in_menu_bar = super::ax::in_menu_bar(&el);
+    let semantic = (spec.delivery == Delivery::Background || in_menu_bar)
+        && spec.modifiers.is_empty()
+        && spec.count <= 1;
     if semantic {
         let available = el.actions();
         if let Some(action) =
@@ -995,7 +1031,7 @@ pub(super) fn perform_action(
         d.refuse_left_open_in_persons_app(&t)?;
         return d.open_and_list(&t, &el, ax_action);
     }
-    d.check_menu_item(&t, &el)?;
+    d.check_menu_item(&t, &el, Delivery::Background)?;
     let before = el.value_text();
     el.perform(ax_action).map_err(|e| ax_error(e, &format!("element {element_id}")))?;
     let route = if ax_action.starts_with("Name:") {

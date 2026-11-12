@@ -1141,3 +1141,17 @@ fn a_helper_s_menu_is_taken_only_when_the_deny_list_allows_its_owner() {
         assert!(!menus::may_be_targets_menu(me, 1, Some(&allow)));
     }
 }
+
+#[test]
+fn an_app_is_launched_by_its_name_as_well_as_its_bundle_id() {
+    // Iteration 4, multi_apps/ab666698: the agent asked for "Notes" and was
+    // told no installed app has that bundle id.
+    assert_eq!(
+        workspace::launch_targets("com.apple.TextEdit"),
+        vec!["com.apple.TextEdit".to_string()]
+    );
+    assert_eq!(workspace::launch_targets("TextEdit"), vec!["com.apple.TextEdit".to_string()]);
+    assert_eq!(workspace::launch_targets("TextEdit.app"), vec!["com.apple.TextEdit".to_string()]);
+    assert!(workspace::launch_targets("cmux-no-such-app").is_empty());
+    assert!(workspace::launch_targets("  ").is_empty());
+}

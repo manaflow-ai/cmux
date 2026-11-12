@@ -43,7 +43,7 @@ case $arm in
       -c 'plugins."computer-use@openai-bundled".enabled=false'
       -c 'plugins."unified-computer-use@openai-bundled".enabled=false'
       -c "mcp_servers.cmux_computer_use.command=\"$cmux\""
-      -c 'mcp_servers.cmux_computer_use.args=["computer-use","mcp"]'
+      -c 'mcp_servers.cmux_computer_use.args=["computer-use","mcp","--primary"]'
       -c "mcp_servers.cmux_computer_use.env.CMUX_TUI_SOCKET=\"$(getconf DARWIN_USER_TEMP_DIR)cmux-tui-$(id -u)/cmux-app-$(cat "$HOME/cub-assets/cmux-tag" 2>/dev/null || echo cuparity2).sock\""
       -c 'mcp_servers.cmux_computer_use.tool_timeout_sec=120') ;;
   *) echo "unknown arm $arm" >&2; exit 2 ;;
@@ -68,8 +68,11 @@ if [[ $arm == cmux-cu ]]; then
   pgrep -f "cmux-remote worker computer-use" >/dev/null || { echo "cmux worker did not start" > "$out/stderr.txt"; echo setup > "$out/rc"; cat "$out/rc"; exit 0; }
 fi
 launchctl bootout "gui/$uid/$label" 2>/dev/null || true
-rm -f "$out/rc"
+rm -f "$out/rc" "$out/started"
 start=$(date +%s)
+# The runner tells a lost guest after this point (the agent ran: a failed
+# attempt) from one before it (infrastructure) by this file.
+date +%s > "$out/started"
 launchctl bootstrap "gui/$uid" "$plist"
 # Wait on the job's own result file, bounded by the task timeout.
 while [[ ! -f $out/rc ]]; do

@@ -243,6 +243,11 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
         tap.gate.personEventCount().map { Int64(clamping: $0) } ?? -1
     }
 
+    /// The key-blind epoch while that count includes the person's keys, or -1.
+    fileprivate func keyBlindEpoch() -> Int64 {
+        tap.gate.keyBlindEpoch().map { Int64(clamping: $0) } ?? -1
+    }
+
     fileprivate func requestPermission(_ name: String) -> Int32 {
         guard let line = WorkerReport.requestPermission(name) else { return 1 }
         return channel.write(line) ? 0 : 1
@@ -300,6 +305,9 @@ final class WorkerServices: @unchecked Sendable { // crash-allow: mutable state 
         }
         host.person_events = { context in
             WorkerServices.services(context)?.personEvents() ?? -1
+        }
+        host.person_keys_epoch = { context in
+            WorkerServices.services(context)?.keyBlindEpoch() ?? -1
         }
         return host
     }

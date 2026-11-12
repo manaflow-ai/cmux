@@ -87,7 +87,17 @@ fn computer_use_worker_serves_agents_and_exits_when_stdin_closes() {
         "call_id": "c-1", "arguments": {"window_id": "1", "element_id": "e1"}})
     )
     .unwrap();
-    assert_eq!(line(&mut answers)["result"], clicked["result"]);
+    // It answers with the click's own result. The state after the click (its
+    // tree and screenshot) is not part of the record, which is written before
+    // it is attached, so the retry has none, and the agent's next screenshot
+    // returns the image.
+    let retried = line(&mut answers);
+    let mut first = clicked["result"].clone();
+    assert!(first["body"]["state"].is_object(), "{clicked}");
+    assert!(first["png"].is_string(), "{clicked}");
+    first["body"].as_object_mut().unwrap().remove("state");
+    first["png"] = Value::Null;
+    assert_eq!(retried["result"], first, "{retried}");
     let saved: Value =
         serde_json::from_slice(&std::fs::read(dir.join("state").join("approvals.json")).unwrap())
             .unwrap();

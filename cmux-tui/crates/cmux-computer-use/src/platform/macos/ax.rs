@@ -908,3 +908,72 @@ pub fn in_menu_bar(el: &Ax) -> bool {
     }
     false
 }
+
+/// Waits until `pid` is the active app (`is_front` says so), up to `limit`:
+/// an AXObserver for the app's kAXApplicationActivatedNotification, its
+/// source on this thread's run loop in a private mode, run until a wake
+/// finds the app in front or the time is up. True when it is in front.
+pub fn wait_activated(pid: i32, limit: std::time::Duration, is_front: &dyn Fn() -> bool) -> bool {
+    if is_front() {
+        return true;
+    }
+    unsafe extern "C" fn on_activated(
+        _observer: CFTypeRef,
+        _element: CFTypeRef,
+        _notification: CFTypeRef,
+        _refcon: *mut c_void,
+    ) {
+        // The wake itself is the signal: the loop below reads the front app.
+    }
+    let deadline = std::time::Instant::now() + limit;
+    let (Some(app), Some(note), Some(mode)) = (
+        Ax::application(pid),
+        Cf::string("AXApplicationActivated"),
+        Cf::string("com.cmuxterm.cu.raise"),
+    ) else {
+        return is_front();
+    };
+    let mut raw: CFTypeRef = std::ptr::null();
+    // SAFETY: out-parameter; a +1 observer on success.
+    if unsafe { AXObserverCreate(pid, on_activated, &mut raw) } != AX_OK {
+        return is_front();
+    }
+    let Some(observer) = Cf::created(raw) else { return is_front() };
+    // SAFETY: live observer, element and string; refcon unused.
+    let added = unsafe {
+        AXObserverAddNotification(observer.ptr(), app.ptr(), note.ptr(), std::ptr::null_mut())
+    } == AX_OK;
+    // SAFETY: a borrowed source of the live observer.
+    let source = unsafe { AXObserverGetRunLoopSource(observer.ptr()) };
+    // SAFETY: the current thread's run loop (borrowed).
+    let run_loop = unsafe { CFRunLoopGetCurrent() };
+    if added && !source.is_null() {
+        // SAFETY: live run loop, source and mode.
+        unsafe { CFRunLoopAddSource(run_loop, source, mode.ptr()) };
+    }
+    let mut front = is_front();
+    while !front {
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            break;
+        }
+        if added && !source.is_null() {
+            // SAFETY: runs this thread's loop in the private mode until a
+            // source fires or the remaining time passes.
+            unsafe { CFRunLoopRunInMode(mode.ptr(), (deadline - now).as_secs_f64(), 1) };
+        } else {
+            // No observer (the app does not take one): one last look at the
+            // deadline, no polling.
+            break;
+        }
+        front = is_front();
+    }
+    if added && !source.is_null() {
+        // SAFETY: as above.
+        unsafe {
+            CFRunLoopRemoveSource(run_loop, source, mode.ptr());
+            AXObserverRemoveNotification(observer.ptr(), app.ptr(), note.ptr());
+        }
+    }
+    front || is_front()
+}

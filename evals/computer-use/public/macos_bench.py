@@ -275,12 +275,53 @@ def run_attempt(task: dict, arm: str, trial: int, args, out_dir: str) -> dict:
             vm.put(pf, "~/cub/prompt.txt")
             vm.put(os.path.join(HERE, "guest", "run-agent.sh"), "~/cub/run-agent.sh")
             t0 = time.monotonic()
-            r = vm.ssh(f"bash ~/cub/run-agent.sh {arm} {shlex.quote(args.model)} {args.effort} "
-                       f"{args.timeout} ~/cub/prompt.txt ~/cub/out", timeout=args.timeout + 120)
+            # Watch for run-agent.sh's "started" file on a second connection, so a
+            # guest lost later is known to have run the agent.
+            done = threading.Event()
+            def watch_started(vm=vm, deadline=time.monotonic() + args.timeout):
+                while time.monotonic() < deadline and not done.is_set() and not getattr(vm, "agent_started", False):
+                    p = vm.ssh("test -f ~/cub/out/started && echo started")
+                    if p.returncode == 0 and "started" in p.stdout:
+                        vm.agent_started = True
+                        return
+                    done.wait(5)  # until the attempt ends, or 5 s for the next look at the guest file
+            watcher = threading.Thread(target=watch_started, daemon=True)
+            watcher.start()
+            try:
+                r = vm.ssh(f"bash ~/cub/run-agent.sh {arm} {shlex.quote(args.model)} {args.effort} "
+                           f"{args.timeout} ~/cub/prompt.txt ~/cub/out", timeout=args.timeout + 120)
+            finally:
+                done.set()
             row["agent_seconds"] = round(time.monotonic() - t0, 1)
             row["agent_rc"] = r.stdout.strip().splitlines()[-1] if r.stdout.strip() else f"ssh {r.returncode}"
             if row["agent_rc"] == "setup":
                 raise RuntimeError("the arm's computer-use service did not start in the guest")
+            # ssh failed and run-agent.sh printed nothing: ask the guest
+            # whether the agent ran (its rc file or any event). An agent that
+            # ran and then lost the session (it logged the guest out, say) is
+            # graded like any attempt; only one that never started is an
+            # infrastructure failure, counted for neither arm.
+            if not r.stdout.strip() and r.returncode != 0:
+                ask = "cat ~/cub/out/rc 2>/dev/null; test -s ~/cub/out/events.jsonl && echo ran; test -f ~/cub/out/started && echo started"
+                probe = vm.ssh(ask)
+                if probe.returncode != 0:
+                    probe = vm.ssh(ask)  # once more: one dropped connection is not a lost guest
+                said = probe.stdout.split() if probe.returncode == 0 else []
+                started = "started" in said or "ran" in said
+                if probe.returncode != 0 and getattr(vm, "agent_started", False):
+                    # The guest is gone after run-agent.sh started the agent
+                    # (it rebooted, logged out or crashed the guest): a failed
+                    # attempt of that arm, never dropped from its denominator.
+                    row.update(agent_rc="guest lost after the agent ran", score=0.0, success=False,
+                               check={"guest": "unreachable after the agent ran"})
+                    row.update(summarize_events(os.path.join(adir, "events.jsonl")))
+                    row["finished"] = time.time()
+                    with open(os.path.join(adir, "row.json"), "w") as f:
+                        json.dump(row, f, indent=1)
+                    return row
+                if not started:
+                    raise RuntimeError(f"ssh to the guest failed (exit {r.returncode}) before the agent ran")
+                row["agent_rc"] = next((w for w in said if w not in ("ran", "started")), f"ssh {r.returncode} after the agent ran")
             vm.get("~/cub/out/events.jsonl", adir)
             vm.get("~/cub/out/stderr.txt", adir)
             if args.screenshot:
@@ -375,14 +416,38 @@ def cmd_report(args):
     by = {}
     for r in rows:
         by.setdefault(r["arm"], []).append(r)
-    print(f"{'arm':10} {'scored':>6} {'success':>8} {'mean':>6} {'infra':>6} {'p50 s':>6} {'calls':>6}")
+    print(f"{'arm':10} {'scored':>6} {'success':>8} {'mean':>6} {'infra':>6} {'infra%':>6} {'p50 s':>6} {'calls':>6}")
     for arm, rs in sorted(by.items()):
         scored = [r for r in rs if r.get("score") is not None]
         succ = sum(1 for r in scored if r.get("success"))
         secs = sorted(r["agent_seconds"] for r in scored if r.get("agent_seconds"))
         calls = sorted(r["tool_calls"] for r in scored)
+        infra = len(rs) - len(scored)
         print(f"{arm:10} {len(scored):6} {succ:8} {sum(r['score'] for r in scored)/max(1,len(scored)):6.3f} "
-              f"{len(rs)-len(scored):6} {secs[len(secs)//2] if secs else 0:6} {calls[len(calls)//2] if calls else 0:6}")
+              f"{infra:6} {100*infra/max(1,len(rs)):5.1f}% {secs[len(secs)//2] if secs else 0:6} {calls[len(calls)//2] if calls else 0:6}")
+    # Paired: only (task, trial) pairs every arm scored, one row each (the
+    # first scored), so infrastructure losses, which drop an attempt from one arm,
+    # cannot give either arm more tries or a smaller denominator.
+    # The first scored row of each (task, trial, arm): a later re-run of one
+    # arm's failures must not give it a second chance the other arm lacked.
+    first = {}
+    reruns = 0
+    for r in sorted(rows, key=lambda r: r.get("finished", 0)):
+        if r.get("score") is not None:
+            key = (r["task"], r.get("trial", 0), r["arm"])
+            if key in first:
+                reruns += 1
+            else:
+                first[key] = r
+    if reruns:
+        print(f"note: {reruns} later scored row(s) of the same (task, trial, arm) ignored (the first counts)")
+    arms = sorted(by)
+    pairs = {(t, tr) for (t, tr, _) in first}
+    paired = sorted(p for p in pairs if all((*p, a) in first for a in arms))
+    print(f"paired over {len(paired)} (task, trial) pairs every arm scored:")
+    for arm in arms:
+        ok = sum(1 for p in paired if first[(*p, arm)]["score"] >= 1.0)
+        print(f"  {arm:10} {ok:4} / {len(paired)}")
 
 
 def main():

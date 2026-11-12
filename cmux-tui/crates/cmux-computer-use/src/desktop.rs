@@ -432,6 +432,11 @@ pub trait Desktop: Send + Sync {
     fn launch_identities(&self, app_id: &str) -> DResult<Vec<String>> {
         Ok(vec![app_id.to_string()])
     }
+    /// Whether launch_app takes one of launch_identities' answers as is (macOS:
+    /// a bundle id), so the engine launches exactly what policy checked.
+    fn launches_by_identity(&self) -> bool {
+        false
+    }
     /// Asks the OS for a missing grant (shows the OS prompt or settings pane).
     fn request_permission(&self, _which: &str) -> DResult<()> {
         Err(DesktopError::Unsupported("this desktop has no permission prompt".into()))

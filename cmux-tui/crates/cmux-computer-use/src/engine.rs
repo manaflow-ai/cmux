@@ -186,6 +186,14 @@ pub trait PersonActivity: Send + Sync {
     fn input_count(&self) -> Option<u64> {
         None
     }
+    /// While input_count counts the person's keys too: an epoch that rises
+    /// whenever their keys may have gone uncounted (Secure Event Input, a
+    /// blind detector, dictation). `None` while the count does not cover keys
+    /// (macOS: no Input Monitoring). Two equal readings mean every key of the
+    /// person was counted between them.
+    fn keys_epoch(&self) -> Option<u64> {
+        None
+    }
 }
 
 pub struct NoTakeover;
@@ -288,6 +296,9 @@ pub struct Engine {
     seen: Mutex<HashMap<(String, String), (Geometry, u64)>>,
     /// session -> its latest display screenshot key.
     last_display: Mutex<HashMap<String, String>>,
+    /// session -> the app its foreground call brought to the front (see
+    /// engine_focus: AgentFront).
+    agent_front: Mutex<HashMap<String, focus::AgentFront>>,
     audit: Option<PathBuf>,
     machine_name: String,
     settle: Settle,
@@ -358,6 +369,7 @@ impl Engine {
             takeover: parts.takeover,
             seen: Mutex::new(HashMap::new()),
             last_display: Mutex::new(HashMap::new()),
+            agent_front: Mutex::new(HashMap::new()),
             audit,
             machine_name: parts.machine_name,
             settle: parts.settle,
@@ -373,6 +385,9 @@ impl Engine {
     /// Applies new settings at once; calls already past the policy check finish.
     pub fn set_config(&self, config: PolicyConfig) {
         let off = config.mode == policy::Mode::Off;
+        if off || !config.allow_foreground {
+            lock(&self.agent_front).clear();
+        }
         *self.config.write().unwrap_or_else(std::sync::PoisonError::into_inner) = config;
         if off {
             self.sessions.revoke_all(None);
@@ -388,6 +403,7 @@ impl Engine {
         self.cursor.show(CursorEvent::Hide { session: session.to_string() });
         lock(&self.seen).retain(|(s, _), _| s != session);
         lock(&self.last_display).remove(session);
+        lock(&self.agent_front).remove(session);
     }
 
     pub fn call(&self, ctx: &CallContext, name: &str, args: &Value) -> ToolOutput {
@@ -437,11 +453,13 @@ impl Engine {
             self.sessions.begin(&ctx.session, call_id);
         }
         let args = if args.is_object() { args.clone() } else { json!({}) };
-        let mut guard = self.focus_begin(tool, &args);
+        let raising = self.foreground_begin(tool, &args);
+        let mut guard = self.focus_begin(&ctx.session, tool, &args);
         let (mut out, app) = match self.dispatch(tool, ctx, &args) {
             Ok((out, app)) => (out, app),
             Err(out) => (out, None),
         };
+
         let mut focus = guard.as_mut().map(|g| self.focus_after_action(g, &out));
         if let Some(call_id) = acting_id {
             self.sessions.remember(&ctx.session, call_id, out.to_json().to_string());
@@ -471,6 +489,11 @@ impl Engine {
         }
         if let Some(g) = &guard {
             focus = Some(self.focus_after_settle(g, focus));
+        }
+        // After the settle wait: an app activates a little after the call
+        // asked it to, so reading the front app at once often missed it.
+        if let Some((before, inputs)) = raising {
+            self.foreground_end(&ctx.session, &before, inputs, &args, &out);
         }
         if let Some(report) = &focus {
             report.attach(&mut out);
@@ -540,6 +563,9 @@ impl Engine {
                     .collect();
                 Ok((ToolOutput::ok(json!({"windows": list})), None))
             }
+            // Not focus-guarded on purpose (Access::Discover): asking for a
+            // permission shows the OS prompt or opens System Settings in front,
+            // which is what the person must see to grant it.
             "request_permission" => {
                 let which = need(args, "permission")?;
                 self.desktop.request_permission(which).map_err(|e| ToolOutput::desktop(&e))?;
@@ -704,7 +730,16 @@ impl Engine {
                 let primary = identities.first().cloned().unwrap_or_else(|| id.to_string());
                 let app = TargetApp { id: primary, name: id.to_string() };
                 self.authorize(&config, ctx, Access::Act, Some(&app), false)?;
-                let started = self.desktop.launch_app(id).map_err(|e| ToolOutput::desktop(&e))?;
+                // A name resolved to one bundle id launches that id, the one
+                // policy just checked (resolving the name again could find
+                // another after an index rebuild). Identities that are not
+                // ids to launch by (Windows' cmd -> cmd.exe) keep the name.
+                let launch = match identities.as_slice() {
+                    [only] if self.desktop.launches_by_identity() => only.as_str(),
+                    _ => id,
+                };
+                let started =
+                    self.desktop.launch_app(launch).map_err(|e| ToolOutput::desktop(&e))?;
                 // The app that started is checked too; a blocked one is reported, not handed over.
                 let started_app = TargetApp { id: started.id.clone(), name: started.name.clone() };
                 if let Some(refusal) = policy::is_blocked(&config, &started_app) {

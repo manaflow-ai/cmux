@@ -26,3 +26,9 @@ if cmp -s "$running/Contents/Frameworks/libcmux_computer_use.dylib" "$A/Contents
 else
   echo "ERROR: the worker runs a different helper than the one installed"; exit 1
 fi
+# The new helper is staged under a new path: approve it for screen capture
+# too, or macOS shows its "requesting to bypass the system private window
+# picker" alert over every task (iteration 4 ran with it on screen).
+q="$(dirname "$0")/quiet-capture-alerts.sh"
+[ -f "$q" ] || q=~/quiet-capture-alerts.sh
+if [ -f "$q" ]; then bash "$q"; else echo "ERROR: quiet-capture-alerts.sh not found"; exit 1; fi
