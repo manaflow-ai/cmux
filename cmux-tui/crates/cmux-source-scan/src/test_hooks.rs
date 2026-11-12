@@ -502,13 +502,6 @@ fn field_types(fields: &syn::Fields) -> impl Iterator<Item = Type> + '_ {
     fields.iter().map(|f| f.ty.clone())
 }
 
-/// What the names in a file's static types stand for, as far as the file shows: its aliases,
-/// structs, enums, unions and consts, its `use` names, and its modules.
-///
-/// The file's modules share one table, so a name another module binds differently is not taken
-/// at one of its meanings: `defs` keeps every definition of a name and `uses` every path it is
-/// imported as, and a name is read at all of them, definitions and imports alike (reviews of
-/// cmux#41693 F1 and cmux#41707 F1).
 /// An import as written.
 struct Import {
     /// The name it binds.
@@ -522,6 +515,13 @@ struct Import {
     in_body: bool,
 }
 
+/// What the names in a file's static types stand for, as far as the file shows: its aliases,
+/// structs, enums, unions and consts, its `use` names, and its modules.
+///
+/// The file's modules share one table, so a name another module binds differently is not taken
+/// at one of its meanings: `defs` keeps every definition of a name and `uses` every path it is
+/// imported as, and a name is read at all of them, definitions and imports alike (reviews of
+/// cmux#41693 F1 and cmux#41707 F1).
 #[derive(Default)]
 struct Names {
     defs: HashMap<String, Vec<Def>>,
