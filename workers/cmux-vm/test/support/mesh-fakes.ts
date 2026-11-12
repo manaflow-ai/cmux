@@ -6,7 +6,7 @@
  * cover mesh calls too.
  */
 import { Effect, Layer, Option, Redacted } from "effect";
-import { MeshStore } from "../../src/db/mesh.ts";
+import { inventoryOf, MeshStore, type MeshStoreService } from "../../src/db/mesh.ts";
 import { makeMemoryMeshStore } from "../../src/db/mesh-memory.ts";
 import { StoreError } from "../../src/db/sql.ts";
 import { meshConfigLayer, type MeshBudgets } from "../../src/mesh/config.ts";
@@ -67,9 +67,11 @@ export function makeMeshFakes(provider: FakeUpstream, options: MeshFakeOptions =
   let failNextAcl = false;
   /** The per-tunnel endpoint names do not resolve. */
   let endpointDnsDown = false;
+  /** The compile's one inventory read answers through the hooked reads above, so their injections still reach it. */
+  const withInventory = (store: MeshStoreService): MeshStoreService => ({ ...store, meshInventory: inventoryOf(store) });
   const failingLayer = Layer.effect(
     MeshStore,
-    Effect.map(MeshStore, (inner) => ({
+    Effect.map(MeshStore, (inner) => withInventory({
       ...inner,
       listDevices: (tenantId: Parameters<typeof inner.listDevices>[0], meshId: string) =>
         inner.listDevices(tenantId, meshId).pipe(Effect.tap(() => Effect.sync(() => { inventoryRead?.(); }))),

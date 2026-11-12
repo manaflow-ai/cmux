@@ -59,13 +59,16 @@ beforeEach(async () => {
   layer = Layer.mergeAll(sqlMeshStoreLayer, sqlStoresLayer).pipe(Layer.provide(sql));
 });
 
+/** A P-256 install key as the schema stores it: base64 of a 65-byte uncompressed point (0x04, then 64 bytes). */
+const installKey = (n: number) => btoa(String.fromCharCode(4, ...Array.from({ length: 64 }, (_, i) => (n * 31 + i) % 256)));
+
 const device = (meshId: string, n: number) => ({
   deviceId: newDeviceId(),
   meshId,
   tunnelId: newTunnelId(),
   name: `d${n}`,
   wgPublicKey: btoa(`device-public-key-${String(n).padStart(14, "0")}`),
-  installPublicKey: n % 2 === 0 ? null : btoa(`install-public-key-${String(n).padStart(13, "0")}`),
+  installPublicKey: n % 2 === 0 ? null : installKey(n),
   createdBy: "user:user_ada",
   // Out of id order, so the created_at ordering is what puts them in order.
   createdAt: at(1_000 - n),
@@ -91,7 +94,7 @@ const seed = (meshId: string) =>
         meshId,
         name: `s${n}`,
         wgPublicKey: btoa(`server-public-key-${String(n).padStart(14, "0")}`),
-        installPublicKey: btoa(`server-install-key-${String(n).padStart(13, "0")}`),
+        installPublicKey: installKey(n),
         createdBy: "user:user_ada",
         createdAt: at(n),
       })).toBe(true);
