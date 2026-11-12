@@ -10634,6 +10634,95 @@ class UnplacedLogsAreComparedWhole(unittest.TestCase):
         self.assertIn("compared whole", said)
 
 
+CLIPPY = "clippy (changed cmux-tui packages)"
+CLIPPY_STEP = "Run clippy"
+# The watch.rs RootEntries clippy hit feat-cmux-next carried on 2026-11-12 (cmux#41938 fixes it), at two line numbers.
+ROOT_ENTRIES = ("error: you should consider adding a `Default` implementation for `RootEntries`",
+                "##[error]cmux-tui/src/watch.rs:{line}:5: you should consider adding a `Default` implementation for "
+                "`RootEntries`")
+
+
+def root_entries(line):
+    return [ROOT_ENTRIES[0], "  --> cmux-tui/src/watch.rs:{line}:5".format(line=line), ROOT_ENTRIES[1].format(line=line)]
+
+
+class BaseUnplacedGitHub(FakeGitHub):
+    """A placed head 'clippy (changed cmux-tui packages)' job 1 (run 10) and the newest base verdict of it, job 2 (run
+    20), whose log step_owners cannot place (unplaced_log)."""
+
+    def __init__(self, head_lines, base_lines, base_conclusion="failure"):
+        super().__init__()
+        self.jobs = {1: failed_job(1, 10, HEAD, name=CLIPPY, step=CLIPPY_STEP),
+                     2: dict(failed_job(2, 20, BASE_SHA, name=CLIPPY, step=CLIPPY_STEP), conclusion=base_conclusion)}
+        self.logs = {1: log(CLIPPY, CLIPPY_STEP, *head_lines, "##[error]Process completed with exit code 101."),
+                     2: unplaced_log(CLIPPY, CLIPPY_STEP, *base_lines)}
+        if base_conclusion != "failure":
+            self.base_runs[1]["conclusion"] = base_conclusion
+
+
+class AnUnplacedBaseIsMatchedByJobAndErrorLine(unittest.TestCase):
+    """2026-11-12: cmux#41580 and #41903 were refused on 'clippy (changed cmux-tui packages)' because feat-cmux-next run
+    43218260208's log did not map one to one onto its steps, though the base failed the same way (the watch.rs
+    RootEntries clippy hit). The coordinator's decision: "When the step mapping fails, fall back to matching the
+    failing job name and error line against base." (unplaced_base_fallback)"""
+
+    def judge(self, github):
+        return "\n".join(excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github))
+
+    def test_the_head_is_placed_and_the_base_is_not(self):
+        github = BaseUnplacedGitHub(root_entries(41), root_entries(44))
+        head, base = copy.deepcopy(github.jobs[1]), copy.deepcopy(github.jobs[2])
+        self.assertIsNot(excuse.failed_view(head, github.log(REPO, head), base=False, **UNKNOWN), excuse.UNPLACED)
+        self.assertIs(excuse.failed_view(base, github.log(REPO, base), base=True, **UNKNOWN), excuse.UNPLACED)
+
+    def test_the_bases_own_error_lines_are_excused(self):
+        # The same error at another line number: paths keep their file names, line numbers are masked.
+        said = self.judge(BaseUnplacedGitHub(root_entries(41), root_entries(44)))
+        self.assertIn(f"excused '{CLIPPY}': feat-cmux-next run 20", said)
+        self.assertIn("matched by job and error line", said)
+        self.assertIn("RootEntries", said)
+
+    def test_an_error_line_the_base_does_not_print_is_the_prs_own(self):
+        mine = root_entries(41) + ["error: unused variable: `entries`"]
+        with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps.*does not print this "
+                                                    "head's error lines: .*unused variable"):
+            self.judge(BaseUnplacedGitHub(mine, root_entries(44)))
+
+    def test_a_base_with_no_matching_error_stays_charged(self):
+        # The step mapping fails and the base failed on something else: the head's red stays its own.
+        other = ["error: this `if` has identical blocks", "##[error]cmux-tui/src/pane.rs:12:9: identical blocks"]
+        with self.assertRaisesRegex(excuse.Refused, "does not map one to one onto its steps.*does not print this "
+                                                    "head's error lines: .*RootEntries"):
+            self.judge(BaseUnplacedGitHub(root_entries(41), other))
+
+    def test_the_same_error_in_another_file_is_not_the_bases(self):
+        moved = [line.replace("watch.rs", "watcher.rs") for line in root_entries(41)]
+        with self.assertRaisesRegex(excuse.Refused, "does not print this head's error lines: .*watcher.rs"):
+            self.judge(BaseUnplacedGitHub(moved, root_entries(41)))
+
+    def test_a_job_the_base_passed_is_never_excused(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge(BaseUnplacedGitHub(root_entries(41), root_entries(41), base_conclusion="success"))
+        self.assertNotIn("matched by job and error line", str(caught.exception))
+
+    def test_a_cancelled_base_job_is_never_excused(self):
+        github = BaseUnplacedGitHub(root_entries(41), root_entries(41))
+        why = excuse.BaseUnplaced("'clippy': the base log does not map one to one onto its steps")
+        head = copy.deepcopy(github.jobs[1])
+        view = excuse.failed_view(head, github.log(REPO, head), base=False, **UNKNOWN)
+        for conclusion in ("cancelled", "timed_out", "success"):
+            base_job = dict(github.jobs[2], conclusion=conclusion)
+            with self.assertRaisesRegex(excuse.Refused, f"its job there is {conclusion}, not a failure"):
+                excuse.unplaced_base_fallback(REPO, "feat-cmux-next", CLIPPY, excuse.signature(view), view, False,
+                                              {"id": 20}, base_job, github, why)
+
+    def test_a_head_failed_step_the_base_did_not_fail_is_the_prs_own(self):
+        github = BaseUnplacedGitHub(root_entries(41), root_entries(41))
+        github.jobs[1]["steps"].insert(2, {"name": "Run fmt", "status": "completed", "conclusion": "failure"})
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge(github)
+        self.assertNotIn("excused", str(caught.exception))
+
 class FailedViewIsTheOnlyReader(unittest.TestCase):
     """failed_view is the one reader of a job log for every comparator, head and base alike, and the Codex repro of
     #40542's seventh BLOCK is refused."""

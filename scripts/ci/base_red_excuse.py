@@ -6145,9 +6145,56 @@ def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, githu
     view = failed_view(found, text, step_names=job_step_names(repo, found, github, run_reads, path=run.get("path")),
                        base=True)
     if view is UNPLACED:
-        raise Refused(f"'{name}': {base} run {run['id']}'s log does not map one to one onto its steps "
-                      "(step_owners), so no base line can be told to a failed step; nothing is compared")
+        raise BaseUnplaced(f"'{name}': {base} run {run['id']}'s log does not map one to one onto its steps "
+                           "(step_owners), so no base line can be told to a failed step")
     return run, view, signature(view), step_errors(view)
+
+
+class BaseUnplaced(Refused):
+    """base_evidence's refusal of a red base job whose log step_owners does not place: judge() then tries
+    unplaced_base_fallback before it refuses."""
+
+
+# A placed head red whose newest red base verdict's log step_owners does not place (2026-11-12: cmux#41580 and #41903
+# were refused on 'clippy (changed cmux-tui packages)', feat-cmux-next run 43218260208, for the watch.rs RootEntries
+# clippy hit the base had too; cmux#41938 fixes it). The coordinator's decision: "When the step mapping fails, fall back
+# to matching the failing job name and error line against base." Such a red is excused only when: the base job of the
+# same name failed (never a pass, a cancelled or a timed-out one); every head failed step, by (name, conclusion), is a
+# failed step of the base job by the jobs API; the head prints at least one error line; and every error line and failing
+# test the head's failed steps print (signature(): `error:`, `##[error]` and the job's own markers, normalise_error's
+# masking of paths, line numbers, times and shas) is in the base job's whole log (unplaced_signature). A head line the
+# base does not print stays the PR's own red, and so does a crash or the Chromium check: those are judged against a
+# placed base alone. Sets, not counts: the head is placed, so its lines are its failed steps' own, and the base may
+# fail more. Only the newest red verdict is read this way; an older unplaced one in the window refuses as before.
+def unplaced_base_fallback(repo: str, base: str, name: str, head: tuple, head_view: FailedView,
+                           chromium_without_diagnostics: bool, base_run: dict, base_job: dict, github,
+                           why: Refused) -> str:
+    """The audit line for placed head red NAME (HEAD: signature of HEAD_VIEW) whose red base verdict BASE_JOB in
+    BASE_RUN is unplaced (WHY: base_evidence's BaseUnplaced), by the rule above; raises Refused naming what differs."""
+    url = base_run.get("html_url") or f"https://github.com/{repo}/actions/runs/{base_run['id']}"
+    where = f"{base} run {base_run['id']} ({url})"
+    if base_job.get("conclusion") != "failure":
+        raise Refused(f"{why}; its job there is {base_job.get('conclusion')}, not a failure, so nothing is compared")
+    if chromium_without_diagnostics or crash_signals(head_view):
+        raise Refused(f"{why}; a crash or the Chromium check is judged against a placed base alone, so nothing is "
+                      "compared")
+    _, tests, errors = head
+    if not errors:
+        raise Refused(f"{why}; this head's failed steps print no error line to look for in its log, so nothing is "
+                      "compared")
+    mine, theirs = failed_step_keys(head_view.job), failed_step_keys(base_job)
+    if steps := sorted(set(mine) - set(theirs)):
+        raise Refused(f"{why}; matched by job and error line, this head's failed steps "
+                      f"({step_keys_text(Counter(dict.fromkeys(steps, 1)))}) are not among {where}'s "
+                      f"({step_keys_text(theirs)})")
+    found = unplaced_base_evidence(repo, base_job, github)
+    for what, head_lines, base_lines in (("failing tests", tests, found.tests), ("error lines", errors, found.errors)):
+        if missing := sorted(set(head_lines) - set(base_lines)):
+            raise Refused(f"{why}; matched by job and error line, its log does not print this head's {what}: "
+                          f"{'; '.join(missing)[:500]}")
+    return (f"excused '{name}': {where}'s log does not map onto its steps, so it was matched by job and error line: "
+            f"the job failed there too ({step_keys_text(theirs)[:200]}), and its whole log prints every error line "
+            f"this head's failed steps print: {'; '.join(sorted(errors))[:400]}")
 
 
 # A stacked child (hq#9249, 2026-11-11): a child PR into a lane branch that is itself an open PR's head (hq#9226's
@@ -6615,7 +6662,15 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
         # BASE_WINDOW_HOURS of it, read only while a head failure is on none so far. A green verdict ends it.
         def red(run: dict, found: dict) -> tuple:
             return base_evidence(repo, base, name, run, found, github, run_reads)
-        window, newest, read = [red(base_run, base_job)], created(base_run), 1
+        try:
+            window = [red(base_run, base_job)]
+        except BaseUnplaced as why:
+            # The step mapping failed on the base's log: matched by job name and error line (unplaced_base_fallback).
+            audit.append(unplaced_base_fallback(repo, base, name, head, view, chromium_without_diagnostics, base_run,
+                                                base_job, github, why)
+                         + (f"; {aside}" if aside is not None else ""))
+            continue
+        newest, read = created(base_run), 1
         while True:
             try:
                 audit.append(compare_window(repo, base, name, head, view, window, chromium_without_diagnostics,
