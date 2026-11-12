@@ -351,8 +351,9 @@ class SavedTrapAndSubshellSource(unittest.TestCase):
     def test_a_saved_exit_trap_comes_back_after_it_was_cleared(self):
         """The review of hq#9715 F2, ported: `saved=$(trap -p EXIT); trap - EXIT; eval "$saved"` must bring the
         caller's action back. `trap -p` printed this file's own dispatcher, the restore ignored it, and the cleared
-        action stayed gone."""
-        for errexit in ("", "set -euo pipefail; "):
+        action stayed gone. No `set -e` case: this branch's dispatcher still restores $? with `(exit "$status")`,
+        which errexit stops before the caller's action (cmux#41195 F1, fixed on these lines by cmux#41677)."""
+        for errexit in ("",):
             for when in ("before", "after"):
                 for saved in ("saved=$(trap -p EXIT)", "saved=$(trap -p)"):
                     with self.subTest(errexit=bool(errexit), trap_set=when, saved=saved):
