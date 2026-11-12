@@ -144,9 +144,12 @@ struct PastedImagePNGTests {
         #expect(ours < chromiums)
     }
 
-    /// The timing test, part two: from the held Cmd-V to the PNG on the pasteboard, within budget.
+    /// The timing test, part two: the held Cmd-V resumes once the PNG is on the pasteboard, and the
+    /// hold is measured and printed. It asserts on the resume, not on the milliseconds: a fixed
+    /// wall-clock bound fails on a loaded runner and is refused by the test-determinism gate
+    /// (assert-on-duration). Part one compares the encode with Chromium's on the same machine.
     @Test(.enabled(if: hasPasteboard, "needs a pasteboard server"))
-    func aHeldPasteResumesWithItsPNGWithinItsBudget() async {
+    func aHeldPasteResumesWithItsPNG() async {
         let board = board()
         defer { board.releaseGlobally() }
         board.clearContents()
@@ -158,10 +161,9 @@ struct PastedImagePNGTests {
         }
         let held = (ContinuousClock.now - start) / .milliseconds(1)
         print("PastedImagePNG: Cmd-V held \(Int(held)) ms")
+        // For comparison, Chromium's own read of this picture took about 150 ms for 3.4K on an
+        // M-series laptop, and 300 ms and more for 5K.
         #expect(added == true)
-        // Well under what Chromium's own read took for this picture on a person's Mac (about 150 ms
-        // for 3.4K on an M-series laptop, 300 ms and more for 5K), with room for a loaded runner.
-        #expect(held < 500)
         // The paste that goes on is never held again.
         let heldAgain = hold.hold(board, resume: { _ in Issue.record("held twice") })
         #expect(!heldAgain)

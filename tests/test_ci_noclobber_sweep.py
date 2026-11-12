@@ -139,7 +139,7 @@ def code(line: str) -> str:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
 
-SHELL_TREE_SHA256 = "bd66bd3a830e7c231dc5e00f33e195d126f387b7c638fbf6b1b200b4da647c45"
+SHELL_TREE_SHA256 = "a5ba69061bea31beeccc0050b9fd8acbff004915d433d431badb92a14da2d583"
 
 
 def without_templates(line: str) -> str:
