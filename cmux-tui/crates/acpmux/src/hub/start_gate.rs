@@ -372,6 +372,7 @@ impl Hub {
         let modes_of = match target {
             LevelTarget::Request { agent: _, profile, folder } => {
                 crate::web_modes::trusted_mode_family(
+                    (!folder).then_some(profile.kind),
                     (!folder).then_some(profile),
                     crate::config::program_family_of(&profile.argv),
                 )

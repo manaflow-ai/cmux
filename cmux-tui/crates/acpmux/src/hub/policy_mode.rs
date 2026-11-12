@@ -15,6 +15,9 @@
 //! | --- | --- | --- |
 //! | ask, approve-reads, approve-edits | `ask` | untrusted, workspace-write: Codex asks before every command that is not a known-safe read and before every edit, and the policy answers each |
 //! | deny-all | `read-only` | on-request, read-only: the sandbox refuses every write, and what it asks for the policy refuses |
+//!
+//! Deny-all holds in a read-only mode only of a family whose own mode it is (Codex `read-only`,
+//! Muse Code `readOnly`: `READ_ONLY_MODES`); another family's agent names its own modes.
 //! | approve-all | the start level | |
 //!
 //! The policy is held wherever it could slip:
@@ -111,14 +114,30 @@ pub(crate) fn policy_mode(
     if family == "opencode" {
         return None;
     }
-    // Codex names its read-only mode `read-only`, Muse Code (muse-acp) `readOnly`: either
-    // refuses every write and shell command, so deny-all holds there.
     if policy == PermissionPolicy::DenyAll
-        && let Some(mode) = available.iter().find(|m| *m == "read-only" || *m == "readOnly")
+        && let Some(mode) = read_only_mode(family)
+        && available.iter().any(|m| m == mode)
     {
-        return Some(mode.clone());
+        return Some(mode.to_owned());
     }
     super::start_mode::asking_mode(family, available)
+}
+
+/// Per harness family, its own mode that refuses every write and shell command, where deny-all
+/// holds: Codex's `read-only`, Muse Code's (muse-acp) `readOnly`. A mode of either name that
+/// another family offers says nothing: the agent names its own modes (review of #40790).
+const READ_ONLY_MODES: &[(&str, &str)] = &[("codex", "read-only"), ("muse", "readOnly")];
+
+/// The read-only mode of `family` ([`READ_ONLY_MODES`]), or `None`.
+fn read_only_mode(family: &str) -> Option<&'static str> {
+    READ_ONLY_MODES.iter().find(|(f, _)| *f == family).map(|(_, mode)| *mode)
+}
+
+/// Whether `wanted`, the mode chosen for `policy` on `family` ([`policy_mode`]), is narrower
+/// than any other mode that asks: deny-all's read-only mode of that family. A chat in another
+/// mode that asks then still moves to it.
+fn narrower_than_asking(policy: PermissionPolicy, family: &str, wanted: &str) -> bool {
+    policy == PermissionPolicy::DenyAll && read_only_mode(family) == Some(wanted)
 }
 
 /// The mode a Claude Code chat whose policy is narrower than approve-all spawns in when its saved
@@ -251,7 +270,7 @@ impl Hub {
             return;
         };
         let asks = super::start_mode::asks(&current, &family);
-        let narrower = wanted == "read-only" && policy == PermissionPolicy::DenyAll;
+        let narrower = narrower_than_asking(policy, &family, &wanted);
         if current == wanted || (asks && !narrower) {
             return;
         }
@@ -443,7 +462,7 @@ impl Hub {
         let offered = super::start_mode::offered_ids(&meta);
         let Some(wanted) = policy_mode(policy, &family, &offered) else { return };
         let asks = super::start_mode::asks(&current, &family);
-        let narrower = wanted == "read-only" && policy == PermissionPolicy::DenyAll;
+        let narrower = narrower_than_asking(policy, &family, &wanted);
         // A mode pinned in argv is not what the chat records until its first turn: always moved.
         if !pinned && (current == wanted || (asks && !narrower)) {
             return;
@@ -634,7 +653,7 @@ pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), R
     let current = crate::web_modes::mode_of(meta);
     let held = match (policy_mode(policy, &family, &offered), current) {
         (Some(wanted), Some(current)) => {
-            let narrower = wanted == "read-only" && policy == PermissionPolicy::DenyAll;
+            let narrower = narrower_than_asking(policy, &family, &wanted);
             current == wanted || (super::start_mode::asks(&current, &family) && !narrower)
         }
         _ => false,
@@ -642,22 +661,14 @@ pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), R
     if held {
         return Ok(());
     }
-    let mut why = match policy_mode(policy, &family, &offered) {
-        Some(wanted) => format!("it does not run in its mode that asks ({wanted})"),
-        None => crate::web_modes::NO_ASKING_MODE.to_owned(),
+    let unheld = Unheld {
+        policy,
+        harness: &meta.harness,
+        wanted: policy_mode(policy, &family, &offered),
+        no_family: family.is_empty(),
+        distrust: claim_distrust(meta, cfg).filter(|_| claims_asks(meta)),
     };
-    if family.is_empty() {
-        why.push_str("; ");
-        why.push_str(&family_hint(&meta.harness, japanese_locale()));
-    }
-    if claims_asks(meta)
-        && let Some(distrust) = claim_distrust(meta, cfg)
-    {
-        why.push_str(&format!(
-            "; it says it asks before every tool call, which acpmux believes only from an agent it started from a harness entry of its own config ({distrust})"
-        ));
-    }
-    Err(unenforceable(policy, &meta.harness, &why))
+    Err(unenforceable(&unheld, japanese_locale()))
 }
 
 /// Whether `meta`'s agent said at `initialize` that it asks the client
@@ -734,17 +745,83 @@ fn japanese_locale() -> bool {
         .is_some_and(|locale| locale.to_ascii_lowercase().starts_with("ja"))
 }
 
-/// The typed error of a start under a policy that harness `harness` cannot keep
-/// (`require_enforced`): `data.reason` is `policy_unenforceable`, with the policy, the harness
-/// and a hint.
-pub(super) fn unenforceable(policy: PermissionPolicy, harness: &str, why: &str) -> RpcError {
-    let hint = format!(
-        "start it with --policy approve-all, or on a harness that keeps {policy} (Claude Code, the Codex bridge)"
-    );
-    RpcError::invalid_params(format!(
-        "permission policy {policy} cannot be enforced on harness {harness}: {why}. The chat did not start; {hint}"
-    ))
-    .with_data(json!({
+/// Why a chat's agent cannot keep its policy ([`require_enforced`]), to be said in English or
+/// Japanese ([`unenforceable`]).
+pub(super) struct Unheld<'a> {
+    /// The chat's policy, narrower than approve-all.
+    pub(super) policy: PermissionPolicy,
+    /// The chat's harness (its config entry's name).
+    pub(super) harness: &'a str,
+    /// The mode that would keep the policy ([`policy_mode`]), which the agent does not run in;
+    /// `None` when it has no mode that asks.
+    pub(super) wanted: Option<String>,
+    /// acpmux knows no family of the program the harness runs ([`policy_family`] is empty).
+    pub(super) no_family: bool,
+    /// Why the agent's `asksBeforeTools` claim is not believed ([`claim_distrust`]), when it
+    /// makes one.
+    pub(super) distrust: Option<&'static str>,
+}
+
+impl Unheld<'_> {
+    /// Why, in Japanese when `japanese`, else in English (the English is also `data.why`).
+    fn why(&self, japanese: bool) -> String {
+        let mut parts = vec![match (&self.wanted, japanese) {
+            (Some(wanted), false) => format!("it does not run in its mode that asks ({wanted})"),
+            (Some(wanted), true) => format!("ポリシーを守るモード ({wanted}) で実行されていません"),
+            (None, false) => crate::web_modes::NO_ASKING_MODE.to_owned(),
+            (None, true) => "このエージェントには変更の前に確認するモードがありません".to_owned(),
+        }];
+        if self.no_family {
+            parts.push(family_hint(self.harness, japanese));
+        }
+        if let Some(distrust) = self.distrust {
+            parts.push(if japanese {
+                format!(
+                    "すべてのツール呼び出しの前に確認すると伝えていますが、acpmux がそれを信じるのは自分の設定のハーネスエントリーから起動したエージェントだけです ({distrust})"
+                )
+            } else {
+                format!(
+                    "it says it asks before every tool call, which acpmux believes only from an agent it started from a harness entry of its own config ({distrust})"
+                )
+            });
+        }
+        parts.join(if japanese { "。" } else { "; " })
+    }
+
+    /// What to do instead, in Japanese when `japanese`.
+    fn hint(&self, japanese: bool) -> String {
+        let policy = self.policy;
+        if japanese {
+            format!(
+                "--policy approve-all で開始するか、{policy} を守れるハーネス (Claude Code、Codex ブリッジ) で開始してください"
+            )
+        } else {
+            format!(
+                "start it with --policy approve-all, or on a harness that keeps {policy} (Claude Code, the Codex bridge)"
+            )
+        }
+    }
+}
+
+/// The typed error of a start under a policy that its harness cannot keep (`require_enforced`):
+/// `data.reason` is `policy_unenforceable`, with the policy, the harness, why and a hint in
+/// English. The message says the same in Japanese when `japanese` (the daemon's locale), so the
+/// app shows it in the person's language (review of #40790).
+pub(super) fn unenforceable(unheld: &Unheld<'_>, japanese: bool) -> RpcError {
+    let (policy, harness) = (unheld.policy, unheld.harness);
+    let (why, hint) = (unheld.why(false), unheld.hint(false));
+    let message = if japanese {
+        format!(
+            "権限ポリシー {policy} はハーネス {harness} では守れません: {}。チャットは開始されませんでした。{}",
+            unheld.why(true),
+            unheld.hint(true)
+        )
+    } else {
+        format!(
+            "permission policy {policy} cannot be enforced on harness {harness}: {why}. The chat did not start; {hint}"
+        )
+    };
+    RpcError::invalid_params(message).with_data(json!({
         "reason": "policy_unenforceable",
         "policy": policy.to_string(),
         "harness": harness,
@@ -775,17 +852,15 @@ pub(super) fn out_of_policy(
             .is_some_and(|mode| !super::start_mode::asks_in(&mode, family, table.modes(family)))
 }
 
-/// The family whose modes hold `meta`'s policy: [`crate::web_modes::trusted_mode_family`] of the
-/// config entry that its harness names in `cfg` now. Never the agent's own `agentInfo`, which any
+/// The family whose modes hold `meta`'s policy: [`crate::web_modes::session_mode_family`] of the
+/// config entry that its harness names in `cfg` now: `claude` only for an agent started as
+/// acpmux's Claude Code backend (`SessionMeta::started_kind`), else the entry's family. Never the agent's own `agentInfo`, which any
 /// ACP agent writes (cmux#40568): an agent of family `lane` that names itself `claude-stdio` is
 /// held in `lane`'s asking mode, not Claude Code's `default`. Nor a family guessed from its
 /// launch or its entry's name: with no family in the entry, the family of the program its agent
 /// runs (`SessionMeta::program_family`), else empty (W5-L).
 pub(super) fn policy_family(meta: &SessionMeta, cfg: &Config) -> String {
-    crate::web_modes::trusted_mode_family(
-        cfg.profile(&meta.harness),
-        meta.program_family.as_deref(),
-    )
+    crate::web_modes::session_mode_family(meta, cfg.profile(&meta.harness))
 }
 
 /// What `Hub::set_for_full_access_device` sets.
@@ -991,5 +1066,32 @@ mod tests {
         }
         assert!(family_hint("a", true).contains("追加してください"));
         assert!(family_hint("a", false).contains("add \"family\""));
+    }
+
+    /// A `policy_unenforceable` refusal says the same in English and in Japanese; its data is in
+    /// English in both.
+    #[test]
+    fn an_unenforceable_policy_is_said_in_both_languages() {
+        let unheld = Unheld {
+            policy: PermissionPolicy::Ask,
+            harness: "lane",
+            wanted: Some("ask".to_owned()),
+            no_family: true,
+            distrust: Some("entry_changed"),
+        };
+        let en = unenforceable(&unheld, false);
+        let ja = unenforceable(&unheld, true);
+        assert_eq!(en.data, ja.data);
+        let data = en.data.clone().unwrap_or_default();
+        assert_eq!(data["reason"], json!("policy_unenforceable"));
+        let why = data["why"].as_str().unwrap_or_default();
+        assert!(why.starts_with("it does not run in its mode that asks (ask); "), "{why}");
+        assert!(why.contains("(entry_changed)") && why.contains("add \"family\""), "{why}");
+        assert!(en.message.starts_with("permission policy ask cannot be enforced on harness lane"));
+        for part in ["権限ポリシー ask", "ハーネス lane", "(ask)", "(entry_changed)", "\"family\""]
+        {
+            assert!(ja.message.contains(part), "{part:?} in {}", ja.message);
+        }
+        assert!(!ja.message.contains("cannot be enforced"), "{}", ja.message);
     }
 }

@@ -594,10 +594,7 @@ impl Hub {
         let offered = available(meta);
         let claude = {
             let cfg = self.config.read().await;
-            crate::web_modes::trusted_mode_family(
-                cfg.profile(&meta.harness),
-                meta.program_family.as_deref(),
-            ) == "claude"
+            crate::web_modes::session_mode_family(meta, cfg.profile(&meta.harness)) == "claude"
         };
         if meta.remote_origin
             || mode != crate::claude_stdio::OWN_MODE

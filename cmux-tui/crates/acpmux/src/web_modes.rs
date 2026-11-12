@@ -378,9 +378,12 @@ pub(crate) fn family_of(m: &SessionMeta) -> String {
 /// The one rule of every gate that lets a mode through without the person or holds a policy (the
 /// Web gates, the local person gates for a client that is not the person, and the policy
 /// gates): the family a chat is judged by.
-/// - `claude` when `entry`, the config entry that runs, is kind `claude-stdio` (a launcher such as
-///   `claude-sr2` included: it names its own family to stay out of the default Claude row, but
-///   runs Claude Code with Claude Code's modes);
+/// - `claude` when `kind`, the kind of the config entry the agent started from (a session's
+///   `SessionMeta::started_kind`, [`session_mode_family`]) or will start from (a profile before
+///   its start), is `claude-stdio` (a launcher such as `claude-sr2` included: it names its own
+///   family to stay out of the default Claude row, but runs Claude Code with Claude Code's
+///   modes). Never the entry's kind now for a running agent: a change of only the kind does not
+///   restart it (review of #40790);
 /// - else the entry's explicit `family`, the owner's word;
 /// - else `program`, the family of the program its agent runs: `SessionMeta::program_family`,
 ///   judged at its start on the file it runs (`config::launch_family`), or before a start
@@ -389,22 +392,39 @@ pub(crate) fn family_of(m: &SessionMeta) -> String {
 ///
 /// It never believes the agent's own `agentInfo`, which any ACP agent writes (cmux#40568), nor a
 /// part of a program's name, another argv word or the entry's name (W5-L). With no config entry
-/// (a folder profile, an entry removed, a config being written) only `program` counts. Read by
-/// `policy_mode::policy_family`, `policy_gate::has_gate` and
-/// `start_mode::may_move_without_person`.
+/// (a folder profile, an entry removed, a config being written) only `kind` and `program` count.
+/// Read through [`session_mode_family`] by `policy_mode::policy_family`, `Hub::trusted_mode_family`
+/// (the Web gates) and `start_mode::may_move_without_person`, and by the start gate before a
+/// start.
 pub(crate) fn trusted_mode_family(
+    kind: Option<crate::config::HarnessKind>,
     entry: Option<&crate::config::HarnessProfile>,
     program: Option<&str>,
 ) -> String {
-    if let Some(entry) = entry {
-        if entry.kind == crate::config::HarnessKind::ClaudeStdio {
-            return "claude".to_owned();
-        }
-        if let Some(family) = &entry.family {
-            return family.clone();
-        }
+    if kind == Some(crate::config::HarnessKind::ClaudeStdio) {
+        return "claude".to_owned();
+    }
+    if let Some(family) = entry.and_then(|e| e.family.as_ref()) {
+        return family.clone();
     }
     program.unwrap_or_default().to_owned()
+}
+
+/// [`trusted_mode_family`] of session `meta`, against `entry`, the config entry its harness names
+/// now (`None`: a folder profile, an entry removed, a config being written): the kind its agent
+/// started under (`SessionMeta::started_kind`) and the family of the program it runs
+/// (`SessionMeta::program_family`). A chat with no start recorded here (`launch_digest` none: not
+/// started yet, a fork or a moved chat before its own start) is judged by the entry's kind, the
+/// one its next start records. A start by an older build recorded no kind: not Claude Code (fail
+/// closed until its agent starts again).
+pub(crate) fn session_mode_family(
+    meta: &crate::store::SessionMeta,
+    entry: Option<&crate::config::HarnessProfile>,
+) -> String {
+    let kind = meta
+        .started_kind
+        .or_else(|| entry.filter(|_| meta.launch_digest.is_none()).map(|e| e.kind));
+    trusted_mode_family(kind, entry, meta.program_family.as_deref())
 }
 
 /// [`trusted_mode_family`] of a profile before its session exists: `claude` for a profile of
@@ -412,7 +432,11 @@ pub(crate) fn trusted_mode_family(
 /// included), else its explicit family, else the family of the program its launch names
 /// (`config::program_family_of`), else empty. Never the profile's name `_agent`.
 pub(crate) fn profile_mode_family(_agent: &str, profile: &crate::config::HarnessProfile) -> String {
-    trusted_mode_family(Some(profile), crate::config::program_family_of(&profile.argv))
+    trusted_mode_family(
+        Some(profile.kind),
+        Some(profile),
+        crate::config::program_family_of(&profile.argv),
+    )
 }
 
 /// The family whose modes a session's detail (`_acpmux/info`: `agentInfo`, `family`, `harness`)

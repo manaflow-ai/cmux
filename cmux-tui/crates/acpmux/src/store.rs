@@ -179,6 +179,14 @@ pub struct SessionMeta {
     /// and when the program is no agent of acpmux's list or runs another one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub program_family: Option<String>,
+    /// The kind of the config entry its agent last started from (how acpmux speaks to it): what
+    /// the PreToolUse gate and the Claude Code family are judged by (`policy_gate::has_gate`,
+    /// `web_modes::session_mode_family`), never the entry's kind now, which a config edit can
+    /// change without a restart (`HarnessProfile::launch_digest` leaves the kind out). None
+    /// before any start, and for a start by an older build (no gate, no Claude Code family:
+    /// fail closed until its agent starts again).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_kind: Option<crate::config::HarnessKind>,
     /// Preset the session was created from (`-p NAME`); its env is re-applied on every respawn.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<String>,

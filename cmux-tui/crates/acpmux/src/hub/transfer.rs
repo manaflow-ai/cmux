@@ -168,8 +168,10 @@ impl Hub {
         // (`policy_mode.rs` `claim_distrust`). Its next start here records both again.
         meta.agent_capabilities = None;
         meta.launch_digest = None;
-        // Nor the family another daemon judged its program to be (`SessionMeta::program_family`).
+        // Nor the family another daemon judged its program to be (`SessionMeta::program_family`),
+        // or the kind its agent started under there (`SessionMeta::started_kind`).
         meta.program_family = None;
+        meta.started_kind = None;
         super::bookmarks::capped(&mut meta.bookmarks);
         // The id becomes a directory name under the sessions root.
         if !is_plain_id(&meta.id) {
