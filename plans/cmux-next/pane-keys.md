@@ -26,6 +26,13 @@ widens its column from the keyboard (drag the column edge, or focus a pane with 
 `KeyboardResizeSplitDividerTests` (one column split both panes, split screen, middle/last column split, stack over a
 pair, middle of three, stacked column J/K, H/L never touch a stack, divider at its limit refused, rows).
 
+**Last column beside a full-width one (2026-11-12).** A new column opened beside a screen that fills the strip shows
+at the window's right edge with the full-width column partly scrolled off. A trade there has no width to give (the
+full-width column is at its widest share) and never moves the camera, so Ctrl-Shift-H was refused. Now the last
+column with no trade to make gets wider or narrower on its own; the strip keeps it at the window's right edge, so its
+left edge still follows the press. Test: `KeyboardResizeLastColumnScrollTests`. Capture scenes:
+`scripts/cmux-next/media/states/pane-keys-hjkl-resize.json` and `pane-keys-hjkl-splits.json`.
+
 The tables below describe 2026-11-08; their split and row rows are replaced by case 1.
 
 ## What Ctrl-Shift-HJKL is today
