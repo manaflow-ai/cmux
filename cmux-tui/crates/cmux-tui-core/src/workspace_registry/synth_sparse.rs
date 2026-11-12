@@ -187,8 +187,8 @@ fn progress_fill(seed: u64) -> String {
             state = state
                 .wrapping_mul(6_364_136_223_846_793_005)
                 .wrapping_add(1_442_695_040_888_963_407);
-            // The top 6 bits: an index into the 64 characters.
-            char::from(super::FILL_ALPHABET[(state >> 58) as usize])
+            // The top 6 bits: one of the 64 characters (`get`, so no index can panic).
+            char::from(super::FILL_ALPHABET.get((state >> 58) as usize).copied().unwrap_or(b'A'))
         })
         .collect()
 }
