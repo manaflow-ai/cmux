@@ -40,6 +40,10 @@ pub(super) const TAIL_STEP: Duration = Duration::from_millis(100);
 /// One guarded call's starting point.
 pub(super) struct FocusGuard {
     session: String,
+    /// This guard already let another window of the session's front app come
+    /// forward (its first reading): a later reading of the same call may find
+    /// that window in front.
+    agent_moved: std::cell::Cell<bool>,
     before: FocusSnapshot,
     /// The person's input count before the call (`None`: nothing watches).
     inputs: Option<u64>,
@@ -152,6 +156,7 @@ impl Engine {
             .unwrap_or_default();
         Some(FocusGuard {
             session: session.to_string(),
+            agent_moved: std::cell::Cell::new(false),
             before,
             inputs,
             targets,
@@ -295,10 +300,13 @@ impl Engine {
             && config.mode != policy::Mode::Off
             && self.takeover.input_counts_keys();
         let quiet = g.inputs == Some(front.inputs) && after == Some(front.inputs);
-        // The window the agent left in front, or (a later reading of this
-        // same call) the one this call already brought forward.
+        // The window the agent left in front; or, on a later reading of this
+        // same call, the one this guard already let come forward (never on a
+        // first reading: the person may have reached that window with a
+        // gesture the count does not see).
         let same_place = g.before.pid == front.pid
-            && (g.before.window_id == front.window || now.window_id == front.window);
+            && (g.before.window_id == front.window
+                || (g.agent_moved.get() && now.window_id == front.window));
         let own_window = now.pid == front.pid
             && now.top_pid.is_none_or(|p| p == front.pid)
             && g.targets.contains(&front.pid);
@@ -310,6 +318,7 @@ impl Engine {
             return false;
         }
         front.window.clone_from(&now.window_id);
+        g.agent_moved.set(true);
         true
     }
 

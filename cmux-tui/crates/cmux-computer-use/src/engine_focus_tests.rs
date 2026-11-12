@@ -509,3 +509,17 @@ fn the_persons_input_during_the_foreground_call_records_nothing() {
     let out = background_click(&r, "s1", "c2", safari_other_window());
     assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{:?}", out.body);
 }
+
+#[test]
+fn a_first_reading_never_counts_a_window_the_person_may_have_reached() {
+    // The agent brought Safari forward and left window 1 in front. The
+    // person reaches Safari's window 9 with a gesture the count does not see;
+    // a background call on Safari then finds 9 in front from the start and
+    // brings window 1 back: not the agent's own window change, put back.
+    let r = rig();
+    agent_raises_safari(&r);
+    *r.desktop.focus.lock().unwrap() = Some(safari_other_window());
+    let back = FocusSnapshot { window_id: Some("1".into()), ..safari_front() };
+    let out = background_click(&r, "s1", "c2", back);
+    assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{:?}", out.body);
+}

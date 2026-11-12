@@ -457,9 +457,7 @@ impl Engine {
             Ok((out, app)) => (out, app),
             Err(out) => (out, None),
         };
-        if let Some((before, inputs)) = raising {
-            self.foreground_end(&ctx.session, &before, inputs, &args, &out);
-        }
+
         let mut focus = guard.as_mut().map(|g| self.focus_after_action(g, &out));
         if let Some(call_id) = acting_id {
             self.sessions.remember(&ctx.session, call_id, out.to_json().to_string());
@@ -489,6 +487,11 @@ impl Engine {
         }
         if let Some(g) = &guard {
             focus = Some(self.focus_after_settle(g, focus));
+        }
+        // After the settle wait: an app activates a little after the call
+        // asked it to, so reading the front app at once often missed it.
+        if let Some((before, inputs)) = raising {
+            self.foreground_end(&ctx.session, &before, inputs, &args, &out);
         }
         if let Some(report) = &focus {
             report.attach(&mut out);

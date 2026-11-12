@@ -105,10 +105,12 @@ impl MacDesktop {
             // Raising does not prove the window takes keys: an app-modal alert,
             // a sheet or a floating panel of the app can stay its key window,
             // and keys (or a menu command such as Close or Delete) would act
-            // there instead. AX requests are answered by the app in order, so
-            // its focused window now reflects the raise.
+            // there instead. Refused only when the app names a different focused
+            // window: an app just activated may report none yet, and some apps
+            // (not AppKit) do not report one at all; those are typed into, as
+            // the person's keys would be.
             let (app, win) = self.ax_window(t)?;
-            if !app.element("AXFocusedWindow").is_some_and(|f| f.same(&win)) {
+            if app.element("AXFocusedWindow").is_some_and(|f| !f.same(&win)) {
                 return Err(DesktopError::Unsupported(format!(
                     "window {} did not become the app's key window when raised (an alert, sheet or panel of the app has it), so keys would reach another window; take a screenshot of the app and deal with that window first",
                     t.window.id
