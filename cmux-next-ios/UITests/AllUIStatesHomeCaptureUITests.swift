@@ -119,7 +119,8 @@ final class AllUIStatesHomeCaptureUITests: UIStateCaptureCase {
             Scene(group: g, id: "chief-plus-menu", args: ["-cmux-mobile-demo", "chief-open"], settle: 5) { app in
                 C.tap(C.any(app, "conversation.composer.plus"), "composer plus")
             },
-            Scene(group: g, id: "chief-send-effects", args: ["-cmux-mobile-demo", "chief-open"], settle: 5) { app in
+            // Chief has no Send with effect: a long press on Send sends, no effect picker.
+            Scene(group: g, id: "chief-send-long-press", args: ["-cmux-mobile-demo", "chief-open"], settle: 5) { app in
                 C.steps([
                     { C.showKeyboard(app, field: app.textViews["conversation.composer.text"], "Chief composer") },
                     { app.typeText("Ship it"); return nil },
