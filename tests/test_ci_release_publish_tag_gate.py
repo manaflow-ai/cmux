@@ -250,6 +250,21 @@ def publishing_command(words: list[str]) -> bool:
     return False
 
 
+# Codex (#40784 F2, test_ci_release_publish_tag_gate.py:101): an implicit POST (`-f` with no -X) and a global
+# option before the subcommand were missed. Each must count as publishing; the reads stay reads.
+GH_PUBLISH_ROWS = (
+    ("gh api repos/o/r/releases -f tag_name=v1", True),
+    ("gh api repos/o/r/releases -F tag_name=v1", True),
+    ("gh api repos/o/r/releases --input body.json", True),
+    ("gh api -X GET repos/o/r/releases -f per_page=1", False),
+    ("gh api repos/o/r/releases", False),
+    ("gh --repo o/r release upload v1 x.zip", True),
+    ("gh -R o/r release create v1", True),
+    ("gh release --repo o/r upload v1 x.zip", True),
+    ("gh --repo o/r release view v1", False),
+)
+
+
 def codesign_signs_or_writes(args: list[str]) -> bool:
     """codesign, writes first. A write marker anywhere makes it a write, whatever else is present: --sign or -s
     (`-s ID`, `-fs ID`, `--sign=ID`), --remove-signature, or any option a verify or display does not take (-o,
@@ -595,6 +610,11 @@ class TagGate(unittest.TestCase):
         for command in reads:
             with self.subTest(read=command):
                 self.assertEqual(self.check(fixture(job("p", f"      - run: |\n          {command}\n"))), [], command)
+
+    def test_an_implicit_post_and_a_global_repo_option_are_read_as_gh_reads_them(self) -> None:
+        for command, publishes_ in GH_PUBLISH_ROWS:
+            with self.subTest(command):
+                self.assertEqual(publishing_command(command.split()), publishes_)
 
     def test_a_wrapped_gh_api_release_write_is_classified_like_a_direct_one(self) -> None:
         write = "gh api repos/o/r/releases -X POST"

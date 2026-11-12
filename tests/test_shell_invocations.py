@@ -559,6 +559,29 @@ class GrammarAgainstBash(unittest.TestCase):
                 self.assertTrue(may_run_program(script, "gh"))
                 self.assertIn(["gh", "release", "create", "v1", "dist/x"], may_run_nested(script))
 
+    def test_a_wrapper_running_text_it_cannot_read_may_run_anything(self) -> None:
+        # Codex (#41133 F1, shell_invocations.py:1205): `env -S "$cmd"` runs the text in $cmd as a command; the
+        # reader gave neither an invocation nor the unreadable marker.
+        from shell_invocations import may_run_nested
+        for script in ("cmd='gh release create v1'; env -S \"$cmd\"", 'env --split-string="$cmd"',
+                       'env -S "$cmd" x'):
+            with self.subTest(script):
+                self.assertIn([], may_run_nested(script))
+        self.assertIn(["gh", "release", "create", "v1"], may_run_nested("env -S 'gh release create v1'"))
+
+    def test_case_is_a_keyword_only_where_bash_reads_one(self) -> None:
+        # Codex (#41133 F2, shell_invocations.py:161): `case` in argument position opened a case the scan then never
+        # closed, so `echo $(echo case)` was unreadable (a false positive); bash reads it as a word there.
+        from shell_invocations import may_run_nested
+        for script in ("echo $(echo case)", "echo $(echo case in)", "x=$(printf '%s' case esac)", "echo $(a case; b)"):
+            with self.subTest(script):
+                self.assertNotIn([], may_run_nested(script))
+                self.assertFalse(may_run_program(script, "gh"))
+        for script in ("echo $(case x in x) gh release create v1;; esac)", "echo $(true; case x in x) gh x;; esac)",
+                       "echo $(if true; then case x in x) gh x;; esac; fi)", "echo $(a && case x in x) gh x;; esac)"):
+            with self.subTest(script):
+                self.assertTrue(may_run_program(script, "gh"))
+
     def test_an_expansion_it_cannot_parse_may_run_anything(self) -> None:
         from shell_invocations import may_run_nested
         for script in ('echo "${x:-$(( 1 + }"', "echo ${x:-$(( $(a) + 1 )", "echo $(case x in x) a;;)"):

@@ -389,6 +389,30 @@ class SelfHostedDownloads(unittest.TestCase):
         hosted["jobs"]["j"]["strategy"] = {"matrix": {"runner": ["ubuntu-24.04", "blacksmith-4vcpu-ubuntu-2404"]}}
         self.assertEqual(problems({"w.yml": hosted}), [])
 
+    def test_a_matrix_output_a_script_may_rewrite_is_unresolved(self) -> None:
+        # Codex (#40784 F1, workflow_jobs.py:283): `echo 'matrix=..ubuntu..'` then ./update-matrix.sh, which writes a
+        # self-hosted matrix to $GITHUB_OUTPUT, still resolved as Ubuntu. Only a producer whose final output is
+        # proven (its one write and nothing else that may write) resolves; anything else stays unresolved.
+        download = [{"uses": DOWNLOAD, "with": {"name": "a", "path": "dist"}}]
+        literal = 'echo \'matrix={"runner":["ubuntu-24.04"]}\' >> "$GITHUB_OUTPUT"'
+
+        def document(run: str) -> dict:
+            doc = fixture("${{ matrix.runner }}", download, "${{ fromJSON(needs.plan.outputs.matrix) }}")
+            doc["jobs"]["j"]["needs"] = "plan"
+            doc["jobs"]["plan"] = {"runs-on": "ubuntu-24.04", "outputs": {"matrix": "${{ steps.m.outputs.matrix }}"},
+                                   "steps": [{"id": "m", "run": run}]}
+            return doc
+
+        for form, run in (("a script after the write", literal + "\n./update-matrix.sh\n"),
+                          ("a script before the write", "./update-matrix.sh\n" + literal + "\n"),
+                          ("a python step after it", literal + "\npython3 scripts/plan.py\n"),
+                          ("a variable program", literal + '\n"$planner"\n')):
+            with self.subTest(form):
+                self.assertEqual(len(problems({"w.yml": document(run)})), 1)
+        for form, run in (("the write alone", literal), ("set first", "set -euo pipefail\n" + literal)):
+            with self.subTest(form):
+                self.assertEqual(problems({"w.yml": document(run)}), [])
+
     def test_every_download_of_a_job_is_checked(self) -> None:
         steps = [{"uses": DOWNLOAD, "with": {"name": "a", "path": "${{ runner.temp }}/a"}},
                  {"uses": DOWNLOAD, "with": {"name": "b", "path": "b"}}]
