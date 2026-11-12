@@ -42,6 +42,16 @@ cleanup() {
 }
 trap cleanup EXIT
 git worktree add -q --detach "$basetree" "$base"
+# BASE predates the harness test (cloud_http::tests::attach_harness_request), so
+# a BASE binary had nothing to run and the harness waited for it with no end.
+# The test alone, taken from HEAD, goes into BASE's tree: BASE's connect code,
+# the same measuring request on both sides.
+tests=crates/cmux-server/src/cloud_http_tests.rs
+if ! grep -q 'fn attach_harness_request' "$basetree/cmux-tui/$tests"; then
+  awk '/^\/\/\/ The delayed-attach harness/{p=1} p{print} p&&/^}/{exit}' "$tests" > "$scratch/harness.rs"
+  grep -q 'fn attach_harness_request' "$scratch/harness.rs" || { echo "attach-compare: HEAD has no attach_harness_request to give BASE" >&2; exit 2; }
+  { echo; cat "$scratch/harness.rs"; } >> "$basetree/cmux-tui/$tests"
+fi
 build() {
   echo "attach-compare: building $1 into $2" >&2
   local started=$SECONDS
@@ -55,7 +65,10 @@ for l in sys.stdin:
 measure() {
   for attach in 1 4 8 12; do
     for _ in $(seq "$runs"); do
-      echo "attach-compare: $1 attach ${attach}s $("${ns[@]}" scripts/cloud-attach-harness.sh "$2" "$attach")"
+      # A harness that prints nothing (no answer, a hung server) fails the run instead of waiting on it.
+      line=$(timeout 60 "${ns[@]}" scripts/cloud-attach-harness.sh "$2" "$attach") && [ -n "$line" ] ||
+        { echo "attach-compare: $1 attach ${attach}s: the harness printed no answer" >&2; exit 4; }
+      echo "attach-compare: $1 attach ${attach}s $line"
     done
   done
 }
@@ -63,6 +76,10 @@ measure() {
 after=$(build . "$head_target")
 before=$(build "$basetree/cmux-tui" "$base_target")
 [ -x "$after" ] && [ -x "$before" ] || { echo "attach-compare: a build made no test binary" >&2; exit 1; }
+for side in "$before" "$after"; do
+  "$side" --ignored --list 2>/dev/null | grep -q '^cloud_http::tests::attach_harness_request: test' ||
+    { echo "attach-compare: $side has no attach_harness_request test; refusing" >&2; exit 3; }
+done
 # The sources differ (checked above), so equal binaries mean one build was
 # reused for the other: the run would compare HEAD against itself.
 if cmp -s "$before" "$after"; then
