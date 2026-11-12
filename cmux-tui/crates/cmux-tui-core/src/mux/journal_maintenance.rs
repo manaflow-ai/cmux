@@ -844,6 +844,14 @@ impl Mux {
         anyhow::bail!("journal segment boundary changed repeatedly during sealing")
     }
 
+    /// One maintenance tick, as the worker runs it; true when it settled
+    /// (the worker would then sleep until the journal changes).
+    #[cfg(test)]
+    pub(crate) fn run_journal_maintenance_tick_for_test(&self) -> bool {
+        let mut ledgers = ledger_maintenance::LedgerMaintenance::default();
+        self.run_journal_maintenance(&mut ledgers) == TickOutcome::Settled
+    }
+
     #[cfg(test)]
     pub(crate) fn set_screen_created_hook_for_test(
         &self,
