@@ -29,8 +29,14 @@ test_shell_invocations.py runs each fixture in real bash and checks must_run is 
 superset.
 
 Lexing keeps quoting: a word remembers whether any part was quoted or escaped, and only an unquoted operator splits
-commands, opens a heredoc or redirects. A heredoc terminator is an exact line for `<<`, leading tabs stripped for
-`<<-`; several heredocs on one line take their bodies in order.
+commands, opens a heredoc or redirects. Words are read the way bash reads them (#41768 review): a prefix assignment is
+an unquoted NAME, NAME[SUBSCRIPT], += or = (`"X=1" cmd` and `X\\=1 cmd` run the program `X=1`), and a keyword is one
+only before it (`X=1 if cmd` runs `if`); env takes any word holding `=`. A `case` subject and its patterns (after `in`,
+`;;`, `;&`, `;;&`, a leading `(` and each `|`) are no commands, and a pattern's `)` does not close a `$(..)`. An
+arithmetic command `(( .. ))` (also a `for (( .. ))` header) and a conditional `[[ .. ]]` are expressions: their
+operators split nothing and their words run nothing (only their substitutions, reported nested). `coproc`, and a program
+word bash expands (a brace expansion, a glob), may run a program the words do not name. A heredoc terminator is an exact
+line for `<<`, leading tabs stripped for `<<-`; several heredocs on one line take their bodies in order.
 """
 from __future__ import annotations
 
@@ -57,7 +63,9 @@ class _Wrapper(NamedTuple):
     flags: frozenset[str] = frozenset()
     values: frozenset[str] = frozenset()
     no_run: frozenset[str] = frozenset()
-    assignments: bool = False  # NAME=VALUE words may come before the program (env, the `time` keyword)
+    # NAME=VALUE words before the program: "env" takes any word with `=` (env(1) splits at the first one), "bash" takes
+    # what bash takes as a prefix assignment (the `time` keyword); "" takes none.
+    assignments: str = ""
     operands_before: int = 0  # operands before the program (timeout's DURATION)
     numeric: bool = False  # `-N` is an option (nice -10)
     # The program certainly starts, as itself, in this directory, when bash reaches the command. False where the
@@ -72,13 +80,13 @@ def _options(*names: str) -> frozenset[str]:
 # One table for every wrapper; tests/test_shell_invocations.py runs each certain one in real bash.
 _WRAPPERS: dict[str, _Wrapper] = {
     "env": _Wrapper(flags=_options("-i", "--ignore-environment", "-0", "--null", "-v", "--debug"),
-                    values=_options("-u", "--unset"), assignments=True),
+                    values=_options("-u", "--unset"), assignments="env"),
     "nice": _Wrapper(values=_options("-n", "--adjustment"), numeric=True),
     "nohup": _Wrapper(),
     "stdbuf": _Wrapper(values=_options("-i", "-o", "-e", "--input", "--output", "--error")),
     "command": _Wrapper(flags=_options("-p"), no_run=_options("-v", "-V")),
     "exec": _Wrapper(flags=_options("-c", "-l"), values=_options("-a")),
-    "time": _Wrapper(flags=_options("-p"), assignments=True),
+    "time": _Wrapper(flags=_options("-p"), assignments="bash"),
     "timeout": _Wrapper(flags=_options("--preserve-status", "--foreground", "-v", "--verbose"),
                         values=_options("-s", "--signal", "-k", "--kill-after"), operands_before=1, certain=False),
     "sudo": _Wrapper(flags=_options("-E", "-H", "-n", "-P", "-S", "-A", "-N", "--preserve-env", "--set-home",
@@ -96,7 +104,12 @@ _SHELLS = {"bash", "sh", "zsh", "dash", "ksh"}
 # -n noexec, -t one command, -r restricted, -l login profile, -D, -o/-O NAME, --rcfile FILE ...) are uncertain.
 _SHELL_FLAGS = frozenset("abefhkmpuvxBCEHPT")
 _SHELL_LONG_FLAGS = frozenset({"--noprofile", "--norc", "--posix", "--noediting", "--verbose"})
-_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+# A prefix assignment as bash reads it: NAME, NAME[SUBSCRIPT] (bash 5.2 refuses the subscript but still runs the
+# command), then = or +=. NAME, `[` and `=` must be unquoted: _is_assignment checks that against Token.plain.
+_ASSIGNMENT = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)(\[.*?\])?\+?=", re.DOTALL)
+# What bash expands in a program word: a brace expansion and a glob may name a program the text does not.
+_BRACE_EXPANSION = re.compile(r"\{[^{}]*(,|\.\.)[^{}]*\}")
+_GLOB = re.compile(r"[*?]|\[[^\]]+\]")
 _ARRAY_ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\+?=$")
 _FUNCTION_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_.:@-]*$")
 _SPACE = " \t"
@@ -112,6 +125,7 @@ class Token(NamedTuple):
     end: int = 0
     dynamic: bool = False  # the word holds an expansion bash resolves at run time ($x, ${..}, $(..), `..`, <(..))
     subs: tuple[str, ...] = ()  # the scripts of its command and process substitutions
+    plain: int = 0  # how many leading characters of text are unquoted, unescaped literals (an assignment's NAME=)
 
 
 class Lexed(NamedTuple):
@@ -126,13 +140,41 @@ class Invocation(NamedTuple):
     any_program: bool  # it may also run programs the words do not name
 
 
+_CASE_WORD = re.compile(r"(case|in|esac)(?=[ \t\n;&|()<>]|$)")
+
+
 def _match_close(text: str, index: int, opener: str) -> int | None:
-    """The index just past the `)` or `}` closing the construct whose opener (`$(`, `<(`, `>(`, `${`) starts at
-    `index`; None if it never closes. Quotes and nested brackets are skipped."""
+    """The index just past the `)` or `}` closing the construct whose opener (`$(`, `<(`, `>(`, `${`, or `((` for an
+    arithmetic command) starts at `index`; None if it never closes. Quotes and nested brackets are skipped, and so
+    are a `case` clause's parens (`$(case x in y) cmd ;; esac)`: the pattern's `)` closes nothing)."""
     close = "}" if opener == "${" else ")"
     depth = 1
-    i = index + len(opener)
+    i = index + (1 if opener == "((" else len(opener))
+    cases: list[str] = []  # per open `case`: "head" until `in`, "pattern" until its `)`, then "body"
     while i < len(text):
+        if close == ")" and (i == 0 or text[i - 1] in " \t\n;&|()<>"):
+            word = _CASE_WORD.match(text, i)
+            if word is not None:
+                name = word.group(1)
+                if name == "case" and (not cases or cases[-1] != "pattern") and _case_starts(text, i):
+                    cases.append("head")
+                elif name == "in" and cases and cases[-1] == "head":
+                    cases[-1] = "pattern"
+                elif name == "esac" and cases and cases[-1] != "head":
+                    cases.pop()
+                i = word.end()
+                continue
+        if cases and cases[-1] == "pattern" and text[i] == ")":
+            cases[-1] = "body"
+            i += 1
+            continue
+        if cases and cases[-1] == "pattern" and text[i] == "(":
+            i += 1  # a pattern list's optional leading paren
+            continue
+        if cases and cases[-1] == "body" and text.startswith((";;", ";&"), i):
+            cases[-1] = "pattern"
+            i += 3 if text.startswith(";;&", i) else 2
+            continue
         c = text[i]
         if c == "\\":
             i += 2
@@ -167,6 +209,21 @@ def _match_close(text: str, index: int, opener: str) -> int | None:
                 return i + 1
         i += 1
     return None
+
+
+def _arithmetic_end(text: str, index: int) -> int | None:
+    """The index past the `))` closing the arithmetic command whose `((` starts at `index`; None if it is not one."""
+    end = _match_close(text, index, "((")
+    return end if end is not None and text.startswith("))", end - 2) else None
+
+
+def _case_starts(text: str, index: int) -> bool:
+    """Whether the word `case` at `index` starts a command: first in the text, after an operator or newline, or after
+    a keyword (`then case ..`)."""
+    before = text[:index].rstrip(" \t")
+    if not before or before[-1] in ";&|()\n":
+        return True
+    return re.search(r"(?:^|[ \t\n;&|()])(?:if|elif|while|until|then|else|do|!|\{)$", before) is not None
 
 
 def _backtick_close(text: str, index: int) -> int | None:
@@ -275,6 +332,8 @@ def lex(text: str) -> Lexed:
     dynamic = False
     in_word = False
     word_start = 0
+    plain = 0  # the unquoted literal prefix of the word being read
+    plain_open = True  # nothing quoted, escaped or expanded yet in it
     i = 0
 
     def start_word(at: int) -> None:
@@ -283,15 +342,29 @@ def lex(text: str) -> Lexed:
             in_word, word_start = True, at
 
     def end_word(at: int) -> None:
-        nonlocal buf, subs, quoted, dynamic, in_word, expect_delimiter
+        nonlocal buf, subs, quoted, dynamic, in_word, expect_delimiter, plain, plain_open
         if not in_word:
             return
         word = "".join(buf)
         if expect_delimiter is not None:
             pending.append((word, expect_delimiter, not quoted))
             expect_delimiter = None
-        tokens.append(Token("word", word, quoted, word_start, at, dynamic, tuple(subs)))
+        tokens.append(Token("word", word, quoted, word_start, at, dynamic, tuple(subs), plain))
         buf, subs, quoted, dynamic, in_word = [], [], False, False, False
+        plain, plain_open = 0, True
+
+    def command_starts() -> bool:
+        """Whether a word here would be the first of a command (where `((` opens an arithmetic command)."""
+        if in_word:
+            return False
+        if not tokens:
+            return True
+        last = tokens[-1]
+        if last.kind == "nl":
+            return True
+        if last.kind == "op":
+            return last.text not in _REDIRECTS
+        return not last.quoted and last.text in _KEYWORDS | {"for", "time"}
 
     def expansion(at: int, in_double: bool) -> int | None:
         """Read the expansion starting at `$` or a backtick at `at`; return the index after it, or None when it
@@ -353,6 +426,7 @@ def lex(text: str) -> Lexed:
             start_word(i)
             buf.append(text[i + 1])
             quoted = True
+            plain_open = False
             i += 2
         elif c == "'":
             close = text.find("'", i + 1)
@@ -361,10 +435,12 @@ def lex(text: str) -> Lexed:
             start_word(i)
             buf.append(text[i + 1:close])
             quoted = True
+            plain_open = False
             i = close + 1
         elif c == '"':
             start_word(i)
             quoted = True
+            plain_open = False
             i += 1
             while True:
                 if i >= len(text):
@@ -405,18 +481,30 @@ def lex(text: str) -> Lexed:
                     return Lexed(tokens, False, heredoc_subs)
         elif c in "$`":
             start_word(i)
+            plain_open = False
             after = expansion(i, False)
             if after is None:
                 return Lexed(tokens, False, heredoc_subs)
             i = after
         elif c in "<>" and text.startswith("(", i + 1):
             start_word(i)
+            plain_open = False
             end = _match_close(text, i, c + "(")
             if end is None:
                 return Lexed(tokens, False, heredoc_subs)
             dynamic = True
             subs.append(text[i + 2:end - 1])
             buf.append("\x00")
+            i = end
+        elif text.startswith("((", i) and command_starts() and (end := _arithmetic_end(text, i)) is not None:
+            # `(( expr ))` and `for (( a; b; c ))`: an arithmetic expression, no commands and no redirections (`<<`
+            # is a shift, not a heredoc). Only its substitutions run; they are reported nested. A `((` that does not
+            # close as `))` is two subshells, as bash reads it.
+            inside = _expansion_subs(text[i + 2:end - 2])
+            if inside is None:
+                return Lexed(tokens, False, heredoc_subs)
+            heredoc_subs.extend(inside)
+            tokens.append(Token("op", "((", False, i, end))
             i = end
         elif c in ";&|()<>":
             end_word(i)
@@ -428,6 +516,8 @@ def lex(text: str) -> Lexed:
         else:
             start_word(i)
             buf.append(c)
+            if plain_open:
+                plain += 1
             i += 1
     end_word(len(text))
     return Lexed(tokens, not pending and expect_delimiter is None, heredoc_subs)
@@ -441,7 +531,8 @@ class _Command(NamedTuple):
 
 
 # Compound commands: the keyword that opens one, and the one that closes it.
-_OPENS = {"if": "fi", "while": "done", "until": "done", "for": "done", "select": "done", "case": "esac"}
+_OPENS = {"if": "fi", "while": "done", "until": "done", "for": "done", "arith_for": "done",
+          "select": "done", "case": "esac"}
 _CLOSES = {"fi", "done", "esac"}
 # A command after which bash runs nothing more of the script (`exec` only with a program to run).
 _ENDS = {"exit", "return"}
@@ -471,7 +562,7 @@ class _Flow:
         for frame in self.frames:
             if not frame.entered or frame.after_and_or:
                 return False
-            if frame.kind in _OPENS and not (frame.kind == "if" and frame.part == "cond"):
+            if frame.kind in _OPENS and frame.kind != "arith_for" and not (frame.kind == "if" and frame.part == "cond"):
                 return False
         return True
 
@@ -497,7 +588,7 @@ class _Flow:
                     top.part = "branch"
                     top.after_and_or = False
             elif text == "do":
-                if top.kind not in ("while", "until", "for", "select"):
+                if top.kind not in ("while", "until", "for", "arith_for", "select"):
                     self.lost = True
             elif text in _CLOSES:
                 if _OPENS.get(top.kind) != text:
@@ -536,6 +627,10 @@ class _Flow:
             top.after_and_or = True
         elif text in (";", "&", "\n", ";;", ";&", ";;&"):
             top.after_and_or = False
+        elif text == "((":
+            if top.kind == "for":
+                top.kind = "arith_for"
+                top.entered = True
         elif text == "(":
             if top.kind == "case":
                 return  # a pattern's optional `(`
@@ -568,14 +663,110 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
     flow = _Flow()
     joined = False  # the last operator was `&&`, `||` or `|`: a newline after it continues the list
 
+    # Per open `case`: "subject" (its word), "in", "pattern" (a pattern list up to its `)`), "body" (commands).
+    cases: list[str] = []
+    case_subjects: list[str | None] = []
+    case_pattern_matches: list[bool] = []
+    case_body_active: list[bool] = []
+    case_fallthrough: list[bool] = []
+    in_conditional = False  # inside `[[ .. ]]`: an expression, its operators split nothing
+
+    def case_reached() -> bool:
+        return all(case_body_active)
+
     def close(command_words: list[Token], command_dynamic: bool) -> None:
         # The keywords that open, continue or close a construct (and a `for`/`case` header) are no command.
         start = flow.keywords(command_words)
         if start < len(command_words):
-            found.append(_Command(command_words[start:], command_dynamic, nested, not nested and flow.reached()))
+            found.append(_Command(command_words[start:], command_dynamic, nested,
+                                  not nested and flow.reached() and case_reached()))
         flow.ended(command_words, start)
 
+    def at_command_start() -> bool:
+        return all(word.text in _KEYWORDS and not word.quoted for word in words) and not skip_target
+
+    def nested_subs(token: Token) -> None:
+        nonlocal complete
+        for sub in token.subs:
+            commands, ok = _commands(sub, True, defined)
+            inner.extend(commands)
+            complete = complete and ok
+
     for index, token in enumerate(tokens):
+        if in_conditional:
+            if token.kind == "word" and token.text == "]]" and not token.quoted:
+                in_conditional = False
+                words, dynamic = [], False
+            elif token.kind == "word":
+                nested_subs(token)  # `[[ $(cmd) ]]` runs cmd, unless an operator short-cuts it: nested
+            previous = token
+            continue
+        if cases and cases[-1] != "body":
+            state = cases[-1]
+            if token.kind == "nl":
+                pass
+            elif state == "subject" and token.kind == "word":
+                nested_subs(token)
+                case_subjects[-1] = token.text
+                cases[-1] = "in"
+            elif state == "in" and token.kind == "word" and token.text == "in" and not token.quoted:
+                case_pattern_matches[-1] = False
+                cases[-1] = "pattern"
+            elif state == "pattern" and token.kind == "word" and token.text == "esac" and not token.quoted \
+                    and previous is not None and (previous.kind == "nl" or previous.text in ("in", ";;", ";&", ";;&")):
+                cases.pop()
+                case_subjects.pop()
+                case_pattern_matches.pop()
+                case_body_active.pop()
+                case_fallthrough.pop()
+            elif state == "pattern" and token.kind == "word":
+                nested_subs(token)  # a pattern's substitution runs only when bash reaches the pattern: nested
+                case_pattern_matches[-1] |= token.text == case_subjects[-1]
+            elif state == "pattern" and token.kind == "op" and token.text in ("(", "|"):
+                pass
+            elif state == "pattern" and token.kind == "op" and token.text == ")":
+                case_body_active[-1] = case_fallthrough[-1] or case_pattern_matches[-1]
+                cases[-1] = "body"
+            else:
+                complete = False  # bash refuses this case: what follows is unread
+                break
+            previous = token
+            continue
+        if token.kind == "word" and not token.quoted and at_command_start() \
+                and token.text in ("case", "esac", "[["):
+            if token.text == "[[":
+                in_conditional = True
+                words, dynamic = [], False
+                previous = token
+                continue
+            if token.text == "case":
+                cases.append("subject")
+                case_subjects.append(None)
+                case_pattern_matches.append(False)
+                case_body_active.append(False)
+                case_fallthrough.append(False)
+                words, dynamic = [], False
+                previous = token
+                continue
+            if token.text == "esac" and cases:
+                cases.pop()
+                case_subjects.pop()
+                case_pattern_matches.pop()
+                case_body_active.pop()
+                case_fallthrough.pop()
+                words, dynamic = [], False
+                previous = token
+                continue
+        if cases and token.kind == "op" and token.text in (";;", ";&", ";;&"):
+            if words:
+                close(words, dynamic)
+            words, dynamic, skip_target = [], False, False
+            cases[-1] = "pattern"
+            case_pattern_matches[-1] = False
+            case_fallthrough[-1] = token.text == ";&" and case_body_active[-1]
+            case_body_active[-1] = False
+            previous = token
+            continue
         if in_array:
             if token.kind == "op" and token.text == "(":
                 in_array += 1
@@ -635,6 +826,8 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
         previous = token
     if words:
         close(words, dynamic or not lexed.complete)  # a command cut short is not certain
+    if cases or in_conditional:
+        complete = False  # an unclosed `case` or `[[`: bash refuses the script
     for sub in lexed.heredoc_subs:
         commands, ok = _commands(sub, True, defined)
         inner.extend(commands)
@@ -643,7 +836,19 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
 
 
 def _opaque(word: Token) -> bool:
-    return word.dynamic or "\x00" in word.text
+    """The word's text is not what bash runs: an expansion, a brace expansion or a glob (fail closed on a quoted `*`
+    too: a quoted one is rare in a program word, and reading it as a glob only costs certainty)."""
+    return word.dynamic or "\x00" in word.text or bool(_BRACE_EXPANSION.search(word.text) or _GLOB.search(word.text))
+
+
+def _is_assignment(word: Token) -> bool:
+    """Whether bash takes the word as a prefix assignment: NAME, `[` and `=` unquoted (`"X=1" cmd` runs X=1)."""
+    match = _ASSIGNMENT.match(word.text)
+    if match is None:
+        return False
+    if match.group(2) is None:
+        return word.plain >= match.end()
+    return word.plain > len(match.group(1))  # `X["k y"]=v`: the subscript may be quoted, NAME[ may not
 
 
 def _unwrap(words: list[Token], index: int, wrapper: _Wrapper) -> tuple[int | None, bool]:
@@ -685,9 +890,10 @@ def _unwrap(words: list[Token], index: int, wrapper: _Wrapper) -> tuple[int | No
             if option not in wrapper.flags:
                 return None, False
         i += 2 if taken else 1
-    while wrapper.assignments and i < len(words) and _ASSIGNMENT.match(words[i].text):
-        if _opaque(words[i]):
-            return None, False
+    while i < len(words) and (wrapper.assignments == "env" and "=" in words[i].text
+                              or wrapper.assignments == "bash" and _is_assignment(words[i])):
+        if wrapper.assignments == "env" and _opaque(words[i]):
+            return None, False  # env's word is expanded (a glob in `Y[0]=2`) before env reads it
         i += 1
     for _ in range(wrapper.operands_before):
         if i >= len(words) or _opaque(words[i]):
@@ -741,9 +947,12 @@ def _shell_script(words: list[Token], index: int) -> tuple[int | None, bool]:
 def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     words = command.words
     start = 0
-    while start < len(words) and (
-            _ASSIGNMENT.match(words[start].text)
-            or (words[start].text in _KEYWORDS and not words[start].quoted)):
+    while start < len(words) and words[start].text in _KEYWORDS and not words[start].quoted:
+        start += 1
+    if start < len(words) and words[start].text == "coproc" and not words[start].quoted:
+        # `coproc cmd` runs cmd in the background, `coproc NAME { .. }` a group: what runs is not read here.
+        return Invocation([w.text for w in words[start:]], False, True)
+    while start < len(words) and _is_assignment(words[start]):  # a keyword after an assignment is a program
         start += 1
     certain = not command.dynamic and not command.nested and command.reached
     any_program = False
@@ -770,7 +979,7 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     if start >= len(words):
         return None  # only assignments and redirections: nothing is run (a substitution's commands are separate)
     program = words[start]
-    if program.dynamic or "\x00" in program.text or program.text.startswith("$"):
+    if _opaque(program) or program.text.startswith("$"):
         certain, any_program = False, True
     if program.text in _RUNS_ARGUMENTS or program.text in defined:
         certain, any_program = False, True
