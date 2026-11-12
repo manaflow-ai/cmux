@@ -160,7 +160,7 @@ public final class TerminalModel {
         self.title = title
         self.programName = session.programName
         self.connectionState = session.connectionState
-        quietStatus.update(down: !connectionState.isAttached)
+        quietStatus.update(down: !session.connectionState.isAttached)
         joystickEngine.send = { [weak self] direction in self?.joystick(direction) }
         collector = TerminalArtifactCollector { [weak self] list in self?.artifacts = list }
         sizeClaimer = TerminalSizeClaimer(clock: ContinuousClock()) { [weak self] claims in
