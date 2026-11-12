@@ -4688,15 +4688,36 @@ fn validate_touched_pane(transaction: &Transaction<'_>, pane_id: &str) -> anyhow
     Ok(())
 }
 
-/// Tabs [`validate_touched_tab`] checked in this test process (nextest runs each test alone): a commit's
-/// validation must be O(changed), never O(tabs in the pane).
+/// Tabs [`validate_touched_tab`] checked, by registry database file (test only): a commit's validation must be
+/// O(changed), never O(tabs in the pane). One count per database, so a test reads only its own registry's commits:
+/// one process-wide count also took the tabs of every test that ran beside it (`cargo test` runs them in threads
+/// of one process) and failed under a full run.
 #[cfg(test)]
-pub(crate) static TABS_VALIDATED: std::sync::atomic::AtomicU64 =
-    std::sync::atomic::AtomicU64::new(0);
+static TABS_VALIDATED: std::sync::Mutex<std::collections::BTreeMap<String, u64>> =
+    std::sync::Mutex::new(std::collections::BTreeMap::new());
+
+/// The tabs [`validate_touched_tab`] checked so far in commits on `connection`'s database (test only).
+#[cfg(test)]
+pub(crate) fn tabs_validated(connection: &Connection) -> u64 {
+    let key = connection.path().unwrap_or_default();
+    TABS_VALIDATED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .get(key)
+        .copied()
+        .unwrap_or_default()
+}
 
 fn validate_touched_tab(transaction: &Transaction<'_>, tab_id: &str) -> anyhow::Result<()> {
     #[cfg(test)]
-    TABS_VALIDATED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    {
+        let key = transaction.path().unwrap_or_default().to_owned();
+        *TABS_VALIDATED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(key)
+            .or_default() += 1;
+    }
     let stored = transaction
         .query_row(
             "SELECT pane_id, content_kind, content_id, deleted_revision

@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import { permissionFromMessage } from "../direct";
 import { askPermissionFocus, FOCUS_REQUEST_MS, takePermissionFocus } from "./focusRequest";
 import { PermissionCard } from "../PermissionCard";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -49,6 +50,7 @@ afterEach(async () => {
   takePermissionFocus();
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
