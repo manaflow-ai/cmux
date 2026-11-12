@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43198144692",
+  "recorded_at": "2026-11-12T10:21:37Z",
+  "reason": "cmux-tui 38651ff1654b changes the image's cmux-tui (pinned af577a2f94a2)",
+  "dry_run": false,
+  "cmux_tui": "38651ff1654b04b21a9bbdc126844c54172dafe4",
+  "fixes": [
+    {
+      "sha": "38651ff1654b04b21a9bbdc126844c54172dafe4",
+      "mergedAt": "2026-11-12T03:57:28-06:00",
+      "subject": "acpmux: endpoint key tests read the stored item the way each OS stores it"
+    },
+    {
+      "sha": "98338c50d9fa717df79fad1718911ec7047a48a4",
+      "mergedAt": "2026-11-12T03:51:31-06:00",
+      "subject": "acpmux: agent tool tests pass the machine's control consent in, never read it"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T10:21:37Z",
+    "snapshot_id": "sh-8895852b238349f9afe0437741021945",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43198144692): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1a92730ddfc1cf074e21706f195748be668b54b7",
+    "image": "cloud-native-auto-38651ff1-43198144692-1",
+    "revision": "ci-43198144692-1",
+    "at": "2026-11-12T10:21:37Z"
+  },
+  "rolled_back": false
+}
