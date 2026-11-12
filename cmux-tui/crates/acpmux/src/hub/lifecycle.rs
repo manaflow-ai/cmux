@@ -818,11 +818,12 @@ impl Hub {
             let model = meta.model_request.clone().unwrap_or_default();
             let expand = |word: &str| crate::hub::expand_env_value(word, &meta.cwd, &home, &model);
             let argv: Vec<String> = profile.argv.iter().map(|word| expand(word)).collect();
-            let path = profile
-                .env
-                .get("PATH")
-                .map(|p| std::ffi::OsString::from(expand(p)))
-                .or_else(|| std::env::var_os("PATH"));
+            // The PATH the agent is spawned with (`agent/command.rs`): the entry's own first,
+            // then the login PATH (family-rev N1).
+            let path = match profile.env.get("PATH").map(|p| expand(p)).filter(|p| !p.is_empty()) {
+                Some(own) => Some(crate::login_env::with_agent_path(&own).into()),
+                None => crate::login_env::agent_path(),
+            };
             let cwd = meta.cwd.clone();
             tokio::task::spawn_blocking(move || {
                 crate::config::launch_family(&argv, &cwd, path.as_deref())

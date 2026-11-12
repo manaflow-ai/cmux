@@ -32,6 +32,7 @@ fn key_for(profile: &HarnessProfile, model: Option<&str>) -> PoolKey {
         origin: Origin::Local,
         cwd: PathBuf::from("/a"),
         harness: "claude".into(),
+        kind: profile.kind,
         preset: None,
         args: Vec::new(),
         system_prompt_sha256: None,

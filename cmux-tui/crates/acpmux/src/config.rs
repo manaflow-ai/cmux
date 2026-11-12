@@ -646,7 +646,7 @@ fn private_dir(dir: &Path, uid: u32) -> bool {
 }
 
 /// How acpmux talks to the agent process.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum HarnessKind {
     /// Agent Client Protocol over stdio (default).
@@ -877,14 +877,15 @@ fn family_of_word(word: &str) -> Option<String> {
     FAMILY_NEEDLES.iter().find(|(needle, _)| word.contains(needle)).map(|(_, f)| (*f).to_owned())
 }
 
-/// Whether any word of `argv` names family `family` by [`FAMILY_NEEDLES`] (file names, case
-/// folded). Only for a refusal, which fails closed: a setting word that names it refuses too
-/// (`web_modes::refused_families`).
+/// Whether any part of any word of `argv` names family `family` by [`FAMILY_NEEDLES`] (every
+/// path component, case folded): the script an interpreter runs from a package folder
+/// (`node …/@zed-industries/codex-acp/dist/index.js`, an npx cache) names its agent only in a
+/// folder (family-rev B2). Only for a refusal, which fails closed: a setting word that names
+/// it refuses too (`web_modes::refused_families`).
 pub fn argv_mentions_family(argv: &[String], family: &str) -> bool {
-    argv.iter().any(|word| {
-        let name = Path::new(word).file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-        family_of_word(&name).as_deref() == Some(family)
-    })
+    argv.iter()
+        .flat_map(|word| Path::new(word).components())
+        .any(|part| family_of_word(&part.as_os_str().to_string_lossy()).as_deref() == Some(family))
 }
 
 /// What a launch runs ([`launch_target`]).

@@ -32,6 +32,10 @@ pub struct PoolKey {
     pub origin: Origin,
     pub cwd: PathBuf,
     pub harness: String,
+    /// The kind the entry's agent starts under: a chat records it as the kind its gate is
+    /// judged by (`SessionMeta::started_kind`), so an entry started under another never
+    /// reaches it (family-rev N5).
+    pub kind: crate::config::HarnessKind,
     pub preset: Option<String>,
     /// The final argv: profile argv, preset args, system prompt file.
     pub args: Vec<String>,

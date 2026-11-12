@@ -184851,6 +184851,270 @@
         }
       }
     },
+    "policyUnenforced.startedBeforeUpdate": {
+      "comment": "Agent pane: transcript note where acpmux stopped the chat's agent because the chat started before an acpmux update and keeps no narrower permission policy until the agent restarts; {policy} is a permission policy name (policy.* strings)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "بدأت هذه الدردشة قبل تحديث. أعد تشغيل الوكيل لتطبيق سياسة الأذونات ({policy})"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj chat je počeo prije ažuriranja. Ponovo pokrenite agenta da primijeni pravila dozvola ({policy})"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chat startede før en opdatering. Genstart agenten for at anvende tilladelsespolitikken ({policy})"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser Chat wurde vor einem Update gestartet. Starte den Agenten neu, um die Berechtigungsrichtlinie ({policy}) anzuwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat started before an update. Restart the agent to apply its permission policy ({policy})"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat empezó antes de una actualización. Reinicia el agente para aplicar la política de permisos ({policy})"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce chat a commencé avant une mise à jour. Redémarrez l’agent pour appliquer la politique d’autorisations ({policy})"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa chat è iniziata prima di un aggiornamento. Riavvia l’agente per applicare il criterio di autorizzazione ({policy})"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このチャットはアップデートの前に開始されました。権限ポリシー（{policy}）を適用するにはエージェントを再起動してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនេះបានចាប់ផ្ដើមមុនការធ្វើបច្ចុប្បន្នភាព។ ចាប់ផ្ដើមភ្នាក់ងារឡើងវិញ ដើម្បីអនុវត្តគោលការណ៍សិទ្ធិ ({policy})"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 채팅은 업데이트 전에 시작되었음. 권한 정책({policy})을 적용하려면 에이전트를 다시 시작하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne chatten startet før en oppdatering. Start agenten på nytt for å bruke tillatelsespolicyen ({policy})"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten czat rozpoczął się przed aktualizacją. Uruchom ponownie agenta, aby zastosować zasady uprawnień ({policy})"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este chat começou antes de uma atualização. Reinicie o agente para aplicar a política de permissões ({policy})"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот чат начат до обновления. Перезапустите агента, чтобы применить политику разрешений ({policy})"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทนี้เริ่มก่อนการอัปเดต รีสตาร์ทเอเจนต์เพื่อใช้นโยบายสิทธิ์ ({policy})"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sohbet bir güncellemeden önce başladı. İzin politikasını ({policy}) uygulamak için ajanı yeniden başlatın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей чат розпочато до оновлення. Перезапустіть агента, щоб застосувати політику дозволів ({policy})"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện này bắt đầu trước một bản cập nhật. Hãy khởi động lại tác nhân để áp dụng chính sách quyền ({policy})"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天在更新前开始。请重启代理以应用权限策略（{policy}）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此聊天在更新前開始。請重新啟動代理以套用權限原則（{policy}）"
+          }
+        }
+      }
+    },
+    "policyUnenforced.noFamily": {
+      "comment": "Agent pane: transcript note where acpmux stopped the chat's agent because it does not know which agent (family) the harness runs, so it cannot keep the chat's permission policy; \"family\" is a config key, not translated; {policy} is a permission policy name (policy.* strings)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يعرف acpmux الوكيل الذي تشغّله أداة هذه الدردشة، لذا لا يمكنه الالتزام بسياسة الأذونات ({policy}). أضف \"family\" إلى إدخال الأداة في إعدادات acpmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux ne zna kojeg agenta pokreće harness ovog chata, pa ne može poštovati pravila dozvola ({policy}). Dodajte \"family\" unosu harnessa u acpmux konfiguraciji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux ved ikke, hvilken agent denne chats harness kører, så den kan ikke overholde tilladelsespolitikken ({policy}). Tilføj \"family\" til harnessens post i acpmux-konfigurationen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux weiß nicht, welchen Agenten das Harness dieses Chats ausführt, und kann die Berechtigungsrichtlinie ({policy}) daher nicht einhalten. Füge dem Harness-Eintrag in der acpmux-Konfiguration \"family\" hinzu"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "acpmux doesn't know which agent this chat's harness runs, so it can't keep the permission policy ({policy}). Add \"family\" to the harness entry in the acpmux config"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux no sabe qué agente ejecuta el harness de este chat, así que no puede mantener la política de permisos ({policy}). Añade \"family\" a la entrada del harness en la configuración de acpmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux ne sait pas quel agent le harness de ce chat exécute : il ne peut donc pas respecter la politique d’autorisations ({policy}). Ajoutez \"family\" à l’entrée du harness dans la configuration d’acpmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux non sa quale agente esegue l’harness di questa chat, quindi non può rispettare il criterio di autorizzazione ({policy}). Aggiungi \"family\" alla voce dell’harness nella configurazione di acpmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux はこのチャットのハーネスが実行するエージェントを判別できないため、権限ポリシー（{policy}）を守れません。acpmux の設定のハーネスエントリーに \"family\" を追加してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux មិនដឹងថា harness របស់ការជជែកនេះដំណើរការភ្នាក់ងារណាទេ ដូច្នេះវាមិនអាចរក្សាគោលការណ៍សិទ្ធិ ({policy}) បានទេ។ បន្ថែម \"family\" ទៅធាតុ harness ក្នុងការកំណត់ acpmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux가 이 채팅의 하네스가 실행하는 에이전트를 알 수 없어 권한 정책({policy})을 지킬 수 없음. acpmux 설정의 하네스 항목에 \"family\"를 추가하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux vet ikke hvilken agent harnessen i denne chatten kjører, så den kan ikke overholde tillatelsespolicyen ({policy}). Legg til \"family\" i harness-oppføringen i acpmux-konfigurasjonen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux nie wie, którego agenta uruchamia harness tego czatu, więc nie może przestrzegać zasad uprawnień ({policy}). Dodaj \"family\" do wpisu harnessu w konfiguracji acpmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O acpmux não sabe qual agente o harness deste chat executa, então não consegue manter a política de permissões ({policy}). Adicione \"family\" à entrada do harness na configuração do acpmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux не знает, какого агента запускает harness этого чата, поэтому не может соблюдать политику разрешений ({policy}). Добавьте \"family\" в запись harness в конфигурации acpmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux ไม่รู้ว่า harness ของแชทนี้รันเอเจนต์ตัวใด จึงทำตามนโยบายสิทธิ์ ({policy}) ไม่ได้ เพิ่ม \"family\" ในรายการ harness ในการกำหนดค่า acpmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux bu sohbetin harness'ının hangi ajanı çalıştırdığını bilmiyor, bu yüzden izin politikasını ({policy}) uygulayamıyor. acpmux yapılandırmasındaki harness girdisine \"family\" ekleyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux не знає, якого агента запускає harness цього чату, тому не може дотримуватися політики дозволів ({policy}). Додайте \"family\" до запису harness у конфігурації acpmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux không biết harness của cuộc trò chuyện này chạy tác nhân nào, nên không thể giữ chính sách quyền ({policy}). Hãy thêm \"family\" vào mục harness trong cấu hình acpmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 不知道此聊天的 harness 运行哪个代理，因此无法遵守权限策略（{policy}）。请在 acpmux 配置的 harness 条目中添加 \"family\""
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "acpmux 不知道此聊天的 harness 執行哪個代理，因此無法遵守權限原則（{policy}）。請在 acpmux 設定的 harness 項目中加入 \"family\""
+          }
+        }
+      }
+    },
     "policy.ask": {
       "comment": "Agent pane: name of the acpmux permission policy that asks the person before each tool call (policy id ask)",
       "extractionState": "manual",

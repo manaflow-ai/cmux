@@ -105,17 +105,20 @@ pub(super) fn is_opencode(meta: &SessionMeta, profile: &HarnessProfile) -> bool 
 }
 
 /// The mode a chat with `policy` (narrower than approve-all) runs in on a harness of `family`
-/// offering `available` (module docs), or `None` when it offers no mode that asks.
+/// offering `available` (module docs), or `None` when it offers no mode that asks. `bridge`: the
+/// harness runs the Codex bridge (`codex app-server`, [`runs_bridge`]), whose `read-only` holds
+/// deny-all.
 pub(crate) fn policy_mode(
     policy: PermissionPolicy,
     family: &str,
     available: &[String],
+    bridge: bool,
 ) -> Option<String> {
     if family == "opencode" {
         return None;
     }
     if policy == PermissionPolicy::DenyAll
-        && let Some(mode) = read_only_mode(family)
+        && let Some(mode) = read_only_mode(family, bridge)
         && available.iter().any(|m| m == mode)
     {
         return Some(mode.to_owned());
@@ -123,21 +126,40 @@ pub(crate) fn policy_mode(
     super::start_mode::asking_mode(family, available)
 }
 
-/// Per harness family, its own mode that refuses every write and shell command, where deny-all
-/// holds: Codex's `read-only`, Muse Code's (muse-acp) `readOnly`. A mode of either name that
+/// The mode that refuses every write and shell command, where deny-all holds, of a harness of
+/// `family` that runs the Codex bridge when `bridge`: the bridge's `read-only` (its sandbox
+/// refuses every write and the network), and Muse Code's (muse-acp) `readOnly`. Not the
+/// codex-acp adapter's `read-only` (codex-acp 1.10.0), which writes in the workspace without
+/// asking, though its family is `codex` too (family-rev B1); and a mode of either name that
 /// another family offers says nothing: the agent names its own modes (review of #40790).
-const READ_ONLY_MODES: &[(&str, &str)] = &[("codex", "read-only"), ("muse", "readOnly")];
+fn read_only_mode(family: &str, bridge: bool) -> Option<&'static str> {
+    if bridge {
+        Some("read-only")
+    } else if family == "muse" {
+        Some("readOnly")
+    } else {
+        None
+    }
+}
 
-/// The read-only mode of `family` ([`READ_ONLY_MODES`]), or `None`.
-fn read_only_mode(family: &str) -> Option<&'static str> {
-    READ_ONLY_MODES.iter().find(|(f, _)| *f == family).map(|(_, mode)| *mode)
+/// Whether `meta`'s agent runs the Codex bridge (`codex app-server`,
+/// `codex_app_server::is_profile_launch`): the argv it last started with, else its creation's.
+pub(crate) fn runs_bridge(meta: &SessionMeta) -> bool {
+    crate::codex_app_server::is_profile_launch(
+        meta.spawn_argv.as_deref().unwrap_or(&meta.harness_argv),
+    )
 }
 
 /// Whether `wanted`, the mode chosen for `policy` on `family` ([`policy_mode`]), is narrower
 /// than any other mode that asks: deny-all's read-only mode of that family. A chat in another
 /// mode that asks then still moves to it.
-fn narrower_than_asking(policy: PermissionPolicy, family: &str, wanted: &str) -> bool {
-    policy == PermissionPolicy::DenyAll && read_only_mode(family) == Some(wanted)
+fn narrower_than_asking(
+    policy: PermissionPolicy,
+    family: &str,
+    wanted: &str,
+    bridge: bool,
+) -> bool {
+    policy == PermissionPolicy::DenyAll && read_only_mode(family, bridge) == Some(wanted)
 }
 
 /// The mode a Claude Code chat whose policy is narrower than approve-all spawns in when its saved
@@ -148,12 +170,12 @@ pub(super) fn claude_spawn_mode(
     mode: &str,
 ) -> Option<String> {
     let policy = narrow_policy(meta, default)?;
-    if super::start_mode::asks(mode, "claude") {
+    if super::start_mode::asks(mode, "claude", false) {
         return None;
     }
     let offered: Vec<String> =
         crate::claude_stdio::MODES.iter().map(|(id, ..)| (*id).to_owned()).collect();
-    policy_mode(policy, "claude", &offered)
+    policy_mode(policy, "claude", &offered, false)
 }
 
 /// The modes a new chat a remote connection started on the Codex bridge settles in, the start
@@ -206,7 +228,7 @@ impl Hub {
         cfg: &Config,
     ) -> Option<Option<String>> {
         let policy = narrow_policy(meta, cfg.permission_policy)?;
-        Some(policy_mode(policy, &policy_family(meta, cfg), offered))
+        Some(policy_mode(policy, &policy_family(meta, cfg), offered, runs_bridge(meta)))
     }
 
     /// After a chat's start mode is set: a policy narrower than approve-all that its harness's
@@ -222,7 +244,7 @@ impl Hub {
         let family = policy_family(&meta, cfg);
         let offered = super::start_mode::offered_ids(&meta);
         let current = crate::web_modes::mode_of(&meta);
-        let wanted = policy_mode(policy, &family, &offered);
+        let wanted = policy_mode(policy, &family, &offered, runs_bridge(&meta));
         if wanted.is_some() && wanted == current {
             return;
         }
@@ -265,12 +287,13 @@ impl Hub {
         }
         let Some(current) = crate::web_modes::mode_of(&meta) else { return };
         let offered = super::start_mode::offered_ids(&meta);
-        let Some(wanted) = policy_mode(policy, &family, &offered) else {
+        let bridge = runs_bridge(&meta);
+        let Some(wanted) = policy_mode(policy, &family, &offered, bridge) else {
             self.note_unenforced_policy(session, &*self.config.read().await);
             return;
         };
-        let asks = super::start_mode::asks(&current, &family);
-        let narrower = narrower_than_asking(policy, &family, &wanted);
+        let asks = super::start_mode::asks(&current, &family, bridge);
+        let narrower = narrower_than_asking(policy, &family, &wanted, bridge);
         if current == wanted || (asks && !narrower) {
             return;
         }
@@ -460,9 +483,10 @@ impl Hub {
         };
         let family = policy_family(&meta, &*self.config.read().await);
         let offered = super::start_mode::offered_ids(&meta);
-        let Some(wanted) = policy_mode(policy, &family, &offered) else { return };
-        let asks = super::start_mode::asks(&current, &family);
-        let narrower = narrower_than_asking(policy, &family, &wanted);
+        let bridge = runs_bridge(&meta);
+        let Some(wanted) = policy_mode(policy, &family, &offered, bridge) else { return };
+        let asks = super::start_mode::asks(&current, &family, bridge);
+        let narrower = narrower_than_asking(policy, &family, &wanted, bridge);
         // A mode pinned in argv is not what the chat records until its first turn: always moved.
         if !pinned && (current == wanted || (asks && !narrower)) {
             return;
@@ -618,8 +642,9 @@ impl Hub {
         }
         let offered = super::start_mode::offered_ids(&meta);
         let table = self.web_modes();
-        if policy_mode(policy, &family, &offered).is_none()
-            || super::start_mode::asks_in(mode, &family, table.modes(&family))
+        let bridge = runs_bridge(&meta);
+        if policy_mode(policy, &family, &offered, bridge).is_none()
+            || super::start_mode::asks_in(mode, &family, table.modes(&family), bridge)
         {
             return Ok(());
         }
@@ -651,10 +676,11 @@ pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), R
     }
     let offered = super::start_mode::offered_ids(meta);
     let current = crate::web_modes::mode_of(meta);
-    let held = match (policy_mode(policy, &family, &offered), current) {
+    let bridge = runs_bridge(meta);
+    let held = match (policy_mode(policy, &family, &offered, bridge), current) {
         (Some(wanted), Some(current)) => {
-            let narrower = narrower_than_asking(policy, &family, &wanted);
-            current == wanted || (super::start_mode::asks(&current, &family) && !narrower)
+            let narrower = narrower_than_asking(policy, &family, &wanted, bridge);
+            current == wanted || (super::start_mode::asks(&current, &family, bridge) && !narrower)
         }
         _ => false,
     };
@@ -664,7 +690,7 @@ pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), R
     let unheld = Unheld {
         policy,
         harness: &meta.harness,
-        wanted: policy_mode(policy, &family, &offered),
+        wanted: policy_mode(policy, &family, &offered, bridge),
         no_family: family.is_empty(),
         distrust: claim_distrust(meta, cfg).filter(|_| claims_asks(meta)),
         before_update: started_before_update(meta, cfg),
@@ -679,9 +705,7 @@ pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), R
 fn started_before_update(meta: &SessionMeta, cfg: &Config) -> bool {
     meta.started_kind.is_none()
         && meta.launch_digest.is_some()
-        && cfg
-            .profile(&meta.harness)
-            .is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
+        && cfg.profile(&meta.harness).is_some()
 }
 
 /// Whether `meta`'s agent said at `initialize` that it asks the client
@@ -773,9 +797,9 @@ pub(super) struct Unheld<'a> {
     /// Why the agent's `asksBeforeTools` claim is not believed ([`claim_distrust`]), when it
     /// makes one.
     pub(super) distrust: Option<&'static str>,
-    /// Its agent was started by an older build that recorded no kind, from an entry of acpmux's
-    /// own Claude Code backend ([`started_before_update`]): a restart of the agent applies the
-    /// policy. Said first, with no family to add.
+    /// Its agent was started by an older build that recorded no kind and no family of its
+    /// program, from an entry of this config ([`started_before_update`]): a restart of the agent
+    /// records them and may apply the policy. Said first, with no family to add (family-rev N2).
     pub(super) before_update: bool,
 }
 
@@ -853,8 +877,12 @@ pub(super) fn unenforceable(unheld: &Unheld<'_>, japanese: bool) -> RpcError {
         "why": why,
         "hint": hint,
     });
+    // Codes a client words in its own language (the app's, not the daemon's locale): the
+    // agent pane's note (`PolicyUnenforcedNote`), first `startedBeforeUpdate`, then `noFamily`.
     if unheld.before_update {
         data["startedBeforeUpdate"] = json!(true);
+    } else if unheld.no_family {
+        data["noFamily"] = json!(true);
     }
     RpcError::invalid_params(message).with_data(data)
 }
@@ -875,10 +903,12 @@ pub(super) fn out_of_policy(
         return false;
     }
     let offered = super::start_mode::offered_ids(meta);
+    let bridge = runs_bridge(meta);
     narrow_policy(meta, default)
-        .is_some_and(|policy| policy_mode(policy, family, &offered).is_some())
-        && crate::web_modes::mode_of(meta)
-            .is_some_and(|mode| !super::start_mode::asks_in(&mode, family, table.modes(family)))
+        .is_some_and(|policy| policy_mode(policy, family, &offered, bridge).is_some())
+        && crate::web_modes::mode_of(meta).is_some_and(|mode| {
+            !super::start_mode::asks_in(&mode, family, table.modes(family), bridge)
+        })
 }
 
 /// The family whose modes hold `meta`'s policy: [`crate::web_modes::session_mode_family`] of the
@@ -1008,13 +1038,21 @@ mod tests {
     fn deny_all_holds_in_a_read_only_mode_only_of_a_family_that_has_it() {
         let deny = PermissionPolicy::DenyAll;
         let offered = ids(&["ask", "readOnly", "read-only"]);
-        assert_eq!(policy_mode(deny, "lane", &offered).as_deref(), Some("ask"));
-        assert_eq!(policy_mode(deny, "lane", &ids(&["default", "readOnly", "read-only"])), None);
-        assert_eq!(policy_mode(deny, "", &ids(&["read-only"])), None);
-        assert_eq!(policy_mode(deny, "codex", &offered).as_deref(), Some("read-only"));
-        assert_eq!(policy_mode(deny, "muse", &offered).as_deref(), Some("readOnly"));
+        assert_eq!(policy_mode(deny, "lane", &offered, false).as_deref(), Some("ask"));
+        let named = ids(&["default", "readOnly", "read-only"]);
+        assert_eq!(policy_mode(deny, "lane", &named, false), None);
+        assert_eq!(policy_mode(deny, "", &ids(&["read-only"]), false), None);
+        assert_eq!(policy_mode(deny, "codex", &offered, true).as_deref(), Some("read-only"));
+        assert_eq!(policy_mode(deny, "muse", &offered, false).as_deref(), Some("readOnly"));
+        // The codex-acp adapter (family codex, not the bridge): its `read-only` writes in the
+        // workspace without asking (family-rev B1).
+        let adapter = ids(&["read-only", "agent", "agent-full-access"]);
+        assert_eq!(policy_mode(deny, "codex", &adapter, false), None);
+        assert!(!super::super::start_mode::asks("read-only", "codex", false));
+        assert!(super::super::start_mode::asks("read-only", "codex", true));
         // Another policy: the mode that asks, on every family.
-        assert_eq!(policy_mode(PermissionPolicy::Ask, "muse", &offered).as_deref(), Some("ask"));
+        let ask = PermissionPolicy::Ask;
+        assert_eq!(policy_mode(ask, "muse", &offered, false).as_deref(), Some("ask"));
     }
 
     fn ids(modes: &[&str]) -> Vec<String> {
@@ -1030,7 +1068,11 @@ mod tests {
             (PermissionPolicy::ApproveEdits, "ask"),
             (PermissionPolicy::DenyAll, "read-only"),
         ] {
-            assert_eq!(policy_mode(policy, "codex", &codex).as_deref(), Some(mode), "{policy}");
+            assert_eq!(
+                policy_mode(policy, "codex", &codex, true).as_deref(),
+                Some(mode),
+                "{policy}"
+            );
         }
     }
 
@@ -1062,10 +1104,10 @@ mod tests {
     fn muse_deny_all_runs_read_only() {
         let muse = ids(&["default", "readOnly", "plan"]);
         assert_eq!(
-            policy_mode(PermissionPolicy::DenyAll, "muse", &muse).as_deref(),
+            policy_mode(PermissionPolicy::DenyAll, "muse", &muse, false).as_deref(),
             Some("readOnly")
         );
-        assert_eq!(policy_mode(PermissionPolicy::Ask, "muse", &muse), None);
+        assert_eq!(policy_mode(PermissionPolicy::Ask, "muse", &muse, false), None);
     }
 
     #[test]
@@ -1077,9 +1119,10 @@ mod tests {
             PermissionPolicy::ApproveEdits,
             PermissionPolicy::DenyAll,
         ] {
-            assert_eq!(policy_mode(policy, "claude", &claude).as_deref(), Some("default"));
-            assert_eq!(policy_mode(policy, "opencode", &ids(&["build", "plan", "ask"])), None);
-            assert_eq!(policy_mode(policy, "pi", &[]), None);
+            assert_eq!(policy_mode(policy, "claude", &claude, false).as_deref(), Some("default"));
+            let opencode = ids(&["build", "plan", "ask"]);
+            assert_eq!(policy_mode(policy, "opencode", &opencode, false), None);
+            assert_eq!(policy_mode(policy, "pi", &[], false), None);
         }
     }
 

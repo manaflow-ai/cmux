@@ -63,6 +63,14 @@ const POLICY_NAMES: Record<string, StringKey> = {
   "deny-all": "policy.denyAll",
 };
 
+/// The note's text for each reason a policy does not hold.
+const POLICY_NOTE_TEXTS: Record<AcpmuxPolicyUnenforced["why"], StringKey> = {
+  ownSettings: "policyUnenforced.ownSettings",
+  noAskingMode: "policyUnenforced.noAskingMode",
+  startedBeforeUpdate: "policyUnenforced.startedBeforeUpdate",
+  noFamily: "policyUnenforced.noFamily",
+};
+
 export function PolicyUnenforcedNote({ note }: { note: AcpmuxPolicyUnenforced }) {
   const t = useT();
   const name = POLICY_NAMES[note.policy];
@@ -75,9 +83,7 @@ export function PolicyUnenforcedNote({ note }: { note: AcpmuxPolicyUnenforced })
           <Lock />
         </span>
         <span className="cv-tool__text cv-policy-unenforced__text">
-          {note.why === "ownSettings"
-            ? t("policyUnenforced.ownSettings", values)
-            : t("policyUnenforced.noAskingMode", values)}
+          {t(POLICY_NOTE_TEXTS[note.why] ?? "policyUnenforced.noAskingMode", values)}
         </span>
       </div>
     </div>
