@@ -87,8 +87,8 @@ struct AgentChatTakesOneSizePerSpringTests {
         window.contentView = content.contentView
         window.orderFrontRegardless()
         let root = content.layoutView
-        // Reduce Motion is off for this layout. The process-wide motion switches (`Motion.panes`: the animation
-        // settings) stay the test host's: with them off no spring runs, and the test fails at "did not spring".
+        // The pane springs are on for this layout, whatever the shared settings say: the override decides
+        // `canAnimate` and `animatesPaneLayout`, and the frame step reads the shared policy for the spring's numbers only.
         root.context.reduceMotionOverride = false
         let landing = Kinds.Landing()
         root.context.afterCommit = { [landing] in landing.work.append($0) }
