@@ -43,6 +43,26 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cmux_next_route as route_mod  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def refresh_base(root, ref: str) -> str:
+    """Fetch REF (origin/feat-cmux-next) before this branch's own change is measured from where HEAD meets it: a clone's
+    copy older than a base the branch merged counts that base's files as the branch's own. One shared fetch
+    (scripts/cmux-next/push_range.py refresh_base, the pre-push gate's); a failed fetch is said on stderr."""
+    import importlib.util
+    push_range = Path(__file__).resolve().parents[1] / "cmux-next" / "push_range.py"
+    spec = importlib.util.spec_from_file_location("cmux_next_push_range_fresh", push_range)
+    module = sys.modules.get(spec.name)
+    if module is None:
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+    note = module.refresh_base(Path(root), ref)
+    if note:
+        print(f"build_class: {note.lstrip('; ')}", file=sys.stderr)
+    return note
+
+
 # "none" only for an empty change.
 CLASSES = ("none", "blaze", "app")
 FOREIGN_LINK = re.compile(r'crate-type\s*=\s*\[[^\]]*"(?:staticlib|cdylib)"')
@@ -164,6 +184,7 @@ def classify(root: Path, changed: list[str]) -> dict:
 
 
 def changed_files(base: str) -> list[str]:
+    refresh_base(ROOT, base)
     merge_base = subprocess.run(["git", "-C", str(ROOT), "merge-base", base, "HEAD"],
                                 check=True, capture_output=True, text=True).stdout.strip()
     diff = subprocess.run(["git", "-C", str(ROOT), "diff", "--name-only", "--no-renames", merge_base],
