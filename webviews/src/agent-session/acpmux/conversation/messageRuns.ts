@@ -54,14 +54,28 @@ type Member = {
 
 function member(row: AcpmuxRow): Member | undefined {
   if (row.kind === "compaction")
-    return { lines: 1, sent: 0, received: 0, work: [], failed: 0, running: row.compaction?.state === "running" };
+    return {
+      lines: 1,
+      sent: 0,
+      received: 0,
+      work: [],
+      failed: 0,
+      running: row.compaction?.state === "running",
+    };
   // A tool's fire stays in sight: it ends a run, never folds into its line.
   if (isReceivedLine(row) && row.incoming?.kind === "message" && row.incoming.message.notice?.severity === "fire")
     return undefined;
   if (isReceivedLine(row)) {
     // An inbox notice counts the messages it brought, not its threads (inboxNotice.ts `inboxCounts`).
     const n = row.incoming?.kind === "inbox" ? Math.max(1, inboxCounts(row.incoming.notice).messages) : 1;
-    return { lines: 1, sent: 0, received: n, work: [], failed: 0, running: false };
+    return {
+      lines: 1,
+      sent: 0,
+      received: n,
+      work: [],
+      failed: 0,
+      running: false,
+    };
   }
   // A folded run (codexRuns, shapeTurn): its lines as ToolRows draws them (`runStretches`).
   if (row.kind !== "activity" || row.foldRun !== true || !row.items?.length) return undefined;
@@ -130,7 +144,11 @@ export function foldMessageRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[]
     // run: they draw in that row (laneNoticeBatches.ts `projectInboxRows`). One with a lane report,
     // a task's result or a person's message among them still folds here.
     const onlyReceived = sent === 0 && members.every(joinsReceivedRow);
-    if (lines < 2 || sent + received === 0 || onlyReceived) {
+    // Two runs a compaction alone splits are one stretch of work too, message or not (spec "Compaction
+    // folds with the work"; Leo, 2026-11-12, ask-bc2af01f6e: "how come these aren't folded?").
+    const compacted =
+      members.some((row) => row.kind === "compaction") && members.filter((row) => row.kind === "activity").length > 1;
+    if (lines < 2 || (sent + received === 0 && !compacted) || onlyReceived) {
       out?.push(...members);
       index = end;
       continue;
