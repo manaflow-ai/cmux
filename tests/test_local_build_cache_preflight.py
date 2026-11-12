@@ -24,6 +24,17 @@ preflight = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(preflight)
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 class PreflightTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
@@ -285,7 +296,7 @@ class PreflightTests(unittest.TestCase):
         def start_ready(*args, **kwargs):
             process = real_popen(*args, **kwargs)
             os.close(ready_write)
-            self.assertTrue(select.select([ready_read], [], [], 5)[0], "descendant never started")
+            self.assertTrue(_readable([ready_read], 5), "descendant never started")
             self.assertEqual(os.read(ready_read, 5), b"ready")
             wait = process.wait
             calls = 0
@@ -304,7 +315,7 @@ class PreflightTests(unittest.TestCase):
                                   pass_fds=(ready_write, gate_read))
             # Only the blocked descendant owns the write end. EOF proves it
             # exited; a surviving descendant would keep this pipe open.
-            self.assertTrue(select.select([ready_read], [], [], 5)[0], "descendant survived timeout")
+            self.assertTrue(_readable([ready_read], 5), "descendant survived timeout")
             self.assertEqual(os.read(ready_read, 1), b"")
         finally:
             for fd in (ready_read, ready_write, gate_read, gate_write):

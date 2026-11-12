@@ -68,6 +68,17 @@ TEARDOWNS = {}
 VARIANTS_ONLY = False  # --signing-variants: the notarized reference, then only the re-signed variants
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 def teardown_for(path):
     if path not in TEARDOWNS:
         TEARDOWNS[path] = TagTeardown(path, log=lambda line: log(line))
@@ -313,7 +324,7 @@ def launch_release(app, label, until_main=False):
         while not ({bs.FINAL_MARK, bs.AGENT_MARK} & marks.keys()) and time.monotonic() < deadline:
             if until_main and main_seen is not None:
                 deadline = min(deadline, main_seen + 2.0)  # the variants need only main_start (and its daemon start)
-            ready, _, _ = select.select([read_fd], [], [], max(0.0, deadline - time.monotonic()))
+            ready = _readable([read_fd], max(0.0, deadline - time.monotonic()))
             if not ready:
                 break
             chunk = os.read(read_fd, 65536)

@@ -44,6 +44,17 @@ FAKE_START_TIME = "1000000000"
 FAILURES: list[str] = []
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 def fail(msg: str) -> None:
     print(f"FAIL: {msg}")
     FAILURES.append(msg)
@@ -95,7 +106,7 @@ def wait_ready(read_fd: int, expected: int = 1, timeout_s: float = 5.0) -> bool:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             return False
-        readable, _, _ = select.select([read_fd], [], [], remaining)
+        readable = _readable([read_fd], remaining)
         if not readable:
             return False
         chunk = os.read(read_fd, 4096)
@@ -453,7 +464,7 @@ exec sleep 300
         line = ""
         while time.monotonic() < deadline:
             remaining = deadline - time.monotonic()
-            readable, _, _ = select.select([parent.stdout], [], [], remaining)
+            readable = _readable([parent.stdout], remaining)
             if not readable:
                 break
             line = parent.stdout.readline()

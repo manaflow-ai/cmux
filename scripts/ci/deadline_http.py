@@ -54,6 +54,16 @@ from typing import Callable, Iterator
 _SOCKET_TIMEOUT = (TimeoutError, socket.timeout)
 
 
+def _ready(objs, events, timeout):
+    """The OBJS (sockets or fds) ready for EVENTS (select.POLLIN, select.POLLOUT) within TIMEOUT seconds (None: no
+    limit), as select.select's list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    poller = select.poll()
+    for o in objs:
+        poller.register(o, events)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [o for o in objs if (o if isinstance(o, int) else o.fileno()) in got]
+
+
 class RequestTimeout(TimeoutError):
     """A call that did not finish by its deadline. It ran on the caller's thread and stopped at the
     deadline: nothing was sent after it. A write sent before it (a dispatch, a cancel) may have reached
@@ -227,11 +237,11 @@ class DeadlineHTTPSConnection(_DeadlineMixin, http.client.HTTPSConnection):
                 sock.do_handshake()
                 break
             except ssl.SSLWantReadError:
-                wanted = ([sock], [])
+                wanted = select.POLLIN
             except ssl.SSLWantWriteError:
-                wanted = ([], [sock])
+                wanted = select.POLLOUT
             wait, stalled = _wait(self._deadline, self._stall, f"TLS with {server_hostname}")
-            if not any(select.select(*wanted, [], wait)):
+            if not _ready([sock], wanted, wait):
                 sock.close()
                 raise _timed_out(f"TLS with {server_hostname}", self._deadline, self._stall, stalled)
         sock.setblocking(True)

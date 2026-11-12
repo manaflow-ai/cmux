@@ -68,6 +68,17 @@ E2E_STEPS = ["clear", "1", "2", "multiply", "7", "equals"]
 
 # ---------------------------------------------------------------- stats
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 def percentile(values: list[float], q: float) -> float | None:
     """Linear interpolation between closest ranks (numpy's default), None when empty."""
     data = sorted(v for v in values if v is not None)
@@ -271,9 +282,9 @@ class Mcp:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return None
-            if self.proc.poll() is not None and not select.select([fd], [], [], 0)[0]:
+            if self.proc.poll() is not None and not _readable([fd], 0):
                 raise RuntimeError(f"{self.name} exited {self.proc.returncode}")
-            ready, _, _ = select.select([fd], [], [], min(remaining, 0.2))
+            ready = _readable([fd], min(remaining, 0.2))
             if ready:
                 chunk = os.read(fd, 1 << 20)
                 if not chunk:

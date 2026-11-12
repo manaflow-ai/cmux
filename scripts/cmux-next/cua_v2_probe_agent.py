@@ -23,6 +23,17 @@ lock = threading.Lock()
 servers_by_session = {}
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 def send(obj):
     with lock:
         sys.stdout.write(json.dumps(obj) + "\n")
@@ -61,7 +72,7 @@ class Mcp:
                 reply = json.loads(line)
                 if reply.get("id") == rid:
                     return reply
-            ready, _, _ = select.select([self.proc.stdout], [], [], max(0.0, deadline - time.time()))
+            ready = _readable([self.proc.stdout], max(0.0, deadline - time.time()))
             if not ready:
                 break
             chunk = os.read(self.proc.stdout.fileno(), 1 << 22)

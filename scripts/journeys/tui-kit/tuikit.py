@@ -72,6 +72,17 @@ EMOJI = ("🚀", "🌈", "🔥", "🎉", "🐙", "💡", "🧪", "🍀", "🎯",
 EMOJI = tuple(e if e != "🛰" else "🌍" for e in EMOJI)
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 class Quit(Exception):
     pass
 
@@ -670,7 +681,7 @@ def cmd_sigwinch(a):
                 timeout = max(0.0, min(timeout, next_tick - time.monotonic()))
             if run.duration:
                 timeout = max(0.0, min(timeout, run.t0 + run.duration - time.monotonic()))
-            ready, _, _ = select.select([rfd], [], [], timeout)
+            ready = _readable([rfd], timeout)
             if ready:
                 os.read(rfd, 4096)
             while pending:

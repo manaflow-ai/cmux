@@ -47,6 +47,17 @@ CONTROL_SOCKET = "/tmp/cmux-staging.sock"
 LEGACY = ["legacy-1", "legacy-2", "legacy-3"]
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 class Client:
     def __init__(self, path, timeout=20):
         self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -201,7 +212,7 @@ class App:
         deadline = time.monotonic() + timeout
         while name not in self.marks:
             remaining = deadline - time.monotonic()
-            if remaining <= 0 or not select.select([self.read_fd], [], [], remaining)[0]:
+            if remaining <= 0 or not _readable([self.read_fd], remaining):
                 return False
             chunk = os.read(self.read_fd, 65536)
             if not chunk:

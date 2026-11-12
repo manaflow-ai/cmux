@@ -66,6 +66,17 @@ FINALIZE_SOURCE_CLASSES = SOURCE_CLASSES | {"lan"}
 _REVISION = re.compile(r"[a-f0-9]{6,64}")
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 def _digest(value: str) -> str:
     value = value.removeprefix("sha256:").lower()
     if not _HEX64.fullmatch(value):
@@ -675,7 +686,7 @@ def _signal_waiters(store: Store, key: str, waiters: list[str]) -> None:
 
 
 def _wait_for_fill_signal(read_fd: int, timeout: float) -> bool:
-    ready, _, _ = select.select([read_fd], [], [], max(0.0, timeout))
+    ready = _readable([read_fd], max(0.0, timeout))
     if not ready:
         return False
     try:

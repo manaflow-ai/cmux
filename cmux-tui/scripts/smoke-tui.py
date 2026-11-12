@@ -9,6 +9,17 @@ CONTROL_SOCKET_RE = re.compile(r"control socket at (.+)$")
 SGR_RE = re.compile(rb"\x1b\[([0-9;]*)m")
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 def write_all(fd, data):
     """Write all bytes to the PTY, preserving short-write progress."""
     view = memoryview(data)
@@ -81,7 +92,7 @@ def wait_for_control_socket(server, seconds=15):
                 output.append(rest)
             break
         wait = min(0.1, max(0.0, deadline - time.monotonic()))
-        readable, _, _ = select.select([server.stdout], [], [], wait)
+        readable = _readable([server.stdout], wait)
         if not readable:
             continue
         line = server.stdout.readline()

@@ -7,6 +7,18 @@ and counts what comes back. Proves the viewer bridge end to end without the app.
 """
 import json, os, select, socket, struct, subprocess, sys, tempfile, time
 
+
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 binary = sys.argv[1]
 stun = [sys.argv[sys.argv.index("--stun") + 1]] if "--stun" in sys.argv else []
 seconds = float(sys.argv[sys.argv.index("--seconds") + 1]) if "--seconds" in sys.argv else 2.0
@@ -26,7 +38,7 @@ if "displays" in host_line:  # serve reports its displays before its key
     host_line = json.loads(host.stdout.readline())
 host_key = host_line["key"]
 cands, deadline = [], time.time() + 3
-while time.time() < deadline and select.select([host.stdout], [], [], deadline - time.time())[0]:
+while time.time() < deadline and _readable([host.stdout], deadline - time.time()):
     line = json.loads(host.stdout.readline())
     if "candidate" in line: cands.append(line["candidate"])
     if line.get("candidates_done"): break
@@ -48,7 +60,7 @@ buf, controls, datagrams, end = b"", [], 0, time.time() + seconds + 10
 pane.settimeout(0.2)
 first_datagram_at = None
 while time.time() < end:
-    for s in select.select([viewer.stdout, host.stdout], [], [], 0)[0]:
+    for s in _readable([viewer.stdout, host.stdout], 0):
         line = s.readline()
         if line: print(("viewer" if s is viewer.stdout else "host") + ": " + line.rstrip(), file=sys.stderr)
     try:

@@ -31,6 +31,17 @@ TEST_CONFIG = os.path.join(TEST_CONFIG_ROOT.name, "config.json")
 CLIENTS = []
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 def fallback_socket_path():
     base = os.environ.get("XDG_RUNTIME_DIR") or os.environ.get("TMPDIR") or "/tmp"
     return os.path.join(base, f"cmux-tui-{os.getuid()}", f"{SESSION}.sock")
@@ -47,7 +58,7 @@ def wait_for_control_socket(server, seconds=15):
                 output.append(rest)
             break
         wait = min(0.1, max(0.0, deadline - time.time()))
-        readable, _, _ = select.select([server.stdout], [], [], wait)
+        readable = _readable([server.stdout], wait)
         if not readable:
             continue
         line = server.stdout.readline()

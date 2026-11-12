@@ -177,6 +177,17 @@ LAUNCH_ORDER = [
 APPS = {}
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 def app_tag(path):
     """The tag of a staged `cmux DEV <tag>.app` (LaunchIdentity.taggedAppName)."""
     name = os.path.basename(os.path.normpath(path))
@@ -555,7 +566,7 @@ class Launch:
                 return False
             # An active launch's FIFO has the bench's own writer: no end of file at a crash, so its pid is checked.
             watching = getattr(self, "hold_fd", None) is not None  # a Launch built without __init__ (tests) has none
-            ready, _, _ = select.select([self.read_fd], [], [], min(remaining, 0.5) if watching else remaining)
+            ready = _readable([self.read_fd], min(remaining, 0.5) if watching else remaining)
             if not ready:
                 if watching and time.monotonic() < deadline and self.alive():
                     continue

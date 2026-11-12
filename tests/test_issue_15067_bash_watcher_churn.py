@@ -24,6 +24,17 @@ ROOT = Path(__file__).resolve().parents[1]
 INTEGRATION = ROOT / "Resources/shell-integration/cmux-bash-integration.bash"
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 def stop_shell(shell: subprocess.Popen) -> str:
     if shell.poll() is None:
         try:
@@ -103,7 +114,7 @@ class BashWatcherChurnTests(unittest.TestCase):
                 )
                 stack.callback(stop_shell, shell)
                 shells.append((shell, home))
-                ready, _, _ = select.select([shell.stdout], [], [], 15)
+                ready = _readable([shell.stdout], 15)
                 self.assertTrue(ready, "bash did not finish the prompt lifecycle")
                 # Prompt hooks may write terminal protocol escapes before READY.
                 self.assertIn("READY", shell.stdout.readline())

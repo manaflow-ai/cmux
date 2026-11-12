@@ -120,6 +120,17 @@ NATIVE_SUBAGENTS = False
 SESSION_PREFIX = os.environ.get("FAKE_SESSION_PREFIX", "fake-")
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 def send(obj):
     send_all([obj])
 
@@ -1755,7 +1766,7 @@ def main():
     if gate:
         import select
         while not os.path.exists(gate):
-            if select.select([sys.stdin.fileno()], [], [], 0.02)[0]:
+            if _readable([sys.stdin.fileno()], 0.02):
                 chunk = os.read(sys.stdin.fileno(), 65536)
                 if not chunk:
                     return

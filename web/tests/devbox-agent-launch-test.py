@@ -18,6 +18,17 @@ process_gone = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(process_gone)
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 class AgentLaunchTests(unittest.TestCase):
     def arguments(self, code, *extra):
         script = Path(__file__).resolve().parents[1] / "scripts" / "devbox-agent-launch.py"
@@ -70,7 +81,7 @@ class AgentLaunchTests(unittest.TestCase):
                 while b"CHILD_PID:" not in output:
                     remaining = deadline - time.monotonic()
                     self.assertGreater(remaining, 0, output)
-                    self.assertTrue(select.select([probe.stdout], [], [], remaining)[0])
+                    self.assertTrue(_readable([probe.stdout], remaining))
                     output += os.read(probe.stdout.fileno(), 4096)
                 probe.terminate()
                 stdout, stderr = probe.communicate(timeout=3)

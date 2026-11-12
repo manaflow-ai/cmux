@@ -55,6 +55,17 @@ TOOLS = (
 )
 
 
+def _readable(fds, timeout=None):
+    """The FDS (fds or objects with fileno()) ready to read within TIMEOUT seconds (None: no limit), as
+    select.select's first list. Through poll(): select.select() refuses an fd at or above FD_SETSIZE (1024)."""
+    import select
+    poller = select.poll()
+    for f in fds:
+        poller.register(f, select.POLLIN)
+    got = {fd for fd, _ in poller.poll(None if timeout is None else min(max(0.0, timeout) * 1000, 2**31 - 1))}
+    return [f for f in fds if (f if isinstance(f, int) else f.fileno()) in got]
+
+
 def log(record):
     path = os.environ.get("AD_AGENT_LOG")
     if not path:
@@ -204,7 +215,7 @@ def exited_within(pid, timeout):
     if hasattr(os, "pidfd_open"):
         fd = os.pidfd_open(pid)
         try:
-            return bool(select.select([fd], [], [], timeout)[0])
+            return bool(_readable([fd], timeout))
         finally:
             os.close(fd)
     os.waitid(os.P_PID, pid, os.WEXITED | os.WNOWAIT)
