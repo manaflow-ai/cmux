@@ -731,6 +731,48 @@ mod tests {
         assert_eq!(replies, vec!["Done: landed.".to_owned()]);
     }
 
+    fn prompt(seq: u64, id: &str) -> AcpmuxEvent {
+        ev(seq, "mux", "user_message", json!({"promptId": id}))
+    }
+
+    /// User 2026-11-12 (msg 30563, "you're not sending these pills anymore"): a
+    /// subagent under `/goal` (goal.rs) first answers its task prompt with only
+    /// `ready`. Its session is idle between that turn and the `/goal` turn, and
+    /// that `ready` was read as its report: the Chief got "[a1145] ready", and
+    /// Home moved the agent's pill off the Chief's reply, marked done. The hold
+    /// turn is never a report.
+    #[test]
+    fn the_goal_hold_turn_is_never_a_report() {
+        // The ids subagents.rs gives the task prompt (hold) and the goal prompt.
+        let hold = "optchat-sub:a5:task:1794519309421";
+        let goal = "optchat-sub:a5:1794519309421";
+        let events = vec![prompt(1, hold), start(2), say(3, "ready"), end(4)];
+        let (replies, last_end, _) = ended_replies(&events);
+        assert_eq!(
+            replies,
+            Vec::<String>::new(),
+            "the hold turn's `ready` is no report"
+        );
+        assert_eq!(
+            last_end, None,
+            "the run has not ended: the goal turn comes next"
+        );
+
+        let events = vec![
+            prompt(1, hold),
+            start(2),
+            say(3, "ready"),
+            end(4),
+            prompt(5, goal),
+            start(6),
+            say(7, "Landed abc..def."),
+            end(8),
+        ];
+        let (replies, last_end, _) = ended_replies(&events);
+        assert_eq!(replies, vec!["Landed abc..def.".to_owned()]);
+        assert_eq!(last_end, Some(8));
+    }
+
     /// One reply with no tool calls stays whole.
     #[test]
     fn a_reply_with_no_tool_calls_stays_whole() {
