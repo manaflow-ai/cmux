@@ -501,6 +501,23 @@ class ScriptModuleLoadTests(unittest.TestCase):
         self.assertNotIn("scripts/cmux-next/tests/test_perf_completeness.py", result["unimportable"])
         self.assertLess(len(result["unimportable"]), len(order) // 4, result["unimportable"])
 
+    def test_a_none_entry_left_in_sys_modules_is_a_stub(self):
+        """#41747 review: `sys.modules["ring"] = None` (which makes `import ring` raise) is a stub left behind too, though
+        `before.get("ring")` is also None for a name that was absent."""
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "tests").mkdir()
+            (root / "tests/test_blocks.py").write_text("import sys\nsys.modules['ring'] = None\n")
+            (root / "tests/test_stubs.py").write_text("import sys, types\nsys.modules['hub'] = types.SimpleNamespace()\n")
+            (root / "tests/test_clean.py").write_text("import sys\nsys.modules['ring'] = None\ndel sys.modules['ring']\n")
+            order = ["tests/test_clean.py", "tests/test_blocks.py", "tests/test_stubs.py"]
+            done = subprocess.run([sys.executable, "-c", STUBS_LEFT, str(root), json.dumps(order),
+                                   json.dumps(["ring", "hub"])], cwd=root, capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr[-2000:])
+        result = json.loads(done.stdout.strip().splitlines()[-1])
+        self.assertEqual(result["left"], {"tests/test_blocks.py": ["ring"], "tests/test_stubs.py": ["hub"]})
+
     def test_the_procs_stub_polluter_and_its_victim_pass_in_either_order(self):
         driver = ("import sys, unittest\nsys.path.insert(0, sys.argv[1])\n"
                   "suite = unittest.defaultTestLoader.loadTestsFromNames(sys.argv[2:])\n"

@@ -170,5 +170,31 @@ class JourneyEndHooks(unittest.TestCase):
         self.assertTrue(stopped["ok"])
 
 
+class ExtensionRestoresSysModules(unittest.TestCase):
+    """install_extension puts back exactly the sys.modules entry it found (#41747 review: a stored None read as
+    "missing" by `.get()`). An entry that was None stays None; one that was absent stays absent."""
+
+    NAME = "ext_test_recorder"
+
+    def setUp(self):
+        self.saved = sys.modules.pop(self.NAME, KeyError)
+        self.addCleanup(self.put_back)
+
+    def put_back(self):
+        sys.modules.pop(self.NAME, None)
+        if self.saved is not KeyError:
+            sys.modules[self.NAME] = self.saved
+
+    def test_a_none_entry_comes_back_as_none(self):
+        sys.modules[self.NAME] = None  # `import ext_test_recorder` raises ImportError: a blocked import
+        remove_extension(install_extension())
+        self.assertIn(self.NAME, sys.modules)
+        self.assertIsNone(sys.modules[self.NAME])
+
+    def test_an_absent_entry_stays_absent(self):
+        remove_extension(install_extension())
+        self.assertNotIn(self.NAME, sys.modules)
+
+
 if __name__ == "__main__":
     unittest.main()
