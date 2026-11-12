@@ -390,6 +390,18 @@ impl Log {
     /// The cost is one checkpoint interval, the same for a book of 40 rows and one of 2 million.
     /// With no readable checkpoint the indexes are rebuilt from every segment.
     pub fn open(dir: &Path, options: Options) -> Result<(Log, Recovered), Error> {
+        Self::open_with_raw_end(dir, options, |_| Some(u64::MAX))
+    }
+
+    /// Opens with the durable sources' current ends, measured in each source's places.
+    /// Checks the existing recovery scan only; the actor separately checks its checkpoint
+    /// cursor. A complete record beyond the raw end is damage, never a torn tail to cut.
+    /// `None` means this raw source no longer exists.
+    pub fn open_with_raw_end(
+        dir: &Path,
+        options: Options,
+        raw_end: impl Fn(u32) -> Option<u64>,
+    ) -> Result<(Log, Recovered), Error> {
         let rows_dir = dir.join("rows");
         fs::create_dir_all(&rows_dir)?;
         fs::create_dir_all(dir.join("blobs"))?;
@@ -510,6 +522,13 @@ impl Log {
             let scan = recover::scan(&file, from, |offset, header| {
                 if header.raw_len != 0 && (header.raw_file == 0 || header.raw_file > raw_files) {
                     return Err(Error::Corrupt("a record names a raw file absent from raw.map"));
+                }
+                if header.raw_len != 0
+                    && header.raw_off.checked_add(u64::from(header.raw_len)).is_none_or(|end| {
+                        raw_end(header.raw_file).is_none_or(|source_end| end > source_end)
+                    })
+                {
+                    return Err(Error::Corrupt("a record is ahead of its raw source"));
                 }
                 if last_seq.checked_add(1) != Some(header.seq) {
                     return Ok(false);

@@ -6,6 +6,34 @@ use std::fs::OpenOptions;
 use std::io::{Read, Seek, SeekFrom, Write};
 
 #[test]
+fn post_checkpoint_record_cannot_outlive_its_raw_places() -> Result<(), Box<dyn std::error::Error>>
+{
+    let home = tempfile::tempdir()?;
+    let dir = home.path();
+    let (mut log, _) = Log::open(dir, Options::default())?;
+    let file = log.append_raw_file(b"source-with-gapped-seqs")?;
+    log.write_checkpoint(b"cursor=100", &[])?;
+    log.append_settled(1, 1, RawRange { file, off: 900, len: 1 }, b"{\"id\":1}")?;
+    log.sync()?;
+    drop(log);
+    let path = dir.join("rows/000001.seg");
+    let len = std::fs::metadata(&path)?.len();
+    assert!(matches!(
+        Log::open_with_raw_end(dir, Options::default(), |_| Some(900)),
+        Err(Error::Corrupt(_))
+    ));
+    assert_eq!(std::fs::metadata(path)?.len(), len);
+    assert!(matches!(
+        Log::open_with_raw_end(dir, Options::default(), |_| None),
+        Err(Error::Corrupt(_))
+    ));
+    let (log, recovered) = Log::open_with_raw_end(dir, Options::default(), |_| Some(901))?;
+    assert_eq!(recovered.replayed, 1);
+    assert_eq!(log.last_seq(), 1);
+    Ok(())
+}
+
+#[test]
 fn complete_record_with_bad_crc_is_damage_not_a_torn_tail() -> Result<(), Box<dyn std::error::Error>>
 {
     let home = tempfile::tempdir()?;
