@@ -280,8 +280,8 @@ struct NewTabHoldCloseKeyTests {
         }
     }
 
-    /// Two scripts open pages one after the other while the person types in their terminal: the second opening
-    /// takes the keys of the first hold. They are still what the person typed in their terminal, so it gets them.
+    /// Two scripts open pages one after the other while the person types in their terminal: the first hold's
+    /// keys are what the person typed in their terminal, so it gets them (at the replacement), and none is dropped.
     @Test func aLineTypedWhileTwoScriptsOpenPagesStillGoesToThePersonsTerminal() async throws {
         try await Self.withAHeldLine(besideTheFocusedPane: true, byScript: true) { held in
             _ = try #require(ActionRunScope.$current.withValue(Self.scriptRun) { held.input.begin(for: held.pane) }, "the second script's opening began no hold")
