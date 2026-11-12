@@ -171,9 +171,7 @@ class GitTree:
         """(path, mode, object id) of PATH with every symlink on the way followed inside the tree; None when the
         tree has no such path. Raises Unreadable for a symlink out of the tree or a loop."""
         entries = self.entries()
-        wanted = posixpath.normpath(path.strip("/"))
-        if wanted == ".." or wanted.startswith("../"):
-            raise Unreadable(f"{self.ref}: {path} is outside the tree")
+        wanted = self._inside(path)
         for _ in range(SYMLINK_HOPS):
             parts = [] if wanted in ("", ".") else wanted.split("/")
             for at in range(1, len(parts) + 1):
@@ -195,6 +193,17 @@ class GitTree:
                 return wanted, *entries[wanted]
         raise Unreadable(f"{self.ref}: {path} is a symlink loop (over {SYMLINK_HOPS} hops)")
 
+    def _inside(self, path: str) -> str:
+        """PATH as a path of the tree (normalized, no trailing "/"); raises Unreadable for one outside it. An absolute
+        path is outside, never the tree path it would be with its leading "/" stripped: a Cargo `path = "/dep"` names
+        the filesystem's /dep, which Path.resolve read as that, not the repository's dep/."""
+        if path.startswith("/"):
+            raise Unreadable(f"{self.ref}: {path} is an absolute path, outside the tree")
+        wanted = posixpath.normpath(path.rstrip("/")) if path.rstrip("/") else "."
+        if wanted == ".." or wanted.startswith("../"):
+            raise Unreadable(f"{self.ref}: {path} is outside the tree")
+        return wanted
+
     def is_file(self, path: str) -> bool:
         """Whether PATH is a regular file of the tree, through symlinks."""
         try:
@@ -208,7 +217,8 @@ class GitTree:
     def files(self, under: str = "", suffix: str = "") -> list[str]:
         """Sorted paths of the regular files and file symlinks under UNDER (the whole tree when empty) whose names end
         in SUFFIX: what `(root / under).rglob("*" + suffix)` lists in a full checkout."""
-        prefix = posixpath.normpath(under.strip("/")) + "/" if under.strip("/") else ""
+        inside = self._inside(under) if under else "."
+        prefix = "" if inside == "." else inside + "/"
         return sorted(path for path, (mode, _) in self.entries().items()
                       if path.startswith(prefix) and path.endswith(suffix)
                       and (mode in REGULAR or (mode == SYMLINK and self.is_file(path))))
