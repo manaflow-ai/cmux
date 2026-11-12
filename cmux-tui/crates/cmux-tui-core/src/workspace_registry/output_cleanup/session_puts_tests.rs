@@ -108,10 +108,21 @@ fn seal_all_after(mux: &crate::Mux, label: &str, before_seal: impl FnOnce(u64)) 
     let through = checkpoint.checkpoint.source_sequence;
     before_seal(through);
     for batch in 0..64 {
-        let sealed = mux
-            .seal_journal_segments(through, "client_test", &format!("puts_seal_{label}_{batch}"))
-            .unwrap();
-        if sealed.through_sequence >= through {
+        let sealed_through = match mux.seal_journal_segments(
+            through,
+            "client_test",
+            &format!("puts_seal_{label}_{batch}"),
+        ) {
+            Ok(sealed) => sealed.through_sequence,
+            // The maintenance worker sealed the range first: the seal is
+            // refused as already sealed, and the segments say how far.
+            Err(error) => {
+                let sealed_end = sealed_end(mux);
+                assert!(sealed_end >= through, "sealing stopped at {sealed_end}: {error:#}");
+                sealed_end
+            }
+        };
+        if sealed_through >= through {
             return;
         }
     }
@@ -145,6 +156,19 @@ fn sealing_the_fixture_finishes_when_the_maintenance_worker_sealed_the_range_fir
         panic!("the maintenance seal never reached sequence {through}");
     });
     mux.shutdown();
+}
+
+/// The last journal sequence the sealed segments hold.
+fn sealed_end(mux: &crate::Mux) -> u64 {
+    let registry = mux.workspace_registry.lock().unwrap();
+    let end: i64 = registry
+        .connection
+        .get()
+        .query_row("SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    u64::try_from(end).unwrap()
 }
 
 /// One live `terminal.output` row the way an older build wrote it, with
