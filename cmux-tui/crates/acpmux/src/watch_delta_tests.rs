@@ -4,6 +4,10 @@ fn row(id: &str, status: &str) -> Value {
     json!({"sessionId": id, "name": id, "status": status, "updatedAt": 5, "tags": ["a"]})
 }
 
+fn id_of(row: &Value) -> Option<&str> {
+    row.get("sessionId").and_then(Value::as_str)
+}
+
 fn list(rows: &[Value]) -> String {
     json!({"sessions": rows}).to_string()
 }
