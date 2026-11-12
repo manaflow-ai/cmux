@@ -45,6 +45,7 @@ pub type SummaryRecord = Summary;
 /// one harness supplied title or opaque extension.
 pub const MAX_TITLE_BYTES: usize = 256;
 pub const MAX_SUMMARY_BYTES: usize = 2 * 1024;
+const MAX_FIELD_BYTES: usize = 256;
 
 fn empty_object() -> Box<RawValue> {
     RawValue::from_string("{}".to_owned()).expect("a static JSON object is valid")
@@ -92,12 +93,53 @@ impl Summary {
     /// an extension that cannot fit is represented by the empty object rather
     /// than parsed or allowed to expand the list frame.
     pub fn bounded(mut self) -> Self {
+        self.chat_id = truncate_utf8(&self.chat_id, MAX_FIELD_BYTES);
         self.title = truncate_utf8(&self.title, MAX_TITLE_BYTES);
+        self.harness = truncate_utf8(&self.harness, MAX_FIELD_BYTES);
+        self.state = truncate_utf8(&self.state, MAX_FIELD_BYTES);
+        self.workspace = self.workspace.map(|value| truncate_utf8(&value, MAX_FIELD_BYTES));
+        self.origin = truncate_utf8(&self.origin, MAX_FIELD_BYTES);
         if self.encoded_len() > MAX_SUMMARY_BYTES {
             self.extra = empty_object();
         }
         if self.encoded_len() > MAX_SUMMARY_BYTES {
             self.title = truncate_utf8(&self.title, MAX_TITLE_BYTES / 2);
+        }
+        // JSON escaping can make a 256-byte UTF-8 field larger than its text
+        // length. Keep shrinking textual fields until the serialized record,
+        // including opaque bytes, is inside the wire bound.
+        while self.encoded_len() > MAX_SUMMARY_BYTES {
+            let mut changed = false;
+            macro_rules! shrink {
+                ($value:expr) => {
+                    if $value.len() > 1 {
+                        let next = $value.len() / 2;
+                        $value = truncate_utf8(&$value, next);
+                        changed = true;
+                    }
+                };
+            }
+            shrink!(self.title);
+            if self.encoded_len() > MAX_SUMMARY_BYTES {
+                shrink!(self.harness);
+            }
+            if self.encoded_len() > MAX_SUMMARY_BYTES {
+                shrink!(self.state);
+            }
+            if self.encoded_len() > MAX_SUMMARY_BYTES {
+                if let Some(value) = self.workspace.as_mut() {
+                    shrink!(*value);
+                }
+            }
+            if self.encoded_len() > MAX_SUMMARY_BYTES {
+                shrink!(self.origin);
+            }
+            if self.encoded_len() > MAX_SUMMARY_BYTES {
+                shrink!(self.chat_id);
+            }
+            if !changed {
+                break;
+            }
         }
         self
     }
@@ -232,6 +274,25 @@ impl SummaryIndex {
             .collect()
     }
 
+    /// Returns the keyset page immediately before an exclusive anchor. The
+    /// ordered map is newest-first, so this collects the preceding range and
+    /// reverses it to preserve the list's display order.
+    pub fn page_before_key(&self, key: (&u64, &str), limit: usize) -> Vec<Arc<Summary>> {
+        let mut rows: Vec<_> = self
+            .ordered
+            .iter()
+            .filter(|(sort, _)| {
+                sort.last_activity > *key.0
+                    || (sort.last_activity == *key.0 && sort.chat_id.as_str() < key.1)
+            })
+            .map(|(_, summary)| summary.clone())
+            .collect();
+        rows.reverse();
+        rows.truncate(limit);
+        rows.reverse();
+        rows
+    }
+
     pub fn summaries(&self) -> Vec<Summary> {
         self.iter().map(|summary| summary.as_ref().clone()).collect()
     }
@@ -256,8 +317,19 @@ pub struct IndexLog {
 
 impl IndexLog {
     pub fn open(path: impl AsRef<Path>) -> io::Result<Self> {
-        let path = path.as_ref();
-        let bytes = match fs::read(path) {
+        let requested = path.as_ref().to_owned();
+        let snapshot_path = requested.with_extension("snap");
+        let (path, snapshot_seq) = match SortedSnapshot::metadata(&snapshot_path)? {
+            Some(snapshot) => {
+                let candidate = snapshot.log_name.as_deref().map(|name| {
+                    snapshot_path.parent().unwrap_or_else(|| Path::new(".")).join(name)
+                });
+                let active = candidate.filter(|candidate| candidate.exists()).unwrap_or(requested);
+                (active, snapshot.seq)
+            }
+            None => (requested, 0),
+        };
+        let bytes = match fs::read(&path) {
             Ok(bytes) => bytes,
             Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
             Err(error) => return Err(error),
@@ -276,18 +348,18 @@ impl IndexLog {
             }
         }
         if offset < bytes.len() {
-            let file = OpenOptions::new().write(true).open(path)?;
+            let file = OpenOptions::new().write(true).open(&path)?;
             file.set_len(offset as u64)?;
         } else if offset > 0 && !bytes[..offset].ends_with(b"\n") {
-            let mut file = OpenOptions::new().append(true).open(path)?;
+            let mut file = OpenOptions::new().append(true).open(&path)?;
             file.write_all(b"\n")?;
             offset += 1;
         }
-        let file = OpenOptions::new().create(true).append(true).open(path)?;
+        let file = OpenOptions::new().create(true).append(true).open(&path)?;
         Ok(Self {
             file: BufWriter::new(file),
-            path: path.to_owned(),
-            next_seq,
+            path,
+            next_seq: next_seq.max(snapshot_seq),
             offset: offset as u64,
         })
     }
@@ -353,12 +425,31 @@ impl IndexLog {
         index: &SummaryIndex,
     ) -> io::Result<()> {
         self.sync()?;
-        SortedSnapshot::write_with_offset(&snapshot_path, index, self.offset)?;
+        let parent = self.path.parent().unwrap_or_else(|| Path::new("."));
+        let stem = self.path.file_name().and_then(|name| name.to_str()).unwrap_or("index.log");
+        let generation = parent.join(format!("{stem}.{}", index.seq()));
+        let generation_file =
+            OpenOptions::new().create(true).write(true).truncate(true).open(&generation)?;
+        generation_file.sync_all()?;
+        SortedSnapshot::write_with_offset_and_name(
+            &snapshot_path,
+            index,
+            0,
+            generation.file_name().and_then(|name| name.to_str()),
+        )?;
         self.file.flush()?;
-        self.file.get_ref().set_len(0)?;
-        self.file = BufWriter::new(OpenOptions::new().create(true).append(true).open(&self.path)?);
+        let old_path = self.path.clone();
+        self.file = BufWriter::new(OpenOptions::new().create(true).append(true).open(&generation)?);
+        self.path = generation;
         self.offset = 0;
-        SortedSnapshot::write_with_offset(snapshot_path, index, 0)
+        self.next_seq = index.seq();
+        if old_path != self.path {
+            let _ = fs::remove_file(old_path);
+        }
+        if let Ok(dir) = File::open(parent) {
+            dir.sync_all()?;
+        }
+        Ok(())
     }
 }
 
@@ -409,6 +500,8 @@ struct SnapshotFile {
     version: u32,
     seq: u64,
     log_offset: u64,
+    #[serde(default)]
+    log_name: Option<String>,
     summaries: Vec<Summary>,
 }
 
@@ -424,6 +517,15 @@ impl SortedSnapshot {
         index: &SummaryIndex,
         log_offset: u64,
     ) -> io::Result<()> {
+        Self::write_with_offset_and_name(path, index, log_offset, None)
+    }
+
+    fn write_with_offset_and_name(
+        path: impl AsRef<Path>,
+        index: &SummaryIndex,
+        log_offset: u64,
+        log_name: Option<&str>,
+    ) -> io::Result<()> {
         let path = path.as_ref();
         let temp = path.with_extension("snap.tmp");
         let file = File::create(&temp)?;
@@ -434,13 +536,20 @@ impl SortedSnapshot {
                 version: Self::VERSION,
                 seq: index.seq,
                 log_offset,
+                log_name: log_name.map(str::to_owned),
                 summaries: index.summaries(),
             },
         )
         .map_err(io::Error::other)?;
         writer.flush()?;
         writer.get_ref().sync_all()?;
-        fs::rename(&temp, path)
+        fs::rename(&temp, path)?;
+        if let Some(parent) = path.parent() {
+            if let Ok(dir) = File::open(parent) {
+                dir.sync_all()?;
+            }
+        }
+        Ok(())
     }
 
     pub fn read(path: impl AsRef<Path>) -> io::Result<Option<SummaryIndex>> {
@@ -463,6 +572,23 @@ impl SortedSnapshot {
         }
         index.seq = snapshot.seq;
         Ok(Some(index))
+    }
+
+    fn metadata(path: impl AsRef<Path>) -> io::Result<Option<SnapshotFile>> {
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let snapshot: SnapshotFile =
+            serde_json::from_reader(BufReader::new(file)).map_err(io::Error::other)?;
+        if snapshot.version != Self::VERSION {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "unknown index snapshot version",
+            ));
+        }
+        Ok(Some(snapshot))
     }
 
     pub fn read_with_offset(path: impl AsRef<Path>) -> io::Result<Option<(SummaryIndex, u64)>> {
