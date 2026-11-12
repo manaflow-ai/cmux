@@ -632,6 +632,49 @@ class DriftExitTests(CapturedOutput):
         self.assertNotIn("::error", self.out.getvalue())
 
 
+class PackagesLiveInTheAppTests(unittest.TestCase):
+    """2026-11-11: Packages/iOS/CmuxConversation and CmuxTabsKit live in feat-cmux-next and are edited there.
+    The old package branches (feat-imsg-parity-gui, feat-cmux-next-tabs-kit) are frozen; a head whose packages
+    differ from them blocked cmux INTERNAL eight times between 2026-10-30 and 2026-11-11."""
+
+    def git(self, repo, *args):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(self, repo, files, message):
+        for path, text in files.items():
+            (repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (repo / path).write_text(text)
+        self.git(repo, "add", "-A")
+        self.git(repo, "commit", "-q", "-m", message)
+        return self.git(repo, "rev-parse", "HEAD")
+
+    def test_a_package_branch_behind_the_app_does_not_hold_the_build(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            up = Path(tmp) / "up"
+            up.mkdir()
+            self.git(up, "init", "-q", "-b", "feat-cmux-next")
+            self.commit(up, {
+                "cmux-next-ios/project.yml": "name: CmuxMobile\n",
+                "cmux-next-ios/scripts/check-tabskit-sync.sh":
+                    'pairs=(\n  "Packages/iOS/CmuxConversation feat-imsg-parity-gui"\n)\n',
+                "Packages/iOS/CmuxConversation/a.swift": "1",
+            }, "base")
+            self.git(up, "branch", "feat-imsg-parity-gui")
+            head = self.commit(up, {"Packages/iOS/CmuxConversation/a.swift": "2"}, "fix in the app's own copy")
+            work = Path(tmp) / "work"
+            subprocess.run(["git", "clone", "-q", "--no-local", str(up), str(work)], check=True, capture_output=True)
+            out = Path(tmp) / "out"
+            out.write_text("")
+            with mock.patch.object(ib, "builder_runs", return_value=[]), \
+                    mock.patch.object(ib, "builder_has_script", return_value=True), \
+                    mock.patch.dict(os.environ, {"GITHUB_OUTPUT": str(out)}):
+                code = ib.cmd_plan(head, str(work))
+            self.assertEqual(code, 0)
+            self.assertIn("build=true", out.read_text())
+
+
 class TriggerRunnerTests(unittest.TestCase):
     def test_push_decision_reads_the_linux_pool(self):
         workflow = (ROOT / ".github/workflows/ios-internal-nightly-trigger.yml").read_text()
