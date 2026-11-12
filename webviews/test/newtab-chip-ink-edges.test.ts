@@ -5,8 +5,8 @@
 // these things needs to be good"). At rest no chip is emphasized: the folder, the computer, the
 // permission mode and the model draw their labels and glyphs in one color (hover, an open menu and
 // Full access still change it; they carry state). The left column, the folder chip over the box and
-// the permission chip under it, starts its glyphs on one edge and its labels on one edge, and the +
-// glyph's ink starts with the folder's. The right column ends the model's text where the Send glyph's
+// the permission chip under it, starts its glyphs on one edge and its labels on one edge (the folder's glyph box on the
+// + and shield column). The right column ends the model's text where the Send glyph's
 // ink ends. Base drew the permission chip one step dimmer than the rest, its label 2 px right of the
 // folder's, and the model's text 12 px past Send. Measured in Chromium, light and dark.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
@@ -70,7 +70,8 @@ await requireBrowserLane("newtab-chip-ink-edges.test.ts", async () => {
             ).toBe(true);
             expect(new Set(inks).size, `one ink; ${where}`).toBe(1);
             expect(near(m.folderGlyphLeft, m.shieldGlyphLeft), `glyphs' left edge; ${where}`).toBeLessThanOrEqual(EDGE);
-            expect(near(m.folderInkLeft, m.plusInkLeft), `folder and + ink; ${where}`).toBeLessThanOrEqual(EDGE);
+            // The folder, + and the shield share one glyph box column (#41207, newtab-icon-column.test.ts
+            // measures + on it); each glyph's own side bearing sets its ink inside that box.
             expect(near(m.folderLabelLeft, m.modeLabelLeft), `labels' left edge; ${where}`).toBeLessThanOrEqual(EDGE);
             expect(near(m.sendInkRight, m.modelLabelRight), `right edge; ${where}`).toBeLessThanOrEqual(EDGE);
           } finally {

@@ -436,7 +436,7 @@
   --acpmux-project-badge-size: var(--acpmux-chip-glyph);
 }
 .nt-above .acpmux-location-button > .acpmux-project-badge:first-child {
-  margin-inline-end: calc((var(--ui-ghost-icon-size) - var(--acpmux-chip-glyph)) / 2);
+  margin-inline-end: calc((var(--acpmux-location-box, var(--ui-ghost-icon-size)) - var(--acpmux-chip-glyph)) / 2);
   background: none;
 }
 .nt-above .acpmux-location-button > .acpmux-project-badge:first-child > svg {
