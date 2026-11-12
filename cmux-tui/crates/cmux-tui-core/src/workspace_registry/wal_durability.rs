@@ -337,7 +337,8 @@ impl WalDurability {
         let (looked, uncopied_frames) = (!state.look_wanted, state.uncopied_frames);
         drop(state);
         let file_bytes = wal_file_len(&self.shared);
-        if looked && (file_bytes <= WAL_SIZE_LIMIT_BYTES || uncopied_frames == 0) {
+        // MUTATION, never merge: the gate with the file's size alone.
+        if looked && file_bytes <= WAL_SIZE_LIMIT_BYTES {
             WalRoom::Room
         } else {
             WalRoom::Full { looked, file_bytes, uncopied_frames }
