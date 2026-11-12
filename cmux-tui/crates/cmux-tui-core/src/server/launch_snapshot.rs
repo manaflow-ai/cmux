@@ -38,11 +38,22 @@ pub struct LaunchSnapshotTiming {
     /// Longest wait after the first unwritten change, so a terminal whose
     /// title changes all the time still gets its layout written.
     pub max_delay: Duration,
+    /// The most bytes a second the writer writes, on average: after a write
+    /// of `n` bytes the next one waits `n / max_bytes_per_second` seconds.
+    /// A small session keeps its snapshot seconds fresh; a session whose
+    /// snapshot is megabytes rewrites it every few minutes, not on every
+    /// change. A clean stop writes what the wait held back.
+    pub max_bytes_per_second: u64,
 }
 
 impl Default for LaunchSnapshotTiming {
     fn default() -> Self {
-        Self { settle: Duration::from_millis(500), max_delay: Duration::from_secs(3) }
+        Self {
+            settle: Duration::from_millis(500),
+            max_delay: Duration::from_secs(3),
+            // 56 MiB an hour at most; a 50 KB snapshot still follows a change in 3 s.
+            max_bytes_per_second: 16 * 1024,
+        }
     }
 }
 
@@ -53,6 +64,7 @@ pub struct LaunchSnapshotWriter {
     stop: Arc<AtomicBool>,
     events: Arc<Mutex<MuxEventReceiver>>,
     writes: Arc<AtomicU64>,
+    bytes: Arc<AtomicU64>,
     mux: Weak<Mux>,
     thread: Option<JoinHandle<()>>,
 }
@@ -65,6 +77,11 @@ impl LaunchSnapshotWriter {
     /// Completed writes, for tests and diagnostics.
     pub fn writes(&self) -> u64 {
         self.writes.load(Ordering::Acquire)
+    }
+
+    /// Bytes written to the file so far (a wakeup that changes nothing writes none).
+    pub fn bytes_written(&self) -> u64 {
+        self.bytes.load(Ordering::Acquire)
     }
 
     /// Stop the thread and wait for it.
@@ -109,11 +126,13 @@ pub fn start_launch_snapshot_writer_with(
     let path = directory.join(LAUNCH_SNAPSHOT_FILE);
     let stop = Arc::new(AtomicBool::new(false));
     let writes = Arc::new(AtomicU64::new(0));
+    let bytes = Arc::new(AtomicU64::new(0));
     let events = Arc::new(Mutex::new(mux.subscribe_launch_snapshot()));
     let weak = Arc::downgrade(mux);
     let thread_path = path.clone();
     let thread_stop = stop.clone();
     let thread_writes = writes.clone();
+    let thread_bytes = bytes.clone();
     let shared_events = events.clone();
     let mut thread_events = events.lock().recover_poison().clone();
     let thread =
@@ -143,7 +162,8 @@ pub fn start_launch_snapshot_writer_with(
                 {
                     let Some(mux) = weak.upgrade() else { break };
                     match write_launch_snapshot(&mux, &thread_path) {
-                        Ok(dropped) => {
+                        Ok((dropped, written)) => {
+                            thread_bytes.fetch_add(written as u64, Ordering::AcqRel);
                             if dropped != last_dropped {
                                 report_dropped_projections(&mux, &dropped);
                                 last_dropped = dropped;
@@ -195,6 +215,7 @@ pub fn start_launch_snapshot_writer_with(
         stop,
         events,
         writes,
+        bytes,
         mux: Arc::downgrade(mux),
         thread: Some(thread),
     }))
@@ -293,8 +314,9 @@ fn same_snapshot_on_disk(path: &Path, bytes: &[u8]) -> bool {
 }
 
 /// Writes the snapshot; returns the projections left out to fit its bound
-/// (`frontend/scope/subject`), empty when all fit.
-fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<Vec<String>> {
+/// (`frontend/scope/subject`), empty when all fit, and the bytes written
+/// (0 when the file already holds this snapshot).
+fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<(Vec<String>, usize)> {
     let mut value = launch_snapshot_value(mux, true)?;
     let mut bytes = serde_json::to_vec(&value)?;
     let mut dropped = Vec::new();
@@ -314,7 +336,7 @@ fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<Vec<String>> 
     // Most wakeups change nothing the snapshot holds: the same contents (its write time aside)
     // are not written and synced again.
     if same_snapshot_on_disk(path, &bytes) {
-        return Ok(dropped);
+        return Ok((dropped, 0));
     }
     let directory = path.parent().context("launch snapshot path has no directory")?;
     let temporary = directory.join(format!("{LAUNCH_SNAPSHOT_FILE}.{}.tmp", std::process::id()));
@@ -336,7 +358,7 @@ fn write_launch_snapshot(mux: &Mux, path: &Path) -> anyhow::Result<Vec<String>> 
     if result.is_err() {
         let _ = std::fs::remove_file(&temporary);
     }
-    result.map(|()| dropped)
+    result.map(|()| (dropped, bytes.len()))
 }
 
 /// Removes native projections from `value`, largest first, until the
@@ -391,6 +413,10 @@ fn report_dropped_projections(mux: &Mux, dropped: &[String]) {
 #[cfg(test)]
 #[path = "launch_snapshot_size_tests.rs"]
 mod size_tests;
+
+#[cfg(test)]
+#[path = "launch_snapshot_budget_tests.rs"]
+mod budget_tests;
 
 #[cfg(test)]
 mod tests {
@@ -475,6 +501,7 @@ mod tests {
             LaunchSnapshotTiming {
                 settle: Duration::from_millis(50),
                 max_delay: Duration::from_millis(500),
+                max_bytes_per_second: u64::MAX,
             },
         )
         .unwrap()
@@ -551,6 +578,7 @@ mod tests {
             LaunchSnapshotTiming {
                 settle: Duration::from_millis(50),
                 max_delay: Duration::from_millis(500),
+                max_bytes_per_second: u64::MAX,
             },
         )
         .unwrap()
@@ -625,6 +653,7 @@ mod tests {
             LaunchSnapshotTiming {
                 settle: Duration::from_millis(50),
                 max_delay: Duration::from_millis(500),
+                max_bytes_per_second: u64::MAX,
             },
         )
         .unwrap()
@@ -675,6 +704,7 @@ mod tests {
             LaunchSnapshotTiming {
                 settle: Duration::from_millis(50),
                 max_delay: Duration::from_millis(500),
+                max_bytes_per_second: u64::MAX,
             },
         )
         .unwrap()
@@ -741,6 +771,7 @@ mod tests {
             LaunchSnapshotTiming {
                 settle: Duration::from_millis(250),
                 max_delay: Duration::from_secs(2),
+                max_bytes_per_second: u64::MAX,
             },
         )
         .unwrap()
