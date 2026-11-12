@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43320719037",
+  "recorded_at": "2026-11-12T22:42:46Z",
+  "reason": "cmux-tui 3c42d7a92139 changes the image's cmux-tui (pinned 89b9a954f600)",
+  "dry_run": false,
+  "cmux_tui": "3c42d7a921397897cf55a9380574fcfce47ef9f2",
+  "fixes": [
+    {
+      "sha": "3c42d7a921397897cf55a9380574fcfce47ef9f2",
+      "mergedAt": "2026-11-12T21:24:43Z",
+      "subject": "acpmux: an agent's start runs at the daemon's priority; its harness yields once started (W6) (#41856)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T22:42:46Z",
+    "snapshot_id": "sh-591d4cffaf404bafb4b15e491e16d7f4",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43320719037): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "293d2620421845c6e4e8228db0fa653ff3387e5a",
+    "image": "cloud-native-auto-3c42d7a9-43320719037-1",
+    "revision": "ci-43320719037-1",
+    "at": "2026-11-12T22:42:46Z"
+  },
+  "rolled_back": false
+}
