@@ -230,6 +230,9 @@ struct Rpc {
     notes: Vec<Value>,
     /// The part of a line a read's timeout cut short, which the next read finishes.
     line: String,
+    /// Bytes read so far, and the longest line: what a prompt's notices weigh.
+    read_bytes: u64,
+    longest_line: u64,
 }
 
 impl Rpc {
@@ -237,7 +240,15 @@ impl Rpc {
         let s = UnixStream::connect(path).expect("connect to the daemon's socket");
         s.set_read_timeout(Some(STEP)).unwrap();
         let reader = BufReader::new(s.try_clone().unwrap());
-        Self { reader, writer: s, next: 0, notes: vec![], line: String::new() }
+        Self {
+            reader,
+            writer: s,
+            next: 0,
+            notes: vec![],
+            line: String::new(),
+            read_bytes: 0,
+            longest_line: 0,
+        }
     }
 
     fn call(&mut self, method: &str, params: Value) -> Result<Value, Value> {
@@ -283,6 +294,8 @@ impl Rpc {
     fn read(&mut self) -> std::io::Result<Value> {
         let n = self.reader.read_line(&mut self.line)?;
         assert!(n > 0, "the daemon closed the socket");
+        self.read_bytes += n as u64;
+        self.longest_line = self.longest_line.max(self.line.len() as u64);
         Ok(serde_json::from_str(&std::mem::take(&mut self.line)).unwrap())
     }
 
@@ -677,8 +690,12 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             }
         }
         let (mut settled_sends, mut settled_send_error) = (vec![], Value::Null);
+        // The bytes each prompt's turn sends this client, from the request to its response.
+        let (mut settled_send_bytes, mut settled_send_longest) = (vec![], 0);
         for round in 0..ROUNDS {
             let sent = Instant::now();
+            let (bytes_before, longest_before) = (rpc.read_bytes, rpc.longest_line);
+            rpc.longest_line = 0;
             let text = format!("settled {round}");
             let prompt = json!({"sessionId": god, "prompt": [{"type": "text", "text": text}]});
             let id = rpc.request("session/prompt", prompt);
@@ -700,6 +717,9 @@ async fn run(shape: Shape, dhat: bool) -> Value {
                 settled_send_error = e;
                 break;
             }
+            settled_send_bytes.push(rpc.read_bytes - bytes_before);
+            settled_send_longest = settled_send_longest.max(rpc.longest_line);
+            rpc.longest_line = rpc.longest_line.max(longest_before);
             rpc.notes.clear();
         }
 
@@ -747,6 +767,8 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             "settledScrollError": settled_scroll_error,
             "settledSendFirstTokenUs": spread(&settled_sends),
             "settledSendError": settled_send_error,
+            "settledSendBytes": spread(&settled_send_bytes),
+            "settledSendLongestLine": settled_send_longest,
             "reconnectMs": reconnect_ms, "reconnectMedianMs": reconnect_median_ms,
             "rss": rss, "peakRss": peak_rss,
             "fixtureBytes": fixture_bytes, "homeBytes": home_bytes,
@@ -920,6 +942,8 @@ async fn god_and_small_homes_in_one_harness() {
             "/settledAttachUs/max",
             "/settledScrollPageUs/p95",
             "/settledSendFirstTokenUs/p95",
+            "/settledSendBytes/p50",
+            "/settledSendLongestLine",
             "/firstSendFirstTokenMs",
             "/sendFirstTokenUs/p95",
             "/reconnectMedianMs",
