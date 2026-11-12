@@ -289,9 +289,10 @@ class PublishToken(unittest.TestCase):
 
 
 REPIN = ROOT / "scripts/cmux-next/repin-app-ffi.sh"
-_pin_spec = importlib.util.spec_from_file_location("app_ffi_pin", ROOT / "scripts/ci/app_ffi_pin.py")
-app_ffi_pin = importlib.util.module_from_spec(_pin_spec)
-_pin_spec.loader.exec_module(app_ffi_pin)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import app_ffi_pin  # noqa: E402
 
 
 def manifest(checksum):
