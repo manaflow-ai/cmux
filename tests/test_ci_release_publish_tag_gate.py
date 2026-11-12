@@ -124,8 +124,8 @@ def gated(expression: Any, policy: Policy) -> bool:
 RELEASE_PATH = re.compile(r"releases|/git/(tags|refs)|(^|/)tags(/|$)")
 
 
-def _options(values: str = "", flags: str = "") -> Options:
-    return Options(frozenset(values.split()), frozenset(flags.split()))
+def _options(values: str = "", flags: str = "", boolean_values: bool = False) -> Options:
+    return Options(frozenset(values.split()), frozenset(flags.split()), boolean_values)
 
 
 # Each tool's options before its subcommand (its --help): those that take a value, then those that take none. The
@@ -136,11 +136,11 @@ GH_RELEASE = _options("-R --repo", "-h --help")
 PACKAGE_MANAGERS = {
     "npm": _options("-w --workspace --registry --prefix -C --userconfig --loglevel --tag --access --otp --cache",
                     "-ws --workspaces -g --global -s --silent -q --quiet -d -dd --verbose --dry-run --provenance "
-                    "--ignore-scripts --include-workspace-root -y --yes --no-audit --no-fund -h --help"),
+                    "--ignore-scripts --include-workspace-root -y --yes --no-audit --no-fund -h --help", True),
     "pnpm": _options("-C --dir -F --filter --registry --tag --access --otp --reporter --loglevel "
                      "--workspace-concurrency",
                      "-r --recursive -w --workspace-root -s --silent --dry-run --no-git-checks --frozen-lockfile "
-                     "--provenance -h --help"),
+                     "--provenance -h --help", True),
     "yarn": _options("--cwd", "-s --silent --verbose -h --help"),
     "bun": _options("--cwd -c --config", "--silent -h --help"),
     "cargo": _options("--color --config -Z -C --explain",
@@ -150,7 +150,7 @@ PACKAGE_MANAGERS = {
 RUNS_SCRIPT = frozenset({"run", "run-script"})
 TWINE = _options(flags="--no-color -h --help --version")
 PYTHON = _options("-W -X", "-b -bb -B -d -E -h -i -I -O -OO -P -q -R -s -S -u -v -V -x")
-XCRUN = _options("--sdk --toolchain", "-v --verbose -l --log -n --no-cache -r --run -k --kill-cache")
+XCRUN = _options("--sdk --toolchain", "-v --verbose -l --log -n --no-cache -r --run -k --kill-cache -f --find")
 
 
 def subcommand(args: list[str], options: Options) -> tuple[str | None, list[str]]:
@@ -243,8 +243,9 @@ def publishing_command(words: list[str]) -> bool:
     if program == "productsign":
         return True
     if program == "xcrun":
-        if any(word in ("-f", "--find") for word in rest):
-            return False  # `xcrun --find TOOL` prints a path and runs nothing
+        index = first_operand(rest, XCRUN)
+        if index is not None and any(word in ("-f", "--find") for word in rest[:index]):
+            return False  # `xcrun --find TOOL` prints a path and runs nothing; a -f after TOOL is TOOL's own
         command, _ = subcommand(rest, XCRUN)
         return command == "notarytool" or (command is None and "notarytool" in rest)
     return False
@@ -751,6 +752,14 @@ SUBCOMMAND_ESCAPES = {
     "python -I -m twine upload": "python3 -I -m twine upload dist/*",
     "twine --no-color upload": "twine --no-color upload dist/*",
     "xcrun --sdk before notarytool": "xcrun --sdk macosx notarytool submit x.zip",
+    # A follow-up review of #41398: npm and pnpm read an explicit true or false after a flag as its value, never as
+    # the subcommand; an xcrun -f or --find exempts only before the tool, after it the option is the tool's own.
+    "npm --ignore-scripts true before publish": "npm --ignore-scripts true publish",
+    "npm -g false before publish": "npm -g false publish",
+    "npm -gy true before publish": "npm -gy true publish",
+    "pnpm --dry-run false before publish": "pnpm --dry-run false publish",
+    "xcrun notarytool with its own -f": "xcrun notarytool submit x.zip -f json",
+    "xcrun --sdk, notarytool with its own --find": "xcrun --sdk macosx notarytool history --find x -f json",
 }
 SUBCOMMAND_READS = {
     "gh release download --dir upload": "gh release download v1 --dir upload",
@@ -763,6 +772,9 @@ SUBCOMMAND_READS = {
     "twine check upload/x.whl": "twine check upload/x.whl",
     "twine check upload": "twine check upload",
     "xcrun --find notarytool": "xcrun --find notarytool",
+    "xcrun -f notarytool": "xcrun -f notarytool",
+    "xcrun --sdk --find notarytool": "xcrun --sdk macosx --find notarytool",
+    "npm --yes true test publish": "npm --yes true test publish",
 }
 
 
