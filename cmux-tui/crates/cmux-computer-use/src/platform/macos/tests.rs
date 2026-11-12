@@ -352,7 +352,8 @@ fn blocked_in(
     title: &str,
 ) -> bool {
     let siblings: Vec<String> = siblings.iter().map(|s| s.to_string()).collect();
-    let ctx = roles::MenuItemContext { title, top_index: top, depth, siblings: &siblings };
+    let ctx =
+        roles::MenuItemContext { title, top_index: top, depth, siblings: &siblings, launch: None };
     roles::menu_item_blocked(guard, &ctx, &resolve)
 }
 
@@ -597,8 +598,13 @@ fn shifted_punctuation_matches_its_menu_item() {
 fn menu_items_fail_closed_while_the_app_name_index_builds() {
     let guard = PolicyGuard(crate::policy::PolicyConfig::default());
     let pending = |_: &str| -> Option<Vec<String>> { None };
-    let ctx =
-        roles::MenuItemContext { title: "TextEdit", top_index: Some(0), depth: 2, siblings: &[] };
+    let ctx = roles::MenuItemContext {
+        title: "TextEdit",
+        top_index: Some(0),
+        depth: 2,
+        siblings: &[],
+        launch: None,
+    };
     assert!(roles::menu_item_blocked(&guard, &ctx, &pending));
     let open =
         PolicyGuard(crate::policy::PolicyConfig { denied_apps: vec![], ..Default::default() });
@@ -1095,7 +1101,7 @@ fn a_pop_up_s_items_need_no_sibling_titles() {
                 title_failed: false,
                 depth: 1,
                 path: Some(&[]),
-                siblings: &[],
+                launch: false,
             })
         })
         .count();
@@ -1106,7 +1112,7 @@ fn a_pop_up_s_items_need_no_sibling_titles() {
         title_failed: true,
         depth: 1,
         path: Some(&[]),
-        siblings: &[],
+        launch: false,
     }));
 }
 

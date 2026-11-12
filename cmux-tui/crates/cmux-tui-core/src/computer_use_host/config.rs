@@ -85,12 +85,12 @@ pub(crate) fn from_settings(root: &Value, base: PolicyConfig) -> PolicyConfig {
     {
         config.settle = settle;
     }
-    if let Some(menus) = section
-        .get("menus")
-        .and_then(Value::as_str)
-        .and_then(cmux_computer_use::menus::MenuMode::parse)
-    {
-        config.menus = menus;
+    // Any case ("Refuse" in a managed profile); a value that is not a mode
+    // keeps menus closed rather than open (a typo never loosens the setting).
+    if let Some(text) = section.get("menus").and_then(Value::as_str) {
+        use cmux_computer_use::menus::MenuMode;
+        config.menus =
+            MenuMode::parse(&text.trim().to_ascii_lowercase()).unwrap_or(MenuMode::Refuse);
     }
     let flag = |key: &str| section.get(key).and_then(Value::as_bool);
     if let Some(value) = flag("allowOwnMachines") {
@@ -197,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn menus_setting_maps_and_an_unknown_value_keeps_open() {
+    fn menus_setting_maps_in_any_case_and_an_unknown_value_refuses() {
         use cmux_computer_use::menus::MenuMode;
         assert_eq!(PolicyConfig::default().menus, MenuMode::Open);
         let menus = |v: Value| {
@@ -205,7 +205,12 @@ mod tests {
         };
         assert_eq!(menus(json!("refuse")), MenuMode::Refuse);
         assert_eq!(menus(json!("open")), MenuMode::Open);
-        assert_eq!(menus(json!("sometimes")), MenuMode::Open);
+        assert_eq!(menus(json!("Refuse")), MenuMode::Refuse);
+        assert_eq!(menus(json!(" OPEN ")), MenuMode::Open);
+        assert_eq!(menus(json!("sometimes")), MenuMode::Refuse);
+        assert_eq!(menus(json!("Refsue")), MenuMode::Refuse);
+        // Not a string: the setting is not there; the default stays.
+        assert_eq!(menus(json!(3)), MenuMode::Open);
         // The owner file and the app push use the camelCase key.
         let owner: PolicyConfig = serde_json::from_value(json!({"menus": "refuse"})).unwrap();
         assert_eq!(owner.menus, MenuMode::Refuse);

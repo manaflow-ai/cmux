@@ -74,11 +74,18 @@ impl MacDesktop {
         // (protected apps count with nothing denied); while something is
         // denied, an item that cannot be placed is blocked.
         let Some((top_index, depth, siblings)) = ax::menu_context(item) else {
-            let ctx = roles::MenuItemContext { title, top_index: None, depth: 0, siblings: &[] };
+            let ctx = roles::MenuItemContext {
+                title,
+                top_index: None,
+                depth: 0,
+                siblings: &[],
+                launch: None,
+            };
             return guard.denies_any()
                 || roles::menu_item_blocked(&*guard, &ctx, &workspace::apps_named);
         };
-        let ctx = roles::MenuItemContext { title, top_index, depth, siblings: &siblings };
+        let ctx =
+            roles::MenuItemContext { title, top_index, depth, siblings: &siblings, launch: None };
         roles::menu_item_blocked(&*guard, &ctx, &workspace::apps_named)
     }
 
@@ -115,7 +122,8 @@ impl MacDesktop {
             title: it.title,
             top_index: None,
             depth: it.depth,
-            siblings: it.siblings,
+            siblings: &[],
+            launch: Some(it.launch),
         };
         roles::menu_item_blocked(&*guard, &ctx, &workspace::apps_named_indexed)
             || opened_rules(&*guard, it.title, it.path)
@@ -438,6 +446,9 @@ impl Desktop for MacDesktop {
         let filter = ax::MenuFilter {
             blocked: &|_: &Ax, it: &ax::OpenedItem| self.opened_item_known(it),
             needs_siblings: &|depth| self.opened_needs_siblings(depth),
+            launch_list: &|titles| {
+                roles::siblings_name_apps(titles, &workspace::apps_named_indexed)
+            },
         };
         self.elements.tree(&t.id(), window, extra, options, &blocked, &filter)
     }
@@ -549,6 +560,10 @@ impl Desktop for MacDesktop {
             accepted &= window.perform("AXRaise").is_ok();
         }
         Ok(accepted)
+    }
+
+    fn picks_menu_items(&self) -> bool {
+        true
     }
 
     fn set_menu_policy(&self, policy: crate::menus::MenuPolicy) {

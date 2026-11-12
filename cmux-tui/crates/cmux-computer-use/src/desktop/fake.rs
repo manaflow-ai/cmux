@@ -438,6 +438,17 @@ impl Desktop for FakeDesktop {
             element: element.clone(),
             count: spec.count,
         };
+        // menu_item: open, pick and close in one call, either delivery.
+        if let Some(wanted) = spec.menu_item.as_deref() {
+            return match &element {
+                Some(id) => {
+                    self.popup_call(target.window_id(), id, Some(wanted), event).unwrap_or_else(
+                        || Err(DesktopError::Unsupported(format!("element {id} opens no menu"))),
+                    )
+                }
+                None => Err(DesktopError::Unsupported("no menu at that point".into())),
+            };
+        }
         if spec.delivery == Delivery::Background {
             if let Some(id) = &element
                 && let Some(done) = self.popup_call(target.window_id(), id, None, event.clone())
@@ -549,6 +560,10 @@ impl Desktop for FakeDesktop {
             *self.focus.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(stolen);
         }
         self.focus.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    fn picks_menu_items(&self) -> bool {
+        true
     }
 
     fn set_menu_policy(&self, policy: MenuPolicy) {

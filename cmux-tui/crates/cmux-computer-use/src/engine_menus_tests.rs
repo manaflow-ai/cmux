@@ -221,3 +221,26 @@ fn the_deny_list_in_menus_is_the_menu_guard_the_engine_set() {
     assert!(!out.is_error, "{:?}", out.body);
     assert_eq!(out.body["menu"]["hidden"], 1);
 }
+
+#[test]
+fn a_click_with_menu_item_picks_and_closes_in_one_call() {
+    let (d, e) = rig(MenuMode::Open);
+    let click = |call: &str, item: &str| {
+        e.call(
+            &ctx(call),
+            "click",
+            &json!({"window_id": "1", "element_id": "p1", "menu_item": item}),
+        )
+    };
+    let out = click("m1", "Never");
+    assert!(!out.is_error, "{:?}", out.body);
+    assert_eq!(out.body["menu"]["state"], "picked");
+    assert_eq!(d.popups()[0].value, "Never");
+    assert!(!d.popups()[0].open, "the menu is not left open");
+    // A hidden item is refused, named only by the agent's text.
+    let out = click("m2", "Open in Terminal");
+    assert!(out.is_error);
+    // Under refuse, nothing that opens a menu runs.
+    e.set_config(PolicyConfig { menus: MenuMode::Refuse, ..PolicyConfig::default() });
+    assert!(click("m3", "Always").is_error);
+}

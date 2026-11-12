@@ -503,6 +503,7 @@ impl Walk {
                     top_index: n.top_index,
                     depth: n.menus,
                     siblings: &n.siblings,
+                    launch: None,
                 };
                 if blocked(&ctx) {
                     return None;
@@ -567,7 +568,7 @@ impl Walk {
         depth: usize,
         f: &MenuFilter<'_>,
         place: Option<&MenuPlace>,
-        siblings: &[String],
+        launch: bool,
     ) -> Result<Option<Element>, AXError> {
         let index = self.elements.len();
         self.elements.push(ax.clone());
@@ -583,7 +584,7 @@ impl Walk {
                 title_failed: raw.title.is_none(),
                 depth: place.depth,
                 path: place.path.as_deref(),
-                siblings,
+                launch,
             };
             if (f.blocked)(&ax, &item) {
                 self.elements.truncate(index);
@@ -603,18 +604,20 @@ impl Walk {
         // Where this node's children are: a menu (an unreadable role counts
         // as one: its items are checked), an item's submenu, or as before.
         let next = MenuPlace::below(place, role, raw.title.as_deref());
-        let menu_titles: Vec<String> = match &next {
+        let child_launch = match &next {
             Some(n) if n.in_menu && (f.needs_siblings)(n.depth) => {
-                children.iter().map(|c| c.string("AXTitle").unwrap_or_default()).collect()
+                let titles: Vec<String> =
+                    children.iter().map(|c| c.string("AXTitle").unwrap_or_default()).collect();
+                (f.launch_list)(&titles)
             }
-            _ => Vec::new(),
+            _ => false,
         };
         for child in children {
             if self.elements.len() >= self.options.max_nodes {
                 self.truncated = true;
                 break;
             }
-            match self.node(child, depth + 1, f, next.as_ref(), &menu_titles) {
+            match self.node(child, depth + 1, f, next.as_ref(), child_launch) {
                 Ok(Some(e)) => element.children.push(e),
                 Ok(None) => {}
                 // A child that vanished mid-walk is skipped; the rest stands.
@@ -698,8 +701,9 @@ pub struct OpenedItem<'a> {
     /// The titles of the items above it, outermost first (None: one could
     /// not be read).
     pub path: Option<&'a [String]>,
-    /// Its menu's item titles, when [`MenuFilter::needs_siblings`] asked.
-    pub siblings: &'a [String],
+    /// Its menu is a launch list by its items (most name installed apps),
+    /// worked out once per menu when [`MenuFilter::needs_siblings`] asked.
+    pub launch: bool,
 }
 
 /// How a walk holds menu items to the deny list.
@@ -708,6 +712,8 @@ pub struct MenuFilter<'a> {
     /// Whether items at this menu depth need their menu's titles (read once
     /// per menu, only then).
     pub needs_siblings: &'a dyn Fn(usize) -> bool,
+    /// Whether a menu with these titles is a launch list (once per menu).
+    pub launch_list: &'a dyn Fn(&[String]) -> bool,
 }
 
 /// The menu bar's own node budget in a tree, and its depth: bar, top menu,
@@ -821,7 +827,7 @@ impl ElementCache {
             truncated: false,
         };
         let mut root = walk
-            .node(window, 0, menu_filter, None, &[])
+            .node(window, 0, menu_filter, None, false)
             .map_err(|e| ax_error(e, &format!("window {window_id}")))?
             .ok_or_else(|| DesktopError::Failed(format!("window {window_id} could not be read")))?;
         for more in extra {
@@ -832,7 +838,7 @@ impl ElementCache {
                 walk.truncated = true;
                 break;
             }
-            if let Ok(Some(node)) = walk.node(more, 1, menu_filter, None, &[]) {
+            if let Ok(Some(node)) = walk.node(more, 1, menu_filter, None, false) {
                 root.children.push(node);
             }
         }

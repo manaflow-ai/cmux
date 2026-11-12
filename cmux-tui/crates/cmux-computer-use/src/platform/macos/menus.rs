@@ -104,8 +104,12 @@ pub(super) struct Opened {
     /// the next call closes it).
     pub menu: Option<Ax>,
     pub windows: Vec<u32>,
-    /// Where an Escape goes if `AXCancel` does not close it.
+    /// Where an Escape goes if `AXCancel` does not close it: the menu
+    /// window's owner (a helper draws some apps' menus).
     pub escape_to: Route,
+    /// It has items the deny list hides: arrows could park the highlight
+    /// on one, so they are refused too.
+    pub has_hidden: bool,
 }
 
 /// The menu windows on screen now, any owner.
@@ -140,6 +144,19 @@ fn escape_while_showing(escape_to: Route, windows: &[u32]) {
     wait_for(CANCEL_WAIT, || !showing(windows));
 }
 
+/// Where an Escape for a menu goes: its window's owner (a System Settings
+/// pane draws its menus in a helper), else the target.
+fn escape_route(t: &Target, windows: &[u32]) -> Route {
+    cgwindows::on_screen()
+        .into_iter()
+        .find(|w| windows.contains(&w.id))
+        .filter(|w| w.pid != t.window.pid)
+        .map_or(Route::Pid { pid: t.window.pid, window: t.window.id }, |w| Route::Pid {
+            pid: w.pid,
+            window: w.id,
+        })
+}
+
 /// Whether a menu window of `owner` may be the one a call on `target`
 /// opened: the target's own, or a helper process's (not a regular app) that
 /// the deny list does not cover (a denied menu-bar app's status menu the
@@ -155,6 +172,23 @@ pub(super) fn may_be_targets_menu(owner: i32, target: i32, guard: Option<&dyn Me
         // An owner that cannot be named: a helper only while nothing is denied.
         None => !guard.is_some_and(|g| g.denies_any()),
     }
+}
+
+/// The windows of a menu just found among `new` menu windows: the target's
+/// own when it owns one, else only the window the menu sits in (a status
+/// menu the person opens meanwhile is not taken as part of it).
+fn menu_windows_of(menu: &Ax, new: &[cgwindows::CgWindow], target: i32) -> Vec<u32> {
+    let own: Vec<u32> = new.iter().filter(|w| w.pid == target).map(|w| w.id).collect();
+    if !own.is_empty() {
+        return own;
+    }
+    let at = menu.frame().map(|f| roles::center(&f));
+    let holding: Vec<u32> = new
+        .iter()
+        .filter(|w| at.is_some_and(|p| roles::contains(&w.frame, p)))
+        .map(|w| w.id)
+        .collect();
+    if holding.is_empty() { new.iter().take(1).map(|w| w.id).collect() } else { holding }
 }
 
 /// Whether any of `windows` still shows.
@@ -246,10 +280,11 @@ pub(super) fn items(d: &MacDesktop, menu: &Ax) -> Vec<Item> {
         })
         .collect();
     let (depth, path) = menu_place(menu);
-    let siblings: Vec<String> = if d.opened_needs_siblings(depth) {
-        read.iter().map(|(_, t)| t.clone().ok().flatten().unwrap_or_default()).collect()
-    } else {
-        Vec::new()
+    // Whether the menu is a launch list by its items: once per menu.
+    let launch = d.opened_needs_siblings(depth) && {
+        let titles: Vec<String> =
+            read.iter().map(|(_, t)| t.clone().ok().flatten().unwrap_or_default()).collect();
+        roles::siblings_name_apps(&titles, &workspace::apps_named_indexed)
     };
     read.into_iter()
         .filter_map(|(el, title)| {
@@ -262,7 +297,7 @@ pub(super) fn items(d: &MacDesktop, menu: &Ax) -> Vec<Item> {
                 title_failed,
                 depth,
                 path: path.as_deref(),
-                siblings: &siblings,
+                launch,
             };
             let denied = d.opened_item_known(&it);
             // An untitled item is a separator, unless its title could not be
@@ -428,7 +463,10 @@ impl MacDesktop {
             if !new.is_empty() {
                 unread = new.iter().map(|w| w.id).collect();
                 let menu = find().or_else(|| new.iter().find_map(menu_in_window));
-                found = menu.map(|m| (m, new.iter().map(|w| w.id).collect()));
+                found = menu.map(|m| {
+                    let windows = menu_windows_of(&m, &new, t.window.pid);
+                    (m, windows)
+                });
             }
             found.is_some()
         });
@@ -441,7 +479,7 @@ impl MacDesktop {
         // A menu window of the app showed, but no menu element in time: it
         // is closed, never left open unrecorded (it could hold the keyboard).
         if !unread.is_empty() {
-            let escape_to = Route::Pid { pid: t.window.pid, window: t.window.id };
+            let escape_to = escape_route(t, &unread);
             escape_while_showing(escape_to, &unread);
             // Some menus ignore a posted Escape (Finder's context menu): one
             // still on screen is recorded, so keys, typing and drags into
@@ -453,6 +491,8 @@ impl MacDesktop {
                     menu: None,
                     windows: unread,
                     escape_to,
+                    // Unread: its items cannot be told apart.
+                    has_hidden: true,
                 });
                 return Err(DesktopError::Failed(menus::MENU_UNREAD_OPEN.into()));
             }
@@ -495,7 +535,7 @@ impl MacDesktop {
     /// to the app only while its menu still shows (an Escape after it closed
     /// would reach the app's key window).
     pub(super) fn cancel_menu(&self, t: &Target, menu: &Ax, windows: &[u32]) {
-        cancel(menu, windows, Route::Pid { pid: t.window.pid, window: t.window.id });
+        cancel(menu, windows, escape_route(t, windows));
     }
 
     /// [`Self::cancel_menu`], and a menu that is still on screen after it
@@ -511,7 +551,9 @@ impl MacDesktop {
             pid: t.window.pid,
             menu: Some(menu.clone()),
             windows: windows.to_vec(),
-            escape_to: Route::Pid { pid: t.window.pid, window: t.window.id },
+            escape_to: escape_route(t, windows),
+            // Kept only because it would not close: arrows stay refused.
+            has_hidden: true,
         });
         false
     }
@@ -566,6 +608,13 @@ impl MacDesktop {
         Ok(())
     }
 
+    /// Whether the menu left open in `pid`'s app has items the deny list
+    /// hides (bare arrows into it are refused too).
+    pub(super) fn open_menu_hides_items(&self, pid: i32) -> bool {
+        let opened = self.opened.lock().unwrap_or_else(|e| e.into_inner());
+        opened.as_ref().is_some_and(|o| o.pid == pid && o.has_hidden && showing(&o.windows))
+    }
+
     /// The pid and windows of the recorded menu, while it shows.
     pub(super) fn recorded_menu(&self) -> Option<(i32, Vec<u32>)> {
         let opened = self.opened.lock().unwrap_or_else(|e| e.into_inner());
@@ -611,16 +660,23 @@ impl MacDesktop {
     }
 
     /// Records the menu left open for `t`'s window and reports its items.
-    fn leave_open(&self, t: &Target, menu: Ax, windows: Vec<u32>, route: &str) -> ActionOutcome {
-        let all = items(self, &menu);
+    fn leave_open(
+        &self,
+        t: &Target,
+        menu: Ax,
+        windows: Vec<u32>,
+        all: Vec<Item>,
+        route: &str,
+    ) -> ActionOutcome {
+        let hidden = all.iter().filter(|i| i.denied).count();
         *self.opened.lock().unwrap_or_else(|e| e.into_inner()) = Some(Opened {
             window_id: t.id(),
             pid: t.window.pid,
             menu: Some(menu),
+            escape_to: escape_route(t, &windows),
             windows,
-            escape_to: Route::Pid { pid: t.window.pid, window: t.window.id },
+            has_hidden: hidden > 0,
         });
-        let hidden = all.iter().filter(|i| i.denied).count();
         let visible: Vec<Item> = all.into_iter().filter(|i| !i.denied).collect();
         let more = visible.len().saturating_sub(menus::LISTED_ITEMS_MAX);
         let shown = visible
@@ -638,6 +694,34 @@ impl MacDesktop {
         out
     }
 
+    /// A menu just opened, left open with its items for the next call, or
+    /// closed again when leaving it open is unsafe:
+    /// - the guard armed and the keyboard was not given back (the person's
+    ///   window would look active while their typing went to the menu);
+    /// - the guard could not arm (the menu holds the person's keyboard, as
+    ///   with Codex Computer Use) and the menu hides items while something
+    ///   is denied: their typing could type-select a hidden item and their
+    ///   Return run it. A one-call pick (`click` with `menu_item`,
+    ///   `set_value`) never leaves the menu open.
+    fn list_opened(&self, t: &Target, opened: OpenedMenu, route: &str) -> DResult<ActionOutcome> {
+        let (menu, windows, _, guard) = opened;
+        let keyboard = guard.report();
+        if guard.armed() && keyboard == "menu" {
+            let refused = DesktopError::Unsupported(menus::KEYBOARD_KEPT_REFUSAL.into());
+            return Err(self.close_and_fail(t, &menu, &windows, refused));
+        }
+        let all = items(self, &menu);
+        if !guard.armed() && self.denies_any() && all.iter().any(|i| i.denied) {
+            let refused = DesktopError::Unsupported(menus::HIDDEN_ITEMS_HELD_REFUSAL.into());
+            return Err(self.close_and_fail(t, &menu, &windows, refused));
+        }
+        let mut out = self.leave_open(t, menu, windows, all, route);
+        if let Some(report) = out.menu.as_mut() {
+            report.keyboard = keyboard;
+        }
+        Ok(out)
+    }
+
     /// Opens `el`'s menu and leaves it open, with its items in the result.
     pub(super) fn open_and_list(
         &self,
@@ -645,19 +729,9 @@ impl MacDesktop {
         el: &Ax,
         action: &str,
     ) -> DResult<ActionOutcome> {
-        let (menu, windows, _, guard) = self.open_menu(t, el, action)?;
-        let keyboard = guard.report();
-        // Armed and nothing given back: the person's window would look
-        // active while their typing went to the menu. It is closed.
-        if guard.armed() && keyboard == "menu" {
-            let refused = DesktopError::Unsupported(menus::KEYBOARD_KEPT_REFUSAL.into());
-            return Err(self.close_and_fail(t, &menu, &windows, refused));
-        }
+        let opened = self.open_menu(t, el, action)?;
         let route = format!("ax_{}_menu", roles::snake(action));
-        let mut out = self.leave_open(t, menu, windows, &route);
-        if let Some(report) = out.menu.as_mut() {
-            report.keyboard = keyboard;
-        }
+        let mut out = self.list_opened(t, opened, &route)?;
         if let Some(frame) = el.frame() {
             out = out.at(roles::center(&frame));
         }
@@ -674,8 +748,24 @@ impl MacDesktop {
         value: &str,
     ) -> DResult<ActionOutcome> {
         let before = el.value_text();
-        let (menu, windows, opened, guard) = self.open_menu(t, el, "AXPress")?;
-        let all = items(self, &menu);
+        let opened = self.open_menu(t, el, "AXPress")?;
+        self.pick_in(t, opened, value, Some((el, element_id, before)))
+    }
+
+    /// Presses the item titled `value` of a menu just opened and waits for
+    /// it to close, in this call: visible items first, a hidden match
+    /// refused, the one item pressed held to the full deny-list check. With
+    /// `popup` (its element, id and value before), the pop-up's new value
+    /// confirms the pick; else the menu closing does.
+    fn pick_in(
+        &self,
+        t: &Target,
+        opened: OpenedMenu,
+        value: &str,
+        popup: Option<(&Ax, &str, Option<String>)>,
+    ) -> DResult<ActionOutcome> {
+        let (menu, windows, opened, guard) = opened;
+        let mut all = items(self, &menu);
         let titles: Vec<String> = all.iter().map(|i| i.info.title.clone()).collect();
         let hidden: Vec<bool> = all.iter().map(|i| i.denied).collect();
         let refuse = |msg: String| -> DResult<ActionOutcome> {
@@ -683,7 +773,6 @@ impl MacDesktop {
                 DesktopError::Unsupported(format!("{msg} (keyboard: {})", guard.report()));
             Err(self.close_and_fail(t, &menu, &windows, refused))
         };
-        let mut all = all;
         let item = match menus::pick(&titles, &hidden, value) {
             menus::Pick::Item(i) => {
                 all[i].detail();
@@ -702,6 +791,12 @@ impl MacDesktop {
         if item.info.disabled {
             return refuse(format!("the item {:?} is disabled", item.info.title));
         }
+        if item.info.submenu {
+            return refuse(format!(
+                "the item {:?} opens a submenu; open the menu (click without menu_item) and press one of its items",
+                item.info.title
+            ));
+        }
         // The full check (LaunchServices names too) on the one item pressed.
         if self.refuse_denied_item(&item.el).is_err() {
             return refuse(menus::denied_item_refusal(Some(value)));
@@ -711,23 +806,33 @@ impl MacDesktop {
             return Err(self.close_and_fail(t, &menu, &windows, failed));
         }
         let title = item.info.title.clone();
-        // The menu closes and the pop-up shows the item a little after the
-        // press (about 0.2 s in a System Settings pane); a menu button shows
-        // no value, so its menu closing is the end.
+        // A pop-up shows the item a little after the press (about 0.2 s in a
+        // System Settings pane); a menu button shows no value, so its menu
+        // closing is the end, as for a context menu.
+        let before = popup.as_ref().and_then(|p| p.2.clone());
+        let read = || popup.as_ref().and_then(|p| p.0.value_text());
         let shows_value = before.as_deref().is_some_and(|v| !v.trim().is_empty());
-        let mut after = el.value_text();
+        let mut after = read();
         let closed = wait_for(CLOSE_WAIT, || {
-            after = el.value_text();
+            after = read();
             !showing(&windows) && (!shows_value || after != before)
         });
         let stays = showing(&windows) && !self.cancel_or_record(t, &menu, &windows);
         let open_ms = opened.elapsed().as_millis() as u64;
-        let mut out = if after.as_deref().is_some_and(|a| roles::same_title(a, &title)) {
-            ActionOutcome::confirmed("ax_menu_open_pick")
-        } else {
-            ActionOutcome::delivered("ax_menu_open_pick")
+        let confirmed = match &popup {
+            Some(_) => after.as_deref().is_some_and(|a| roles::same_title(a, &title)),
+            None => closed,
         };
-        if !closed && after == before {
+        let route = if popup.is_some() { "ax_menu_open_pick" } else { "ax_context_menu_pick" };
+        let mut out = if confirmed {
+            ActionOutcome::confirmed(route)
+        } else {
+            ActionOutcome::delivered(route)
+        };
+        if let Some((_, element_id, _)) = &popup
+            && !closed
+            && after == before
+        {
             out.note = format!(
                 "pressed {title:?} in element {element_id}'s menu; the pop-up reads back its old value"
             );
@@ -738,16 +843,16 @@ impl MacDesktop {
         let mut report = MenuReport::picked(&title, Some(open_ms));
         report.keyboard = guard.report();
         out.menu = Some(report);
-        if let Some(frame) = el.frame() {
+        if let Some(frame) = popup.as_ref().and_then(|p| p.0.frame()) {
             out = out.at(roles::center(&frame));
         }
         Ok(out)
     }
 
-    /// A context menu at a point of the window: the element there (or an
-    /// ancestor) that offers `AXShowMenu`, else a right click posted to the
-    /// app, then its menu, left open with its items.
-    pub(super) fn context_menu_at(&self, t: &Target, at: Point) -> DResult<ActionOutcome> {
+    /// Opens the context menu at a point of the window: the element there
+    /// (or an ancestor) that offers `AXShowMenu`, else a right click posted
+    /// to the app. None when the click showed no menu.
+    fn open_context(&self, t: &Target, at: Point) -> DResult<Option<OpenedMenu>> {
         let pid = t.window.pid;
         let app = Ax::application(pid)
             .ok_or_else(|| DesktopError::TargetNotFound(format!("the app of window {}", t.id())))?;
@@ -755,13 +860,14 @@ impl MacDesktop {
         for _ in 0..8 {
             let Some(current) = el.take() else { break };
             if current.actions().iter().any(|a| a == "AXShowMenu") {
-                return self.open_and_list(t, &current, "AXShowMenu");
+                return self.open_menu(t, &current, "AXShowMenu").map(Some);
             }
             el = current.element("AXParent");
         }
         self.close_before_opening()?;
         let guard = KeyGuard::arm(t, self.guard());
         let before = menu_window_ids();
+        let start = Instant::now();
         let route = Route::Pid { pid, window: t.window.id };
         input::click(route, at, Button::Right, 1, 0, Duration::ZERO)?;
         let find = || {
@@ -770,23 +876,49 @@ impl MacDesktop {
                 .or_else(|| app.elements("AXChildren").into_iter().find(is_menu))
         };
         match self.await_menu(t, &before, || None, find) {
-            Ok((menu, windows)) => {
-                let keyboard = guard.report();
-                if guard.armed() && keyboard == "menu" {
-                    let refused = DesktopError::Unsupported(menus::KEYBOARD_KEPT_REFUSAL.into());
-                    return Err(self.close_and_fail(t, &menu, &windows, refused));
-                }
-                let mut out = self.leave_open(t, menu, windows, route.name()).at(at);
-                if let Some(report) = out.menu.as_mut() {
-                    report.keyboard = keyboard;
-                }
-                Ok(out)
-            }
+            Ok((menu, windows)) => Ok(Some((menu, windows, start, guard))),
             // The click was delivered and showed no menu (nothing there has one).
-            Err(DesktopError::Failed(m)) if m == MENU_DID_NOT_OPEN => {
-                Ok(ActionOutcome::delivered(route.name()).at(at))
-            }
+            Err(DesktopError::Failed(m)) if m == MENU_DID_NOT_OPEN => Ok(None),
             Err(e) => Err(e),
         }
+    }
+
+    /// A context menu at a point of the window, left open with its items
+    /// (as [`Self::list_opened`] allows).
+    pub(super) fn context_menu_at(&self, t: &Target, at: Point) -> DResult<ActionOutcome> {
+        match self.open_context(t, at)? {
+            Some(opened) => Ok(self.list_opened(t, opened, "context_menu")?.at(at)),
+            None => Ok(ActionOutcome::delivered("pid_event").at(at)),
+        }
+    }
+
+    /// The context menu at a point, its item titled `value` pressed and the
+    /// menu closed, in this one call (the menu is never left open).
+    pub(super) fn context_pick_at(
+        &self,
+        t: &Target,
+        at: Point,
+        value: &str,
+    ) -> DResult<ActionOutcome> {
+        let Some(opened) = self.open_context(t, at)? else {
+            return Err(DesktopError::Failed(MENU_DID_NOT_OPEN.into()));
+        };
+        Ok(self.pick_in(t, opened, value, None)?.at(at))
+    }
+
+    /// An element's own menu (`AXShowMenu`), its item titled `value` pressed
+    /// and the menu closed, in this one call.
+    pub(super) fn element_menu_pick(
+        &self,
+        t: &Target,
+        el: &Ax,
+        value: &str,
+    ) -> DResult<ActionOutcome> {
+        let opened = self.open_menu(t, el, "AXShowMenu")?;
+        let mut out = self.pick_in(t, opened, value, None)?;
+        if let Some(frame) = el.frame() {
+            out = out.at(roles::center(&frame));
+        }
+        Ok(out)
     }
 }

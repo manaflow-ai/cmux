@@ -1007,6 +1007,12 @@ impl Engine {
                 (window, target)
             }
         };
+        if args_str(args, "menu_item").is_some() && !self.desktop.picks_menu_items() {
+            return Err(ToolOutput::error(
+                "unsupported",
+                "menu_item is not supported on this platform yet; click to open the menu, then press its item",
+            ));
+        }
         let app = self.act_on(config, ctx, &window, delivery, true)?;
         if let PointerTarget::Point { point, .. } = &target {
             self.glide(ctx, *point);
@@ -1025,6 +1031,7 @@ impl Engine {
                     } else {
                         Duration::ZERO
                     },
+                    menu_item: args_str(args, "menu_item").map(str::to_string),
                 },
             )
             .map_err(|e| ToolOutput::desktop(&e))?;

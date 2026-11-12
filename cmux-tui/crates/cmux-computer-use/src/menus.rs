@@ -255,6 +255,10 @@ pub const MENU_DID_NOT_CLOSE: &str = "the menu did not close (it ignored AXCance
 /// Why keys are refused while another app's menu stays open.
 pub const OTHER_MENU_KEYS_REFUSAL: &str = "a menu left open in another app did not close, and it holds the keyboard: keys and typing would reach it; press_key Escape in that app's window, or click elsewhere first";
 
+/// Why a menu is not left open: it hides items and would hold the
+/// person's keyboard while open.
+pub const HIDDEN_ITEMS_HELD_REFUSAL: &str = "this menu has items Computer Use hides (they lead to an app it may not use), and left open it would hold the person's keyboard, so their typing could reach a hidden item; it was closed again. Choose the item in one call: click with menu_item (right click or a pop-up), or set_value on a pop-up";
+
 /// How a wanted title picks among a menu's items, the visible ones first.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Pick {

@@ -229,6 +229,11 @@ pub struct ClickSpec {
     /// Between the clicks of a double or triple click (Anthropic's reference
     /// tool: 10 ms; zero: back to back).
     pub gap: std::time::Duration,
+    /// For a click that opens a menu (a right click or control-click, a
+    /// pop-up or menu button): the title of the item to choose. The menu
+    /// opens, the item is pressed and the menu closes in this one call, so
+    /// it is never left open.
+    pub menu_item: Option<String>,
 }
 
 /// What an action did, as far as the desktop could tell.
@@ -446,6 +451,12 @@ pub trait Desktop: Send + Sync {
     /// The menu setting and the deny list's app names, before every acting
     /// call ([`crate::menus`]). A desktop that opens no menus ignores it.
     fn set_menu_policy(&self, _policy: crate::menus::MenuPolicy) {}
+
+    /// Whether `click` can open a menu, choose `ClickSpec::menu_item` and
+    /// close it in one call.
+    fn picks_menu_items(&self) -> bool {
+        false
+    }
 }
 
 pub mod fake;

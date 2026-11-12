@@ -232,10 +232,16 @@ impl MacDesktop {
         // window's owner (a System Settings pane draws its menus in a
         // helper process); there, a point that reaches no readable menu
         // item is refused while something is denied.
+        // A submenu opened later shows in a window of the same owner at the
+        // menu layer: it counts as the menu's too.
         let on_menu = self.recorded_menu().and_then(|(_, windows)| {
-            super::cgwindows::on_screen()
-                .into_iter()
-                .find(|w| windows.contains(&w.id) && roles::contains(&w.frame, at))
+            let screen = super::cgwindows::on_screen();
+            let owners: Vec<i32> =
+                screen.iter().filter(|w| windows.contains(&w.id)).map(|w| w.pid).collect();
+            screen.into_iter().find(|w| {
+                (windows.contains(&w.id) || (w.layer == MENU_LAYER && owners.contains(&w.pid)))
+                    && roles::contains(&w.frame, at)
+            })
         });
         let pid = on_menu.as_ref().map_or(t.window.pid, |w| w.pid);
         let mut el = Ax::application(pid).and_then(|app| app.element_at(at.x, at.y));
@@ -264,6 +270,9 @@ impl MacDesktop {
         self.open_and_list(t, el, action)
     }
 }
+
+/// The window layer of pop-up and context menus (`NSPopUpMenuWindowLevel`).
+const MENU_LAYER: i64 = 101;
 
 /// Roles that might open a menu; anything else needs no further reads.
 const MENU_CANDIDATES: &[&str] =
@@ -303,6 +312,55 @@ fn menu_of(el: &Ax) -> Option<Ax> {
 
 /// Whether a click opens a context menu: a right click, or a left click
 /// with Control held (AppKit's context-menu gesture).
+/// A click with `menu_item`: the menu it opens (a context menu for a right
+/// click or control-click, else a pop-up's or menu button's) has the item
+/// pressed and is closed in this one call. Pressed through accessibility
+/// in either delivery: the menu is never left open.
+fn click_menu_item(
+    d: &MacDesktop,
+    t: &Target,
+    target: &PointerTarget,
+    spec: &ClickSpec,
+    value: &str,
+) -> DResult<ActionOutcome> {
+    if opens_context_menu(spec) {
+        d.context_menu_allowed()?;
+        return match target {
+            PointerTarget::Point { point, .. } => {
+                d.context_pick_at(t, d.point_in(t, *point)?, value)
+            }
+            PointerTarget::Element { element_id, .. } => {
+                let el = d.element(t, element_id)?;
+                if el.actions().iter().any(|a| a == "AXShowMenu") {
+                    d.element_menu_pick(t, &el, value)
+                } else {
+                    d.context_pick_at(t, d.element_center(t, element_id)?, value)
+                }
+            }
+        };
+    }
+    let (el, element_id) = match target {
+        PointerTarget::Element { element_id, .. } => {
+            (d.element(t, element_id)?, element_id.clone())
+        }
+        PointerTarget::Point { point, .. } => {
+            let at = d.point_in(t, *point)?;
+            let el = d.menu_at(t, at)?.ok_or_else(|| {
+                DesktopError::Unsupported(
+                    "menu_item needs a click that opens a menu: a right click or control-click, or a click on a pop-up or menu button".into(),
+                )
+            })?;
+            (el, format!("at ({:.0}, {:.0})", at.x, at.y))
+        }
+    };
+    if d.menu_gate(&el)?.is_none() {
+        return Err(DesktopError::Unsupported(format!(
+            "element {element_id} opens no menu; menu_item needs a right click or control-click, or a pop-up or menu button"
+        )));
+    }
+    choose_menu_item(d, t, &el, &element_id, value)
+}
+
 fn opens_context_menu(spec: &ClickSpec) -> bool {
     spec.button == Button::Right
         || (spec.button == Button::Left && spec.modifiers.contains(&crate::keys::Modifier::Control))
@@ -315,14 +373,15 @@ fn click_point(
     spec: &ClickSpec,
 ) -> DResult<ActionOutcome> {
     let at = d.point_in(t, point)?;
-    // A click on a menu left open presses the item under it in either
-    // delivery: a hidden item there is refused.
+    // A foreground click first closes a menu left open in another app; one
+    // that stays (Finder's context menu ignores Escape) floats over the
+    // point. A click on a menu left open presses the item under it in either
+    // delivery: a point there that is (or may be) a hidden item is refused.
     if spec.delivery != Delivery::Background {
-        if d.menu_open_in(t.window.pid) {
-            d.refuse_denied_at(t, at)?;
-        } else {
-            d.close_other_menus(t);
-        }
+        d.close_other_menus(t);
+    }
+    if spec.delivery != Delivery::Background || d.menu_open_in(t.window.pid) {
+        d.refuse_denied_at(t, at)?;
     }
     if spec.delivery == Delivery::Background
         && let Some(el) = d.menu_at(t, at)?
@@ -340,6 +399,10 @@ pub(super) fn click(
     spec: &ClickSpec,
 ) -> DResult<ActionOutcome> {
     let t = d.target(target.window_id())?;
+    // menu_item: open the menu, press the item, close it, in this call.
+    if let Some(value) = spec.menu_item.as_deref() {
+        return click_menu_item(d, &t, target, spec, value);
+    }
     if spec.delivery == Delivery::Background && opens_context_menu(spec) {
         d.context_menu_allowed()?;
         d.refuse_left_open_in_persons_app(&t)?;
@@ -368,6 +431,10 @@ pub(super) fn click(
     } else {
         d.refuse_denied_item(&el)?;
         d.close_other_menus(&t);
+        // A menu that stays open may float over the element's center.
+        if let Some(frame) = el.frame() {
+            d.refuse_denied_at(&t, roles::center(&frame))?;
+        }
     }
     d.check_menu_item(&t, &el)?;
     let semantic =
@@ -540,6 +607,10 @@ pub(super) fn press_keys(
                 }
                 return Err(DesktopError::Failed(menus::MENU_DID_NOT_CLOSE.into()));
             }
+            // Arrows could park the highlight on a hidden item.
+            roles::OpenMenuKey::Post if d.open_menu_hides_items(t.window.pid) => {
+                return Err(DesktopError::Unsupported(menus::OPEN_MENU_KEYS_REFUSAL.into()));
+            }
             roles::OpenMenuKey::Post => {}
             roles::OpenMenuKey::Refuse => {
                 return Err(DesktopError::Unsupported(menus::OPEN_MENU_KEYS_REFUSAL.into()));
@@ -674,6 +745,10 @@ pub(super) fn drag(
     let to = d.point_in(&t, to)?;
     if delivery != Delivery::Background {
         d.close_other_menus(&t);
+        // A menu in another app that would not close floats over the screen.
+        if d.recorded_menu().is_some() {
+            return Err(DesktopError::Unsupported(menus::OPEN_MENU_DRAG_REFUSAL.into()));
+        }
     }
     let route = d.pointer_route(&t, delivery)?;
     input::drag(route, from, to, button)?;

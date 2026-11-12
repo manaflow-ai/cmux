@@ -299,6 +299,9 @@ pub struct MenuItemContext<'a> {
     pub depth: usize,
     /// The titles of the items in the same menu (the item's own included).
     pub siblings: &'a [String],
+    /// Whether its menu is a launch list by its items, when the caller
+    /// worked that out once for the whole menu (else from `siblings`).
+    pub launch: Option<bool>,
 }
 
 /// An item title as an app name: without a trailing "…" or "...", and
@@ -392,7 +395,19 @@ pub fn is_launch_list(
     if matches!(ctx.top_index, Some(0 | 1)) {
         return true;
     }
-    let named: Vec<&String> = ctx.siblings.iter().filter(|t| !t.trim().is_empty()).collect();
+    if let Some(launch) = ctx.launch {
+        return launch;
+    }
+    siblings_name_apps(ctx.siblings, resolve)
+}
+
+/// Whether most of a menu's items name installed apps (Open With in any
+/// app and any language): once per menu.
+pub fn siblings_name_apps(
+    siblings: &[String],
+    resolve: &dyn Fn(&str) -> Option<Vec<String>>,
+) -> bool {
+    let named: Vec<&String> = siblings.iter().filter(|t| !t.trim().is_empty()).collect();
     let apps = named
         .iter()
         .filter(|t| resolve(menu_app_name(t).0).is_some_and(|ids| !ids.is_empty()))

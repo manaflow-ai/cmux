@@ -117,7 +117,7 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "click",
         access: Access::Act,
-        description: "Click an element (element_id) or a point (x, y in screenshot pixels) in a window, in the background. With no window_id, x and y are pixels of your latest display screenshot. A click on a pop-up or menu button, or a right click or control-click, opens its menu and leaves it open: the result's menu lists the items, and the next call presses one (perform_action press or click on its element in get_ui_tree). To choose a pop-up item in one call, use set_value instead. Menu bar menus are not opened in the background.",
+        description: "Click an element (element_id) or a point (x, y in screenshot pixels) in a window, in the background. With no window_id, x and y are pixels of your latest display screenshot. A click on a pop-up or menu button, or a right click or control-click, opens its menu and leaves it open: the result's menu lists the items, and the next call presses one (perform_action press or click on its element in get_ui_tree). With menu_item, the menu opens, that item is pressed and the menu closes in this one call (a context menu too; use it when the menu would hide items or hold the person's keyboard). To choose a pop-up item in one call, set_value also works. Menu bar menus are not opened in the background.",
         schema: || {
             obj(
                 json!({
@@ -127,6 +127,7 @@ pub static TOOLS: &[Tool] = &[
                     "button": {"type": "string", "enum": ["left", "right", "middle"]},
                     "count": {"type": "integer", "minimum": 1, "maximum": 3},
                     "modifiers": {"type": "array", "items": {"type": "string"}, "description": "shift, ctrl, alt/option, cmd/meta"},
+                    "menu_item": {"type": "string", "description": "For a click that opens a menu (right click, control-click, a pop-up or menu button): the title of the item to choose (exact, any case, or a unique prefix); the menu opens, the item is pressed and the menu closes in one call."},
                     "delivery": delivery()
                 }),
                 &[],

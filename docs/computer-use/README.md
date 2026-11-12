@@ -130,6 +130,16 @@ Prevention, in the desktop (macOS):
   (10 of 10 in a guest; Codex Computer Use keeps it there too). The result
   says which: `menu.keyboard` is `person` or `menu`. A menu in the person's own
   app holds their keyboard inside that app while it is open.
+  - The handoff arms only on the macOS majors its private calls were checked
+    on (12 through 26). Elsewhere (macOS 27) the menu holds the keyboard while
+    it shows, as Codex Computer Use's does; such a menu is never left open
+    when it hides items while anything is denied (the person's typing could
+    reach one): `click` with `menu_item`, or `set_value`, picks in one call.
+  - Known limit: if the release misses and the menu also ignores both
+    `AXCancel` and Escape, the person's window can look active while their
+    keys go to the menu until it closes. The menu stays recorded, so the
+    agent's keys, typing and drags into that app are refused meanwhile, and
+    the next call tries to close it again.
 - Menu bar menus (`AXMenuBarItem`, menu extras) never open in the background:
   the menu bar is the frontmost app's.
 - The deny list holds inside menus through one rule, the same as the menu
