@@ -4878,9 +4878,10 @@ function TranscriptView({
     // A passive wheel or scrollbar drag can move the native offset into the reserve before its
     // input reaches this handler. Do not write it back to the loaded-room top in that window: for
     // a fast scrub through a long tail that top can be the tail's bottom, which turns one upward
-    // gesture into a visible rebound. The pending page and `giveRoomNearTop` below remove the
-    // reserve; an already parked reader likewise owns the offset and needs no clamp.
-    if (room > 0 && layoutScrollTop(node) < room && followingRef.current && !readerUpPending.current) {
+    // gesture into a visible rebound. The pending input and `giveRoomNearTop` below remove the
+    // reserve; once the input is acknowledged, the clamp keeps layout-only corrections at the
+    // loaded-room edge.
+    if (room > 0 && layoutScrollTop(node) < room && !readerUpPending.current) {
       wheelGlide.current?.stop();
       node.scrollTop = physicalScrollTop(node, room);
     }
