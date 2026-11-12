@@ -1,5 +1,5 @@
-title: Clearer chat turns, questions and recovery
-category: improved
+title: Resume stopped work from the composer
+category: new
 docs: https://cmux.com/docs/next/agents
 gallery: agent-pane.parity-turn-states/stopped
 
