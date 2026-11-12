@@ -37,6 +37,7 @@ public enum AgentLaunchCaptureTrust {
         "opencode": ["opencode", "omo", "omx", "omc"],
         "pi": ["pi", "omp"],
         "qoder": ["qodercli", "qoder"],
+        "qwen": ["qwen", "qwen-code"],
         "rovodev": ["rovodev", "rovo", "rovo-dev"],
     ]
 

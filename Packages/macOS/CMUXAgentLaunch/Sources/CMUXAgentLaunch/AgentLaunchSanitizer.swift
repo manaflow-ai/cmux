@@ -202,6 +202,8 @@ public enum AgentLaunchSanitizer {
             return preserveOptions(args, policy: factoryPolicy)
         case "qoder":
             return preserveOptions(args, policy: qoderPolicy)
+        case "qwen":
+            return preserveOptions(args, policy: qwenPolicy)
         case "kimi":
             return preserveOptions(args, policy: kimiPolicy)
         case "muse":
