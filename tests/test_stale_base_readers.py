@@ -535,6 +535,36 @@ class BaseFetchFailsOnceAndNeverPrompts(StaleBaseFixture):
         self.assert_fetch_gone(self.ssh_started(), "the fetch's ssh outlived the checker stopped by Ctrl-C")
         self.assert_attempt_stamped()
 
+    # -- cmux#41765 review: a timeout is said only when the fetch's guard ended it --------------------------------
+
+    def git_whose_fetch(self, body: str) -> None:
+        """Puts a `git` first on PATH that runs BODY (python) for `fetch` and is the real git for anything else."""
+        real = shutil.which("git")
+        folder = self.tmp / "bin" / "git-stub"
+        folder.mkdir(parents=True, exist_ok=True)
+        stub = folder / "git"
+        stub.write_text(f"#!{sys.executable}\nimport os, sys, time\n"
+                        f"if 'fetch' in sys.argv[1:]:\n{body}\n"
+                        f"os.execv({real!r}, [{real!r}, *sys.argv[1:]])\n")
+        stub.chmod(0o755)
+        os.environ["PATH"] = f"{folder}{os.pathsep}{os.environ.get('PATH', '')}"
+
+    def test_a_git_that_exits_124_at_once_is_reported_with_its_real_exit(self):
+        """cmux#41765 review: the keeper's exit 124 was read as a timeout every time, so a git (or a wrapper) that
+        exits 124 at once was reported as "no answer in 30s", hiding the real failure."""
+        self.git_whose_fetch("    sys.exit(124)")
+        note = self.fetch_note()
+        # The real exit, not the limit's "no answer": the note itself says which ended the fetch.
+        self.assertIn("could not be fetched (exit 124)", note)
+        self.assertNotIn("no answer", note)
+
+    def test_a_fetch_the_guard_ends_at_the_limit_is_a_timeout(self):
+        # A fetch that never answers: it blocks on nothing until the guard ends it.
+        self.git_whose_fetch("    import select\n    select.select([], [], [])")
+        with unittest.mock.patch.object(self.push_range, "UPSTREAM_FETCH_SECONDS", 1):
+            note = self.fetch_note()
+        self.assertIn("could not be fetched (no answer in 1s)", note)
+
 class SshBatchModeWins(StaleBaseFixture):
     """cmux#41750 review: OpenSSH keeps the FIRST value of an option, so `-o BatchMode=yes` appended after a user's
     `BatchMode=no` lost, and ssh could still ask. Each row resolves the command the fetch would run with the real ssh

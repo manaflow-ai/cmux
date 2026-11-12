@@ -53,7 +53,12 @@ pub(super) async fn handle(
             return Err(crate::prompt_provenance::withdraw_origin_refused());
         }
         let s = hub.resolve(session_key(params)?)?;
-        return hub.prompt_withdraw(&s, params).await;
+        // A caller that left waits no more; its notice still settles in the hub's task, and a
+        // withdraw again answers what became of it (`withdraw.rs`).
+        return tokio::select! {
+            result = hub.prompt_withdraw(&s, params) => result,
+            () = conn.closed() => Err(RpcError::internal("the client closed the connection")),
+        };
     }
     // An agent may not resume its own pair, nor take a chat over or hand it back.
     if !local_person(conn) {
