@@ -10,6 +10,7 @@ use super::RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES;
 use super::RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES;
 use super::VtStateMessage;
 use super::terminal_colors_json;
+use super::tree_reply_text::TreeText;
 use super::write_pending_sequence_json;
 use crate::AttachFrame;
 use crate::SurfaceId;
@@ -352,6 +353,29 @@ impl RenderService {
         self.control_serializations.fetch_add(1, Ordering::Relaxed);
         let mut writer = BudgetedJsonWriter::new(self.control_budget.clone());
         serde_json::to_writer(&mut writer, value).map_err(json_error_to_io)?;
+        Ok(writer.finish())
+    }
+
+    /// The text of a `list-workspaces` tree, which the replies of its build
+    /// are written from (tree_reply_text.rs). It is not charged to a budget:
+    /// like the built tree it is kept only while its readers write, and each
+    /// reply written from it is charged.
+    pub(super) fn serialize_tree(&self, tree: &Value) -> std::io::Result<TreeText> {
+        #[cfg(test)]
+        self.control_serializations.fetch_add(1, Ordering::Relaxed);
+        TreeText::of(tree)
+    }
+
+    /// A control message that `write` writes, charged to the control budget
+    /// like [`Self::serialize_control`]'s, with room for `bytes` reserved first.
+    pub(super) fn write_control(
+        &self,
+        bytes: usize,
+        write: impl FnOnce(&mut BudgetedJsonWriter) -> std::io::Result<()>,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        let mut writer = BudgetedJsonWriter::new(self.control_budget.clone());
+        writer.ensure_capacity(bytes)?;
+        write(&mut writer)?;
         Ok(writer.finish())
     }
 
