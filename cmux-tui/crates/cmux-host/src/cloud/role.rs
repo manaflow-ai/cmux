@@ -1068,7 +1068,7 @@ impl Worker {
         key: InstallKey,
         http: PosterHttp,
         daemon: DaemonInfo,
-        first_ticket: Option<serde_json::Value>,
+        first_ticket: Option<Value>,
     ) {
         let heartbeat = heartbeat_ms_for(bound.env, self.heartbeat_env.as_deref());
         if heartbeat != super::wire::DEFAULT_HEARTBEAT_MS {
