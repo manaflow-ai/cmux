@@ -2032,14 +2032,24 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   adoptFrames(previous: ReadonlyMap<string, AcpmuxRow>): void {
     const isMessage = (row: AcpmuxRow) => row.kind === "user" || row.kind === "assistant";
     const gone = [...previous.values()].filter((row) => isMessage(row) && !this.has(row.id));
-    for (const id of this.frames.keys()) if (!this.has(id)) this.frames.delete(id);
-    if (gone.length === 0) return;
-    const fresh = [...this.values()].filter(
-      (row) => isMessage(row) && row.frame === undefined && !previous.has(row.id),
-    );
     // Written outside any event: the row keeps its place and its last write.
     const current = this.current;
     this.current = undefined;
+    // A frame whose own row came back (a fuller read named it as before) is that row's again: two
+    // rows never draw in one frame.
+    for (const [id, frame] of this.frames) {
+      if (this.has(id) && !this.has(frame)) continue;
+      this.frames.delete(id);
+      const row = this.get(id);
+      if (row?.frame === frame) this.set(id, { ...row, frame: undefined });
+    }
+    if (gone.length === 0) {
+      this.current = current;
+      return;
+    }
+    const fresh = [...this.values()].filter(
+      (row) => isMessage(row) && row.frame === undefined && !previous.has(row.id),
+    );
     for (const old of gone) {
       const length = old.text?.trim().length ?? 0;
       let best: AcpmuxRow | undefined;

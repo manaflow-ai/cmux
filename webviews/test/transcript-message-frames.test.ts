@@ -146,3 +146,15 @@ test("a short reply that went is never taken for part of a long new one", () => 
   rows.adoptFrames(previous);
   expect(rowFrameKey(rows.get("assistant-49")!)).toBe("assistant-49");
 });
+
+// A fuller read can bring back the row whose frame another took: the frame goes back to it, never two rows in one.
+test("a frame goes back to its own row when that row returns", () => {
+  const text = "guard in `step2` runs after the total, so the first pass lets a value past the ceiling through.";
+  const rows = new OrderedRows();
+  rows.set("assistant-49", reply("assistant-49", `Turn 2: the ${text}`));
+  rows.adoptFrames(new Map([["assistant-50", reply("assistant-50", text)]]));
+  expect(rowFrameKey(rows.get("assistant-49")!)).toBe("assistant-50");
+  rows.set("assistant-50", reply("assistant-50", "A later reply the read named as before."));
+  rows.adoptFrames(new Map(rows));
+  expect([...rows.values()].map(rowFrameKey)).toEqual(["assistant-49", "assistant-50"]);
+});
