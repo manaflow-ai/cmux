@@ -1354,6 +1354,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + TerminalReplayGate.deadline) { [weak self] in
             guard let self, self.replayGate.expireIfOverdue(at: CACurrentMediaTime()) else { return }
             sizingLog.notice("replay gate expired at its deadline")
+            self.model.mirrorPlaced()
             self.outputSinceProbe = true
             self.updateDocument()
             if self.readingMark != nil {
@@ -1389,6 +1390,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return
         }
         if replayDone {
+            model.mirrorPlaced()
             if let started = replayStartedAt {
                 sizingLog.notice("replay done bytes=\(self.replayBytes, privacy: .public) ms=\(Int((CACurrentMediaTime() - started) * 1000), privacy: .public)")
                 replayStartedAt = nil
@@ -1493,6 +1495,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             guard let self, let view = self.freezeView, ObjectIdentifier(view) == held else { return }
             if self.replayGate.isReplaying {
                 self.replayGate.expire()
+                self.model.mirrorPlaced()
                 self.outputSinceProbe = true
                 self.updateDocument()
             }

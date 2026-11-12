@@ -207,6 +207,15 @@ public final class TerminalModel {
     }
     @ObservationIgnored private var lastDrawnOutput: CFTimeInterval = 0
 
+    /// The attached terminal's reset is placed (its replay parsed, or the
+    /// replay gate or held frame ran out): the surface now shows the Mac's
+    /// screen, even an empty one that sends no bytes after the reset, so a
+    /// held last frame goes (review of #42009: a reset-only attach left the
+    /// cached frame over the live surface until the next output).
+    func mirrorPlaced() {
+        if connectionState.isAttached, coldFrame != nil { coldFrame = nil }
+    }
+
     /// Saves the page's frame (for the next cold launch) at most every few
     /// seconds: called when the frame is captured, it returns the writer for
     /// that frame once rendered (ordered against later saves and a close, A5).
