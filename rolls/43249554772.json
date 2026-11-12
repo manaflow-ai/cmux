@@ -1,0 +1,72 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43249554772",
+  "recorded_at": "2026-11-12T15:51:53Z",
+  "reason": "cmux-tui edc0cb96604a changes the image's cmux-tui (pinned c0639d51165d)",
+  "dry_run": false,
+  "cmux_tui": "edc0cb96604aeed9205d82dfe46daff46c68fed3",
+  "fixes": [
+    {
+      "sha": "d03250a9ef3e7386323be21422b27faf6ce4e3a1",
+      "mergedAt": "2026-11-12T09:04:08-06:00",
+      "subject": "cmux-tui tests: input for a live host that cannot be adopted comes back when the adoption ends"
+    },
+    {
+      "sha": "4674e183770206b3f3e770e9c1a8de18ef205cdf",
+      "mergedAt": "2026-11-12T09:03:52-06:00",
+      "subject": "acpmux: an idle daemon sets no timer for the desktop bridge setting or a clean peer cache"
+    },
+    {
+      "sha": "3392b49547da66b1cba37eec200b430df4b537a1",
+      "mergedAt": "2026-11-12T09:03:52-06:00",
+      "subject": "acpmux tests: an idle daemon's thread pools may run in one window of 6, not in every window"
+    },
+    {
+      "sha": "d96cd0df2f76b28074051af882f974826a9a0576",
+      "mergedAt": "2026-11-12T09:03:31-06:00",
+      "subject": "acpmux tests: durable_agents tests check an order, a logged signal or CPU time, not a wall-clock window"
+    },
+    {
+      "sha": "76520afcde43cc30130644cc78b228750b8d8412",
+      "mergedAt": "2026-11-12T09:03:31-06:00",
+      "subject": "acpmux: a late host-kind answer still decides Ctrl-B; a chat's log read corrects a lost lastTurn save"
+    },
+    {
+      "sha": "319ceb986e12c80bf45954bc3b74e0d0c28bbc90",
+      "mergedAt": "2026-11-12T09:03:31-06:00",
+      "subject": "acpmux: red: a late host-kind answer and a lost lastTurn save show stale state after a restart"
+    },
+    {
+      "sha": "23c5ce6b248453edc57d6c34a3adb8458cf06c3f",
+      "mergedAt": "2026-11-12T09:03:11-06:00",
+      "subject": "acpmux: deliver::sessions reads every page of _acpmux/sessions"
+    },
+    {
+      "sha": "f7657ea7d56712b3b9395eb87d46472e2e1a7abb",
+      "mergedAt": "2026-11-12T09:03:11-06:00",
+      "subject": "acpmux: red: deliver::sessions reads only the first page of _acpmux/sessions"
+    },
+    {
+      "sha": "f51bc655d14a5a800651b03f6665e1d364ba611c",
+      "mergedAt": "2026-11-12T07:02:54-08:00",
+      "subject": "cmux-tui: restore fat LTO for Rust binary size (#41963)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T15:51:53Z",
+    "snapshot_id": "sh-d3475c82199542cd9d4bdbcd54f456d3",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43249554772): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f635569435bb5758eeff2df0c9c1a5070b9a5039",
+    "image": "cloud-native-auto-edc0cb96-43249554772-1",
+    "revision": "ci-43249554772-1",
+    "at": "2026-11-12T15:51:53Z"
+  },
+  "rolled_back": false
+}
