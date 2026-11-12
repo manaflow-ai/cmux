@@ -119,11 +119,13 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         let showTrackpad = app.buttons["Show Trackpad"].firstMatch
         XCTAssertTrue(showTrackpad.waitForExistence(timeout: 5), "Show Trackpad in the options menu\n\(app.debugDescription)")
         // Without a hardware keyboard nothing on the screen holds the focus, so the menu raises no
-        // software keyboard. A headless simulator reports its host's keyboard as connected (the screen
-        // then takes the focus for its keys), so only check where none is.
+        // software keyboard. A simulator always reports its host Mac's keyboard to the app (the screen
+        // then takes the focus for its keys), so this holds on a device only.
+        #if !targetEnvironment(simulator)
         if GCKeyboard.coalesced == nil {
             XCTAssertFalse(app.keyboards.firstMatch.exists, "opening the options menu raised the software keyboard")
         }
+        #endif
         attach(app, "08-options-menu")
         app.buttons["Refresh Screen"].firstMatch.tap()
 
