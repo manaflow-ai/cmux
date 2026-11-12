@@ -96,12 +96,27 @@ public final class AgentPaneLoadingView: NSView {
     }
 
     /// Shows the mark after ``markDelay``, unless the page paints first. Out of the view until then:
-    /// the indicator sets its own `isHidden` from its config whenever it refreshes.
+    /// the indicator sets its own `isHidden` from its config whenever it refreshes. A hidden cover
+    /// starts no delay (``setShown(_:)``).
     func showMarkLater() {
+        guard !isHidden else { return }
         markTimer.schedule(after: Self.markDelay) { @MainActor [weak self] in
             guard let self else { return }
             addSubview(indicator)
         }
+    }
+
+    /// Shows or hides this cover, and its mark with it. A cover nobody sees (a New Tab page's, a chat's
+    /// over its saved picture) has no mark and no delay: its timer woke the main thread 0.8 s after the
+    /// pane was made to put a mark in a hidden view, and AppKit invalidates the window's cursor rects at
+    /// each `addSubview` (3 hidden covers did it inside one key resize of a split with a browser pane).
+    /// Shown again in its pane, the delay starts from that moment, so the mark never pops up with the cover.
+    func setShown(_ shown: Bool) {
+        guard isHidden == shown else { return }
+        isHidden = !shown
+        guard shown else { return hideMark() }
+        // Out of its pane (a spare's cover that left, about to be adopted), `beginLoadingState` starts the delay.
+        if superview != nil { showMarkLater() }
     }
 
     /// Runs `giveUp` once the pane has been seen unpainted at ``silentChecks`` checks in a row, or
@@ -210,7 +225,7 @@ extension AgentPaneView {
     /// frame, and the pane stays clear above it. No effect once the page has painted.
     public var showsLoadingState: Bool {
         get { loadingView.superview != nil && !loadingView.isHidden }
-        set { if !model.hasPainted { loadingView.isHidden = !newValue } }
+        set { if !model.hasPainted { loadingView.setShown(newValue) } }
     }
 
     /// Shows the loading state over a page that has not painted; the page's first frame ends it.
