@@ -115,7 +115,8 @@ impl Hub {
         model: Option<String>,
         cwd: Option<PathBuf>,
     ) -> Result<Result<Vec<String>, String>, RpcError> {
-        self.wait_startup().await;
+        // As `session/new`: the catalog and launcher checks, not every chat's adoption.
+        self.wait_spawn_ready().await;
         let cfg = self.config.read().await;
         let resolved =
             self.resolve_new(&cfg, harness, &preset, model.as_deref(), true, cwd.as_deref())?;

@@ -87,7 +87,8 @@ impl Hub {
         if adopting {
             return Err(refused("a start held to asking adopts no conversation".to_owned()));
         }
-        self.wait_startup().await;
+        // As `session/new`: the catalog and launcher checks, not every chat's adoption.
+        self.wait_spawn_ready().await;
         let cfg = self.config.read().await;
         let r = self.resolve_new(&cfg, harness, &preset, model.as_deref(), false, cwd)?;
         admits(&cfg, &r.agent, &r.profile, policy, meta)

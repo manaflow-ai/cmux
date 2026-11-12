@@ -844,29 +844,36 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             {
                 tokio::time::sleep(Duration::from_millis(ms.min(10_000))).await;
             }
-            // Agents that outlived the previous daemon come back first: their chats' logs
-            // (tails, queues), then adoption. Every other chat's log is read in the background
-            // after it, or first by a request for that chat (`hub/log_load.rs`).
-            {
-                let _adopted = crate::hub::AdoptionReady(&hub.adoption_ready);
-                hub.load_live_logs_async().await;
-                hub.adopt_agent_hosts().await;
-                hub.settle_unadopted().await;
-            }
-            hub.recover_workflows().await;
-            {
-                let hub = hub.clone();
-                tokio::spawn(async move {
-                    hub.load_logs_async().await;
-                    hub.finish_clone_boot(&home());
-                    // Once every log is read: a pass reads only chats whose log is loaded.
-                    let _worker = hub.retention_worker();
-                });
-            }
-            // A chat a machine's Full-access setting moved out of its policy's mode goes back:
-            // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
-            hub.hold_policies_again().await;
-            hub.finish_startup().await;
+            // What an agent start needs (login environment, catalog, launcher checks, vault)
+            // runs beside the chats: a new chat waits for it alone, and a chat's own start for it
+            // and its own adoption, never for every host's adoption (`hub/startup.rs`).
+            let chats = async {
+                // Agents that outlived the previous daemon come back first: their chats' logs
+                // (tails, queues), then adoption. Every other chat's log is read in the background
+                // after it, or first by a request for that chat (`hub/log_load.rs`).
+                {
+                    let _adopted = crate::hub::AdoptionReady(&hub.adoption_ready);
+                    hub.load_live_logs_async().await;
+                    hub.adopt_agent_hosts().await;
+                    hub.settle_unadopted().await;
+                }
+                hub.recover_workflows().await;
+                {
+                    let hub = hub.clone();
+                    tokio::spawn(async move {
+                        hub.load_logs_async().await;
+                        hub.finish_clone_boot(&home());
+                        // Once every log is read: a pass reads only chats whose log is loaded.
+                        let _worker = hub.retention_worker();
+                    });
+                }
+                // A chat a machine's Full-access setting moved out of its policy's mode goes back:
+                // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
+                // A chat started before this runs in its policy's mode already (`hold_policy_mode`).
+                hub.hold_policies_again().await;
+            };
+            let (reloaded, ()) = tokio::join!(hub.prepare_spawns(), chats);
+            hub.finish_startup(reloaded).await;
             // An agent the previous daemon left, started from a profile changed since or running
             // from a binary that an update moved, restarts on the profile and binary installed now,
             // between turns (`hub/profile_respawn.rs`, `hub/stale_host_respawn.rs`).
