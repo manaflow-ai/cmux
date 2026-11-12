@@ -318,6 +318,9 @@ final class ComposeRecipientField: UIView, UITextFieldDelegate, UIGestureRecogni
         let toSize = toLabel.intrinsicContentSize
         toLabel.frame = CGRect(x: m.toLeading, y: lineCenter(0) - toSize.height / 2, width: toSize.width, height: toSize.height)
         let start = m.toLeading + toSize.width + m.toGap - m.tokenHorizontalPadding
+        // iOS 27: the first pill starts where "To:" ends (measured: label 30..50.7, pill at 50.7);
+        // wrapped lines start at the text column (58.7). Text after the tokens keeps its place.
+        let pillStart = m.iOS27 ? m.toLeading + toSize.width : start
         if isCollapsed {
             let x = start + m.tokenHorizontalPadding
             summary.frame = CGRect(x: x, y: lineCenter(0) - 10, width: width - x - m.toLeading, height: 20)
@@ -325,11 +328,11 @@ final class ComposeRecipientField: UIView, UITextFieldDelegate, UIGestureRecogni
             return m.fieldMinHeight
         }
         let right = width - m.addTrailing - m.addSize.width - 6
-        var x = start
+        var x = pillStart
         var line = 0
         for token in tokens {
             let size = token.intrinsicContentSize
-            if x + size.width > right, x > start {
+            if x + size.width > right, x > (line == 0 ? pillStart : start) {
                 line += 1
                 x = start
             }
