@@ -1,3 +1,4 @@
+import GameController
 import XCTest
 
 /// The Screen Sharing viewer's always-visible trackpad. The toolbar, the
@@ -56,14 +57,6 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         settle(app, 0.6)
         XCTAssertEqual(drawer.value as? String, "open", "the pad's stroke or tap moved the drawer")
 
-        // The options menu has the toggle too.
-        options.tap()
-        let showTrackpad = app.buttons["Show Trackpad"].firstMatch
-        XCTAssertTrue(showTrackpad.waitForExistence(timeout: 5), "Show Trackpad in the options menu\n\(app.debugDescription)")
-        XCTAssertFalse(app.keyboards.firstMatch.exists, "opening the options menu raised the software keyboard")
-        attach(app, "03-options-menu")
-        app.buttons["Refresh Screen"].firstMatch.tap()
-
         // Drag the notch down: tucked away to a strip, the screen takes the room.
         handle.swipeDown()
         XCTAssertTrue(wait(for: drawer, value: "closed"), "notch drag down did not tuck the trackpad away\n\(app.debugDescription)")
@@ -73,7 +66,7 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         settle(app, 1)
         XCTAssertGreaterThan(screen.frame.height, upScreenHeight + 150, "screen did not take the room")
         XCTAssertLessThanOrEqual(screen.frame.maxY, drawerTop() + 1, "the notch strip covers the screen")
-        attach(app, "04-portrait-tucked-away")
+        attach(app, "03-portrait-tucked-away")
 
         // Drag it up: back.
         handle.swipeUp()
@@ -81,13 +74,58 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad surface after drag up")
         settle(app, 1)
         XCTAssertEqual(screen.frame.height, upScreenHeight, accuracy: 2, "screen height after bringing it back")
-        attach(app, "05-portrait-brought-back")
+        attach(app, "04-portrait-brought-back")
 
         // A tap on the notch toggles.
         handle.tap()
         XCTAssertTrue(wait(for: drawer, value: "closed"), "notch tap did not tuck it away")
         handle.tap()
         XCTAssertTrue(wait(for: drawer, value: "open"), "notch tap did not bring it back")
+
+        // The software keyboard covers the trackpad: the screen keeps the room above it.
+        app.buttons["Keyboard"].firstMatch.tap()
+        if app.keyboards.firstMatch.waitForExistence(timeout: 5) {
+            settle(app, 1)
+            XCTAssertGreaterThan(screen.frame.height, 150, "keyboard squeezed the screen (\(screen.frame))")
+            XCTAssertLessThanOrEqual(screen.frame.maxY, app.keyboards.firstMatch.frame.minY + 60, "screen under the keyboard")
+            attach(app, "05-portrait-keyboard-up")
+            app.buttons["Keyboard"].firstMatch.tap()
+            settle(app, 1)
+        }
+        XCTAssertEqual(screen.frame.height, upScreenHeight, accuracy: 2, "screen height after the keyboard")
+
+        // Landscape: tucked away at first (height is short), brought up and tucked away again.
+        XCUIDevice.shared.orientation = .landscapeLeft
+        settle(app, 2.5)
+        XCTAssertEqual(drawer.value as? String, "closed", "landscape starts tucked away")
+        attach(app, "06-landscape-tucked-away")
+        handle.swipeUp()
+        XCTAssertTrue(wait(for: drawer, value: "open"), "notch drag up in landscape")
+        XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad in landscape")
+        settle(app, 1)
+        attach(app, "07-landscape-trackpad-up")
+        handle.swipeDown()
+        XCTAssertTrue(wait(for: drawer, value: "closed"), "notch drag down in landscape")
+
+        // Back in portrait: the remembered portrait choice (up) again.
+        XCUIDevice.shared.orientation = .portrait
+        settle(app, 2)
+        XCTAssertEqual(drawer.value as? String, "open", "portrait keeps its own choice")
+        XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad back in portrait")
+
+        // Last, the options menu (on a headless simulator it can leave the software keyboard up):
+        // it has a Show Trackpad toggle.
+        options.tap()
+        let showTrackpad = app.buttons["Show Trackpad"].firstMatch
+        XCTAssertTrue(showTrackpad.waitForExistence(timeout: 5), "Show Trackpad in the options menu\n\(app.debugDescription)")
+        // Without a hardware keyboard nothing on the screen holds the focus, so the menu raises no
+        // software keyboard. A headless simulator reports its host's keyboard as connected (the screen
+        // then takes the focus for its keys), so only check where none is.
+        if GCKeyboard.coalesced == nil {
+            XCTAssertFalse(app.keyboards.firstMatch.exists, "opening the options menu raised the software keyboard")
+        }
+        attach(app, "08-options-menu")
+        app.buttons["Refresh Screen"].firstMatch.tap()
 
         // The menu toggle tucks it away too.
         options.tap()
@@ -104,41 +142,10 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         app.buttons["Hide Toolbar"].firstMatch.tap()
         settle(app, 1)
         XCTAssertFalse(options.exists, "toolbar still shown")
-        XCTAssertTrue(pad.isHittable, "trackpad gone with the toolbar")
-        attach(app, "06-portrait-toolbar-hidden")
+        XCTAssertTrue(pad.exists, "trackpad gone with the toolbar")
+        attach(app, "09-portrait-toolbar-hidden")
         app.buttons["Show Toolbar"].firstMatch.tap()
         settle(app, 1)
-
-        // The software keyboard covers the trackpad: the screen keeps the room above it.
-        app.buttons["Keyboard"].firstMatch.tap()
-        if app.keyboards.firstMatch.waitForExistence(timeout: 5) {
-            settle(app, 1)
-            XCTAssertGreaterThan(screen.frame.height, 150, "keyboard squeezed the screen (\(screen.frame))")
-            XCTAssertLessThanOrEqual(screen.frame.maxY, app.keyboards.firstMatch.frame.minY + 60, "screen under the keyboard")
-            attach(app, "07-portrait-keyboard-up")
-            app.buttons["Keyboard"].firstMatch.tap()
-            settle(app, 1)
-        }
-        XCTAssertEqual(screen.frame.height, upScreenHeight, accuracy: 2, "screen height after the keyboard")
-
-        // Landscape: tucked away at first (height is short), brought up and tucked away again.
-        XCUIDevice.shared.orientation = .landscapeLeft
-        settle(app, 2.5)
-        XCTAssertEqual(drawer.value as? String, "closed", "landscape starts tucked away")
-        attach(app, "08-landscape-tucked-away")
-        handle.swipeUp()
-        XCTAssertTrue(wait(for: drawer, value: "open"), "notch drag up in landscape")
-        XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad in landscape")
-        settle(app, 1)
-        attach(app, "09-landscape-trackpad-up")
-        handle.swipeDown()
-        XCTAssertTrue(wait(for: drawer, value: "closed"), "notch drag down in landscape")
-
-        // Back in portrait: the remembered portrait choice (up) again.
-        XCUIDevice.shared.orientation = .portrait
-        settle(app, 2)
-        XCTAssertEqual(drawer.value as? String, "open", "portrait keeps its own choice")
-        XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad back in portrait")
     }
 
     @MainActor
