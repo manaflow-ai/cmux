@@ -159,8 +159,12 @@ FIXTURES = [
     ("a coprocess after repeated time runs its command (dep-fleet-6 follow-up)", "time time coproc a; wait", {"a"}, set()),
     ("a coprocess after mixed time wrappers runs its command (dep-fleet-6 follow-up)",
      "time -p time coproc a; wait", {"a"}, set()),
+    ("a quoted subscript operator is not repaired by a later equals (dep-fleet-6 F2)",
+     'X[0]"="v=w gh', set(), None),
     ("time before an assignment leaves coproc ordinary (dep-fleet-6 follow-up)", "time X=1 coproc a", set(), set()),
     ("an assignment before time leaves coproc ordinary (dep-fleet-6 follow-up)", "X=1 time coproc a", set(), set()),
+    ("an assignment before ! runs ! as the command (dep-fleet-6 F1)", "X=1 ! true", set(), None),
+    ("an assignment before coproc runs coproc as the command (dep-fleet-6 F1)", "X=1 coproc true", set(), None),
     ("a quoted time leaves coproc ordinary (dep-fleet-6 follow-up)", '"time" coproc a', set(), set()),
     ("a negated coprocess remains reserved (dep-fleet-6 follow-up)", "! coproc a; wait", {"a"}, set()),
     ("an assignment before ! leaves coproc ordinary (dep-fleet-6 follow-up)", "X=1 ! coproc a", set(), set()),
@@ -237,6 +241,7 @@ SCRIPT_FIXTURES = [
     ("env X+=1 ./sign.sh", True, True),
     ("env 'A B=1' ./sign.sh", True, True),
     ("env Y[0]=2 ./sign.sh", True, False),
+    ('"env" ./sign.sh', True, True),
     ("time X+=1 ./sign.sh 2>/dev/null", True, True),
     ("./sig*.sh", True, False),
 ]
@@ -317,6 +322,14 @@ def possible(script: str) -> set[str]:
 
 
 class AgainstBash(unittest.TestCase):
+    def test_prefix_assignments_leave_bang_and_coproc_as_programs(self) -> None:
+        self.assertEqual(must_run("X=1 ! true"), [["!", "true"]])
+        self.assertEqual(must_run("X=1 coproc true"), [["coproc", "true"]])
+
+    def test_quoted_subscript_operator_does_not_credit_gh(self) -> None:
+        self.assertEqual(must_run('X[0]"="v=w gh'), [])
+        self.assertTrue(may_run_program('"env" gh release create v1', "gh"))
+
     def test_coproc_program_position_is_not_any_program(self) -> None:
         for script in (
                 "env coproc a", "time env coproc a", "X=1 coproc a",
