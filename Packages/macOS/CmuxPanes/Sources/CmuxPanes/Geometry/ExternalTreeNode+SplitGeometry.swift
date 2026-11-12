@@ -181,6 +181,8 @@ extension ExternalTreeNode {
         }
     }
 
+    /// This subtree's spans along both axes, for a child that sits outside
+    /// the run being equalized and so gets no divider adjustments of its own.
     private func spanCounts() -> SplitSpanCounts {
         switch self {
         case .pane:
@@ -291,6 +293,7 @@ private struct SplitSpanCounts {
     let horizontal: Int
     let vertical: Int
 
+    /// Spans set directly; a single pane is one wide and one tall.
     init(horizontal: Int, vertical: Int) {
         self.horizontal = horizontal
         self.vertical = vertical
@@ -309,6 +312,8 @@ private struct SplitSpanCounts {
             : first.vertical + second.vertical
     }
 
+    /// The span a divider of `orientation` weighs: panes side by side for
+    /// "horizontal", stacked for "vertical".
     func along(_ orientation: String) -> Int {
         orientation == "horizontal" ? horizontal : vertical
     }
