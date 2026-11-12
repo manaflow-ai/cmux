@@ -179,8 +179,7 @@ extension NotificationCenterService {
         for screen in workspace.screens {
             for pane in screen.panes {
                 guard let id = shownTab(pane) ?? self.shownTab(of: pane), let shown = pane.tabs.first(where: { $0.id == id }) else { continue }
-                // A viewed tab reads its notifications at once, so a ring only blinked (a mark or needs-you stays).
-                if shown.hasUnread, !shown.markedUnread, shown.attention == nil, NotificationPolicy(prefs: preferences).clears(.focus, for: source(of: shown)), isViewed(shown.id) { continue }
+                if readsOnSight(shown) { continue }
                 // A chat that is thinking, on any machine, rings nothing (Leo, 2026-11-06). One whose turn ended rings
                 // until the person goes into it, only with the opt-in agent chat ring (`notifications.attention.agentChats`).
                 if let chat = shown.agentSession, AgentTurnStateStore.shared.isWorking(chat, isChatMachine: { self.services?.machines.machineID(peer: $0) == key.machine }) { continue }
@@ -228,15 +227,15 @@ extension NotificationCenterService {
     /// The bit an agent's attention ring carries, apart from manual marks.
     static let attentionRingBase: UInt64 = 1 << 62
 
-    /// Of the panes in `removed` (their mark just went away), those read because
-    /// the person went into them: their ring blinks out. Forgets the entry
-    /// reads of every tab in `workspace`, so a later mark starts clean.
+    /// A viewed tab reads its notifications at once, so it draws no ring (a mark or needs-you stays).
+    func readsOnSight(_ t: TabModel) -> Bool { t.hasUnread && !t.markedUnread && t.attention == nil && NotificationPolicy(prefs: preferences).clears(.focus, for: source(of: t)) && isViewed(t.id) }
+    /// Of the panes in `removed` (their mark just went away), those the person went into, focus included (cmux#42210: its
+    /// ring is read on sight, maybe before `interacted(.focus)`): their ring blinks out. Forgets `workspace`'s entry reads.
     func takeEntryReads(removed: Set<LayoutPaneID>, in workspace: WorkspaceModel) -> Set<LayoutPaneID> {
-        guard !entryReads.isEmpty else { return [] }
+        guard case let onSight = !removed.isEmpty && DesignSettings.shared.attention.flashesOnEntry(.focus), !entryReads.isEmpty || onSight else { return [] }
         var entered: Set<LayoutPaneID> = []
         for pane in workspace.screens.flatMap(\.panes) {
-            let read = pane.tabs.contains { entryReads.contains($0.id) }
-            if read, removed.contains(LayoutPaneID(pane.id)) { entered.insert(LayoutPaneID(pane.id)) }
+            if removed.contains(LayoutPaneID(pane.id)), pane.tabs.contains(where: { entryReads.contains($0.id) || onSight && readsOnSight($0) }) { entered.insert(LayoutPaneID(pane.id)) }
             for tab in pane.tabs { entryReads.remove(tab.id) }
         }
         return entered
