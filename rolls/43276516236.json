@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43276516236",
+  "recorded_at": "2026-11-12T18:16:33Z",
+  "reason": "cmux-tui 04b33a3ae2e4 changes the image's cmux-tui (pinned f4300d872896)",
+  "dry_run": false,
+  "cmux_tui": "04b33a3ae2e46a92bd57120e720a071869f26b62",
+  "fixes": [
+    {
+      "sha": "04b33a3ae2e46a92bd57120e720a071869f26b62",
+      "mergedAt": "2026-11-12T09:38:18-08:00",
+      "subject": "perf(acpmux): peer lists travel as row text and the hub copies no row it keeps (#42046)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T18:16:33Z",
+    "snapshot_id": "sh-05b357df9afb4fe48fd90c9f5d60ba6e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43276516236): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "39cbaff1ffce07fd4bf21b0b90d99f13288be49a",
+    "image": "cloud-native-auto-04b33a3a-43276516236-1",
+    "revision": "ci-43276516236-1",
+    "at": "2026-11-12T18:16:33Z"
+  },
+  "rolled_back": false
+}
