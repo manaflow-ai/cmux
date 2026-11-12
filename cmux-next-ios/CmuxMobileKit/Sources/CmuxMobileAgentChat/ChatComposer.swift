@@ -130,7 +130,8 @@ struct ChatComposer: View {
         .onChange(of: store.returnedDraft) { _, draft in
             guard let draft else { return }
             store.returnedDraft = nil
-            if trimmed.isEmpty { text = draft.text }
+            // Typed meanwhile: the returned text goes before it, never lost.
+            text = trimmed.isEmpty ? draft.text : draft.text + "\n\n" + text
             attachments = draft.attachments + attachments.filter { own in !draft.attachments.contains { $0.id == own.id } }
         }
         // The flip is placed even when the target stays (focused or drafting as the history
