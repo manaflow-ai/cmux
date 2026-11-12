@@ -16,21 +16,29 @@ struct DaemonRequestLatencyTests {
         #expect(bounds.last! > 60_000_000)
     }
 
+    /// The bucket a single request of `micros` lands in, read back through the Rust probe.
+    private static func bucket(microseconds micros: UInt64) -> Int? {
+        let probe = DaemonRequestLatency()
+        probe.record(nanoseconds: micros.multipliedReportingOverflow(by: 1000).overflow ? .max : micros * 1000,
+                     outcome: .reply)
+        return probe.snapshot().counts.firstIndex(of: 1)
+    }
+
     @Test func aValueLandsInTheSmallestBucketWhoseBoundHoldsIt() {
         let bounds = DaemonRequestLatency.boundsMicroseconds
-        #expect(DaemonRequestLatency.bucket(microseconds: 0) == 0)
-        #expect(DaemonRequestLatency.bucket(microseconds: 64) == 0)
-        #expect(DaemonRequestLatency.bucket(microseconds: 65) == 1)
-        #expect(DaemonRequestLatency.bucket(microseconds: 80) == 1)
-        #expect(DaemonRequestLatency.bucket(microseconds: 129) == 5)
+        #expect(Self.bucket(microseconds: 0) == 0)
+        #expect(Self.bucket(microseconds: 64) == 0)
+        #expect(Self.bucket(microseconds: 65) == 1)
+        #expect(Self.bucket(microseconds: 80) == 1)
+        #expect(Self.bucket(microseconds: 129) == 5)
         // Every bound and its neighbours, against a linear search.
         for (index, bound) in bounds.enumerated() {
-            #expect(DaemonRequestLatency.bucket(microseconds: bound) == index)
-            #expect(DaemonRequestLatency.bucket(microseconds: bound + 1) == index + 1)
+            #expect(Self.bucket(microseconds: bound) == index)
+            #expect(Self.bucket(microseconds: bound + 1) == index + 1)
             // Bounds are at least 16 µs apart, so one below a bound is still in its bucket.
-            if index > 0 { #expect(DaemonRequestLatency.bucket(microseconds: bound - 1) == index) }
+            if index > 0 { #expect(Self.bucket(microseconds: bound - 1) == index) }
         }
-        #expect(DaemonRequestLatency.bucket(microseconds: .max) == DaemonRequestLatency.bucketCount - 1)
+        #expect(Self.bucket(microseconds: .max) == DaemonRequestLatency.bucketCount - 1)
     }
 
     @Test func recordsCountsOutcomesAndMaxAndReadsPercentiles() {
@@ -44,7 +52,7 @@ struct DaemonRequestLatencyTests {
         #expect(snapshot.timeouts == 1)
         #expect(snapshot.maxMicroseconds == 2_000_000)
         #expect(snapshot.counts.reduce(0, +) == 100)
-        #expect(snapshot.counts[DaemonRequestLatency.bucket(microseconds: 1000)] == 98)
+        #expect(snapshot.counts.max() == 98)
         // Upper bounds: 1 ms is in (896, 1024], 40 ms in (40960 - 8192, 40960], 2 s in (1835008, 2097152].
         #expect(snapshot.percentileMicroseconds(50) == 1024)
         #expect(snapshot.percentileMicroseconds(99) == 40960)
