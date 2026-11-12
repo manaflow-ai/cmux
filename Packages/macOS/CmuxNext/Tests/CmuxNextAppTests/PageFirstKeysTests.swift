@@ -26,13 +26,12 @@ import Testing
         Key(name: "Opt-Cmd-G", characters: "g", keyCode: 5, modifiers: [.command, .option]),
     ]
 
-    /// Chords a page also uses (Cmd-B Bold and Linear's own Cmd-B, Cmd-I Italic, Shift-Cmd-E Center) bound to
-    /// a cmux navigation action (Toggle Sidebar, Open Chief Dock, Focus Right Sidebar), and the browser's
+    /// Chords a page also uses (Cmd-B Bold and Linear's own Cmd-B, Cmd-I Italic) bound to a cmux
+    /// navigation action, and the browser's
     /// content chords (Reload, Zoom In, Back): cmux runs them before the page sees them.
     nonisolated static let cmuxKeys: [Key] = [
         Key(name: "Cmd-B", characters: "b", keyCode: 11),
         Key(name: "Cmd-I", characters: "i", keyCode: 34),
-        Key(name: "Shift-Cmd-E", characters: "E", keyCode: 14, modifiers: [.command, .shift]),
         Key(name: "Cmd-R", characters: "r", keyCode: 15),
         Key(name: "Cmd-=", characters: "=", keyCode: 24),
         Key(name: "Cmd-[", characters: "[", keyCode: 33),

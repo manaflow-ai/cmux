@@ -533,13 +533,13 @@ impl World {
                 self.press(record);
             }
             91..92 => {
-                // Find and its neighbors go to a page first; Reload and Cmd-B
-                // (Toggle Sidebar) run before it (Lawrence 2026-11-11).
-                let (action, tier, code) = match self.rng.below(5) {
+                // Find and its neighbors go to a page first; Cmd-B (Toggle
+                // Sidebar) runs before it (Lawrence 2026-11-11). Three in four
+                // keys are offers, so the offer mutants stay caught.
+                let (action, tier, code) = match self.rng.below(4) {
                     0 => ("find", Tier::Navigation, 3),
                     1 => ("findNext", Tier::Navigation, 5),
                     2 => ("findPrevious", Tier::Navigation, 5),
-                    3 => ("browserReload", Tier::Content, 15),
                     _ => ("toggleSidebar", Tier::Navigation, 11),
                 };
                 let (modifiers, binding) = World::command(action, tier, false);

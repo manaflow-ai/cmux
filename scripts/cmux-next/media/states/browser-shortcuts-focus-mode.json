@@ -30,26 +30,25 @@
    "title": "Open example.com in a browser tab",
    "cmux": [
     "tab",
-    "new-browser",
+    "create",
+    "browser",
     "--url",
-    "https://example.com"
+    "https://example.com",
+    "--name",
+    "Linear-like"
    ],
    "wait": 5,
    "shot": false
   },
   {
-   "title": "Cmd-2 selects the page tab",
-   "wait": 3,
+   "title": "Focus the page tab",
+   "wait": 4,
    "shot": false,
-   "rpc": {
-    "method": "debug.key",
-    "params": {
-     "key": "2",
-     "modifiers": [
-      "cmd"
-     ]
-    }
-   }
+   "cmux": [
+    "tab",
+    "Linear-like",
+    "focus"
+   ]
   },
   {
    "title": "Click into the page",
@@ -69,17 +68,9 @@
     "browser",
     "page",
     "eval",
-    "document.body.innerHTML='<div style=\"font:22px -apple-system;margin:40px\"><p>This page calls preventDefault on Cmd-B, like Linear.</p><p>Cmd-B reached the page: <b id=n style=\"font-size:48px\">0</b> times</p></div>';window.__n=0;addEventListener('keydown',e=>{if(e.metaKey&&e.key==='b'){e.preventDefault();document.getElementById('n').textContent=++window.__n}},true);'ok'"
+    "document.body.innerHTML='<div style=\"font:22px -apple-system;margin:40px\"><p>This page calls preventDefault on Cmd-B, like Linear.</p><p>Cmd-B reached the page: <b id=n style=\"font-size:48px\">0</b> times</p><p>Keys seen: <b id=a>0</b></p></div>';window.__n=0;window.__all=0;addEventListener('keydown',e=>{document.getElementById('a').textContent=++window.__all+' '+e.key},true);addEventListener('keydown',e=>{if(e.metaKey&&e.key==='b'){e.preventDefault();document.getElementById('n').textContent=++window.__n}},true);'ok'"
    ],
    "wait": 1,
-   "shot": false
-  },
-  {
-   "title": "Focus before any key",
-   "rpc": {
-    "method": "debug.focus",
-    "params": {}
-   },
    "shot": false
   },
   {
@@ -108,14 +99,6 @@
     "params": {
      "last": true
     }
-   },
-   "shot": false
-  },
-  {
-   "title": "Focus after Cmd-B",
-   "rpc": {
-    "method": "debug.focus",
-    "params": {}
    },
    "shot": false
   },
@@ -175,14 +158,6 @@
    "shot": false
   },
   {
-   "title": "Focus after Opt-Cmd-Return",
-   "rpc": {
-    "method": "debug.focus",
-    "params": {}
-   },
-   "shot": false
-  },
-  {
    "title": "Page Cmd-B count, after Opt-Cmd-Return",
    "cmux": [
     "browser",
@@ -209,14 +184,6 @@
     }
    },
    "wait": 1.2,
-   "shot": false
-  },
-  {
-   "title": "Focus after Cmd-B in focus mode",
-   "rpc": {
-    "method": "debug.focus",
-    "params": {}
-   },
    "shot": false
   },
   {
@@ -247,14 +214,6 @@
     }
    },
    "wait": 1.2,
-   "shot": false
-  },
-  {
-   "title": "Focus after leaving focus mode",
-   "rpc": {
-    "method": "debug.focus",
-    "params": {}
-   },
    "shot": false
   },
   {
