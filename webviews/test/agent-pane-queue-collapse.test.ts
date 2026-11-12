@@ -361,6 +361,11 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       });
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("two");
+      // The typed words are drawn before the frames are read, so the first frame read holds them.
+      await page.waitForFunction(() =>
+        document.querySelector<HTMLElement>(".acpmux-composer-prompt")!.innerText.includes("two"),
+      );
+      await page.evaluate(() => window.cmuxPaintFrame());
       // Each painted frame from the press: the field's text, the rows drawn and the list's height.
       await page.evaluate(() => {
         const frames: { text: string; rows: number; height: number; cut: boolean }[] = [];
@@ -388,6 +393,7 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       // The first frame whose field no longer holds the sent words.
       const cleared = frames.findIndex((frame) => !frame.text.includes("two"));
       expect(cleared).toBeGreaterThan(0);
+      expect(frames[0].text).toContain("two");
       // No frame with the field cleared and the prompt nowhere.
       expect(frames.slice(cleared).every((frame) => frame.rows === 2)).toBe(true);
       // The list is at its new height in that first frame, the new row whole: no frame in between.
