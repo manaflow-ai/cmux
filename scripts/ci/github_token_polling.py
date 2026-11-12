@@ -285,6 +285,12 @@ def _program(word: str) -> str:
     return word.rsplit("/", 1)[-1]
 
 
+def _unknown(words: list[str]) -> bool:
+    """A command the reader cannot name: unreadable content ([]), or a program word only known at run time (`"$probe"
+    api x`, `$(echo gh)`), which may be gh, curl or sleep (dep-fleet-6 F4). It counts as both a call and a sleep."""
+    return not words or any(mark in words[0] for mark in ("$", "`", "\x00"))
+
+
 def shell_calls(text: str, names: Iterable[str]) -> set[str]:
     """The NAMES (the script's own functions) the text runs as a command."""
     wanted = set(names)
@@ -293,7 +299,7 @@ def shell_calls(text: str, names: Iterable[str]) -> set[str]:
 
 def shell_sleeps(text: str) -> bool:
     """Whether the shell TEXT may sleep: a `sleep` command, or content the reader cannot read (fail closed)."""
-    return any(not words or _program(words[0]) == "sleep" for words in _runs(text))
+    return any(_unknown(words) or _program(words[0]) == "sleep" for words in _runs(text))
 
 
 def api_url_pattern(names: Iterable[str]) -> re.Pattern[str]:
@@ -324,7 +330,7 @@ def shell_api(text: str, api_url: re.Pattern[str] = API_TEXT) -> bool:
     """Whether the shell TEXT may call the API: `gh <verb>` (an option before the verb, or a verb only known at
     run time, counts), curl with an argument naming the API URL, or content the reader cannot read."""
     for words in _runs(text):
-        if not words:
+        if _unknown(words):
             return True
         name = _program(words[0])
         if name == "gh" and len(words) > 1 and (words[1] in GH_VERBS or words[1].startswith("-") or "$" in words[1]):

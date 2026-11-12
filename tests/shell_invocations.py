@@ -136,6 +136,13 @@ class Invocation(NamedTuple):
     words: list[str]  # the program first (a leading `./` dropped), then its arguments; [] for an unlexable tail
     certain: bool  # nothing in or before the command is beyond the lexer
     any_program: bool  # it may also run programs the words do not name
+    # This command's own redirections, (operator, target): the fd written against it is part of the operator
+    # (`2>>`), the target's quotes are removed. A check that credits a write reads it here, off the same command
+    # whose certainty it reads (dep-fleet-6 F1), never by matching words across the script.
+    redirects: tuple[tuple[str, str], ...] = ()
+    # The wrappers read through to reach the program, each as its words (`env -u NAME`): what they do to the
+    # program's environment stays readable (dep-fleet-6 F3).
+    wrappers: tuple[tuple[str, ...], ...] = ()
 
 
 _CASE_BOUNDARY = frozenset(" \t\n;&|()")
@@ -579,6 +586,8 @@ class _Command(NamedTuple):
     dynamic: bool  # some word, or a redirection target, holds a substitution or expansion
     nested: bool  # it runs inside a substitution
     reached: bool = False  # bash runs it whenever the script runs to its end (_Flow); False unless shown
+    redirects: tuple[tuple[str, str], ...] = ()
+    own_shell: bool = True  # False in a subshell, a pipeline or the background: its assignments do not persist
 
 
 # Compound commands: the keyword that opens one, and the one that closes it.
@@ -713,12 +722,17 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
     in_array = 0  # depth inside `name=( .. )`: its elements are values, not commands
     flow = _Flow()
     joined = False  # the last operator was `&&`, `||` or `|`: a newline after it continues the list
+    redirects: list[tuple[str, str]] = []
+    pending = ""  # the redirection operator whose target is the next word
+    piped = False  # the command after a `|`: it runs in a subshell
 
-    def close(command_words: list[Token], command_dynamic: bool) -> None:
+    def close(command_words: list[Token], command_dynamic: bool, ender: str = "") -> None:
         # The keywords that open, continue or close a construct (and a `for`/`case` header) are no command.
         start = flow.keywords(command_words)
         if start < len(command_words):
-            found.append(_Command(command_words[start:], command_dynamic, nested, not nested and flow.reached()))
+            own = not piped and ender not in ("|", "|&", "&") and not any(f.kind == "(" for f in flow.frames)
+            found.append(_Command(command_words[start:], command_dynamic, nested, not nested and flow.reached(),
+                                  tuple(redirects), own))
         flow.ended(command_words, start)
 
     for index, token in enumerate(tokens):
@@ -747,6 +761,7 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
             dynamic = dynamic or bool(token.subs)
             if skip_target:
                 skip_target = False
+                redirects.append((pending, token.text))
             else:
                 words.append(token)
                 # `name ( )` defines a function, `function name` and `alias name=..` define one too.
@@ -760,16 +775,18 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
                     defined.add(token.text.split("=", 1)[0])
         elif token.kind == "op" and token.text in _REDIRECTS:
             # `2>/dev/null`: the file descriptor number written against the operator is no word.
+            pending = token.text
             if words and words[-1] is previous and previous.end == token.start and not previous.quoted \
                     and previous.text.isdigit():
-                words.pop()
+                pending = words.pop().text + token.text
             skip_target = True
         else:
             skip_target = False
             starts_command = not words
             if words:
-                close(words, dynamic)
-            words, dynamic = [], False
+                close(words, dynamic, token.text if token.kind == "op" else "")
+            words, dynamic, redirects = [], False, []
+            piped = token.kind == "op" and token.text in ("|", "|&")
             if token.kind == "nl":
                 if not joined:
                     flow.operator("\n", starts_command)
@@ -906,6 +923,7 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
             break
     certain = not command.dynamic and not command.nested and command.reached
     any_program = False
+    peeled: list[tuple[str, ...]] = []
     while start < len(words) and not _opaque(words[start]):
         name = _program_name(words[start].text)
         if name in _WRAPPERS:
@@ -920,6 +938,7 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
             # `env` or `nice` alone runs itself; `exec` or `time` alone runs nothing.
             return Invocation([w.text for w in words[start:]], certain and sure, False)
         certain = certain and sure
+        peeled.append(tuple(w.text for w in words[start:program]))
         start = program
         if name in _SHELLS:
             # An unmodeled mode (-i reads rc files, --rcfile FILE, -l a profile) may run a file the words name
@@ -937,7 +956,8 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     if program.text.startswith("/") and name not in _SHELLS and name not in _WRAPPERS \
             and any(_TEXT_OPTION.fullmatch(word.text) for word in words[start + 1:]):
         certain, any_program = False, True  # an absolute program this does not know, given -c: it may run anything
-    return Invocation([program.text.removeprefix("./"), *(w.text for w in words[start + 1:])], certain, any_program)
+    return Invocation([program.text.removeprefix("./"), *(w.text for w in words[start + 1:])], certain, any_program,
+                      command.redirects, tuple(peeled))
 
 
 def may_run(run: str) -> list[Invocation]:
@@ -961,6 +981,54 @@ def must_run(run: str) -> list[list[str]]:
     """The commands (program first) bash really runs and the detector is certain of. Anything it cannot be sure of
     is left out: use this where a script is credited with running something."""
     return [invocation.words for invocation in may_run(run) if invocation.certain]
+
+
+# Builtins that may write a variable through a name they are given (`declare -n`, `local -n`, `read -a`, `printf -v`).
+_NAME_WRITERS = frozenset({"declare", "typeset", "local", "export", "readonly"})
+
+
+def _word_tokens(run: str):
+    lexed = lex(run)
+    for token in lexed.tokens:
+        if token.kind == "word":
+            yield token
+            for script in token.subs:
+                yield from _word_tokens(script)
+    for script in lexed.heredoc_subs:
+        yield from _word_tokens(script)
+
+
+def sure_bindings(run: str) -> dict[str, str]:
+    """NAME -> VALUE (quotes removed) for each variable the script surely binds and nothing else in it may write:
+    one assignment-only command (`home="$RUNNER_TEMP/x"`) bash surely runs in the script's own shell, before any
+    `$NAME`. A second assignment of the name anywhere, a word that is the name (`read home`, `for home in`, `unset
+    home`), an echoed `NAME=..`, a builtin that writes through a name, or anything the reader cannot follow leaves the
+    name out: a check that credits through the variable then refuses it (dep-fleet-6 F2)."""
+    defined: set[str] = set()
+    commands, complete = _commands(run, False, defined)
+    if not complete or defined:
+        return {}
+    found: dict[str, tuple[str, int]] = {}
+    for command in commands:
+        if command.nested or not command.reached or not command.own_shell:
+            continue
+        if command.words and all(_ASSIGNMENT.match(word.text) for word in command.words):
+            for word in command.words:
+                name, value = word.text.split("=", 1)
+                found[name] = (value, word.end) if name not in found else ("\x00", word.end)
+    if not found:
+        return {}
+    tokens = list(_word_tokens(run))
+    if any(token.text in _NAME_WRITERS and not token.quoted for token in tokens):
+        return {}
+    bound = {}
+    for name, (value, end) in found.items():
+        writes = sum(1 for token in tokens if token.text == name or token.text.startswith((f"{name}=", f"{name}+=",
+                                                                                          f"{name}[")))
+        first_use = re.search(r"\$\{?[#!]?" + re.escape(name) + r"(?![A-Za-z0-9_])", run)
+        if value != "\x00" and writes == 1 and (first_use is None or first_use.start() >= end):
+            bound[name] = value
+    return bound
 
 
 def run_when_reached(run: str) -> list[list[str]]:

@@ -34,7 +34,7 @@ from pathlib import Path
 
 import yaml
 
-from shell_invocations import lex, may_run, must_run
+from shell_invocations import may_run, must_run, sure_bindings
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -78,35 +78,20 @@ def launches(step: dict) -> bool:
     return in_package and bool(SWIFT_TEST.search(run))
 
 
-def _commands_to_github_env(run: str) -> list[list[str]]:
-    """The simple commands (words, quotes removed) whose output a `>` or `>>` sends to $GITHUB_ENV."""
-    found: list[list[str]] = []
-    words: list[str] = []
-    to_env = False
-    tokens = lex(run).tokens
-    for index, token in enumerate(tokens):
-        if token.kind == "word":
-            words.append(token.text)
-        elif token.kind == "op" and token.text in (">", ">>") and index + 1 < len(tokens):
-            to_env = to_env or tokens[index + 1].text in GITHUB_ENV
-            words.append(token.text)  # its target follows as a word; dropped below
-        else:
-            if to_env:
-                found.append(words)
-            words, to_env = [], False
-    if to_env:
-        found.append(words)
-    return [[word for at, word in enumerate(command) if word not in (">", ">>")
-             and not (at and command[at - 1] in (">", ">>"))] for command in found]
+# A redirection that sends a command's standard output to the file.
+STDOUT_WRITES = {">", ">>", "1>", "1>>", ">|", "1>|", "&>", "&>>"}
 
 
 def _exports(run: str) -> set[str]:
-    """The NAME=VALUE lines the step surely writes to $GITHUB_ENV: an echo or printf bash surely runs (must_run())
-    whose output goes there."""
-    sure = [words for words in must_run(run) if words and words[0] in ("echo", "printf")]
+    """The NAME=VALUE lines the step surely writes to $GITHUB_ENV: an echo or printf bash surely runs whose own
+    standard output goes there. The certainty and the redirect are read off the same command (dep-fleet-6 F1: an
+    identical echo to stdout lent its certainty to `false && echo .. >> $GITHUB_ENV`)."""
     lines = set()
-    for words in _commands_to_github_env(run):
-        if words in sure:
+    for invocation in may_run(run):
+        words = invocation.words
+        if not invocation.certain or not words or words[0] not in ("echo", "printf"):
+            continue
+        if any(operator in STDOUT_WRITES and target in GITHUB_ENV for operator, target in invocation.redirects):
             lines.update(words[2:] if words[0] == "printf" else words[1:])
     return lines
 
@@ -118,11 +103,9 @@ def is_start(step: dict) -> bool:
 
 
 def _home_words(run: str) -> set[str]:
-    """How the step names the job home: its path, and each variable a NAME=VALUE word sets to it."""
-    names = {token.text.split("=", 1)[0] for token in lex(run).tokens
-             if token.kind == "word" and "=" in token.text and HOME.match(token.text.split("=", 1)[1])
-             and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", token.text.split("=", 1)[0])}
-    return names
+    """The variables the step surely binds to the job home and nothing else in it writes (sure_bindings()): an echoed
+    `home=..` or a binding bash may skip or redo names nothing (dep-fleet-6 F2)."""
+    return {name for name, value in sure_bindings(run).items() if HOME.match(value)}
 
 
 def _is_home(word: str, names: set[str]) -> bool:
@@ -158,13 +141,20 @@ def _shuts_down(words: list[str]) -> bool:
             and " ".join(rest[1:]) == SHUTDOWN)
 
 
+def _shuts_down_through(invocation) -> bool:
+    """_shuts_down() of the command as written: the wrappers read through (`env -u ACPMUX_SOCKET`, `timeout 30`) kept
+    in front of the program, so the unset is still seen (dep-fleet-6 F3); from each `env` in it."""
+    words = [word for wrapper in invocation.wrappers for word in wrapper] + list(invocation.words)
+    return any(_program(word) == "env" and _shuts_down(words[at:]) for at, word in enumerate(words))
+
+
 def is_stop(step: dict) -> bool:
     if "always()" not in str(step.get("if") or "").replace(" ", ""):
         return False
     run = str(step.get("run") or "")
     names = _home_words(run)
     return (any(_deletes_home(words, names) for words in must_run(run))
-            and any(_shuts_down(invocation.words) for invocation in may_run(run)))
+            and any(_shuts_down_through(invocation) for invocation in may_run(run)))
 
 
 def condition(step: dict) -> str:
