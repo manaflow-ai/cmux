@@ -152,11 +152,13 @@ while Date() < end {
             }
         }
     }
+    // Fixed one-second buckets, each stamped at its end as rd's series is (eval.py takes a row as
+    // one second and keeps rows whose stamp falls in a phase): a late tick never stretches a bucket.
     let now = unixMs()
-    if now - second.start >= 1000 {
-        series.append(["unix_ms": second.start, "bytes": second.bytes, "frames": second.frames,
+    while now >= second.start + 1000 {
+        series.append(["unix_ms": second.start + 1000, "bytes": second.bytes, "frames": second.frames,
                        "encode_ms": p50(second.ms) as Any])
-        second = (now, 0, 0, [])
+        second = (second.start + 1000, 0, 0, [])
     }
     let wait = next.timeIntervalSinceNow
     if wait > 0 { Thread.sleep(forTimeInterval: wait) }
