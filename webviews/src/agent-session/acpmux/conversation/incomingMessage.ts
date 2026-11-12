@@ -625,7 +625,8 @@ function promptOf(
     // `orphan`): nothing when it went well and wrote nothing, else one quiet line whose output is
     // all it opens to, with no Details of the text the agent read.
     if (notice?.orphan === "none") return { kind: "hidden" };
-    if (notice)
+    if (notice) {
+      const body = shownNoticeBody(notice, noticeBody(text));
       return {
         kind: "message",
         message: {
@@ -633,10 +634,12 @@ function promptOf(
           notice,
           ...remote,
           ...harness,
-          text: shownNoticeBody(notice, noticeBody(text)),
-          ...(notice.orphan ? {} : { raw: text }),
+          text: body,
+          // The text the agent read; an orphan end's is its body alone, so it opens no Details.
+          raw: notice.orphan ? body : text,
         },
       };
+    }
   }
   // A notice an older acpmux kept no provenance for, and tell-coordinator's page (agentNotice.ts
   // `legacyNotice`): only from `acpmux send` at a shell or its outbox, or a sender that named
