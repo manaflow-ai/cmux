@@ -96,8 +96,10 @@ mod unix {
         writer_tx: Sender<OutboundLine>,
         /// A duplicate of the stream's descriptor, owned here, so `end()`
         /// shuts the socket down even after both halves dropped and never
-        /// touches a descriptor number another resource reused.
-        shutdown_fd: std::os::fd::OwnedFd,
+        /// touches a descriptor number another resource reused. `end()` also
+        /// closes it: on macOS the daemon's blocking read can miss the wake of
+        /// a shutdown while the relay keeps any descriptor of the socket.
+        shutdown_fd: Mutex<Option<std::os::fd::OwnedFd>>,
         next_id: AtomicU64,
         timeout_ms: u64,
     }
@@ -159,7 +161,7 @@ mod unix {
         Ok(Arc::new(UnixControl {
             shared,
             writer_tx,
-            shutdown_fd,
+            shutdown_fd: Mutex::new(Some(shutdown_fd)),
             next_id: AtomicU64::new(1),
             timeout_ms,
         }))
@@ -388,10 +390,17 @@ mod unix {
             // Shut both directions so the read loop sees EOF and any blocked
             // writer unblocks. shutdown acts on the socket, so the owned
             // duplicate reaches it; a socket already shut down is harmless.
-            // SAFETY: shutdown on a descriptor this handle owns.
-            unsafe {
-                use std::os::fd::AsRawFd as _;
-                libc::shutdown(self.shutdown_fd.as_raw_fd(), libc::SHUT_RDWR);
+            let shutdown_fd = match self.shutdown_fd.lock() {
+                Ok(mut shutdown_fd) => shutdown_fd.take(),
+                Err(poisoned) => poisoned.into_inner().take(),
+            };
+            if let Some(shutdown_fd) = shutdown_fd {
+                // SAFETY: shutdown on a descriptor this handle owns.
+                unsafe {
+                    use std::os::fd::AsRawFd as _;
+                    libc::shutdown(shutdown_fd.as_raw_fd(), libc::SHUT_RDWR);
+                }
+                drop(shutdown_fd);
             }
         }
     }
