@@ -397,11 +397,15 @@ class AgainstBash(unittest.TestCase):
         self.assertFalse(hasattr(shell_invocations, "invocations"))
 
 
-# #41398 review F1: a generated grammar of nestings (parameter expansion > arithmetic > command substitution > a
-# release), each sample run in real bash with a fake gh on PATH that logs each call. The estimate must cover what ran:
+# One seeded grammar, run in real bash, for every way a script hides or shows a command: nestings (#41398 review F1:
+# parameter expansion > arithmetic > command substitution > a release), function bodies in every form, defined
+# before or after the call and nested (#41133 BLOCK F1: `function publish { gh ..; }` hid the gh), case arms, also
+# inside a substitution (#41768 F2: a pattern's `)` ended the scan), and control flow (#40784 F1: `false && sign`
+# was credited). Each sample runs with a fake gh on PATH that logs its call and the exit status. Both directions:
 # a sample whose gh bash ran must have gh in may_run_program() and `gh release create` (or [], content it cannot
-# read) in may_run_nested(). Seeded and deterministic: NEST_SEEDS samples, no time budget.
-NEST_SEEDS = 20000
+# read) in may_run_nested(); a sample must_run() credits with the release must have run it whenever bash ran the
+# script to a 0 exit. Deterministic: GRAMMAR_SEEDS samples, no time budget.
+GRAMMAR_SEEDS = 20000
 NEST_LEAF = "gh release create v1 dist/x"
 NEST_PRELUDE = "unset x0 x1 x2 x3 x4 x5\ny=abc\narr=(0 1)\n"
 
@@ -414,7 +418,8 @@ def _escape_for_backticks(text: str, escape_dollars: bool) -> str:
 def nest_word(rng, depth: int, level: int = 0) -> str:
     """A word whose expansion runs NEST_LEAF, wrapped in DEPTH random expansion forms."""
     if depth == 0:
-        return rng.choice((f"$({NEST_LEAF})", f"`{NEST_LEAF}`"))
+        return rng.choice((f"$({NEST_LEAF})", f"`{NEST_LEAF}`", f"$(case x in x) {NEST_LEAF};; esac)",
+                           f"$(case x in (y) :;; x|z) {NEST_LEAF};; esac)"))
     inner = nest_word(rng, depth - 1, level + 1)
     name = f"x{level}"
     forms = (
@@ -424,28 +429,80 @@ def nest_word(rng, depth: int, level: int = 0) -> str:
         f"${{#arr[{inner}0]}}", f"$(( {inner}0 + 1 ))", f"$[ {inner}0 + 1 ]", f"$((arr[{inner}0]))",
         f"$(echo {inner})", f"`echo {_escape_for_backticks(inner, rng.random() < 0.5)}`", f'"{inner}"',
         f"${{{name}:-\"{inner}\"}}", f"\"${{{name}:-'{inner}'}}\"",  # in double quotes a ${ }'s ' is literal
+        f"$(case x in x) echo {inner};; esac)",
     )
     return rng.choice(forms)
 
 
-def nest_script(seed: int) -> str:
-    import random
-    rng = random.Random(seed)
+def nest_statement(rng) -> str:
+    """A statement that runs NEST_LEAF, plainly or through a word's expansions."""
+    if rng.random() < 0.3:
+        return NEST_LEAF
     word = nest_word(rng, rng.randint(1, 4))
-    statement = rng.choice((
+    return rng.choice((
         f"echo {word} >/dev/null", f": {word}", f"v={word}", f"(( {word}0 ))", f"arr[{word}0]=1",
         f"[[ -n {word} ]]", f"case {word} in *) ;; esac", f"cat <<EOF >/dev/null\n{word}\nEOF",
         f"local_v=({word})", f"for i in {word}; do :; done", f"export v={word}",
     ))
+
+
+def _body(rng, statement: str) -> tuple[str, str]:
+    """How a body opens and closes around STATEMENT: newlines, or `; ` where the statement is one line."""
+    if "\n" in statement or rng.random() < 0.5:
+        return "\n", "\n"
+    return " ", "; "
+
+
+def wrap_statement(rng, statement: str, level: int) -> str:
+    """STATEMENT inside one construct that runs it (a function called, a case arm taken, a branch, a loop, a
+    subshell or substitution), or one that may skip it."""
+    a, z = _body(rng, statement)
+    f = f"f{level}"
+    forms = (
+        # Function bodies, every form; the call before the definition runs through a caller defined first.
+        f"{f}() {{{a}{statement}{z}}}\n{f}", f"{f}() ({a}{statement}{z})\n{f}", f"function {f} {{{a}{statement}{z}}}\n{f}",
+        f"function {f}() {{{a}{statement}{z}}}\n{f}", f"function {f} ({a}{statement}{z})\n{f}",
+        f"{f}() if true; then{a}{statement}{z}fi\n{f}", f"function {f} for i in 1; do{a}{statement}{z}done\n{f}",
+        f"g{level}() {{ {f}; }}\n{f}() {{{a}{statement}{z}}}\ng{level}",
+        f"{f}() {{ function h{level} {{{a}{statement}{z}}}; h{level}; }}; {f}",
+        # Case arms.
+        f"case x in x){a}{statement}{z};; esac", f"case x in (y) :;; x|z){a}{statement}{z};; esac",
+        f"case x in x) :;&\ny){a}{statement}{z};; esac",
+        # Control flow that runs it, and that may skip it.
+        f"true && {{{a}{statement}{z}}}", f"false || {{{a}{statement}{z}}}", f"if true; then{a}{statement}{z}fi",
+        f"if false; then :; else{a}{statement}{z}fi", f"if false; then :; elif true; then{a}{statement}{z}fi",
+        f"while true; do{a}{statement}{z}break; done", f"for i in 1; do{a}{statement}{z}done",
+        f"until false; do{a}{statement}{z}break; done", f"{{{a}{statement}{z}}}", f"({a}{statement}{z})",
+        f"false && {{{a}{statement}{z}}}", f"if false; then{a}{statement}{z}fi", f"true || exit 0\n{statement}",
+        f"if false; then exit 3; fi\n{statement}", f"exit 0\n{statement}",
+        # Substitutions of a whole statement.
+        f"v=$({a}{statement}{z})", f"echo \"${{x9:-$({a}{statement}{z})}}\" >/dev/null",
+    )
+    return rng.choice(forms)
+
+
+def grammar_script(seed: int) -> str:
+    import random
+    rng = random.Random(seed)
+    statement = nest_statement(rng)
+    for level in range(rng.choice((0, 0, 1, 1, 2, 3))):
+        statement = wrap_statement(rng, statement, level)
     return NEST_PRELUDE + statement + "\n"
 
 
 def bash_runs_gh(scripts: list[str]) -> set[int]:
     """The indexes of SCRIPTS whose gh call bash ran, each script run once by its own bash with a fake gh."""
+    return bash_runs(scripts)[0]
+
+
+def bash_runs(scripts: list[str]) -> tuple[set[int], set[int]]:
+    """The indexes of SCRIPTS whose gh call bash ran, and of those bash ran to a 0 exit."""
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
         log = root / "ran"
         log.touch()
+        passed = root / "passed"
+        passed.touch()
         bin_dir = root / "bin"
         bin_dir.mkdir()
         (bin_dir / "gh").write_text(f"#!/bin/sh\necho \"$SAMPLE\" >> '{log}'\n")
@@ -455,40 +512,56 @@ def bash_runs_gh(scripts: list[str]) -> set[int]:
         for index, script in enumerate(scripts):
             (samples / f"{index}.sh").write_text(script)
         driver = (f"cd '{samples}'\nfor n in $(seq 0 {len(scripts) - 1}); do\n"
-                  "  SAMPLE=$n timeout 10 bash --noprofile --norc ./$n.sh </dev/null >/dev/null 2>&1\ndone\n")
+                  "  if SAMPLE=$n timeout 10 bash --noprofile --norc ./$n.sh </dev/null >/dev/null 2>&1; then\n"
+                  f"    echo $n >> '{passed}'\n  fi\ndone\n")
         environment = {"PATH": f"{bin_dir}:/usr/bin:/bin", "HOME": str(root), "LC_ALL": "C"}
         subprocess.run(["bash", "--noprofile", "--norc", "-c", driver], env=environment, capture_output=True,
-                       text=True, timeout=1800, stdin=subprocess.DEVNULL, check=True)
-        return {int(line) for line in log.read_text().split()}
+                       text=True, timeout=3600, stdin=subprocess.DEVNULL, check=True)
+        return ({int(line) for line in log.read_text().split()}, {int(line) for line in passed.read_text().split()})
 
 
-class NestingGrammarAgainstBash(unittest.TestCase):
+def _releases(words: list[str]) -> bool:
+    return words[:3] == ["gh", "release", "create"]
+
+
+class GrammarAgainstBash(unittest.TestCase):
     maxDiff = None
 
-    def test_the_estimate_covers_every_release_bash_runs_in_a_generated_nesting(self) -> None:
+    def test_the_estimate_covers_every_release_bash_runs_and_credits_none_it_skips(self) -> None:
         from shell_invocations import may_run_nested
-        scripts = [nest_script(seed) for seed in range(NEST_SEEDS)]
-        ran = bash_runs_gh(scripts)
-        # The grammar is only a check if bash really runs most of it.
-        self.assertGreater(len(ran), NEST_SEEDS // 2, f"bash ran gh in only {len(ran)} of {NEST_SEEDS} samples")
-        missed = []
-        for index in sorted(ran):
-            script = scripts[index]
-            nested = may_run_nested(script)
-            if not may_run_program(script, "gh") or not any(
-                    words == [] or words[:3] == ["gh", "release", "create"] for words in nested):
-                missed.append(script)
+        scripts = [grammar_script(seed) for seed in range(GRAMMAR_SEEDS)]
+        ran, passed = bash_runs(scripts)
+        # The grammar is only a check if bash really runs most of it, and skips some.
+        self.assertGreater(len(ran), GRAMMAR_SEEDS // 2, f"bash ran gh in only {len(ran)} of {GRAMMAR_SEEDS} samples")
+        self.assertGreater(GRAMMAR_SEEDS - len(ran), GRAMMAR_SEEDS // 50, "the grammar skips too few releases")
+        missed, credited = [], []
+        for index, script in enumerate(scripts):
+            if index in ran:
+                nested = may_run_nested(script)
+                if not may_run_program(script, "gh") or not any(words == [] or _releases(words) for words in nested):
+                    missed.append(script)
+            elif index in passed and any(_releases(words) for words in must_run(script)):
+                credited.append(script)
         self.assertEqual(missed, [], f"{len(missed)} of {len(ran)} samples bash ran gh in were estimated not to")
+        self.assertEqual(credited, [], f"{len(credited)} samples must_run() credits with a release bash skipped")
 
-    def test_the_reviewer_row(self) -> None:
+    def test_the_reviewer_rows(self) -> None:
         from shell_invocations import may_run_nested
-        script = 'echo "${x:-$(( $(gh release create v1 dist/x) + 1 ))}"'
-        self.assertEqual(bash_runs_gh([script]), {0})
-        self.assertIn(["gh", "release", "create", "v1", "dist/x"], may_run_nested(script))
+        rows = (
+            'echo "${x:-$(( $(gh release create v1 dist/x) + 1 ))}"',  # #41398 F1
+            "function publish { gh release create v1 dist/x; }; publish",  # #41133 BLOCK F1
+            'echo "${X:-$(case x in x) gh release create v1 dist/x;; esac)}"',  # #41768 F2
+            "echo $(case x in x) gh release create v1 dist/x;; esac)",
+        )
+        self.assertEqual(bash_runs_gh(list(rows)), set(range(len(rows))))
+        for script in rows:
+            with self.subTest(script):
+                self.assertTrue(may_run_program(script, "gh"))
+                self.assertIn(["gh", "release", "create", "v1", "dist/x"], may_run_nested(script))
 
     def test_an_expansion_it_cannot_parse_may_run_anything(self) -> None:
         from shell_invocations import may_run_nested
-        for script in ('echo "${x:-$(( 1 + }"', "echo ${x:-$(( $(a) + 1 )"):
+        for script in ('echo "${x:-$(( 1 + }"', "echo ${x:-$(( $(a) + 1 )", "echo $(case x in x) a;;)"):
             with self.subTest(script):
                 self.assertIn([], may_run_nested(script))
                 self.assertTrue(may_run_program(script, "anything"))
