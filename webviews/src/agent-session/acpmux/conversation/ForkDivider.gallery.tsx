@@ -81,7 +81,7 @@ export default componentEntry<{ look: Look; theme: Theme }>({
       props: { look: "hairline", theme: "dark" },
     },
     chip: {
-      note: "The label in a pill on the line: easier to spot, but a second shape the transcript has nowhere else.",
+      note: "The label in a small boxed tag on the line: easier to spot, but a boxed label the transcript draws nowhere else.",
       props: { look: "chip", theme: "dark" },
     },
     action: {

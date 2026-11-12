@@ -1095,7 +1095,7 @@ pub(super) fn ran_model(meta: &SessionMeta) -> Option<String> {
     [meta.model_request.as_deref(), option, current]
         .into_iter()
         .flatten()
-        .find(|m| named(*m))
+        .find(|m| named(m))
         .map(str::to_owned)
 }
 
