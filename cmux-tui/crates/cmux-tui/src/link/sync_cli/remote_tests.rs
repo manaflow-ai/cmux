@@ -452,3 +452,40 @@ fn a_listing_with_a_repeated_cursor_is_refused() {
     let error = remote.list("/x").unwrap_err();
     assert!(format!("{error:#}").contains("no progress"), "{error:#}");
 }
+
+/// A new folder below one this connection already made costs one `fs.mkdir`: a copy of a
+/// repository makes thousands, each round trip about 50 ms on a Cloud link, and the two `fs.stat`s
+/// around each one were most of a copy's first minutes.
+#[test]
+fn a_folder_below_one_already_made_takes_one_round_trip() {
+    let (client, mut server) = UnixStream::pair().unwrap();
+    client.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+    let machine = std::thread::spawn(move || {
+        let mut reader = BufReader::new(server.try_clone().unwrap());
+        let mut asked = Vec::new();
+        loop {
+            let mut line = Vec::new();
+            if reader.read_until(b'\n', &mut line).unwrap() == 0 {
+                return asked;
+            }
+            let request: Value = serde_json::from_slice(&line).unwrap();
+            let cmd = request["cmd"].as_str().unwrap().to_string();
+            let answer = match (cmd.as_str(), request["path"].as_str()) {
+                ("fs.stat", Some("/work")) => {
+                    json!({"id": request["id"], "ok": true, "data": {"kind": "dir"}})
+                }
+                ("fs.stat", _) => json!({"id": request["id"], "ok": false,
+                    "error_code": "fs.not_found", "error": "no"}),
+                _ => json!({"id": request["id"], "ok": true, "data": {}}),
+            };
+            asked.push(cmd);
+            server.write_all(format!("{answer}\n").as_bytes()).unwrap();
+        }
+    });
+    let mut remote = Remote::on(client);
+    remote.mkdir_all("/work/a").unwrap();
+    remote.mkdir_all("/work/a/b").unwrap();
+    remote.mkdir_all("/work/a/b").unwrap();
+    drop(remote);
+    assert_eq!(machine.join().unwrap(), ["fs.stat", "fs.stat", "fs.mkdir", "fs.mkdir"]);
+}

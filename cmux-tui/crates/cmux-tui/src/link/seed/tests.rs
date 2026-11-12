@@ -461,6 +461,39 @@ fn bases_fall_back_to_the_default_tip() {
     assert!(!machine.join("upstream.txt").exists());
 }
 
+/// A clone of one branch (`git clone --single-branch --branch next`, what a blobless task clone
+/// is) has no `origin/HEAD`, `origin/main` or `origin/master`, and a task branch made in it has no
+/// upstream. Its remote-tracking branch still shares history with HEAD: the seed bases on the
+/// closest one instead of refusing and copying the whole folder.
+#[test]
+fn a_single_branch_clone_bases_on_its_remote_tracking_branch() {
+    let f = Fixture::new();
+    let old = git(&f.work, &["rev-parse", "HEAD"]);
+    write(&f.work.join("next.txt"), "next\n");
+    git(&f.work, &["add", "next.txt"]);
+    git(&f.work, &["commit", "-q", "-m", "next moves"]);
+    git(&f.work, &["push", "-q", "origin", "HEAD:next"]);
+    let fork_point = git(&f.work, &["rev-parse", "HEAD"]);
+    git(&f.work, &["checkout", "-q", "-b", "topic", "--no-track"]);
+    write(&f.work.join("topic.txt"), "topic\n");
+    git(&f.work, &["add", "topic.txt"]);
+    git(&f.work, &["commit", "-q", "-m", "topic"]);
+    git(&f.work, &["remote", "set-head", "origin", "--delete"]);
+    git(&f.work, &["update-ref", "-d", "refs/remotes/origin/main"]);
+    // An older branch beside it: a base further back would send more than it must.
+    git(&f.work, &["update-ref", "refs/remotes/origin/older", &old]);
+    git(&f.work, &["update-ref", "refs/remotes/origin/next", &fork_point]);
+
+    let bundle = f.path("seed.bundle");
+    let planned = plan(&f.work, &bundle).unwrap();
+
+    assert_eq!(planned.params.base, fork_point);
+    assert_eq!(planned.bases, vec![fork_point, old]);
+    let machine = f.machine(&planned, &bundle, "machine");
+    git(&machine, &["checkout", "-q", "--detach", &planned.params.work]);
+    assert!(machine.join("topic.txt").exists());
+}
+
 #[test]
 fn submodule_local_work_falls_back() {
     let f = Fixture::new();

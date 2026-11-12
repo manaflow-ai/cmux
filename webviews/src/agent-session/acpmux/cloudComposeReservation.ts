@@ -20,6 +20,8 @@ type Attempt = {
   intentAt: number;
   /// Reserves for this key that failed in a row (none: the last one answered, or is out).
   failures: number;
+  /// The Send this compose went with: the platform binds it to that one for good.
+  sendKey?: string;
 };
 
 /// While the person still means to send (Cloud picked, typing), the same compose key is reserved
@@ -166,6 +168,16 @@ export class CloudComposeReservation {
     return false;
   }
 
+  /// Whether Send `sendKey` may name compose `key`. The platform binds a compose to one Send and
+  /// refuses another (409 reservation.bound), so a new prompt after a failed start, whose compose
+  /// an earlier Send holds, goes as an ordinary Send. A retry of that Send keeps it.
+  claimForSend(key: string, sendKey: string): boolean {
+    const attempt = this.attempt;
+    if (attempt?.key !== key) return false;
+    attempt.sendKey ??= sendKey;
+    return attempt.sendKey === sendKey;
+  }
+
   abandon(): void {
     this.stopRelease();
     this.stopIdle();
@@ -216,8 +228,9 @@ export function reservedCloudCall(
         .then((reply) => (reply as { ticket?: unknown } | undefined)?.ticket)
         .catch(() => undefined);
       // A reserve slower than RESERVATION_SEND_WAIT_MS no longer holds the Send: it goes as an
-      // ordinary one, and the late reservation is released (readyForSend).
-      if (!(await reservation.readyForSend(reservationKey))) {
+      // ordinary one, and the late reservation is released (readyForSend). So does a Send this
+      // compose cannot bind (claimForSend).
+      if (!(await reservation.readyForSend(reservationKey)) || !reservation.claimForSend(reservationKey, params.key)) {
         const { reservationKey: _reservationKey, gestureTicket: _gestureTicket, ...ordinary } = params;
         // The native gesture was already consumed to obtain this ticket. Keep it on the
         // ordinary Send fallback so a failed or unavailable reservation cannot turn into a

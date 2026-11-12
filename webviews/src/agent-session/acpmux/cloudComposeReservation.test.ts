@@ -10,7 +10,7 @@ import {
 import { cloudStartKeys, oneCloudStart } from "./cloudRun";
 import { RELEASE_AFTER_MS } from "./newChatPrewarm";
 
-function harness(reserve: () => Promise<unknown> = async () => ({})) {
+function harness(reserve: () => Promise<unknown> = async () => ({}), prefix = "compose") {
   const calls: [string, Record<string, unknown>][] = [];
   const timers: { run: () => void; live: boolean; at: number; ms: number }[] = [];
   let sequence = 0;
@@ -34,7 +34,7 @@ function harness(reserve: () => Promise<unknown> = async () => ({})) {
         return () => (timer.live = false);
       },
     },
-    () => `compose-${++sequence}`,
+    () => `${prefix}-${++sequence}`,
   );
   return {
     reservation,
@@ -250,6 +250,46 @@ test("the reservation is transport detail: an uncertain Send keeps its original 
   expect(keys.keyFor(request)).toBe("send-1");
   keys.ended(request, { ok: false, code: "unavailable" });
   expect(keys.keyFor({ task: "hello", reservationKey: "compose-2" })).toBe("send-1");
+});
+
+const startChats = (calls: [string, Record<string, unknown>][]) =>
+  calls.filter(([method]) => method === "cloud.startChat").map(([, params]) => params);
+
+// The platform binds a compose to one Send and a Send to one compose, and answers anything else
+// 409 reservation.bound: "Couldn't move the chat" on a start that had done nothing wrong.
+test("a new prompt after a failed start does not name the reservation an earlier Send bound", async () => {
+  const h = harness();
+  h.reservation.selected();
+  await h.start({ task: "first", reservationKey: h.reservation.handoff() }, "send-1");
+  await h.start({ task: "1+1", reservationKey: h.reservation.handoff() }, "send-2");
+  const [first, second] = startChats(h.calls);
+  expect(first?.reservationKey).toBe("compose-1");
+  expect(second?.key).toBe("send-2");
+  expect(second).not.toHaveProperty("reservationKey");
+  expect(second?.gestureTicket).toBe("ticket-1");
+});
+
+test("a retry of the same Send keeps its reservation, so it reaches the machine it bound", async () => {
+  const h = harness();
+  h.reservation.selected();
+  await h.start({ task: "hello", reservationKey: h.reservation.handoff() }, "send-1");
+  await h.start({ task: "hello", reservationKey: h.reservation.handoff() }, "send-1");
+  expect(startChats(h.calls).map((params) => params.reservationKey)).toEqual(["compose-1", "compose-1"]);
+});
+
+// A retry from another page may find the machine only through the platform: its first bind's
+// answer may have been lost, so the host's ledger has no pin. Going without the reservation would
+// cold-create a second paid machine, so it still names its compose and the platform decides.
+test("a Send kept from an earlier page still names its compose, so a lost bind fails closed", async () => {
+  const before = harness(undefined, "before");
+  before.reservation.selected();
+  await before.start({ task: "1+1", reservationKey: before.reservation.handoff() }, "send-1");
+  const after = harness(undefined, "after");
+  after.reservation.selected();
+  await after.start({ task: "1+1", reservationKey: after.reservation.handoff() }, "send-1");
+  await settle();
+  expect(startChats(after.calls)[0]?.reservationKey).toBe("after-1");
+  expect(after.calls.map(([method]) => method)).not.toContain("cloud.releaseReservation");
 });
 
 test("a later environment pick releases the default-image reservation", async () => {
