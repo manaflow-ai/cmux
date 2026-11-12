@@ -96,6 +96,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
     /// The pinch that drives the zoom (page -> grid, card -> page, or grabbing a running zoom).
     @State private var pinchSession = ZoomPinchSession()
     @State private var zoomPinchActive = false
+    /// The bar swipe up that drives the zoom, while the thumb is down.
+    @State private var barSwipe: BarSwipe?
     /// The insets the grid last had on screen: a page that hides a tab bar or
     /// the status bar has smaller ones, and a card revealed or laid out
     /// against them landed under the grid's bar once they came back
@@ -205,7 +207,8 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 .opacity(1 - overviewShown)
                 // Usable on the page, and while a zoom heads back to the page
                 // (the tabs button then reverses it).
-                .allowsHitTesting(!chrome.menuOpen && (zoomState.pageInteractive || (zoomState.phase == .animating && !zoomState.headingToOverview)))
+                .allowsHitTesting(!chrome.menuOpen && (zoomState.pageInteractive || barSwipe != nil
+                                                       || (zoomState.phase == .animating && !zoomState.headingToOverview)))
             }
 
             // Kept mounted (transparent) so the droplet starts growing on
@@ -222,6 +225,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     .allowsHitTesting(chrome.menuOpen)
                     .accessibilityHidden(!chrome.menuOpen)
             }
+
+            #if DEBUG
+            TabsGestureProbeElement()
+            #endif
 
             if let notice = source.notice {
                 Text(notice)
@@ -388,6 +395,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
         let g = settled ? (rect: fullRect, radius: chrome.swiping ? theme.metrics.screenRadius : 0)
             : phase == .overview ? (rect: activeCardContentRect.offsetBy(dx: activeID.map { cardSwipes.offset($0) } ?? 0, dy: 0),
                                     radius: overviewLayout.cardRadius) : zoomGeometry()
+        #if DEBUG
+        let _ = TabsGestureProbe.drew(g.rect)
+        #endif
         let asCard = phase == .overview && staticCardID != nil && staticCardID == activeID
         let scale = size.width > 0 ? max(0.01, g.rect.width / size.width) : 1
         // The card's content anchor, moving with the zoom's scale.
@@ -776,33 +786,37 @@ struct TabsScreen<Source: TabsDataSource>: View {
 
     // MARK: Toolbar swipe
 
-    /// Swipe up on the bar: the page shrinks toward its card with the finger.
-    private func swipeUpChanged(_ up: CGFloat, _ velocity: CGFloat) {
-        if zoomState.phase == .page {
-            guard !chrome.swiping, activeID != nil else { return }
+    /// Swipe up on the bar: the page follows the thumb 1:1 from where the
+    /// drag engaged (`BarSwipe`), and can be dragged back down; every part
+    /// of the transition (page, grid, bar, card chrome) reads the one
+    /// progress this sets.
+    private func swipeUpChanged(_ finger: CGPoint, _ velocity: CGVector) {
+        if barSwipe == nil {
+            guard zoomState.phase == .page, !chrome.swiping, !zoomPinchActive, activeID != nil else { return }
             zoomTabId = activeID
             prepareOverview(revealing: activeIndex ?? 0, count: tabs.count)
-            // Safari's page follows its swipe-up curve in time (by finger travel
-            // alone it dropped 98 pt in the first frame, cmux-next re-audit 3 D7).
-            zoomDriver.startSwipeUp()
-            return
+            barSwipe = BarSwipe(startRect: fullRect, startFinger: finger)
+            zoomDriver.beginInteraction()
         }
-        // The finger turned back down: the swipe takes over interactively.
-        if zoomState.playingSwipeUp, velocity < -50 { zoomDriver.beginInteraction() }
-        guard zoomState.phase == .interactive else { return }
-        zoomDriver.updateInteraction(progress: BarSwipe.progress(up: up), velocity: BarSwipe.velocity(up: up, velocity: velocity))
+        guard let swipe = barSwipe, zoomState.phase == .interactive else { return }
+        let path = zoomPath()
+        let s = swipe.state(finger: finger, path: path)
+        let v = swipe.releaseVelocity(finger: finger, velocity: velocity, path: path)
+        zoomDriver.updateInteraction(progress: s.progress, offset: s.offset, velocity: v.p, offsetVelocity: v.o)
     }
 
-    /// Release: on to the grid or back to the page, on the release spring.
-    private func swipeUpEnded(_ up: CGFloat, _ velocity: CGFloat) {
+    /// Release: the spring starts at the thumb's velocity, on to the grid
+    /// (a fling up, or past a quarter of the way) or back to the page.
+    private func swipeUpEnded(_ finger: CGPoint, _ velocity: CGVector) {
+        guard let swipe = barSwipe else { return }
+        barSwipe = nil
         guard zoomState.phase == .interactive, !zoomPinchActive else { return }
-        // Safari goes on to the grid along its own curve from where the
-        // finger left the page; a swipe back down (or barely up) returns.
-        if up > 24 && velocity >= 0 {
-            zoomDriver.releaseOnSwipeUpCurve()
-        } else {
-            zoomDriver.endInteraction(velocity: BarSwipe.releaseVelocity(velocity), startedFromOverview: false)
-        }
+        let path = zoomPath()
+        let s = swipe.state(finger: finger, path: path)
+        let v = swipe.releaseVelocity(finger: finger, velocity: velocity, path: path)
+        zoomDriver.updateInteraction(progress: s.progress, offset: s.offset, velocity: v.p, offsetVelocity: v.o)
+        let toOverview = BarSwipe.releaseToOverview(progress: s.progress, velocityUp: -velocity.dy)
+        zoomDriver.release(toOverview: toOverview, spring: toOverview ? .barSwipeToOverview : .barSwipeToPage)
     }
 
     /// Closing from the grid: the active card is first handed to the grid

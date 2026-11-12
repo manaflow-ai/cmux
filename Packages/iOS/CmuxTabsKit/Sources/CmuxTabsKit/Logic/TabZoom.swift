@@ -37,6 +37,14 @@ struct ZoomSpring: Equatable, Sendable {
     static let reversalToOverview = ZoomSpring(response: 0.36, damping: 0.86)
     /// After a pinch is released (no reference recording).
     static let release = ZoomSpring(response: 0.36, damping: 0.9)
+    /// A bar swipe released toward the grid: Safari's own page-to-card
+    /// spring (0.369 / 0.873 fitted to device recordings), started at the
+    /// thumb's velocity, so it carries the fling on and overshoots ~0.5 %.
+    static let barSwipeToOverview = ZoomSpring(response: 0.37, damping: 0.875)
+    /// A bar swipe released back toward the page (or turned back down):
+    /// Safari's return-to-page spring after a reversal (0.31-0.33 / 1.03),
+    /// critically damped so the page lands without bouncing.
+    static let barSwipeToPage = ZoomSpring(response: 0.32, damping: 1.0)
 }
 
 /// Where a new tab's page grows from: centred on the screen at `scale`,
@@ -172,26 +180,6 @@ struct TabZoomState: Equatable, Sendable {
         curveWarmup = 2
     }
 
-    /// A swipe up on the bar began: the page goes to the grid along Safari's
-    /// swipe-up curve in time (Safari's page moves on its own clock while the
-    /// finger travels; a swipe that turns back down takes over interactively).
-    mutating func startSwipeUp() {
-        guard phase == .page else { return }
-        animate(to: 1, spring: .release, keepVelocity: 0)
-        play(.swipeUp)
-    }
-
-    /// Whether the swipe-up curve is running.
-    var playingSwipeUp: Bool { phase == .animating && curve == .swipeUp }
-
-    /// A swipe up on the bar ended: the grid follows Safari's swipe-up curve
-    /// on from where the finger left the page (its progress on that curve).
-    mutating func releaseOnSwipeUpCurve() {
-        guard phase == .interactive else { return }
-        animate(to: 1, spring: .release, keepVelocity: 0)
-        play(.swipeUp, from: max(1.0 / 600, SafariCurve.swipeUp.time(reaching: progress)))
-    }
-
     mutating func animate(to target: Double, spring: ZoomSpring, keepVelocity: Double) {
         curve = nil
         self.target = target
@@ -232,9 +220,9 @@ struct TabZoomState: Equatable, Sendable {
 
     /// Releases a pinch toward `toOverview`, keeping every velocity component
     /// (no discontinuity), and springs progress and translation from there.
-    mutating func release(toOverview: Bool) {
+    mutating func release(toOverview: Bool, spring: ZoomSpring = .release) {
         guard phase == .interactive else { return }
-        animate(to: toOverview ? 1 : 0, spring: .release, keepVelocity: 1)
+        animate(to: toOverview ? 1 : 0, spring: spring, keepVelocity: 1)
     }
 
     /// Completes toward the grid past half way or when moving toward it fast

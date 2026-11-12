@@ -72,9 +72,10 @@ struct TabsToolbar: View {
     var onSwipeChanged: (CGFloat) -> Void
     var onSwipeEnded: (CGFloat, CGFloat) -> Void
     /// Swipe up on the bar (Safari opens the tab grid, following the
-    /// finger): the upward translation and velocity in points (/s).
-    var onSwipeUpChanged: (CGFloat, CGFloat) -> Void = { _, _ in }
-    var onSwipeUpEnded: (CGFloat, CGFloat) -> Void = { _, _ in }
+    /// finger): the thumb's location and velocity (points, points/s, in the
+    /// gesture's global space; the tracking is relative to where it engaged).
+    var onSwipeUpChanged: (CGPoint, CGVector) -> Void = { _, _ in }
+    var onSwipeUpEnded: (CGPoint, CGVector) -> Void = { _, _ in }
 
     @State private var labelWidth: CGFloat = 69
     /// The bar drag's direction, fixed once it moved past the slop.
@@ -82,6 +83,13 @@ struct TabsToolbar: View {
     /// A bar drag moved past the slop: the button under the finger must not
     /// act on touch-up (Safari never opens a menu from a swipe).
     @State private var swipeMoved = false
+    /// True while the bar drag is recognised; reset by SwiftUI on end and on
+    /// cancel (a cancelled drag never calls `onEnded`, and a swipe up left
+    /// unended would hold the zoom mid-way).
+    @GestureState private var swipeLive = false
+    /// The last swipe-up location, for ending a cancelled one (a box: it
+    /// changes every touch event and must not re-render the bar).
+    @State private var swipeLast = SwipeLast()
     @State private var progressShown: CGFloat = 0
     @State private var progressOpacity: Double = 0
     @Environment(\.tabsKitTheme) private var theme
@@ -324,6 +332,13 @@ struct TabsToolbar: View {
         .glassEffect(.regular.interactive(), in: .capsule)
         .contentShape(.capsule)
         .simultaneousGesture(swipe, including: chrome.editing || collapsed ? .subviews : .all)
+        .onChange(of: swipeLive) { _, live in
+            // Cancelled (no `onEnded`): end a swipe up where the thumb last was, at rest.
+            guard !live, let axis = swipeAxis else { return }
+            swipeAxis = nil
+            swipeMoved = false
+            if axis == .up, let at = swipeLast.location { onSwipeUpEnded(at, .zero) }
+        }
         .overlay {
             // Collapsed: the whole pill is one hit target that starts the
             // expand spring on touch-up. A zero-distance drag ends on
@@ -433,26 +448,36 @@ struct TabsToolbar: View {
 
     private var swipe: some Gesture {
         DragGesture(minimumDistance: 12, coordinateSpace: .global)
+            .updating($swipeLive) { _, live, _ in live = true }
             .onChanged { v in
                 guard !chrome.editing, !collapsed else { return }
                 swipeMoved = true
                 let axis = swipeAxis ?? BarSwipe.axis(v.translation)
                 if swipeAxis == nil { swipeAxis = axis }
+                #if DEBUG
+                if axis == .up { TabsGestureProbe.finger(v.location, page: CGRect(origin: .zero, size: size)) }
+                #endif
                 switch axis {
                 case .horizontal: onSwipeChanged(v.translation.width)
-                case .up: onSwipeUpChanged(-v.translation.height, -v.velocity.height)
+                case .up:
+                    swipeLast.location = v.location
+                    onSwipeUpChanged(v.location, CGVector(dx: v.velocity.width, dy: v.velocity.height))
                 case .down: break
                 }
             }
             .onEnded { v in
                 let axis = swipeAxis
                 swipeAxis = nil
+                #if DEBUG
+                if axis == .up { TabsGestureProbe.lifted() }
+                #endif
+                swipeLast.location = nil
                 // After the button under the finger saw this touch-up.
                 Task { @MainActor in swipeMoved = false }
                 switch axis {
                 case .horizontal?:
                     if chrome.swiping { onSwipeEnded(v.translation.width, v.predictedEndTranslation.width) }
-                case .up?: onSwipeUpEnded(-v.translation.height, -v.velocity.height)
+                case .up?: onSwipeUpEnded(v.location, CGVector(dx: v.velocity.width, dy: v.velocity.height))
                 default: break
                 }
             }
@@ -557,5 +582,11 @@ struct AddressField: UIViewRepresentable {
             return false
         }
     }
+}
+
+/// The bar swipe's last location (see `TabsToolbar.swipeLast`).
+@MainActor
+final class SwipeLast {
+    var location: CGPoint?
 }
 #endif

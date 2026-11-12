@@ -81,14 +81,6 @@ struct SafariCurve: Hashable, Sendable {
         0.9761, 0.9808, 0.9812, 0.9881, 0.9897, 0.9897, 0.9897, 0.9897, 0.9897, 0.9902,
         0.998, 1.0, 1.0,
     ])
-    /// Swipe up on the bar (250 pt in 0.25 s) to the grid: Safari, 3 runs, same input (D7).
-    static let swipeUp = SafariCurve(samples: [
-        0.0, 0.1213, 0.2483, 0.3012, 0.4006, 0.4336, 0.5101, 0.5754, 0.5946, 0.6296,
-        0.6601, 0.6841, 0.7014, 0.7198, 0.7436, 0.768, 0.7963, 0.8255, 0.8637, 0.8745,
-        0.8949, 0.9119, 0.9299, 0.9465, 0.9587, 0.9684, 0.9769, 0.984, 0.9896, 0.9949,
-        0.9984, 1.0007, 1.0026, 1.0044, 1.0054, 1.0061, 1.0058, 1.0053, 1.0049, 1.0047,
-        1.0045, 1.0042, 1.0046, 1.0045, 1.0034, 1.0023, 1.002, 1.0015, 1.0013, 1.0,
-    ])
     /// A flung card from the finger's end until it is off screen (x1 300 -> 0 pt): Safari, re-measured (D1); it holds 2 frames, then accelerates and slows to the edge.
     static let fling = SafariCurve(samples: [
         0.0, 0.0, 0.0, 0.0177, 0.031, 0.051, 0.08, 0.1177, 0.1667, 0.2243,

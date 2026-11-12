@@ -2,7 +2,7 @@
 import Testing
 
 struct SafariCurveTests {
-    private let all: [SafariCurve] = [.zoomIn, .zoomOut, .reflow, .twoToOne, .snapBack, .lastTab, .swipeUp, .fling]
+    private let all: [SafariCurve] = [.zoomIn, .zoomOut, .reflow, .twoToOne, .snapBack, .lastTab, .fling]
 
     @Test func everyCurveStartsAtRestAndEndsAtOne() {
         for c in all {
@@ -21,7 +21,7 @@ struct SafariCurveTests {
     }
 
     @Test func timeReachingInvertsValue() {
-        let c = SafariCurve.swipeUp
+        let c = SafariCurve.zoomIn
         for p in [0.2, 0.5, 0.8] {
             #expect(abs(c.value(at: c.time(reaching: p)) - p) < 0.002)
         }
