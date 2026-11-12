@@ -16,6 +16,7 @@ import type { MarkdownFieldElement } from "../MarkdownField";
 import { proseMirrorGlobals } from "../promptFieldTesting";
 import { inlineToken, type ComposerAttachment } from "../attachments";
 import { translate } from "../i18n";
+import { CMUX_PASS_THROUGH } from "../cmuxCommands";
 import { seedLastPicks } from "../lastPick";
 import { EMPTY_OMNIBAR } from "../omnibar";
 import { CloudTypingPrewarm, CLOUD_TYPING_PREWARM_REFRESH_MS, cloudTypingMachineID } from "../cloudTypingPrewarm";
@@ -984,6 +985,39 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
   expect(promptValue()).toBe("fix the flaky test");
 });
 
+// The app's own handler passes `/customize` through here, as it does for a New Tab whose chat (and
+// so its host) does not exist yet: the page itself knows where the chat would start.
+for (const mode of ["cloud", "sandboxed"] as const)
+  test(`/customize with ${mode} picked is refused: the chat would not start on this machine`, async () => {
+    const asks: unknown[][] = [];
+    const elsewhere: unknown[][] = [];
+    await act(async () => {
+      root!.render(
+        <NewTabScreen
+          snapshot={noChat()}
+          onAsk={(...args) => asks.push(args)}
+          onOpen={() => {}}
+          onSearch={() => {}}
+          onShell={() => {}}
+          onJump={() => {}}
+          onOpenSession={() => {}}
+          onShowAll={() => {}}
+          environments
+          onCmuxCommand={() => CMUX_PASS_THROUGH}
+          runMode={{ mode, onMode: () => {} }}
+          onCloud={(...args) => (elsewhere.push(args), true)}
+          onSandbox={(...args) => (elsewhere.push(args), true)}
+        />,
+      );
+    });
+    await typePrompt("/customize make the sidebar compact");
+    await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+    expect(elsewhere).toEqual([]);
+    expect(asks).toEqual([]);
+    // The refusal keeps what was typed.
+    expect(promptValue()).toBe("/customize make the sidebar compact");
+  });
+
 test("with Cloud picked and No folder, a send names no folder: not even the tab's inherited one", async () => {
   const clouded: unknown[][] = [];
   await act(async () => {
@@ -1698,4 +1732,76 @@ test("New project refused: the reason shows above the card, no chat starts and t
   await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(names).toEqual(["habit-tracker", "habit-tracker"]);
+});
+
+test("a start refused because the agent is not installed says so in plain words, with Install, Retry and Dismiss", async () => {
+  const asks: unknown[][] = [];
+  const setups: Array<(harness: string) => void> = [];
+  await act(async () => {
+    root!.render(
+      <NewTabScreen
+        snapshot={noChat()}
+        onAsk={(...args) => {
+          asks.push(args);
+          return Promise.reject(new Error("spawn claude-agent-acp ENOENT"));
+        }}
+        onSetup={(resume) => setups.push(resume)}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+      />,
+    );
+  });
+  await typePrompt("fix the build");
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asks).toHaveLength(1);
+  const harness = String(asks[0]?.[0]);
+  const name = noChat().catalog.find((entry) => entry.id === harness)?.name ?? harness;
+  const card = () => container.querySelector<HTMLElement>(".acpmux-start-failure");
+  // Plain words, never the spawn error itself; the raw words wait under Details.
+  expect(card()?.querySelector("[role=alert]")?.textContent).toBe(translate("switch.notInstalled", { agent: name }));
+  expect(card()?.querySelector("[data-error-detail]")?.textContent).toBe("spawn claude-agent-acp ENOENT");
+  const button = (label: string) =>
+    [...card()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === label);
+  // The draft stays for every way out.
+  expect(promptValue()).toBe("fix the build");
+
+  // Retry sends the same request again.
+  await act(async () => button(translate("switch.retry"))!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asks).toHaveLength(2);
+  expect(asks[1]).toEqual(asks[0]);
+
+  // Install opens Agents setup, which continues this draft once the agent can run.
+  await act(async () => button(translate("switch.action.install"))!.click());
+  expect(setups).toHaveLength(1);
+  expect(card()).toBeNull();
+
+  // Dismiss clears a card that is shown again.
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await act(async () => button(translate("worktree.dismiss"))!.click());
+  expect(card()).toBeNull();
+
+  // Retry is Send again: a draft edited after the failure goes, not the one that failed.
+  await act(async () => container.querySelector<HTMLButtonElement>(".nt-send")!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  await typePrompt("fix the build on main");
+  const before = asks.length;
+  await act(async () => button(translate("switch.retry"))!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asks).toHaveLength(before + 1);
+  expect(asks.at(-1)?.[1]).toBe("fix the build on main");
+  expect(asks.at(-1)?.[0]).toBe(harness);
+
+  // An emptied field (a failed New chat) still retries: the chat starts empty, never a no-op.
+  await typePrompt("");
+  await act(async () => button(translate("switch.retry"))!.click());
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(asks).toHaveLength(before + 2);
+  expect(asks.at(-1)?.[1]).toBe("");
 });

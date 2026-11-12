@@ -446,7 +446,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                             crate::config::home().join("bundles").join(format!("{peer}-{file}"))
                         }
                     };
-                    std::fs::create_dir_all(local.parent().unwrap())?;
+                    crate::home_fs::create_dirs(local.parent().unwrap())?;
                     let argv = crate::cli::hosts::scp_fetch_argv(
                         &url,
                         &remote_path,
