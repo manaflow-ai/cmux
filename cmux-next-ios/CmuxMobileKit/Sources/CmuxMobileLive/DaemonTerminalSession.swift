@@ -125,7 +125,9 @@ public final class DaemonTerminalSession: TerminalSession {
     /// `send` (``drainInput()``). Keys older than `inputHoldLimit` when the
     /// terminal can take them are dropped, never sent late (termfix-r13 D5:
     /// a command typed during an outage ran 15.4 minutes later).
-    private var input: [(bytes: Data, at: TimeInterval, detached: Bool)] = []
+    /// `typed`: the person's own input; false for Ghostty's replies to
+    /// terminal queries (``sendReply(_:)``), which are never "keys not sent".
+    private var input: [(bytes: Data, at: TimeInterval, detached: Bool, typed: Bool)] = []
     /// Keys queued while detached expired: everything typed until the next
     /// attach is refused, so no fragment of a command (its last 2 s) can
     /// reach the shell after the rest was dropped (r13 review).
@@ -282,7 +284,7 @@ public final class DaemonTerminalSession: TerminalSession {
             handler?(.inputNotSent(bytes: bytes.count))
             return
         }
-        input.append((bytes, now(), !attached))
+        input.append((bytes, now(), !attached, true))
         if attached {
             scheduleInputDrain()
             noteInteraction()
@@ -297,10 +299,22 @@ public final class DaemonTerminalSession: TerminalSession {
         }
     }
 
+    /// A reply the terminal wrote by itself (a cursor or device report, a
+    /// focus or mouse report): sent only while attached. Held through an
+    /// outage it would be stale, and its drop is no key the person typed, so
+    /// it is never queued for a reattach, never refused and never makes the
+    /// "Keys typed while your Mac was unreachable" notice (Leo, 2026-11-12:
+    /// "thjs chatters too often with connectivity").
+    public func sendReply(_ bytes: Data) {
+        guard !bytes.isEmpty, attached, !refusingInput else { return }
+        input.append((bytes, now(), false, false))
+        scheduleInputDrain()
+    }
+
     /// The terminal is unreachable: every key still queued now waits for a
     /// detached terminal, from when it was typed.
     private func markInputDetached() {
-        input = input.map { ($0.bytes, $0.at, true) }
+        input = input.map { ($0.bytes, $0.at, true, $0.typed) }
         guard !input.isEmpty else { return }
         let limit = Self.inputHoldLimit
         Task { [weak self] in
@@ -317,8 +331,11 @@ public final class DaemonTerminalSession: TerminalSession {
     private func expireInput() {
         let cutoff = now() - Self.inputHoldLimit
         guard input.contains(where: { $0.detached && $0.at <= cutoff }) else { return }
-        let bytes = input.reduce(0) { $0 + $1.bytes.count }
+        let bytes = input.reduce(0) { $0 + ($1.typed ? $1.bytes.count : 0) }
         input.removeAll()
+        // Only terminal replies were waiting: nothing the person typed was
+        // lost, so typing goes on and the screen says nothing.
+        guard bytes > 0 else { return }
         if !attached { refusingInput = true }
         log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes dropped (the terminal was unreachable for longer than \(Self.inputHoldLimit, privacy: .public) s)")
         handler?(.inputNotSent(bytes: bytes))
@@ -1092,7 +1109,7 @@ public final class DaemonTerminalSession: TerminalSession {
                 log.notice("surface \(self.surface, privacy: .public): \(bytes, privacy: .public) typed bytes not sent again (the Mac may have typed them before the channel failed)")
                 handler?(.inputNotSent(bytes: bytes))
             } else if !failed.isEmpty {
-                input.insert(contentsOf: failed.map { ($0.bytes, $0.at, true) }, at: 0)
+                input.insert(contentsOf: failed.map { ($0.bytes, $0.at, true, true) }, at: 0)
                 markInputDetached()
             }
         }
