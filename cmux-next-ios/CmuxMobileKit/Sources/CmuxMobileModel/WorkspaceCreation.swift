@@ -393,9 +393,18 @@ public protocol WorkspaceCreationBackend: AnyObject {
     /// Duplicate Screen: a new screen named as this one, its terminal in the folder of the
     /// screen's shown tab (`new-screen`, `rename-screen`). Returns its tab once the Mac lists it.
     func duplicateScreen(_ screen: MacScreen, in workspace: Workspace) async throws -> WorkspaceTab
+    /// New Task: starts sending `task` as the first message of the agent chat this backend
+    /// made in `workspace` (`create` of an `.agent` start with a task) and returns; it never
+    /// waits for the agent's turn. Throws when nothing could be sent; a later failure goes to
+    /// `failed`.
+    func sendTask(_ task: AgentTask, in workspace: Workspace, failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) throws
 }
 
 extension WorkspaceCreationBackend {
+    public func sendTask(_ task: AgentTask, in workspace: Workspace, failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) throws {
+        throw WorkspaceCreationError("This Mac can't take a task from here.", isForPerson: true)
+    }
+
     public func forkAgentChat(_ tab: WorkspaceTab, through seq: Int, in workspace: Workspace) async throws -> WorkspaceTab {
         throw WorkspaceCreationError("This Mac can't copy a chat up to an earlier message.", isForPerson: true)
     }
@@ -538,6 +547,9 @@ public final class WorkspaceCreator {
     public private(set) var preferredMacID: String?
     /// A creation the Mac refused: the removed placeholder and the reason.
     @ObservationIgnored public var onFailure: (@MainActor (Workspace, String) -> Void)?
+    /// New Task's workspace stands, but its task didn't reach the chat: the workspace, the
+    /// task (the shell puts it in that chat's composer) and why.
+    @ObservationIgnored public var onTaskNotDelivered: (@MainActor (Workspace, AgentTask, TaskDeliveryFailure) -> Void)?
     /// The placeholder's opening tab became the Mac's real tab (`from`,
     /// `to`): a page the person already opened in it keeps going under the
     /// real id (a streamed browser tab, verify/redial-video.md).
@@ -580,6 +592,8 @@ public final class WorkspaceCreator {
     public var taskRefusal: String?
     /// Placeholders of refused tasks (the failure toast says the draft is back).
     @ObservationIgnored var refusedTaskIDs: Set<String> = []
+    /// The task (without its agents) whose draft the composer was given back, while it holds it.
+    @ObservationIgnored var restoredTask: TaskDraft?
     /// The last group request of each Mac: group requests go to a Mac one
     /// after another, so the Mac applies quick taps in the order they came.
     @ObservationIgnored var groupRequestTail: [String: Task<Void, Never>] = [:]
@@ -782,6 +796,9 @@ public final class WorkspaceCreator {
             }
             phases[placeholder.id] = .created(real.id)
             taskOrigins[placeholder.id] = nil
+            // The workspace stands from here: a task that doesn't reach its chat is reported,
+            // never handed back as a draft (that would start a second agent on it).
+            if let task = request.task { deliver(task, to: real) }
             if let placement = request.placement { await place(real, placement) }
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
@@ -884,6 +901,18 @@ public final class MockWorkspaceCreationBackend: WorkspaceCreationBackend {
 
     public func rename(_ workspace: Workspace, to title: String) async throws {
         try await settle()
+    }
+
+    /// The tasks sent (Mock mode only: no agent reads them). `taskFailure` fails the next one.
+    public var sentTasks: [AgentTask] = []
+    public var taskFailure: TaskDeliveryFailure?
+
+    public func sendTask(_ task: AgentTask, in workspace: Workspace, failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) throws {
+        sentTasks.append(task)
+        if let failure = taskFailure {
+            taskFailure = nil
+            failed(failure)
+        }
     }
 
     public func close(_ workspace: Workspace) async throws {

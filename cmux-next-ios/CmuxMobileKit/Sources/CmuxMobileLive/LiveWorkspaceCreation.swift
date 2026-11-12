@@ -22,6 +22,8 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
     public var capabilities: @MainActor (String) -> Set<String>? = { _ in nil }
     /// Reads the person made, sent until the Mac answers (LiveWorkspaceArrangement.swift).
     var reads = StickyRead()
+    /// New Task's chats by the workspace `create` made, until `sendTask` sends the task.
+    var taskSessions: [String: String] = [:]
     /// Each workspace's newest Mark as Read / Unread: an older read stops once a newer one is made.
     var readMarks: [String: Int] = [:]
 
@@ -87,7 +89,7 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
                 _ = try? await client.request("close-workspace", params: ["key": key])
                 throw error
             }
-            if let task = request.task { try await sendFirstPrompt(task, session: session, macID: request.macID) }
+            if request.task != nil { taskSessions[key] = session }
             let tree = try await sync.listNow()
             guard let workspace = tree.workspaces.first(where: { $0.id == key }) else {
                 throw WorkspaceCreationError("The new workspace didn't appear on the Mac")
@@ -98,24 +100,36 @@ public final class LiveWorkspaceCreationBackend: WorkspaceCreationBackend {
         }
     }
 
-    /// New Task's prompt and images as the chat's first message: acpmux `session/prompt`,
-    /// once per `promptId`, as the chat's own Send. The workspace stands if it is refused; the
-    /// refusal says so, and the creator gives the draft back to send again.
-    func sendFirstPrompt(_ task: AgentTask, session: String, macID: String) async throws {
-        guard let acpmux, acpmux.isReady else {
-            throw WorkspaceCreationError("The chat started, but your task didn't reach it: agents on this Mac aren't connected.",
-                                         isForPerson: true)
+    /// New Task's prompt and images as the first message of the chat `create` made in
+    /// `workspace`: acpmux `session/prompt`, once per `promptId`, as the chat's own Send does
+    /// it, in its own task: acpmux answers only when the agent's turn ends, which nobody waits
+    /// for. A failure is reported through `failed`, said by what the phone knows of it.
+    public func sendTask(_ task: AgentTask, in workspace: Workspace,
+                         failed: @escaping @MainActor (TaskDeliveryFailure) -> Void) throws {
+        guard let session = taskSessions.removeValue(forKey: workspace.id) else {
+            throw WorkspaceCreationError("The chat for this task isn't on the Mac.", isForPerson: true)
         }
-        let meta: JSONValue = .object(["acpmux": .object([
-            "promptId": .string(UUID().uuidString), "steer": .bool(false), "resend": .bool(false),
-        ])])
-        do {
-            _ = try await acpmux.request("session/prompt", .object([
-                "sessionId": .string(session), "prompt": .array(Self.taskPromptBlocks(task)), "_meta": meta,
-            ]), timeout: .seconds(30))
-        } catch {
-            throw WorkspaceCreationError("The chat started, but your task didn't reach it: \(AcpmuxSessionSource.message(error))",
-                                         isForPerson: true)
+        guard let acpmux, acpmux.isReady else {
+            throw WorkspaceCreationError("Agents on this Mac aren't connected.", isForPerson: true)
+        }
+        Task {
+            let blocks = await Task.detached(priority: .userInitiated) { Self.taskPromptBlocks(task) }.value
+            do {
+                _ = try await acpmux.request("session/prompt", .object([
+                    "sessionId": .string(session), "prompt": .array(blocks),
+                    "_meta": .object(["acpmux": .object([
+                        "promptId": .string(UUID().uuidString), "steer": .bool(false), "resend": .bool(false),
+                    ])]),
+                ]))
+            } catch let error as LinkError where error.code == "offline" {
+                // No connection: nothing left the phone.
+                failed(.notSent(AcpmuxSessionSource.message(error)))
+            } catch let error as LinkError {
+                // The link dropped after the request left: the Mac may have it.
+                failed(.uncertain(AcpmuxSessionSource.message(error)))
+            } catch {
+                failed(.refused(AcpmuxSessionSource.message(error)))
+            }
         }
     }
 

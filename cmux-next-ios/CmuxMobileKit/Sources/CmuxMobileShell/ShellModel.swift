@@ -196,6 +196,9 @@ final class ShellModel {
         creator.onFailure = { [weak self] placeholder, message in
             self?.workspaceCreationFailed(placeholder, message: message)
         }
+        creator.onTaskNotDelivered = { [weak self] workspace, task, failure in
+            self?.taskNotDelivered(workspace, task: task, failure: failure)
+        }
         creator.onManageFailure = { [weak self] _, what, message in
             self?.toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: what)
             theme.haptics.error()
@@ -454,6 +457,28 @@ final class ShellModel {
             ? "Couldn't start the task on \(mac). It's back in New Task." : "Couldn't create a workspace on \(mac)")
         theme.haptics.error()
         shellLog.error("new workspace on \(mac, privacy: .public) refused: \(message, privacy: .public)")
+    }
+
+    /// New Task's workspace stands but its task didn't get to the agent. Never sent: the task
+    /// waits in that chat's composer (its photos are dropped, the toast says so). Maybe sent
+    /// or refused: the toast says so, and nothing is put back that could run it twice.
+    private func taskNotDelivered(_ workspace: Workspace, task: AgentTask, failure: TaskDeliveryFailure) {
+        let agent = workspace.tabs.first(where: \.isAgent)?.agentName ?? "The agent"
+        let text: String
+        switch failure {
+        case .notSent:
+            AgentSessionDirectory.shared.newChatDraft = AgentSessionDirectory.NewChatDraft(
+                workspaceID: workspace.id, text: task.prompt, expiresAt: Date().addingTimeInterval(600))
+            text = task.images.isEmpty ? "Your task didn't reach \(agent). It's in the chat, ready to send."
+                : "Your task didn't reach \(agent). Its text is in the chat; attach the photos again."
+        case .uncertain:
+            text = "The connection dropped while sending your task. Open \(workspace.title) to check that \(agent) got it."
+        case .refused(let reason):
+            text = "\(agent) didn't take your task: \(reason)"
+        }
+        toast = CmuxMobileToast(symbol: "exclamationmark.circle", text: text)
+        theme.haptics.error()
+        shellLog.error("task not delivered to \(workspace.id, privacy: .public): \(failure.reason, privacy: .public)")
     }
 
     // MARK: Last location (design/terminal P10)

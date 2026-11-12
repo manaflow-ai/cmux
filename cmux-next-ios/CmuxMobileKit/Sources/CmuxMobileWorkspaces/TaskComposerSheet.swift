@@ -38,8 +38,21 @@ struct TaskComposerSheet: View {
     private var folder: String? { mac.flatMap { creator.taskFolder(for: draft, on: $0.id) } }
     private var blocker: TaskStartBlocker? {
         if let blocker = creator.taskBlocker(draft) { return blocker }
-        if case .loaded(let catalog) = phase, draft.picks.isEmpty, catalog.defaultChoice == nil { return .noAgent }
+        // Start names its agents, so it waits for the Mac's list.
+        guard case .loaded(let catalog) = phase else { return .noAgent }
+        if draft.picks.isEmpty, Self.defaultHarness(catalog) == nil { return .noAgent }
         return nil
+    }
+
+    /// The agent a task with no pick starts: the Mac's own pick (its last New Agent Chat),
+    /// else its default. Start sends it by name, so the phone starts what it shows.
+    static func defaultHarness(_ catalog: AgentCatalog) -> AgentHarnessChoice? {
+        catalog.resolve(.macDefault)?.harness ?? catalog.defaultChoice
+    }
+
+    /// The model `harness` runs with no model chosen: the Mac's last pick for it, else its default.
+    static func defaultModel(_ harness: AgentHarnessChoice, _ catalog: AgentCatalog) -> String? {
+        catalog.resolve(AgentChatStart(harness: harness.id))?.model ?? harness.offeredDefaultModel
     }
 
     var body: some View {
@@ -85,6 +98,11 @@ struct TaskComposerSheet: View {
             photoItems = []
             Task { await addPhotos(items) }
         }
+    }
+
+    private var isLoaded: Bool {
+        if case .loaded = phase { return true }
+        return false
     }
 
     /// "Start", or "Start 3" when the task runs on three agents.
@@ -176,7 +194,7 @@ struct TaskComposerSheet: View {
 
     /// Whether `harness` runs the task: chosen, or the Mac's default while nothing is chosen.
     private func isOn(_ harness: AgentHarnessChoice, _ catalog: AgentCatalog) -> Bool {
-        draft.picks.isEmpty ? catalog.defaultChoice?.id == harness.id : draft.picks.contains { $0.harness == harness.id }
+        draft.picks.isEmpty ? Self.defaultHarness(catalog)?.id == harness.id : draft.picks.contains { $0.harness == harness.id }
     }
 
     private func agentRow(_ harness: AgentHarnessChoice, catalog: AgentCatalog) -> some View {
@@ -198,7 +216,7 @@ struct TaskComposerSheet: View {
                             .foregroundStyle(harness.canStart ? theme.colors.label.color : theme.colors.label2.color)
                         if let reason = harness.unavailableReason {
                             Text(reason).font(theme.type.meta).foregroundStyle(theme.colors.label2.color)
-                        } else if harness.isDefault {
+                        } else if Self.defaultHarness(catalog)?.id == harness.id {
                             Text("Default on this Mac").font(theme.type.meta).foregroundStyle(theme.colors.label2.color)
                         }
                     }
@@ -211,14 +229,14 @@ struct TaskComposerSheet: View {
             .accessibilityAddTraits(on ? .isSelected : [])
             .accessibilityIdentifier("taskComposer.agent.\(harness.id)")
             if on, !harness.models.isEmpty {
-                modelMenu(harness)
+                modelMenu(harness, catalog: catalog)
             }
         }
     }
 
-    private func modelMenu(_ harness: AgentHarnessChoice) -> some View {
+    private func modelMenu(_ harness: AgentHarnessChoice, catalog: AgentCatalog) -> some View {
         let current = draft.picks.first { $0.harness == harness.id }?.model
-        let defaultName = harness.offeredDefaultModel.map { id in harness.models.first { $0.id == id }?.name ?? id }
+        let defaultName = Self.defaultModel(harness, catalog).map { id in harness.models.first { $0.id == id }?.name ?? id }
         let label = current.map { id in harness.models.first { $0.id == id }?.name ?? id } ?? defaultName ?? "Default"
         return Menu {
             Picker("Model", selection: Binding(get: { current ?? "" }, set: { setModel($0.isEmpty ? nil : $0, for: harness) })) {
@@ -289,7 +307,8 @@ struct TaskComposerSheet: View {
         } header: {
             Text("Workspace")
         } footer: {
-            if let blocker, blocker != .noPrompt {
+            // While the agents load (or failed), their own section says so.
+            if let blocker, blocker != .noPrompt, blocker != .noAgent || isLoaded {
                 Text(blocker.message)
                     .foregroundStyle(blocker == .noFolder || blocker == .noMac ? theme.colors.warning.color : theme.colors.label2.color)
                     .accessibilityIdentifier("taskComposer.blocker")
@@ -306,7 +325,7 @@ struct TaskComposerSheet: View {
         theme.haptics.selection()
         var picks = draft.picks
         // The Mac's default shown as chosen becomes a real pick once another is added.
-        if picks.isEmpty, let fallback = catalog.defaultChoice { picks = [TaskAgentPick(harness: fallback.id, name: fallback.name)] }
+        if picks.isEmpty, let fallback = Self.defaultHarness(catalog) { picks = [TaskAgentPick(harness: fallback.id, name: fallback.name)] }
         if let index = picks.firstIndex(where: { $0.harness == harness.id }) {
             guard picks.count > 1 else { return }
             picks.remove(at: index)
@@ -333,8 +352,18 @@ struct TaskComposerSheet: View {
     }
 
     private func start() {
-        guard blocker == nil else { return }
-        let made = creator.startTask(draft)
+        guard blocker == nil, case .loaded(let catalog) = phase else { return }
+        var task = draft
+        if task.picks.isEmpty, let harness = Self.defaultHarness(catalog) {
+            task.picks = [TaskAgentPick(harness: harness.id, name: harness.name)]
+        }
+        // Each agent's model by name: the one the menu shows, so the Mac runs what the phone said.
+        task.picks = task.picks.map { pick in
+            var pick = pick
+            if pick.model == nil, let harness = catalog.harness(pick.harness) { pick.model = Self.defaultModel(harness, catalog) }
+            return pick
+        }
+        let made = creator.startTask(task)
         guard !made.isEmpty else {
             theme.haptics.warning()
             return
@@ -352,10 +381,13 @@ struct TaskComposerSheet: View {
         phase = .loading
         do {
             let catalog = try await creator.agentCatalog(on: mac.id)
+            // A Mac switched meanwhile: its own load answers.
+            guard !Task.isCancelled else { return }
             // Picks the Mac no longer offers (or a phone can't start) are dropped.
             creator.taskDraft.picks = draft.picks.filter { catalog.harness($0.harness)?.canStart == true }
             phase = .loaded(catalog)
         } catch {
+            guard !Task.isCancelled else { return }
             phase = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
         }
     }
@@ -378,13 +410,17 @@ struct TaskComposerSheet: View {
 /// re-encoded), drawn off the main thread.
 struct TaskImageEncoder {
     static let longSide: CGFloat = 2048
+    /// One photo's most bytes as picked; past it, it is re-encoded (about 2 MB as base64).
+    static let maxBytes = 1_500_000
 
     @concurrent
     static func encode(_ data: Data) async -> TaskImage? {
         guard let image = UIImage(data: data) else { return nil }
         let size = image.size
         let scale = min(1, longSide / max(size.width, size.height, 1))
-        if scale == 1, TaskImage(data: data).mimeType != nil { return TaskImage(data: data) }
+        // Small JPEG/PNG/GIF/WebP go as they are; anything else or larger is drawn again as JPEG,
+        // so six photos stay well inside one message to the Mac.
+        if scale == 1, data.count <= maxBytes, TaskImage(data: data).mimeType != nil { return TaskImage(data: data) }
         let target = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1

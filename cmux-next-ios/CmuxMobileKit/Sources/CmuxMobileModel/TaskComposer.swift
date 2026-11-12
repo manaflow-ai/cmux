@@ -102,6 +102,22 @@ public struct TaskDraft: Hashable, Sendable {
     }
 }
 
+/// Why a task workspace's first message didn't get to its agent, by what the phone knows.
+public enum TaskDeliveryFailure: Hashable, Sendable {
+    /// Nothing left the phone: the task can go again from the chat's composer.
+    case notSent(String)
+    /// The link dropped after it left: the agent may have it.
+    case uncertain(String)
+    /// The Mac's agent refused it.
+    case refused(String)
+
+    public var reason: String {
+        switch self {
+        case .notSent(let reason), .uncertain(let reason), .refused(let reason): reason
+        }
+    }
+}
+
 /// Why New Task's Start is off, in the composer's words; nil when it can start.
 public enum TaskStartBlocker: Hashable, Sendable {
     case noMac
@@ -179,26 +195,57 @@ extension WorkspaceCreator {
             let base = picks.count > 1 ? "\(draft.title) · \(pick.name ?? Self.agentTitle(pick.harness))" : draft.title
             let placeholder = Self.taskPlaceholder(for: request, title: Self.uniqueTitle(base, existing: titles), task: draft.title)
             titles.append(placeholder.title)
-            taskOrigins[placeholder.id] = draft
+            var origin = draft
+            // A pick of "" (the Mac's default agent) comes back as no pick.
+            origin.picks = pick.harness.isEmpty ? [] : [pick]
+            taskOrigins[placeholder.id] = origin
             begin(request, placeholder: placeholder, focus: picks.count == 1)
             made.append(placeholder)
         }
         taskDraft = TaskDraft(picks: draft.picks, macID: draft.macID, directory: draft.directory)
         taskRefusal = nil
+        restoredTask = nil
         return made
+    }
+
+    /// Sends a created task workspace its task (the backend sends it on its own task).
+    func deliver(_ task: AgentTask, to workspace: Workspace) {
+        let report: @MainActor (TaskDeliveryFailure) -> Void = { [weak self] failure in
+            guard let self else { return }
+            onTaskNotDelivered?(store.workspace(id: workspace.id) ?? workspace, task, failure)
+        }
+        do {
+            try backend.sendTask(task, in: workspace, failed: report)
+        } catch {
+            report(.notSent(Self.message(error)))
+        }
     }
 
     /// A refused task workspace gives its draft back, once, when the composer is empty
     /// (the person did not start writing another task meanwhile).
     /// `reason`: the Mac's refusal when it is written for the person, shown in New Task.
     func restoreTaskDraft(after placeholderID: String, reason: String?) {
-        guard let draft = taskOrigins.removeValue(forKey: placeholderID) else { return }
+        guard let origin = taskOrigins.removeValue(forKey: placeholderID) else { return }
+        var task = origin
+        task.picks = []
+        if taskDraft.isEmpty {
+            // Only this agent comes back: the task's other agents may have started it already.
+            taskDraft = origin
+            restoredTask = task
+        } else if restoredTask == task, taskDraftMatches(origin) {
+            // Another agent of the same task failed too: it joins the draft given back.
+            taskDraft.picks += origin.picks.filter { !taskDraft.picks.contains($0) }
+        } else {
+            return
+        }
         refusedTaskIDs.insert(placeholderID)
-        // Its siblings (the same task on other agents) don't give it back again.
-        for (id, other) in taskOrigins where other == draft { taskOrigins[id] = nil }
-        guard taskDraft.isEmpty else { return }
-        taskDraft = draft
         taskRefusal = reason ?? "The Mac couldn't start this task. Check that cmux is running on it, then start it again."
+    }
+
+    /// Whether the composer holds `origin`'s task (its prompt, photos, name and place).
+    private func taskDraftMatches(_ origin: TaskDraft) -> Bool {
+        taskDraft.prompt == origin.prompt && taskDraft.images == origin.images && taskDraft.name == origin.name
+            && taskDraft.macID == origin.macID && taskDraft.directory == origin.directory
     }
 
     /// Whether `placeholderID` was a New Task workspace the Mac refused (its draft is back).

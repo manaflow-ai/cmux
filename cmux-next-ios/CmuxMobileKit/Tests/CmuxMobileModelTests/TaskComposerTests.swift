@@ -121,6 +121,60 @@ import Testing
         #expect(creator.taskRefusal == nil)
     }
 
+    /// Review 2026-11-12: one refused agent of several brings back only that agent, so the
+    /// next Start doesn't run the task again on the agent that already has it.
+    @Test func onlyTheRefusedAgentComesBack() async throws {
+        let (_, creator, backend) = make()
+        backend.result = { placeholder in
+            placeholder.title.hasSuffix("Router") ? .failure(WorkspaceCreationError("Router is down", isForPerson: true)) : .success(placeholder)
+        }
+        let claude = TaskAgentPick(harness: "claude", name: "Claude Code")
+        let router = TaskAgentPick(harness: "claude-cr", name: "Claude Code Router")
+        let made = creator.startTask(TaskDraft(prompt: "Ship it", picks: [claude, router]))
+        await creator.settle()
+        #expect(creator.taskDraft.prompt == "Ship it")
+        #expect(creator.taskDraft.picks == [router])
+        #expect(creator.taskRefusal == "Router is down")
+        #expect(creator.wasRefusedTask(made[1].id) && !creator.wasRefusedTask(made[0].id))
+    }
+
+    /// The toast promises a draft only when one came back (not over a new task being written).
+    @Test func aRefusalOverANewDraftPromisesNothing() async throws {
+        let (_, creator, backend) = make()
+        backend.result = { _ in .failure(WorkspaceCreationError("No")) }
+        // The Mac answers only at `settle`: the person starts writing the next task first.
+        let made = creator.startTask(TaskDraft(prompt: "First"))
+        creator.taskDraft.prompt = "Second"
+        await creator.settle()
+        #expect(creator.taskDraft.prompt == "Second")
+        #expect(!creator.wasRefusedTask(made[0].id))
+        #expect(creator.taskRefusal == nil)
+    }
+
+    /// Review 2026-11-12: the task goes to the chat once the workspace exists, and a failure
+    /// to deliver it is reported against that workspace, never handed back as a draft (the
+    /// agent may have it, and a second Start would run it twice).
+    @Test func theTaskIsSentAfterTheWorkspaceExistsAndAFailureNeverRestoresTheDraft() async throws {
+        let store = AppStore.mock(tabMemory: .inMemory())
+        let mock = MockWorkspaceCreationBackend(latency: .zero)
+        let creator = WorkspaceCreator(store: store, backend: mock, defaults: defaults)
+        var reports: [TaskDeliveryFailure] = []
+        creator.onTaskNotDelivered = { _, _, failure in reports.append(failure) }
+        let made = creator.startTask(TaskDraft(prompt: "Go", picks: [TaskAgentPick(harness: "claude", model: "opus")]))
+        #expect(mock.sentTasks.isEmpty)
+        await creator.settle()
+        #expect(mock.sentTasks == [AgentTask(prompt: "Go", model: "opus")])
+        #expect(reports.isEmpty)
+
+        mock.taskFailure = .uncertain("The connection dropped")
+        creator.startTask(TaskDraft(prompt: "Again"))
+        await creator.settle()
+        #expect(reports == [.uncertain("The connection dropped")])
+        #expect(creator.taskDraft.prompt.isEmpty)
+        #expect(creator.taskRefusal == nil)
+        #expect(store.workspace(id: made[0].id) != nil)
+    }
+
     @Test func imageTypeIsReadFromItsBytes() {
         #expect(TaskImage(data: Data([0xFF, 0xD8, 0xFF] + Array(repeating: 0, count: 9))).mimeType == "image/jpeg")
         #expect(TaskImage(data: Data(Array("RIFF".utf8) + [0, 0, 0, 0] + Array("WEBP".utf8))).mimeType == "image/webp")
