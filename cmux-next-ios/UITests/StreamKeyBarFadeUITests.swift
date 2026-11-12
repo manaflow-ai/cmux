@@ -38,6 +38,13 @@ final class StreamKeyBarFadeUITests: XCTestCase {
         return app
     }
 
+    /// A fresh simulator's first keyboard shows the slide-to-type tip over itself: close it.
+    @MainActor
+    private func dismissKeyboardTip(_ app: XCUIApplication) {
+        let tip = app.buttons["Continue"]
+        if tip.waitForExistence(timeout: 3) { tip.tap() }
+    }
+
     /// Drags the bar's keys sideways by `by` of its width, slowly, and holds so no momentum
     /// follows. The drag moves at once: a touch held still on a key goes to the key, not the scroller.
     @MainActor
@@ -69,6 +76,7 @@ final class StreamKeyBarFadeUITests: XCTestCase {
             let app = launch(scene, look, largeText: largeText)
             let bar = app.otherElements["browser.keys"]
             XCTAssertTrue(bar.waitForExistence(timeout: 30), "key bar\n\(app.debugDescription)")
+            dismissKeyboardTip(app)
             shot(app, "keyboard-\(label)-\(look)\(size)-1-start")
             drag(bar, left: true, by: 0.3)
             shot(app, "keyboard-\(label)-\(look)\(size)-2-middle")
@@ -93,6 +101,7 @@ final class StreamKeyBarFadeUITests: XCTestCase {
             let app = launch("streamkeys-keyboard", look, largeText: false)
             let bar = app.otherElements["browser.keys"]
             XCTAssertTrue(bar.waitForExistence(timeout: 30), "key bar\n\(app.debugDescription)")
+            dismissKeyboardTip(app)
             for left in [true, true, true, false, false, false] { drag(bar, left: left) }
             app.terminate()
         }
