@@ -75,7 +75,11 @@ async function pane(store: UnsentPromptStore, answer: (text: string) => Error | 
   return { client, rows: () => rows };
 }
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+/// Lets the pane's queued work run: the host store answers at once, so the restore and the store
+/// writes are a few promise hops and one queued microtask, done after the macrotask queue drains.
+const settle = async () => {
+  for (let hop = 0; hop < 5; hop += 1) await new Promise<void>((resolve) => setImmediate(resolve));
+};
 const refusal = () =>
   Object.assign(
     new Error(
@@ -112,7 +116,8 @@ test("a cold restart with refused and pending sends draws every one again as Not
   try {
     await settle();
     const shown = after.rows().filter((row) => row.kind === "user" && row.failed);
-    expect(shown.map((row) => row.text).sort()).toEqual([...refused, ...pending].sort());
+    expect(new Set(shown.map((row) => row.text))).toEqual(new Set([...refused, ...pending]));
+    expect(shown).toHaveLength(refused.length + pending.length);
     // A refused one keeps its reason; each has a Retry (it is the pane's failed prompt).
     expect(shown.find((row) => row.text === "refused 0")?.error).toContain("Mac's Claude permissions");
     for (const row of shown) expect(after.client.failedPromptCopies([row.id])).toHaveLength(1);
