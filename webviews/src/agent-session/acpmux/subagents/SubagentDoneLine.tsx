@@ -48,6 +48,7 @@ import { useSenderIconLook } from "./senderIconLook";
 import { agentTone } from "./agentTones";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
+import { useResume } from "./ResumeControl";
 import { retryLabel, subagentRetry, type RetryAction, type RetryNote, type SessionRetryFields } from "./retryState";
 import { elapsed, SubagentHarnessContext, SubagentNavContext, SubagentPaneContext } from "./subagentGroupModel";
 import {
@@ -117,8 +118,12 @@ function DoneLine({
   // The badge look picks which subagents show their family mark (foreignHarness): read here, so a
   // change of the setting draws them again.
   const senderBadge = useSenderIconLook().badge;
-  const { restartSubagent, retryAgent, retryCapabilities } = useContext(TurnActionsContext);
+  const actions = useContext(TurnActionsContext);
+  const { restartSubagent, retryAgent, retryCapabilities } = actions;
   const agent = row.subagents?.[0];
+  // acpmux starts a stopped one again from where it stopped (resumeState.ts): Resume, the control
+  // every surface of a stopped helper shares (ResumeControl.tsx), its note kept until the row changes.
+  const resumed = useResume(agent, actions, row.version);
   // A refusal's note lasts until the row changes. A Retry that went keeps the row's Retry disabled
   // until the row changes (acpmux's next word on it), so it can't go twice; acpmux refuses a second
   // one of its own as `retry.busy` meanwhile.
@@ -163,8 +168,9 @@ function DoneLine({
   // A sub-session's failure is on its own session row.
   const error = agent.state === "failed" ? (agent.error ?? child?.error) : undefined;
   // While acpmux retries it, or settles whether it will, Restart would run it a second time.
+  // acpmux starts a stopped one again from where it stopped (resumeState.ts): Resume, not Restart.
   const restart =
-    restartSubagent && canRestart(agent) && phase.kind !== "retrying" && phase.kind !== "settling"
+    !resumed.offered && restartSubagent && canRestart(agent) && phase.kind !== "retrying" && phase.kind !== "settling"
       ? restartSubagent
       : undefined;
   const refused = spawnRefused(agent);
@@ -223,6 +229,8 @@ function DoneLine({
       <Retry size={14} />
     </button>
   );
+  // Resume where acpmux can start it again, else Restart: one control on the line.
+  const lineButton = resumed.button || restartButton;
   // A finished line with its report is the one message row (conversation/AgentMessageRow.tsx), as a
   // send and a received message are: "Subagent finished: <name>", the subagent's mark, the report's
   // first line, and the same card that opens to the whole report as Markdown (Leo, 2026-11-07: "with
@@ -280,7 +288,7 @@ function DoneLine({
           onToggle={() => setReportOpen((value) => !value)}
           meta={agent.reaction ? <ReactionMark reaction={agent.reaction} /> : undefined}
           time={time}
-          actions={restartButton ? <span className="cv-subagent-done__actions">{restartButton}</span> : undefined}
+          actions={lineButton ? <span className="cv-subagent-done__actions">{lineButton}</span> : undefined}
           body={
             <div className="cv-subagent-done__report">
               {shownReport && (
@@ -357,9 +365,10 @@ function DoneLine({
         </div>
         {inline}
         {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}
-        {(restartButton || controls.menu.length > 0) && (
+        {resumed.note}
+        {(lineButton || controls.menu.length > 0) && (
           <span className="cv-subagent-done__actions">
-            {restartButton}
+            {lineButton}
             {action && controls.menu.includes("retry") && (
               <Menu>
                 <MenuButton

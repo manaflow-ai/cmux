@@ -8,20 +8,24 @@
 //! - **Never staler than a client is owed.** It is reused only while nothing a watcher
 //!   hears of changed (every send on [`Events`], attach or detach, write to the peers'
 //!   rows, and change of a peer's link state counts), within its window, and never while
-//!   the chat logs load. Fields
-//!   that change with the clock alone (a stall, an expiring tag) are at most a window old.
+//!   the chat logs load. The window runs from when the snapshot is made, and a part of it made
+//!   later (its rows with tools, its masked text) moves it on by that part's own window, so a
+//!   paged read is cut from one build however long its parts take. Fields
+//!   that change with the clock alone (a stall, an expiring tag) are at most a window older
+//!   than the part that shows them.
 //!   A request shares any build begun after it arrived. A watcher's reply never follows
 //!   a `session_changed` notice its list may lack (`list_reply.rs`).
 //! - **Paced.** [`BURST`] builds back to back, then one per window ([`PACE`] times the
 //!   last build's cost, at most [`MAX_WINDOW`]): about 1/32 of a core however many ask.
 //!   Per connection, two lists back to back, then one per window; all connections
-//!   together, [`REPLIES`] per window. A page costs its share of the rows, at least
-//!   [`PAGE_MIN`]. The first list is built before it is paced, so the pace is known. A
-//!   request that would wait more than [`MAX_WAIT`] is refused, to try again later.
+//!   together, [`REPLIES`] per window. A page by `limit` costs its rows' share of the list
+//!   (`ListGuard::share_rows`), a byte page its bytes' share, at least [`BYTE_PAGE_MIN`].
+//!   The first list is built before it is paced, so the pace is known. A request that
+//!   would wait more than [`MAX_WAIT`] is refused, to try again later.
 //!
-//! Cleanup: each build starts one task that drops its snapshot when the window ends
-//! (unless a newer build replaced it); it holds a weak reference and ends after one
-//! sleep. A connection's pace goes with the connection.
+//! Cleanup: each build starts one task that drops its snapshot when its window ends
+//! (unless a newer build replaced it); it holds a weak reference and sleeps again only when a
+//! part made since moved the window on. A connection's pace goes with the connection.
 
 use super::*;
 use std::ops::Range;
@@ -40,8 +44,11 @@ const BURST: u32 = 4;
 const CONN_BURST: u32 = 2;
 /// Lists all connections together read per window, after as many back to back.
 const REPLIES: u32 = 8;
-/// The least a page costs, in lists: it reads every row's key to find its rows.
-const PAGE_MIN: f64 = 1.0 / 16.0;
+/// The least a byte page of the whole list costs, in lists: it reads the keys once and copies
+/// its megabyte of the shared text. Every list reply is a page of at most
+/// `rpc::REPLY_PAGE_BYTES` (`server/list_reply.rs`), so a 31 MB list is about 31 of them: at
+/// 1/16 each, one whole read would cost two lists and be paced as such.
+const BYTE_PAGE_MIN: f64 = 1.0 / 64.0;
 /// The longest a list request waits for its turn; a longer wait is refused.
 pub(crate) const MAX_WAIT: Duration = Duration::from_secs(30);
 
@@ -153,8 +160,12 @@ pub(crate) struct Snapshot {
     serial: u64,
     /// Whether this snapshot intentionally omits closed records for the Mac census path.
     live_only: bool,
-    started: Instant,
-    /// How long it is reused, and how far the next build waits behind it.
+    /// Until when it is reused: a window after the last of it was made. A part made lazily (its
+    /// rows with tools, its masked text) moves this on by its own cost's window, so a list whose
+    /// with-tools rows take longer to make than the base build's window is not stale before its
+    /// first page goes out ([`Snapshot::made_now`]).
+    fresh_until: StdMutex<Instant>,
+    /// How long it is reused after its build, and how far the next build waits behind it.
     window: Duration,
     /// `{"sessions": [...]}` of every summary, local and remote, newest first.
     pub(crate) whole: Arc<String>,
@@ -167,6 +178,8 @@ pub(crate) struct Snapshot {
     /// The full rows are built only for trusted internal consumers (peer bootstrap and ACP).
     /// Ordinary census/watch replies keep using `whole`, so their retained bytes stay small.
     full: StdMutex<Option<Arc<FullRows>>>,
+    #[cfg(test)]
+    lazy_build_hold: StdMutex<Option<Arc<(std::sync::Barrier, std::sync::Barrier)>>>,
 }
 
 /// Every summary with its tools, serialized as [`Snapshot::whole`] is, with where each row is
@@ -195,7 +208,7 @@ impl FullRows {
     }
 }
 
-type Built = (String, Vec<Range<usize>>, Vec<Value>);
+pub(crate) type Built = (String, Vec<Range<usize>>, Vec<Value>);
 
 impl Snapshot {
     fn new(
@@ -205,18 +218,20 @@ impl Snapshot {
         live_only: bool,
         (text, spans, keys): Built,
     ) -> Self {
-        let (whole, made, started) = (Arc::new(text), Default::default(), Instant::now());
+        let (whole, made) = (Arc::new(text), Default::default());
         Self {
             key,
             serial,
             live_only,
-            started,
+            fresh_until: StdMutex::new(Instant::now() + window),
             window,
             whole,
             spans,
             keys,
             made,
             full: Default::default(),
+            #[cfg(test)]
+            lazy_build_hold: Default::default(),
         }
     }
 
@@ -267,6 +282,14 @@ impl Snapshot {
     pub(crate) fn full_rows(&self, hub: &Hub) -> Arc<FullRows> {
         let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
         full.get_or_insert_with(|| {
+            #[cfg(test)]
+            if let Some(hold) =
+                self.lazy_build_hold.lock().unwrap_or_else(|e| e.into_inner()).take()
+            {
+                hold.0.wait();
+                hold.1.wait();
+            }
+            let began = Instant::now();
             let (whole, spans, keys) = if self.live_only {
                 let mut rows = Rows::default();
                 hub.visit_live_session_summaries(true, |row| rows.push(&row));
@@ -274,6 +297,7 @@ impl Snapshot {
             } else {
                 Self::build_rows(hub, true, true)
             };
+            self.made_now(began);
             Arc::new(FullRows { whole: Arc::new(whole), spans, keys })
         })
         .clone()
@@ -349,11 +373,10 @@ impl Snapshot {
     }
 
     /// The reply to a paged `params` (a `limit`, or a census's `orderBy`), cut from the shared
-    /// text, with tools when `full` is given: the rows `session_list_reply` picks, as many as fit
-    /// in `budget` bytes, at least one, and `nextCursor` first. A page cut short by its bytes ends
-    /// with the `nextCursor` of its last row, as a page of that many rows would: 1000 rows of a
-    /// busy host with usage were more than one message, refused whole on every retry. A row
-    /// larger than `budget` alone is trimmed ([`row_text`]).
+    /// text, with tools when `full` is given: the rows `session_list_reply` picks, cut by
+    /// [`cut_page`]. A daemon builds a page from its own rows instead (`page_first.rs`); this is
+    /// the reference that page must equal, row for row and byte for byte.
+    #[cfg(test)]
     pub(crate) fn page(
         &self,
         full: Option<&FullRows>,
@@ -367,21 +390,8 @@ impl Snapshot {
         let picked = super::session_pages::session_list_reply_borrowed(keys, params)?;
         let rows =
             picked.get("sessions").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
-        let mut next = picked.get("nextCursor").cloned();
-        let (mut page, mut used) = (Vec::with_capacity(rows.len()), 0_usize);
-        for (n, key) in rows.iter().enumerate() {
-            let row = row_text(text, spans, key, budget);
-            // One more byte for the comma between rows.
-            let total = used.saturating_add(row.len()).saturating_add(1);
-            if n > 0 && total > budget {
-                let last = rows.get(n.saturating_sub(1)).unwrap_or(key);
-                next = Some(Value::String(page_cursor(params, last)));
-                break;
-            }
-            used = total;
-            page.push(row);
-        }
-        Ok(page_text(next.map(|next| next.to_string()), &page))
+        let next = picked.get("nextCursor").cloned();
+        Ok(cut_page((text, spans.as_slice()), rows, next, params, budget))
     }
 
     /// Every summary, parsed back.
@@ -403,7 +413,45 @@ impl Snapshot {
         make: impl FnOnce(&Self) -> String,
     ) -> Arc<String> {
         let mut made = self.made.lock().unwrap_or_else(|e| e.into_inner());
-        made.entry(name).or_insert_with(|| Arc::new(make(self))).clone()
+        made.entry(name)
+            .or_insert_with(|| {
+                let began = Instant::now();
+                let text = Arc::new(make(self));
+                crate::gauges::global().list_variant(name, text.len());
+                self.made_now(began);
+                text
+            })
+            .clone()
+    }
+
+    /// Whether it may still be reused, nothing it shows having changed: within a window of the
+    /// last part of it made.
+    fn fresh(&self) -> bool {
+        Instant::now() < self.fresh_until()
+    }
+
+    fn fresh_until(&self) -> Instant {
+        *self.fresh_until.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// A concurrent lazy result still owns the snapshot's full-row lock. Reuse the current
+    /// snapshot while that build is in flight, even if its base freshness window has elapsed.
+    fn lazy_building(&self) -> bool {
+        matches!(self.full.try_lock(), Err(std::sync::TryLockError::WouldBlock))
+    }
+
+    /// A part of it begun at `began` is made: it stays fresh a window past now, the window of
+    /// that part's cost ([`PACE`] times it, at most [`MAX_WINDOW`]) or its build's, the longer.
+    /// Its with-tools rows are several times its base rows (3,000 chats of 10 KB titles: 30 MB
+    /// against 6, 2026-11-12), so with the window priced on the base build alone they took
+    /// longer to make than the snapshot lived: every page of a with-tools list built the whole
+    /// list and its tools again and waited out the builder's pace, and one paged read of it
+    /// took minutes; the list test that reads 16 of them ran past CI's 40 minutes.
+    fn made_now(&self, began: Instant) {
+        let now = Instant::now();
+        let window = now.saturating_duration_since(began).saturating_mul(PACE).min(MAX_WINDOW);
+        let mut until = self.fresh_until.lock().unwrap_or_else(|e| e.into_inner());
+        *until = (*until).max(now + window.max(self.window));
     }
 }
 
@@ -440,6 +488,55 @@ pub(crate) fn page_text<R: AsRef<str>>(next: Option<String>, rows: &[R]) -> Stri
     text.push_str("]}");
     debug_assert_eq!(text.len(), size);
     text
+}
+
+/// A paged reply's text: `rows` (paging keys, each naming its row in `text` by `at`), as many as
+/// fit in `budget` bytes, at least one, and `next` (the picked page's `nextCursor`) first. A page
+/// cut short by its bytes ends with the `nextCursor` of its last row, as a page of that many rows
+/// would: 1000 rows of a busy host with usage were more than one message, refused whole on every
+/// retry. A row larger than `budget` alone is trimmed ([`row_text`]).
+pub(crate) fn cut_page(
+    (text, spans): (&str, &[Range<usize>]),
+    rows: &[Value],
+    mut next: Option<Value>,
+    params: &Value,
+    budget: usize,
+) -> String {
+    let (mut page, mut used) = (Vec::with_capacity(rows.len()), 0_usize);
+    for (n, key) in rows.iter().enumerate() {
+        let row = row_text(text, spans, key, budget);
+        // One more byte for the comma between rows.
+        let total = used.saturating_add(row.len()).saturating_add(1);
+        if n > 0 && total > budget {
+            let last = rows.get(n.saturating_sub(1)).unwrap_or(key);
+            next = Some(Value::String(page_cursor(params, last)));
+            break;
+        }
+        used = total;
+        page.push(row);
+    }
+    page_text(next.map(|next| next.to_string()), &page)
+}
+
+/// `rows`, in the order given (not sorted), as a list's text, where each is in it, and the
+/// paging keys of each (`at` its place): what [`cut_page`] cuts.
+pub(crate) fn serialize_in_order(rows: &[Value]) -> Built {
+    let prefix = br#"{"sessions":["#;
+    let mut whole = Vec::from(&prefix[..]);
+    let (mut spans, mut keys) = (Vec::with_capacity(rows.len()), Vec::with_capacity(rows.len()));
+    for (at, row) in rows.iter().enumerate() {
+        if at > 0 {
+            whole.push(b',');
+        }
+        let start = whole.len();
+        // A Value always serializes, and Vec's writer cannot fail.
+        let _ = serde_json::to_writer(&mut whole, row);
+        spans.push(start..whole.len());
+        keys.push(RowKey::of(row, at).value(at));
+    }
+    whole.extend_from_slice(b"]}");
+    // serde_json writes UTF-8.
+    (String::from_utf8(whole).unwrap_or_default(), spans, keys)
 }
 
 /// Spare capacity a page keeps for its reply line's frame (`{"id":..,"jsonrpc":"2.0",
@@ -694,6 +791,8 @@ pub(crate) struct ListGuard {
 struct State {
     last: Option<Arc<Snapshot>>,
     pace: Pacer,
+    #[cfg(test)]
+    expiry_wakes: usize,
 }
 
 impl ListGuard {
@@ -701,17 +800,18 @@ impl ListGuard {
         Duration::from_nanos(self.window_nanos.load(Ordering::Relaxed))
     }
 
-    /// The share of the list a page of `limit` rows costs (None: all of it).
-    pub(crate) fn share(&self, limit: Option<u64>) -> f64 {
+    /// The share of the list a page built from its own rows (`page_first.rs`) costs: its `limit`
+    /// rows of the last list's, with no floor, since it builds no other row.
+    pub(crate) fn share_rows(&self, limit: Option<u64>) -> f64 {
         let rows = self.rows.load(Ordering::Relaxed).max(1) as f64;
-        limit.map_or(1.0, |limit| (limit as f64 / rows).clamp(PAGE_MIN, 1.0))
+        limit.map_or(1.0, |limit| (limit as f64 / rows).clamp(0.0, 1.0))
     }
 
     /// The share of the list a page of at most `budget` bytes costs: a whole list cut into
     /// byte pages costs about one list in all, not one per page.
     pub(crate) fn share_bytes(&self, budget: usize) -> f64 {
         let bytes = self.bytes.load(Ordering::Relaxed).max(1) as f64;
-        (budget as f64 / bytes).clamp(PAGE_MIN, 1.0)
+        (budget as f64 / bytes).clamp(BYTE_PAGE_MIN, 1.0)
     }
 
     /// Reserves `share` of a list on a connection's `pace`, then on every connection's
@@ -755,7 +855,7 @@ impl ListGuard {
         if let Some(last) = &state.last
             && last.live_only == live_only
             && last.key.0
-            && (last.serial > asked || last.current(hub) && last.started.elapsed() < last.window)
+            && (last.serial > asked || last.current(hub) && (last.fresh() || last.lazy_building()))
         {
             return last.clone();
         }
@@ -771,6 +871,7 @@ impl ListGuard {
         let (started, key) = (Instant::now(), key(hub));
         let built = if live_only { Snapshot::build_live(hub) } else { Snapshot::build(hub) };
         let elapsed = started.elapsed();
+        crate::gauges::global().list_rebuilt(built.1.len(), built.0.len(), elapsed);
         let window = elapsed.saturating_mul(PACE).min(MAX_WINDOW);
         tracing::debug!(target: "acpmux::list_cost", serial, rows = built.1.len(),
             build_us = elapsed.as_micros(), window_us = window.as_micros(),
@@ -780,25 +881,54 @@ impl ListGuard {
         self.window_nanos.store(nanos, Ordering::Relaxed);
         self.rows.store(built.1.len(), Ordering::Relaxed);
         self.bytes.store(built.0.len(), Ordering::Relaxed);
-        let snapshot =
-            Arc::new(Snapshot { started, ..Snapshot::new(key, serial, window, live_only, built) });
+        // Fresh for a window from now, when it is made: a build slower than its window (a busy
+        // host, MAX_WINDOW) is reused, not stale on arrival.
+        let snapshot = Arc::new(Snapshot::new(key, serial, window, live_only, built));
         state.last = Some(snapshot.clone());
         drop(state);
         self.expire(serial, window);
         snapshot
     }
 
-    /// Drops snapshot `serial` when its window ends, unless a newer build replaced it.
+    /// Drops snapshot `serial` when it is no longer fresh (its window, moved on by any part of
+    /// it made since), unless a newer build replaced it.
     fn expire(&self, serial: u64, window: Duration) {
         let state = Arc::downgrade(&self.state);
         tokio::spawn(async move {
-            tokio::time::sleep(window).await;
-            let Some(state) = state.upgrade() else { return };
-            let mut state = state.lock().await;
-            if state.last.as_ref().is_some_and(|s| s.serial == serial) {
-                state.last = None;
+            let mut until = Instant::now() + window;
+            let retry_cap = window.min(Duration::from_secs(1)).max(Duration::from_millis(1));
+            let mut retry = Duration::from_millis(1).min(retry_cap);
+            loop {
+                tokio::time::sleep_until(until).await;
+                let Some(state) = state.upgrade() else { return };
+                let mut state = state.lock().await;
+                #[cfg(test)]
+                {
+                    state.expiry_wakes += 1;
+                }
+                let Some(last) = state.last.as_ref().filter(|s| s.serial == serial) else { return };
+                if Arc::strong_count(last) > 1 {
+                    // A request still owns this snapshot and may begin a lazy part after this
+                    // task woke. Leave it live; made_now will extend the same state entry. Back
+                    // off so a long lazy build does not wake and take this lock every millisecond.
+                    until = Instant::now() + retry;
+                    retry = retry.saturating_mul(2).min(retry_cap);
+                    continue;
+                }
+                let fresh_until = last.fresh_until();
+                if fresh_until <= Instant::now() {
+                    state.last = None;
+                    return;
+                }
+                until = fresh_until;
             }
         });
+    }
+
+    /// Lists built so far, for a test that bounds how many builds a paged read costs.
+    #[cfg(test)]
+    pub(crate) fn builds_for_tests(&self) -> u64 {
+        self.begun.load(Ordering::SeqCst)
     }
 }
 
@@ -1429,11 +1559,11 @@ mod tests {
         assert!(third > Duration::from_millis(3900), "{third:?}");
         // Pages of a quarter: a list ahead and one page more, then the pace holds.
         let (pages, pace) = (guard(), StdMutex::default());
-        assert_eq!(pages.share(Some(100)), 0.25);
+        assert_eq!(pages.share_rows(Some(100)), 0.25);
         let waits: Vec<Duration> = (0..6).map(|_| pages.reserve(&pace, 0.25).unwrap()).collect();
         assert_eq!(waits.iter().filter(|w| !w.is_zero()).count(), 1, "{waits:?}");
-        // A page of one row (or none) still reads every key: it costs `PAGE_MIN`.
-        assert_eq!((pages.share(Some(1)), pages.share(Some(0))), (PAGE_MIN, PAGE_MIN));
+        // A page built from its own rows costs only them: no floor.
+        assert_eq!((pages.share_rows(Some(1)), pages.share_rows(Some(0))), (1.0 / 400.0, 0.0));
         // A new connection for each list: a window's `REPLIES` and one more, then they wait.
         let many = guard();
         let waits: Vec<Duration> =
@@ -1550,6 +1680,125 @@ mod tests {
         assert!(hub.list_guard.state.lock().await.last.is_some(), "an older build's expiry");
         tokio::time::sleep(Duration::from_secs(2)).await;
         assert!(hub.list_guard.state.lock().await.last.is_none(), "it outlived its window");
+    }
+
+    /// A part of a snapshot made lazily after its build (its rows with tools, 30 MB beside 6 of
+    /// base rows on the list test's 3,000 chats) keeps it fresh for that part's window: on
+    /// 2026-11-12 it was stale before its first with-tools page went out, so every page built
+    /// the list again and a paged read of it ran for minutes (cmux run 43164890485).
+    #[tokio::test(start_paused = true)]
+    async fn a_part_made_after_the_build_keeps_the_snapshot_for_its_own_window() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let guard = &hub.list_guard;
+        let serial = guard.begun.load(Ordering::SeqCst);
+        let held = hold(&hub, Duration::from_secs(1)).await;
+        guard.expire(serial, Duration::from_secs(1));
+        // Its tools took 3 s to make: past the base build's 1 s window.
+        held.made_now(Instant::now().checked_sub(Duration::from_secs(3)).unwrap());
+        tokio::time::sleep(Duration::from_secs(5)).await;
+        assert!(guard.state.lock().await.last.is_some(), "dropped at the build's window");
+        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "rebuilt within its window");
+        drop(held);
+        // 3 s of work: a window of MAX_WINDOW (PACE times 3 s, at most 15 s) from when it was made.
+        tokio::time::sleep(MAX_WINDOW - Duration::from_secs(4)).await;
+        assert!(guard.state.lock().await.last.is_none(), "kept past its part's window");
+    }
+
+    /// A request arriving after the base window reuses a current snapshot while its lazy rows
+    /// are still being made, instead of starting a second whole-list build.
+    #[tokio::test(start_paused = true)]
+    async fn a_concurrent_request_reuses_a_snapshot_during_lazy_build() {
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let guard = &hub.list_guard;
+        let held = hold(&hub, Duration::from_secs(1)).await;
+        let entered = Arc::new((std::sync::Barrier::new(2), std::sync::Barrier::new(2)));
+        *held.lazy_build_hold.lock().unwrap() = Some(entered.clone());
+
+        let building = {
+            let snapshot = held.clone();
+            let hub = hub.clone();
+            tokio::task::spawn_blocking(move || snapshot.full_rows(&hub))
+        };
+        tokio::task::spawn_blocking({
+            let entered = entered.clone();
+            move || entered.0.wait()
+        })
+        .await
+        .unwrap();
+        tokio::time::advance(Duration::from_secs(2)).await;
+        tokio::task::yield_now().await;
+
+        let before = guard.builds_for_tests();
+        let reused = guard.snapshot(&hub).await;
+        let after = guard.builds_for_tests();
+        println!("F1 lazy-build concurrent snapshot: before={before} after={after}");
+        assert!(Arc::ptr_eq(&reused, &held), "stale snapshot was rebuilt during lazy build");
+        assert_eq!(after, before, "lazy build started a duplicate whole-list build");
+
+        tokio::task::spawn_blocking(move || entered.1.wait()).await.unwrap();
+        building.await.unwrap();
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn expiry_retries_back_off_while_a_snapshot_is_held() {
+        const HELD_MS: usize = 2_000;
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let guard = &hub.list_guard;
+        let held = hold(&hub, Duration::from_secs(1)).await;
+        guard.expire(held.serial, Duration::from_secs(1));
+
+        // Before backoff, a 1 ms retry woke 2,000 times over this 2 s hold. Exponential backoff
+        // reaches its 1 s cap, so after it there are at most 12 wakes over the same interval.
+        for _ in 0..HELD_MS {
+            tokio::time::advance(Duration::from_millis(1)).await;
+            tokio::task::yield_now().await;
+        }
+        let wakes = guard.state.lock().await.expiry_wakes;
+        assert!(wakes <= 12, "before backoff: {HELD_MS} wakes; after backoff: {wakes} wakes");
+    }
+
+    /// Expiry must not detach a snapshot while its lazy rows are being made: the next page still
+    /// uses that snapshot instead of rebuilding the whole list for every page.
+    #[tokio::test(start_paused = true)]
+    async fn expiry_during_lazy_build_keeps_the_snapshot_for_follow_up_pages() {
+        const PAGES: usize = 6;
+        let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        let guard = &hub.list_guard;
+        let held = hold(&hub, Duration::from_secs(1)).await;
+        let serial = held.serial;
+        let entered = Arc::new((std::sync::Barrier::new(2), std::sync::Barrier::new(2)));
+        *held.lazy_build_hold.lock().unwrap() = Some(entered.clone());
+        drop(held);
+        guard.expire(serial, Duration::from_secs(1));
+
+        let building = {
+            let snapshot = guard.state.lock().await.last.clone().unwrap();
+            let hub = hub.clone();
+            tokio::task::spawn_blocking(move || snapshot.full_rows(&hub))
+        };
+        tokio::task::spawn_blocking({
+            let entered = entered.clone();
+            move || entered.0.wait()
+        })
+        .await
+        .unwrap();
+        tokio::time::advance(Duration::from_secs(2)).await;
+        tokio::task::yield_now().await;
+        assert!(guard.state.lock().await.last.is_some(), "expiry detached a lazy build");
+        tokio::task::spawn_blocking(move || entered.1.wait()).await.unwrap();
+        building.await.unwrap();
+
+        // The lazy build took longer than the base window, so its own window keeps the live entry.
+        let held = guard.state.lock().await.last.clone().unwrap();
+        held.made_now(Instant::now().checked_sub(Duration::from_secs(3)).unwrap());
+        let before = guard.builds_for_tests();
+        for _ in 0..PAGES {
+            let snapshot = guard.snapshot(&hub).await;
+            let full = snapshot.full_rows(&hub);
+            snapshot.page(Some(&full), &json!({}), 1024).unwrap();
+        }
+        let builds = guard.builds_for_tests() - before;
+        assert!(builds <= (PAGES / 3 + 3) as u64, "{builds} builds for {PAGES} follow-up pages");
     }
 }
 

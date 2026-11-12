@@ -14,7 +14,7 @@ import Testing
 /// one byte-capped page (`maxBytes`, acpmux `daemon_chat_open.rs`) and pages older records as
 /// the reader scrolls up; the phone does the same.
 @MainActor
-@Suite struct LongChatOpenLiveTests {
+@Suite(.timeLimit(.minutes(2))) struct LongChatOpenLiveTests {
     /// Every request the fake Mac answered: its method and params.
     final class Requests: @unchecked Sendable {
         private let lock = NSLock()
@@ -90,10 +90,12 @@ import Testing
         }
     }
 
-    static func waitUntil(seconds: Int = 10, _ done: () -> Bool) async {
-        let deadline = ContinuousClock.now + .seconds(seconds)
-        while !done(), ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(5)) // test: polls the condition until a deadline
+    /// Waits until `done`, with no deadline of its own: 10 s of the wall clock ended before a
+    /// busy kit run's main actor had applied what a test waited for (cmux#40598). The suite's
+    /// time limit bounds a hang.
+    static func waitUntil(_ done: () -> Bool) async {
+        while !done(), !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(5)) // test: polls the condition; the suite's time limit bounds it
         }
     }
 
@@ -185,10 +187,40 @@ import Testing
         #expect(store.isReplayed("t842"))
         #expect(store.hasEarlierHistory)
         #expect(!store.isLoadingEarlier)
-        let older = requests.all.last
-        #expect(older?.method == "_acpmux/events")
+        // The first older read (the next one, read ahead, may be on the wire already).
+        let older = requests.all.first { $0.method == "_acpmux/events" }
         #expect((older?.params["maxBytes"] as? NSNumber)?.intValue == 256 * 1024)
         #expect((older?.params["beforeSeq"] as? NSNumber)?.intValue == 921 * 5 + 1)
+    }
+
+    /// After a page shows, the one before it is read ahead and held: the next scroll up shows
+    /// it at once, with no read of its own, and the records of the turn above a page that were
+    /// read with it are not read again.
+    @Test func theNextOlderPageIsReadAheadAndShownAtOnce() async throws {
+        let requests = Requests()
+        let log = (0..<1000).flatMap(Self.turnRecords)
+        let (hub, store) = try await Self.open(log, requests, pageLimit: 398)
+        _ = hub
+        await Self.waitUntil { store.turns.last?.id == "t999" }
+        store.loadEarlier()
+        await Self.waitUntil { store.turns.first?.id == "t842" }
+        // The read ahead goes out after the page shows, from the oldest record read (the end of
+        // turn 841, carried), and lands while the reader is still below.
+        await Self.waitUntil { requests.count("_acpmux/events") == 2 }
+        let ahead = requests.all.filter { $0.method == "_acpmux/events" }.last
+        #expect((ahead?.params["beforeSeq"] as? NSNumber)?.intValue == 842 * 5 + 1 - 3)
+        try await Task.sleep(for: .milliseconds(100)) // test: lets the read ahead land
+
+        store.loadEarlier()
+        await Self.waitUntil { !store.isLoadingEarlier && store.turns.first?.id != "t842" }
+        let ids = store.turns.map(\.id)
+        #expect(ids == (1000 - ids.count..<1000).map { "t\($0)" }, "turns missing, repeated or out of order: \(ids.prefix(4))")
+        // The held page showed with no read of its own: the only new read is the next one ahead.
+        await Self.waitUntil { requests.count("_acpmux/events") == 3 }
+        try await Task.sleep(for: .milliseconds(100)) // test: no further read goes out
+        #expect(requests.count("_acpmux/events") == 3)
+        let split = store.turns.first { $0.id == "t841" }
+        #expect(split?.status == .completed, "the carried end of turn 841 was lost")
     }
 
     /// A malformed or transient empty _acpmux/events page with hasMore:true

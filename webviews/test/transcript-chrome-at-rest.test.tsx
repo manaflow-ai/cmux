@@ -17,10 +17,11 @@ import {
   spawnRefused,
   type RetryAffordance,
 } from "../src/agent-session/acpmux/subagents/subagentDoneLineModel";
-import { TurnActionsContext } from "../src/agent-session/acpmux/conversation/turnActions";
+import { TurnActionsContext, type TurnActions } from "../src/agent-session/acpmux/conversation/turnActions";
 import { SUBAGENT_DONE } from "../src/agent-session/acpmux/subagents/subagentRows";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
+import { settleReact } from "./support/domTeardown";
 
 const REFUSAL =
   "Concurrent subagent limit reached. You can run 40 subagents at once. Do not retry. If the user wants more concurrent subagents, ask them to increase CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS.";
@@ -58,19 +59,21 @@ let root: Root | undefined;
 const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
-function render(agents: Subagent[], affordance: RetryAffordance = "button"): HTMLElement {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
-    saved.set(key, scope[key]);
-  Object.assign(scope, {
-    window: dom.window,
-    document: dom.window.document,
-    navigator: dom.window.navigator,
-    Node: dom.window.Node,
-    HTMLElement: dom.window.HTMLElement,
-    Element: dom.window.Element,
-    IS_REACT_ACT_ENVIRONMENT: true,
-  });
+function render(agents: Subagent[], affordance: RetryAffordance = "button", actions: TurnActions = {}): HTMLElement {
+  if (!dom) {
+    dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>");
+    for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
+      saved.set(key, scope[key]);
+    Object.assign(scope, {
+      window: dom.window,
+      document: dom.window.document,
+      navigator: dom.window.navigator,
+      Node: dom.window.Node,
+      HTMLElement: dom.window.HTMLElement,
+      Element: dom.window.Element,
+      IS_REACT_ACT_ENVIRONMENT: true,
+    });
+  }
   const host = dom.window.document.getElementById("root")!;
   const rows: AcpmuxRow[] = agents.map((agent, index) => ({
     id: `done-${index}`,
@@ -82,7 +85,7 @@ function render(agents: Subagent[], affordance: RetryAffordance = "button"): HTM
   act(() => {
     root = createRoot(host);
     root.render(
-      <TurnActionsContext.Provider value={{ retryAgent: async () => undefined, restartSubagent: () => {} }}>
+      <TurnActionsContext.Provider value={{ retryAgent: async () => undefined, restartSubagent: () => {}, ...actions }}>
         <RetryAffordanceContext.Provider value={affordance}>
           {rows.map((row) => (
             <SubagentDoneLine key={row.id} row={row} />
@@ -94,9 +97,10 @@ function render(agents: Subagent[], affordance: RetryAffordance = "button"): HTM
   return host;
 }
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -178,6 +182,30 @@ test("a failed run offers Retry once: on the line with no menu, or only in the m
   // "Ask parent to retry" named a mechanism: the ask reads "Retry" too.
   expect(host.textContent).not.toContain("parent");
 });
+
+test.each(["cancelled", "disconnected"] as const)(
+  "a %s helper keeps one Resume and its refusal note",
+  async (state) => {
+    const agent = ranAndFailed({ state, resumable: true });
+    const resumed: string[] = [];
+    const host = render([agent], "button", {
+      resumeAgent: async (target) => {
+        resumed.push(target.id);
+        return "retry.busy";
+      },
+    });
+    const row = host.querySelector<HTMLElement>(".cv-subagent-done-row")!;
+    expect(row.hasAttribute("data-refused")).toBe(false);
+    const button = row.querySelector<HTMLButtonElement>("button.cv-subagent-resume")!;
+    expect(button.getAttribute("aria-label")).toBe("Resume");
+    expect(row.querySelectorAll(".cv-subagent-restart")).toHaveLength(1);
+    expect(row.querySelector(".cv-subagent-retry, .cv-subagent-retry-link, [data-menu]")).toBeNull();
+    await act(async () => button.click());
+    expect(resumed).toEqual([agent.id]);
+    expect(row.querySelector(".cv-subagent-resume__note")?.textContent).toBeTruthy();
+    expect(button.disabled).toBe(false);
+  },
+);
 
 test("a failed line's Retry waits for the pointer or keyboard focus", () => {
   const css = readFileSync(new URL("../src/agent-session/acpmux/subagents/subagents.css", import.meta.url), "utf8");

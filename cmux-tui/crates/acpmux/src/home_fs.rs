@@ -14,7 +14,9 @@
 //! Off Unix there is no `*at` call: each operation goes by path, but first checks the home again
 //! ([`held`]: `config::refuse_lost_home`, which on Windows compares the home's file id, its
 //! volume serial and file index, with the held home's). A home replaced before that check is
-//! refused; the window left is the one call itself.
+//! refused; the window left is the one call itself. A read ([`held_read`]) checks the home again
+//! after it too, so an answer read in a replacement home is never returned: a home replaced
+//! before or during the read is an error, never "nothing there" (#41721 review F1).
 
 use std::fs::File;
 use std::io;
@@ -87,7 +89,8 @@ impl OpenOptions {
         self
     }
 
-    pub(crate) fn open(&self, path: &Path) -> io::Result<File> {
+    pub(crate) fn open(&self, path: impl AsRef<Path>) -> io::Result<File> {
+        let path = path.as_ref();
         #[cfg(unix)]
         {
             unix::open(path, self)
@@ -108,7 +111,8 @@ impl OpenOptions {
 }
 
 /// `std::fs::DirBuilder::new().recursive(true).mode(mode).create(dir)`.
-pub(crate) fn create_dir_all(dir: &Path, mode: u32) -> io::Result<()> {
+pub(crate) fn create_dir_all(dir: impl AsRef<Path>, mode: u32) -> io::Result<()> {
+    let dir = dir.as_ref();
     #[cfg(unix)]
     {
         unix::create_dir_all(dir, mode)
@@ -122,10 +126,29 @@ pub(crate) fn create_dir_all(dir: &Path, mode: u32) -> io::Result<()> {
 }
 
 /// Off Unix: refuses an operation on `path` under a home that is no longer the held one (its
-/// file id moved on), right before the operation.
-#[cfg(not(unix))]
+/// file id moved on), right before the operation. Built in tests on every platform too: the
+/// forced race on [`held_read`] (`lost_home_race_tests.rs`) runs on Linux CI, with the same home
+/// check (`config::refuse_lost_home`), which compares the device and inode there.
+#[cfg(any(not(unix), test))]
 fn held(path: &Path) -> io::Result<()> {
     crate::config::refuse_lost_home(path).map_err(io::Error::other)
+}
+
+/// Off Unix: `read` of `path`, made between two checks of the home ([`held`]): the answer is the
+/// held home's, or an error when the home was replaced before or during the read. A replacement
+/// that lacks a file the held home has then never reads as "not there" (#41721 review F1). The
+/// second check runs whatever the read answered: a read that failed in a replacement (a
+/// `NotFound`, which `LocalStore::load` reads as "no session") is the lost home's error too
+/// (#41915 review F1).
+#[cfg(any(not(unix), test))]
+pub(crate) fn held_read<T, E: From<io::Error>>(
+    path: &Path,
+    read: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
+    held(path)?;
+    let answer = read();
+    held(path)?;
+    answer
 }
 
 /// [`create_dir_all`] with 0700, and an existing folder of this user narrowed to 0700 (one an
@@ -137,6 +160,7 @@ pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
         let opened = OpenOptions::new()
             .read(true)
+            .mode(0o700)
             .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
             .open(dir);
         let Ok(opened) = opened else { return Ok(()) };
@@ -152,12 +176,14 @@ pub(crate) fn private_dir(dir: &Path) -> io::Result<()> {
 
 /// `std::fs::set_permissions(path, Permissions::from_mode(mode))`.
 #[cfg(unix)]
-pub(crate) fn set_mode(path: &Path, mode: u32) -> io::Result<()> {
+pub(crate) fn set_mode(path: impl AsRef<Path>, mode: u32) -> io::Result<()> {
+    let path = path.as_ref();
     unix::set_mode(path, mode)
 }
 
 /// `std::fs::rename(from, to)`.
-pub(crate) fn rename(from: &Path, to: &Path) -> io::Result<()> {
+pub(crate) fn rename(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<()> {
+    let (from, to) = (from.as_ref(), to.as_ref());
     #[cfg(unix)]
     {
         unix::rename(from, to)
@@ -171,7 +197,8 @@ pub(crate) fn rename(from: &Path, to: &Path) -> io::Result<()> {
 }
 
 /// `std::fs::remove_file(path)`.
-pub(crate) fn remove_file(path: &Path) -> io::Result<()> {
+pub(crate) fn remove_file(path: impl AsRef<Path>) -> io::Result<()> {
+    let path = path.as_ref();
     #[cfg(unix)]
     {
         unix::remove(path, 0)
@@ -183,8 +210,142 @@ pub(crate) fn remove_file(path: &Path) -> io::Result<()> {
     }
 }
 
-/// `std::fs::remove_dir_all(path)`: a symlink at `path` is removed, never followed.
-pub(crate) fn remove_dir_all(path: &Path) -> io::Result<()> {
+/// Whether anything is at `path` itself (`std::fs::symlink_metadata(path).is_ok()`), read in the
+/// held home when `path` is below it: a writer that decides by what is there reads the folder it
+/// writes, not a replacement made at the same path. Any error is "not there", a lost home's too:
+/// a read that decides what a writer keeps or removes takes [`try_exists_nofollow`].
+pub(crate) fn exists_nofollow(path: impl AsRef<Path>) -> bool {
+    try_exists_nofollow(path).unwrap_or(false)
+}
+
+/// Whether anything is at `path` itself, read in the held home when `path` is below it, on every
+/// platform: `Ok(false)` only when nothing is there. Off Unix a home that is no longer the held
+/// one ([`held_read`]) is an error, never `Ok(false)`: a replacement home without the file must
+/// not hide the held home's (#41721 review F1: a cold rehydrate read "not archived" there).
+pub(crate) fn try_exists_nofollow(path: impl AsRef<Path>) -> io::Result<bool> {
+    let path = path.as_ref();
+    #[cfg(unix)]
+    {
+        unix::try_exists_nofollow(path)
+    }
+    #[cfg(not(unix))]
+    {
+        held_read(path, || found(std::fs::symlink_metadata(path)))
+    }
+}
+
+/// `std::fs::symlink_metadata(path)`, read in the held home when `path` is below it, on every
+/// platform: the final name is never followed. Off Unix the read is made between two checks of
+/// the home ([`held_read`]), so a home replaced before or during it is an error.
+pub(crate) fn symlink_metadata(path: impl AsRef<Path>) -> io::Result<std::fs::Metadata> {
+    let path = path.as_ref();
+    #[cfg(unix)]
+    {
+        unix::symlink_metadata(path)
+    }
+    #[cfg(not(unix))]
+    {
+        held_read(path, || std::fs::symlink_metadata(path))
+    }
+}
+
+/// `true` for a read that found something, `false` for `NotFound`, any other error as it is.
+fn found<T>(read: io::Result<T>) -> io::Result<bool> {
+    match read {
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
+    }
+}
+
+/// A name in a folder [`read_dir`] listed, and whether it is a regular file itself (a symlink
+/// is not).
+pub(crate) struct DirEntry {
+    pub(crate) name: std::ffi::OsString,
+    pub(crate) is_file: bool,
+}
+
+/// `std::fs::read_dir(path)`, read in the held home when `path` is below it: a writer that
+/// removes or renames by what a folder holds reads the folder it changes, not a replacement made
+/// at the same path (#41462 review F1).
+pub(crate) fn read_dir(path: impl AsRef<Path>) -> io::Result<Vec<DirEntry>> {
+    let path = path.as_ref();
+    #[cfg(unix)]
+    {
+        unix::read_dir(path)
+    }
+    #[cfg(not(unix))]
+    {
+        held_read(path, || {
+            std::fs::read_dir(path)?
+                .map(|entry| {
+                    let entry = entry?;
+                    Ok(DirEntry { name: entry.file_name(), is_file: entry.file_type()?.is_file() })
+                })
+                .collect()
+        })
+    }
+}
+
+/// `config::private_state_file(path)` (an existing regular file of this user, its final
+/// symlink never followed, opened to read), opened in the held home when `path` is below it:
+/// what a removal decides by is read from the folder it removes from (#41462 review F1).
+pub(crate) fn private_state_file(path: impl AsRef<Path>) -> anyhow::Result<File> {
+    let path = path.as_ref();
+    #[cfg(unix)]
+    {
+        use anyhow::Context as _;
+        let file = OpenOptions::new()
+            .read(true)
+            .mode(0o600)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)
+            .with_context(|| format!("open private state file {}", path.display()))?;
+        crate::config::validate_private_state_file(&file, path)?;
+        Ok(file)
+    }
+    #[cfg(not(unix))]
+    {
+        held_read(path, || crate::config::private_state_file(path))
+    }
+}
+
+/// `std::fs::remove_dir(path)`: an empty folder.
+pub(crate) fn remove_dir(path: impl AsRef<Path>) -> io::Result<()> {
+    let path = path.as_ref();
+    #[cfg(unix)]
+    {
+        unix::remove(path, libc::AT_REMOVEDIR)
+    }
+    #[cfg(not(unix))]
+    {
+        held(path)?;
+        std::fs::remove_dir(path)
+    }
+}
+
+/// `std::fs::hard_link(original, link)`: `link` becomes another name of `original`, both
+/// reached from the held home when they are below it (`linkat`, never following a symlink at
+/// `original`). The link is the same file as `original` (one inode, one mode), so it never
+/// shows its bytes under wider permissions than `original` has.
+pub(crate) fn hard_link(original: impl AsRef<Path>, link: impl AsRef<Path>) -> io::Result<()> {
+    let (original, link) = (original.as_ref(), link.as_ref());
+    #[cfg(unix)]
+    {
+        unix::hard_link(original, link)
+    }
+    #[cfg(not(unix))]
+    {
+        held(original)?;
+        held(link)?;
+        std::fs::hard_link(original, link)
+    }
+}
+
+/// `std::fs::remove_dir_all(path)`: a symlink at `path` is removed, never followed, and any other
+/// file that is not a folder is refused (`NotADirectory`) and left in place, as `std::fs` does.
+pub(crate) fn remove_dir_all(path: impl AsRef<Path>) -> io::Result<()> {
+    let path = path.as_ref();
     #[cfg(unix)]
     {
         unix::remove_dir_all(path)
@@ -196,11 +357,247 @@ pub(crate) fn remove_dir_all(path: &Path) -> io::Result<()> {
     }
 }
 
+/// `std::fs::create_dir_all(dir)`: missing folders made with the default mode (0777, less the
+/// umask).
+pub(crate) fn create_dirs(dir: impl AsRef<Path>) -> io::Result<()> {
+    create_dir_all(dir, 0o777)
+}
+
+// The permission rule for every helper here that makes a file or folder (#41462 review F1): it
+// never shows its bytes under wider permissions than their source's, or 0600 when they have no
+// source. A file is made new (`O_EXCL`) with its mode narrowed to 0600, given its final mode on
+// the open descriptor (`fchmod`) before any byte goes in, and a temporary copy is removed on any
+// error. A folder is made 0700 at most. A hard link is the same file as its source (one inode,
+// one mode), so it is never wider than its source; a symlink's own mode is never read (access
+// goes by its target's), so it shows nothing. On Windows each file is made owner-only
+// (`owner_only::create_new`: an access list for this user alone) and each folder too
+// (`owner_only::create_dir_all`), the counterpart of 0600 and 0700.
+
+/// Mode bits a made file keeps: the permission bits, never set-id or sticky.
+#[cfg(unix)]
+const PERMISSION_BITS: u32 = 0o777;
+
+/// `std::fs::create_dir(dir)`, made 0700 at most (`mode` as `DirBuilder::mode`, narrowed to the
+/// owner's bits): one folder, its parent there already; an existing one is `AlreadyExists`.
+pub(crate) fn create_dir(dir: impl AsRef<Path>, mode: u32) -> io::Result<()> {
+    let dir = dir.as_ref();
+    #[cfg(unix)]
+    {
+        unix::create_dir(dir, mode & 0o700)
+    }
+    #[cfg(windows)]
+    {
+        let _ = mode;
+        held(dir)?;
+        if dir.symlink_metadata().is_ok() {
+            return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+        }
+        crate::owner_only::create_dir_all(dir)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = mode;
+        held(dir)?;
+        std::fs::create_dir(dir)
+    }
+}
+
+/// A new name beside `path` for a temporary copy of it: `.<name>.tmp-<pid>-<n>`.
+fn aside(path: &Path) -> io::Result<std::path::PathBuf> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let name = path.file_name().ok_or_else(|| io::Error::from(io::ErrorKind::InvalidInput))?;
+    let mut tmp = std::ffi::OsString::from(".");
+    tmp.push(name);
+    tmp.push(format!(".tmp-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+    Ok(path.with_file_name(tmp))
+}
+
+/// Makes `path`, which must not exist (`O_EXCL`), mode 0600 at most, then gives it `mode`
+/// (`fchmod` on the open descriptor) before any byte goes in; on Windows owner-only. Removed
+/// again if that fails.
+fn create_private(path: &Path, mode: u32) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let file = OpenOptions::new().write(true).create_new(true).mode(mode & 0o600).open(path)?;
+        if let Err(error) = file.set_permissions(std::fs::Permissions::from_mode(mode)) {
+            let _ = remove_file(path);
+            return Err(error);
+        }
+        Ok(file)
+    }
+    #[cfg(windows)]
+    {
+        let _ = mode;
+        held(path)?;
+        crate::owner_only::create_new(path)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = mode;
+        OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)
+    }
+}
+
+/// Writes `bytes` to `file` (made at `path`): the first half, then the rest. A test fails the
+/// write in between (`config::seams::on_mid_write`), as a full disk would.
+fn fill(file: &mut File, path: &Path, bytes: &[u8]) -> io::Result<()> {
+    use std::io::Write as _;
+    let (first, rest) = bytes.split_at(bytes.len() / 2);
+    file.write_all(first)?;
+    #[cfg(test)]
+    crate::config::seams::mid_write(path)?;
+    let _ = path;
+    file.write_all(rest)
+}
+
+/// Puts a file in place at `to` whole: made beside it new ([`create_private`], `mode`), filled by
+/// `fill`, then renamed over `to`. On any error the temporary copy is removed and `to` is left as
+/// it was.
+fn replace_with<T>(
+    to: &Path,
+    mode: u32,
+    fill: impl FnOnce(&mut File, &Path) -> io::Result<T>,
+) -> io::Result<T> {
+    let tmp = aside(to)?;
+    let mut file = create_private(&tmp, mode)?;
+    let done = fill(&mut file, &tmp).and_then(|value| {
+        drop(file);
+        rename(&tmp, to).map(|()| value)
+    });
+    if done.is_err() {
+        let _ = remove_file(&tmp);
+    }
+    done
+}
+
+/// The mode a rewritten file keeps: an existing file's, narrowed to the owner's bits; a new
+/// file's 0600.
+fn rewritten_mode(path: &Path) -> u32 {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        path.symlink_metadata()
+            .ok()
+            .filter(|meta| meta.is_file())
+            .map_or(0o600, |meta| meta.permissions().mode() & 0o700)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+        0o600
+    }
+}
+
+/// `std::fs::write(path, contents)`, made whole: a new copy beside it (0600, or an existing
+/// file's mode narrowed to the owner's bits) filled, then renamed over it. A failed write leaves
+/// `path` as it was and no copy behind.
+pub(crate) fn write(path: impl AsRef<Path>, contents: impl AsRef<[u8]>) -> io::Result<()> {
+    let path = path.as_ref();
+    replace_with(path, rewritten_mode(path), |file, tmp| fill(file, tmp, contents.as_ref()))
+}
+
+/// `std::fs::File::create(path)`: made 0600 (an existing file narrowed to the owner's bits on
+/// the open descriptor) before it is cut to nothing and handed back to be written.
+pub(crate) fn create_file(path: impl AsRef<Path>) -> io::Result<File> {
+    open_private(path.as_ref(), true)
+}
+
+/// Opens `path` to write, made 0600 when new; an existing file is narrowed to the owner's bits
+/// (`fchmod` on the open descriptor) before anything is written. `truncate`: cut to nothing,
+/// after the narrowing. On Windows a new file is made owner-only.
+fn open_private(path: &Path, truncate: bool) -> io::Result<File> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let file = OpenOptions::new().write(true).create(true).mode(0o600).open(path)?;
+        let mode = file.metadata()?.permissions().mode();
+        if mode & 0o077 != 0 {
+            file.set_permissions(std::fs::Permissions::from_mode(mode & 0o700))?;
+        }
+        if truncate {
+            file.set_len(0)?;
+        }
+        Ok(file)
+    }
+    #[cfg(windows)]
+    {
+        held(path)?;
+        let file = crate::owner_only::open_rw(path)?;
+        if truncate {
+            file.set_len(0)?;
+        }
+        Ok(file)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        OpenOptions::new().write(true).create(true).truncate(truncate).mode(0o600).open(path)
+    }
+}
+
+/// `std::fs::copy(from, to)`: `to` replaced whole by a new copy of `from`'s bytes with `from`'s
+/// permissions ([`replace_with`]: made 0600 at most, given `from`'s mode before any byte goes
+/// in); the bytes copied. A failed copy leaves `to` as it was and no partial copy behind.
+pub(crate) fn copy(from: impl AsRef<Path>, to: impl AsRef<Path>) -> io::Result<u64> {
+    let mut source = OpenOptions::new().read(true).mode(0o600).open(from)?;
+    let permissions = source.metadata()?.permissions();
+    #[cfg(unix)]
+    let mode = {
+        use std::os::unix::fs::PermissionsExt as _;
+        permissions.mode() & PERMISSION_BITS
+    };
+    #[cfg(not(unix))]
+    let mode = 0o600;
+    replace_with(to.as_ref(), mode, |target, tmp| {
+        use std::io::{Read as _, Write as _};
+        // The first block, then the rest: a test fails the copy in between.
+        let mut block = vec![0; 64 << 10];
+        let first = source.read(&mut block)?;
+        block.truncate(first);
+        target.write_all(&block)?;
+        #[cfg(test)]
+        crate::config::seams::mid_write(tmp)?;
+        let _ = tmp;
+        let rest = io::copy(&mut source, target)?;
+        #[cfg(not(unix))]
+        target.set_permissions(permissions)?;
+        Ok((first as u64).saturating_add(rest))
+    })
+}
+
+/// `std::fs::set_permissions(path, permissions)`.
+pub(crate) fn set_permissions(
+    path: impl AsRef<Path>,
+    permissions: std::fs::Permissions,
+) -> io::Result<()> {
+    let path = path.as_ref();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        unix::set_mode(path, permissions.mode())
+    }
+    #[cfg(not(unix))]
+    {
+        held(path)?;
+        std::fs::set_permissions(path, permissions)
+    }
+}
+
+/// `std::os::unix::fs::symlink(original, link)`: `link` made (`symlinkat`) naming `original` as
+/// it is written. A symlink's own mode is never read (opening it reads its target's), so it
+/// shows no bytes of its own.
+#[cfg(unix)]
+pub(crate) fn symlink(original: impl AsRef<Path>, link: impl AsRef<Path>) -> io::Result<()> {
+    unix::symlink(original.as_ref(), link.as_ref())
+}
+
 /// `std::fs::write(path, bytes)`, then synced: a copy written aside before a rename puts it in
-/// place.
+/// place. Made 0600 (an existing file narrowed to the owner's bits) before any byte goes in
+/// ([`open_private`]).
 pub(crate) fn write_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
     use std::io::Write as _;
-    let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(path)?;
+    let mut file = open_private(path, true)?;
     file.write_all(bytes)?;
     file.sync_all()
 }
@@ -209,7 +606,12 @@ pub(crate) fn write_synced(path: &Path, bytes: &[u8]) -> io::Result<()> {
 pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
-        OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY).open(dir)?.sync_all()
+        OpenOptions::new()
+            .read(true)
+            .mode(0o600)
+            .custom_flags(libc::O_DIRECTORY)
+            .open(dir)?
+            .sync_all()
     }
     #[cfg(not(unix))]
     {
@@ -219,12 +621,10 @@ pub(crate) fn sync_dir(dir: &Path) -> io::Result<()> {
 }
 
 /// Called once a file's temporary copy is written and synced, before it is renamed over the
-/// file: a test may end the process there (`config::seams::BEFORE_RENAME`).
+/// file: a test may end the process there (`config::seams::on_before_rename`).
 pub(crate) fn before_rename(path: &Path) {
     #[cfg(test)]
-    if let Some(hook) = crate::config::seams::BEFORE_RENAME.get() {
-        hook(path);
-    }
+    crate::config::seams::before_rename(path);
     let _ = path;
 }
 
@@ -395,6 +795,24 @@ mod unix {
         mkdir_at(at.dirfd(), &at.name, mode)
     }
 
+    pub(super) fn create_dir(dir: &Path, mode: u32) -> io::Result<()> {
+        if crate::config::held_home_dir(dir).is_none() {
+            use std::os::unix::fs::DirBuilderExt;
+            return std::fs::DirBuilder::new().mode(mode).create(dir);
+        }
+        let at = at(dir, None)?;
+        // SAFETY: a valid descriptor (or AT_FDCWD) and a NUL-terminated name.
+        check(unsafe { libc::mkdirat(at.dirfd(), at.name.as_ptr(), mode as libc::mode_t) })
+            .map(drop)
+    }
+
+    pub(super) fn symlink(original: &Path, link: &Path) -> io::Result<()> {
+        let target = c(original.as_os_str())?;
+        let at = at(link, None)?;
+        // SAFETY: a NUL-terminated target, a valid descriptor (or AT_FDCWD) and name.
+        check(unsafe { libc::symlinkat(target.as_ptr(), at.dirfd(), at.name.as_ptr()) }).map(drop)
+    }
+
     pub(super) fn set_mode(path: &Path, mode: u32) -> io::Result<()> {
         let at = at(path, None)?;
         // SAFETY: a valid descriptor (or AT_FDCWD) and a NUL-terminated name.
@@ -433,8 +851,13 @@ mod unix {
         });
         match folder {
             Ok(folder) => empty(&folder)?,
-            // A symlink or a file: removed itself, as `std::fs::remove_dir_all` does a link.
+            // Not a folder (`ELOOP`: a symlink on Linux; `ENOTDIR`: a symlink on some systems, or
+            // a file): a symlink is removed itself, as `std::fs::remove_dir_all` removes a link;
+            // anything else is refused and kept, as `std::fs::remove_dir_all` refuses a file.
             Err(error) if matches!(error.raw_os_error(), Some(libc::ELOOP | libc::ENOTDIR)) => {
+                if !is_symlink_at(at.dirfd(), &at.name)? {
+                    return Err(io::Error::from_raw_os_error(libc::ENOTDIR));
+                }
                 // SAFETY: as above.
                 return check(unsafe { libc::unlinkat(at.dirfd(), at.name.as_ptr(), 0) }).map(drop);
             }
@@ -442,6 +865,109 @@ mod unix {
         }
         // SAFETY: as above.
         check(unsafe { libc::unlinkat(at.dirfd(), at.name.as_ptr(), libc::AT_REMOVEDIR) }).map(drop)
+    }
+
+    /// Whether `name` in `dir` is a symlink itself (`fstatat` with `AT_SYMLINK_NOFOLLOW`).
+    fn is_symlink_at(dir: libc::c_int, name: &CStr) -> io::Result<bool> {
+        // SAFETY: an all-zero `stat` is a valid value for fstatat to fill.
+        let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+        // SAFETY: a valid descriptor (or AT_FDCWD), a NUL-terminated name and a `stat` to fill.
+        check(unsafe { libc::fstatat(dir, name.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW) })?;
+        Ok(stat.st_mode & libc::S_IFMT == libc::S_IFLNK)
+    }
+
+    pub(super) fn try_exists_nofollow(path: &Path) -> io::Result<bool> {
+        let at = match at(path, None) {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            at => at?,
+        };
+        super::found(is_symlink_at(at.dirfd(), &at.name))
+    }
+
+    /// Flags that open a name itself (a symlink too, never followed) for its `fstat` only, with
+    /// no read access asked: `O_PATH` on Linux, `O_EVTONLY | O_SYMLINK` on Apple's systems.
+    /// Elsewhere none, and a name is read by path.
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    const STAT_ONLY: Option<libc::c_int> = Some(libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    #[cfg(target_vendor = "apple")]
+    const STAT_ONLY: Option<libc::c_int> =
+        Some(libc::O_EVTONLY | libc::O_SYMLINK | libc::O_NONBLOCK | libc::O_CLOEXEC);
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
+    const STAT_ONLY: Option<libc::c_int> = None;
+
+    /// The name opened in its folder reached from the held home (`STAT_ONLY`), then `fstat`:
+    /// the metadata `std::fs::symlink_metadata` gives (on Linux both are `statx`, birth time
+    /// included), of the held home's file.
+    pub(super) fn symlink_metadata(path: &Path) -> io::Result<std::fs::Metadata> {
+        let at = at(path, None)?;
+        let (Some(dir), Some(flags)) = (&at.dir, STAT_ONLY) else {
+            return std::fs::symlink_metadata(path);
+        };
+        // SAFETY: a valid descriptor and a NUL-terminated name.
+        let fd = owned(unsafe { libc::openat(dir.as_raw_fd(), at.name.as_ptr(), flags) })?;
+        File::from(fd).metadata()
+    }
+
+    pub(super) fn read_dir(path: &Path) -> io::Result<Vec<super::DirEntry>> {
+        if crate::config::held_home_dir(path).is_none() {
+            return std::fs::read_dir(path)?
+                .map(|entry| {
+                    let entry = entry?;
+                    let is_file = entry.file_type()?.is_file();
+                    Ok(super::DirEntry { name: entry.file_name(), is_file })
+                })
+                .collect();
+        }
+        let at = at(path, None)?;
+        // SAFETY: a valid descriptor and a NUL-terminated name. A final symlink is followed, as
+        // `std::fs::read_dir` follows it.
+        let folder = owned(unsafe {
+            libc::openat(
+                at.dirfd(),
+                at.name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+            )
+        })?;
+        let mut out = Vec::new();
+        for name in list(&folder)? {
+            // SAFETY: an all-zero `stat` is a valid value for fstatat to fill.
+            let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+            let c_name = c(&name)?;
+            // SAFETY: a valid descriptor, a NUL-terminated name and a `stat` to fill.
+            let found = unsafe {
+                libc::fstatat(
+                    folder.as_raw_fd(),
+                    c_name.as_ptr(),
+                    &mut stat,
+                    libc::AT_SYMLINK_NOFOLLOW,
+                )
+            };
+            match check(found) {
+                Ok(_) => out.push(super::DirEntry {
+                    name,
+                    is_file: stat.st_mode & libc::S_IFMT == libc::S_IFREG,
+                }),
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(error),
+            }
+        }
+        Ok(out)
+    }
+
+    pub(super) fn hard_link(original: &Path, link: &Path) -> io::Result<()> {
+        let (original, link) = (at(original, None)?, at(link, None)?);
+        // SAFETY: valid descriptors (or AT_FDCWD) and NUL-terminated names; flags 0 links a
+        // symlink itself, never its target.
+        check(unsafe {
+            libc::linkat(
+                original.dirfd(),
+                original.name.as_ptr(),
+                link.dirfd(),
+                link.name.as_ptr(),
+                0,
+            )
+        })
+        .map(drop)
     }
 
     /// Removes everything in the open folder `dir`, never through a symlink.

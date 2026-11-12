@@ -1088,7 +1088,8 @@ button.cv-subagent > :last-child {
   background: color-mix(in srgb, var(--agent-text) 10%, transparent);
 }
 /* A line whose context menu is open (its Stop) stays lit while the pointer is in the menu. */
-.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):hover,
+/* Resume (its own control in Stop's column) lights itself, not the line around it. */
+.acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button:enabled):not(:has(.cv-subagent-resume-control:hover)):hover,
 .acpmux-running-tray .acpmux-agent-line:has(> .acpmux-agent-line__button[data-popup-open]),
 .acpmux-running-tray .acpmux-running-tray__head:hover {
   background: var(--acpmux-pill-hover, color-mix(in srgb, var(--agent-text) 11%, transparent));
@@ -2276,9 +2277,9 @@ button.cv-subagent > :last-child {
   color: var(--agent-accent);
   opacity: 0.8;
 }
-.acpmux-tray-pull__tab:hover .acpmux-tray-pull__hat > svg,
-.acpmux-tray-pull__tab:has([data-popup-open]) .acpmux-tray-pull__hat > svg,
-.acpmux-tray-pull__tab:focus-visible .acpmux-tray-pull__hat > svg {
+.acpmux-tray-pull__tab:hover .acpmux-tray-pull__hat > svg[data-icon],
+.acpmux-tray-pull__tab:has([data-popup-open]) .acpmux-tray-pull__hat > svg[data-icon],
+.acpmux-tray-pull__tab:focus-visible .acpmux-tray-pull__hat > svg[data-icon] {
   opacity: 1;
 }
 
@@ -2429,4 +2430,70 @@ button.cv-subagent > :last-child {
    the report's width, so the rest opens in place under the words it continues. */
 .cv-subagent-done__more-row {
   align-self: stretch;
+}
+
+/* The hat's top rim drags (trayResize.ts; Leo, 2026-11-12: "you have this glass rim, but you can't
+   drag up the composer hat area"): a band along the top edge, inside the hat's clip, with the
+   resize cursor. The tuck chevron comes later in the hat and keeps the middle of the band. */
+.acpmux-running-tray:has(> .acpmux-running-tray__rim) {
+  position: relative;
+}
+.acpmux-running-tray__rim {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  /* The tuck's own click band's height (its top 8px), so the two read as one edge. */
+  height: var(--ds-space-2);
+  cursor: ns-resize;
+  touch-action: none;
+}
+/* The height the person dragged to caps the list, never pads it (it is the list's `max-height`, as
+   the default five lines are), with or without the latest-step second lines. Last in the file, so
+   it wins over the default caps above of the same weight. It keeps their 2px allowance for the
+   list's scroll padding, so a one-line cap shows its whole line, and holds trayResize.ts's 70% of the
+   window in this window too: a height kept from a taller one never runs past it. */
+.acpmux-running-tray[data-sized] .acpmux-running-tray__list:is(*, :has(.acpmux-agent-line__latest)) {
+  max-height: min(calc(var(--acpmux-tray-list-height) + 2px), 70vh);
+}
+
+/* Resume on a stopped helper (ResumeControl.tsx): the end line's button, and a refusal's note before
+   it, on every row and tab that draws the helper. In the tray it takes Stop's column; a list row
+   (SubagentListRow) holds it where its Stop goes, shown at rest since a stopped row has nothing else
+   to do. A note there lies over the row's time, which steps aside while it shows. */
+.cv-subagent-resume-control {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: var(--ds-space-1);
+  min-width: 0;
+}
+.cv-subagent-resume-control > .cv-subagent-resume__note {
+  margin-inline-start: 0;
+  white-space: nowrap;
+}
+.acpmux-running-tray .acpmux-agent-line__stop-slot > .cv-subagent-resume-control {
+  position: relative;
+  pointer-events: auto;
+}
+.acpmux-running-tray .acpmux-agent-line__stop-slot > .cv-subagent-resume-control > .cv-subagent-resume__note {
+  position: absolute;
+  right: 100%;
+  padding-inline-end: var(--ds-space-1);
+}
+.acpmux-running-tray .acpmux-agent-line:has(.cv-subagent-resume__note) .acpmux-agent-line__trail {
+  visibility: hidden;
+}
+/* Centered on the row, whatever its height (the list's 48px, the summary card's 40px). */
+.cv-subagent-stoppable > .cv-subagent-resume-control {
+  position: absolute;
+  top: 50%;
+  right: calc(var(--cv-subagent-inset) + 12px + var(--cv-subagent-gap));
+  transform: translateY(-50%);
+}
+.cv-subagent-stoppable:has(.cv-subagent-resume__note) > .cv-subagent > .cv-subagent__time {
+  visibility: hidden;
+}
+.cv-subagent-of > .cv-subagent-resume-control {
+  pointer-events: auto;
 }

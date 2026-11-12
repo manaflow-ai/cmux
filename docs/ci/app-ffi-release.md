@@ -89,6 +89,15 @@ change. So a pull request cannot pin a release of its own FFI sources, and
 FFI inputs: split it into a Rust-only step A and a Swift step B after the
 re-pin.
 
+A crate's `tests/`, `benches/` and `examples/` are not FFI inputs
+(`--list-excluded`): Cargo never builds them into the library, so a test-only
+change (a new test, a `cargo fmt` of one) needs no release and no re-pin. A
+library file that names one of those folders (an `include_str!` of a test
+vector, a build script) keeps it an input. `scripts/ci/app_ffi_pin.py`
+(`NOT_BUILT`) is the one definition; the pin check, the pin on the base, the
+release workflow's push paths, the router, `build_class.py` and
+`base_red_excuse.py` read it.
+
 1. **Step A: the Rust change only.** Make it additive, so that the Swift on
    `feat-cmux-next` keeps working with the new Rust. Do not change Swift,
    `Package.swift` or `app-ffi-pin.json`. The merge gate excuses the stale-pin

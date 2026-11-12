@@ -354,7 +354,10 @@
 .acpmux-goal[data-look]:is(:focus-within, [data-open]) .acpmux-goal-actions {
   opacity: 1;
 }
-.acpmux-goal[data-look]:not(:hover, :has([data-popup-open]), :focus-within, [data-open]) .acpmux-goal-actions button { pointer-events: none; }
+/* Its buttons by class, never a bare `button` after a `:has()`: Chromium keeps one restyle list for every
+   `:has()` rule, so a bare tag there restyled every button in the pane on each `:has()` change
+   (test/css-invalidation-scope.test.ts). */
+.acpmux-goal[data-look]:not(:hover, :has([data-popup-open]), :focus-within, [data-open]) .acpmux-goal-actions .acpmux-goal-action { pointer-events: none; }
 .acpmux-goal[data-look] .acpmux-goal-action {
   width: var(--ds-control-icon);
   height: var(--ds-control-icon);
