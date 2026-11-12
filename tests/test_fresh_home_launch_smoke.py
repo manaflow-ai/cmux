@@ -14,6 +14,7 @@ arm "not-run" and the first arm's verdict standing.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import importlib.util
 import json
 import os
@@ -30,6 +31,10 @@ import urllib.parse
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "fresh_home_launch_smoke.py"
+# The crash report that macOS 27 wrote for the seeded launch of commit 2616865988e1 on a fleet host (controller step
+# 5490aa2042ea, 2026-11-11): the crash of nightly 4294166855401. Only the fields a reader needs; the host's and the
+# account's identifiers are left out. Its process is pid 79502, a child of the validator (pid 78738).
+REAL_REPORT = ROOT / "tests" / "fixtures" / "launch-smoke" / "cmux-dev-cookie-sync-crash.ips"
 spec = importlib.util.spec_from_file_location("fresh_home_launch_smoke", SCRIPT)
 smoke = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(smoke)
@@ -37,12 +42,19 @@ spec.loader.exec_module(smoke)
 BUNDLE = "com.example.fresh-smoke-stub"
 
 # The stub app: MODE (crash | healthy | no-home | new-tab | first-run | first-run-unmarked | sync-crash | no-sync |
-# seeded-no-home | empty-sync | own-report | quit-report | helper-report) comes from the bundle's Resources/mode file. sync-crash,
+# seeded-no-home | empty-sync | own-report | quit-report | helper-report | first-report | other-report |
+# home-report | blank-report | blank-crash | torn-report) comes from the bundle's Resources/mode file. sync-crash,
 # no-sync, empty-sync (the sync saves a baseline of no site) and seeded-no-home are healthy in an empty home. own-report: healthy, and in the seeded home a crash report that names
 # this process appears while it is up. quit-report: healthy, and the empty home's process "crashes while it quits":
 # a crash report that names it appears once the seeded home's launch is up, as ReportCrash writes one seconds later.
 # helper-report: the same, but the report is of the empty home's HELPER, which died when its app went away: its
 # parent is pid 1 by then and its path is in the app copy, so only the time it died says whose it is.
+# first-report, other-report, home-report, blank-report: healthy, and while the EMPTY home's launch is up a crash
+# report appears that names this process, a process of another build's app copy (as another tagged build that
+# crashes on the same host does), a detached process whose program is in this run's HOME (a daemon that the app
+# put there), or no process at all (blank-report: in each home's launch). blank-crash: a report of no process, then
+# the app aborts. torn-report: healthy, and when it is stopped a report of this process is there with its head
+# only, as one that is read while macOS writes it; its body comes a second later.
 STUB = r'''#!PYTHON
 import json, os, signal, socket, subprocess, sys, time
 here = os.path.dirname(os.path.abspath(__file__))
@@ -90,26 +102,79 @@ if seeded and mode != "no-sync":
         os.makedirs(state, exist_ok=True)
         saved = {"version": 1, "source": record["browser"] + "/" + record["profileDirectory"],
                  "hosts": {} if mode == "empty-sync" else hosts}
-        open(os.path.join(state, "chrome_Default-0123456789abcdef.fingerprint"), "w").write(json.dumps(saved))
+        open(os.path.join(state, "seed-0123456789abcdef.fingerprint"), "w").write(json.dumps(saved))
 if mode in ("sync-crash", "no-sync", "empty-sync"):
     mode = "healthy"
 if mode == "seeded-no-home":
     mode = "no-home" if seeded else "healthy"
-if mode in ("own-report", "quit-report", "helper-report"):
+if mode in ("own-report", "quit-report", "helper-report", "first-report", "other-report", "home-report",
+            "blank-report", "blank-crash", "torn-report", "again-report", "other-hidden-report", "late-report",
+            "late-seeded-report"):
     folder = open(os.path.join(here, "..", "Resources", "diagnostics_path")).read().strip()
     os.makedirs(folder, exist_ok=True)
     name = os.path.join(folder, "stub-2026-11-11-000000.ips")
     kind = mode
-    def ips(pid, parent, died=None):
+    def stamp(when):
+        return time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(when)) + ".%04d +0000" % int(when % 1 * 10000)
+    def ips(pid, parent, died=None, path=os.path.abspath(__file__), born=None):
         # As an .ips: a header line, then the report's JSON with the crashed process's pid, parent and path, and
-        # (DIED given) the time it died as macOS writes it.
-        body = {"pid": pid, "parentPid": parent, "procPath": os.path.abspath(__file__), "procName": "stub"}
+        # (DIED given) the time it died and (BORN given) the time it was started, as macOS writes them.
+        body = {"pid": pid, "parentPid": parent, "procPath": path, "procName": "stub"}
+        if born is not None:
+            body["procLaunch"] = stamp(born)
         if died is not None:
-            body["captureTime"] = (time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime(died))
-                                   + ".%04d +0000" % int(died % 1 * 10000))
+            body["captureTime"] = stamp(died)
         return json.dumps({"app_name": "stub", "bug_type": "309"}) + "\n" + json.dumps(body, indent=2) + "\n"
     if mode == "own-report" and seeded:
         open(name, "w").write(ips(os.getpid(), os.getppid(), time.time()))
+    if mode == "first-report" and not seeded:
+        open(name, "w").write(ips(os.getpid(), os.getppid(), time.time()))
+    if mode == "other-report" and not seeded:
+        # Another tagged build's launch on this host: its own pid, its own copy of the app.
+        open(name, "w").write(ips(4190001, 1, time.time(),
+                                  "/private/tmp/cmux-fresh-other00/app/Stub capfeedface00.app/Contents/MacOS/stub"))
+    if mode == "home-report" and not seeded:
+        # Not this process and not a child of it by the time it died, and not in the app copy: in the run's HOME.
+        open(name, "w").write(ips(4190002, 1, time.time(), os.path.join(home, ".cmux", "bin", "stub-daemon")))
+    # As macOS writes the path of a program under /tmp: the folders above the app copy are one `*`.
+    hidden = "/tmp/*/%s/Contents/MacOS/stub"
+    if mode == "again-report" and not seeded:
+        # The app started itself again, not as its child (its parent is launchd), and that process crashed.
+        open(name, "w").write(ips(4190003, 1, time.time(), hidden % os.path.basename(os.path.dirname(os.path.dirname(here))),
+                                  born=time.time()))
+    if mode == "other-hidden-report" and not seeded:
+        # Another tagged build's launch from /tmp on this host, in these seconds: another name of the app copy.
+        open(name, "w").write(ips(4190004, 1, time.time(), hidden % "Stub capfeedface00.app", born=time.time()))
+    if mode == "late-report" or (mode == "late-seeded-report" and seeded):
+        # The app crashes; macOS writes its report only after the verdict looked for it (the test's caller makes
+        # a file then, named by this launch's pid), and its header line some seconds before the rest.
+        writer = ("import os, time\n"
+                  "deadline = time.time() + 60\n"
+                  "while time.time() < deadline and not os.path.exists(os.environ['STUB_WAIT_FOR']):\n"
+                  "    time.sleep(0.05)\n"
+                  "whole = os.environ['STUB_REPORT_TEXT']\n"
+                  "open(os.environ['STUB_REPORT'], 'w').write(whole.partition('\\n')[0] + '\\n')\n"
+                  "time.sleep(2.5)\n"
+                  "open(os.environ['STUB_REPORT'], 'w').write(whole)\n")
+        subprocess.Popen([sys.executable, "-c", writer], cwd="/", start_new_session=True, env={
+            "STUB_WAIT_FOR": os.path.join(os.path.dirname(folder), "verdict-looked-%d" % os.getpid()),
+            "STUB_REPORT": name, "STUB_REPORT_TEXT": ips(os.getpid(), os.getppid(), time.time())})
+        time.sleep(0.5)
+        os.abort()
+    if mode in ("blank-report", "blank-crash"):
+        open(name, "w").write(json.dumps({"app_name": "stub", "bug_type": "309"}) + "\n")
+    if mode == "blank-crash":
+        time.sleep(0.5)
+        os.abort()
+    if mode == "torn-report":
+        def torn_then_whole(*_):
+            whole = ips(os.getpid(), os.getppid(), time.time())
+            open(name, "w").write(whole.partition("\n")[0] + "\n")
+            subprocess.Popen([sys.executable, "-c", "import os, time\ntime.sleep(1)\n"
+                              "open(os.environ['STUB_REPORT'], 'w').write(os.environ['STUB_REPORT_TEXT'])\n"],
+                             cwd="/", start_new_session=True, env={"STUB_REPORT": name, "STUB_REPORT_TEXT": whole})
+            os._exit(0)
+        signal.signal(signal.SIGTERM, torn_then_whole)
     if mode in ("quit-report", "helper-report") and not seeded:
         # Detached, its command line never names the root: it outlives this launch as ReportCrash does.
         writer = ("import os, time\n"
@@ -206,11 +271,10 @@ def make_app(parent: Path, mode: str) -> Path:
 
 def gate_verdicts():
     """The publish gate's verdict helper (scripts/ci/nightly_next_launch_smoke.py)."""
-    spec = importlib.util.spec_from_file_location("nightly_next_launch_smoke",
-                                                  ROOT / "scripts" / "ci" / "nightly_next_launch_smoke.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+    if str(ROOT / "scripts" / "ci") not in sys.path:
+        sys.path.insert(0, str(ROOT / "scripts" / "ci"))
+    return importlib.import_module("nightly_next_launch_smoke")
 
 
 class FreshHomeLaunchSmokeTest(unittest.TestCase):
@@ -227,6 +291,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
             "CMUX_FRESH_SMOKE_DIAGNOSTIC_DIR": str(self.dir / "diagnostics"),
             "CMUX_FRESH_SMOKE_SKIP_SESSION_CHECK": "1",
             "CMUX_FRESH_SMOKE_CRASH_REPORT_WAIT_SECONDS": "0",
+            "CMUX_FRESH_SMOKE_CRASH_EVIDENCE_WAIT_SECONDS": "0",
             "CMUX_FRESH_SMOKE_SEEDED_SCAN_WAIT_SECONDS": "4",
             "FAKE_DEFAULTS_DIR": str(self.defaults_dir),
             "FRESH_SMOKE_SECRET": "must-not-reach-the-app",
@@ -373,7 +438,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         for key in ("browser", "profileDirectory", "displayName", "proposedProfileID", "targetProfileID"):
             self.assertIsInstance(record[key], str)
         self.assertEqual(seed["source"], f"{record['browser']}/{record['profileDirectory']}")
-        self.assertEqual(seed["source"], "chrome/Default")
+        self.assertEqual(seed["source"], f"{smoke.SEED_BROWSER}/Default")
         # Not "default": the app moves such an import into a new browser profile at launch (migrateImports).
         self.assertNotEqual(record["targetProfileID"], "default")
         self.assertTrue(record["syncedCookieFile"].startswith("file:///"))
@@ -408,8 +473,28 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         (state / "other.fingerprint").write_text(json.dumps({"version": 1, "source": "arc/Default", "hosts": {"a": "1"}}))
         (state / "torn.fingerprint").write_text("{")
         self.assertIsNone(smoke.cookie_sync_scanned(seed))
-        (state / "x.fingerprint").write_text(json.dumps({"version": 1, "source": "chrome/Default", "hosts": {"a": "1"}}))
+        (state / "x.fingerprint").write_text(json.dumps({"version": 1, "source": seed["source"], "hosts": {"a": "1"}}))
         self.assertEqual(smoke.cookie_sync_scanned(seed), {"hosts": 1})
+
+    def test_the_seeds_browser_has_no_keychain_item_name_in_the_app(self):
+        # The app asks the Keychain for a browser's cookie key by the item name that its table gives that browser
+        # (browser-sources.json `safeStorage`, ImportBrowser.safeStorageService). The seed's browser is in no row of
+        # it, so the app has no name to ask for, also if a later build imports the seeded cookies at launch.
+        table = json.loads((ROOT / "Packages" / "macOS" / "CmuxNext" / "Sources" / "CmuxNextBrowserImport" / "Resources"
+                            / "browser-sources.json").read_text())
+        rows = table["browsers"] if isinstance(table, dict) else table
+        self.assertGreater(len(rows), 50)
+        self.assertIn("Chrome Safe Storage", [(row.get("safeStorage") or {}).get("service") for row in rows])
+        self.assertNotIn(smoke.SEED_BROWSER, [row["id"] for row in rows])
+        self.assertFalse(smoke.SEED_BROWSER.startswith("found."))  # the app's own prefix for a browser it found on disk
+        home = self.dir / "named-home"
+        smoke.seed_cookie_sync_home(home, BUNDLE)
+        (record,) = json.loads((home / "Library" / "Application Support" / BUNDLE / "BrowserImport" / "sources.json").read_text())
+        self.assertEqual(record["browser"], smoke.SEED_BROWSER)
+
+    def test_a_caller_can_read_that_crash_reports_are_matched_by_process(self):
+        # cmux-ci fresh-home gives a validator the account's real crash folder only when it has this.
+        self.assertEqual(smoke.CRASH_FILTER, "pid")
 
     def test_the_seeded_arm_passes_when_the_app_reads_the_seeded_store(self):
         (self.defaults_dir / f"{BUNDLE}.plist").write_bytes(b"account defaults")
@@ -516,23 +601,34 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
 
         self.assertEqual(smoke.crash_report_process(ips("own", pid=200, parentPid=1, procPath=binary)),
                          {"pid": 200, "parent": 1, "path": binary})
-        # Counted: the launch itself, a child of it, another process of this run's copy, a report with no pid.
+        # Counted: the launch itself, a child of it, another process of this run's copy.
         self.assertIsNone(why(ips("own", pid=200, parentPid=1, procPath=binary)))
         self.assertIsNone(why(ips("own-moved", pid=200, parentPid=1, procPath=elsewhere)))
         self.assertIsNone(why(ips("child", pid=300, parentPid=200, procPath=elsewhere)))
         self.assertIsNone(why(ips("copy", pid=300, parentPid=1, procPath=binary)))
-        self.assertIsNone(why(ips("no-pid", exception={"type": "EXC_BAD_ACCESS"})))
+        # A report that names no process is no crash alone: it counts only for a launch whose app ended.
         unreadable = self.dir / "unreadable.ips"
         unreadable.write_text("{}")
         self.assertIsNone(smoke.crash_report_process(unreadable))
-        self.assertIsNone(why(unreadable))
-        self.assertIsNone(why(self.dir / "gone.ips"))
+        for found in (ips("no-pid", exception={"type": "EXC_BAD_ACCESS"}), unreadable, self.dir / "gone.ips"):
+            self.assertIn("names no process", why(found))
+            self.assertIsNone(smoke.not_of_launch(found, 200, app, frozenset({100}), ended=True))
         # Not counted: the earlier launch (also a child of it, also from this run's copy), another copy of the app,
         # another process that names no path.
         self.assertIn("this run's earlier launch", why(ips("earlier", pid=100, parentPid=1, procPath=binary)))
         self.assertIn("this run's earlier launch", why(ips("earlier-child", pid=300, parentPid=100, procPath=binary)))
         self.assertIn("not this run's copy of the app", why(ips("other", pid=300, parentPid=1, procPath=elsewhere)))
         self.assertIn("names no path", why(ips("pathless", pid=300, parentPid=1)))
+        # A launch's own folder (its HOME is there): a detached process whose program is in it is of that launch.
+        home = self.dir / "root" / "seeded"
+        daemon = str(home / "h" / ".cmux" / "bin" / "cmux-tui")
+        first_home = str(self.dir / "root" / "h" / ".cmux" / "bin" / "cmux-tui")
+        self.assertIsNone(smoke.not_of_launch(ips("daemon", pid=300, parentPid=1, procPath=daemon), 200, app,
+                                              frozenset({100}), None, home))
+        self.assertIn("not this run's copy of the app and not this launch's files",
+                      smoke.not_of_launch(ips("first-daemon", pid=300, parentPid=1, procPath=first_home), 200, app,
+                                          frozenset({100}), None, home))
+        self.assertIn("not this run's copy of the app", why(ips("daemon", pid=300, parentPid=1, procPath=daemon)))
         # The older text format says the same in its head.
         text = self.dir / "old.crash"
         text.write_text(f"Process:               cmux NEXT [200]\nPath:                  {binary}\n"
@@ -541,6 +637,351 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         text.write_text(f"Process:               cmux NEXT [100]\nPath:                  {binary}\n"
                         "Parent Process:        launchd [1]\n")
         self.assertIn("this run's earlier launch", why(text))
+
+    def test_a_daemons_report_is_found_by_a_release_apps_name_and_counts_only_from_this_run(self):
+        # A Release or NIGHTLY app's executable is `cmux`, so the name match (`cmux-*.ips`) also finds a report of
+        # its daemon, `cmux-tui`. The daemon is detached (its parent is pid 1): only its path and its start time
+        # say whose it is. The same daemon of another copy (the installed app, another build's copy under /tmp,
+        # another run's home) crashes on the same host: that report must never fail this launch.
+        root = self.dir / "root"
+        app = root / "app" / "cmux NIGHTLY.app"
+        bundled = app / "Contents" / "Resources" / "bin" / "cmux-tui"
+        bundled.parent.mkdir(parents=True)
+        bundled.write_text("")
+        reports = self.dir / "reports"
+        reports.mkdir()
+        found = reports / "cmux-tui-2026-11-11-090004.ips"
+        started = datetime(2026, 11, 11, 9, 0, 0, tzinfo=timezone.utc).timestamp()
+        after, before = "2026-11-11 09:00:01.0000 +0000", "2026-11-11 08:59:20.5000 +0000"
+
+        def look(where: str, born: str = after) -> tuple[list[str], str]:
+            body = {"pid": 300, "parentPid": 1, "procPath": where, "procName": "cmux-tui", "procLaunch": born,
+                    "captureTime": "2026-11-11 09:00:04.0000 +0000"}
+            found.write_text(json.dumps({"app_name": "cmux-tui", "bug_type": "309"}) + "\n" + json.dumps(body) + "\n")
+            crashes, others = smoke.launch_crash_reports(reports, "cmux", 0, False, 200, app, frozenset({100}),
+                                                         started, root)
+            return [path.name for path in crashes], " ".join(others.values())
+
+        # The name: `cmux-` takes the daemon's report; a Debug executable's name (`cmux DEV`) does not.
+        look(str(bundled))
+        self.assertEqual([path.name for path in smoke.crash_reports(reports, "cmux", 0)], [found.name])
+        self.assertEqual(smoke.crash_reports(reports, "cmux DEV", 0), [])
+        # Counted: the daemon of this run's copy (the full path, and the path as macOS writes it under /tmp), and
+        # one that the app put in this launch's home.
+        for where in (str(bundled), "/tmp/*/cmux NIGHTLY.app/Contents/Resources/bin/cmux-tui",
+                      str(root / "h" / ".cmux" / "bin" / "cmux-tui")):
+            self.assertEqual(look(where), ([found.name], ""), where)
+        # Not counted: the daemon of each other copy.
+        for where in ("/Applications/cmux NIGHTLY.app/Contents/Resources/bin/cmux-tui",
+                      "/Applications/cmux.app/Contents/Resources/bin/cmux-tui",
+                      "/tmp/*/cmux DEV capfeedface00.app/Contents/Resources/bin/cmux-tui",
+                      "/private/tmp/cmux-fresh-other00/h/.cmux/bin/cmux-tui",
+                      str(self.dir / "other-root" / "h" / ".cmux" / "bin" / "cmux-tui")):
+            crashes, why = look(where)
+            self.assertEqual(crashes, [], where)
+            self.assertIn("not this run's copy of the app and not this launch's files", why, where)
+        # Nor one of a copy with this copy's NAME that was started before this launch (another run's, or an
+        # earlier launch's). Started after it, the path cannot tell such a copy from this run's: the limit of the rule.
+        crashes, why = look("/tmp/*/cmux NIGHTLY.app/Contents/Resources/bin/cmux-tui", before)
+        self.assertEqual(crashes, [])
+        self.assertRegex(why, r"its process was started at 08:59:20Z, 39\.5s before this launch started")
+
+    def real_app_copy(self, name: str = "cmux DEV cap2616865988.app", whole: bool = True) -> Path:
+        app = self.dir / name.replace(" ", "-") / "app" / name
+        (app / "Contents" / "MacOS").mkdir(parents=True)
+        if whole:
+            (app / "Contents" / "MacOS" / "cmux DEV").write_text("")
+        return app
+
+    def test_a_real_crash_report_is_read_and_is_of_its_launch(self):
+        self.assertEqual(smoke.crash_report_process(REAL_REPORT),
+                         {"pid": 79502, "parent": 78738, "path": "/tmp/*/cmux DEV cap2616865988.app/Contents/MacOS/cmux DEV"})
+        died, born = smoke.crash_report_time(REAL_REPORT), smoke.crash_report_launch_time(REAL_REPORT)
+        self.assertEqual((round(died[0] - born, 4), died[1]), (3.1366, 0.0))
+        app = self.real_app_copy()
+        for pid in (79502, 78738):  # the launch itself, and a child of the launch
+            self.assertIsNone(smoke.not_of_launch(REAL_REPORT, pid, app, frozenset(), born - 1, app.parent.parent))
+
+    def test_a_real_report_of_this_runs_app_copy_counts_by_the_path_that_macos_wrote(self):
+        # macOS writes the path of a program under /tmp with the folders above the app copy hidden
+        # (`/tmp/*/NAME.app/...`), so the full path of this run's copy never matches a real report. A process that is
+        # not the launch and not its child (the app started again through launchd) is still this launch's when the
+        # rest of the path is a file of this run's copy and the process was started after this launch.
+        app = self.real_app_copy()
+        born = smoke.crash_report_launch_time(REAL_REPORT)
+
+        def why(copy: Path, started: float | None, earlier: frozenset = frozenset(), found: Path = REAL_REPORT):
+            return smoke.not_of_launch(found, 4242, copy, earlier, started, copy.parent.parent)
+
+        self.assertIsNone(why(app, born - 1))
+        # Started before this launch: of an earlier launch of the same copy (the first arm's, for the seeded arm).
+        self.assertIn("before this launch started", why(app, born + 1))
+        self.assertIn("this run's earlier launch", why(app, born - 1, frozenset({79502})))
+        # Another tag's copy, and a copy that has no such file: a crash of another launch on this host.
+        for other in (self.real_app_copy("cmux DEV capfeedface00.app"), self.real_app_copy("other/cmux DEV.app"),
+                      self.real_app_copy("hollow/cmux DEV cap2616865988.app", whole=False)):
+            self.assertIn("not this run's copy of the app", why(other, born - 1), other)
+        # macOS hides the folders of a program under /tmp, where each run's root is. A `*` in another place, two of
+        # them, or a `..` after it is not the path of this run's copy.
+        head, _, body = REAL_REPORT.read_text().partition("\n")
+        inner = "cmux DEV cap2616865988.app/Contents/MacOS/cmux DEV"
+        moved = self.dir / "moved.ips"
+        for where, counts in ((f"/private/tmp/*/{inner}", True), (f"/Users/cmux/*/{inner}", False),
+                              (f"*/{inner}", False), (f"/tmp/*/*/{inner}", False), (f"/var/tmp/*/{inner}", False),
+                              ("/tmp/*/cmux DEV cap2616865988.app/Contents/../Contents/MacOS/cmux DEV", False),
+                              (f"/tmp/*/{inner[:-8]}{'x' * 300}/../cmux DEV", False),
+                              (f"/tmp/*/{inner[:-8]}{'x' * 300}", False), (f"/tmp/*/{inner}\0", False)):
+            moved.write_text(head + "\n" + json.dumps({**json.loads(body), "procPath": where}))
+            said = why(app, born - 1, found=moved)
+            self.assertEqual(said is None, counts, (where, said))
+            if not counts:
+                self.assertRegex(said, "not this run's copy of the app|its path cannot be read", where)
+        # The hidden path says less than a full one: without the time of the process's start it is not enough.
+        self.assertIn("no start time of this launch was given", why(app, None))
+        timeless = self.dir / "timeless.ips"
+        timeless.write_text("".join(line for line in REAL_REPORT.read_text().splitlines(keepends=True)
+                                    if '"procLaunch"' not in line))
+        self.assertEqual(smoke.crash_report_process(timeless)["pid"], 79502)
+        self.assertIn("does not say when its process was started", why(app, born - 1, found=timeless))
+
+    def test_a_crash_of_the_app_that_was_started_again_fails_the_launch_by_its_hidden_path(self):
+        status, output, report = self.run_smoke("again-report", "--seconds", "2", "--startup-timeout", "20")
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assertEqual((report["verdict"], report["exit"]), ("fail", None))
+        self.assertEqual([Path(found).name for found in report["crash_reports"]], ["stub-2026-11-11-000000.ips"])
+        self.assertEqual(report["crash_reports_not_counted"], [])
+        verdicts = gate_verdicts()
+        self.assertEqual(verdicts.attempt_result(status, report), verdicts.CRASH)
+        self.assert_cleaned_up(report)
+
+    def test_a_hidden_path_of_another_builds_app_copy_never_fails_a_healthy_launch(self):
+        status, output, report = self.run_smoke("other-hidden-report", "--seconds", "2", "--startup-timeout", "20")
+        self.assertEqual(status, smoke.PASS, output)
+        self.assertEqual((report["verdict"], report["crash_reports"]), ("pass", []))
+        self.assertEqual([Path(found).name for found in report["crash_reports_not_counted"]], ["stub-2026-11-11-000000.ips"])
+        self.assertIn("it is of pid 4190004 at /tmp/*/Stub capfeedface00.app/Contents/MacOS/stub, "
+                      "not this run's copy of the app", output)
+        self.assert_cleaned_up(report)
+
+    def test_a_report_that_comes_after_the_verdicts_wait_is_kept_as_evidence_of_a_failed_launch(self):
+        # macOS can take longer than the verdict waits to write a build's first report. The verdict is the app's
+        # end and does not wait for it; after a FAIL the evidence does, and never changes the verdict's fields.
+        late = {**self.env, "CMUX_FRESH_SMOKE_CRASH_EVIDENCE_WAIT_SECONDS": "20"}
+        looked = ("verdict_look = smoke.launch_crash_reports\n"
+                  "def look_and_say(*args):\n"
+                  "    found = verdict_look(*args)\n"
+                  f"    open({str(self.dir)!r} + '/verdict-looked-%d' % args[4], 'w').close()\n"
+                  "    return found\n"
+                  "smoke.launch_crash_reports = look_and_say")
+        for mode, arms in (("late-report", ()), ("late-seeded-report", ("--arms", "empty,seeded", "--seeded-seconds", "2"))):
+            with self.subTest(mode=mode):
+                status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "10", *arms,
+                                                        env=late, setup=looked)
+                self.assertEqual(status, smoke.FAIL, output)
+                self.assertEqual((report["verdict"], report["exit"], report["crash_reports"]), ("fail", -6, []))
+                self.assertEqual(len(report["failures"]), 1, report["failures"])
+                self.assertRegex(report["failures"][0], r"the app exited \(signal 6\)")
+                self.assertEqual([Path(found).name for found in report["crash_reports_late"]],
+                                 ["stub-2026-11-11-000000.ips"])
+                self.assertIn("--- stub-2026-11-11-000000.ips (first 6000 bytes)", output)
+                # The report was half written when the look first saw it: it is kept when it names this launch.
+                kept = smoke.crash_report_process(self.dir / f"out-{mode}-{self.runs}" / "stub-2026-11-11-000000.ips")
+                self.assertEqual(kept and kept["pid"], report["pid"])
+                # The failure is told before the report is waited for.
+                self.assertLess(output.index("FAIL: "), output.index("--- stub-2026-11-11-000000.ips"))
+                self.assert_cleaned_up(report)
+                (self.dir / "diagnostics" / "stub-2026-11-11-000000.ips").unlink()
+
+    def test_a_run_that_is_cut_while_it_waits_for_a_late_report_has_told_the_failure(self):
+        # The gate's watchdog cuts an attempt that takes too long. The wait for a late report is the last thing a
+        # failed launch does: the report on disk and the log have the failure before it, in each arm.
+        # The late look says when it begins (a caller script, then the real look), and the run is cut there: the
+        # look then waits far longer than this test, so the run cannot end by itself.
+        late = {**self.env, "CMUX_FRESH_SMOKE_CRASH_EVIDENCE_WAIT_SECONDS": "600"}
+        begins = "the late look begins"
+        caller = ("import importlib.util, sys\n"
+                  f"spec = importlib.util.spec_from_file_location('smoke', {str(SCRIPT)!r})\n"
+                  "smoke = importlib.util.module_from_spec(spec); spec.loader.exec_module(smoke)\n"
+                  "real_look = smoke.late_crash_reports\n"
+                  f"smoke.late_crash_reports = lambda *a, **k: smoke.log({begins!r}) or real_look(*a, **k)\n"
+                  "sys.exit(smoke.main(sys.argv[1:]))\n")
+        for mode, arms, arm, told in (("crash", (), None, "FAIL: the app exited"),
+                                      ("sync-crash", ("--arms", "empty,seeded", "--seeded-seconds", "2"), "seeded",
+                                       "FAIL: seeded home: the app exited")):
+            with self.subTest(mode=mode):
+                app, out = make_app(self.dir / f"cut-{mode}", mode), self.dir / f"out-cut-{mode}"
+                harness = subprocess.Popen([sys.executable, "-c", caller, "--app", str(app), "--out", str(out),
+                                            "--seconds", "2", "--startup-timeout", "10", *arms],
+                                           env=late, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                lines, before_the_look = [], None
+                try:
+                    for line in harness.stdout:
+                        if line.startswith(begins) and before_the_look is None:
+                            before_the_look = list(lines)
+                            harness.terminate()
+                        lines.append(line)
+                    status = harness.wait(timeout=60)
+                finally:
+                    if harness.poll() is None:
+                        harness.kill()
+                    harness.stdout.close()
+                output = "".join(lines)
+                self.assertIsNotNone(before_the_look, f"the late look did not begin:\n{output}")
+                self.assertTrue(any(line.startswith(told) for line in before_the_look),
+                                f"the failure was not told before the late look began:\n{output}")
+                self.assertEqual(status, 128 + signal.SIGTERM, output)
+                report = json.loads((out / "report.json").read_text())
+                self.assertEqual((report["verdict"], report["exit"], report.get("arm"), report["crash_reports_late"]),
+                                 ("fail", -6, arm, []), output)
+                self.assertRegex(report["failures"][0], r"the app exited \(signal 6\)")
+                self.assert_cleaned_up(report)
+                # The gate gives a cut attempt the status 124 and reads this report: it is that attempt's crash.
+                gate = gate_verdicts()
+                self.assertEqual(gate.attempt_result(124, report), gate.CRASH, report)
+
+    def test_a_crash_stays_a_crash_when_its_crash_reports_cannot_be_read(self):
+        # The verdict of an app that ended is its end. A report folder or a report that cannot be read must not make
+        # that launch a cannot-run, in either arm (LOOKS: how many looks at the folder still work).
+        refuse = ("looks = []\n"
+                  "def refuse(*_a, **_k):\n"
+                  "    looks.append(1)\n"
+                  "    if len(looks) > LOOKS:\n"
+                  "        raise OSError('no reports today')\n"
+                  "    return []\n"
+                  "smoke.crash_reports = refuse")
+        for mode, arms, arm, looks in (("crash", (), None, 0),
+                                       ("sync-crash", ("--arms", "empty,seeded", "--seeded-seconds", "2"), "seeded", 1)):
+            with self.subTest(mode=mode):
+                status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "10", *arms,
+                                                        setup=refuse.replace("LOOKS", str(looks)))
+                self.assertEqual(status, smoke.FAIL, output)
+                self.assertEqual((report["verdict"], report["exit"], report.get("arm"), report["crash_reports"]),
+                                 ("fail", -6, arm, []), output)
+                self.assertIn("crash reports could not be read: OSError: no reports today", output)
+                self.assertRegex(output, r"FAIL: (seeded home: )?the app exited \(signal 6\)")
+                verdicts = gate_verdicts()
+                self.assertEqual(verdicts.attempt_result(status, report), verdicts.CRASH)
+                self.assert_cleaned_up(report)
+
+    def test_a_crash_of_another_runs_copy_between_the_two_arms_never_fails_the_seeded_arm(self):
+        # The first arm gives the defaults lock back before the seeded arm takes it. Another run of a copy with the
+        # same name can launch and crash in between, and macOS writes that report while the seeded launch is up: its
+        # process was started after the first arm ended, but before the seeded launch was.
+        report_path = self.dir / "diagnostics" / "stub-2026-11-11-000000.ips"
+        between = ("seed = smoke.seed_cookie_sync_home\n"
+                   "def seed_after_another_run(home, bundle_id):\n"
+                   "    import json, subprocess, sys, time\n"
+                   "    at = time.time()\n"
+                   "    now = time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(at)) + ('%.4f' % (at % 1))[1:] + ' +0000'\n"
+                   "    body = {'pid': 4190005, 'parentPid': 1, 'procLaunch': now, 'captureTime': now,\n"
+                   "            'procPath': '/tmp/*/Stub healthy.app/Contents/MacOS/stub'}\n"
+                   "    writer = ('import os, sys, time\\n'\n"
+                   "              'deadline = time.time() + 60\\n'\n"
+                   "              'while time.time() < deadline and not os.path.exists(sys.argv[1]):\\n'\n"
+                   "              '    time.sleep(0.05)\\n'\n"
+                   "              'os.makedirs(os.path.dirname(sys.argv[2]), exist_ok=True)\\n'\n"
+                   "              'open(sys.argv[2], \"w\").write(sys.argv[3])\\n')\n"
+                   "    subprocess.Popen([sys.executable, '-c', writer, str(home / 'stub-report.json'),\n"
+                   f"                      {str(report_path)!r}, json.dumps({{'app_name': 'stub'}}) + '\\n' + json.dumps(body)],\n"
+                   "                     cwd='/', start_new_session=True)\n"
+                   "    time.sleep(2.2)\n"
+                   "    return seed(home, bundle_id)\n"
+                   "smoke.seed_cookie_sync_home = seed_after_another_run")
+        status, output, report = self.run_smoke("healthy", "--seconds", "2", "--startup-timeout", "10",
+                                                "--arms", "empty,seeded", "--seeded-seconds", "2", setup=between)
+        self.assertEqual(status, smoke.PASS, output)
+        arm = report["arms"]["seeded"]
+        self.assertEqual((arm["verdict"], arm["crash_reports"]), ("pass", []), output)
+        self.assertEqual([Path(found).name for found in arm["crash_reports_not_counted"]], [report_path.name])
+        self.assertRegex(output, r"is not counted for the seeded launch: its process died at [0-9:]+Z, "
+                                 r"[0-9.]+s before this launch started")
+        self.assert_cleaned_up(report)
+
+    def test_only_a_launch_whose_app_ended_waits_for_a_late_report(self):
+        # A pass, and a failure of an app that stayed up (no Home), must not get slower: no crash, no report to come.
+        # The late look itself says when it runs (no clock): it does for an app that ended, and only for that.
+        # The evidence wait is far longer than run_smoke's bound: a wait for a report in ANY other place stops there.
+        told = "smoke.late_crash_reports = lambda *a, **k: smoke.log('the late look ran') or []"
+        long_wait = {**self.env, "CMUX_FRESH_SMOKE_CRASH_EVIDENCE_WAIT_SECONDS": "600"}
+        for mode, verdict, looked in (("healthy", "pass", False), ("no-home", "fail", False), ("crash", "fail", True)):
+            with self.subTest(mode=mode):
+                status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "3",
+                                                        env=long_wait, setup=told)
+                self.assertEqual(report["verdict"], verdict, output)
+                self.assertEqual("the late look ran" in output, looked, output)
+                self.assertEqual(report.get("crash_reports_late", []), [])
+
+    def test_a_crash_report_of_another_builds_launch_never_fails_a_healthy_first_arm(self):
+        # Fleet builds all have one executable name, so the name and the file's time also match a crash of another
+        # tagged build on the same host. The report says whose it is: another pid, another copy of the app.
+        status, output, report = self.run_smoke("other-report", "--seconds", "2", "--startup-timeout", "20")
+        self.assertEqual(status, smoke.PASS, output)
+        self.assertEqual((report["verdict"], report["crash_reports"]), ("pass", []))
+        self.assertEqual([Path(found).name for found in report["crash_reports_not_counted"]], ["stub-2026-11-11-000000.ips"])
+        # One read tells the owner whose crash it was: the report's name, its process and that process's app.
+        self.assertIn("note: crash report stub-2026-11-11-000000.ips is not counted for this launch: it is of pid 4190001 "
+                      "at /private/tmp/cmux-fresh-other00/app/Stub capfeedface00.app/Contents/MacOS/stub, "
+                      "not this run's copy of the app", output)
+        out = self.dir / f"out-other-report-{self.runs}"
+        self.assertTrue((out / "not-counted" / "stub-2026-11-11-000000.ips").is_file())
+        self.assertFalse((out / "stub-2026-11-11-000000.ips").exists())
+        verdicts = gate_verdicts()
+        self.assertEqual(verdicts.attempt_result(status, report), verdicts.PASS)
+        self.assert_cleaned_up(report)
+
+    def test_a_crash_report_that_names_no_process_is_no_crash_alone_in_either_arm(self):
+        # Such a report says nothing of whose it is: any app with this executable name on the host can have written
+        # it. Both homes' launches are healthy, so the run passes; the report is said and kept, never counted.
+        status, output, report, out = self.seeded("blank-report")
+        self.assertEqual(status, smoke.PASS, output)
+        arm = report["arms"]["seeded"]
+        self.assertEqual((report["verdict"], report["arm"], arm["verdict"]), ("pass", "empty", "pass"), output)
+        for launch, said in ((report, "this launch"), (arm, "the seeded launch")):
+            self.assertEqual(launch["crash_reports"], [])
+            self.assertEqual([Path(found).name for found in launch["crash_reports_not_counted"]],
+                             ["stub-2026-11-11-000000.ips"])
+            self.assertIn(f"stub-2026-11-11-000000.ips is not counted for {said}: it names no process", output)
+        self.assertTrue((out / "not-counted" / "stub-2026-11-11-000000.ips").is_file())
+        self.assertFalse((out / "stub-2026-11-11-000000.ips").exists())
+        verdicts = gate_verdicts()
+        self.assertEqual(verdicts.attempt_result(status, report), verdicts.PASS)
+        self.assert_cleaned_up(report)
+
+    def test_a_report_of_no_process_is_evidence_of_a_launch_whose_app_ended(self):
+        # The end of the app is the crash verdict; the report beside it is kept as its evidence.
+        status, output, report = self.run_smoke("blank-crash", "--seconds", "3", "--startup-timeout", "5")
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assertEqual((report["verdict"], report["exit"]), ("fail", -6))
+        self.assertEqual([Path(found).name for found in report["crash_reports"]], ["stub-2026-11-11-000000.ips"])
+        self.assertEqual(report["crash_reports_not_counted"], [])
+        self.assertTrue((self.dir / f"out-blank-crash-{self.runs}" / "stub-2026-11-11-000000.ips").is_file())
+        self.assert_cleaned_up(report)
+
+    def test_a_report_that_is_read_while_it_is_written_is_read_again(self):
+        # Its head alone names no process. A second later its body does: this launch's. It still fails the launch.
+        status, output, report = self.run_smoke("torn-report", "--seconds", "2", "--startup-timeout", "20")
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assertEqual((report["verdict"], report["exit"]), ("fail", None))
+        self.assertEqual([Path(found).name for found in report["crash_reports"]], ["stub-2026-11-11-000000.ips"])
+        self.assertEqual(report["crash_reports_not_counted"], [])
+        self.assert_cleaned_up(report)
+
+    def test_a_crash_report_of_the_first_arms_own_launch_fails_it_as_before(self):
+        # home-report: a detached process whose program is under the run's HOME, not in the app copy. It is of this
+        # run (nothing else writes under the run's private root), so it counts, as it did before the filter.
+        for mode in ("first-report", "home-report"):
+            with self.subTest(mode=mode):
+                status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "20")
+                self.assertEqual(status, smoke.FAIL, output)
+                self.assertEqual((report["verdict"], report["exit"]), ("fail", None))
+                self.assertEqual([Path(found).name for found in report["crash_reports"]], ["stub-2026-11-11-000000.ips"])
+                self.assertEqual(report["crash_reports_not_counted"], [])
+                self.assertEqual(report["failures"], ["crash report: stub-2026-11-11-000000.ips"])
+                self.assertTrue((self.dir / f"out-{mode}-{self.runs}" / "stub-2026-11-11-000000.ips").is_file())
+                verdicts = gate_verdicts()
+                self.assertEqual(verdicts.attempt_result(status, report), verdicts.CRASH)
+                self.assert_cleaned_up(report)
+                (self.dir / "diagnostics" / "stub-2026-11-11-000000.ips").unlink()
 
     def test_a_report_of_a_process_that_died_before_the_launch_started_is_not_of_it(self):
         app = self.dir / "root" / "app" / "cmux NEXT.app"
@@ -592,6 +1033,41 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual(smoke.crash_report_time(text), (started - 1.25, 0.0))
         self.assertIn("before this launch started", why(text))
 
+    def test_a_report_of_a_process_that_was_started_before_the_launch_is_not_of_it(self):
+        # A process of an earlier launch that died AFTER this launch started (the run did not find it, or macOS
+        # took the time of death late): the time it was started says whose it is.
+        app = self.dir / "root" / "app" / "cmux NEXT.app"
+        (app / "Contents" / "MacOS").mkdir(parents=True)
+        helper = str(app / "Contents" / "Resources" / "bin" / "cmux-tui")
+        started = 1794387600.0  # 2026-11-11 09:00:00 UTC
+
+        def ips(name: str, **body) -> Path:
+            found = self.dir / f"{name}.ips"
+            found.write_text(json.dumps({"app_name": "cmux"}) + "\n" + json.dumps(body, indent=2) + "\n")
+            return found
+
+        def why(found: Path) -> str | None:
+            return smoke.not_of_launch(found, 200, app, frozenset({100}), started)
+
+        late = {"pid": 300, "parentPid": 1, "procPath": helper, "captureTime": "2026-11-11 09:00:04.0000 +0000"}
+        self.assertEqual(smoke.crash_report_launch_time(ips("born", procLaunch="2026-11-11 08:59:20.5000 +0000", **late)),
+                         started - 39.5)
+        self.assertIsNone(smoke.crash_report_launch_time(ips("unborn", **late)))
+        self.assertIsNone(smoke.crash_report_launch_time(ips("bad", procLaunch=12, **late)))
+        self.assertRegex(why(ips("earlier", procLaunch="2026-11-11 08:59:20.5000 +0000", **late)),
+                         r"its process was started at 08:59:20Z, 39\.5s before this launch started")
+        # Counted, as before: started after the launch did, or the report does not say when.
+        self.assertIsNone(why(ips("ours", procLaunch="2026-11-11 09:00:01.0000 +0000", **late)))
+        self.assertIsNone(why(ips("silent", **late)))
+        self.assertIsNone(smoke.not_of_launch(ips("no-start", procLaunch="2026-11-11 08:00:00.0000 +0000", **late),
+                                              200, app, frozenset({100})))
+        text = self.dir / "old.crash"
+        text.write_text(f"Process:               cmux-tui [300]\nPath:                  {helper}\n"
+                        "Date/Time:             2026-11-11 09:00:04.000 +0000\n"
+                        "Launch Time:           2026-11-11 08:59:20.500 +0000\nParent Process:        launchd [1]\n")
+        self.assertEqual(smoke.crash_report_launch_time(text), started - 39.5)
+        self.assertIn("was started at 08:59:20Z", why(text))
+
     def test_a_seed_that_cannot_be_made_leaves_the_arm_cannot_run(self):
         (self.defaults_dir / f"{BUNDLE}.plist").write_bytes(b"account defaults")
         refuse = "def refuse(*_a, **_k):\n    raise RuntimeError('no seed today')\nsmoke.seed_cookie_sync_home = refuse"
@@ -614,6 +1090,35 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         self.assertEqual((report["verdict"], report["arm"], report["exit"]), ("fail", "seeded", -6))
         self.assertIn("the seeded launch's evidence is not complete: RuntimeError: no evidence today", output)
         self.assertIn("FAIL: seeded home: the app exited", output)
+        verdicts = gate_verdicts()
+        self.assertEqual(verdicts.attempt_result(status, report), verdicts.CRASH)
+        self.assert_cleaned_up(report)
+
+    def test_a_seeded_crash_stays_a_crash_when_the_evidence_and_its_warning_both_fail(self):
+        # As a log that went away while the evidence was told: the arm's verdict was a failure before that.
+        refuse = ("def refuse(*_a, **_k):\n    raise RuntimeError('no evidence today')\nsmoke.explain = refuse\n"
+                  "say = smoke.log\n"
+                  "def log(message):\n"
+                  "    if message.startswith('warning: the seeded launch'):\n"
+                  "        raise BrokenPipeError('the log went away')\n"
+                  "    say(message)\n"
+                  "smoke.log = log")
+        status, output, report = self.run_smoke("sync-crash", "--seconds", "2", "--startup-timeout", "10",
+                                                "--arms", "empty,seeded", "--seeded-seconds", "2", setup=refuse)
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assertEqual((report["verdict"], report["arm"], report["exit"]), ("fail", "seeded", -6))
+        self.assertEqual(report["arms"]["seeded"]["verdict"], "fail")
+        verdicts = gate_verdicts()
+        self.assertEqual(verdicts.attempt_result(status, report), verdicts.CRASH)
+        self.assert_cleaned_up(report)
+
+    def test_a_first_arm_crash_stays_a_crash_when_its_evidence_cannot_be_kept(self):
+        refuse = "def refuse(*_a, **_k):\n    raise OSError('no evidence today')\nsmoke.explain = refuse"
+        status, output, report = self.run_smoke("crash", "--seconds", "2", "--startup-timeout", "10", setup=refuse)
+        self.assertEqual(status, smoke.FAIL, output)
+        self.assertEqual((report["verdict"], report["exit"]), ("fail", -6))
+        self.assertIn("this launch's evidence is not complete: OSError: no evidence today", output)
+        self.assertIn("FAIL: the app exited", output)
         verdicts = gate_verdicts()
         self.assertEqual(verdicts.attempt_result(status, report), verdicts.CRASH)
         self.assert_cleaned_up(report)
@@ -659,6 +1164,44 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
         verdicts = gate_verdicts()
         self.assertEqual(verdicts.attempt_result(124, report), verdicts.CANNOT_RUN)
         self.assert_cleaned_up(report)
+
+    def test_a_healthy_launch_that_the_gate_cuts_is_never_a_crash_for_the_gate(self):
+        # The gate reads a cut attempt (status 124) by its report. A healthy app that the harness itself stops at
+        # the cut must leave no evidence of an end: `exit` and the crash reports are only what the watch saw while
+        # the app ran, and the stop at the cut writes nothing of the app into the report. In each phase of each arm.
+        verdicts = gate_verdicts()
+        cuts = (("==> fresh-home launch of", ("--seconds", "60")),
+                ("ok: Home rendered in a visible window", ("--seconds", "60")),
+                ("==> seeded-home launch of", ("--seconds", "2", "--seeded-seconds", "60")),
+                ("ok: the cookie sync read the seeded store", ("--seconds", "2", "--seeded-seconds", "60")))
+        for name, (cut_at, extra) in enumerate(cuts):
+            with self.subTest(cut_at=cut_at):
+                app, out = make_app(self.dir / f"cut-healthy-{name}", "healthy"), self.dir / f"out-cut-healthy-{name}"
+                harness = subprocess.Popen([sys.executable, str(SCRIPT), "--app", str(app), "--out", str(out),
+                                            "--startup-timeout", "10", "--arms", "empty,seeded", *extra],
+                                           env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                lines = []
+                try:
+                    for line in harness.stdout:
+                        lines.append(line)
+                        if line.startswith(cut_at):
+                            harness.terminate()
+                    status = harness.wait(timeout=60)
+                finally:
+                    if harness.poll() is None:
+                        harness.kill()
+                    harness.stdout.close()
+                output = "".join(lines)
+                self.assertEqual(status, 128 + signal.SIGTERM, output)
+                report = json.loads((out / "report.json").read_text())
+                self.assertIsNone(report.get("exit"), output)
+                self.assertFalse(report.get("crash_reports") or report.get("run_exceptions"), output)
+                self.assertNotEqual(report.get("verdict"), "fail", output)
+                self.assertEqual(verdicts.attempt_result(124, report), verdicts.CANNOT_RUN, report)
+                self.assertEqual(verdicts.verdict([(124, report), (124, report)]), verdicts.CANNOT_RUN, report)
+                for pid in (report.get("pid"), ((report.get("arms") or {}).get("seeded") or {}).get("pid")):
+                    self.assertFalse(pid and smoke.alive(pid), "an app outlived the stopped run")
+                self.assert_cleaned_up(report)
 
     def test_an_app_that_never_reads_the_seeded_store_leaves_the_arm_not_run(self):
         status, output, report, _out = self.seeded("no-sync")

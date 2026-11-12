@@ -37,11 +37,12 @@ fn hub(d: &Path) -> Arc<Hub> {
             "fakeclaude": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio"},
             "fclaude": {"argv": ["python3", FAKE], "family": "claude"},
             "ftarget": {"argv": ["python3", FAKE], "family": "target"},
+            "fother": {"argv": ["python3", FAKE], "family": "other"},
         },
         "defaultHarness": "fakeclaude",
         "permissionPolicy": "ask",
         "webRoots": [d.join("work")],
-        "webAskingModes": {"target": ["strict"]},
+        "webAskingModes": {"target": ["strict"], "other": ["strict"]},
     }))
     .unwrap();
     cfg.store.mode = StoreMode::Memory;
@@ -102,7 +103,10 @@ async fn a_web_device_cannot_control_a_claude_session_the_mac_started_but_can_re
     let r = web.prompt(&s, "hi").await;
     assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
     let text = r["error"]["message"].as_str().unwrap_or_default();
-    assert!(text.contains("Start a new chat from this device"), "{text}");
+    // The refusal says what to do from each side (#41629): start a new chat on the other device,
+    // or reopen the chat on this Mac.
+    assert!(text.contains("From another device, start a new chat there"), "{text}");
+    assert!(text.contains("close and reopen the chat"), "{text}");
     for (m, p) in [
         ("session/set_mode", json!({"sessionId": s, "modeId": "plan"})),
         (
@@ -173,5 +177,48 @@ async fn a_session_on_another_harness_keeps_web_control() {
     assert!(r.get("error").is_none(), "{r}");
     let r = web.prompt(&s, "hi").await;
     assert!(r.get("error").is_none(), "{r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A web model switch (a fork onto another harness, `hub/fork.rs` `Retarget`) of a chat the Mac
+/// started keeps the Mac's origin, so onto Claude it would run with the Mac's Claude permissions:
+/// refused as D13 refuses controlling such a chat, before any process starts. The Mac itself may.
+#[tokio::test]
+async fn a_web_switch_of_a_mac_chat_onto_claude_is_refused() {
+    let d = dir("switch");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let mut web = Client::new(&hub, Origin::Web);
+    let s = local.new_session(&d, "ftarget").await;
+    assert!(local.prompt(&s, "hello").await.get("error").is_none());
+    let before = hub.sessions().len();
+    let p = json!({"sessionId": s, "cwd": d.join("work"), "mcpServers": [],
+        "_meta": {"acpmux": {"harness": "fakeclaude"}}});
+    let r = web.call("session/fork", p).await;
+    assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
+    // A Claude adapter (family claude, not Claude Code itself) is Claude too.
+    let p = json!({"sessionId": s, "cwd": d.join("work"), "mcpServers": [],
+        "_meta": {"acpmux": {"harness": "fclaude"}}});
+    let r = web.call("session/fork", p).await;
+    assert!(r.get("error").is_some(), "{r}");
+    assert_eq!(reason(&r), "remote.local_claude_session", "{r}");
+    assert_eq!(hub.sessions().len(), before, "a refused switch made no chat");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A family name with no profile of the same name (`other`, served by `fother`) is resolved as
+/// the fork resolves it before D13 judges the switch: a non-Claude family is not refused as a
+/// local Claude session (review of cmux#41030 at eee5f8d9).
+#[tokio::test]
+async fn a_web_switch_by_family_name_is_judged_by_the_profile_it_resolves_to() {
+    let d = dir("switch-family");
+    let hub = hub(&d);
+    let mut local = Client::new(&hub, Origin::Local);
+    let mut web = Client::new(&hub, Origin::Web);
+    let s = local.new_session(&d, "ftarget").await;
+    let p = json!({"sessionId": s, "cwd": d.join("work"), "mcpServers": [],
+        "_meta": {"acpmux": {"harness": "other"}}});
+    let r = web.call("session/fork", p).await;
+    assert_ne!(reason(&r), "remote.local_claude_session", "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }

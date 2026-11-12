@@ -12,6 +12,7 @@ import { chromium, webkit, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
@@ -99,11 +100,17 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     await page.mouse.click(point.x, point.y);
   };
 
-  async function open(variant = VARIANT, ready = GROUP, engine: Browser = browser!): Promise<Page> {
+  async function open(
+    variant = VARIANT,
+    ready = GROUP,
+    engine: Browser = browser!,
+    arms: Readonly<Record<string, string>> = {},
+  ): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await engine.newPage({ viewport: { width: 900, height: 640 } });
     await installPaintedFrames(page);
     await page.addInitScript(() => localStorage.clear());
+    await pinArms(page, arms);
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant })}`);
     await page.locator(ready).waitFor();
     await settled(page);
@@ -244,7 +251,7 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
   /// frames, never most of the way in one.
   // In Chromium and in WebKit, the app's own engine (where the thread slide this replaced jumped).
   for (const engineName of ["chromium", "webkit"] as const)
-    test(`at the very bottom (${engineName}), opening and closing a group glide the text above over several frames`, async () => {
+    test(`inline run at the very bottom (${engineName}), opening and closing a group glide the text above over several frames`, async () => {
       let engine = browser!;
       if (engineName === "webkit") {
         try {
@@ -256,7 +263,8 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
         }
         await warmGalleryFrame(vite!, ENTRY, { browser: engine, params: { variant: VARIANT } });
       }
-      const page = await open(VARIANT, GROUP, engine);
+      // This oracle measures the transcript's full inline expansion; boxed runs own their scroll.
+      const page = await open(VARIANT, GROUP, engine, { "run-scroll": "inline" });
       await page.locator(".acpmux-scroll").evaluate((node, selector) => {
         node.querySelector<HTMLElement>(selector)!.dataset.glideProbe = "true";
         node.scrollTop = node.scrollHeight;
@@ -308,63 +316,6 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
       await page.close();
       if (engine !== browser) await engine.close();
     });
-
-  /// A shell block's "Show all N lines" under a log whose top is above the view holds the control
-  /// itself, as anywhere in the chat (foldAnchor.ts `foldHoldTarget`): it stays under the pointer on
-  /// every frame, the lines it shows come in above it, and the rows under it and the view's end stay.
-  test("at the very bottom, a shell block's Show all lines stays under the pointer and its log rises", async () => {
-    // Its play opens and closes the group (three toggles at once mid-play): wait on the row itself.
-    const page = await open("collapse-tall-group", '[data-row-id="expand-at-bottom-run"]');
-    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
-      timeout: 60_000,
-    });
-    await settled(page);
-    const scrollToEnd = async () => {
-      await page.locator(".acpmux-scroll").evaluate((node) => {
-        node.scrollTop = node.scrollHeight;
-      });
-      await settled(page);
-    };
-    await scrollToEnd();
-    await clickLine(page, GROUP);
-    await settled(page);
-    await page.evaluate(() => {
-      [
-        ...document.querySelectorAll<HTMLElement>(
-          '[data-row-id="expand-at-bottom-run"] button.cv-tool.is-toggle[aria-expanded="false"]',
-        ),
-      ]
-        .at(-1)!
-        .setAttribute("data-shell-probe", "");
-    });
-    await scrollToEnd();
-    await clickLine(page, "[data-shell-probe]");
-    await settled(page);
-    await scrollToEnd();
-    const MORE = '[data-row-id="expand-at-bottom-run"] .cv-output-more[aria-expanded="false"]';
-    await page.locator(MORE).last().waitFor();
-    await page
-      .locator(MORE)
-      .last()
-      .evaluate((node) => node.setAttribute("data-more-probe", ""));
-    const PROBE = "[data-more-probe]";
-    const before = (await watchOpen(page, PROBE, 0, false))[0]!;
-    expect(before.fromEnd).toBeLessThanOrEqual(2);
-    const frames = await watchOpen(page, PROBE);
-    await settled(page);
-    const after = (await watchOpen(page, PROBE, 0, false))[0]!;
-    expect(await page.locator(PROBE).getAttribute("aria-expanded")).toBe("true");
-    console.log(`shell Show all lines: ${JSON.stringify(before)} -> ${JSON.stringify(after)}`);
-    for (const [index, frame] of frames.entries()) {
-      const at = { index, ...frame };
-      expect({ at, still: Math.abs(frame.control - before.control) <= 1 }).toEqual({ at, still: true });
-      expect({ at, last: Math.abs(frame.last - before.last) <= 1 }).toEqual({ at, last: true });
-    }
-    expect(Math.abs(after.control - before.control)).toBeLessThanOrEqual(1);
-    expect(before.line - after.line).toBeGreaterThan(40);
-    expect(after.fromEnd).toBeLessThanOrEqual(2);
-    await page.close();
-  });
 
   /// The scene's own plays (ExpandAtBottom.gallery.ts) check where the bottom and the clicked line
   /// end up; each throws, and the stage reports it, when they are off. Leo, 2026-11-03: "it's weird

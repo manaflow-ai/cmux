@@ -590,13 +590,27 @@ pub fn mcp_config_path(home: &Path, session_id: &str) -> PathBuf {
 /// Remove the session's MCP config when the session ends.
 pub fn remove_mcp_config(home: &Path, session_id: &str) {
     let path = mcp_config_path(home, session_id);
-    let _ = std::fs::remove_file(crate::bg_hook::denied_path(&path));
-    let _ = std::fs::remove_file(path);
+    let _ = crate::home_fs::remove_file(crate::bg_hook::denied_path(&path));
+    let _ = crate::home_fs::remove_file(path);
 }
 
 pub fn resolve(inputs: &Inputs) -> AgentTools {
-    let mut tools = resolve_with_cua_helper(inputs, cua_helper::installed);
-    if crate::cli::cloud_join::require_joined_consent("control").is_err() {
+    resolve_gated(inputs, cua_helper::installed, || {
+        crate::cli::cloud_join::require_joined_consent("control").is_ok()
+    })
+}
+
+/// `resolve` with the OS account's answers passed in: `installed` finds an installed helper,
+/// `control_granted` says whether this machine may be controlled (a cloud-joined machine needs
+/// the person's "control" consent first). Tests pass their own, so no test reads or writes the
+/// account's machine consent, which a cloud-joined fleet Mac has.
+fn resolve_gated(
+    inputs: &Inputs,
+    installed: impl FnOnce(&Path) -> Option<PathBuf>,
+    control_granted: impl FnOnce() -> bool,
+) -> AgentTools {
+    let mut tools = resolve_with_cua_helper(inputs, installed);
+    if !control_granted() {
         tools.servers.retain(|server| server.name != "cmux-cua");
     }
     tools
@@ -1038,6 +1052,9 @@ impl AgentTools {
         };
         let mut cmux = self.servers.remove(at);
         cmux.env.retain(|(k, _)| k != UPSTREAMS_ENV);
+        // acpmux's own servers run in one process (`tools_mcp.rs`): each keeps its own spec
+        // (a `cmux` that does not read `shared` starts it as before) and names the one launch.
+        let shared = shared_helper(&self.servers);
         // Always set, `[]` too: a value a harness passes on from its own env
         // (a preset's) must never name the servers.
         let upstreams: Vec<Value> = self
@@ -1051,6 +1068,11 @@ impl AgentTools {
                 // The secret card waits for the person, not for a timer.
                 if s.name == crate::secret_mcp::SERVER_NAME {
                     spec.set("callTimeoutSecs", json!(3600));
+                }
+                if let Some(shared) = &shared
+                    && crate::tools_mcp::owns(&s.name, &s.args)
+                {
+                    spec.set(SHARED_FIELD, shared.clone());
                 }
                 spec
             })
@@ -1086,9 +1108,9 @@ impl AgentTools {
         let mut args = Vec::new();
         // Each launch starts the hook's turned-away calls afresh: one from a launch with other
         // servers is not a retry in this one.
-        let _ = std::fs::remove_file(crate::bg_hook::denied_path(config_file));
+        let _ = crate::home_fs::remove_file(crate::bg_hook::denied_path(config_file));
         if self.servers.is_empty() {
-            let _ = std::fs::remove_file(config_file);
+            let _ = crate::home_fs::remove_file(config_file);
         }
         if let Some(config) = self.mcp_config() {
             match write_private(config_file, config.to_string().as_bytes()) {
@@ -1099,7 +1121,7 @@ impl AgentTools {
                 // Never fall back to inline JSON: that puts the token in argv. An earlier
                 // launch's file goes too, so the hook never reads servers this one lacks.
                 Err(e) => {
-                    let _ = std::fs::remove_file(config_file);
+                    let _ = crate::home_fs::remove_file(config_file);
                     tracing::warn!(
                         "agent tools: MCP config {} not written, session gets no MCP servers: {e:#}",
                         config_file.display()
@@ -1113,6 +1135,39 @@ impl AgentTools {
         }
         args
     }
+}
+
+/// The upstream spec field that names the process a server runs in when others run in it too
+/// (`cmux mcp serve`'s `upstream.rs`): `{command, args, env}`, the same for each of them.
+pub const SHARED_FIELD: &str = "shared";
+
+/// The one launch of acpmux's own servers in `servers` ([`crate::tools_mcp::SERVERS`]):
+/// `acpmux tools-mcp` under their prefix with every env value of theirs, all for the same
+/// session. None without such a server, or when two of them disagree (another command, prefix
+/// or value of a key): then each runs on its own, as before.
+fn shared_helper(servers: &[McpServer]) -> Option<Value> {
+    let mut launch: Option<(&PathBuf, &[String])> = None;
+    let mut env = BTreeMap::<&str, &str>::new();
+    for server in servers.iter().filter(|s| crate::tools_mcp::owns(&s.name, &s.args)) {
+        let (_, prefix) = server.args.split_last()?;
+        match launch {
+            None => launch = Some((&server.command, prefix)),
+            Some((command, first)) if *command == server.command && first == prefix => {}
+            Some(_) => return None,
+        }
+        for (key, value) in &server.env {
+            if env
+                .insert(key.as_str(), value.as_str())
+                .is_some_and(|before| before != value.as_str())
+            {
+                return None;
+            }
+        }
+    }
+    let (command, prefix) = launch?;
+    let mut args = prefix.to_vec();
+    args.push(crate::tools_mcp::ARG.to_owned());
+    Some(json!({"command": command, "args": args, "env": env}))
 }
 
 /// Write `bytes` to `path` as a 0600 file in a 0700 folder (to a temporary

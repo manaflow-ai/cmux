@@ -186,6 +186,79 @@ async fn live_updates_keep_agent_meta_and_event_stream_nests_them() {
 }
 
 #[tokio::test]
+async fn reply_chunks_carry_one_segment_per_run_of_text() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "segments").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-segments", None)).await.unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-segments", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let chunks: Vec<(String, String)> = find(&events, "agent_message_chunk")
+        .iter()
+        .map(|e| {
+            (
+                e.msg["params"]["update"]["content"]["text"].as_str().unwrap().to_owned(),
+                e.msg["params"]["_meta"]["acpmux"]["segment"]
+                    .as_str()
+                    .unwrap_or_else(|| panic!("no segment on {}", e.msg))
+                    .to_owned(),
+            )
+        })
+        .collect();
+    assert_eq!(chunks.len(), 14, "{chunks:?}");
+    let (first, second) = chunks.split_at(7);
+    let turns: Vec<&str> =
+        find(&events, "turn_started").iter().map(|e| e.msg["turnId"].as_str().unwrap()).collect();
+    for (turn, run) in [(turns[0], first), (turns[1], second)] {
+        let seg = |i: usize| run[i].1.as_str();
+        // One message is one segment across a background task's note, a subagent's spawn and
+        // update, a plumbing call and a usage tick: the pane keeps it one row over them.
+        for i in 1..5 {
+            assert_eq!(seg(0), seg(i), "{run:?}");
+        }
+        // A chunk with no messageId after it is the next; a thought and a tool call the person
+        // sees end it, where the pane cuts the row, so the chunk after them is a third.
+        assert_ne!(seg(4), seg(5), "{run:?}");
+        assert_ne!(seg(5), seg(6), "{run:?}");
+        assert!(seg(0).starts_with(&format!("{turn}.")), "{run:?} of turn {turn}");
+        // Numbered within the turn, after this daemon run's mark.
+        assert!(
+            seg(0).ends_with(".1") && seg(5).ends_with(".2") && seg(6).ends_with(".3"),
+            "{run:?}"
+        );
+    }
+    // Every turn's segments are its own.
+    assert!(first.iter().all(|(_, a)| second.iter().all(|(_, b)| a != b)));
+}
+
+/// The pane cuts a reply's row at the turn's first TodoWrite call (shown until the turn has a
+/// checklist) and its first plan (a new checklist), and at a plan after the list was cleared, but
+/// not at a later TodoWrite or plan update, which it hides behind the checklist: the segments end
+/// at the same places (`stream.rs` `cuts_reply`). A new prompt starts a new checklist.
+#[tokio::test]
+async fn reply_segments_end_at_a_turns_first_checklist() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "checklist").await;
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-checklist", None)).await.unwrap();
+    c.request(method::SESSION_PROMPT, prompt(&id, "reply-checklist", None)).await.unwrap();
+    let events = hub.events(&id, 0, 1000).unwrap();
+    let segs: Vec<String> = find(&events, "agent_message_chunk")
+        .iter()
+        .map(|e| e.msg["params"]["_meta"]["acpmux"]["segment"].as_str().unwrap().to_owned())
+        .collect();
+    assert_eq!(segs.len(), 14, "{segs:?}");
+    for run in segs.chunks(7) {
+        // a | first TodoWrite | b | first plan | c, second TodoWrite, d, plan update, e | cleared,
+        // f | new plan | g.
+        assert_ne!(run[0], run[1], "{run:?}");
+        assert_ne!(run[1], run[2], "{run:?}");
+        assert_eq!(run[2], run[3], "{run:?}");
+        assert_eq!(run[3], run[4], "{run:?}");
+        assert_eq!(run[4], run[5], "{run:?}");
+        assert_ne!(run[5], run[6], "{run:?}");
+    }
+}
+
+#[tokio::test]
 async fn codex_retry_records_message_superseded_before_the_redelivery() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "retry").await;
@@ -802,9 +875,11 @@ async fn an_attach_page_names_the_prompt_of_the_turn_it_starts_inside() {
 async fn an_attach_page_whose_records_together_pass_one_message_still_opens() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "large-open").await;
-    // The fake agent echoes the prompt as one answer chunk of the same size; acpmux's
-    // `user_message` holds the prompt's text twice (`text`, and its `inlineParts` text part).
-    c.request(method::SESSION_PROMPT, prompt(&id, &"x".repeat(11 << 20), None)).await.unwrap();
+    // The fake agent echoes the prompt as one answer chunk of the same size, and acpmux's
+    // `user_message` holds a plain text prompt once, so a prompt of three fifths of the limit
+    // makes two records that each fit one message and together do not.
+    let body = acpmux::rpc::MAX_MESSAGE_BYTES * 3 / 5;
+    c.request(method::SESSION_PROMPT, prompt(&id, &"x".repeat(body), None)).await.unwrap();
     let session = hub.resolve("large-open").unwrap();
     let records = hub.events(&session.id, 0, 10_000).unwrap();
     let size = |msg: &Value| serde_json::to_string(msg).unwrap().len();

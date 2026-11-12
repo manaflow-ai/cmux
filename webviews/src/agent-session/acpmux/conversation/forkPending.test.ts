@@ -1,6 +1,7 @@
 // l10n-allow-file: synthetic relay fixtures, not shipped UI.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
+import { settleReact } from "../../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -9,7 +10,8 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const [key, previous] of saved) {
     if (previous.had) scope[key] = previous.value;
     else delete scope[key];
@@ -187,6 +189,37 @@ test("a failed fork says so in a toast, not a transcript row", async () => {
     expect(shown.rows.some((row) => row.kind === "notice")).toBe(false);
     expect(toasts).toHaveLength(1);
     expect(toasts[0]).toContain("the chat has no finished turn");
+  } finally {
+    client.close();
+  }
+});
+
+// A model switch in a started chat (Leo 2026-11-11: "if i switch to a different model in a chat, it
+// should just be able to seamlesly within the same pane do stuff and stop asking so much
+// bullshit"): the client forks the whole chat onto the picked harness and model, and opens the fork
+// in this pane; a refusal rejects, so the composer keeps the message.
+test("forkTo forks the chat live onto the picked harness and model and opens it here", async () => {
+  const { client, answers, sent } = await forkingClient();
+  const opened: string[] = [];
+  (client as unknown as { select(id: string): Promise<string> }).select = async (id) => {
+    opened.push(id);
+    (client as unknown as { selectedSessionId: string }).selectedSessionId = id;
+    return id;
+  };
+  try {
+    const forked = client.forkTo({ harness: "codex", model: "gpt-6" });
+    await Promise.resolve();
+    expect(sent[0]).toEqual({
+      method: "acp.session.fork",
+      params: { sessionId: "chat-1", live: true, harness: "codex", model: "gpt-6" },
+    });
+    answers[0]!.resolve({ sessionId: "fork-1" });
+    expect(await forked).toBe("fork-1");
+    expect(opened).toEqual(["fork-1"]);
+    const refused = client.forkTo({ harness: "claude" });
+    await Promise.resolve();
+    answers[1]!.reject(new Error("no ACP harness runs claude here"));
+    await expect(refused).rejects.toThrow("no ACP harness runs claude here");
   } finally {
     client.close();
   }
