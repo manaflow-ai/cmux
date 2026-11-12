@@ -404,6 +404,14 @@ public final class TerminalModel {
     public var debugState: String { controller?.debugState ?? "-" }
     #endif
 
+    /// Grid sizes this page sent the Mac (`TerminalViewController.sendResize`),
+    /// for demos and UI tests: the soft keyboard must not add any.
+    public internal(set) var ptyResizesSent = 0
+    #if DEBUG
+    /// DEBUG: the terminal demo driver's last step (`TerminalDemoDriver`).
+    var demoNote = "start"
+    #endif
+
     /// Refreshes `snapshot` from the live page (the grid is about to show it).
     public func captureSnapshot() {
         if let image = controller?.snapshot() {

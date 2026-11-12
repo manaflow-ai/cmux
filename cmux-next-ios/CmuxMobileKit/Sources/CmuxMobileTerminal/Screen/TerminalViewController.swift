@@ -792,6 +792,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func sendResize(_ size: TerminalResizeSettle.Size, why: String) {
         sizingLog.notice("resize \(size.columns, privacy: .public)x\(size.rows, privacy: .public) cause=\(why, privacy: .public)\(self.model.isTUI ? "-tui" : "", privacy: .public) attached=\(self.model.connectionState.isAttached, privacy: .public) (TUI \(self.model.isTUI, privacy: .public))")
         model.session.resize(columns: size.columns, rows: size.rows)
+        model.ptyResizesSent += 1
     }
 
     /// The stack's top with the keyboard down and the composer at its one-line
