@@ -637,6 +637,59 @@ fn the_lint_resolves_imported_fs_functions() {
     );
 }
 
+/// `self::` and `super::` resolve through the module's own imports (the parent module's for
+/// `super`), and a glob of `std::fs` claims only the names std::fs exports: any other name is
+/// looked up in the scopes around it (#41970 review F1, F2).
+#[test]
+fn the_lint_resolves_self_super_and_std_fs_glob_names() {
+    let fixture = r#"
+        mod through_self {
+            use std::fs::symlink_metadata;
+            fn a(p: &Path) -> bool { self::symlink_metadata(p).is_ok() }
+        }
+        mod parent {
+            use std::fs::metadata;
+            mod child {
+                fn a(p: &Path) -> bool { super::metadata(p).is_ok() }
+            }
+        }
+        mod glob_in_a_block {
+            use std::path::Path;
+            fn a(p: &Path) -> bool {
+                use std::fs::*;
+                Path::exists(p)
+            }
+        }
+        mod self_local {
+            fn metadata(_: &Path) -> bool { true }
+            fn a(p: &Path) -> bool {
+                use std::fs::metadata;
+                self::metadata(p)
+            }
+        }
+        mod glob_falls_through {
+            use crate::store::disk::Probe;
+            fn a(p: &Path) -> bool {
+                use std::fs::*;
+                Probe::exists(p) && Probe::metadata(p).is_some()
+            }
+        }
+    "#;
+    let file = syn::parse_file(fixture).unwrap();
+    let rows: Vec<String> = rows_in("x.rs", &file)
+        .into_iter()
+        .map(|row| row.split_once(' ').map(|(_, what)| what.to_string()).unwrap_or(row))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "self::symlink_metadata(..) (std::fs::symlink_metadata)",
+            "super::metadata(..) (std::fs::metadata)",
+            "Path::exists(..)",
+        ],
+    );
+}
+
 /// Every operation in `home_fs.rs` whose Unix arm goes through the held home's descriptor
 /// (`unix::...`) checks the held home in its other arms too (`held` or `held_read`): no
 /// `home_fs` function that the store's reads go through is path-based on any platform (#41721
