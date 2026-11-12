@@ -612,6 +612,11 @@ pub(crate) struct OutputStore {
     /// not ask the registry again. A terminal never moves between an
     /// incognito and a normal workspace.
     public: Mutex<HashSet<TerminalPublicId>>,
+    /// Tail file fsyncs since this store was made (`snapshot.rs`).
+    tail_syncs: std::sync::atomic::AtomicU64,
+    /// A test's clock for [`Self::now`]; `None`: the real one.
+    #[cfg(test)]
+    test_clock: Mutex<Option<Instant>>,
 }
 
 impl OutputStore {
@@ -638,6 +643,9 @@ impl OutputStore {
             segment_resume: Mutex::new(HashMap::new()),
             private: Mutex::new(HashSet::new()),
             public: Mutex::new(HashSet::new()),
+            tail_syncs: std::sync::atomic::AtomicU64::new(0),
+            #[cfg(test)]
+            test_clock: Mutex::new(None),
         }
     }
 
@@ -1232,6 +1240,37 @@ impl OutputStore {
         }
         *last = Some(Instant::now());
         true
+    }
+
+    /// The time the tail sync is measured against: the real clock, or the
+    /// one a test stopped and moves itself (`advance_clock`), so no test
+    /// sleeps.
+    fn now(&self) -> Instant {
+        #[cfg(test)]
+        {
+            let stopped = *self.test_clock.lock().unwrap_or_else(PoisonError::into_inner);
+            if let Some(now) = stopped {
+                return now;
+            }
+        }
+        Instant::now()
+    }
+
+    /// Stop [`Self::now`] (at the first call) and move it ahead by `by`.
+    #[cfg(test)]
+    fn advance_clock(&self, by: Duration) {
+        let mut clock = self.test_clock.lock().unwrap_or_else(PoisonError::into_inner);
+        *clock = Some(clock.unwrap_or_else(Instant::now) + by);
+    }
+
+    /// One tail file was fsynced.
+    fn count_tail_sync(&self) {
+        self.tail_syncs.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    fn tail_syncs(&self) -> u64 {
+        self.tail_syncs.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     fn lock_pass(&self) -> std::sync::MutexGuard<'_, ()> {

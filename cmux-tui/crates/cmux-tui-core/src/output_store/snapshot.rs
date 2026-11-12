@@ -538,8 +538,11 @@ fn flush_tail(
     let job = {
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
         // At quit the last bytes are synced now: no later pass syncs them.
+        let now = store.now();
         let sync_due = quitting
-            || state.tail_synced_at.is_none_or(|at| at.elapsed() >= super::TAIL_SYNC_INTERVAL);
+            || state
+                .tail_synced_at
+                .is_none_or(|at| now.saturating_duration_since(at) >= super::TAIL_SYNC_INTERVAL);
         // An unfinished Kitty upload's bytes change nothing the digest sees
         // but are content: never held as redraws.
         let redraw = state.tail_digest == Some(seen.digest) && !seen.upload;
@@ -570,8 +573,9 @@ fn flush_tail(
             if state.tail_unsynced {
                 if sync_due {
                     state.tail_unsynced = false;
-                    state.tail_synced_at = Some(Instant::now());
+                    state.tail_synced_at = Some(now);
                     drop(state);
+                    store.count_tail_sync();
                     super::tail::sync(directory, &log.terminal_id);
                 } else {
                     drop(state);
@@ -613,6 +617,9 @@ fn flush_tail(
     let (generation, base, start, bytes, sync) = job;
     let result =
         super::tail::append(directory, &log.terminal_id, &generation, base, start, &bytes, sync);
+    if sync && result.is_ok() {
+        store.count_tail_sync();
+    }
     let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
     let ours = state.generation == generation
         && state.pending_start == start
@@ -634,7 +641,7 @@ fn flush_tail(
             state.tail_digest = exact.then_some(seen.digest);
             let more = !state.pending.is_empty() || !exact;
             if sync {
-                state.tail_synced_at = Some(Instant::now());
+                state.tail_synced_at = Some(store.now());
                 state.tail_unsynced = false;
             } else {
                 state.tail_unsynced = true;
@@ -902,3 +909,7 @@ mod tests;
 #[cfg(test)]
 #[path = "quit_pass_tests.rs"]
 mod quit_pass_tests;
+
+#[cfg(test)]
+#[path = "tail_sync_tests.rs"]
+mod tail_sync_tests;
