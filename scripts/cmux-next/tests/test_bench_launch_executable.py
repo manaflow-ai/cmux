@@ -143,5 +143,42 @@ class CloseFlashLaunchTests(unittest.TestCase):
         self.assertNotIn("CMUX_NEXT_NO_ACTIVATE", started[0][1])
 
 
+class ReleaseBuildBenchTests(unittest.TestCase):
+    """home-perf.py and bench_idle.py started `Contents/MacOS/cmux DEV`, which a Release (bench) build does not have:
+    in the stable perf runs dab7c870 and 18ef5e38 (split-spring.sh --config=bench) home raised FileNotFoundError and
+    bench_idle said "no app at" a bundle that was there, so their rows were never measured."""
+
+    def test_bench_idle_takes_a_release_bundle_and_starts_its_info_plist_executable(self):
+        spec = importlib.util.spec_from_file_location("bench_idle_under_test", HERE / "bench_idle.py")
+        bench_idle = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(bench_idle)
+        seen = {}
+
+        class StopAtLaunch(Exception):
+            pass
+
+        def bench_app(bundle, **_):
+            seen["bundle"] = bundle
+            raise StopAtLaunch
+
+        with tempfile.TemporaryDirectory() as folder:
+            app = fake_bundle(folder, "rel", "cmux NEXT", ("cmux NEXT",))
+            argv = ["bench_idle.py", "--tag", "rel", "--app", app, "--out", os.path.join(folder, "out")]
+            with mock.patch.object(sys, "argv", argv), mock.patch.object(bench_idle, "BenchApp", bench_app):
+                with self.assertRaises(StopAtLaunch):
+                    bench_idle.main()
+            self.assertEqual(seen["bundle"], app)
+            self.assertEqual(bl.main_executable(app), os.path.join(app, "Contents/MacOS/cmux NEXT"))
+
+    def test_home_perf_names_a_missing_executable_before_it_launches(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as folder:
+            app = fake_bundle(folder, "rel", "cmux NEXT", ())  # Info.plist names an executable the bundle lacks
+            done = subprocess.run([sys.executable, str(HERE / "home-perf.py"), "--tag", "rel", "--app", app,
+                                   "--out", os.path.join(folder, "h.json")], capture_output=True, text=True, timeout=60)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("names CFBundleExecutable 'cmux NEXT'", done.stdout + done.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

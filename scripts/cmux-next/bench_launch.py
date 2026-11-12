@@ -253,6 +253,31 @@ def start_fresh_state(tag):
         note(f"bench-launch: {tag} starts from an empty saved session (earlier state moved to {prev})")
 
 
+def main_executable(app):
+    """The bundle's main executable: Info.plist's CFBundleExecutable. A bench (Release) build's is not `cmux DEV`
+    (close-flash job 12728f0a2b37 started a `cmux DEV` that was not there; home-perf.py and bench_idle.py did the same
+    in the stable perf runs dab7c870 and 18ef5e38), and the first file in Contents/MacOS can be another executable;
+    only a bundle with no Info.plist falls back to those guesses."""
+    try:
+        with open(os.path.join(app, "Contents/Info.plist"), "rb") as f:
+            info = plistlib.load(f)
+    except Exception:  # noqa: BLE001  any unreadable plist (OSError, a truncated XML's ExpatError, ...): no name
+        info = None
+    named = info.get("CFBundleExecutable") if isinstance(info, dict) else None
+    if named:
+        main = os.path.join(app, "Contents/MacOS", named)
+        if not os.path.exists(main):
+            raise SystemExit(f"bench-launch: {app} names CFBundleExecutable {named!r}, which is not in Contents/MacOS")
+        return main
+    main = os.path.join(app, "Contents/MacOS/cmux DEV")
+    if os.path.exists(main):
+        return main
+    found = [p for p in sorted(glob.glob(os.path.join(app, "Contents/MacOS/*"))) if not p.endswith(".dylib")]
+    if not found:
+        raise SystemExit(f"bench-launch: no executable in {app}/Contents/MacOS")
+    return found[0]
+
+
 def bundle_pids(app, inside="Contents/"):
     """PIDs of processes running an executable inside the bundle `app` (under `inside`), other than this one."""
     out = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout
@@ -784,27 +809,8 @@ class BenchApp:
 
     @property
     def binary(self):
-        """The bundle's main executable: Info.plist's CFBundleExecutable. A bench (Release) build's is not `cmux DEV`
-        (close-flash job 12728f0a2b37 started a `cmux DEV` that was not there), and the first file in Contents/MacOS
-        can be another executable; only a bundle with no Info.plist falls back to those guesses."""
-        try:
-            with open(os.path.join(self.app, "Contents/Info.plist"), "rb") as f:
-                info = plistlib.load(f)
-        except Exception:  # noqa: BLE001  any unreadable plist (OSError, a truncated XML's ExpatError, ...): no name
-            info = None
-        named = info.get("CFBundleExecutable") if isinstance(info, dict) else None
-        if named:
-            main = os.path.join(self.app, "Contents/MacOS", named)
-            if not os.path.exists(main):
-                raise SystemExit(f"bench-launch: {self.app} names CFBundleExecutable {named!r}, which is not in Contents/MacOS")
-            return main
-        main = os.path.join(self.app, "Contents/MacOS/cmux DEV")
-        if os.path.exists(main):
-            return main
-        found = [p for p in sorted(glob.glob(os.path.join(self.app, "Contents/MacOS/*"))) if not p.endswith(".dylib")]
-        if not found:
-            raise SystemExit(f"bench-launch: no executable in {self.app}/Contents/MacOS")
-        return found[0]
+        """The bundle's main executable (main_executable)."""
+        return main_executable(self.app)
 
     def running_pids(self):
         """PIDs of processes running an executable of this bundle (another run of the same app)."""

@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import home_classic  # noqa: E402
 # The shared launch helper's socket paths and session check (bench_launch.py); this bench keeps its own launch
 # (its scratch working folder, its own session).
-from bench_launch import finder_limits, limits_line, require_gui_session, socket_candidates  # noqa: E402
+from bench_launch import finder_limits, limits_line, main_executable, require_gui_session, socket_candidates  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -36,6 +36,7 @@ home = os.environ["HOME"]
 app = opts.app or f"{home}/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Debug/cmux DEV {opts.tag}.app"
 if not os.path.isdir(app):
     sys.exit(f"home-perf: no app at {app} (pass --app)")
+executable = main_executable(app)  # CFBundleExecutable: a Release (bench) build's is not `cmux DEV`
 sock = f"/tmp/cmux-debug-{opts.tag}.sock"
 require_gui_session("home-perf")
 
@@ -104,7 +105,7 @@ env = {"HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.ge
 if os.path.exists(sock):
     os.unlink(sock)
 with finder_limits() as changed:  # the limits a Finder launch gets (bench_launch.py, Resource limits)
-    process = subprocess.Popen([f"{app}/Contents/MacOS/cmux DEV"], env=env, cwd=work, stdin=subprocess.DEVNULL,
+    process = subprocess.Popen([executable], env=env, cwd=work, stdin=subprocess.DEVNULL,
                                stdout=open(os.path.join(work, "perf-app.log"), "a"), stderr=subprocess.STDOUT,
                                start_new_session=True)
 print(f"home-perf: app limits {limits_line(changed)}", file=sys.stderr, flush=True)

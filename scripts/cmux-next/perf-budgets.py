@@ -537,24 +537,6 @@ def main():
     finish(opts, budgets, only, runs, values)
 
 
-def bundle_state(app):
-    """The app bundle's files (relative paths, Contents/MacOS and Contents/Frameworks one level deep) and its Contents
-    folder's mtime, so a bench that changes the bundle is caught in the act."""
-    files = []
-    contents = os.path.join(app, "Contents")
-    for sub in ("", "MacOS", "Frameworks", "Resources/bin"):
-        folder = os.path.join(contents, sub)
-        try:
-            files += [os.path.join(sub, entry) for entry in sorted(os.listdir(folder))]
-        except OSError:
-            pass
-    try:
-        mtime = int(os.stat(contents).st_mtime)
-    except OSError:
-        mtime = None
-    return {"files": files, "mtime": mtime}
-
-
 def run_phase(phase, only, plan, opts, runs, values):
     """Run each bench of `only` once in `phase` (idle, or under that tier's load), its rows suffixed `@phase`."""
     out = os.path.join(opts.out, phase) if phase else opts.out
@@ -572,26 +554,11 @@ def run_phase(phase, only, plan, opts, runs, values):
             print(f"\n=== {name}: {os.path.basename(argv[1])} is not in this checkout; its rows stay n/a", flush=True)
             continue
         os.makedirs(out, exist_ok=True)
-        if not os.path.isdir(opts.app):
-            # The bench run before this one removed or moved the app (the Release run dab7c870: it was gone after
-            # the sidebar bench, so home and idle measured nothing). Say which, and keep the rest from failing blind.
-            print(f"\n=== {name}: PERF-BUDGETS-APP-GONE {opts.app} is gone (last bench: {next(reversed(runs), 'none')});"
-                  " its rows stay n/a", flush=True)
-            runs[name + suffix] = {"exit": "app-gone", "seconds": 0, "after": next(reversed(runs), None)}
-            continue
         procs = start_load(phase, scratch) if phase in LOAD_TIERS else []
-        before = bundle_state(opts.app)
         try:
             runs[name + suffix] = run_bench(name + suffix.replace("@", "-"), argv, out, opts.bench_timeout)
         finally:
             stop_load(procs, scratch)
-        after = bundle_state(opts.app)
-        if after != before:
-            # The Release run dab7c870 lost the app's executable during the sidebar bench: say what changed and when.
-            gone = sorted(set(before["files"]) - set(after["files"]))
-            print(f"PERF-BUDGETS-APP-CHANGED during {name}: {len(gone)} file(s) gone ({', '.join(gone[:12])}), "
-                  f"{len(after['files'])} left; Contents mtime {before['mtime']} -> {after['mtime']}", flush=True)
-            runs[name + suffix]["bundle_changed"] = {"gone": gone[:200], "left": len(after["files"])}
         name = name + suffix
         if report is None:  # bench_idle names its file after the sha and label
             found = sorted(f for f in os.listdir(o("idle")) if f.endswith("-idle-budgets.json")) if os.path.isdir(o("idle")) else []
