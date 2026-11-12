@@ -21,6 +21,7 @@ mod fsio;
 mod json;
 pub mod log;
 pub mod row;
+pub mod translate;
 
 #[cfg(test)]
 mod log_bench;
