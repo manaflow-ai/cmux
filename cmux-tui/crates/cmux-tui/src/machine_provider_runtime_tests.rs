@@ -3982,3 +3982,116 @@ fn every_timed_out_provider_mutation_replays_its_mutation_id_on_retry() {
     drop(runtime);
     server.join().unwrap();
 }
+
+fn create_in_scope(scope: usize) -> protocol::ProviderRequest {
+    protocol::ProviderRequest::CreateMachine(protocol::CreateMachineParams {
+        scope_id: id(&format!("scope-{scope}")),
+        mutation_id: unassigned_mutation_id().unwrap(),
+    })
+}
+
+fn answer_create(
+    stream: &mut UnixStream,
+    reader: &mut BufReader<UnixStream>,
+    machine: &str,
+) -> (protocol::OpaqueId, protocol::OpaqueId) {
+    let create: protocol::RequestEnvelope = read_frame(reader);
+    let protocol::ProviderRequest::CreateMachine(params) = create.request else {
+        panic!("expected a create, got {:?}", create.request);
+    };
+    write_frame(
+        stream,
+        &protocol::ResponseEnvelope::success(
+            create.id,
+            protocol::CreateMachineResult { machine_id: id(machine), revision: 2, notice: None },
+        ),
+    );
+    (params.scope_id, params.mutation_id)
+}
+
+/// A full ledger of unanswered creates never forgets one: the next new create
+/// is refused before it reaches the provider, and a retry of the oldest still
+/// replays its mutation_id, so it cannot make a second machine. Its answer
+/// frees one slot for the refused create.
+#[test]
+fn a_full_unsettled_ledger_refuses_new_creates_and_still_replays_the_oldest() {
+    use crate::machine_provider_client::ProviderRequestDeadlines;
+
+    let pending = MAX_UNSETTLED_MUTATIONS;
+    let socket = TestProviderSocket::bind();
+    let listener = socket.listener();
+    let catalog = provider_managed_snapshot(1);
+    let workspace = active_workspace_snapshot(1);
+    let server = thread::spawn(move || {
+        let (mut stream, mut reader) = serve_initial_snapshot(&listener, catalog);
+        serve_workspace_snapshot(&mut stream, &mut reader, &workspace);
+        // Every create stays unanswered past its bound.
+        let mut sent = Vec::new();
+        for scope in 0..pending {
+            let create: protocol::RequestEnvelope = read_frame(&mut reader);
+            let protocol::ProviderRequest::CreateMachine(params) = create.request else {
+                panic!("expected create {scope}, got {:?}", create.request);
+            };
+            assert_eq!(params.scope_id, id(&format!("scope-{scope}")));
+            sent.push(params.mutation_id);
+        }
+        let unique: HashSet<_> = sent.iter().collect();
+        assert_eq!(unique.len(), pending, "each distinct create mints its own id");
+
+        // The refused create never arrives: the next frame is the oldest's retry.
+        let (scope, retry_id) = answer_create(&mut stream, &mut reader, "machine-0");
+        assert_eq!(scope, id("scope-0"), "the refused create reached the provider");
+        assert_eq!(retry_id, sent[0], "the oldest create's retry minted a new mutation_id");
+
+        // The settled slot admits the create that was refused.
+        let (scope, admitted_id) = answer_create(&mut stream, &mut reader, "machine-new");
+        assert_eq!(scope, id(&format!("scope-{pending}")));
+        assert!(!sent.contains(&admitted_id), "a new create needs a new mutation_id");
+    });
+
+    let mut runtime = ProviderMachineRuntime::connect(&socket.path, token()).unwrap();
+    let bound = Duration::from_millis(20);
+    runtime.client.set_request_deadlines(ProviderRequestDeadlines {
+        control: Duration::from_secs(5),
+        create: bound,
+        open: Duration::from_secs(5),
+    });
+    for scope in 0..pending {
+        let error = runtime
+            .send_mutation::<protocol::CreateMachineResult>(create_in_scope(scope))
+            .expect_err("the provider never answers these creates");
+        assert!(
+            matches!(
+                error.downcast_ref::<ProviderClientError>(),
+                Some(ProviderClientError::Timeout)
+            ),
+            "create {scope} failed with {error:#} instead of a timeout"
+        );
+    }
+
+    for _ in 0..2 {
+        let refused = runtime
+            .send_mutation::<protocol::CreateMachineResult>(create_in_scope(pending))
+            .expect_err("a new create past the ledger's capacity must be refused");
+        let full = refused
+            .downcast_ref::<UnsettledMutationsFull>()
+            .unwrap_or_else(|| panic!("refused with {refused:#} instead of a full ledger"));
+        assert_eq!(full.pending, pending);
+        assert!(refused.to_string().contains("still waiting for an answer"));
+    }
+    assert_eq!(runtime.unsettled_mutations.entries.len(), pending);
+
+    runtime.client.set_request_deadlines(ProviderRequestDeadlines::PRODUCTION);
+    let created: protocol::CreateMachineResult =
+        runtime.send_mutation(create_in_scope(0)).expect("the oldest create's retry");
+    assert_eq!(created.machine_id, id("machine-0"));
+    assert_eq!(runtime.unsettled_mutations.entries.len(), pending - 1);
+
+    let created: protocol::CreateMachineResult =
+        runtime.send_mutation(create_in_scope(pending)).expect("a freed slot admits a new create");
+    assert_eq!(created.machine_id, id("machine-new"));
+    assert_eq!(runtime.unsettled_mutations.entries.len(), pending - 1);
+
+    drop(runtime);
+    server.join().unwrap();
+}

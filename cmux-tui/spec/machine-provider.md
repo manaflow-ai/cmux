@@ -103,6 +103,10 @@ protocol error, or retryable failure the outcome is unknown, so the next
 identical request, such as a second click on `new machine` in the same scope,
 replays the same id and receives the one committed result instead of creating
 a second machine.
+The client never forgets an unsettled `mutation_id` to make room. It keeps up
+to 32 at once; while 32 wait for an answer, a request with a new intent fails
+with a clear error before it reaches the provider, and a retry of a waiting
+request still replays its id. A definite answer frees that request's slot.
 
 The provider emits `snapshot_changed`, `connection_closed`, `notice`, and `connection_progress` events. Snapshot changes are invalidations: the client fetches the latest snapshot instead of applying deltas. A bounded full subscriber queue may coalesce invalidations without unsubscribing. Provider disconnect cancels pending requests and closes subscribers.
 

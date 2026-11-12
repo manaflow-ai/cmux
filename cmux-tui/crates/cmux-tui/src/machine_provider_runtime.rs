@@ -1,6 +1,6 @@
 //! Dynamic machine catalog backed by a versioned external provider.
 
-use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet};
 #[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
@@ -89,13 +89,40 @@ struct PendingConnection {
 /// request, with its id cleared, to the `mutation_id` already sent, so the
 /// next identical request replays that id and the provider returns the one
 /// committed result instead of making a second machine or workspace.
+///
+/// Only a definite answer removes an entry, so every entry here is unsettled
+/// and none is ever evicted: dropping one would make its retry mint a new id
+/// and could create a second machine. While the ledger is full, a request
+/// with a new intent is refused before it reaches the provider; a retry of a
+/// listed request still replays its id and, once answered, frees its slot.
 #[derive(Default)]
 struct UnsettledMutations {
-    entries: VecDeque<(protocol::ProviderRequest, protocol::OpaqueId)>,
+    entries: Vec<(protocol::ProviderRequest, protocol::OpaqueId)>,
 }
 
-/// Keeps the ledger bounded when many unrelated mutations stay unanswered.
+/// How many mutations may wait for a definite answer at once. A new intent
+/// past this is refused, never made room for by forgetting an unsettled one.
 const MAX_UNSETTLED_MUTATIONS: usize = 32;
+
+/// The refusal a new mutation gets while the ledger is full of unsettled ones.
+#[derive(Debug)]
+struct UnsettledMutationsFull {
+    pending: usize,
+}
+
+impl std::fmt::Display for UnsettledMutationsFull {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "{} earlier machine-provider requests are still waiting for an answer, so a new one \
+             is not sent. Retry one of them until it succeeds or fails; each retry reuses its \
+             request id, so it cannot create a second machine.",
+            self.pending
+        )
+    }
+}
+
+impl std::error::Error for UnsettledMutationsFull {}
 
 impl UnsettledMutations {
     fn replay_id(&self, intent: &protocol::ProviderRequest) -> Option<protocol::OpaqueId> {
@@ -105,12 +132,29 @@ impl UnsettledMutations {
             .map(|(_, mutation_id)| mutation_id.clone())
     }
 
-    fn remember(&mut self, intent: protocol::ProviderRequest, mutation_id: protocol::OpaqueId) {
-        self.settle(&intent);
-        if self.entries.len() == MAX_UNSETTLED_MUTATIONS {
-            self.entries.pop_front();
+    /// Refuses a new intent while the ledger is full. A listed intent passes:
+    /// its retry replays an id already in the ledger and adds no entry.
+    fn admit(&self, intent: &protocol::ProviderRequest) -> Result<(), UnsettledMutationsFull> {
+        if self.entries.len() >= MAX_UNSETTLED_MUTATIONS
+            && !self.entries.iter().any(|(candidate, _)| candidate == intent)
+        {
+            return Err(UnsettledMutationsFull { pending: self.entries.len() });
         }
-        self.entries.push_back((intent, mutation_id));
+        Ok(())
+    }
+
+    fn remember(
+        &mut self,
+        intent: protocol::ProviderRequest,
+        mutation_id: protocol::OpaqueId,
+    ) -> Result<(), UnsettledMutationsFull> {
+        if let Some(entry) = self.entries.iter_mut().find(|(candidate, _)| *candidate == intent) {
+            entry.1 = mutation_id;
+            return Ok(());
+        }
+        self.admit(&intent)?;
+        self.entries.push((intent, mutation_id));
+        Ok(())
     }
 
     fn settle(&mut self, intent: &protocol::ProviderRequest) {
@@ -1529,6 +1573,8 @@ impl ProviderMachineRuntime {
             anyhow::bail!("machine-provider request carries no mutation id");
         };
         *intent_id = unassigned_mutation_id()?;
+        // Refuse before minting an id, so a refused request leaves no trace.
+        self.unsettled_mutations.admit(&intent)?;
         let mutation_id = match self.unsettled_mutations.replay_id(&intent) {
             Some(mutation_id) => mutation_id,
             None => self.next_mutation_id()?,
@@ -1536,7 +1582,7 @@ impl ProviderMachineRuntime {
         if let Some(slot) = request_mutation_id_mut(&mut request) {
             *slot = mutation_id.clone();
         }
-        self.unsettled_mutations.remember(intent.clone(), mutation_id);
+        self.unsettled_mutations.remember(intent.clone(), mutation_id)?;
         let result = self.client.mutate(request);
         if mutation_answer_is_definite(&result) {
             self.unsettled_mutations.settle(&intent);
