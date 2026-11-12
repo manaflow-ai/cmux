@@ -574,8 +574,9 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
     # Each former job's cap goes to its steps (size cap 5, crash ratchet 10, localization 5, generated files 2+8), so
     # with the checkout's 5 the steps' caps sum to the job's 35 and no step's stall can use up another's time. A step
-    # that times out fails and the next step still runs. The generated files guard's 8 covers a generator check's
-    # 120 s try and its 240 s retry (generated_files_guard.py): a busy runner makes it slower, never red.
+    # that times out fails and the next step still runs. The generated files guard's 8 holds its checks' one shared
+    # 400 s deadline (generated_files_guard.py DEADLINE_SECONDS): a check that cannot finish inside it warns, so a
+    # busy runner makes the guard slower, never red, and it always ends before the step's limit to print why.
     timeout-minutes: 35
     steps:
       - name: Checkout
@@ -887,13 +888,12 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 -I tests/test_asc_review_package.py
 
-      # cmux-ci sends a package-test-lane suite step that names a display suite to a display
-      # worker; the list it reads is derived from the suites' own display skip traits, so a
-      # Swift change that adds or drops such a trait without the list fails here.
-      - name: The display suite list matches the suites' display skip traits (display_suites.py)
+      # The display suite list is derived from the suites' own display skip traits wherever it
+      # is read, never committed; this derives it from every package's tests and checks the parser.
+      - name: The display suite list derives from the suites' display skip traits (display_suites.py)
         if: ${{ !cancelled() }}
         run: |
-          python3 scripts/ci/display_suites.py --check
+          python3 scripts/ci/display_suites.py
           python3 tests/test_ci_display_suites.py
 
       - name: The exact-run SwiftPM test product transport (swiftpm_test_product.py)

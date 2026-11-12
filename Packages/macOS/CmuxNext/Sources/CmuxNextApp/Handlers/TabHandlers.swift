@@ -227,13 +227,26 @@ enum TabHandlers {
             ("moveSurfaceToPaneLeft", toward(.left)), ("moveSurfaceToPaneRight", toward(.right)),
             ("moveSurfaceToPaneUp", toward(.up)), ("moveSurfaceToPaneDown", toward(.down)),
         ]
+        // Move Tab to Pane Left/Right/Above/Below at the screen's edge makes that split (Move Tab to New Split), as a
+        // person who asks to "move to right split" means: only a tab alone in its pane, with no pane that way, stays.
+        let splits: [ActionID: String] = ["moveSurfaceToPaneLeft": "left", "moveSurfaceToPaneRight": "right", "moveSurfaceToPaneUp": "up", "moveSurfaceToPaneDown": "down"]
         for (id, (none, destination)) in moves {
+            let split = splits[id]
             registry.bind(id, invoke: { invocation in
                 guard let (pane, tab) = ctx.tab(invocation) else { return }
-                guard let (target, index) = destination(pane, tab) else { return ctx.refuseQuietly(none) }
+                guard let (target, index) = destination(pane, tab) else {
+                    guard let split, pane.pane.tabs.count > 1 else { return ctx.refuseQuietly(none) }
+                    var forwarded = invocation.onMachine(pane.daemon.machineID)
+                    forwarded.target = ActionTargetRef(kind: .tab, id: pane.tab(tab)?.id ?? tab.rawValue)
+                    forwarded.arguments["direction"] = .string(split)
+                    _ = ctx.registry.perform("tab.moveToNewSplit", invocation: forwarded)
+                    return
+                }
                 pane.move(tab, toPane: target, index: index)
             })
-            ctx.setTargetReason(id) { invocation in ctx.tab(invocation).flatMap { pane, tab in destination(pane, tab) == nil ? none : nil } }
+            ctx.setTargetReason(id) { invocation in
+                ctx.tab(invocation).flatMap { pane, tab in destination(pane, tab) == nil && (split == nil || pane.pane.tabs.count < 2) ? none : nil }
+            }
         }
     }
 

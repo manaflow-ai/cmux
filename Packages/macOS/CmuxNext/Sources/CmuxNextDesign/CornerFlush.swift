@@ -110,9 +110,11 @@ public protocol TabStripCorner: AnyObject {
 
 extension Metrics {
     /// What reshapes the main pane's chrome beside its numbers (`WindowRootView.observeMainPane`):
-    /// floating panes and the flush corner.
+    /// floating panes, the flush corner and the card's radius in a titled window, which rounds from the
+    /// tabs (``mainPaneRoundsFromTabs``), so a density change reshapes it too.
     public static var chromeShapeKey: CGFloat {
-        CGFloat((floatingPanes ? 1 : 0) + 2 * (CornerFlush.allCases.firstIndex(of: CornerFlush.current) ?? 0))
+        let shape = CGFloat((floatingPanes ? 1 : 0) + 2 * (CornerFlush.allCases.firstIndex(of: CornerFlush.current) ?? 0))
+        return shape + 16 * mainPaneCornerRadius(windowCornerRadius: standardWindowCornerRadius)
     }
 }
 

@@ -151,6 +151,10 @@ impl Mux {
             runtime.shutdown();
         }
         laps.lap("shutdown.browsers");
+        // Usage counts are written some time after they are made, so an idle
+        // daemon never wakes for them; the last ones are written here.
+        cmux_usage_patterns::flush();
+        laps.lap("shutdown.usage_patterns");
         let terminals = self.with_state(|state| state.surfaces.len());
         eprintln!(
             "cmux-tui: shutdown began at {began_ms} (unix ms), {} ms with {terminals} surfaces; \
