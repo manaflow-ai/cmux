@@ -254,6 +254,43 @@ class RustWorkspacesTests(unittest.TestCase):
         self.change(".github/rust-workspaces.toml", LIST + '\n[[workspace]]\nroot = "gvs"\nskip = "changed"\n')
         self.assertEqual(self.planned(), everything)
 
+    def test_a_path_inherited_two_hops_away_plans_its_users(self) -> None:
+        """solo uses b, b inherits a from ws, and a inherits `far` from ws's [workspace.dependencies], a path outside
+        ws's tree: a change to far is solo's (the cmux#41767 review's class: `{ workspace = true }` resolved through
+        the dependency's own workspace, not the user's)."""
+        self.write("ws/Cargo.toml", (self.repo / "ws/Cargo.toml").read_text() + 'far = { path = "../far" }\n')
+        self.write("ws/crates/a/Cargo.toml", '[package]\nname = "a"\n\n[dependencies]\nfar = { workspace = true }\n')
+        self.write("far/Cargo.toml", '[package]\nname = "far"\n\n[workspace]\n')
+        self.write("far/src/lib.rs", "pub fn far() {}\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "far")
+        for path in ("far/src/lib.rs", "far/Cargo.toml"):
+            with self.subTest(path=path):
+                self.base = self.head()
+                self.change(path, (self.repo / path).read_text() + ("\n# changed\n" if path.endswith(".toml")
+                                                                     else "// changed\n"))
+                planned = self.planned()
+                self.assertIn("solo", planned)
+                self.assertIn("ws/crates/own", planned)
+
+    def test_a_patched_crates_own_paths_plan_the_workspace_that_patches_it(self) -> None:
+        """vws patches pz by path (as cmux-next-ios/rust patches smoltcp), and pz inherits q from its own
+        workspace's [workspace.dependencies]: a change to q is vws's, like one to pz."""
+        self.write("vws/Cargo.toml", (self.repo / "vws/Cargo.toml").read_text()
+                   + '\n[patch.crates-io]\npz = { path = "../pz" }\n')
+        self.write("pz/Cargo.toml", '[package]\nname = "pz"\n\n[workspace]\n\n[workspace.dependencies]\n'
+                   'q = { path = "../q" }\n\n[dependencies]\nq = { workspace = true }\n')
+        self.write("q/Cargo.toml", '[package]\nname = "q"\n\n[workspace]\n')
+        self.write("q/src/lib.rs", "pub fn q() {}\n")
+        self.git("add", ".")
+        self.git("commit", "-qm", "patch")
+        for path in ("q/src/lib.rs", "q/Cargo.toml", "pz/Cargo.toml"):
+            with self.subTest(path=path):
+                self.base = self.head()
+                self.change(path, (self.repo / path).read_text() + ("\n# changed\n" if path.endswith(".toml")
+                                                                     else "// changed\n"))
+                self.assertIn("vws", self.planned())
+
     def test_a_change_in_a_nested_workspace_plans_only_it(self) -> None:
         """A Cargo.toml below a workspace with a [workspace] of its own, or in its `exclude`, is another workspace:
         a change there is not the outer one's (the cmux#41742 review's F1 class)."""

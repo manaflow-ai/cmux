@@ -379,6 +379,84 @@ class NestedWorkspaceTests(BusyFixture):
         self.assertIn("unchecked: other", output)
 
 
+class InheritedPathTests(BusyFixture):
+    """A `{ workspace = true }` dependency is the path its workspace's [workspace.dependencies] names: a change there
+    touches every workspace that reaches it (cmux#41767 review: cmux-next-ios/rust reaches cmux-tui crates that way,
+    so a change to a shared crate left it "untouched" and its timeout warned instead of failing). Here `other` plays
+    cmux-next-ios/rust and `core` cmux-tui; `other` hangs, and every row must fail."""
+
+    CORE = '[workspace]\nmembers = ["a", "b"]\nexclude = ["vendored"]\nresolver = "2"\n\n[workspace.dependencies]\n'
+
+    def reaches(self, other_dependencies: str, core_dependencies: str = "", a_dependencies: str = "",
+                extra: dict[str, str] | None = None) -> None:
+        """Commits the shape as the new base: OTHER's [workspace.dependencies], CORE's, and crate a's."""
+        self.write("other/Cargo.toml", '[package]\nname = "other"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                   '[dependencies]\na = { workspace = true }\n\n[workspace]\n\n[workspace.dependencies]\n'
+                   + other_dependencies)
+        self.write("core/Cargo.toml", self.CORE + core_dependencies)
+        self.write("core/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                   '[dependencies]\n' + a_dependencies)
+        for relative, text in (extra or {}).items():
+            self.write(relative, text)
+        self.git("add", "-A")
+        self.git("commit", "-qm", "shape")
+        self.base = self.git("rev-parse", "HEAD").strip()
+        self.behaviour["other"] = "hang"
+
+    def assert_fails(self, changed: str, text: str) -> None:
+        self.commit(changed, text)
+        code, output = self.run_check("--base", self.base)
+        self.assertEqual(code, 2, output)
+        self.assertIn("unchecked: other", output)
+
+    def test_a_change_to_a_shared_crate_it_inherits_touches_it(self):
+        """The review's row: a cmux-tui crate changes and cmux-next-ios/rust, which names it in its
+        [workspace.dependencies], times out."""
+        self.reaches('a = { path = "../core/a" }\n')
+        self.assert_fails("core/a/Cargo.toml", '[package]\nname = "a"\nversion = "0.2.0"\nedition = "2021"\n')
+
+    def test_a_path_the_shared_crate_inherits_from_its_own_workspace_touches_it(self):
+        """Two hops: a inherits `shared` from core's [workspace.dependencies], a path outside core's tree."""
+        self.reaches('a = { path = "../core/a" }\n', core_dependencies='shared = { path = "../shared" }\n',
+                     a_dependencies="shared = { workspace = true }\n",
+                     extra={"shared/Cargo.toml": '[package]\nname = "shared"\nversion = "0.1.0"\nedition = "2021"\n'})
+        self.assert_fails("shared/Cargo.toml", '[package]\nname = "shared"\nversion = "0.2.0"\nedition = "2021"\n')
+
+    def test_an_inherited_path_into_a_nested_workspace_touches_it(self):
+        """a inherits `inner` from core, and inner has a [workspace] of its own inside core's tree."""
+        self.reaches('a = { path = "../core/a" }\n', core_dependencies='inner = { path = "inner" }\n',
+                     a_dependencies="inner = { workspace = true }\n")
+        self.assert_fails("core/inner/Cargo.toml",
+                          '[package]\nname = "inner"\nversion = "0.2.0"\nedition = "2021"\n\n[workspace]\n')
+
+    def test_a_sibling_member_the_shared_crate_uses_is_followed_out_of_the_tree(self):
+        """a uses its sibling b by path, and b uses ext outside core's tree: b is in core's tree but still read."""
+        self.reaches('a = { path = "../core/a" }\n', a_dependencies='b = { path = "../b" }\n',
+                     extra={"core/b/Cargo.toml": '[package]\nname = "b"\nversion = "0.1.0"\nedition = "2021"\n\n'
+                            '[dependencies]\next = { path = "../../ext" }\n',
+                            "ext/Cargo.toml": '[package]\nname = "ext"\nversion = "0.1.0"\nedition = "2021"\n'})
+        self.assert_fails("ext/Cargo.toml", '[package]\nname = "ext"\nversion = "0.2.0"\nedition = "2021"\n')
+
+    def test_a_patched_crates_inherited_path_touches_the_workspace_that_patches_it(self):
+        """other patches pz by path (as cmux-next-ios/rust patches smoltcp), and pz inherits q from its own
+        [workspace.dependencies]."""
+        self.reaches('a = { path = "../core/a" }\n\n[patch.crates-io]\npz = { path = "../pz" }\n', extra={
+            "pz/Cargo.toml": '[package]\nname = "pz"\nversion = "0.1.0"\nedition = "2021"\n\n[workspace]\n\n'
+                             '[workspace.dependencies]\nq = { path = "../q" }\n\n[dependencies]\nq = { workspace = true }\n',
+            "q/Cargo.toml": '[package]\nname = "q"\nversion = "0.1.0"\nedition = "2021"\n'})
+        self.assert_fails("q/Cargo.toml", '[package]\nname = "q"\nversion = "0.2.0"\nedition = "2021"\n')
+
+    def test_an_inherited_dependency_with_no_path_reaches_nothing(self):
+        """A registry dependency inherited from core is not a path: a change elsewhere still only warns."""
+        self.reaches('a = { path = "../core/a" }\n', core_dependencies='serde = "1"\n',
+                     a_dependencies="serde = { workspace = true }\n",
+                     extra={"shared/Cargo.toml": '[package]\nname = "shared"\nversion = "0.1.0"\nedition = "2021"\n'})
+        self.commit("shared/Cargo.toml", '[package]\nname = "shared"\nversion = "0.2.0"\nedition = "2021"\n')
+        code, output = self.run_check("--base", self.base)
+        self.assertEqual(code, 0, output)
+        self.assertRegex(output, r"warning:.*cargo-locks: other timed out")
+
+
 def gate_lock_check_timeout() -> float:
     """The pre-push gate's outer limit on the lock check, read from prepush-gate.py's cargo_lock_drift: the
     `timeout=` of its run(...) call, a number or a module-level name for one."""
