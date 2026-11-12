@@ -327,6 +327,20 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         tokio::time::sleep(Duration::from_millis(500)).await;
     }
     crate::config::refuse_lost_home(&home())?;
+    // Bind before durable startup work, so clients can connect independently of journal replay.
+    // Requests wait for the hub and launch tokens; agent spawns wait for `finish_startup`.
+    let unix_listener = crate::server::bind_unix(&socket_path()).await?;
+    // The socket as bound, read at once: the home watch and the shutdown's removal use it.
+    let bound_socket = home_watch::Owned::now(&[&socket_path()]);
+    // Gone already: nothing can reach this daemon, so it stops before the startup.
+    if cfg!(unix) && bound_socket.is_none() && socket_path().is_absolute() {
+        anyhow::bail!("the acpmux socket {} went away as it was bound", socket_path().display());
+    }
+    // Binding depends only on daemon ownership and listener configuration. Opening the
+    // journal scans checkpoint files and replays records, so no per-chat store work belongs
+    // before this boundary. Requests still wait for the hub and this launch's auth tokens.
+    let _socket_cleanup = BoundSocketCleanup(bound_socket.clone());
+    gauges.mark("socket ready");
     // The local CodeRouter relay (crate cmux-coderouter): `cmux-router` and `local-coderouter`
     // routes read its port and mint keys from it. Opt-in (the cmux app sets ACPMUX_LOCAL_ROUTER=1).
     // Its owner ties the router's life to this daemon (daemon/router_owner.rs: the owner FIFO,
@@ -404,21 +418,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
     }
 
-    // Bind before any slow startup work, so clients can connect and ask
-    // `_acpmux/status` at once. Agent spawns wait for `finish_startup`.
-    let unix_listener = crate::server::bind_unix(&socket_path()).await?;
-    // The socket as bound, read at once: the home watch and the shutdown's removal use it.
-    let bound_socket = home_watch::Owned::now(&[&socket_path()]);
-    // This is the benchmark's socket-ready boundary: the Unix endpoint is bound before any
-    // WebSocket, hub, store or per-chat setup. The serving task and public ready line remain
-    // below the hub's startup gate, so clients still observe `ready: false` until setup ends.
-    gauges.mark("socket ready");
-    // Gone already: nothing can reach this daemon, so it stops before the startup.
-    if cfg!(unix) && bound_socket.is_none() && socket_path().is_absolute() {
-        anyhow::bail!("the acpmux socket {} went away as it was bound", socket_path().display());
-    }
-    // Opening the journal store can inspect per-chat state. Keep it after the socket-ready
-    // boundary so a god home cannot delay the daemon's first local endpoint.
     let store = crate::store::open(&config.store, &home())?;
     let mut moved_listener = false;
     let ws_listener = match &ws {
@@ -536,25 +535,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     // Serve before reading session metadata or logs. Exact-id chat reads load on demand.
     let hub = Hub::new_loading_with_wireguard(config, store, mailbox, wireguard.clone());
-    // The Unix listener is useful before the remaining durable setup: status and list requests
-    // observe the startup gate while forum, outbox, peers and chat logs finish independently.
-    hub.begin_startup(login_env);
-    // A re-bound socket's listener takes the old one's place (`daemon/socket_rebind.rs`).
-    #[cfg(unix)]
-    let (rebound_tx, rebound_rx) = tokio::sync::mpsc::channel(1);
-    #[cfg(unix)]
-    let unix = tokio::spawn(socket_rebind::serve(hub.clone(), unix_listener, rebound_rx));
-    #[cfg(not(unix))]
-    let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
-    // Debug builds only: hold the listener after it is serving, so the lifecycle test proves
-    // socket readiness does not wait for durable setup. Release builds have no seam.
-    #[cfg(debug_assertions)]
-    if let Some(ms) = std::env::var("ACPMUX_TEST_DELAY_AFTER_SOCKET_READY_MS")
-        .ok()
-        .and_then(|v| v.parse::<u64>().ok())
-    {
-        tokio::time::sleep(Duration::from_millis(ms.min(5_000))).await;
-    }
     // A copied machine's first start settles what the logs left open as stopped
     // (`hub/clone_boot.rs`); read before any log is.
     let cloned = hub.take_clone_marker(&home()).is_some();
@@ -667,6 +647,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if !std::env::var("ACPMUX_AGENT_HOSTS").is_ok_and(|v| v == "0") {
         hub.enable_agent_hosts();
     }
+    hub.begin_startup(login_env);
     // Pairing tickets and paired machines, hashes only (`crate::pairing`).
     hub.pairing.persist_at(home().join("pairing.json"));
     // The ACP Registry and agent CLI health, off the startup path (`hub/health_view.rs`).
@@ -743,6 +724,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     } else {
         None
     };
+    // A re-bound socket's listener takes the old one's place (`daemon/socket_rebind.rs`).
+    #[cfg(unix)]
+    let (rebound_tx, rebound_rx) = tokio::sync::mpsc::channel(1);
+    #[cfg(unix)]
+    let unix = tokio::spawn(socket_rebind::serve(hub.clone(), unix_listener, rebound_rx));
+    #[cfg(not(unix))]
+    let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
     let carrier_file = crate::server::carrier::start(&hub, &home()).await;
@@ -764,6 +752,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         "listen": bound,
         "webUrl": crate::hub::web_url(&*hub.config.read().await),
     });
+    gauges.mark("requests ready");
     // The web URL carries the token; the log (often a 0644 file) never does.
     tracing::info!(
         "acpmux ready pid={} socket={} listen={}",
@@ -1182,6 +1171,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let _ = tokio::task::spawn_blocking(cmux_usage_patterns::flush).await;
     tracing::info!("stopped");
     Ok(())
+}
+
+// Covers every fallible startup step after bind, including token/config validation. Normal
+// shutdown removes the socket explicitly; a replaced socket is never this guard's to remove.
+struct BoundSocketCleanup(Option<home_watch::Owned>);
+
+impl Drop for BoundSocketCleanup {
+    fn drop(&mut self) {
+        remove_bound_socket(self.0.as_ref());
+    }
 }
 
 /// A startup that fails after the bind removes the socket only while it is still the one this
