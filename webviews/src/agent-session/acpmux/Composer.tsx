@@ -194,6 +194,9 @@ const STOP_GUARD_MS = 600;
 
 /// How often at most a new chat's text goes to the host while the person types (`onUnsentDraft`).
 const UNSENT_DRAFT_INTERVAL_MS = 300;
+/// How long a draft rests before its places with no attachment are looked up in the host's kept
+/// chips: a paste's placeholder is the composer's before then.
+const LOST_PLACES_SETTLE_MS = 400;
 /// A field change this soon after the person's key, text input or composition is their edit.
 const TYPED_WINDOW_MS = 250;
 /// With Cmd held, the keys that edit the prompt (undo, redo, cut, paste, delete a line); any other
@@ -1501,6 +1504,58 @@ function ComposerFrame({
     edit(`${text.slice(0, emojiAt.start)}${match.emoji}${space}${after}`, at);
     field.current?.focus();
   };
+  /// A send that found places in the text with no attachment (`lost`) and is getting them back.
+  const recovering = useRef(false);
+  /// The send to run again once the composer draws the attachments it got back (`recoverLost`).
+  const recovered = useRef<{ ids: readonly string[]; again: () => void } | undefined>(undefined);
+  /// Brings back the attachments of `ids` from the host's kept copy of this chat's chips
+  /// (keptAttachments.ts), then runs `again` (the send) once they are the composer's. For a send, one
+  /// the host does not hold leaves the text, and the prompt stays here with a note: never sent
+  /// without it. With no send (the draft read back) only what the host holds comes back.
+  const recoverLost = async (ids: readonly string[], again?: () => void) => {
+    if (recovering.current) return;
+    recovering.current = true;
+    try {
+      const chat = sessionId;
+      const kept = keptAttachments && chat ? await keptAttachments.read(chat).catch(() => []) : [];
+      if (chat !== sessionId) return;
+      const found = kept.filter((chip) => ids.includes(chip.id) && !attachmentId(chip.id));
+      const missing = ids.filter((id) => !attachmentId(id) && !found.some((chip) => chip.id === id));
+      if (again && missing.length) {
+        for (const id of missing) field.current?.removeInline(id);
+        setAttachError(t("composer.attachmentsLost"));
+      }
+      if (!found.length) return;
+      attachmentsRef.current = appendAttachments(attachmentsRef.current, found);
+      // The send reads the chips a render holds: it goes once the composer has drawn them.
+      if (again && !missing.length) recovered.current = { ids, again };
+      setAttachments((current) => appendAttachments(current, found));
+    } finally {
+      recovering.current = false;
+    }
+  };
+  /// The places already looked up in the host's kept chips for this chat (`recoverLost`).
+  const triedLost = useRef(new Set<string>());
+  useEffect(() => triedLost.current.clear(), [sessionId]);
+  // A draft that comes back with places whose chips the composer does not hold (a reconnect, a
+  // relaunch, a Not sent prompt put back) gets them from the host's kept copy, drawn as chips.
+  useEffect(() => {
+    if (!keptAttachments || !sessionId) return;
+    const timer = setTimeout(() => {
+      const lost = (field.current?.inlineIds() ?? []).filter((id) => !attachmentId(id) && !triedLost.current.has(id));
+      if (!lost.length) return;
+      for (const id of lost) triedLost.current.add(id);
+      void recoverLost(lost);
+    }, LOST_PLACES_SETTLE_MS);
+    return () => clearTimeout(timer);
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- reads the field and the chips as they are when it settles.
+  }, [text, attachments, sessionId, keptAttachments]);
+  useEffect(() => {
+    const waiting = recovered.current;
+    if (!waiting || !waiting.ids.every((id) => attachments.some((chip) => chip.id === id))) return;
+    recovered.current = undefined;
+    waiting.again();
+  }, [attachments]);
   /// Sends the draft; false when there was nothing to send or the host refused it.
   const submit = (event: { preventDefault(): void }): boolean => {
     event.preventDefault();
@@ -1550,6 +1605,16 @@ function ComposerFrame({
       commands,
       pickedSkills.current,
     );
+    // An attachment's place in the text whose attachment the composer no longer holds (its chip
+    // went while the draft kept its place: a reconnect, a read of the chat's chips that failed)
+    // never goes as its bare id. The chips come back from the host's kept copy and the prompt
+    // goes then; one the host does not hold leaves the text, and the composer says so (Leo,
+    // 2026-11-11: six pasted images went as "130e68ee-…" text, with no image).
+    const lost = (field.current?.inlineIds() ?? []).filter((id) => !attachmentId(id));
+    if (lost.length) {
+      void recoverLost(lost, () => submitNow.current(force, steer, kept, route));
+      return false;
+    }
     const inText = placeInline(typedText.trim(), attachments, {
       dropped: (id) => pending.some((chip) => chip.id === id),
     });
