@@ -28,6 +28,7 @@ import CmuxNextFavicons
 import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextIcons
+import CmuxNextKeepAwake
 import CmuxNextLiveCode
 import CmuxNextPalette
 import CmuxNextAccounts

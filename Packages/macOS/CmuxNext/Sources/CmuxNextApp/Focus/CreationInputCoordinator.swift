@@ -119,9 +119,9 @@ final class CreationInputCoordinator {
 
     /// The person closed provisional tab `tab` in `window` before the daemon made it: the keys held
     /// for it are dropped and the rest go on (``CreationInputBuffer/cancel(tab:)``), with the keys a New Tab page's opening holds for it. So are the keys its
-    /// terminal already sent to the daemon, when the daemon gives them back (``GivenBackInput/creationClosed(terminal:)``).
+    /// terminal already sent to the daemon: there (``CreatingTerminalInput/close()``), and when the daemon gives them back (``GivenBackInput/creationClosed(terminal:)``).
     func drop(tab: String, in window: NSWindow?) {
-        if let terminal = router?.services?.cache.existingTerminal(tab)?.io.creatingTerminalID { GivenBackInput.shared.creationClosed(terminal: terminal) }
+        if let input = router?.services?.cache.existingTerminal(tab)?.io.creatingInput { GivenBackInput.shared.creationClosed(terminal: input.terminalID); input.close() }
         if let window, buffers[window.windowNumber]?.cancel(tab: tab) == true { scheduleFlush(in: window) }
         router?.newTabInputCoordinator.drop(tab: tab, in: window)
     }
