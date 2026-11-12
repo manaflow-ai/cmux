@@ -1836,6 +1836,12 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
   SWIFT_OTHER_FLAGS+=" $CMUX_BENCH_SWIFT_DEFINES"
   echo "==> bench configuration: Release optimization with $CMUX_BENCH_SWIFT_DEFINES (no DEBUG)"
 fi
+if [[ "$BUILD_CONFIGURATION" == "Release" && "${CMUX_LIVE_CODE_BUILD:-0}" != "1" ]]; then
+  # Release Swift for size, hot targets at -O, as the NIGHTLY builds it (scripts/cmux-next/lib/swift-size-opt.sh).
+  # shellcheck source=scripts/cmux-next/lib/swift-size-opt.sh
+  source "$SCRIPT_DIR/cmux-next/lib/swift-size-opt.sh"
+  while IFS= read -r arg; do XCODEBUILD_ARGS+=("$arg"); done < <(swift_size_opt_xcodebuild_args)
+fi
 if [[ "${CMUX_LIVE_CODE_BUILD:-0}" == "1" ]]; then
   # Live code: every CmuxNext target unoptimized, testable and a file at a time, linked so a patch
   # can repoint it (scripts/live-code/lib/xcodebuild-args.sh, shared with the NIGHTLY variant).
