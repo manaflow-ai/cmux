@@ -31,6 +31,9 @@ import math
 import re
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[1]
 OWNER = "manaflow-ai"
@@ -295,7 +298,7 @@ def resolve_labels(runs_on, owner: str = OWNER, variables: Mapping[str, Iterable
     if isinstance(runs_on, dict):
         raise ValueError(f"runs-on group/labels mappings are not modelled: {runs_on!r}")
     text = str(runs_on).strip()
-    whole = re.fullmatch(r"\$\{\{(.*)\}\}", text, re.DOTALL)
+    whole = gh_expressions.EXPRESSION.fullmatch(text)
     if whole is None:
         if "${{" in text:
             raise ValueError(f"runs-on mixes text and an expression: {text!r}")
