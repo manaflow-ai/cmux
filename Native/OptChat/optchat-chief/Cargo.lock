@@ -945,7 +945,19 @@ dependencies = [
  "rusqlite",
  "serde",
  "serde_json",
+ "tempfile",
  "ureq",
+]
+
+[[package]]
+name = "optchat-wasm"
+version = "0.1.0"
+dependencies = [
+ "chief-kernel",
+ "optchat-core",
+ "serde",
+ "serde_json",
+ "wasm-bindgen",
 ]
 
 [[package]]
