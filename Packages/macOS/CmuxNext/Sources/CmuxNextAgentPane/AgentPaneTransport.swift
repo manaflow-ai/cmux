@@ -10,14 +10,25 @@ import CmuxNextCompat
 ///
 /// - One connection at a time; `open` closes the previous one. Each has an id the page names.
 /// - Inbound frames queue off the main thread in a bounded queue and reach the page in batches,
-///   one bridge call per flush (``pacer``). Overflow closes the socket with
-///   ``AgentPaneTransportError/inboundOverflow``; the page then reconnects and resyncs.
+///   one bridge call per flush (``pacer``). A page that falls a full queue behind loses stream
+///   notifications, not its connection: they are shed until it catches up, and it then reads what
+///   it missed after one `_acpmux/lagged` (``AcpmuxPaneShedding``). Only frames past the ceiling
+///   close the socket with ``AgentPaneTransportError/inboundOverflow``.
 /// - Outbound sends are bounded too (``AgentPaneTransportError/outboundOverflow``).
 /// - Nothing here blocks the main thread: the socket's callbacks run on its own queue.
 @MainActor public final class AgentPaneTransport {
     public nonisolated struct Limits: Sendable {
+        /// Past these, the page is a full queue behind: stream notifications are shed until it
+        /// catches up, then it gets one `_acpmux/lagged` and reads what it missed
+        /// (``AcpmuxPaneShedding``). Replies and requests still queue.
         public var maximumQueuedFrames = 8192
         public var maximumQueuedBytes = 32 << 20
+        /// The ceiling for what still queues past the bounds above (replies, requests, observed
+        /// notifications): only past it does the socket close with
+        /// ``AgentPaneTransportError/inboundOverflow``. Above the daemon's largest frame (31 MiB),
+        /// so one whole reply never ends a connection.
+        public var ceilingQueuedFrames = 32768
+        public var ceilingQueuedBytes = 128 << 20
         public var maximumFramesPerFlush = 512
         public var maximumBytesPerFlush = 4 << 20
         public var maximumOutstandingSends = 8192
