@@ -37,6 +37,11 @@ fn outcome_after(route: &str, before: Option<String>, el: &Ax) -> ActionOutcome 
     out
 }
 
+/// How long a foreground action waits for its app to become the active app.
+const RAISE_WAIT: std::time::Duration = std::time::Duration::from_millis(1000);
+/// How often it checks meanwhile.
+const RAISE_STEP: std::time::Duration = std::time::Duration::from_millis(20);
+
 impl MacDesktop {
     /// Raises the window and its app for a Foreground delivery. This is the
     /// only path that changes what is in front, and only when asked.
@@ -46,7 +51,26 @@ impl MacDesktop {
         if let Some(yes) = Cf::boolean(true) {
             app.set("AXFrontmost", &yes).map_err(|e| ax_error(e, "bringing the app forward"))?;
         }
-        Ok(())
+        // AXFrontmost asks the app to activate; the window server makes it
+        // the active app a little later (and may refuse under cooperative
+        // activation). System-wide input (the HID tap) goes to whatever is
+        // really active, so wait, bounded, until that is the target, and
+        // refuse rather than send it elsewhere. There is no activation
+        // notification to wait on from this thread, so the system-wide focus
+        // is read at a short interval up to RAISE_WAIT.
+        let deadline = std::time::Instant::now() + RAISE_WAIT;
+        loop {
+            if super::frontmost_pid() == Some(t.window.pid) {
+                return Ok(());
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(DesktopError::Unsupported(format!(
+                    "window {}'s app did not come to the front when asked, so system-wide input would reach another app; try again, or use delivery background",
+                    t.window.id
+                )));
+            }
+            std::thread::sleep(RAISE_STEP); // bounded wait for an asynchronous activation (no notification here)
+        }
     }
 
     /// The route for pointer events into a window.
