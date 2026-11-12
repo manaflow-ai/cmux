@@ -175,7 +175,15 @@ struct NewTabHoldCloseKeyTests {
             let firstPanes = store.workspaces.compactMap { $0.screens.first?.panes.first }
             let secondPane = try #require(firstPanes.compactMap { secondContent.paneController(key: $0.id) }.first, "the second window has no pane controller")
             try #require(secondPane !== focused && secondPane !== pane && secondPane.view.window === secondWindow, "the second window's pane is not its own")
+            // The pane shows its tab, as the first window's pane does. While the focused terminal of a window is not shown,
+            // the creation hold takes each key of that window for it (`CreationInputCoordinator.capture`, awaited content):
+            // a key that runs again there reaches no view, and a test of what the second window's keyboard gets proves nothing.
+            for _ in 0..<100 where secondPane.currentTabKey == nil { try await Task.sleep(for: .milliseconds(10)) }
+            if secondPane.currentTabKey == nil { secondPane.showSelected() }
+            try #require(secondPane.currentTabKey != nil, "the second window's pane shows no tab")
             second.focus.send(.focusPane(secondPane.paneKey, source: .programmatic))
+            for _ in 0..<100 where CreationInputCoordinator.awaitedContent(second) != nil { try await Task.sleep(for: .milliseconds(10)) }
+            try #require(CreationInputCoordinator.awaitedContent(second) == nil, "the second window's focus still waits for content that is not shown (\(String(describing: CreationInputCoordinator.awaitedContent(second))), pane shows \(secondPane.currentTabKey ?? "-")): the creation hold takes that window's keys, so this fixture proves nothing")
             let secondProbe = KeyProbe(frame: CGRect(x: 0, y: 0, width: 10, height: 10))
             secondPane.view.addSubview(secondProbe)
             try #require(secondWindow.makeFirstResponder(secondProbe) && secondWindow.firstResponder === secondProbe, "the second window's probe did not get the keyboard (first responder \(String(describing: secondWindow.firstResponder)))")
@@ -394,6 +402,19 @@ struct NewTabHoldCloseKeyTests {
             #expect(!held.input.isHolding(in: other.window), "the script's hold did not end at its limit: \(held.input.log)")
             #expect(other.probe.typed.isEmpty, "the line typed in the first window ran in the other window, where a script opened a page: \"\(other.probe.typed)\" (hold log \(held.input.log))")
             #expect(held.probe.typed.isEmpty, "the line typed for the new window's page went to the view that had the keyboard at the opening: \"\(held.probe.typed)\" (hold log \(held.input.log))")
+            // The 3 keys came to the hold's rule in the other window, and the rule dropped them there: nothing else took them.
+            #expect(held.input.log.contains { $0.hasPrefix("dropped 3 keys (limit)") }, "the hold's rule did not drop the 3 keys of the line in the other window: \(held.input.log)")
+            // The control: after the hold's end, a key that runs again in the other window, by the path of the held keys and
+            // with no hold's rule, MUST reach that window's probe, and no creation hold of that window may have keys. If not,
+            // the asserts above are true for a wrong reason (something took the keys before the probe): the test fails.
+            let creation = held.services.keyRouter.creationInputCoordinator
+            #expect(!creation.isHolding(in: other.window), "a creation hold of the other window took keys: this run proves nothing (hold log \(held.input.log))")
+            let before = other.probe.typed
+            let control = try Self.keyDown("x", keyCode: 7, in: other.window)
+            NewTabInputCoordinator.replay(control, held: control, in: other.window, router: held.services.keyRouter)
+            let awaited = held.services.keyRouter.focus(for: other.window).0.flatMap { CreationInputCoordinator.awaitedContent($0) }
+            let facts = "creation hold \(creation.isHolding(in: other.window)), awaited content \(String(describing: awaited)), pane shows \(other.pane.currentTabKey ?? "-"), first responder \(String(describing: other.window.firstResponder))"
+            #expect(other.probe.typed == before + "x" && !creation.isHolding(in: other.window), "a key that runs again in the other window does not reach its probe: this run proves nothing (probe \"\(before)\" then \"\(other.probe.typed)\", \(facts))")
         }
     }
 
