@@ -2143,7 +2143,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         earlierTask = nil
         if page.failed {
             earlierFailures += 1
-            earlierRetryAt = .now + Self.retryDelay(afterFailures: earlierFailures)
+            earlierRetryAt = ContinuousClock.now + Self.retryDelay(afterFailures: earlierFailures)
         } else {
             earlierFailures = 0
             earlierRetryAt = nil

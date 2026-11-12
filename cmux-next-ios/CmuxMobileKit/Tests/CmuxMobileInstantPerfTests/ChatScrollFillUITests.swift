@@ -10,6 +10,7 @@ import UIKit
 //                          iPhone's 390 x 800 pt), not the store with estimated heights: p95 of each
 //                          frame's time to a filled viewport. 16.7 ms (one frame).
 
+@MainActor
 extension InstantPerfTests {
     /// One fling up `log` on the transcript list, as `fling` does on the store: each 60 Hz frame
     /// moves the collection view (its delegate, the list, reads ahead as the app's does), lays it
@@ -133,7 +134,7 @@ extension InstantPerfTests {
         struct Runs { var p95s: [Double] = []; var blank = 0, pages = 0, uncovered = 0; var worst = 0.0 }
         func flings(_ log: AgentChatLog, readsAhead: Bool, runs: Int) async throws -> Runs {
             var out = Runs()
-            out.p95s = try await InstantPerfReport.sample(runs: runs) {
+            let p95s = try await InstantPerfReport.sample(runs: runs) {
                 let run = try await Self.listFling(log, readsAhead: readsAhead)
                 out.blank += run.blank
                 out.pages += run.pages
@@ -141,6 +142,7 @@ extension InstantPerfTests {
                 out.worst = max(out.worst, run.fills.max() ?? 0)
                 return .microseconds(Int64((Self.p95(run.fills) * 1_000).rounded()))
             }
+            out.p95s = p95s
             return out
         }
         let runs = min(InstantPerfReport.defaultRuns, 3)
