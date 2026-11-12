@@ -2591,6 +2591,24 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
              drop(tx);\n",
         ),
         (
+            "#42023 F1: a drain whose sender std::mem::drop drops after the loop",
+            "let (tx, rx) = channel::<()>();\n\
+             while let Ok(_) = rx.RECV {}\n\
+             std::mem::drop(tx);\n",
+        ),
+        (
+            "#42023 F1: a drain whose sender a qualified drop in a closure drops",
+            "let (tx, rx) = channel::<()>();\n\
+             let later = move || std::mem::drop(tx);\n\
+             while let Ok(_) = rx.RECV {}\n",
+        ),
+        (
+            "#42023 F1: a drain whose sender another function's drop drops",
+            "let (tx, rx) = channel::<()>();\n\
+             other::drop(tx);\n\
+             while let Ok(_) = rx.RECV {}\n",
+        ),
+        (
             "F1 at 699228e4: a drain whose sender a closure drops, not a statement",
             "let (tx, rx) = channel::<()>();\n\
              let later = move || drop(tx);\n\
@@ -2669,6 +2687,31 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
             "fn t() {\n    let (tx, rx) = channel::<u8>();\n    drop(tx);\n    \
              if go {\n        while let Ok(n) = rx.RECV {}\n    }\n}\n",
         ),
+        (
+            "#42023 F1: a drain whose sender std::mem::drop drops first",
+            "let (tx, rx) = channel::<u8>();\n\
+             std::mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42023 F1: a drain whose sender core::mem::drop drops first",
+            "let (tx, rx) = channel::<u8>();\n\
+             ::core::mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42023 F1: a drain whose sender mem::drop drops first, with `use std::mem;`",
+            "use std::mem;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42023 F1: a drain whose sender a turbofish drop drops first",
+            "let (tx, rx) = channel::<u8>();\n\
+             std::mem::drop::<Sender<u8>>(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
         ("F2: a tokio timeout", "let got = tokio::time::timeout(d, rx.RECV).await;\n"),
         (
             "F2: a tokio timeout across lines",
@@ -2741,6 +2784,30 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
                     "#[cfg(test)]\nmod tests {\n    #[path = \"probe.rs\"]\n    mod child;\n}\n",
                 ),
                 ("hub/foo/tests/probe.rs", "fn t() {\n    arrived.RECV.unwrap();\n}\n"),
+            ],
+        ),
+        (
+            "#42023 F2: a child of an inline test module, by a raw-string #[path]",
+            &[
+                (
+                    "hub/foo.rs",
+                    "#[cfg(test)]\nmod tests {\n    #[path = r\"raw.rs\"]\n    mod child;\n}\n",
+                ),
+                ("hub/foo/tests/raw.rs", "fn t() {\n    arrived.RECV.unwrap();\n}\n"),
+            ],
+        ),
+        (
+            "#42023 F2: a test file's child by a hashed raw-string #[path]",
+            &[
+                ("hub/foo_tests.rs", "#[path = r#\"support/hashed.rs\"#]\nmod held;\n"),
+                ("hub/support/hashed.rs", "fn t() {\n    arrived.RECV.unwrap();\n}\n"),
+            ],
+        ),
+        (
+            "#42023 F2: a test file's child by an escaped #[path]",
+            &[
+                ("hub/foo_tests.rs", "#[path = \"support/\\x65scaped.rs\"]\nmod held;\n"),
+                ("hub/support/escaped.rs", "fn t() {\n    arrived.RECV.unwrap();\n}\n"),
             ],
         ),
         (
