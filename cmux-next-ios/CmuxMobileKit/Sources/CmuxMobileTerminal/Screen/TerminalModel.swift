@@ -552,6 +552,23 @@ public final class TerminalModel {
     // MARK: Key bar
 
     #if DEBUG
+    /// Demo drivers (`ws-terminal-composer`): a draft with two photos and a
+    /// file attached, for gallery captures of the composer's layouts.
+    public func demoFillComposer(_ text: String) {
+        composerText = text
+        let colors: [UIColor] = [.systemOrange, .systemTeal]
+        for (index, color) in colors.enumerated() {
+            let image = UIGraphicsImageRenderer(size: CGSize(width: 168, height: 168)).image { context in
+                color.setFill()
+                context.fill(CGRect(x: 0, y: 0, width: 168, height: 168))
+                UIColor.white.withAlphaComponent(0.35).setFill()
+                context.cgContext.fillEllipse(in: CGRect(x: 40, y: 40, width: 88, height: 88))
+            }
+            addAttachment(ComposerAttachment(kind: .image, name: "Photo \(index + 1).png", thumbnail: image, data: image.pngData()))
+        }
+        addAttachment(ComposerAttachment(kind: .file, name: "build.log", data: Data(repeating: 0x61, count: 18_432)))
+    }
+
     /// Demo drivers (`ws-terminal-armed`): arms a modifier as its key-row tap does.
     public func demoArm(_ modifier: TerminalStickyModifiers.Modifier) {
         guard let surface = controller?.surface else { return }

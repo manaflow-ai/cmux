@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 
 /// Which keys of the key row's scroller are really on screen.
 ///
@@ -116,6 +117,39 @@ public struct ComposerDockState: Equatable, Sendable {
     }
 }
 
+/// Where the terminal composer's buttons and attachments sit. Gallery
+/// variants for the user's report of 2026-11-12 ("why are the left buttons
+/// outside!?"): every layout but `classic` keeps the buttons and the
+/// attachment tray inside the composer.
+///
+/// - `classic`: paperclip and voice as circles beside the field, the tray
+///   above it (classic cmux iOS; the layout he reported).
+/// - `pill`: one rounded field holding the tray, then paperclip, text,
+///   voice and send on one row (Messages' field, with its buttons inside).
+/// - `card`: the agent chat composer's card (SPEC 4.3): the tray, the text
+///   row, then a controls row of paperclip and voice, and send at the end.
+/// - `group`: paperclip and voice share one capsule that melts into the
+///   field's glass; the tray is inside the field.
+public enum TerminalComposerLayout: String, CaseIterable, Sendable {
+    case classic, pill, card, group
+
+    /// The shipped layout.
+    public static let standard: TerminalComposerLayout = .pill
+
+    /// The layout in use: `standard`, or in DEBUG builds the
+    /// `CmuxMobileTerminalComposerLayout` default (a launch argument, for
+    /// gallery captures).
+    public static var current: TerminalComposerLayout {
+        #if DEBUG
+        if let name = UserDefaults.standard.string(forKey: "CmuxMobileTerminalComposerLayout"),
+           let layout = TerminalComposerLayout(rawValue: name) {
+            return layout
+        }
+        #endif
+        return standard
+    }
+}
+
 /// The dock's metrics (classic cmux iOS): a 28 pt key row of keys that hug
 /// their labels (glyph keys exactly 32 pt) 4 pt apart, 8 pt above the
 /// composer; the composer's controls are 40 pt circles beside a field whose
@@ -136,7 +170,16 @@ public struct TerminalDockMetrics: Sendable {
     /// The text view's own vertical inset inside that padding.
     public static let textInset: CGFloat = 3
 
-    public init() {}
+    /// The `card` layout's controls row: its circles, and the gap above it.
+    public static let cardControl: CGFloat = 32
+    public static let cardRowGap: CGFloat = 4
+    public static let cardTextTop: CGFloat = 8
+
+    public let layout: TerminalComposerLayout
+
+    public init(layout: TerminalComposerLayout = .current) {
+        self.layout = layout
+    }
 
     /// The composer row with one line of text and nothing else: what the
     /// terminal's rows are measured against. Never its current height: its
@@ -145,7 +188,13 @@ public struct TerminalDockMetrics: Sendable {
     /// 2026-10-14: an inline TUI such as Codex redraws its whole transcript on
     /// every resize).
     public func restingComposerHeight(lineHeight: CGFloat) -> CGFloat {
-        max(Self.control, (lineHeight + 2 * (Self.textInset + Self.fieldPadding)).rounded(.up))
+        let textRow = lineHeight + 2 * Self.textInset
+        switch layout {
+        case .classic, .pill, .group:
+            return max(Self.control, (textRow + 2 * Self.fieldPadding).rounded(.up))
+        case .card:
+            return (Self.cardTextTop + textRow + Self.cardRowGap + Self.cardControl + Self.fieldPadding).rounded(.up)
+        }
     }
 
     /// The whole stack at rest (key row, gap, one-line composer), as shown.

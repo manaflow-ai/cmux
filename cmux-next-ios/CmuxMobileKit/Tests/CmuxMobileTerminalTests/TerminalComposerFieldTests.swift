@@ -49,6 +49,20 @@ import UIKit
         #expect(traits.smartDashes == .no)
     }
 
+    /// The terminal's rows are measured against the composer at rest: every
+    /// one-row layout rests exactly where the classic one did, and the card
+    /// (its controls on a row of their own) rests taller.
+    @Test func eachLayoutRestsAtItsOneLineHeight() {
+        let line = UIFont.preferredFont(forTextStyle: .body).lineHeight
+        let classic = TerminalDockMetrics(layout: .classic).restingComposerHeight(lineHeight: line)
+        #expect(TerminalDockMetrics(layout: .pill).restingComposerHeight(lineHeight: line) == classic)
+        #expect(TerminalDockMetrics(layout: .group).restingComposerHeight(lineHeight: line) == classic)
+        let card = TerminalDockMetrics(layout: .card).restingComposerHeight(lineHeight: line)
+        #expect(card == (TerminalDockMetrics.cardTextTop + line + 2 * TerminalDockMetrics.textInset
+                         + TerminalDockMetrics.cardRowGap + TerminalDockMetrics.cardControl + TerminalDockMetrics.fieldPadding).rounded(.up))
+        #expect(TerminalComposerLayout.standard != .classic, "the shipped layout keeps its buttons inside the composer")
+    }
+
     @Test func terminalKeyInputStaysRaw() {
         let surface = TerminalSurfaceView(frame: CGRect(x: 0, y: 0, width: 390, height: 400))
         #expect(surface.autocorrectionType == .no)

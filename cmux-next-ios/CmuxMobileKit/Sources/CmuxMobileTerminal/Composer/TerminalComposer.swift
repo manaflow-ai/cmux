@@ -21,6 +21,12 @@ struct TerminalComposer: View {
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showCamera = false
     private let voice = AgentVoiceLauncher.shared
+    private let layout = TerminalComposerLayout.current
+
+    private var voiceSource: (any AgentVoiceSource)? {
+        guard let source = model.voiceSource, source.voiceAvailable, voice.isAvailable else { return nil }
+        return source
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -28,26 +34,32 @@ struct TerminalComposer: View {
                 Label(notice, systemImage: "exclamationmark.arrow.circlepath")
                     .font(.footnote)
                     .foregroundStyle(.orange)
-                    .padding(.leading, TerminalDockMetrics.control + 8)
+                    .padding(.leading, layout == .classic ? TerminalDockMetrics.control + 8 : 14)
                     .accessibilityIdentifier("terminal.composer.notSent")
             }
             if let error = model.attachmentError {
                 Label(error, systemImage: "exclamationmark.circle")
                     .font(.footnote)
                     .foregroundStyle(.red)
-                    .padding(.leading, TerminalDockMetrics.control + 8)
+                    .padding(.leading, layout == .classic ? TerminalDockMetrics.control + 8 : 14)
                     .accessibilityIdentifier("terminal.composer.attachmentError")
             }
-            if !model.attachments.isEmpty {
+            if layout == .classic, !model.attachments.isEmpty {
                 AttachmentStrip(model: model)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
-            GlassEffectContainer(spacing: 0) {
-                HStack(alignment: .bottom, spacing: 8) {
-                    if model.attachmentsAvailable { attachMenu }
-                    if let source = model.voiceSource, source.voiceAvailable, voice.isAvailable { voiceButton(source) }
-                    fieldContainer
+            switch layout {
+            case .classic:
+                GlassEffectContainer(spacing: 0) {
+                    HStack(alignment: .bottom, spacing: 8) {
+                        if model.attachmentsAvailable { attachMenu(ComposerCircleLabel(systemImage: "paperclip")) }
+                        if let source = voiceSource { voiceButton(source) { ComposerCircleLabel(systemImage: "waveform", foreground: $0, tint: $1) } }
+                        fieldContainer
+                    }
                 }
+            case .pill: pillComposer
+            case .card: cardComposer
+            case .group: groupComposer
             }
         }
         .padding(.horizontal, TerminalDockMetrics.horizontalInset)
@@ -92,7 +104,7 @@ struct TerminalComposer: View {
 
     /// Classic's order: Photo Library, Choose Files, Paste; then Camera,
     /// which cmux NEXT offers as well.
-    private var attachMenu: some View {
+    private func attachMenu(_ label: some View) -> some View {
         Menu {
             Button("Photo Library", systemImage: "photo.on.rectangle") { model.showPhotoPicker = true }
             Button("Choose Files", systemImage: "folder") { model.showFileImporter = true }
@@ -109,7 +121,7 @@ struct TerminalComposer: View {
                 }
             }
         } label: {
-            ComposerCircleLabel(systemImage: "paperclip")
+            label
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Add Attachment")
@@ -119,14 +131,14 @@ struct TerminalComposer: View {
     /// Voice mode on this terminal's agent (replaces classic's dictation
     /// mic): its replies read aloud, the user's speech typed in as prompts.
     /// Filled and moving while it runs here; a tap ends it.
-    private func voiceButton(_ source: any AgentVoiceSource) -> some View {
+    private func voiceButton<Label: View>(_ source: any AgentVoiceSource,
+                                          label: (_ foreground: AnyShapeStyle, _ tint: Color?) -> Label) -> some View {
         let active = voice.isActive(source.voiceSourceID)
         return Button {
             voice.toggle(source)
         } label: {
-            ComposerCircleLabel(systemImage: "waveform",
-                                foreground: active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.78)),
-                                tint: active ? Color.cmuxMobileAccent : nil)
+            label(active ? AnyShapeStyle(Color.cmuxMobileOnAccent) : AnyShapeStyle(Color.primary.opacity(0.78)),
+                  active ? Color.cmuxMobileAccent : nil)
                 .symbolEffect(.variableColor.iterative, isActive: active)
         }
         .buttonStyle(.plain)
@@ -134,10 +146,113 @@ struct TerminalComposer: View {
         .accessibilityIdentifier("terminal.composer.voice")
     }
 
+    // MARK: Layouts (`TerminalComposerLayout`)
+
+    /// `pill`: one rounded glass field holds everything: the attachment tray
+    /// on top, then paperclip, the text, voice and send on one row; the
+    /// buttons ride the last line as the field grows (Messages).
+    private var pillComposer: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !model.attachments.isEmpty { tray }
+            HStack(alignment: .bottom, spacing: 6) {
+                if model.attachmentsAvailable { attachMenu(ComposerInlineCircle(systemImage: "paperclip")) }
+                textView
+                    .padding(.leading, model.attachmentsAvailable ? 0 : 8)
+                if let source = voiceSource { voiceButton(source) { ComposerInlineCircle(systemImage: "waveform", foreground: $0, tint: $1) } }
+                sendButton
+            }
+            .padding(TerminalDockMetrics.fieldPadding)
+        }
+        .frame(minHeight: TerminalDockMetrics.control, alignment: .bottom)
+        .fixedSize(horizontal: false, vertical: true)
+        .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+        .animation(.smooth(duration: 0.3).unlessReduceMotion, value: model.attachments.count)
+    }
+
+    /// `card`: the agent chat composer's card (SPEC 4.3): the tray, the text
+    /// row, then paperclip and voice at the leading end of a controls row and
+    /// send at its trailing end.
+    private var cardComposer: some View {
+        VStack(alignment: .leading, spacing: TerminalDockMetrics.cardRowGap) {
+            if !model.attachments.isEmpty { tray }
+            textView
+                .padding(.horizontal, 14)
+                .padding(.top, TerminalDockMetrics.cardTextTop)
+            HStack(spacing: 8) {
+                if model.attachmentsAvailable { attachMenu(ComposerInlineCircle(systemImage: "paperclip", diameter: TerminalDockMetrics.cardControl)) }
+                if let source = voiceSource {
+                    voiceButton(source) { ComposerInlineCircle(systemImage: "waveform", diameter: TerminalDockMetrics.cardControl, foreground: $0, tint: $1) }
+                }
+                Spacer(minLength: 0)
+                sendButton
+                    .padding(.trailing, 2)
+            }
+            .frame(height: TerminalDockMetrics.cardControl)
+            .padding(.horizontal, TerminalDockMetrics.fieldPadding)
+            .padding(.bottom, TerminalDockMetrics.fieldPadding)
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .glassSurface(in: .rect(cornerRadius: 24, style: .continuous))
+        .animation(.smooth(duration: 0.3).unlessReduceMotion, value: model.attachments.count)
+    }
+
+    /// `group`: paperclip and voice share one glass capsule that melts into
+    /// the field's glass (one shape, Messages' iOS 26 group); the tray sits
+    /// inside the field, above the text.
+    private var groupComposer: some View {
+        GlassEffectContainer(spacing: 10) {
+            HStack(alignment: .bottom, spacing: 4) {
+                if model.attachmentsAvailable || voiceSource != nil {
+                    HStack(spacing: 0) {
+                        if model.attachmentsAvailable { attachMenu(ComposerInlineCircle(systemImage: "paperclip", diameter: TerminalDockMetrics.control, filled: false)) }
+                        if let source = voiceSource {
+                            voiceButton(source) { ComposerInlineCircle(systemImage: "waveform", diameter: TerminalDockMetrics.control, filled: false, foreground: $0, tint: $1) }
+                        }
+                    }
+                    .glassSurface(in: .capsule)
+                }
+                VStack(alignment: .leading, spacing: 0) {
+                    if !model.attachments.isEmpty { tray }
+                    HStack(alignment: .bottom, spacing: 8) {
+                        textView
+                        sendButton
+                    }
+                    .padding(.leading, 14)
+                    .padding(.trailing, TerminalDockMetrics.fieldPadding)
+                    .padding(.vertical, TerminalDockMetrics.fieldPadding)
+                }
+                .frame(minHeight: TerminalDockMetrics.control, alignment: .bottom)
+                .fixedSize(horizontal: false, vertical: true)
+                .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+            }
+        }
+        .animation(.smooth(duration: 0.3).unlessReduceMotion, value: model.attachments.count)
+    }
+
+    /// The attachment tray inside the composer: the thumbnails with small
+    /// badges, on the composer's own surface.
+    private var tray: some View {
+        AttachmentStrip(model: model, inset: true)
+            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .bottom)))
+    }
+
     /// The field and its send circle share one rounded glass container; the
     /// circle rides the last line as the field grows (classic, iMessage).
     private var fieldContainer: some View {
         HStack(alignment: .bottom, spacing: 8) {
+            textView
+            sendButton
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, TerminalDockMetrics.fieldPadding)
+        .padding(.vertical, TerminalDockMetrics.fieldPadding)
+        .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
+        // The rounded glass always wraps the whole field (see `body`).
+        .fixedSize(horizontal: false, vertical: true)
+        .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
+    }
+
+    private var textView: some View {
             ComposerTextView(
                 text: $model.composerText,
                 placeholder: model.composerPlaceholder,
@@ -154,15 +269,6 @@ struct TerminalComposer: View {
                 shouldInsert: { model.composerShouldInsert($0) },
                 onPasteAttachments: model.attachmentsAvailable ? { pasteFromClipboard() } : nil
             )
-            sendButton
-        }
-        .padding(.leading, 14)
-        .padding(.trailing, TerminalDockMetrics.fieldPadding)
-        .padding(.vertical, TerminalDockMetrics.fieldPadding)
-        .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
-        // The rounded glass always wraps the whole field (see `body`).
-        .fixedSize(horizontal: false, vertical: true)
-        .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
     }
 
     private var sendButton: some View {
@@ -322,12 +428,53 @@ struct ComposerCircleLabel: View {
     }
 }
 
+/// A button inside the composer's field (`pill`, `card`, `group`): an icon on
+/// the `fill` token, not glass (glass is never on glass, SPEC 2.4); tinted
+/// with the accent while on (voice mode running).
+struct ComposerInlineCircle: View {
+    let systemImage: String
+    var diameter: CGFloat = TerminalDockMetrics.sendDiameter
+    /// False inside a glass capsule of its own (`group`): just the icon.
+    var filled = true
+    var foreground = AnyShapeStyle(Color.primary.opacity(0.78))
+    var tint: Color?
+
+    var body: some View {
+        Image(systemName: systemImage)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(foreground)
+            .frame(width: diameter, height: diameter)
+            .background {
+                if let tint {
+                    Circle().fill(tint)
+                } else if filled {
+                    Circle().fill(Color.cmuxMobileFill)
+                }
+            }
+            .contentShape(.circle)
+    }
+}
+
 extension View {
     /// The composer's Liquid Glass (classic: the field container and the
     /// round buttons). No opaque backing: the screen's own backing under the
     /// dock keeps scrolled rows from showing through (SPEC M3).
     func glassSurface(in shape: some Shape) -> some View {
         glassEffect(.regular.interactive(), in: shape)
+    }
+}
+
+/// A file chip's surface: glass on its own (`classic`), the `fill` token
+/// inside the composer's glass (never glass on glass).
+private struct FileChipSurface: ViewModifier {
+    let inset: Bool
+
+    func body(content: Content) -> some View {
+        if inset {
+            content.background(Color.cmuxMobileFill, in: .rect(cornerRadius: 12, style: .continuous))
+        } else {
+            content.glassSurface(in: .rect(cornerRadius: 12, style: .continuous))
+        }
     }
 }
 
@@ -351,6 +498,10 @@ struct MovieFile: Transferable {
 /// chips for files, each with a 20 pt remove badge.
 struct AttachmentStrip: View {
     let model: TerminalModel
+    /// Inside the composer (every layout but `classic`): 20 pt badges on the
+    /// tiles' corners (SPEC 4.3) on the `surfaceRaised` token, and tiles on
+    /// `fill`, so the tray reads as part of the field.
+    var inset = false
 
     var body: some View {
         ScrollView(.horizontal) {
@@ -367,24 +518,36 @@ struct AttachmentStrip: View {
                             Button {
                                 model.removeAttachment(attachment.id)
                             } label: {
-                                // Opaque, ringed badge (as in Messages): readable over any thumbnail.
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 22, height: 22)
-                                    // Glass, darkened so it reads over any thumbnail (as in Messages).
-                                    .glassEffect(.regular.tint(.black.opacity(0.5)).interactive(), in: .circle)
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(.rect)
+                                if inset {
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 9, weight: .bold))
+                                        .foregroundStyle(Color.primary)
+                                        .frame(width: 20, height: 20)
+                                        .background(Circle().fill(Color.cmuxMobileSurfaceRaised))
+                                        .overlay(Circle().strokeBorder(Color.cmuxMobileBackground.opacity(0.6), lineWidth: 1))
+                                        .frame(width: 36, height: 36)
+                                        .contentShape(.rect)
+                                } else {
+                                    // Opaque, ringed badge (as in Messages): readable over any thumbnail.
+                                    Image(systemName: "xmark")
+                                        .font(.system(size: 10, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 22, height: 22)
+                                        // Glass, darkened so it reads over any thumbnail (as in Messages).
+                                        .glassEffect(.regular.tint(.black.opacity(0.5)).interactive(), in: .circle)
+                                        .frame(width: 44, height: 44)
+                                        .contentShape(.rect)
+                                }
                             }
                             .buttonStyle(.plain)
-                            .offset(x: 16, y: -16)
+                            .offset(x: inset ? 12 : 16, y: inset ? -12 : -16)
                             .accessibilityLabel("Remove \(attachment.name)")
                         }
                 }
             }
-            .padding(.top, 8)
-            .padding(.horizontal, 8)
+            .padding(.top, inset ? 10 : 8)
+            .padding(.horizontal, inset ? 10 : 8)
+            .padding(.bottom, inset ? 2 : 0)
         }
         .scrollIndicators(.hidden)
     }
@@ -430,7 +593,7 @@ struct AttachmentStrip: View {
             }
             .padding(.horizontal, 10)
             .frame(height: 56)
-            .glassSurface(in: .rect(cornerRadius: 12, style: .continuous))
+            .modifier(FileChipSurface(inset: inset))
         }
     }
 }
