@@ -49,7 +49,7 @@ final class WindowManager {
         guard let window = self?.active?.window ?? NSApp.mainWindow else { return false }
         // Until closed or taken back: it is the person's only sign that this machine will not be restored.
         let older = self?.notSavedToasts[session]
-        let handle = CmuxToastCenter.shared.show(CmuxToast(id: "session-registration.not-saved.\(session)", message: message,
+        let handle = CmuxToastCenter.shared.show(CmuxToast(id: "session-registration.not-saved.\(session)", kind: "session-registration.not-saved", message: message,
                                                            duration: CmuxToast.untilClosed), in: window)
         self?.notSavedToasts[session] = handle
         // A toast with the same id replaces the older one only in the same window.

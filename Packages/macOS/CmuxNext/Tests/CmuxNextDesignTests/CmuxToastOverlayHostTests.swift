@@ -261,7 +261,7 @@ struct CmuxToastOverlayHostTests {
         let center = CmuxToastCenter(clock: clock, host: host)
         let window = Self.window()
         defer { Self.close(window) }
-        let handle = center.show(CmuxToast(id: "saved", message: "Saved", duration: .seconds(6)), in: window)
+        let handle = center.show(CmuxToast(id: "saved", message: "Saved", duration: .seconds(6), keepsDuration: true), in: window)
         let dismissed = AsyncStream.makeStream(of: CmuxToastDismissReason.self)
         handle.onDismiss = { dismissed.continuation.yield($0) }
         #expect(host.toastFrames(in: window).count == 1)

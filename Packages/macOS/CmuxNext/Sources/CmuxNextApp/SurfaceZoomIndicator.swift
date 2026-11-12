@@ -8,6 +8,6 @@ enum SurfaceZoomIndicator {
     static func show(percent: Int, in window: NSWindow?) -> CmuxToastHandle? {
         guard let window else { return nil }
         return CmuxToastCenter.shared.show(
-            CmuxToast(id: "surface-zoom", message: "\(percent)%", duration: .seconds(1)), in: window)
+            CmuxToast(id: "surface-zoom", message: "\(percent)%", duration: .seconds(1), keepsDuration: true), in: window)
     }
 }

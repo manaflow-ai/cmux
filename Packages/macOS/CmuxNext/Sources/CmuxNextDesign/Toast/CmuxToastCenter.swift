@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 import CmuxNextWakeups
 
 /// The one toast presenter (R96). Toasts show on their window's overlay
@@ -10,7 +11,7 @@ import CmuxNextWakeups
 /// the keybindings lead) asks `takesUndoKey(in:)` and calls `runUndo(in:)`.
 @MainActor
 public final class CmuxToastCenter {
-    public static let shared = CmuxToastCenter()
+    public static let shared = CmuxToastCenter(tunables: .shared)
 
     private struct Entry {
         let handle: CmuxToastHandle
@@ -36,6 +37,14 @@ public final class CmuxToastCenter {
     /// (same id and detail, no action) asked for again in that time does not show.
     /// A toast with an action (Undo, Reopen, Retry) is never quieted.
     public var closedCooldown: Duration = .seconds(120)
+    /// The kinds the person hid with Don't Show Again (``CmuxToast/offersNeverShow``): a toast of one
+    /// never shows. The app gives the shared center a store over `UserDefaults.standard` at startup.
+    public var neverShow: CmuxToastNeverShowStore
+    /// Where the toasts' look and timing are read (``CmuxToastTuning``): Debug Settings' store in the
+    /// app (inert in Release, so the code defaults), a test's own store in tests.
+    public let tunables: TunableStore
+    /// The toast look and timing now (Debug Settings > Toasts, else the defaults).
+    public var tuning: CmuxToastTuning { CmuxToastTuning(store: tunables) }
 
     /// A notice by what it says: its id, message and detail.
     private struct QuietKey: Hashable {
@@ -49,9 +58,16 @@ public final class CmuxToastCenter {
         }
     }
 
-    public init(clock: any Clock<Duration> = ContinuousClock(), host: any CmuxToastHosting = CmuxToastNoHost()) {
+    /// - Parameters:
+    ///   - neverShow: The hidden kinds; in memory by default (the app injects its persisted one).
+    ///   - tunables: Where the look and timing are read; a store of its own, inert, by default (the
+    ///     code defaults). The app passes Debug Settings' store.
+    public init(clock: any Clock<Duration> = ContinuousClock(), host: any CmuxToastHosting = CmuxToastNoHost(),
+                neverShow: CmuxToastNeverShowStore = CmuxToastNeverShowStore(defaults: nil), tunables: TunableStore = TunableStore()) {
         self.clock = clock
         self.host = host
+        self.neverShow = neverShow
+        self.tunables = tunables
     }
 
     // MARK: Showing
@@ -67,8 +83,8 @@ public final class CmuxToastCenter {
             let quiet = isQuieted(toast)
             for (other, entry) in entries where entry.handle.toast.id == toast.id && (quiet || entry.window !== window) { end(other, .replaced) }
         }
-        // The person closed this notice a moment ago: it does not come back yet.
-        if isQuieted(toast) {
+        // The person closed this notice a moment ago, or hid its kind for good: it does not show.
+        if isQuieted(toast) || (toast.offersNeverShow && neverShow.isHidden(toast.kind)) {
             handle.finish(.closed)
             return handle
         }
@@ -196,6 +212,16 @@ public final class CmuxToastCenter {
         if action.revealsDetails { toggleDetails(serial) } else { entry.handle.runAction() }
     }
 
+    /// The person clicked the toast's Don't Show Again: its kind is hidden for good, and every toast of
+    /// it ends in every window. A toast that does not offer it (an Undo, one that waits) is left alone.
+    public func personChoseNeverShow(serial: Int) {
+        guard let toast = entries[serial]?.handle.toast, toast.offersNeverShow else { return }
+        neverShow.hide(toast.kind)
+        for (other, entry) in entries where entry.handle.toast.kind == toast.kind && entry.handle.toast.offersNeverShow {
+            end(other, .closed)
+        }
+    }
+
     /// The person clicked the toast's close button.
     public func personClosed(serial: Int) {
         guard entries[serial] != nil else { return }
@@ -261,7 +287,7 @@ public final class CmuxToastCenter {
 
     private func startTimer(_ serial: Int) {
         guard let entry = entries[serial], entry.handle.toast.duration != CmuxToast.untilClosed else { return }
-        entry.timer.schedule(after: entry.handle.toast.duration) { @MainActor [weak self] in
+        entry.timer.schedule(after: tuning.shownDuration(of: entry.handle.toast)) { @MainActor [weak self] in
             self?.end(serial, .timeout)
         }
     }
