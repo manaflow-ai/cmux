@@ -427,6 +427,89 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         # is none; that is "no rustfmt here", which warns, not a launch failure.
         self.assertEqual(self.rustfmt_from_path(".", in_scope=False, in_gate_cwd=True), "")
 
+    def test_rustfmt_launch_paths_are_absolute_with_a_relative_repo(self) -> None:
+        """dep-fleet-6 F1: --repo . must not make a PATH binary or rustfmt config relative to cmux-tui/."""
+        from unittest import mock  # noqa: PLC0415
+        tree = Path(self.tmp.name) / "tree"
+        source_path = tree / "cmux-tui/crates/x/src/lib.rs"
+        source_path.parent.mkdir(parents=True)
+        source = b"fn a() {}\n"
+        source_path.write_bytes(source)
+        (self.repo / "cmux-tui/crates/x").mkdir(parents=True)
+        config = self.repo / "cmux-tui/rustfmt.toml"
+        config.write_text("", encoding="utf-8")
+        fake = self.repo / "cmux-tui/rustfmt"
+        fake.write_text("fixture\n", encoding="utf-8")
+        fake.chmod(0o644)
+        caller = Path(self.tmp.name) / "caller"
+        caller.mkdir()
+        saved = Path.cwd()
+        try:
+            os.chdir(caller)
+            relative_repo = Path(os.path.relpath(self.repo, caller))
+            relative_config = Path(os.path.relpath(config, caller))
+            done = subprocess.CompletedProcess([], 0, stdout=source, stderr=b"")
+            with mock.patch.dict(os.environ, {"PATH": "."}), mock.patch.object(
+                    self.gate.subprocess, "run", return_value=done) as launched:
+                out = self.quiet(self.gate.rustfmt, relative_repo, relative_config, tree,
+                                 ["cmux-tui/crates/x/src/lib.rs"])
+        finally:
+            os.chdir(saved)
+        self.assertEqual(out, "")
+        call_args, kwargs = launched.call_args
+        command = call_args[0]
+        self.assertTrue(Path(command[0]).is_absolute(), command)
+        self.assertTrue(Path(command[command.index("--config-path") + 1]).is_absolute(), command)
+        self.assertTrue(Path(kwargs["cwd"]).is_absolute(), kwargs)
+
+    def test_relative_repo_runs_the_rustfmt_proxy_with_its_config(self) -> None:
+        from unittest import mock  # noqa: PLC0415
+        tree = Path(self.tmp.name) / "tree"
+        source = tree / "cmux-tui/src/lib.rs"
+        source.parent.mkdir(parents=True)
+        source.write_text("fn a() {}\n")
+        scope = self.repo / "cmux-tui"
+        scope.mkdir()
+        (scope / "rustfmt.toml").write_text("expected config\n")
+        proxy = scope / "rustup"
+        proxy.write_text(f"#!{sys.executable}\nimport pathlib, sys\n"
+                         "assert pathlib.Path(sys.argv[0]).name == 'rustfmt', sys.argv\n"
+                         "config = pathlib.Path(sys.argv[sys.argv.index('--config-path') + 1])\n"
+                         "assert config.read_text() == 'expected config\\n'\n"
+                         "sys.stdout.write(sys.stdin.read())\n")
+        proxy.chmod(0o755)
+        (scope / "rustfmt").symlink_to("rustup")
+        saved = Path.cwd()
+        try:
+            os.chdir(self.repo)
+            for path in (".", "", "./", ":/nonexistent"):
+                with self.subTest(path=path), mock.patch.dict(os.environ, {"PATH": path}):
+                    result = self.gate.rustfmt(Path("."), Path("cmux-tui/rustfmt.toml"), tree,
+                                               ["cmux-tui/src/lib.rs"])
+                    self.assertEqual(result, "")
+        finally:
+            os.chdir(saved)
+
+    def test_formatters_run_relative_tools_and_configs_from_another_cwd(self) -> None:
+        tree = self.swift_tree()
+        saved = Path.cwd()
+        try:
+            os.chdir(self.tmp.name)
+            for layer, flag, output in (("ast_grep", "-c", "[]"), ("swiftformat", "--config", ""),
+                                        ("swiftlint", "--config", "")):
+                with self.subTest(layer=layer):
+                    config = tree / (layer + ".conf")
+                    config.write_text("expected config\n")
+                    tool = self.fake_tool(layer, "from pathlib import Path\n"
+                                          f"assert Path(sys.argv[sys.argv.index({flag!r}) + 1]).read_text() == "
+                                          "'expected config\\n'\n" + f"print({output!r})\n")
+                    result = getattr(self.gate, layer)(tool.relative_to(self.tmp.name),
+                                                       config.relative_to(self.tmp.name),
+                                                       tree.relative_to(self.tmp.name), ["Sources/A.swift"])
+                    self.assertEqual(result, "")
+        finally:
+            os.chdir(saved)
+
     def test_a_cargo_locks_exit_1_with_no_stale_line_refuses(self) -> None:
         from unittest import mock  # noqa: PLC0415
         self.install(self.gate.CARGO_LOCKS_SCRIPT, "print('checking 30 workspaces')\nraise SystemExit(1)\n")
