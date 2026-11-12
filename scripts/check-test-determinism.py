@@ -5650,6 +5650,79 @@ def _self_test() -> int:
             "set -e\na=$(make_action)\ngit_fixture_trap_exit \"$a\"\n",
             {RULE_EXIT_TRAP_RERAISE_ORDER},
         ),
+        # The git-fixture rules read shell through tests/shell_tree.py, not regexes over text ("the git-fixture lints
+        # match text, not shell structure", review of cmux#41794). Each row passed at that head.
+        # F2: a trap's "$a" takes a's value when the trap runs, so a later assignment on the same line is not its action.
+        (
+            "scripts/cmux-next/tests/reraise_assign_after_trap.test.sh",
+            "set -e\ntmp=$(mktemp -d)\na='s=$?; (exit \"$s\"); rm -rf \"$tmp\"'; trap \"$a\" EXIT; a='rm -rf \"$tmp\"'\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        # F3: a function name in any quoting, or through a variable, runs that function.
+        (
+            "scripts/cmux-next/tests/reraise_function_single_quoted.test.sh",
+            "tmp=$(mktemp -d)\ncleanup() {\n  local s=$?\n  exit \"$s\"\n  rm -rf \"$tmp\"\n}\ntrap 'cleanup' EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_function_double_quoted.test.sh",
+            "tmp=$(mktemp -d)\ncleanup() {\n  local s=$?\n  exit \"$s\"\n  rm -rf \"$tmp\"\n}\ntrap \"cleanup\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_function_variable.test.sh",
+            "tmp=$(mktemp -d)\ncleanup() {\n  local s=$?\n  exit \"$s\"\n  rm -rf \"$tmp\"\n}\na=cleanup; trap \"$a\" EXIT\n",
+            {RULE_EXIT_TRAP_RERAISE_ORDER},
+        ),
+        # F1: json.loads is no loader; only the stdlib loaders and a function of the file's own that calls one are.
+        (
+            "tests/temp_repo_json_loads_names_helper.py",
+            "import json, subprocess, tempfile\nflag = json.loads('\"git_fixture_env\"')\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # A source after `then` that is echo's argument, and a source inside a here-document whose delimiter the old
+        # regex could not read ('END-TEXT', \EOF), load nothing.
+        (
+            "scripts/ci/tests/temp_repo_echo_then_source.test.sh",
+            "echo then source lib/git-fixture.sh\nw=$(mktemp -d)\ngit -C \"$w\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_heredoc_dash_delimiter.test.sh",
+            "w=$(mktemp -d)\ncat >\"$w/c.sh\" <<'END-TEXT'\nsource lib/git-fixture.sh\nEND-TEXT\ngit -C \"$w\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_heredoc_escaped_delimiter.test.sh",
+            "w=$(mktemp -d)\ncat >\"$w/c.sh\" <<\\EOF\nsource lib/git-fixture.sh\nEOF\ngit -C \"$w\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # maintenance.auto named in a string or an echo turns nothing off: only git's own -c or config does.
+        (
+            "tests/temp_repo_string_names_opt_out.py",
+            "import subprocess, tempfile\nHINT = 'set maintenance.auto yourself'\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-C', d, 'init'])\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        (
+            "scripts/ci/tests/temp_repo_echo_names_opt_out.test.sh",
+            "echo 'maintenance.auto is on'\nd=$(mktemp -d)\ngit -C \"$d\" init -q\n",
+            {RULE_GIT_TEMP_REPO_MAINTENANCE, RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # A child script that loads the helper covers its own span, not the rest of its physical line.
+        (
+            "tests/git_write_beside_child_script.py",
+            "import subprocess\nCHILD = 'source lib/git-fixture.sh; git init \"$1\"'; "
+            "subprocess.run(['git', 'init', d], check=True)\n",
+            {RULE_GIT_WRITE_WITHOUT_FIXTURE},
+        ),
+        # A trap after the source on the source's own line replaces the helper's trap too.
+        (
+            "scripts/cmux-next/tests/trap_after_on_source_line.test.sh",
+            'tmp=$(mktemp -d)\nsource "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"; trap \'rm -rf "$tmp"\' EXIT\n',
+            {RULE_GIT_FIXTURE_EXIT_TRAP},
+        ),
         # An EXIT trap after sourcing the helper replaces its cleanup: the GIT_CONFIG_GLOBAL folder leaks (cmux#40939 F2).
         (
             "scripts/cmux-next/tests/trap_after.test.sh",
@@ -6957,6 +7030,36 @@ def _self_test() -> int:
             "scripts/cmux-next/tests/bare-ok.test.sh",
             'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nd=$(mktemp -d)\n'
             'git_fixture_init --bare -b feat "$d/r.git"\ngit_fixture_clone --bare "$d/r.git" "$d/c.git"\n',
+        ),
+        # The shell-tree reads keep what was right: a loader wrapper the file defines, git's own maintenance opt-out
+        # (scripts/ci is outside git-write-without-fixture's folders), an action that cleans up before a later
+        # assignment, and a function named in quotes that cleans up first.
+        (
+            "tests/git_write_own_loader_wrapper.py",
+            "import importlib.util, subprocess\ndef _load(name, path):\n"
+            "    spec = importlib.util.spec_from_file_location(name, path)\n    return spec\n"
+            "fixture = _load('git_fixture_env', HERE / 'git_fixture_env.py')\n"
+            "subprocess.run(['git', 'init', d], check=True)\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out_argv.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\n"
+            "subprocess.run(['git', '-c', 'maintenance.auto=false', '-C', d, 'init'])\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out_config.py",
+            "import subprocess, tempfile\nd = tempfile.mkdtemp()\ngit('config', 'maintenance.auto', 'false')\n"
+            "subprocess.run(['git', '-C', d, 'commit', '-qm', 'x'])\n",
+        ),
+        (
+            "scripts/ci/temp_repo_opt_out.sh",
+            "d=$(mktemp -d)\ngit -C \"$d\" init -q\ngit -C \"$d\" config maintenance.auto false\n"
+            "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=maintenance.auto GIT_CONFIG_VALUE_0=false git -C \"$d\" commit -qm x\n",
+        ),
+        (
+            "scripts/cmux-next/tests/reraise_order_ok.test.sh",
+            "set -e\ntmp=$(mktemp -d)\na='s=$?; rm -rf \"$tmp\"; exit \"$s\"'; trap \"$a\" EXIT; a='(exit 1); rm -rf x'\n"
+            "cleanup() { rm -rf \"$tmp\"; }\ntrap 'cleanup' EXIT\nb=cleanup; trap \"$b\" EXIT\n",
         ),
         # Deterministic scenario-pacing sleep with NO following assertion.
         (
