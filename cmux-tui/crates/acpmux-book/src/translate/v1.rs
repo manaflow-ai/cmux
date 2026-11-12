@@ -110,6 +110,24 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
     state.last_v1_seq = rec.seq;
     Ok(())
 }
+
+pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
+    let rec: Event<'_> = input::parse(bytes)?;
+    super::bounded(&rec.kind)?;
+    let msg: Message<'_> = input::value(rec.msg)?;
+    super::bounded(&msg.turn_id)?;
+    super::bounded(&msg.prompt_id)?;
+    super::bounded(&msg.old_message_id)?;
+    if let Some(params) = msg.params {
+        if let Some(raw) = params.update {
+            let update: Update<'_> = input::value(raw)?;
+            super::bounded(&update.message_id)?;
+            super::bounded(&update.tool_call_id)?;
+            super::bounded(&update.subagent_session_id)?;
+        }
+    }
+    Ok(())
+}
 fn mux(
     state: &mut State,
     kind: &str,

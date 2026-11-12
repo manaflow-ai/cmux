@@ -181,6 +181,14 @@ impl std::error::Error for Error {}
 /// cursor only after successfully applying the returned operations in order.
 pub fn translate(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error> {
     let mut out = input::Output::new(bytes);
+    let valid = match harness {
+        Harness::V1 => v1::validate(bytes),
+        Harness::Claude => claude::validate(bytes),
+    };
+    if valid.is_err() {
+        state.invalid_records = state.invalid_records.saturating_add(1);
+        return Ok(Vec::new());
+    }
     let result = match harness {
         Harness::V1 => v1::line(state, bytes, &mut out),
         Harness::Claude => claude::line(state, bytes, &mut out),
@@ -294,9 +302,15 @@ impl State {
         Self::close_stream(&mut self.reply, out);
         Self::close_stream(&mut self.thought, out);
     }
-    fn close_reply_for_work(&mut self) {
+    fn close_reply_for_work(&mut self, out: &mut input::Output<'_>) {
         if let Some(facts) = self.reply.as_ref().map(|reply| reply.facts.clone()) {
             self.fold.reply(&facts);
+        }
+        if let Some(reply) = &mut self.reply {
+            if reply.row.open {
+                reply.row.open = false;
+                out.row(&reply.row);
+            }
         }
     }
     fn mark_steer(&mut self) {
@@ -802,7 +816,7 @@ impl State {
         if starts {
             // A tool call is a work boundary: the currently streaming reply
             // settles above the call and remains the candidate before it.
-            self.close_reply_for_work();
+            self.close_reply_for_work(out);
         }
         if !starts && !self.tools.contains_key(key) {
             self.dropped_tool_updates = self.dropped_tool_updates.saturating_add(1);

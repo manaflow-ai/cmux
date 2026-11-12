@@ -165,6 +165,25 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
     Ok(())
 }
 
+pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
+    let rec: Record<'_> = input::parse(bytes)?;
+    super::bounded(&rec.uuid)?;
+    if let Some(message) = rec.message {
+        super::bounded(&message.id)?;
+        if let Some(body) = message.content {
+            if body.get().starts_with('[') {
+                input::each(body, |raw| {
+                    let block: Block<'_> = input::value(raw)?;
+                    super::bounded(&block.id)?;
+                    super::bounded(&block.name)?;
+                    super::bounded(&block.tool_use_id)
+                })?;
+            }
+        }
+    }
+    Ok(())
+}
+
 /// RFC3339 seconds, independent of local timezone. Missing timestamps inherit checkpoint `at`.
 fn timestamp(s: &str) -> Option<u64> {
     let n = |r: std::ops::Range<usize>| s.get(r)?.parse::<i64>().ok();
