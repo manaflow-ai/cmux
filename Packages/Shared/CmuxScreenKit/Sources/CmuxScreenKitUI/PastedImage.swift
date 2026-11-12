@@ -52,9 +52,13 @@ struct PastedImage: Sendable, Equatable {
     }
 
     /// What describes only the pixels, by properties dictionary (`{JFIF}` density, `{PNG}` gamma
-    /// and color, `{TIFF}` orientation and resolution, and the `{Exif}` color space and pixel size
-    /// that ImageIO's PNG and JPEG encoders write on their own). Any other dictionary or key is
-    /// metadata.
+    /// and color, `{TIFF}` orientation and resolution, and the `{Exif}` color space and pixel size).
+    /// Any other dictionary or key is metadata.
+    ///
+    /// The three `{Exif}` keys are here because ImageIO's PNG and JPEG encoders write them on their
+    /// own for any image, also with empty, unmerged metadata, so no image ImageIO writes has no
+    /// `{Exif}`. ``carriesMetadata(_:properties:)`` takes them only with the encoder's own values:
+    /// the pixel size of the image written, and a color space EXIF defines (1 sRGB, 65535 other).
     private static var pixelOnly: [String: Set<String>] {
         [
             kCGImagePropertyExifDictionary as String: [
@@ -89,6 +93,16 @@ struct PastedImage: Sendable, Equatable {
         }
         if let tiff = properties[kCGImagePropertyTIFFDictionary] as? [CFString: Any],
            (tiff[kCGImagePropertyTIFFOrientation] as? Int ?? 1) != 1 { return true }
+        // The {Exif} keys allowed carry the encoder's own values, never ones from the source.
+        let encoderValues: [String: Set<Int>] = [
+            kCGImagePropertyExifPixelXDimension as String: [properties[kCGImagePropertyPixelWidth] as? Int ?? -1],
+            kCGImagePropertyExifPixelYDimension as String: [properties[kCGImagePropertyPixelHeight] as? Int ?? -1],
+            kCGImagePropertyExifColorSpace as String: [1, 65535],
+        ]
+        if let exif = properties[kCGImagePropertyExifDictionary] as? [String: Any],
+           exif.contains(where: { key, value in !(encoderValues[key]?.contains(integer(value) ?? -1) ?? false) }) {
+            return true
+        }
         guard let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil) else { return false }
         // An XMP tag's prefix names the dictionary it mirrors.
         let mirrored = [
@@ -99,8 +113,17 @@ struct PastedImage: Sendable, Equatable {
         return tags.contains { tag in
             let prefix = (CGImageMetadataTagCopyPrefix(tag) as String?) ?? ""
             let name = (CGImageMetadataTagCopyName(tag) as String?) ?? ""
-            return !(mirrored[prefix]?.contains(name) ?? false)
+            guard mirrored[prefix]?.contains(name) ?? false else { return true }
+            guard prefix == "exif" else { return false }
+            return !(encoderValues[name]?.contains(integer(CGImageMetadataTagCopyValue(tag)) ?? -1) ?? false)
         }
+    }
+
+    /// `value` as a whole number: an `NSNumber`, or a string of digits (XMP keeps its values as text).
+    private static func integer(_ value: Any?) -> Int? {
+        if let number = value as? NSNumber { return number.intValue }
+        if let text = value as? String { return Int(text) }
+        return nil
     }
 
     /// The first image of an upright PNG or JPEG `source`, its pixels as they are, with empty

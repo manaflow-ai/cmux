@@ -45,8 +45,12 @@ struct PastedImageTests {
         case .camera?:
             properties[kCGImagePropertyTIFFDictionary] = [kCGImagePropertyTIFFMake: "Apple", kCGImagePropertyTIFFModel: "iPhone",
                                                           kCGImagePropertyTIFFOrientation: orientation]
+            // A camera's own pixel size and color space, unlike this image's: never sent.
             properties[kCGImagePropertyExifDictionary] = [kCGImagePropertyExifDateTimeOriginal: "2026:11:11 12:00:00",
-                                                          kCGImagePropertyExifUserComment: "at home"]
+                                                          kCGImagePropertyExifUserComment: "at home",
+                                                          kCGImagePropertyExifPixelXDimension: 4032,
+                                                          kCGImagePropertyExifPixelYDimension: 3024,
+                                                          kCGImagePropertyExifColorSpace: 2]
         case .xmp?, .customXMP?, nil:
             break
         }
@@ -122,9 +126,27 @@ struct PastedImageTests {
         ]
     }
 
+    /// The values the allowed `{Exif}` keys may have: the encoder's own, so the pixel size of the
+    /// image as written and sRGB (the test photos' color space). A value from the source that
+    /// differs is metadata.
+    static func encoderValues(_ properties: [CFString: Any]) -> [String: String] {
+        [
+            kCGImagePropertyExifPixelXDimension as String: "\(properties[kCGImagePropertyPixelWidth] as? Int ?? -1)",
+            kCGImagePropertyExifPixelYDimension as String: "\(properties[kCGImagePropertyPixelHeight] as? Int ?? -1)",
+            kCGImagePropertyExifColorSpace as String: "1",
+        ]
+    }
+
     /// Every metadata field of the first image of `source` (see ``Read/metadata``).
     static func metadata(_ source: CGImageSource, properties: [CFString: Any]) -> [String] {
         var found: [String] = []
+        let expected = encoderValues(properties)
+        if let exif = properties[kCGImagePropertyExifDictionary] as? [String: Any] {
+            found += exif.compactMap { key, value in
+                guard let wanted = expected[key], "\(value)" != wanted else { return nil }
+                return "{Exif}.\(key)=\(value)"
+            }
+        }
         for (key, value) in properties {
             guard let dictionary = value as? [String: Any] else { continue }
             guard let allowed = pixelOnly[key as String] else {
@@ -139,7 +161,12 @@ struct PastedImageTests {
                 let name = CGImageMetadataTagCopyName(tag) as String? ?? "?"
                 // An XMP tag's prefix names the dictionary it mirrors.
                 let mirrors = ["tiff": "{TIFF}", "exif": "{Exif}"][prefix].flatMap { pixelOnly[$0] } ?? []
-                if !mirrors.contains(name) { found.append("\(prefix):\(name)") }
+                if !mirrors.contains(name) {
+                    found.append("\(prefix):\(name)")
+                } else if prefix == "exif", let wanted = expected[name],
+                          let value = CGImageMetadataTagCopyValue(tag), "\(value)" != wanted {
+                    found.append("\(prefix):\(name)=\(value)")
+                }
             }
         }
         return found.sorted()
