@@ -119,8 +119,12 @@ PY
 )"
 fi
 if [[ -n "$survivors" ]]; then
-  echo "cmux-embedder: $(echo "$survivors" | wc -l | tr -d ' ') process(es) outlived the tests (step fails):"
-  for pid in $survivors; do ps -o pid=,ppid=,command= -p "$pid" | cut -c1-300 | sed 's/^/    /' || true; done
+  # The report runs in a subshell that ignores SIGPIPE: output nobody reads would otherwise end this script
+  # before the kill (tests/test_guard_logs_survive_closed_pipe.py).
+  ( trap '' PIPE
+    echo "cmux-embedder: $(echo "$survivors" | wc -l | tr -d ' ') process(es) outlived the tests (step fails):"
+    for pid in $survivors; do ps -o pid=,ppid=,command= -p "$pid" | cut -c1-300 | sed 's/^/    /' || true; done
+  ) || true
   # shellcheck disable=SC2086
   kill $survivors 2>/dev/null || true
   rc=1

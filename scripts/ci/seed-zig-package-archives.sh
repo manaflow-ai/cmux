@@ -247,9 +247,10 @@ run_round() {
   set +m
   ( while kill -0 "$pool" 2>/dev/null; do
       if (( SECONDS >= deadline )); then
-        # `|| true`: under set -e an echo to a closed stderr would end this watchdog before its kills (cmux#41803
-        # review class: no side step before a guard's kill may skip it).
-        echo "seed: stopped after ${seed_timeout}s; Zig fetches the rest" >&2 || true
+        # The message runs in a subshell that ignores SIGPIPE, and `|| true`: an echo to a stderr nobody reads
+        # any more would otherwise end this watchdog (SIGPIPE, or set -e on the failed write) before its kills
+        # (cmux#41832 review F1; tests/test_guard_logs_survive_closed_pipe.py).
+        ( trap '' PIPE; echo "seed: stopped after ${seed_timeout}s; Zig fetches the rest" >&2 ) || true
         kill -TERM -- "-$pool" 2>/dev/null; sleep 2; kill -KILL -- "-$pool" 2>/dev/null; exit 0
       fi
       sleep 1

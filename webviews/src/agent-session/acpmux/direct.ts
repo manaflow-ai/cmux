@@ -55,7 +55,6 @@ import {
   type AcpmuxTurnRetry,
   PROMPT_PENDING_AFTER_MS,
   rowFrameKey,
-  PROMPT_PENDING_AFTER_MS,
 } from "./model";
 import { addSplit, callTokenSplit, NO_TOKENS, resultTokenSplit } from "./tokenSplit";
 import { continuesTurn } from "./turnStart";

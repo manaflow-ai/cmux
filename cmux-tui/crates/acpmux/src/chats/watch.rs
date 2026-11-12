@@ -60,6 +60,8 @@ enum Message {
     /// A root watched by its folders: its entries or one of its own store files changed.
     /// Only the macOS folder watch sends it.
     #[cfg(target_os = "macos")]
+    /// Sent only by the macOS directory watch; elsewhere the folder watch covers it.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     RootEntries(usize),
     Stop,
 }
