@@ -152,7 +152,14 @@ function handleHostAndMachineRoutes(
     return NextResponse.next();
   }
 
-  if (pathname === "/coderouter/auth/complete" || pathname === "/coderouter/auth/complete/") {
+  if (
+    pathname === "/coderouter/auth/complete" ||
+    pathname === "/coderouter/auth/complete/" ||
+    // Shipped iOS and macOS apps send this as the email sign-in link target.
+    // It is a fixed, unlocalized URL; a locale rewrite made it a 404.
+    pathname === "/auth/callback" ||
+    pathname === "/auth/callback/"
+  ) {
     const requestHeaders = new Headers(request.headers);
     requestHeaders.set("x-next-intl-locale", preferredAppRouteLocale(request));
     return NextResponse.next({ request: { headers: requestHeaders } });

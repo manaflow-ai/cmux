@@ -5781,5 +5781,11 @@
     "accept": "السماح",
     "decline": "لا، شكرًا",
     "settings": "إعدادات التحليلات"
+  },
+  "emailSignInCallback": {
+    "title": "Enter the code in the cmux app",
+    "body": "ارجع إلى تطبيق cmux واكتب الرمز المكوّن من 6 أحرف الموجود في هذا البريد. فتح هذا الرابط لا يسجّل دخولك في التطبيق.",
+    "browserPrompt": "هل تريد استخدام cmux في هذا المتصفح بدلاً من ذلك؟",
+    "browserSignIn": "تسجيل الدخول على cmux.com"
   }
 }

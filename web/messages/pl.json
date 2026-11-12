@@ -5784,5 +5784,11 @@
     "accept": "Zezwól",
     "decline": "Nie, dziękuję",
     "settings": "Ustawienia analityki"
+  },
+  "emailSignInCallback": {
+    "title": "Enter the code in the cmux app",
+    "body": "Wróć do aplikacji cmux i wpisz 6-znakowy kod z tego e-maila. Otwarcie tego linku nie loguje aplikacji.",
+    "browserPrompt": "Chcesz zamiast tego używać cmux w tej przeglądarce?",
+    "browserSignIn": "Zaloguj się na cmux.com"
   }
 }

@@ -5781,5 +5781,11 @@
     "accept": "Tillat",
     "decline": "Nei takk",
     "settings": "Analyseinnstillinger"
+  },
+  "emailSignInCallback": {
+    "title": "Enter the code in the cmux app",
+    "body": "Gå tilbake til cmux-appen og skriv inn koden på 6 tegn fra denne e-posten. Å åpne denne lenken logger ikke inn appen.",
+    "browserPrompt": "Vil du heller bruke cmux i denne nettleseren?",
+    "browserSignIn": "Logg på cmux.com"
   }
 }

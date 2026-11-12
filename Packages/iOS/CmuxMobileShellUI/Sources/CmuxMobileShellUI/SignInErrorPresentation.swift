@@ -23,10 +23,14 @@ struct SignInErrorPresentation {
         }
         if let stackError = error as? StackAuthErrorProtocol {
             switch stackError.code.uppercased() {
-            case "VERIFICATION_CODE_ERROR", "INVALID_OTP", "INVALID_TOTP_CODE":
+            case "VERIFICATION_CODE_ERROR", "VERIFICATION_CODE_NOT_FOUND", "INVALID_OTP", "INVALID_TOTP_CODE":
                 return "invalid_code"
-            case "OTP_EXPIRED":
+            case "OTP_EXPIRED", "VERIFICATION_CODE_EXPIRED":
                 return "code_expired"
+            case "VERIFICATION_CODE_ALREADY_USED":
+                return "code_used"
+            case "VERIFICATION_CODE_MAX_ATTEMPTS_REACHED":
+                return "code_attempts_exhausted"
             case "RATE_LIMIT", "RATE_LIMITED":
                 return "rate_limit"
             case "EMAIL_PASSWORD_MISMATCH":
@@ -60,10 +64,14 @@ struct SignInErrorPresentation {
                     )
                 }
                 return L10n.string("auth.error.email_exists", defaultValue: "An account with this email already exists. Try signing in instead.")
-            case "VERIFICATION_CODE_ERROR", "INVALID_OTP":
+            case "VERIFICATION_CODE_ERROR", "VERIFICATION_CODE_NOT_FOUND", "INVALID_OTP":
                 return L10n.string("auth.error.invalid_code", defaultValue: "Invalid code. Please check and try again.")
-            case "OTP_EXPIRED":
+            case "OTP_EXPIRED", "VERIFICATION_CODE_EXPIRED":
                 return L10n.string("auth.error.code_expired", defaultValue: "Code expired. Please request a new one.")
+            case "VERIFICATION_CODE_ALREADY_USED":
+                return L10n.string("auth.error.code_used", defaultValue: "This code was already used. Please request a new one.")
+            case "VERIFICATION_CODE_MAX_ATTEMPTS_REACHED":
+                return L10n.string("auth.error.code_attempts_exhausted", defaultValue: "Too many incorrect codes. Please request a new one.")
             case "RATE_LIMIT", "RATE_LIMITED":
                 return L10n.string("auth.error.rate_limit", defaultValue: "Too many attempts. Please wait a moment and try again.")
             case "EMAIL_PASSWORD_MISMATCH":

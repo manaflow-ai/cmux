@@ -5782,5 +5782,11 @@
     "accept": "İzin ver",
     "decline": "Hayır, teşekkürler",
     "settings": "Analiz ayarları"
+  },
+  "emailSignInCallback": {
+    "title": "Enter the code in the cmux app",
+    "body": "cmux uygulamasına dönün ve bu e-postadaki 6 karakterlik kodu girin. Bu bağlantıyı açmak uygulamada oturum açmaz.",
+    "browserPrompt": "cmux'ı bunun yerine bu tarayıcıda mı kullanmak istiyorsunuz?",
+    "browserSignIn": "cmux.com'da oturum açın"
   }
 }

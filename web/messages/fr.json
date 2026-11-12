@@ -5786,5 +5786,11 @@
     "accept": "Autoriser",
     "decline": "Non merci",
     "settings": "Paramètres de mesure d’audience"
+  },
+  "emailSignInCallback": {
+    "title": "Enter the code in the cmux app",
+    "body": "Revenez dans l’app cmux et saisissez le code à 6 caractères de cet e-mail. Ouvrir ce lien ne connecte pas l’app.",
+    "browserPrompt": "Vous préférez utiliser cmux dans ce navigateur ?",
+    "browserSignIn": "Se connecter sur cmux.com"
   }
 }

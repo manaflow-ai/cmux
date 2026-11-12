@@ -5784,5 +5784,11 @@
     "accept": "Разрешить",
     "decline": "Нет, спасибо",
     "settings": "Настройки аналитики"
+  },
+  "emailSignInCallback": {
+    "title": "Enter the code in the cmux app",
+    "body": "Вернитесь в приложение cmux и введите 6-символьный код из этого письма. Открытие этой ссылки не выполняет вход в приложение.",
+    "browserPrompt": "Хотите пользоваться cmux в этом браузере?",
+    "browserSignIn": "Войти на cmux.com"
   }
 }
