@@ -534,7 +534,7 @@ impl MessageWriter {
         {
             return Ok(text);
         }
-        if !text.contains("\"conversation") {
+        if !may_hold_a_conversation_kind(&text) {
             return Ok(text);
         }
         let Ok(mut value) = serde_json::from_str::<Value>(&text) else { return Ok(text) };
@@ -564,6 +564,12 @@ impl MessageWriter {
         }
         changed
     }
+}
+
+/// Whether `text`, a JSON message, may hold a value that the outbound projection rewrites
+/// (`conversation` in a tab kind). The projection parses the whole message when this holds.
+pub(super) fn may_hold_a_conversation_kind(text: &str) -> bool {
+    text.contains("\"conversation")
 }
 
 /// Older native apps already understand live conversation tabs, but closed
@@ -796,3 +802,7 @@ mod conversation_tab_split_tests;
 #[cfg(test)]
 #[path = "closed_conversation_tabs_tests.rs"]
 mod closed_conversation_tabs_tests;
+
+#[cfg(test)]
+#[path = "conversation_kind_precheck_tests.rs"]
+mod conversation_kind_precheck_tests;
