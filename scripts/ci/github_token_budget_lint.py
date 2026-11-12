@@ -134,8 +134,8 @@ def run_spends(step: dict, job: dict, workflow: dict, scripts: Scripts) -> bool:
         words = [w.lstrip("\0") if not w.startswith("\0") else w for w, _ in shell_words(script)]
         scopes = env_scopes(step, job, workflow)
         names = api_url_names(script, scopes)
-        runs = scripts.closure(script_paths(words))
-        calls = (shell_api(words, api_url_pattern(names)) or heredoc_effects(words)[0]
+        runs = scripts.closure(script_paths(script))
+        calls = (shell_api(script, api_url_pattern(names)) or heredoc_effects(words)[0]
                  or scripts.effects(runs, api_url_names("", scopes))[0]
                  or any(path.endswith(".py") and python_calls(scripts.read(path)[3]) for path in runs))
     if not calls:

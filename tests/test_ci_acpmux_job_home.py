@@ -34,6 +34,8 @@ from pathlib import Path
 
 import yaml
 
+from shell_invocations import lex, may_run, must_run
+
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
 CMUX_NEXT_PACKAGE = "Packages/macOS/CmuxNext"
@@ -52,11 +54,20 @@ LAUNCHES = (
     re.compile(r"\bacpmux(?:\.exe)?\"?\s+(?:daemon\s+(?:run|start|restart)|new|ls|send|status|wait|attach)\b"),
 )
 SWIFT_TEST = re.compile(r"\bswift test\b")
-HOME_EXPORT = re.compile(r'ACPMUX_HOME=\$(?:RUNNER_TEMP|\{RUNNER_TEMP\})/acpmux-home["\']?\s*>>\s*"?\$GITHUB_ENV')
+# The job's home, as a step writes it (quotes removed).
+HOME = re.compile(r"^\$(?:RUNNER_TEMP|\{RUNNER_TEMP\})/acpmux-home$")
+HOME_EXPORT = "ACPMUX_HOME"
 # ACPMUX_SOCKET wins over the home (acpmux config::socket_path): an inherited one is another
 # home's daemon. Empty counts as unset everywhere (Swift, Rust).
-SOCKET_CLEAR = re.compile(r'ACPMUX_SOCKET=["\']?\s*>>\s*"?\$GITHUB_ENV')
+SOCKET_CLEAR = "ACPMUX_SOCKET="
 SHUTDOWN = "daemon shutdown --end-agents"
+# The step's commands are read by tests/shell_invocations.py, never matched as text: a comment, an echo, a string
+# or a heredoc body that names the export, the shutdown or the delete does none of them. Credit (the export, the
+# delete) reads must_run(): only a command bash surely runs when the step succeeds; a delete behind `&&`, in an if
+# branch or after an `exit 0` guard may be skipped. The shutdown is best effort (no acpmux binary, no daemon), so it
+# needs only to be a command the step may run (may_run()), not text.
+GITHUB_ENV = {"$GITHUB_ENV", "${GITHUB_ENV}"}
+VARIABLE = re.compile(r"^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?$")
 
 
 def launches(step: dict) -> bool:
@@ -67,15 +78,93 @@ def launches(step: dict) -> bool:
     return in_package and bool(SWIFT_TEST.search(run))
 
 
+def _commands_to_github_env(run: str) -> list[list[str]]:
+    """The simple commands (words, quotes removed) whose output a `>` or `>>` sends to $GITHUB_ENV."""
+    found: list[list[str]] = []
+    words: list[str] = []
+    to_env = False
+    tokens = lex(run).tokens
+    for index, token in enumerate(tokens):
+        if token.kind == "word":
+            words.append(token.text)
+        elif token.kind == "op" and token.text in (">", ">>") and index + 1 < len(tokens):
+            to_env = to_env or tokens[index + 1].text in GITHUB_ENV
+            words.append(token.text)  # its target follows as a word; dropped below
+        else:
+            if to_env:
+                found.append(words)
+            words, to_env = [], False
+    if to_env:
+        found.append(words)
+    return [[word for at, word in enumerate(command) if word not in (">", ">>")
+             and not (at and command[at - 1] in (">", ">>"))] for command in found]
+
+
+def _exports(run: str) -> set[str]:
+    """The NAME=VALUE lines the step surely writes to $GITHUB_ENV: an echo or printf bash surely runs (must_run())
+    whose output goes there."""
+    sure = [words for words in must_run(run) if words and words[0] in ("echo", "printf")]
+    lines = set()
+    for words in _commands_to_github_env(run):
+        if words in sure:
+            lines.update(words[2:] if words[0] == "printf" else words[1:])
+    return lines
+
+
 def is_start(step: dict) -> bool:
-    run = str(step.get("run") or "")
-    return bool(HOME_EXPORT.search(run) and SOCKET_CLEAR.search(run))
+    lines = _exports(str(step.get("run") or ""))
+    return SOCKET_CLEAR in lines and any(
+        line.startswith(f"{HOME_EXPORT}=") and HOME.match(line.split("=", 1)[1]) for line in lines)
+
+
+def _home_words(run: str) -> set[str]:
+    """How the step names the job home: its path, and each variable a NAME=VALUE word sets to it."""
+    names = {token.text.split("=", 1)[0] for token in lex(run).tokens
+             if token.kind == "word" and "=" in token.text and HOME.match(token.text.split("=", 1)[1])
+             and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", token.text.split("=", 1)[0])}
+    return names
+
+
+def _is_home(word: str, names: set[str]) -> bool:
+    variable = VARIABLE.match(word)
+    return bool(HOME.match(word) or (variable and variable.group(1) in names))
+
+
+def _program(word: str) -> str:
+    return word.rsplit("/", 1)[-1]
+
+
+def _deletes_home(words: list[str], names: set[str]) -> bool:
+    if not words or _program(words[0]) != "rm":
+        return False
+    options = "".join(word[1:] for word in words[1:] if word.startswith("-") and not word.startswith("--"))
+    return ("r" in options.lower() and "f" in options and any(_is_home(word, names) for word in words[1:]))
+
+
+def _shuts_down(words: list[str]) -> bool:
+    """`env -u ACPMUX_SOCKET [NAME=VALUE ...] ACPMUX [...] daemon shutdown --end-agents`, the acpmux binary named
+    by its path or a variable."""
+    if not words or _program(words[0]) != "env":
+        return False
+    rest, unset = words[1:], False
+    while rest and (rest[0].startswith("-") or "=" in rest[0]):
+        if rest[0] in ("-u", "--unset") and len(rest) > 1:
+            unset = unset or rest[1] == "ACPMUX_SOCKET"
+            rest = rest[2:]
+            continue
+        unset = unset or rest[0] in ("-uACPMUX_SOCKET", "--unset=ACPMUX_SOCKET")
+        rest = rest[1:]
+    return (unset and bool(rest) and (_program(rest[0]) in ("acpmux", "acpmux.exe") or bool(VARIABLE.match(rest[0])))
+            and " ".join(rest[1:]) == SHUTDOWN)
 
 
 def is_stop(step: dict) -> bool:
+    if "always()" not in str(step.get("if") or "").replace(" ", ""):
+        return False
     run = str(step.get("run") or "")
-    return (SHUTDOWN in run and "env -u ACPMUX_SOCKET" in run and "rm -rf" in run and "acpmux-home" in run
-            and "always()" in str(step.get("if") or "").replace(" ", ""))
+    names = _home_words(run)
+    return (any(_deletes_home(words, names) for words in must_run(run))
+            and any(_shuts_down(invocation.words) for invocation in may_run(run)))
 
 
 def condition(step: dict) -> str:
