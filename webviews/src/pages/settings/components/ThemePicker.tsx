@@ -128,6 +128,8 @@ export function ThemePicker({
     const name = row && row !== CONFIG ? rowTheme(row) : undefined;
     highlighted.current = name ?? null;
     const target = name ?? pinned;
+    // The list opening at the picked theme highlights it: that is no preview (the app shows it already).
+    if (by === "none" && target === value && showing.current === null) return cancelDwell();
     if (by === "keyboard") return preview(target);
     // The pointer passing over, or the list re-highlighting its first row while typing: wait for a rest.
     cancelDwell();
@@ -225,6 +227,8 @@ export function ThemePicker({
           onSubmit={pick}
           onCancel={close}
           onHighlight={highlight}
+          // Opens at the picked theme, centred and highlighted (Combobox isItemCurrent).
+          isItemCurrent={(row) => (row === CONFIG ? value === null && nullChoice : rowTheme(row) === value)}
           onCommand={(event) => {
             const name = highlighted.current;
             if (!onToggleFavorite || !name || !event.metaKey || event.key.toLowerCase() !== "s") return;
@@ -233,7 +237,6 @@ export function ThemePicker({
             onToggleFavorite(name);
           }}
           itemLabel={(row) => (row === CONFIG ? configLabel : label(rowTheme(row)))}
-          isItemCurrent={(row) => (row === CONFIG ? value === null : rowTheme(row) === value)}
           label={t("settingsWindow.themeSearch")}
           placeholder={t("settingsWindow.themeSearch")}
           inputClassName="field theme-search"

@@ -2,6 +2,12 @@
 // caller computes the suggestions (they may arrive asynchronously) from `onQuery`. Return submits
 // the highlighted suggestion or the typed text, Tab completes, Escape cancels; Base UI owns the
 // combobox role, aria-activedescendant and the arrows.
+//
+// A picker opens at its value (Leo 2026-11-11: "my selected theme vs when i open up the thing.
+// shouldn't the opened thing be jumped already to the proper place?"): the row `isItemCurrent`
+// names is centred in the list once per open and highlighted, so the arrows move from it and Return
+// keeps it. Typing first cancels that (it moves the list); the row stays marked (aria-current,
+// data-current).
 import {
   useCallback,
   useEffect,
@@ -18,6 +24,7 @@ import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
 import { usePopupHost, usePortalContainer } from "./UiProvider";
 import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
+import { centreInScroller } from "./openAtCurrent";
 import { useScrollEdges } from "./scrollEdges";
 import { ScrollArea } from "./ScrollArea";
 import { useNativePopup, type NativePopupDescription } from "./nativePopup";
@@ -68,7 +75,8 @@ export interface ComboboxProps {
   renderItem?(value: string): ReactNode;
   /** A rich row's accessible name; its identity remains the stable suggestion string. */
   itemLabel?(value: string): string;
-  /** The committed choice, distinct from the transient keyboard highlight. */
+  /** The committed choice, distinct from the transient keyboard highlight. The list opens scrolled
+   * to it, centred, with it highlighted (see the file comment). */
   isItemCurrent?(value: string): boolean;
   /** Readable Tab completion for suggestions identified by an opaque key. */
   completionText?(value: string): string;
@@ -304,26 +312,10 @@ export function Combobox({
     ? enabledSuggestions.length - availableSuggestions.filter((item) => pinnedSet.has(item)).length
     : 0;
   const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item) && !pinnedSet.has(item));
-  // The list opens scrolled to its current row, not its top (Leo, 2026-11-12, on the theme picker:
-  // "shouldn't the opened thing be jumped already to the proper place?"). Once per mount, when the
-  // current row first renders (suggestions may arrive late); the highlight stays where it was, so a
-  // previewing picker previews nothing until the person moves. A list that always highlights its
-  // first row stays at its top: Return must never pick a row scrolled out of sight.
-  useLayoutEffect(() => {
-    if (revealedCurrent.current || !isItemCurrent || autoHighlight === "always") return;
-    const index = enabledSuggestions.findIndex((item) => isItemCurrent(item));
-    if (index < 0) return;
-    if (virtualized) {
-      revealedCurrent.current = true;
-      if (index < scrollingCount) virtualizer.current?.scrollToIndex(index, { align: "center" });
-      return;
-    }
-    const list = listRef.current;
-    const row = list?.querySelector<HTMLElement>('[aria-current="true"]');
-    if (!list || !row) return;
-    revealedCurrent.current = true;
-    revealRow(row, list);
-  });
+  const currentItem = isItemCurrent ? enabledSuggestions.find((item) => isItemCurrent(item)) : undefined;
+  // True while the highlight below is being set, so it reports as programmatic ("none").
+  const seedingRef = useRef(false);
+  const seedFrameRef = useRef(0);
   const update = (next: string) => {
     setValue(next);
     onQuery(next);
@@ -383,6 +375,37 @@ export function Combobox({
       update(completed);
     }
   };
+  // Open at the value: centre the current row, then highlight it. Once per open, when the current
+  // row first renders (suggestions may arrive late); typing first cancels it (`changeQuery`), and a
+  // highlight the person moved (arrows, pointer) is left alone.
+  const nativeOnlyNow = nativePopup.available && native !== undefined;
+  useLayoutEffect(() => {
+    if (nativeOnlyNow || revealedCurrent.current || currentItem === undefined) return;
+    if (deliberatelyHighlighted.current || (value.trim() && autoHighlight)) return;
+    const index = enabledSuggestions.indexOf(currentItem);
+    const row = () => listRef.current?.querySelector<HTMLElement>(".ui-combobox-item[data-current]") ?? null;
+    if (virtualized && index >= 0 && index < scrollingCount) {
+      virtualizer.current?.scrollToIndex(index, { align: "center" });
+    } else if (!row()) {
+      return;
+    }
+    revealedCurrent.current = true;
+    centreInScroller(row(), listRef.current);
+    // Base UI registers the rows and settles its own highlight in this commit; the next frame sets
+    // ours after it. A re-render meanwhile must not cancel it (this runs once), only an unmount.
+    seedFrameRef.current = requestAnimationFrame(() => {
+      const element = row();
+      if (!element || deliberatelyHighlighted.current) return;
+      centreInScroller(element, listRef.current);
+      seedingRef.current = true;
+      try {
+        highlightRow(element);
+      } finally {
+        seedingRef.current = false;
+      }
+    });
+  });
+  useEffect(() => () => cancelAnimationFrame(seedFrameRef.current), []);
   const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
   const renderOption = (
     item: string,
@@ -410,6 +433,7 @@ export function Combobox({
         : {})}
       aria-label={itemLabel?.(item)}
       aria-current={isItemCurrent?.(item) ? true : undefined}
+      data-current={isItemCurrent?.(item) ? "" : undefined}
       className={cx("ui-combobox-item", itemClassName)}
       render={hasPinned ? <div /> : <li />}
       onPointerDownCapture={() => {
@@ -497,7 +521,7 @@ export function Combobox({
       ))}
     </Autocomplete.List>
   );
-  const nativeOnly = nativePopup.available && native !== undefined;
+  const nativeOnly = nativeOnlyNow;
   const root = (
     <Autocomplete.Root
       items={enabledSuggestions as string[]}
@@ -508,7 +532,8 @@ export function Combobox({
       inline={inline}
       autoHighlight={autoHighlight}
       virtualized={virtualized}
-      onItemHighlighted={(item, details) => {
+      onItemHighlighted={(item, rawDetails) => {
+        const details = seedingRef.current ? { ...rawDetails, reason: "none" as const } : rawDetails;
         // A virtualized row the arrows reach may not be mounted yet: bring it into view (a pinned
         // action is never in the scroller).
         if (virtualized && details.reason !== "pointer" && details.index >= 0 && details.index < scrollingCount) {
@@ -556,26 +581,6 @@ export function Combobox({
     </Autocomplete.Root>
   );
   return rootClassName ? <div className={rootClassName}>{root}</div> : root;
-}
-
-/// Centers `row` in the nearest scroller between it and `list` (the list itself, or a pinned list's
-/// ScrollArea viewport) when it is not already wholly in view. Only that scroller moves, never the
-/// page behind the popup (`scrollIntoView` would scroll every ancestor). A popup laid out after this
-/// commit has no height yet: try again on the next frames.
-export function revealRow(row: HTMLElement, list: HTMLElement, framesLeft = 3): void {
-  let scroller: HTMLElement | null = row.parentElement;
-  while (scroller && scroller !== list && scroller.scrollHeight <= scroller.clientHeight) {
-    scroller = scroller.parentElement;
-  }
-  if (!scroller) return;
-  if (scroller.clientHeight === 0) {
-    if (framesLeft > 0) requestAnimationFrame(() => revealRow(row, list, framesLeft - 1));
-    return;
-  }
-  const view = scroller.getBoundingClientRect();
-  const box = row.getBoundingClientRect();
-  if (box.top >= view.top && box.bottom <= view.bottom) return;
-  scroller.scrollTop += box.top - view.top - (scroller.clientHeight - box.height) / 2;
 }
 
 /// The scrolling rows of a virtualized pinned list: only those near the scroller's viewport mount,
@@ -646,3 +651,14 @@ function VirtualRows({
 
 /// Read at render, not at import: a test installs its DOM's `navigator` after the modules load.
 const noLayout = () => typeof navigator !== "undefined" && navigator.userAgent.includes("jsdom");
+
+/// Highlights `row` in Base UI's list navigation. Base UI 1.8's Autocomplete has no controlled
+/// highlight, and its list navigation follows the pointer onto a row (mousemove, which WebKit
+/// ignores when the pointer did not move, hence movementX); the caller's `seedingRef` makes the
+/// change report as programmatic.
+function highlightRow(row: HTMLElement): void {
+  // The row's own window: a test page's DOM is not the global one.
+  const View = row.ownerDocument.defaultView?.MouseEvent;
+  if (!View) return;
+  row.dispatchEvent(new View("mousemove", { bubbles: true, cancelable: true, movementX: 1 } as MouseEventInit));
+}

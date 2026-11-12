@@ -922,6 +922,8 @@ export function EnvironmentPicker({
           listClassName="acpmux-location-folders"
           itemClassName="acpmux-menu-item"
           renderItem={row}
+          // Opens at the checked environment (its highlight reads as automatic, so it draws none).
+          isItemCurrent={(id) => id === checkedRow}
           autoHighlight
           inline
         />

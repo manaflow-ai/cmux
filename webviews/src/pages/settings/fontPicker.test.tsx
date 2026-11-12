@@ -7,7 +7,7 @@ import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { click, fire, ops, renderPage, rowElement, settle } = await import("./testing");
+const { click, fire, ops, renderPage, rowElement, run, settle } = await import("./testing");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -45,8 +45,12 @@ describe("FontPicker", () => {
   const open = async () => {
     page = await renderPage({ path: "/settings/appearance" });
     await click(rowElement(page.container, "terminal.fontFamily").querySelector("[data-font-picker]")!);
+    await nextFrame();
     return document.querySelector<HTMLElement>(".font-search")!;
   };
+  // The list opens on the current font, highlighted the frame after it mounts, so the arrow keys
+  // move from it (Leo, 2026-11-12: "shouldn't the opened thing be jumped already to the proper place?").
+  const nextFrame = () => run(() => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
 
   test("every family draws in its own face, recent fonts first with a Recent tag", async () => {
     await open();
@@ -63,7 +67,6 @@ describe("FontPicker", () => {
   test("the arrow keys preview live; Escape reverts without writing", async () => {
     const search = await open();
     await fire(search, "keydown", { key: "ArrowDown" });
-    await fire(search, "keydown", { key: "ArrowDown" });
     const previews = ops(page!.provider, "cmux.settings.preview");
     expect(previews.at(-1)).toEqual({ key: "terminal.fontFamily", value: "JetBrains Mono" });
     await fire(search, "keydown", { key: "Escape" });
@@ -73,7 +76,6 @@ describe("FontPicker", () => {
 
   test("highlighting the default after a preview ends it, so Escape has nothing left to revert", async () => {
     const search = await open();
-    await fire(search, "keydown", { key: "ArrowDown" });
     await fire(search, "keydown", { key: "ArrowDown" });
     expect(ops(page!.provider, "cmux.settings.preview").length).toBe(1);
     await fire(search, "keydown", { key: "ArrowUp" });
@@ -87,8 +89,7 @@ describe("FontPicker", () => {
     let resolveSave!: () => void;
     page!.store.set = (() =>
       new Promise<void>((resolve) => (resolveSave = resolve))) as unknown as Rendered["store"]["set"];
-    // The first row is the default, which is already in effect; the second is a family to save.
-    await fire(search, "keydown", { key: "ArrowDown" });
+    // The list opens on the default, which is already in effect; the next row is a family to save.
     await fire(search, "keydown", { key: "ArrowDown" });
     await fire(search, "keydown", { key: "Enter" });
     const button = rowElement(page!.container, "terminal.fontFamily").querySelector<HTMLElement>("[data-font-picker]")!;
@@ -100,8 +101,8 @@ describe("FontPicker", () => {
     } finally {
       performance.now = now;
     }
+    await nextFrame();
     const reopened = document.querySelector<HTMLElement>(".font-search")!;
-    await fire(reopened, "keydown", { key: "ArrowDown" });
     await fire(reopened, "keydown", { key: "ArrowDown" });
     expect(ops(page!.provider, "cmux.settings.preview").length).toBe(2);
     const endsBeforeSave = ops(page!.provider, "cmux.settings.preview.end").length;
@@ -112,7 +113,7 @@ describe("FontPicker", () => {
 
   test("Return writes the highlighted font, and it leads the list next time", async () => {
     const search = await open();
-    for (let step = 0; step < 3; step += 1) await fire(search, "keydown", { key: "ArrowDown" });
+    for (let step = 0; step < 2; step += 1) await fire(search, "keydown", { key: "ArrowDown" });
     await fire(search, "keydown", { key: "Enter" });
     expect(ops(page!.provider, "cmux.settings.set")).toEqual([{ key: "terminal.fontFamily", value: "Berkeley Mono" }]);
     const button = rowElement(page!.container, "terminal.fontFamily").querySelector<HTMLElement>("[data-font-picker]")!;

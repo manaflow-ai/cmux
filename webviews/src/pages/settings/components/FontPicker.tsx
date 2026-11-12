@@ -78,6 +78,8 @@ export function FontPicker({
   useEffect(() => () => endOnUnmount.current(), []);
   const highlight = (name: string | undefined, by: "keyboard" | "pointer" | "none") => {
     const target = name && name !== DEFAULT_FONT_ROW ? name : null;
+    // Opening seeds the highlight on the picked font: nothing to preview.
+    if (by === "none" && target === value && showing.current === null) return cancelDwell();
     if (by === "keyboard") return preview(target);
     cancelDwell();
     if (target === showing.current) return;
@@ -142,6 +144,7 @@ export function FontPicker({
           onSubmit={pick}
           onCancel={close}
           onHighlight={highlight}
+          // Opens at the picked font, centred and highlighted.
           isItemCurrent={(name) => (name === DEFAULT_FONT_ROW ? value === null : name === value)}
           label={title}
           placeholder={t("settingsPage.filter")}

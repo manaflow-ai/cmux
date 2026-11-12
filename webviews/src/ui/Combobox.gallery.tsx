@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixture labels and sample choices are public-safe test content.
 import { useMemo, useState } from "react";
 import { componentEntry } from "../gallery/format";
-import type { Play } from "../gallery/play";
+import type { Play, PlayContext } from "../gallery/play";
 import { Combobox } from "./Combobox";
 
 type Props = {
@@ -9,20 +9,24 @@ type Props = {
   inline?: boolean;
   autoHighlight?: boolean | "always";
   disabled?: string;
+  /** The current value, deep in a long list: the list opens on it (openAtCurrent.ts). */
+  current?: string;
 };
 
 const CHOICES = ["Alpha project", "Beta project", "Gamma project", "Delta project"];
+const MANY = Array.from({ length: 60 }, (_, index) => `Project ${String(index + 1).padStart(2, "0")}`);
+const DEEP_CURRENT = "Project 47";
 
-function GalleryCombobox({ empty = false, inline = false, autoHighlight = false, disabled }: Props) {
+function GalleryCombobox({ empty = false, inline = false, autoHighlight = false, disabled, current }: Props) {
   const [query, setQuery] = useState("");
   const [submitted, setSubmitted] = useState("");
   const [cancelled, setCancelled] = useState(0);
   const [highlighted, setHighlighted] = useState<string | undefined>();
   const suggestions = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    const choices = empty ? [] : CHOICES;
+    const choices = empty ? [] : current ? MANY : CHOICES;
     return needle ? choices.filter((choice) => choice.toLowerCase().includes(needle)) : choices;
-  }, [empty, query]);
+  }, [empty, current, query]);
   return (
     <div className="combobox-gallery" data-inline={inline ? "true" : "false"}>
       <Combobox
@@ -38,6 +42,7 @@ function GalleryCombobox({ empty = false, inline = false, autoHighlight = false,
         autoHighlight={autoHighlight}
         inline={inline}
         isItemDisabled={disabled ? (choice) => choice === disabled : undefined}
+        isItemCurrent={current ? (choice) => choice === current : undefined}
         onHighlight={setHighlighted}
         inputClassName="combobox-gallery-input"
         listClassName="combobox-gallery-list"
@@ -101,6 +106,26 @@ const disabledSkip: Play = async (ctx) => {
   );
 };
 
+const receiptHas = (ctx: PlayContext, text: string) =>
+  ctx.document.querySelector('[data-testid="combobox-gallery-receipt"]')?.textContent?.includes(text) ?? false;
+
+const openAtCurrent: Play = async (ctx) => {
+  await ctx.focus({ role: "combobox", name: "Choose project" });
+  await ctx.waitFor(() => ctx.find({ role: "option", name: DEEP_CURRENT }).hasAttribute("data-highlighted"));
+};
+
+const arrowFromCurrent: Play = async (ctx) => {
+  await openAtCurrent(ctx);
+  await ctx.press("ArrowDown");
+  await ctx.waitFor(() => receiptHas(ctx, "highlighted: Project 48"));
+};
+
+const searchKeepsCurrent: Play = async (ctx) => {
+  await ctx.focus({ role: "combobox", name: "Choose project" });
+  await ctx.type("4");
+  await ctx.waitFor(() => ctx.find({ role: "option", name: DEEP_CURRENT }).getAttribute("aria-current") === "true");
+};
+
 export default componentEntry<Props>({
   id: "ui.combobox",
   title: "Combobox",
@@ -140,6 +165,9 @@ export default componentEntry<Props>({
     "tab-completion": { props: {}, play: tabCompletion },
     escape: { props: {}, play: escapeCancel },
     disabled: { props: { autoHighlight: "always", disabled: "Beta project" }, play: disabledSkip },
+    "opens-at-current": { props: { current: DEEP_CURRENT }, play: openAtCurrent },
+    "opens-at-current-arrow": { props: { current: DEEP_CURRENT }, play: arrowFromCurrent },
+    "opens-at-current-search": { props: { current: DEEP_CURRENT }, play: searchKeepsCurrent },
     inline: {
       props: { inline: true, autoHighlight: "always" },
       checks: {

@@ -381,6 +381,8 @@ export function FolderPopover({
           listClassName="acpmux-location-folders"
           itemClassName="acpmux-menu-item"
           renderItem={row}
+          // Opens at the current folder, centred and highlighted, among thousands.
+          isItemCurrent={(id) => !addingExtra && id === current}
           autoHighlight
           inline
           // Thousands of projects (Leo 2026-11-04): only the rows in view mount.
