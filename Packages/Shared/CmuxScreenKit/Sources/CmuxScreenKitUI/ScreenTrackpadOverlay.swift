@@ -138,7 +138,8 @@ struct ScreenTrackpadHint: View {
 struct ScreenTrackpadHintFrame: View, Animatable {
     var progress: Double?
 
-    var animatableData: Double {
+    // Only the frame's own value: SwiftUI reads and writes it off the view's update.
+    nonisolated var animatableData: Double {
         get { progress ?? 0 }
         set { if progress != nil { progress = newValue } }
     }
