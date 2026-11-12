@@ -33,14 +33,20 @@ extension MainThreadWatchdog {
         // A fresh sample: the stall sample is from the first threshold, this one from the hang.
         // Taken only while the stall still runs: the beat is read while the main thread is suspended.
         var stillBlocked = true
-        let sampled = sampler?.sample { _ in stillBlocked = beatSequence.load(ordering: .acquiring) == beat } ?? []
+        var open = BlockingOpenCall.none
+        let sampled = sampler?.sample { _ in
+            stillBlocked = beatSequence.load(ordering: .acquiring) == beat
+            open = BlockingOpenCall.current()  // two atomic loads: safe while the main thread is suspended
+        } ?? []
         let addresses = stillBlocked ? sampled : []
+        let blockingCall = stillBlocked ? (sampler == nil ? BlockingOpenCall.current() : open).summary : nil
+        var hangLoad = load(beat: beat, cpuNanos: mainThreadCPU(sinceBeat: beat))
+        hangLoad.blockingCall = blockingCall
         let others = sampler.map { ThreadStackSampler.sampleOtherThreads(excluding: $0.thread) } ?? []
-        recorder?.begin(beat: beat, elapsed: duration, main: addresses, others: others,
-                        load: load(beat: beat, cpuNanos: mainThreadCPU(sinceBeat: beat)))
+        recorder?.begin(beat: beat, elapsed: duration, main: addresses, others: others, load: hangLoad)
         if let sink {
             lastReportNanos = now
-            sink(Hang(duration: duration, addresses: addresses, otherThreads: others))
+            sink(Hang(duration: duration, addresses: addresses, otherThreads: others, blockingCall: blockingCall))
         }
     }
 
