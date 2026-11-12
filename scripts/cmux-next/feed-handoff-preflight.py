@@ -135,7 +135,7 @@ try:
             if check(posted.returncode == 0, f"cmux notify posted (exit {posted.returncode} {posted.stderr.strip()[:200]})"):
                 moved = wait_for(lambda: [line for line in feed_log() if line.startswith("moved ")], 120)
                 report["feed_log"] = feed_log()
-                print("feed_log:", json.dumps(report["feed_log"])[:1500], flush=True)
+                safe_print("feed_log:", json.dumps(report["feed_log"])[:1500], flush=True)
                 if check(bool(moved), "the driver handed the item off: handing_off then moved"):
                     report["moved"] = moved
                     found = wait_for(lambda: (rpc("debug.feed", {"match": title}) or {}).get("matches"), 60)

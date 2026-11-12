@@ -278,7 +278,7 @@ app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_NO_ACTIVATE": "1", 
 safe_print(f"app pid {app.pid}, scratch {SCRATCH}, out {opts.out}", flush=True)
 try:
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
-    print("debug.focus:", rpc("debug.focus"), flush=True)
+    safe_print("debug.focus:", rpc("debug.focus"), flush=True)
     for mode in ["light", "dark"]:
         appearance(mode)
         rpc("action.run", {"action": "bookmark.importFromBrowser"})

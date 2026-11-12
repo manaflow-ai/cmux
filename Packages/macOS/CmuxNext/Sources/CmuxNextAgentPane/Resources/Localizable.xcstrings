@@ -9188,6 +9188,137 @@
         }
       }
     },
+    "agentPane.personUnproven.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم التحقق من أنك أنت. جارٍ إعادة ربط هويتك بخدمة الوكلاء…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije potvrđeno da ste to vi. Vaš identitet se ponovo povezuje sa servisom agenata…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke bekræftet som dig. Forbinder din identitet til agenttjenesten igen…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht als du bestätigt. Deine Identität wird erneut mit dem Agentendienst verbunden…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not verified as you. Reconnecting your identity to the agent service…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se verificó que seas tú. Reconectando tu identidad con el servicio de agentes…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non vérifié comme étant vous. Reconnexion de votre identité au service d’agents…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non verificato come te. Ricollegamento della tua identità al servizio agenti…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "あなたとして確認されていません。エージェントサービスとの本人確認を再接続しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនទាន់បានផ្ទៀងផ្ទាត់ថាជាអ្នកទេ។ កំពុងភ្ជាប់អត្តសញ្ញាណរបស់អ្នកទៅសេវាភ្នាក់ងារឡើងវិញ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "본인으로 확인되지 않았습니다. 에이전트 서비스에 본인 확인을 다시 연결하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke bekreftet som deg. Kobler identiteten din til agenttjenesten på nytt…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie potwierdzono, że to Ty. Ponowne łączenie Twojej tożsamości z usługą agentów…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não verificado como você. Reconectando sua identidade ao serviço de agentes…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не подтверждено, что это вы. Повторно подключаем вашу личность к службе агентов…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่ได้ยืนยันว่าเป็นคุณ กำลังเชื่อมต่อตัวตนของคุณกับบริการเอเจนต์อีกครั้ง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siz olduğunuz doğrulanmadı. Kimliğiniz ajan hizmetine yeniden bağlanıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не підтверджено, що це ви. Повторно підключаємо вашу особу до служби агентів…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa xác minh là bạn. Đang kết nối lại danh tính của bạn với dịch vụ tác tử…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未验证为你本人。正在将你的身份重新连接到代理服务…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未驗證為你本人。正在將你的身分重新連接到代理服務…"
+          }
+        }
+      }
+    },
     "agentPane.otherInstall.message": {
       "extractionState": "manual",
       "localizations": {
