@@ -1106,6 +1106,22 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/rows",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/rows_patch",
+      "params": true
+    },
+    {
+      "kind": "notification",
+      "name": "_acpmux/rows_lagged",
+      "params": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/queue_get",
       "params": {
         "$ref": "#/types/QueueGetParams"
