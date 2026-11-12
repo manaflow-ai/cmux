@@ -60,10 +60,12 @@ async fn args_setup(state: &StateDir, origin: Origin) -> (Arc<Hub>, TestClient) 
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
     let mut agents = BTreeMap::new();
-    agents.insert(
-        "fake".to_owned(),
-        profile(Default::default(), vec!["python3".into(), fake.into()]),
-    );
+    // A program of no known name gets no family (W5-L family-exact): the entry names it.
+    let fake = HarnessProfile {
+        family: Some("fake".to_owned()),
+        ..profile(Default::default(), vec!["python3".into(), fake.into()])
+    };
+    agents.insert("fake".to_owned(), fake);
     agents.insert(
         "fakeclaude".to_owned(),
         profile(

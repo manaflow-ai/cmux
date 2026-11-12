@@ -663,6 +663,7 @@ mod mode_write_tests {
                 "name": "cloud mobile",
                 "harness": "claude",
                 "family": "claude",
+                "startedKind": "claude-stdio",
                 "cwd": "/tmp",
                 "status": "running",
                 "createdAt": 1,
