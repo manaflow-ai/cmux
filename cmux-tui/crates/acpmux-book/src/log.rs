@@ -47,8 +47,8 @@ mod record;
 mod recover;
 
 pub use checkpoint::{
-    MAX_CHECKPOINT, MAX_CHECKPOINT_STATE, MAX_PROMPTS, PROMPT_BYTES, Sections, StateWriter,
-    section, sections,
+    CheckpointHead, MAX_CHECKPOINT, MAX_CHECKPOINT_STATE, MAX_PROMPTS,
+    OVERHEAD as CHECKPOINT_OVERHEAD, PROMPT_BYTES, Sections, StateWriter, section, sections,
 };
 pub use index::ROW_ENTRY_LEN;
 pub use read::{
@@ -214,6 +214,8 @@ impl Default for Options {
 /// What [`Log::open`] found.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Recovered {
+    /// Zero with no checkpoint; otherwise the independently checked head's edition.
+    pub edition: u32,
     /// The state bytes of the checkpoint (the actor's); empty when there was none.
     pub state: Vec<u8>,
     /// Whether a checkpoint was read. Without one the indexes were rebuilt from the segments.
@@ -279,6 +281,7 @@ impl Write for FailAfter<'_> {
 /// One book's log. The chat actor owns it and is its only writer; a second `open` of the same
 /// directory fails with [`Error::Busy`] until this value is dropped.
 pub struct Log {
+    edition: u32,
     dir: PathBuf,
     rows_dir: PathBuf,
     raw_map: File,
@@ -495,9 +498,11 @@ impl Log {
         let mark = match saved {
             Some((mark, state, _)) => {
                 recovered.state = state.to_vec();
+                recovered.edition = mark.edition;
                 mark
             }
             None => Mark {
+                edition: 1,
                 last_seq: 0,
                 min_row: 0,
                 max_row: 0,
@@ -655,6 +660,7 @@ impl Log {
         stats.bytes_written = rewritten;
         stats.writes = rewrites;
         let log = Log {
+            edition: mark.edition,
             dir: dir.to_path_buf(),
             rows_dir,
             raw_map,
@@ -1041,6 +1047,17 @@ impl Log {
     /// Checkpoint the actor state and the ids it has allocated but has not settled. The log
     /// needs these ids explicitly: it never parses the actor's opaque state or row text.
     pub fn write_checkpoint(&mut self, state: &[u8], open_rows: &[u64]) -> Result<(), Error> {
+        self.write_checkpoint_in_edition(state, open_rows, self.edition)
+    }
+
+    /// Publishes a new edition atomically with its actor state. The actor must finish
+    /// this write before making a rebuilt or stamp-changed book ready to callers.
+    pub fn write_checkpoint_in_edition(
+        &mut self,
+        state: &[u8],
+        open_rows: &[u64],
+        edition: u32,
+    ) -> Result<(), Error> {
         if self.broken {
             return Err(Error::Stopped);
         }
@@ -1048,6 +1065,7 @@ impl Log {
             return Err(Error::InvalidInput("checkpoint open rows contain a settled or zero id"));
         }
         let mark = Mark {
+            edition,
             last_seq: self.last_seq,
             min_row: self.min_row,
             max_row: self.max_row,
@@ -1074,6 +1092,7 @@ impl Log {
         };
         let synced = u64::from(rows_synced).saturating_add(u64::from(seqs_synced));
         fsio::write_atomic(&self.dir.join("checkpoint"), &bytes)?;
+        self.edition = edition;
         self.stats.syncs = self.stats.syncs.saturating_add(synced).saturating_add(1);
         self.stats.bytes_written = self.stats.bytes_written.saturating_add(bytes.len() as u64);
         self.stats.writes = self.stats.writes.saturating_add(1);

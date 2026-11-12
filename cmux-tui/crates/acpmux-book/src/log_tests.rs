@@ -418,7 +418,7 @@ fn the_checkpoint_keeps_the_actors_state_under_64_kb() {
         log.write_checkpoint(&too_large, &[]),
         Err(Error::CheckpointTooLarge { bytes }) if bytes > MAX_CHECKPOINT_STATE
     ));
-    let largest = vec![7u8; MAX_CHECKPOINT_STATE - 68];
+    let largest = vec![7u8; MAX_CHECKPOINT_STATE - crate::log::CHECKPOINT_OVERHEAD];
     log.write_checkpoint(&largest, &[]).unwrap();
     assert_eq!(std::fs::metadata(home.path().join("checkpoint")).unwrap().len(), 65535);
     log.write_checkpoint(state.as_bytes(), &[]).unwrap();

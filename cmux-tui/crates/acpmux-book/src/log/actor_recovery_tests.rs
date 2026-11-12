@@ -85,8 +85,9 @@ fn queue_allowance_cannot_pay_for_open_bodies() -> Result {
     let home = tempfile::tempdir()?;
     let (mut log, _) = Log::open(home.path(), Options::default())?;
     let mut state = StateWriter::new();
-    // 68-byte log envelope and two five-byte section headers stay in the state budget.
-    state.push(section::OPEN_ROWS, &vec![b'x'; MAX_CHECKPOINT_STATE - 78]);
+    // The log envelope and two five-byte section headers stay in the state budget.
+    let overhead = super::CHECKPOINT_OVERHEAD + 10;
+    state.push(section::OPEN_ROWS, &vec![b'x'; MAX_CHECKPOINT_STATE - overhead]);
     state.push(section::PROMPT_QUEUE, &vec![0; 1024 * 32]);
     log.write_checkpoint(state.as_bytes(), &[])?;
     assert_eq!(std::fs::metadata(home.path().join("checkpoint"))?.len(), MAX_CHECKPOINT as u64);
@@ -95,7 +96,7 @@ fn queue_allowance_cannot_pay_for_open_bodies() -> Result {
     let (mut log, recovered) = Log::open(home.path(), Options::default())?;
     assert_eq!(recovered.state, whole);
     state.clear();
-    state.push(section::OPEN_ROWS, &vec![b'x'; MAX_CHECKPOINT_STATE - 77]);
+    state.push(section::OPEN_ROWS, &vec![b'x'; MAX_CHECKPOINT_STATE - overhead + 1]);
     state.push(section::PROMPT_QUEUE, &[0; 32]);
     assert!(matches!(
         log.write_checkpoint(state.as_bytes(), &[]),

@@ -72,9 +72,12 @@ impl Checkpoint {
     /// `log_open_rows` includes metadata-only rows as well as rows with bodies.
     pub fn encode(&self, log_open_rows: usize) -> Result<Vec<u8>, Error> {
         self.validate()?;
-        // 68-byte log envelope, row ids, two five-byte section envelopes.
+        // Log envelope, row ids, two five-byte section envelopes.
         let cap = MAX_CHECKPOINT_STATE
-            .checked_sub(78usize.saturating_add(log_open_rows.saturating_mul(8)))
+            .checked_sub(
+                (crate::log::CHECKPOINT_OVERHEAD + 10)
+                    .saturating_add(log_open_rows.saturating_mul(8)),
+            )
             .ok_or(Error::CheckpointTooLarge { bytes: usize::MAX })?;
         let mut e = Encoder { bytes: Vec::new(), cap };
         e.u32(VERSION)?;
@@ -221,6 +224,13 @@ impl Checkpoint {
         Ok(result)
     }
 
+    /// Sync raw, named blobs and folds before calling this; the log then syncs its
+    /// segment and indexes and publishes one checkpoint with matching head/body editions.
+    pub fn write(&self, log: &mut crate::log::Log, open_rows: &[u64]) -> Result<(), Error> {
+        let bytes = self.encode(open_rows.len())?;
+        log.write_checkpoint_in_edition(&bytes, open_rows, self.edition)
+    }
+
     fn validate(&self) -> Result<(), Error> {
         if self.edition == 0
             || self.cursors.len() > 2
@@ -273,8 +283,10 @@ impl Checkpoint {
     /// Rebuilds preserve client cursors only when both translator and raw meaning agree.
     pub fn rebuild_edition(
         old: Option<&Self>,
+        head_edition: Option<u32>,
         translator: u32,
         cursors: &[Cursor],
+        random: impl FnOnce() -> u32,
     ) -> Result<u32, Error> {
         match old {
             Some(old)
@@ -288,10 +300,19 @@ impl Checkpoint {
             {
                 Ok(old.edition)
             }
-            Some(old) => old.edition.checked_add(1).ok_or(Error::InvalidInput("edition exhausted")),
-            // Edition 1 belongs to a brand new book. Unreadable existing state starts a new edition.
-            None => Err(Error::Rebuild("previous edition needs recovery")),
+            Some(old) => Ok(next_edition(Some(old.edition), random)),
+            None => Ok(next_edition(head_edition, random)),
         }
+    }
+}
+
+/// Editions are compared only for equality. A readable head advances, wrapping past
+/// MAX to 1. With no trustworthy head an injected random value replaces the lost edition.
+/// A new empty book uses `Checkpoint::new`; a resumed rebuild uses its saved edition.
+pub fn next_edition(previous: Option<u32>, random: impl FnOnce() -> u32) -> u32 {
+    match previous.filter(|edition| *edition != 0) {
+        Some(edition) => edition.wrapping_add(1).max(1),
+        None => random().max(1),
     }
 }
 
