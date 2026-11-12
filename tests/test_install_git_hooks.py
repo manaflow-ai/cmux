@@ -997,33 +997,45 @@ mkdir -p node_modules/.bin
 
     def test_a_child_running_a_tool_not_in_child_tools_names_it(self):
         """A child of the hook that needs a tool missing from CHILD_TOOLS got a bare
-        command-not-found; by name, by exec and by shebang it now names the tool and the list."""
+        command-not-found; by name, by exec and by shebang it now names the tool and the list.
+        A hidden executable (.hidden-tool) is a tool like any other: the review of #41254
+        found every name starting with "." skipped. Executability decides, not the name."""
         self.assertEqual(self.install().returncode, 0)
         marker = self.root / "unlisted-ran"
         extra = self.root / "extra-bin"
         extra.mkdir()
-        unlisted = extra / "frobnicate"
-        unlisted.write_text(f"#!/bin/sh\n: > {shlex.quote(str(marker))}\n")
-        unlisted.chmod(0o755)
-        script = self.root / "child-script"
-        script.write_text("#!/usr/bin/env frobnicate\n")
-        script.chmod(0o755)
-        for how, call in (("by name", "frobnicate --version"),
-                          ("by exec", "exec frobnicate --version"),
-                          ("by shebang", shlex.quote(str(script)))):
-            with self.subTest(how=how):
-                marker.unlink(missing_ok=True)
-                env = self.bootstrap_env()
-                env["PATH"] = f"{env['PATH']}{os.pathsep}{extra}"
-                bun = self.fake_bun(Path(env["PATH"].split(os.pathsep)[0]) / "bun", "1.4.4",
-                                    install_body=call)
-                try:
-                    result = self.run_pre_commit(env)
-                finally:
-                    bun.unlink()
-                self.assertFalse(marker.exists(), "an unlisted tool never runs\n" + result.stderr)
-                self.assertIn("frobnicate isn't in CHILD_TOOLS (scripts/git-hooks/pre-commit)", result.stderr)
-                self.assertIn("exit 127", result.stderr)
+        for tool in ("frobnicate", ".hidden-tool"):
+            unlisted = extra / tool
+            unlisted.write_text(f"#!/bin/sh\n: > {shlex.quote(str(marker))}\n")
+            unlisted.chmod(0o755)
+            script = self.root / f"child-script{tool}"
+            script.write_text(f"#!/usr/bin/env {tool}\n")
+            script.chmod(0o755)
+            for how, call in (("by name", f"{tool} --version"),
+                              ("by exec", f"exec {tool} --version"),
+                              ("by shebang", shlex.quote(str(script)))):
+                with self.subTest(tool=tool, how=how):
+                    marker.unlink(missing_ok=True)
+                    result = self.run_child_with_extra_path(extra, call)
+                    self.assertFalse(marker.exists(), "an unlisted tool never runs\n" + result.stderr)
+                    self.assertIn(f"{tool} isn't in CHILD_TOOLS (scripts/git-hooks/pre-commit)", result.stderr)
+                    self.assertIn("exit 127", result.stderr)
+        # A file on PATH that is not executable is no tool: no stub claims it is one.
+        inert = extra / "inert-file"
+        inert.write_text("#!/bin/sh\n")
+        inert.chmod(0o644)
+        result = self.run_child_with_extra_path(extra, "inert-file --version")
+        self.assertNotIn("inert-file isn't in CHILD_TOOLS", result.stderr)
+        self.assertIn("exit 127", result.stderr)
+
+    def run_child_with_extra_path(self, extra, call):
+        env = self.bootstrap_env()
+        env["PATH"] = f"{env['PATH']}{os.pathsep}{extra}"
+        bun = self.fake_bun(Path(env["PATH"].split(os.pathsep)[0]) / "bun", "1.4.4", install_body=call)
+        try:
+            return self.run_pre_commit(env)
+        finally:
+            bun.unlink()
 
     def test_merge_driver_does_not_follow_checked_out_script_changes(self):
         result = self.install()
@@ -1039,10 +1051,6 @@ mkdir -p node_modules/.bin
 
         self.assertEqual(installed_driver.read_bytes(), reviewed)
         self.assertNotEqual(installed_driver.resolve(), (self.repo / "scripts" / "merge-pbxproj.py").resolve())
-
-    def commit_all(self, message):
-        self.git("add", "-A")
-        self.git("commit", "--quiet", "-m", message)
 
     def test_generated_web_bundles_keep_ours_and_sources_still_conflict(self):
         shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
@@ -2054,6 +2062,35 @@ class CaseInsensitiveDestination:
         return False
 
 
+class CaseInsensitiveLookup:
+    """os.path.isfile, os.path.exists, os.path.islink and os.access as on a case- and normalization-insensitive
+    volume (macOS's default): a lookup of a name under UNDER finds the entry whose NFD casefold is equal, so a PATH
+    directory holding NODE answers for node too (cmux#41666 review: the hook found NODE as node there)."""
+
+    def __init__(self, under):
+        self.folding = CaseInsensitiveDestination(under)
+        self.real = {"isfile": os.path.isfile, "exists": os.path.exists, "islink": os.path.islink,
+                     "access": os.access}
+
+    def __enter__(self):
+        fold = self.folding.existing
+        real = self.real
+        self.patches = [
+            mock.patch.object(os.path, "isfile", lambda path: real["isfile"](fold(path))),
+            mock.patch.object(os.path, "exists", lambda path: real["exists"](fold(path))),
+            mock.patch.object(os.path, "islink", lambda path: real["islink"](fold(path))),
+            mock.patch.object(os, "access", lambda path, mode, *a, **k: real["access"](fold(path), mode, *a, **k)),
+        ]
+        for patch in self.patches:
+            patch.start()
+        return self
+
+    def __exit__(self, *exc):
+        for patch in reversed(self.patches):
+            patch.stop()
+        return False
+
+
 class ChildPathStubNamesTests(unittest.TestCase):
     """The stubs for names on PATH that CHILD_TOOLS does not list: names that differ only in
     case (or Unicode normalization) are one file on a case-insensitive temporary volume, and
@@ -2070,12 +2107,12 @@ class ChildPathStubNamesTests(unittest.TestCase):
         patch.start()
         self.addCleanup(patch.stop)
 
-    def path_dir(self, label, *names):
+    def path_dir(self, label, *names, mode=0o755):
         directory = self.root / label
         directory.mkdir()
         for name in names:
             (directory / name).write_text("#!/bin/sh\nexit 0\n")
-            (directory / name).chmod(0o755)
+            (directory / name).chmod(mode)
         return str(directory)
 
     def child_path(self, *entries):
@@ -2105,11 +2142,21 @@ class ChildPathStubNamesTests(unittest.TestCase):
 
     def test_a_listed_name_keeps_its_own_stub_beside_a_case_variant(self):
         """node is in CHILD_TOOLS with no copy here; NODE on PATH must not take its stub."""
-        entry = self.path_dir("bin", "NODE")
-        with CaseInsensitiveDestination(self.temp):
+        # Not executable: on macOS's case-insensitive volumes an executable NODE is node itself (the same file), and
+        # the hook rightly links it (cmux#41666 review). This test is about the stub name, so the lookups fold too.
+        entry = self.path_dir("bin", "NODE", mode=0o644)
+        with CaseInsensitiveDestination(self.temp), CaseInsensitiveLookup(self.root):
             shims = self.child_path(entry)
         self.assertEqual(self.folded(shims).count("node"), 1)
         self.assertEqual(self.stub_kind(shims, "node"), "unresolved")
+
+    def test_on_a_case_insensitive_volume_an_executable_case_variant_is_the_listed_tool(self):
+        """There NODE and node are one file, so the hook links node to it (a NODE stub after it is never reached:
+        the links come first on the children's PATH)."""
+        entry = self.path_dir("bin", "NODE")
+        with CaseInsensitiveDestination(self.temp), CaseInsensitiveLookup(self.root):
+            shims = self.child_path(entry)
+        self.assertEqual(os.readlink(shims / "node"), os.path.join(entry, "node"))
 
     def test_names_differing_only_in_normalization_get_one_stub(self):
         composed, decomposed = "caf\u00e9", "cafe\u0301"

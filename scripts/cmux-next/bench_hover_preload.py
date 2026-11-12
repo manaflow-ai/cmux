@@ -55,6 +55,7 @@ import xml.etree.ElementTree as ET
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402  (launch, App, sample, end_bundle, wait_gone)
 import bench_power as bp  # noqa: E402  (rpc, wipe_state)
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 PAGE = (b"<!doctype html><title>hover bench</title><body style='font:16px sans-serif'>"
         + b"<h1>Hover preload bench</h1>" + b"<p>" + b"Lorem ipsum dolor sit amet. " * 400 + b"</p></body>")
@@ -695,7 +696,7 @@ def main():
     bench = Bench(sock, app, pid)
     sites = Sites(args.engine)
     report = {"app": bundle, "engine": args.engine, "label": args.label, "config": config, "vdisplay": ready}
-    print(f"PERF-HOVER-ARM label={args.label}", flush=True)
+    safe_print(f"PERF-HOVER-ARM label={args.label}", flush=True)
     try:
         # The workspace the bench shows while the others are hidden, then the target right after it, so the
         # target's row is near the top of the sidebar (a select of the first scrolls to the top).

@@ -12,6 +12,7 @@ import { chromium, webkit, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { pinArms } from "./support/pinArms";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
@@ -99,11 +100,17 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
     await page.mouse.click(point.x, point.y);
   };
 
-  async function open(variant = VARIANT, ready = GROUP, engine: Browser = browser!): Promise<Page> {
+  async function open(
+    variant = VARIANT,
+    ready = GROUP,
+    engine: Browser = browser!,
+    arms: Readonly<Record<string, string>> = {},
+  ): Promise<Page> {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await engine.newPage({ viewport: { width: 900, height: 640 } });
     await installPaintedFrames(page);
     await page.addInitScript(() => localStorage.clear());
+    await pinArms(page, arms);
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(ENTRY, { variant })}`);
     await page.locator(ready).waitFor();
     await settled(page);
@@ -244,7 +251,7 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
   /// frames, never most of the way in one.
   // In Chromium and in WebKit, the app's own engine (where the thread slide this replaced jumped).
   for (const engineName of ["chromium", "webkit"] as const)
-    test(`at the very bottom (${engineName}), opening and closing a group glide the text above over several frames`, async () => {
+    test(`inline run at the very bottom (${engineName}), opening and closing a group glide the text above over several frames`, async () => {
       let engine = browser!;
       if (engineName === "webkit") {
         try {
@@ -256,7 +263,8 @@ await requireBrowserLane("transcript-expand-at-bottom.test.ts", async () => {
         }
         await warmGalleryFrame(vite!, ENTRY, { browser: engine, params: { variant: VARIANT } });
       }
-      const page = await open(VARIANT, GROUP, engine);
+      // This oracle measures the transcript's full inline expansion; boxed runs own their scroll.
+      const page = await open(VARIANT, GROUP, engine, { "run-scroll": "inline" });
       await page.locator(".acpmux-scroll").evaluate((node, selector) => {
         node.querySelector<HTMLElement>(selector)!.dataset.glideProbe = "true";
         node.scrollTop = node.scrollHeight;
