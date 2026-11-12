@@ -2857,6 +2857,36 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
              while let Ok(n) = rx.RECV {}\n",
         ),
         (
+            "#42111 F1: std's drop imported through a std root the source rebinds",
+            "use crate::fake as std;\n\
+             use std::mem::drop as release_tx;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             release_tx(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42111 F1: core's mem imported through a core root the source rebinds",
+            "use self::fake as core;\n\
+             use core::mem;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42111 F1: a local `mod std` whose mem::drop forgets",
+            "mod std {\n    pub mod mem {\n        pub fn drop<T>(t: T) {\n            \
+             core::mem::forget(t)\n        }\n    }\n}\n\
+             let (tx, rx) = channel::<u8>();\n\
+             std::mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42111 F2: a method-local `use std::mem::forget as drop`",
+            "impl Probe {\n    fn t() {\n        use std::mem::forget as drop;\n        \
+             let (tx, rx) = channel::<u8>();\n        drop(tx);\n        \
+             while let Ok(n) = rx.RECV {}\n    }\n}\n",
+        ),
+        (
             "#42023 F1: a drain whose sender another function's drop drops",
             "let (tx, rx) = channel::<()>();\n\
              other::drop(tx);\n\
@@ -2997,6 +3027,27 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
              let (tx, rx) = channel::<u8>();\n\
              drop(tx);\n\
              while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42111 F1: `::std::mem::drop` beside a rebound std root",
+            "use crate::fake as std;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             ::std::mem::drop(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42111 F1: `use ::std::mem::drop as release_tx` beside a rebound std root",
+            "use crate::fake as std;\n\
+             use ::std::mem::drop as release_tx;\n\
+             let (tx, rx) = channel::<u8>();\n\
+             release_tx(tx);\n\
+             while let Ok(n) = rx.RECV {}\n",
+        ),
+        (
+            "#42111 F2: a method-local `use std::mem`",
+            "impl Probe {\n    fn t() {\n        use std::mem;\n        \
+             let (tx, rx) = channel::<u8>();\n        mem::drop(tx);\n        \
+             while let Ok(n) = rx.RECV {}\n    }\n}\n",
         ),
         (
             "#42023 F1: a drain whose sender a turbofish drop drops first",
