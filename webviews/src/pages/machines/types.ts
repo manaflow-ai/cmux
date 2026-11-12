@@ -10,6 +10,12 @@ export const MachinesOps = {
   changes: "cmux.machines.changes",
   /** `{machine}` → `{ran}`: New Workspace on a machine (`workspace.newOnMachine`). */
   newWorkspace: "cmux.machines.newWorkspace",
+  /** `{machine}` → `{ran}`: open that machine in the Mac Screen viewer. */
+  viewScreen: "cmux.machines.viewScreen",
+  /** `{machine}` → `{ran}`: start host sharing after the guided permission flow. */
+  shareScreen: "cmux.machines.shareScreen",
+  /** `{}` → `{ran}`: stop the host's active Mac Screen session. */
+  stopSharing: "cmux.machines.stopSharing",
   /** `{}` → `{ran}`: Add Machine… (`device.add`, the Add Device card). */
   addMachine: "cmux.machines.addMachine",
   /** `{row, menu: "row" | "joined", x, y}` → `{}` once the menu closes: the registry's native menu
@@ -76,4 +82,6 @@ export interface MachinesSnapshot {
   openMenu?: string;
   /** The team the Cloud machines belong to (the app's active team), named on the Cloud header. */
   cloudTeam?: { name: string; personal: boolean };
+  /** The host's active Mac Screen session, shown as a persistent stop bar. */
+  screenSharing?: { viewerName: string; scope: "view" | "full"; connected: boolean };
 }

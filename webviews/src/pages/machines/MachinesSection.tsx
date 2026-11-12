@@ -11,9 +11,19 @@ import { TeamTag } from "../../agent-session/acpmux/TeamTag";
 import { Dialog } from "../../ui/Dialog";
 import { DialogButton } from "../../ui/DialogButton";
 import type { Strings } from "../shared/i18n";
-import { KIND_ICON, healthHelp, isLinked, joinedCaption, sectionItems, showsStateLine, stateText } from "./model";
+import {
+  canShareScreen,
+  canViewScreen,
+  KIND_ICON,
+  healthHelp,
+  isLinked,
+  joinedCaption,
+  sectionItems,
+  showsStateLine,
+  stateText,
+} from "./model";
 import type { MachinesStore } from "./store";
-import type { HostHealth, JoinedMachineChange, MachineRow } from "./types";
+import type { HostHealth, JoinedMachineChange, MachineRow, MachinesSnapshot } from "./types";
 
 const ICON = 16;
 const SMALL_ICON = 12;
@@ -30,6 +40,9 @@ export function MachinesSection({ store, strings }: { store: MachinesStore; stri
   return (
     <>
       <ul className="machines" data-style={snapshot.style}>
+        {snapshot.screenSharing && (
+          <SharingBar sharing={snapshot.screenSharing} strings={strings} onStop={() => store.stopSharing()} />
+        )}
         {sectionItems(snapshot, strings, state.removed).map((item) => {
           switch (item.type) {
             case "header":
@@ -123,6 +136,31 @@ function RemoveQuestion({ row, strings, store }: { row: MachineRow; strings: Str
   );
 }
 
+function SharingBar({
+  sharing,
+  strings,
+  onStop,
+}: {
+  sharing: NonNullable<MachinesSnapshot["screenSharing"]>;
+  strings: Strings;
+  onStop: () => void;
+}) {
+  const scope = sharing.scope === "full" ? strings.t("machines.fullControl") : strings.t("machines.viewOnly");
+  return (
+    <li className="machines-sharing-bar">
+      <span className="machines-sharing-copy">
+        <span className="machines-sharing-title">{strings.t("machines.sharingTitle")}</span>
+        <span className="machines-sharing-detail">
+          {strings.format("machines.sharingBody", sharing.viewerName, scope)}
+        </span>
+      </span>
+      <button type="button" className="machines-stop-sharing" onClick={onStop}>
+        {strings.t("machines.stopSharing")}
+      </button>
+    </li>
+  );
+}
+
 /** A machine's last check after its name: a check in the success color, a dot otherwise. */
 function HealthMark({ health }: { health?: HostHealth }) {
   if (!health) return null;
@@ -167,6 +205,8 @@ const MachineRowView = memo(function MachineRowView({
   const trailingState = !stateLine && !row.isConnected && !row.isConnecting;
   const label = [row.name, state, help ?? ""].filter(Boolean).join(", ");
   const newWorkspace = strings.t("machines.newWorkspace");
+  const viewScreen = canViewScreen(row);
+  const shareScreen = canShareScreen(row);
   return (
     <li
       className="machines-row"
@@ -198,6 +238,28 @@ const MachineRowView = memo(function MachineRowView({
       >
         <Icon name="action.add" size={SMALL_ICON} />
       </button>
+      {viewScreen && (
+        <button
+          type="button"
+          className="machines-action machines-screen-action"
+          aria-label={strings.t("machines.viewScreen")}
+          title={strings.t("machines.viewScreen")}
+          onClick={() => store.viewScreen(row.id)}
+        >
+          <Icon name="remote.display" size={SMALL_ICON} />
+        </button>
+      )}
+      {shareScreen && (
+        <button
+          type="button"
+          className="machines-action machines-share-action"
+          aria-label={strings.t("machines.shareScreen")}
+          title={strings.t("machines.shareScreen")}
+          onClick={() => store.shareScreen(row.id)}
+        >
+          <Icon name="action.share" size={SMALL_ICON} />
+        </button>
+      )}
     </li>
   );
 });
@@ -216,6 +278,8 @@ const JoinedRow = memo(function JoinedRow({
   const linked = isLinked(row);
   const canOpen = linked && row.isConnected;
   const newWorkspace = strings.t("machines.newWorkspace");
+  const viewScreen = canViewScreen(row);
+  const shareScreen = canShareScreen(row);
   return (
     <li
       className="machines-row machines-joined"
@@ -265,6 +329,28 @@ const JoinedRow = memo(function JoinedRow({
           onClick={() => store.askRemove(row.id)}
         >
           <Icon name="action.remove" size={SMALL_ICON} />
+        </button>
+      )}
+      {viewScreen && (
+        <button
+          type="button"
+          className="machines-action machines-screen-action"
+          aria-label={strings.t("machines.viewScreen")}
+          title={strings.t("machines.viewScreen")}
+          onClick={() => store.viewScreen(row.id)}
+        >
+          <Icon name="remote.display" size={SMALL_ICON} />
+        </button>
+      )}
+      {shareScreen && (
+        <button
+          type="button"
+          className="machines-action machines-share-action"
+          aria-label={strings.t("machines.shareScreen")}
+          title={strings.t("machines.shareScreen")}
+          onClick={() => store.shareScreen(row.id)}
+        >
+          <Icon name="action.share" size={SMALL_ICON} />
         </button>
       )}
       <button

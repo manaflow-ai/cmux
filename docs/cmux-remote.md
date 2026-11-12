@@ -20,12 +20,12 @@ cmux.app (the person's app; never holds a grant)
 ```
 
 - **Identity.** One signed bundle, `cmux Remote.app` (`com.cmuxterm.remote`;
-  DEV builds `cmux Remote (dev).app`, `com.cmuxterm.remote.dev`), with the
-  cmux icon on a remote-screen badge. Its designated requirement (bundle id +
-  team) stays the same across builds, so a grant survives every update. DEV
-  builds embed one pinned, Apple Development signed copy
-  (`scripts/cmux-next/cmux-remote-dev.pin.json`), as the Computer Use helper
-  did; Release signs it with Developer ID.
+  DEV and NIGHTLY builds currently use the pinned `cmux Remote (dev).app`,
+  `com.cmuxterm.remote.dev`), with the cmux icon on a remote-screen badge. Its
+  designated requirement (bundle id + team) stays the same across builds, so a
+  grant survives every update. The Release phase embeds the pinned asset from
+  `scripts/cmux-next/cmux-remote-dev.pin.json`; a missing or mismatched asset
+  is visible in the build log and fails when `CMUX_NEXT_REQUIRE_CMUX_REMOTE=1`.
 - **Responsibility.** The daemon starts the host with
   `responsibility_spawnattrs_setdisclaim`, so the host is its own responsible
   process. Workers are the host's ordinary children: macOS attributes their
@@ -112,6 +112,12 @@ works with the cmux app quit:
   this Mac is one device.
 - The iOS and Mac viewers are unchanged: the same hub session flow, ticket
   signaling and ScreenStream wire (including the input `caps` message).
+
+The NEXT app keeps its app-owned `MacScreenHubHost` active for the current
+`cmux.rd/1` host protocol while the pinned worker supplies identity,
+permissions, and the push relay. This compatibility bridge is deliberate:
+switching `remoteHosted` to the worker's older `ScreenStreamHost` path would
+make a Release viewer connect to a host speaking a different protocol.
 
 ## Settings and controls
 

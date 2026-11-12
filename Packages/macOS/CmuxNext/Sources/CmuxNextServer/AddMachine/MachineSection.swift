@@ -31,6 +31,19 @@ public nonisolated enum MachineKind: String, Hashable, Sendable, CaseIterable {
     case joined
 }
 
+/// The host session shown above the Machines rows while this Mac is being viewed.
+public nonisolated struct MachineScreenSharing: Hashable, Sendable {
+    public let viewerName: String
+    public let scope: String
+    public let connected: Bool
+
+    public init(viewerName: String, scope: String, connected: Bool) {
+        self.viewerName = viewerName
+        self.scope = scope
+        self.connected = connected
+    }
+}
+
 /// What the machine's server says about a Cloud machine that is not simply running: a settled state
 /// the row writes in words instead of a spinner (a paused machine is not connecting), or a resume
 /// that is on its way (a spinner, read as "Resuming…"). Nil for a running machine and every

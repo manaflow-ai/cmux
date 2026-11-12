@@ -48,8 +48,12 @@ extension CmuxRemoteService {
         deviceHub.hubChanged = { [weak self, weak pages] hub, user, url in
             guard let self else { return }
             // cmux Remote serves this Mac only when the running hub is its device (else the app's own hub serves).
-            let remote = hub != nil && hub === remoteHub
-            followHub(remote ? hub : nil, userID: user, hubURL: url, devices: devices)
+            // Keep the app-owned `cmux.rd/1` host active for now. The worker's host path speaks
+            // the older ScreenStreamHost protocol, while MacScreenHubHost serves the current RD
+            // protocol used by Mac-to-Mac viewers. Remote still supplies the device identity and
+            // push socket, so Release/NIGHTLY can start it without switching host protocols.
+            let remote = false
+            followHub(hub, userID: user, hubURL: url, devices: devices)
             pages?.remoteHosted = remote
         }
         return devices

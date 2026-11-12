@@ -7,8 +7,9 @@
 # and starts it. Run from the "Embed Computer Use helper (dev)" phase
 # (embed-cua-helper-dev.sh). The bytes are never re-signed (cmux Remote's code
 # identity, and so its macOS grants, must stay the same across builds).
-# Release embeds nothing here. An unavailable pin warns and embeds nothing
-# unless CMUX_NEXT_REQUIRE_CMUX_REMOTE=1; a sha256 mismatch fails the build.
+# The embedded worker is signed separately and is also used by NIGHTLY Release builds.
+# An unavailable pin warns and embeds nothing unless CMUX_NEXT_REQUIRE_CMUX_REMOTE=1;
+# a sha256 mismatch fails the build.
 # CMUX_NEXT_SKIP_CMUX_REMOTE=1 embeds nothing.
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,7 +23,6 @@ skip() {
   rm -f "$stamp"
   exit 0
 }
-[[ "${CONFIGURATION:-}" == "Release" ]] && skip "Release configuration (DEV builds only)"
 [[ "${CMUX_NEXT_SKIP_CMUX_REMOTE:-0}" == "1" ]] && skip "CMUX_NEXT_SKIP_CMUX_REMOTE=1"
 [[ " ${ARCHS:-arm64} " == *" arm64 "* ]] || skip "ARCHS=${ARCHS:-} has no arm64"
 pin="${CMUX_NEXT_CMUX_REMOTE_PIN:-$SCRIPT_DIR/cmux-remote-dev.pin.json}"

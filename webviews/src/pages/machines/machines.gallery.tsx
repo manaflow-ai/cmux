@@ -109,5 +109,42 @@ export default componentEntry<Props>({
       note: "300 machines: rows past the viewport skip layout and paint; the section scrolls.",
       props: { snapshot: { rows: [thisMac, ...many], style: "compact", busy: [], failed: {} } },
     },
+    "screen-actions": {
+      note: "Mac and Cloud rows expose View screen at rest; This Mac also exposes Share beside the existing workspace action.",
+      props: {
+        snapshot: {
+          ...sampleSnapshot,
+          rows: [thisMac, sampleRows[1]!, sampleRows[4]!],
+          style: "compact",
+          busy: [],
+          failed: {},
+        },
+      },
+    },
+    "screen-sharing": {
+      note: "Persistent host bar names the viewer and scope, with one-click Stop sharing.",
+      props: {
+        snapshot: {
+          ...sampleSnapshot,
+          rows: [thisMac, sampleRows[1]!],
+          style: "compact",
+          busy: [],
+          failed: {},
+          screenSharing: { viewerName: "Air Blue", scope: "full", connected: true },
+        },
+      },
+    },
+    "screen-awaiting": {
+      note: "View screen remains available while a Cloud machine is connecting; unavailable rows keep their quiet state.",
+      props: {
+        snapshot: {
+          ...sampleSnapshot,
+          rows: [thisMac, sampleRows[1]!, sampleRows[2]!],
+          style: "grouped",
+          busy: [],
+          failed: {},
+        },
+      },
+    },
   },
 });
