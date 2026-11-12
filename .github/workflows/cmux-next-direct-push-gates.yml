@@ -1,0 +1,172 @@
+name: cmux-next direct-push gates
+
+# A direct push to feat-cmux-next (a commit from no merged pull request and no
+# bot) meets no pull-request check, so it gets the same fast gates a pull
+# request meets, right after it lands, on its own range (scripts/ci/
+# direct_push_quarantine.py). Leo, 2026-11-12, asked whether to require pull
+# requests: "ugh we can just warn/pre-whatever/quarantine stuff idk", and "like
+# run [something] right after a direct push/some direct pushes potentially".
+#
+# On red the push's head gets `cmux-next/direct-push-gates` failure and the
+# pusher a commit comment, and the branch is quarantined: the NEXT nightly
+# promotes no commit past the last green base (request-nightly-next.sh), and
+# cmuxterm-hq's base-red-watch pages the base-reds owner and next-autoland makes
+# no base merge onto it. While the quarantine is open every later push, a pull
+# request's merge included, is gated against that same base, so the first push
+# that fixes or reverts the red posts green and lifts it. Nothing here reverts
+# or cancels anything.
+#
+# The pushed code is the base branch's own (no pull request code): it runs with
+# contents: read, and `post` writes the status and the comment from the other
+# jobs' outputs, never from anything they wrote to disk.
+on:
+  push:
+    branches: [feat-cmux-next]
+
+permissions:
+  contents: read
+
+# One run per pushed head; none replaces another, so every direct push gets its verdict.
+concurrency:
+  group: direct-push-gates-${{ github.sha }}
+  cancel-in-progress: false
+
+env:
+  # Temporary REST budget attribution: one gh-call line per GitHub API call (scripts/ci/api_call_log/env.sh).
+  BASH_ENV: ${GITHUB_WORKSPACE:-/nonexistent}/scripts/ci/api_call_log/env.sh
+
+jobs:
+  resolve:
+    name: resolve direct commits
+    if: github.repository == 'manaflow-ai/cmux'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+      statuses: read
+    outputs:
+      run: ${{ steps.resolve.outputs.run }}
+      base: ${{ steps.resolve.outputs.base }}
+      since: ${{ steps.resolve.outputs.since }}
+      direct: ${{ steps.resolve.outputs.direct }}
+      reason: ${{ steps.resolve.outputs.reason }}
+    steps:
+      - name: Checkout the resolver
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts/ci
+          fetch-depth: 1
+
+      - name: Which commits are direct, and is the branch quarantined
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          FORCED: ${{ github.event.forced }}
+        run: python3 scripts/ci/direct_push_quarantine.py resolve --repo "$GITHUB_REPOSITORY" --before "$BEFORE" --after "$AFTER" --forced "$FORCED" --output "$GITHUB_OUTPUT"
+
+  gates:
+    name: fast gates
+    needs: resolve
+    if: needs.resolve.outputs.run == 'true'
+    runs-on: ${{ fromJSON(vars.RUNNER_POOLS).linux }}
+    # The pull-request job's limits (cmux-next-fast-gates.yml): a 1260 s gate budget inside 25 minutes.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+
+      - name: Fetch the base
+        id: prepare
+        env:
+          BASE: ${{ needs.resolve.outputs.base }}
+        run: python3 scripts/ci/direct_push_quarantine.py prepare --base "$BASE" --output "$GITHUB_OUTPUT"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+
+      - name: Restore the Bun package cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.22.1"
+
+      - name: Restore the pinned lint tools
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux-lint-tools
+          key: cmux-lint-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cmux-next/lint-tools.lock') }}
+
+      # The pull request's gates on BASE..HEAD, the webviews checks included (a pull request gets them from ci-web).
+      - name: Fast gates on the pushed range
+        env:
+          BASE: ${{ needs.resolve.outputs.base }}
+          GH_TOKEN: ${{ github.token }}
+          WEB: ${{ steps.prepare.outputs.web }}
+          BUN_CONFIG_HTTP_IDLE_TIMEOUT: "30"
+          BUN_CONFIG_HTTP_RETRY_COUNT: "5"
+        run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --checks true --budget-seconds 1260 --summary "$GITHUB_STEP_SUMMARY"
+
+  post:
+    name: post the verdict
+    needs: [resolve, gates]
+    if: always() && needs.resolve.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+      contents: write # the commit comment to the pusher
+    steps:
+      - name: Status and warning
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          PUSHER: ${{ github.actor }}
+          RESULT: ${{ needs.gates.result }}
+          BASE: ${{ needs.resolve.outputs.base }}
+          SINCE: ${{ needs.resolve.outputs.since }}
+          DIRECT: ${{ needs.resolve.outputs.direct }}
+          REASON: ${{ needs.resolve.outputs.reason }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$BASE" =~ ^[0-9a-f]{40}$ && "$SINCE" =~ ^[0-9a-f]{7,40}$ ]] || { echo "::error::no base or culprit resolved"; exit 1; }
+          case "$RESULT" in
+            success)
+              state=success
+              if [[ "$REASON" == quarantine ]]; then desc="cleared: base $BASE since ${SINCE:0:12}"; else desc="green: base $BASE"; fi ;;
+            failure)
+              state=failure
+              desc="red: base $BASE since ${SINCE:0:12} by $PUSHER" ;;
+            *)
+              # No verdict (cancelled, timed out before the gates): an error quarantines nothing.
+              state=error
+              desc="no verdict ($RESULT): base $BASE" ;;
+          esac
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$SHA" -f state="$state" -f context="cmux-next/direct-push-gates" \
+            -f description="${desc:0:140}" -f target_url="$RUN_URL" >/dev/null
+          echo "$state: $desc"
+          # Warn only the push that holds a direct commit; a push gated because the branch is already
+          # quarantined (a pull request's merge) warns no one.
+          if [[ "$state" == failure && -n "$DIRECT" ]]; then
+            body="@$PUSHER the fast gates failed on this direct push to feat-cmux-next: $RUN_URL
+
+          Until a later push passes them (fix forward or revert, your call; nothing is reverted for you), feat-cmux-next is quarantined from ${BASE:0:12}: the NEXT nightly promotes nothing past it, and next-autoland merges no base into pull requests. The gates are the ones every pull request meets (scripts/ci/cmux_next_fast_gates.py); \`python3 scripts/cmux-next/prepush-gate.py\` runs most of them before a push."
+            gh api -X POST "repos/$GITHUB_REPOSITORY/commits/$SHA/comments" -f body="$body" >/dev/null
+            echo "warned $PUSHER on $SHA"
+          fi
