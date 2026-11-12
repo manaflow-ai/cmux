@@ -15,8 +15,16 @@ test("a partial same-chat refresh keeps every previously visible row", () => {
   expect(preserveRowsDuringRefresh(previous, partial, false)).toEqual(partial);
 });
 
-test("a refresh does not resurrect notice rows or replace a complete assistant body with a prefix", () => {
-  const previous = [row("assistant-1", "assistant", "The complete answer"), row("notice-1", "notice", "finished")];
+test("a refresh does not resurrect incoming notice rows or replace a complete assistant body with a prefix", () => {
+  // Incoming notices are transcript-shaped user rows with an incoming discriminator in the
+  // production model (model.ts), rather than rows whose top-level kind is `notice`.
+  const previous = [
+    row("assistant-1", "assistant", "The complete answer"),
+    {
+      ...row("notice-1", "user", "finished"),
+      incoming: { kind: "notice" as const, notice: { severity: "info", text: "finished" } },
+    },
+  ];
   const partial = [row("assistant-1", "assistant", "The complete")];
 
   const held = preserveRowsDuringRefresh(previous, partial, true);
