@@ -534,6 +534,54 @@ async fn run(shape: Shape, dhat: bool) -> Value {
         // Every chat log read, however long after the steps above it ends.
         let all_logs = wait_all_logs(&mut rpc);
 
+        // The same attaches, scroll and prompts once every log is read: what a long chat costs
+        // on its own, apart from the startup load it shares the machine with above.
+        let mut settled_attaches = vec![];
+        for _ in 0..ROUNDS {
+            let attached = Instant::now();
+            let _ = rpc.call(
+                "_acpmux/attach",
+                json!({"sessionId": god, "waitLogs": false, "limit": PAGE_LIMIT,
+                       "maxBytes": PAGE_BYTES}),
+            );
+            settled_attaches.push(micros(attached));
+            rpc.notes.clear();
+        }
+        let mut settled_scrolls = vec![];
+        if let Some(start) = newest_oldest {
+            let mut before = start;
+            for _ in 0..ROUNDS {
+                let (us, page) = older_page(&mut rpc, &god, before);
+                let Ok(page) = page else { break };
+                settled_scrolls.push(us);
+                before = oldest_seq(&page).filter(|_| page["hasMore"] == true).unwrap_or(start);
+            }
+        }
+        let mut settled_sends = vec![];
+        for round in 0..ROUNDS {
+            let sent = Instant::now();
+            let text = format!("settled {round}");
+            let prompt = json!({"sessionId": god, "prompt": [{"type": "text", "text": text}]});
+            let id = rpc.request("session/prompt", prompt);
+            let first = rpc.wait_note(|v| {
+                (is_response(v, id) && v.get("error").is_some())
+                    || (v["method"] == "session/update"
+                        && v["params"]["sessionId"] == json!(god)
+                        && v["params"]["update"]["sessionUpdate"] == "agent_message_chunk"
+                        && v["params"]["update"]["content"]["text"]
+                            .as_str()
+                            .is_some_and(|t| t.contains(&text)))
+            });
+            if is_response(&first, id) {
+                break;
+            }
+            settled_sends.push(micros(sent));
+            if rpc.response(id).is_err() {
+                break;
+            }
+            rpc.notes.clear();
+        }
+
         // From the cut until every peer is listed again.
         let mut reconnect_ms = vec![];
         for _ in 0..3 {
@@ -567,6 +615,9 @@ async fn run(shape: Shape, dhat: bool) -> Value {
             "firstSendFirstTokenMs": first_send_ms, "sendFirstTokenUs": spread(later_sends),
             "sendError": send.err(),
             "allLogsMs": all_logs.as_ref().ok(), "allLogsError": all_logs.as_ref().err(),
+            "settledAttachUs": spread(&settled_attaches),
+            "settledScrollPageUs": spread(&settled_scrolls),
+            "settledSendFirstTokenUs": spread(&settled_sends),
             "reconnectMs": reconnect_ms, "reconnectMedianMs": reconnect_median_ms,
             "rss": rss, "peakRss": peak_rss,
             "fixtureBytes": fixture_bytes, "homeBytes": home_bytes,
@@ -735,6 +786,10 @@ async fn god_and_small_homes_in_one_harness() {
             "/attachUs/max",
             "/scrollPageUs/p95",
             "/deepScrollUs/p95",
+            "/settledAttachUs/p95",
+            "/settledAttachUs/max",
+            "/settledScrollPageUs/p95",
+            "/settledSendFirstTokenUs/p95",
             "/firstSendFirstTokenMs",
             "/sendFirstTokenUs/p95",
             "/reconnectMedianMs",
