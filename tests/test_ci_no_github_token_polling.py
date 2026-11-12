@@ -145,6 +145,19 @@ ALLOWED: dict[str, str] = {
     'ci-macos.yml: Select package tests':
         "the scan reads every loop of a script the step runs; `select` runs no test loop, and the loops it reads run "
         "pin-cmux-tui.sh through a path in a variable and source helpers, which the reader cannot follow",
+    # Found once a command the reader cannot read counts as a possible sleep, as well as a possible API call.
+    'cmux-next.yml: Request nightly-next promotion after this gate':
+        "a walk, not a wait: request-nightly-next.sh reads at most CMUX_NIGHTLY_NEXT_RUN_WINDOW (99) first-parent commits once each, with no sleep; a command it runs the reader cannot read counts as a possible sleep (fail closed)",
+    'cmux-next.yml: Request nightly-next promotion on main':
+        "a walk, not a wait: request-nightly-next.sh reads at most CMUX_NIGHTLY_NEXT_RUN_WINDOW (99) first-parent commits once each, with no sleep; a command it runs the reader cannot read counts as a possible sleep (fail closed)",
+    'cmux-tui-artifacts.yml: Request nightly-next promotion on main':
+        "a walk, not a wait: request-nightly-next.sh reads at most CMUX_NIGHTLY_NEXT_RUN_WINDOW (99) first-parent commits once each, with no sleep; a command it runs the reader cannot read counts as a possible sleep (fail closed)",
+    'nightly-next-tick.yml: Request nightly-next promotion on main':
+        "a walk, not a wait: at most 120 first-parent commits, request-nightly-next.sh once each, no sleep; it stops "
+        "at the first requested or already-promoted build",
+    'auto-resume-nightly-notarization.yml: Generate one from-version delta and revised appcast':
+        "drop-previous-nightlies-with-other-sparkle-key.sh: one pass over the downloaded DMGs (hdiutil attach), no "
+        "GitHub call and no sleep; a command in it the reader cannot read counts as both (fail closed)",
 }
 
 
