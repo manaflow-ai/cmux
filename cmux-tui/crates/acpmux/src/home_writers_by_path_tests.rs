@@ -1265,10 +1265,16 @@ fn read_func<'a>(index: &Index<'a>, state: &State, at: usize, with_params: bool)
         }
     }
     if !scope.builders.is_empty() {
+        // A method anywhere on a chain that starts at the local counts, not only one called on
+        // the local itself: `options.read(true).write(true)` writes (#41462 review F2).
         struct OnLocal<'b>(&'b mut HashMap<String, (bool, HashSet<String>)>);
         impl<'ast> Visit<'ast> for OnLocal<'_> {
             fn visit_expr_method_call(&mut self, m: &'ast syn::ExprMethodCall) {
-                if let syn::Expr::Path(p) = &*m.receiver
+                let mut root = &*m.receiver;
+                while let syn::Expr::MethodCall(inner) = root {
+                    root = &inner.receiver;
+                }
+                if let syn::Expr::Path(p) = root
                     && let Some(ident) = p.path.get_ident()
                     && let Some((_, methods)) = self.0.get_mut(&ident.to_string())
                 {
