@@ -238,6 +238,21 @@ fn journaled_image(dir: &Path, journal: u64) -> Option<(Lsn, Vec<u8>)> {
     Some((lsn, serde_json::to_vec(&object).ok()?))
 }
 
+/// The LSN of the image `dir`'s `session.json` holds when this journal (`journal`) wrote it and
+/// it is `image` (the same fields and values; key order and layout aside). A chat's first save in
+/// a process finds no record of its own to compare against, so before this every such save
+/// journaled a whole image, and the checkpoint then wrote `session.json` again with two syncs. The
+/// shutdown's flush saves every chat (`Hub::flush`): a daemon with 525 chats journaled 525 images
+/// it already had on disk and held its lock, which the next daemon waits for, 30 to 117 s on a
+/// busy disk (cosmic-gray, 2026-11-12). One read of a small file instead, once per chat and
+/// process.
+fn holds_image(dir: &Path, journal: u64, image: &[u8]) -> Option<Lsn> {
+    let (lsn, held) = journaled_image(dir, journal)?;
+    let held: Value = serde_json::from_slice(&held).ok()?;
+    let image: Value = serde_json::from_slice(image).ok()?;
+    (held == image).then_some(lsn)
+}
+
 /// The stamp of `dir`'s `session.json` for a save's record: one `lstat`, no read. `None` when
 /// there is none, or when it does not stat (a file there at the replay then counts as moved on).
 fn saw_file(dir: &Path) -> Option<FileStamp> {
@@ -670,6 +685,13 @@ impl Inner {
         // compares such a file's `journalLsn`, never its stamp).
         let saw = saw_file(&dir);
         let fields = raw_fields(&image)?;
+        // A chat this process has not journaled yet whose `session.json` (this journal's)
+        // already holds this image: read here, outside the appends' lock, and used below only if
+        // the file is still the one read. See [`holds_image`].
+        let first = !self.order.lock_or_recover().images.contains_key(&meta.id);
+        let held = (first && parts.is_some() && saw.is_some())
+            .then(|| holds_image(&dir, self.journal.journal_id(), &image))
+            .flatten();
         let mut order = self.order.lock_or_recover();
         drop(self.local.writable()?);
         // Checked before the folder is made: a refused save makes nothing.
@@ -688,6 +710,23 @@ impl Inner {
         let kept = keep == ShowAfter::Written && !made;
         let shown = if kept { &self.kept } else { &self.acked };
         // Only the fields that changed since this chat's previous record ([module docs](self)).
+        if let Some(lsn) = held
+            && !made
+            && !order.images.contains_key(&meta.id)
+            && !order.metas.contains_key(&meta.id)
+            && saw_file(&dir) == saw
+        {
+            // Nothing to journal: the file holds this image and is durable (its checkpoint
+            // synced it), and no record of the chat waits to be written over it. Its next save
+            // that changes nothing journals nothing either; one that changes something journals
+            // a whole image (`whole_next`), so no patch's base is this file ([module docs](self)).
+            let (names, hashes) = shape(&fields);
+            order.images.insert(
+                meta.id.clone(),
+                LastImage { lsn, folder, names, hashes, saw, whole_next: true },
+            );
+            return Ok(());
+        }
         let base = order.images.get(&meta.id).filter(|last| last.base_for(folder, saw));
         let patch = match base {
             Some(last) => patch_body(&fields, last)?.map(|body| (last.lsn, body)),
