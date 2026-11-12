@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43209931591",
+  "recorded_at": "2026-11-12T11:45:53Z",
+  "reason": "cmux-tui 4fb4dbac1cb4 changes the image's cmux-tui (pinned 11097fd268e5)",
+  "dry_run": false,
+  "cmux_tui": "4fb4dbac1cb43f9a06ed27d7e530e3eedc683665",
+  "fixes": [
+    {
+      "sha": "4fb4dbac1cb43f9a06ed27d7e530e3eedc683665",
+      "mergedAt": "2026-11-12T05:15:49-06:00",
+      "subject": "cmux-tui shares: the expiry-save test holds the room's DELETE answer until writes fail"
+    },
+    {
+      "sha": "b50c04e95304d8564b9b0e1db2df78e056485dee",
+      "mergedAt": "2026-11-12T05:15:48-06:00",
+      "subject": "cmux-tui git seed: the hold tests end a lease by the test's ticks, not the clock"
+    },
+    {
+      "sha": "37b782e5f832c6d9872df04e74fe9bf661f555ae",
+      "mergedAt": "2026-11-12T05:15:48-06:00",
+      "subject": "cmux-tui agent link: the slow-start test's fixed-bound half asks a start that never answers"
+    },
+    {
+      "sha": "aa31ae31b9969200d8fa66cdcebfe77bc2f8face",
+      "mergedAt": "2026-11-12T05:15:48-06:00",
+      "subject": "cmux-tui agent link: the slow-start test keeps the start's probe bound and waits for its probes"
+    },
+    {
+      "sha": "765b90968ebae874eafc370923e21169ba414c55",
+      "mergedAt": "2026-11-12T05:15:47-06:00",
+      "subject": "cmux-tui input lane: route generations belong to the session state, not the process"
+    },
+    {
+      "sha": "e98d054074c7306aa59fcbfea8333570a513fba3",
+      "mergedAt": "2026-11-12T05:15:47-06:00",
+      "subject": "cmux-tui input lane: red test, another session's terminal with the same id sends the key to the session lock"
+    },
+    {
+      "sha": "ad991e3fef058c47085df965aa85bbcbc19aeb92",
+      "mergedAt": "2026-11-12T05:15:47-06:00",
+      "subject": "cmux-tui shares: the move-aside collision test names its copies with an injected millisecond"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T11:45:53Z",
+    "snapshot_id": "sh-db3976f7e9024f3ba963bff0ecd3939b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43209931591): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9aade04b8b26fefc2c6f821f606e333443173895",
+    "image": "cloud-native-auto-4fb4dbac-43209931591-1",
+    "revision": "ci-43209931591-1",
+    "at": "2026-11-12T11:45:53Z"
+  },
+  "rolled_back": false
+}
