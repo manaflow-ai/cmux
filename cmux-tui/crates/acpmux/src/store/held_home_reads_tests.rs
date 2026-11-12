@@ -757,6 +757,95 @@ fn the_lint_resolves_self_super_and_std_fs_glob_names() {
     );
 }
 
+/// A `self::`/`super::` path an alias names resolves on (`use self::symlink_metadata as sm;`),
+/// and a file-backed child module's `super::` sees the module that declares it: one class, "a
+/// `self::`/`super::` resolution stops early" (#42003 review). A parent's `metadata` that is a
+/// local fn is not std's.
+#[test]
+fn the_lint_resolves_self_super_through_aliases() {
+    let fixture = r#"
+        mod self_alias {
+            use std::fs::symlink_metadata;
+            use self::symlink_metadata as sm;
+            fn a(p: &Path) -> bool { sm(p).is_ok() }
+        }
+        mod super_alias {
+            use std::fs::metadata;
+            mod child {
+                use super::metadata as m;
+                fn a(p: &Path) -> bool { m(p).is_ok() }
+            }
+        }
+        mod self_alias_local {
+            fn metadata(_: &Path) -> bool { true }
+            use self::metadata as m;
+            fn a(p: &Path) -> bool { m(p) }
+        }
+    "#;
+    let file = syn::parse_file(fixture).unwrap();
+    let rows: Vec<String> = rows_in("x.rs", &file)
+        .into_iter()
+        .map(|row| row.split_once(' ').map(|(_, what)| what.to_string()).unwrap_or(row))
+        .collect();
+    assert_eq!(rows, ["sm(..) (std::fs::symlink_metadata)", "m(..) (std::fs::metadata)"],);
+}
+
+/// The rows of the tree rooted at `src/store.rs` under `src`, sorted.
+fn tree_rows(src: &Path) -> Vec<String> {
+    let mut out = Vec::new();
+    load(&src.join("store.rs"), &src.join("store"), &mut out);
+    let mut rows: Vec<String> = out
+        .iter()
+        .flat_map(|(path, file)| {
+            let rel = path.strip_prefix(src).unwrap_or(path).to_string_lossy().replace('\\', "/");
+            rows_in(&rel, file)
+        })
+        .collect();
+    rows.sort();
+    rows
+}
+
+/// A file-backed child module (`mod child;`) is read inside the modules that declare it: its
+/// `super::metadata(p)` resolves through the parent's `use std::fs::metadata;`, through an inline
+/// parent too, and `super::super::` two modules out. A parent whose `metadata` is a local fn
+/// gives no row.
+#[test]
+fn the_lint_reads_a_file_backed_child_in_its_parent() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path();
+    let files = [
+        (
+            "store.rs",
+            "use std::fs::metadata;\nmod child;\nmod shadowed;\n\
+             mod inline {\n    use std::fs::symlink_metadata;\n    mod deep;\n}\n",
+        ),
+        ("store/child.rs", "fn a(p: &Path) -> bool {\n    super::metadata(p).is_ok()\n}\n"),
+        ("store/shadowed.rs", "fn metadata(_: &Path) -> bool { true }\nmod grandchild;\n"),
+        (
+            "store/shadowed/grandchild.rs",
+            "fn a(p: &Path) -> bool {\n    super::metadata(p)\n}\n\
+             fn b(p: &Path) -> bool {\n    super::super::metadata(p).is_ok()\n}\n",
+        ),
+        (
+            "store/inline/deep.rs",
+            "fn a(p: &Path) -> bool {\n    super::symlink_metadata(p).is_ok()\n}\n",
+        ),
+    ];
+    for (rel, text) in files {
+        let path = src.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, text).unwrap();
+    }
+    assert_eq!(
+        tree_rows(src),
+        [
+            "store/child.rs:2 super::metadata(..) (std::fs::metadata)",
+            "store/inline/deep.rs:2 super::symlink_metadata(..) (std::fs::symlink_metadata)",
+            "store/shadowed/grandchild.rs:5 super::super::metadata(..) (std::fs::metadata)",
+        ],
+    );
+}
+
 /// Every operation in `home_fs.rs` whose Unix arm goes through the held home's descriptor
 /// (`unix::...`) checks the held home in its other arms too (`held` or `held_read`): no
 /// `home_fs` function that the store's reads go through is path-based on any platform (#41721
