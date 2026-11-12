@@ -167,3 +167,25 @@ import Testing
         #expect(TerminalFrameSaveSchedule.delay(sinceLastSave: 1) == 2)
     }
 }
+
+/// Leo 2026-11-12 ("wack reconnection state ... just show the cache"): a page
+/// whose terminal was not attached drew a skeleton under "[daemon channel
+/// closed]". It shows its cache; the skeleton only when nothing is cached.
+@Suite struct TerminalPageCacheTests {
+    @Test func aFrameWinsOverEverything() {
+        #expect(TerminalPageCache.choose(hasFrame: true, surfaceHasOutput: true, screenText: "$ ls") == .frame)
+    }
+
+    @Test func aSurfaceThatDrewTheTerminalIsNotCovered() {
+        #expect(TerminalPageCache.choose(hasFrame: false, surfaceHasOutput: true, screenText: "$ ls") == .surface)
+    }
+
+    @Test func theMacsScreenTextStandsInForAMissingFrame() {
+        #expect(TerminalPageCache.choose(hasFrame: false, surfaceHasOutput: false, screenText: "$ ls\nREADME.md") == .screenText)
+    }
+
+    @Test func theSkeletonOnlyWhenNothingIsCached() {
+        #expect(TerminalPageCache.choose(hasFrame: false, surfaceHasOutput: false, screenText: nil) == .skeleton)
+        #expect(TerminalPageCache.choose(hasFrame: false, surfaceHasOutput: false, screenText: " \n ") == .skeleton)
+    }
+}

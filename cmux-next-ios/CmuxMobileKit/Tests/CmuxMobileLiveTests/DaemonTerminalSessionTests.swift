@@ -192,6 +192,48 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(daemon.recorded.filter { $0["cmd"] as? String == "attach-surface" }.count == attempts + 1)
     }
 
+    /// Leo 2026-11-12 ("wack reconnection state ... just show the cache"): a
+    /// failed attach wrote "[daemon channel closed]" into the mirror. Those
+    /// bytes read as attached for a moment, which dropped the page's cached
+    /// frame, and the page drew a skeleton under the line. A failure writes
+    /// nothing into the mirror and never reports attached.
+    @Test(arguments: [false, true])
+    func aFailedAttachWritesNothingIntoTheMirror(wasAttached: Bool) async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        defer { session.stop() }
+        session.reattachBackoff = []
+        var events: [TerminalSessionEvent] = []
+        var screenState = session.connectionState
+        var attachedAfterDrop = false
+        var dropped = !wasAttached
+        if !wasAttached { daemon.failNextAttaches = 1 }
+        session.start { event in
+            events.append(event)
+            screenState = screenState.applying(event)
+            if dropped, screenState.isAttached { attachedAfterDrop = true }
+        }
+        if wasAttached {
+            try await waitUntil { session.isAttached }
+            await channels.last?.close(code: "eof", reason: "daemon channel closed")
+            try await waitUntil { !session.isAttached }
+            dropped = true
+            events.removeAll()
+            daemon.failNextAttaches = 1
+            session.reconnect()
+        }
+        try await waitUntil { if case .failed = screenState { true } else { false } }
+        let output = events.contains { if case .output = $0 { true } else { false } }
+        #expect(!output, "the mirror holds only the Mac's bytes: \(events)")
+        #expect(!attachedAfterDrop, "a failed attach never reads as attached")
+    }
+
     @Test func attachesReplaysAndForwardsInput() async throws {
         let daemon = FakeTerminalDaemon()
         let link = MockMacLink { service, line in daemon.respond(service, line) }
