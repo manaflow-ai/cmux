@@ -233,3 +233,64 @@ test("a preset approval asked above a cut is closed by its decision past it", as
   expect(card(cut)?.presetApproval?.outcome).toBe("approved");
   expect(shown(cut)).toEqual(shown(whole));
 });
+
+test("a subagent that starts above a cut and goes on past it is one group, its whole view kept", async () => {
+  // Review of #40175 at 7bf242b0 (F1): a helper that started at record 10, went on at 8,005 and
+  // ended at 8,007 drew a second group and lost its first reply past the cut at about 7,001.
+  const { cut, whole } = await cutAndWhole((sessionId) => {
+    const special = new Map<number, Omit<EventRecord, "sessionId" | "seq" | "at">>();
+    const put = (record: EventRecord) => {
+      const { sessionId: _s, seq: _q, at: _a, ...rest } = record;
+      special.set(record.seq, rest);
+    };
+    const progress = (seq: number, state: string) =>
+      put(
+        update(
+          sessionId,
+          seq,
+          { sessionUpdate: "subagent_progress" },
+          { subagents: [{ id: "helper", parent: null, name: "Reviewer", state }] },
+        ),
+      );
+    progress(10, "running");
+    put(update(sessionId, 11, say("First helper reply", "helper-m1"), { subagent: "helper" }));
+    progress(12, "completed");
+    progress(8_005, "running");
+    put(update(sessionId, 8_006, say("Second helper reply", "helper-m2"), { subagent: "helper" }));
+    progress(8_007, "completed");
+    return special;
+  });
+  const groups = (snapshot: Snapshot) => snapshot.rows.filter((row) => row.kind === "subagents");
+  expect(groups(cut)).toHaveLength(groups(whole).length);
+  expect(cut.subagentViews?.helper?.length).toBe(whole.subagentViews?.helper?.length);
+  expect(JSON.stringify(cut.subagentViews?.helper)).toContain("First helper reply");
+  expect(shown(cut)).toEqual(shown(whole));
+});
+
+test("a compaction whose end comes past a cut is one note", async () => {
+  // Review of #40175 at 7bf242b0 (F2): compacting at record 6,990, its turn's result at 7,000 notes
+  // it failed, and its end at 7,050 takes it back; a cut at 7,001 drew a second note for that end.
+  const { cut, whole } = await cutAndWhole((sessionId) => {
+    const special = new Map<number, Omit<EventRecord, "sessionId" | "seq" | "at">>();
+    for (const [seq, state] of [
+      [6_990, "running"],
+      [7_050, "completed"],
+    ] as const) {
+      const {
+        sessionId: _s,
+        seq: _q,
+        at: _a,
+        ...rest
+      } = update(sessionId, seq, {
+        sessionUpdate: "compaction",
+        state,
+      });
+      special.set(seq, rest);
+    }
+    return special;
+  });
+  const notes = (snapshot: Snapshot) => snapshot.rows.filter((row) => row.kind === "compaction");
+  expect(notes(whole)).toHaveLength(1);
+  expect(notes(cut)).toHaveLength(1);
+  expect(shown(cut)).toEqual(shown(whole));
+});
