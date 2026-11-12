@@ -154,7 +154,7 @@
    .ui-glass-floats, so in a see-through Chromium page the theme surface lies under its tint and the
    page's text fades instead of reading through it (glass.css, "CHROMIUM OVER THE WINDOW GLASS"). This
    one rule gives it the sheet role's veil, corner radius and depth (the surface-roles block in
-   glass.css), as the native dialog card has (pages/overlay/dialog). A dialog's own class sets only its
+   glass.css), as the native dialog card has (CmuxDialogCardSurface). A dialog's own class sets only its
    size and layout; its controls are the shared Button, Input and Select (ui/controls.css). Reduce
    Transparency: the opaque popup surface (glass.css applies --glass-opaque). */
 .ui-dialog.ui-glass {

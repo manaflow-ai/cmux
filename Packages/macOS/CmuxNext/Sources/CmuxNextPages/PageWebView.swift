@@ -94,7 +94,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var loaded = false
     /// The tab closed (``close()``): its web view is retired and never loads again.
     var isClosed = false
-    var loadWaiters: [CheckedContinuation<Void, Never>] = []
+    var loadWaiters: [(id: UUID, continuation: CheckedContinuation<Bool, Never>)] = []
     var shouldFocusOnAttach = false
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
     var popupHost: WebPopupHost?
