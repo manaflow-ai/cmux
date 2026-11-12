@@ -82,6 +82,8 @@ cmux-host-budget.workspace = true
 cmux-unix-socket.workspace = true
 cmux-panic-log.workspace = true
 cmux-usage-patterns.workspace = true
+# What package installs a shell call runs (`hub/tool_installs.rs`).
+cmux-command-class.workspace = true
 clap = { version = "4.5", features = ["derive"] }
 crossterm = { version = "0.29", features = ["event-stream"] }
 dirs = "6"
