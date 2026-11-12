@@ -1706,7 +1706,7 @@ mod tests {
 
     /// A request arriving after the base window reuses a current snapshot while its lazy rows
     /// are still being made, instead of starting a second whole-list build.
-    #[tokio::test(flavor = "multi_thread", start_paused = true)]
+    #[tokio::test(start_paused = true)]
     async fn a_concurrent_request_reuses_a_snapshot_during_lazy_build() {
         let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
         let guard = &hub.list_guard;
