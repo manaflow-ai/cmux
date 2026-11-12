@@ -2232,6 +2232,9 @@ type ShownRows = {
   generation: number | undefined;
 };
 
+/// Rows a page of a chat's process list asks for: acpmux's most (hub/processes.rs).
+const PROCESS_LIST_PAGE = 1_000;
+
 /** Direct browser client for the authenticated acpmux WebSocket protocol. */
 /// Every native root a session summary names into `fold`: the chat's current agent session and
 /// the earlier ones acpmux retired (`retiredAgentSessionIds`), which older records still name.
@@ -5262,9 +5265,29 @@ export class AcpmuxDirectClient {
     return () => void this.raceListeners.delete(listener);
   }
 
-  /// Chat `sessionId`'s background processes (acpmux docs/background-processes.md).
-  listProcesses(sessionId: string): Promise<unknown> {
-    return this.request("_acpmux/process/list", { sessionId });
+  /// Chat `sessionId`'s background processes (acpmux docs/background-processes.md), every one: read
+  /// page by page with `limit` and each page's `nextCursor`, as `acpmux process list` reads them
+  /// (cli/process.rs). One unpaged reply holds only the newest that fit it (`omitted` counts the
+  /// rest), so older processes went missing from Session Info. An acpmux that pages nothing
+  /// answers the whole list with no cursor: one read, as before.
+  async listProcesses(sessionId: string): Promise<{ processes: unknown[] }> {
+    const processes: unknown[] = [];
+    const read = new Set<string>();
+    let cursor: string | undefined;
+    for (;;) {
+      const page = (await this.request("_acpmux/process/list", {
+        sessionId,
+        limit: PROCESS_LIST_PAGE,
+        ...(cursor === undefined ? {} : { cursor }),
+      })) as { processes?: unknown; nextCursor?: unknown } | undefined;
+      if (Array.isArray(page?.processes)) processes.push(...page.processes);
+      const next = page?.nextCursor;
+      if (typeof next !== "string" || next === "") return { processes };
+      // A cursor given twice would read the same pages forever.
+      if (read.has(next)) throw new Error(`process list: the daemon gave cursor ${next} twice`);
+      read.add(next);
+      cursor = next;
+    }
   }
 
   /// What running `command` on another machine would send, and where it can go
