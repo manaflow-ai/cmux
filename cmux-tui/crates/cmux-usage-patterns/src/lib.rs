@@ -55,6 +55,8 @@ pub const MAX_WRITERS: usize = 64;
 pub const OTHER: &str = "other";
 /// How often a changed rollup is written.
 pub const FLUSH_EVERY: Duration = Duration::from_secs(30);
+/// How long a stopping daemon waits for its last counts to be written.
+pub const STOP_FLUSH_WAIT: Duration = Duration::from_millis(250);
 const VERSION: u32 = 1;
 const FILE_SUFFIX: &str = ".json";
 
@@ -360,6 +362,8 @@ struct State {
 struct Wake {
     pending: Mutex<bool>,
     changed: Condvar,
+    /// A writer thread runs [`Recorder::run_writer`].
+    writer: AtomicBool,
 }
 
 impl Recorder {
@@ -446,6 +450,7 @@ impl Recorder {
     /// [`FLUSH_EVERY`] after the last write (at once when counting stopped).
     /// Returns only when `stop` says so (tests); the installed one never does.
     pub fn run_writer(&self, flush_every: Duration, stop: &dyn Fn() -> bool) {
+        self.wake.writer.store(true, Ordering::Release);
         loop {
             {
                 let pending =
@@ -484,6 +489,12 @@ impl Recorder {
             drop(pending);
             let _ = self.flush();
         }
+    }
+
+    /// Writes the rollup for a stopping process (on this thread, for now).
+    pub fn flush_within(&self, limit: Duration) -> bool {
+        let _ = limit;
+        self.flush().is_ok()
     }
 
     /// A copy of what this recorder holds now.
