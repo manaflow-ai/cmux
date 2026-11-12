@@ -77,6 +77,83 @@ final class TerminalJumpToBottomUITests: XCTestCase {
         attach(app, "hide-toolbar-after-jump")
     }
 
+    /// The pill appearing does not move the rows (CMUX-10, "the terminal may
+    /// jump when the button is introduced"): the stack grows by the pill's
+    /// row, but only the page's bottom inset follows, not its offset. Three
+    /// slow drags of the same length end held (no momentum): the first stays
+    /// under the show threshold, the second crosses it (the pill appears
+    /// mid-drag), the third moves with the pill already shown. The rows move
+    /// the same distance in the second and third; a jump would add the row's
+    /// 36 pt (108 px) to the second.
+    @MainActor
+    func testPillAppearingDoesNotMoveRows() throws {
+        let app = launch()
+        let jump = app.buttons["terminal.jumpToBottom"]
+        let window = app.windows.firstMatch.frame
+        func drag(points: CGFloat) {
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+            let end = start.withOffset(CGVector(dx: 0, dy: points))
+            start.press(forDuration: 0.1, thenDragTo: end, withVelocity: XCUIGestureVelocity(120), thenHoldForDuration: 0.6)
+        }
+        drag(points: 50)
+        XCTAssertFalse(jump.waitForExistence(timeout: 1), "50 pt up: under the 120 pt threshold, no pill yet")
+        let before = app.screenshot()
+        drag(points: 130)
+        XCTAssertTrue(jump.waitForExistence(timeout: 2), "the second drag crosses the threshold: the pill shows")
+        let shown = app.screenshot()
+        drag(points: 130)
+        XCTAssertTrue(jump.exists, "still shown")
+        let after = app.screenshot()
+        attach(shown, "pill-appeared-mid-drag")
+
+        let scale = CGFloat(try XCTUnwrap(before.image.cgImage).height) / window.height
+        let appearing = try rowShift(from: before, to: shown, scale: scale)
+        let steady = try rowShift(from: shown, to: after, scale: scale)
+        XCTAssertGreaterThan(steady, 60, "the third drag moved the rows (\(steady) pt)")
+        XCTAssertEqual(appearing, steady, accuracy: 8,
+                       "rows moved \(appearing) pt while the pill appeared vs \(steady) pt with it shown: the pill made the page jump")
+    }
+
+    /// How far the rows moved down between two stills, in points: the shift
+    /// that best overlays the band of rows under the status bar.
+    @MainActor
+    private func rowShift(from a: XCUIScreenshot, to b: XCUIScreenshot, scale: CGFloat) throws -> CGFloat {
+        let ga = try gray(a), gb = try gray(b)
+        let width = ga.width, top = Int(120 * scale), bottom = Int(420 * scale), maxShift = Int(300 * scale)
+        var best = (shift: 0, cost: Double.infinity)
+        for shift in 0...maxShift {
+            var cost = 0.0, count = 0
+            for y in stride(from: top, to: bottom, by: 3) where y + shift < gb.height {
+                for x in stride(from: 0, to: width, by: 6) {
+                    cost += Double(abs(Int(ga.pixels[y * width + x]) - Int(gb.pixels[(y + shift) * width + x])))
+                    count += 1
+                }
+            }
+            let mean = cost / Double(max(count, 1))
+            if mean < best.cost { best = (shift, mean) }
+        }
+        return CGFloat(best.shift) / scale
+    }
+
+    @MainActor
+    private func gray(_ shot: XCUIScreenshot) throws -> (pixels: [UInt8], width: Int, height: Int) {
+        let image = try XCTUnwrap(shot.image.cgImage)
+        let width = image.width, height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height)
+        let context = try XCTUnwrap(CGContext(data: &pixels, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width,
+                                              space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue))
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return (pixels, width, height)
+    }
+
+    @MainActor
+    private func attach(_ shot: XCUIScreenshot, _ name: String) {
+        let attachment = XCTAttachment(screenshot: shot)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
     @MainActor
     func testSettingOffRemovesJumpToBottom() throws {
         // Control: with the setting on, the same scroll shows it.
