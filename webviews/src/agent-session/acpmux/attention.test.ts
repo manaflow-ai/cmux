@@ -1,153 +1,125 @@
-// The read model's client half (attention.ts; design/transcript-overlays.md "What counts as seen"):
-// the person attends the chat only while it is on screen, focused, and they gave input within the
-// idle window. Pinned at the bottom while idle is not attending; acpmux keeps those turns unread
-// (cmux-tui hub/seen_tests.rs drives the daemon half).
+// The reader is at the chat while their hand moved on the page within the idle time (attention.ts):
+// away once it passes untouched, back on the next input, and the timer does no work per move.
 import { expect, test } from "bun:test";
-import { ATTENTION_IDLE_MS, Attention, attending, type AttentionEnv } from "./attention";
+import { createAttention, presentAt } from "./attention";
 
-/// A page with a hand-driven clock, focus and visibility.
-function fakePage(start = { shown: true, focused: true }) {
-  let now = 1_000_000;
-  let shown = start.shown;
-  let focused = start.focused;
-  const timers = new Map<number, { at: number; run: () => void }>();
-  let next = 1;
-  let input = () => {};
-  let focusChange = () => {};
-  const env: AttentionEnv = {
-    now: () => now,
-    shown: () => shown,
-    focused: () => focused,
-    setTimer(run, ms) {
-      const id = next++;
-      timers.set(id, { at: now + ms, run });
+/// An event target and a clock the test drives: `fire` dispatches an input, `advance` moves time and
+/// runs the timers that came due.
+function harness(idleMs = 1000) {
+  const handlers = new Map<string, Set<() => void>>();
+  const target = {
+    addEventListener: (name: string, fn: () => void) => {
+      if (!handlers.has(name)) handlers.set(name, new Set());
+      handlers.get(name)!.add(fn);
+    },
+    removeEventListener: (name: string, fn: () => void) => void handlers.get(name)?.delete(fn),
+  } as unknown as Window;
+  let clock = 0;
+  let armed = 0;
+  const due = new Map<number, { at: number; fn: () => void }>();
+  let next = 0;
+  const attention = createAttention(target, idleMs, () => clock, {
+    set: (fn, ms) => {
+      armed += 1;
+      const id = ++next;
+      due.set(id, { at: clock + ms, fn });
       return id;
     },
-    clearTimer: (id) => void timers.delete(id as number),
-    listen(onInput, onFocusChange) {
-      input = onInput;
-      focusChange = onFocusChange;
-      return () => {
-        input = () => {};
-        focusChange = () => {};
-      };
-    },
-  };
+    clear: (id) => void due.delete(id as number),
+  });
+  let changes = 0;
+  attention.subscribe(() => (changes += 1));
   const advance = (ms: number) => {
-    const until = now + ms;
+    const end = clock + ms;
     for (;;) {
-      const due = [...timers.entries()].filter(([, t]) => t.at <= until).sort((a, b) => a[1].at - b[1].at)[0];
-      if (!due) break;
-      timers.delete(due[0]);
-      now = due[1].at;
-      due[1].run();
+      const first = [...due.entries()].sort((a, b) => a[1].at - b[1].at)[0];
+      if (!first || first[1].at > end) break;
+      due.delete(first[0]);
+      clock = first[1].at;
+      first[1].fn();
     }
-    now = until;
+    clock = end;
   };
-  return {
-    env,
-    advance,
-    input: () => input(),
-    setFocused(next: boolean) {
-      focused = next;
-      focusChange();
-    },
-    setShown(next: boolean) {
-      shown = next;
-      focusChange();
-    },
-    pendingTimers: () => timers.size,
-  };
+  const fire = (name: string) => handlers.get(name)?.forEach((fn) => fn());
+  return { attention, advance, fire, changes: () => changes, armed: () => armed, handlers };
 }
 
-test("attending needs the page on screen, focus, and input inside the idle window", () => {
-  const now = 10 * ATTENTION_IDLE_MS;
-  const base = { shown: true, focused: true, lastInputAt: now - 1, now };
-  expect(attending(base)).toBe(true);
-  expect(attending({ ...base, shown: false })).toBe(false);
-  expect(attending({ ...base, focused: false })).toBe(false);
-  expect(attending({ ...base, lastInputAt: undefined })).toBe(false);
-  expect(attending({ ...base, lastInputAt: now - ATTENTION_IDLE_MS })).toBe(false);
-  expect(attending({ ...base, lastInputAt: now - ATTENTION_IDLE_MS + 1 })).toBe(true);
+test("a reader is here until the idle time passes untouched, then back on their next input", () => {
+  const h = harness();
+  expect(h.attention.present()).toBe(true);
+  h.advance(999);
+  expect(h.attention.present()).toBe(true);
+  h.advance(1);
+  expect(h.attention.present()).toBe(false);
+  expect(h.changes()).toBe(1);
+  h.fire("pointermove");
+  expect(h.attention.present()).toBe(true);
+  expect(h.changes()).toBe(2);
 });
 
-test("idle at the bottom: with no input for the window, the person stops attending", () => {
-  const page = fakePage();
-  const flips: boolean[] = [];
-  const attention = new Attention(page.env, (next) => flips.push(next));
-  // Opening on screen and focused is the person's doing.
-  expect(attention.now()).toBe(true);
-  // Rows stream in and the view follows them: no input from the person.
-  page.advance(ATTENTION_IDLE_MS - 1);
-  expect(attention.now()).toBe(true);
-  expect(flips).toEqual([]);
-  page.advance(1);
-  expect(attention.now()).toBe(false);
-  expect(flips).toEqual([false]);
-  // Nothing keeps ticking while idle.
-  expect(page.pendingTimers()).toBe(0);
-  attention.dispose();
-});
-
-test("active at the bottom: input keeps the person attending, without a timer per input", () => {
-  const page = fakePage();
-  const flips: boolean[] = [];
-  const attention = new Attention(page.env, (next) => flips.push(next));
-  for (let i = 0; i < 10; i++) {
-    page.advance(ATTENTION_IDLE_MS / 2);
-    page.input();
-    expect(page.pendingTimers()).toBe(1);
+test("each kind of input keeps the reader here, and touch counts as one", () => {
+  for (const input of ["pointermove", "pointerdown", "wheel", "keydown", "touchstart", "focus", "touch"]) {
+    const h = harness();
+    h.advance(900);
+    if (input === "touch") h.attention.touch();
+    else h.fire(input);
+    h.advance(900);
+    expect(h.attention.present()).toBe(true);
+    h.advance(100);
+    expect(h.attention.present()).toBe(false);
   }
-  expect(attention.now()).toBe(true);
-  expect(flips).toEqual([]);
-  attention.dispose();
 });
 
-test("coming back is one flip, and its input notes where the person is", () => {
-  const page = fakePage();
-  const flips: boolean[] = [];
-  let noted = 0;
-  const attention = new Attention(
-    page.env,
-    (next) => flips.push(next),
-    () => (noted += 1),
-  );
-  page.advance(ATTENTION_IDLE_MS);
-  expect(flips).toEqual([false]);
-  const before = noted;
-  page.input();
-  expect(flips).toEqual([false, true]);
-  expect(noted).toBe(before + 1);
-  // Pointer moves within a second note once.
-  page.advance(10);
-  page.input();
-  page.advance(10);
-  page.input();
-  expect(noted).toBe(before + 1);
-  attention.dispose();
+test("moves arm no timer of their own: one per idle time at most", () => {
+  const h = harness();
+  for (let i = 0; i < 500; i++) {
+    h.advance(1);
+    h.fire("pointermove");
+  }
+  // 500 moves inside the first idle time: only the first timer.
+  expect(h.armed()).toBe(1);
+  // It fires at 1000 ms, finds the hand moved at 500 ms and re-arms once for what is left.
+  h.advance(600);
+  expect(h.armed()).toBe(2);
+  expect(h.attention.present()).toBe(true);
+  expect(h.changes()).toBe(0);
 });
 
-test("an inactive window or a hidden page is not attending, however recent the input", () => {
-  const page = fakePage();
-  const flips: boolean[] = [];
-  const attention = new Attention(page.env, (next) => flips.push(next));
-  page.setFocused(false);
-  expect(attention.now()).toBe(false);
-  page.input();
-  expect(attention.now()).toBe(false);
-  page.setFocused(true);
-  expect(attention.now()).toBe(true);
-  page.setShown(false);
-  expect(attention.now()).toBe(false);
-  expect(flips).toEqual([false, true, false]);
-  attention.dispose();
+test("it listens only while subscribed: the last unsubscribe removes every listener", () => {
+  const h = harness();
+  const listening = () => [...h.handlers.values()].reduce((n, set) => n + set.size, 0);
+  expect(listening()).toBeGreaterThan(0);
+  const second = h.attention.subscribe(() => {});
+  second();
+  expect(listening()).toBeGreaterThan(0);
+  h.attention.dispose();
+  expect(listening()).toBe(0);
+  // Unwatched, the reader counts as here and a touch arms nothing.
+  expect(h.attention.present()).toBe(true);
+  const armed = h.armed();
+  h.attention.touch();
+  expect(h.armed()).toBe(armed);
 });
 
-test("a page restored without focus waits for the person", () => {
-  const page = fakePage({ shown: true, focused: false });
-  const attention = new Attention(page.env, () => {});
-  expect(attention.now()).toBe(false);
-  page.setFocused(true);
-  expect(attention.now()).toBe(true);
-  attention.dispose();
+test("dispose stops listening and tells no one", () => {
+  const h = harness();
+  h.attention.dispose();
+  expect([...h.handlers.values()].every((set) => set.size === 0)).toBe(true);
+  h.advance(5000);
+  expect(h.changes()).toBe(0);
+});
+
+test("presentAt is the idle rule", () => {
+  expect(presentAt(0, 999, 1000)).toBe(true);
+  expect(presentAt(0, 1000, 1000)).toBe(false);
+});
+
+test("lastInputAt is when the hand was last on the page, not when it was noticed away", () => {
+  const h = harness();
+  h.advance(300);
+  h.fire("wheel");
+  h.advance(2000);
+  // Away was noticed at 1300; the reader last saw the chat at 300.
+  expect(h.attention.present()).toBe(false);
+  expect(h.attention.lastInputAt()).toBe(300);
 });

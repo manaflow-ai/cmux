@@ -78,6 +78,12 @@ Detectors (all line/regex heuristics, never an AST):
   lib/git-fixture.sh took ${TMPDIR:-/tmp}/cmux-git-fixture-$UID-v1.gitconfig,
   and a file planted there with core.hooksPath ran a hook in every fixture
   repo. Make the path with mktemp -d / tempfile.mkdtemp instead.
+- git-fixture-exit-trap: a shell test that sources
+  scripts/cmux-next/tests/lib/git-fixture.sh and then sets `trap ... EXIT`
+  itself. That replaces the helper's EXIT trap, so its private
+  GIT_CONFIG_GLOBAL folder is never removed (Codex F2 on cmux#40939:
+  web-bundles-readonly-sources.test.sh's `trap cleanup EXIT`). Call
+  `git_fixture_trap_exit CMD` instead; it runs CMD after the helper's cleanup.
 - wall-clock-expiry (Rust): a test sets something to expire a few seconds
   or less ahead on the real clock (`now_ms() + 50`, under 10 s) and then waits
   the expiry out on that clock: a `while ... now_ms()` loop, or a sleep at the
@@ -189,6 +195,7 @@ RULE_GIT_FIXTURE_ENV_DROPPED = "git-fixture-env-dropped"
 RULE_GIT_BARE_REPO_UNMANAGED = "git-bare-repo-unmanaged"
 RULE_ISOLATED_IMPORT = "isolated-import"
 RULE_PREDICTABLE_TMP_PATH = "predictable-tmp-path"
+RULE_GIT_FIXTURE_EXIT_TRAP = "git-fixture-exit-trap"
 RULE_WALL_CLOCK_EXPIRY = "wall-clock-expiry"
 RULE_FLOCK_RELEASED_BY_CLOSE = "flock-released-by-close"
 RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS = "exec-of-a-file-written-in-process"
@@ -205,6 +212,7 @@ ALL_RULES = (
     RULE_GIT_BARE_REPO_UNMANAGED,
     RULE_ISOLATED_IMPORT,
     RULE_PREDICTABLE_TMP_PATH,
+    RULE_GIT_FIXTURE_EXIT_TRAP,
     RULE_WALL_CLOCK_EXPIRY,
     RULE_FLOCK_RELEASED_BY_CLOSE,
     RULE_EXEC_OF_FILE_WRITTEN_IN_PROCESS,
@@ -215,6 +223,7 @@ GIT_FIXTURE_RULES = (
     RULE_GIT_FIXTURE_ENV_DROPPED,
     RULE_GIT_BARE_REPO_UNMANAGED,
     RULE_PREDICTABLE_TMP_PATH,
+    RULE_GIT_FIXTURE_EXIT_TRAP,
 )
 
 # ---------------------------------------------------------------------------
@@ -4255,6 +4264,35 @@ def detect_git_bare_repo_unmanaged(code_lines: list[str], path_suffix: str) -> l
 
 
 
+# The path may hold spaces inside a substitution: source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh".
+_SH_SOURCES_GIT_FIXTURE = re.compile(r"(?:^|[\s;&|(])(?:source|\.)\s+[^;&|\n]*git-fixture\.sh\b")
+_SH_TRAP = re.compile(r"(?:^|[\s;&|(])trap\s+(?!-[pl]\b)(.*)")
+_SH_QUOTED = re.compile(r"'[^']*'|\"(?:\\.|[^\"\\])*\"")
+_SH_EXIT_SIGNAL = re.compile(r"(?:^|\s)(?:EXIT|SIGEXIT|0)(?=\s|[;&|)]|$)")
+
+
+def detect_git_fixture_exit_trap(code_lines: list[str], path_suffix: str) -> list[int]:
+    """0-based lines that set an EXIT trap after the file sources lib/git-fixture.sh (it replaces the helper's)."""
+    if path_suffix != ".sh":
+        return []
+    hits: list[int] = []
+    sourced = False
+    for index, line in enumerate(code_lines):
+        if _SH_SOURCES_GIT_FIXTURE.search(line):
+            sourced = True
+            continue
+        if not sourced:
+            continue
+        match = _SH_TRAP.search(line)
+        if not match:
+            continue
+        # The command is quoted (or one word); the signals follow it. Drop quoted text, then the command word.
+        words = _SH_QUOTED.sub(" CMD ", match.group(1)).split(None, 1)
+        if len(words) == 2 and _SH_EXIT_SIGNAL.search(words[1].split(";")[0]):
+            hits.append(index)
+    return hits
+
+
 # A temp base (no word, $, /, . or } before it, so "$TMP/build/tmp/x" is not one) and then a literal name.
 _TMP_BASE_SH = r"""(?<![\w$/.}-])(?:/tmp|/var/tmp|\$TMPDIR|\$\{TMPDIR\}|\$\{TMPDIR:-/tmp/?\})/[\w.$"{-]"""
 _SH_TMP_ASSIGN = re.compile(r"""^\s*(?:export\s+|local\s+|readonly\s+|declare\s+(?:-\w+\s+)?)?\w+=["']?""" + _TMP_BASE_SH)
@@ -4794,6 +4832,8 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
         findings.append(Finding(rel_posix, bare_line + 1, RULE_GIT_BARE_REPO_UNMANAGED, raw_lines[bare_line].strip()))
     for tmp_line in detect_predictable_tmp_path(raw_lines, rel_posix):
         findings.append(Finding(rel_posix, tmp_line + 1, RULE_PREDICTABLE_TMP_PATH, raw_lines[tmp_line].strip()))
+    for trap_line in detect_git_fixture_exit_trap(code_lines, suffix):
+        findings.append(Finding(rel_posix, trap_line + 1, RULE_GIT_FIXTURE_EXIT_TRAP, raw_lines[trap_line].strip()))
     findings.sort(key=lambda f: (f.line, f.rule))
     return findings
 
@@ -5069,6 +5109,22 @@ def _self_test() -> int:
             "scripts/cmux-next/tests/bare.test.sh",
             'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\nd=$(mktemp -d)\ngit_q clone --bare "$d/src" "$d/o.git"\n',
             {RULE_GIT_BARE_REPO_UNMANAGED},
+        ),
+        # An EXIT trap after sourcing the helper replaces its cleanup: the GIT_CONFIG_GLOBAL folder leaks (cmux#40939 F2).
+        (
+            "scripts/cmux-next/tests/trap_after.test.sh",
+            'source "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\ntmp=$(mktemp -d)\ntrap \'rm -rf "$tmp"\' EXIT\n',
+            {RULE_GIT_FIXTURE_EXIT_TRAP},
+        ),
+        (
+            "scripts/cmux-next/tests/trap_after_dirname.test.sh",
+            'source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # opt out\ntmp=$(mktemp -d)\ntrap \'rm -rf "$tmp"\' EXIT\n',
+            {RULE_GIT_FIXTURE_EXIT_TRAP},
+        ),
+        (
+            "tests/trap_after_word.sh",
+            '. "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\ncleanup() { rm -rf "$T"; }\nT=$(mktemp -d); trap cleanup EXIT INT\n',
+            {RULE_GIT_FIXTURE_EXIT_TRAP},
         ),
         # A measured duration read with a string key is still code's data, not an assertion message.
         (
@@ -6197,6 +6253,13 @@ def _self_test() -> int:
     ]
 
     negatives: list[tuple[str, str]] = [
+        # Exit cleanup through the helper; an EXIT trap set before sourcing; INT alone; `trap -p EXIT`.
+        (
+            "scripts/cmux-next/tests/trap_ok.test.sh",
+            'trap \'echo early\' EXIT\nsource "$ROOT/scripts/cmux-next/tests/lib/git-fixture.sh"\n'
+            'tmp=$(mktemp -d)\ngit_fixture_trap_exit \'rm -rf "$tmp"\'\ntrap \'exit 130\' INT\nprev=$(trap -p EXIT)\n'
+            'trap "echo EXIT" TERM\n',
+        ),
         # A clock the test advances by hand.
         (
             "webviews/test/fake_clock_window.test.ts",

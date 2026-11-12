@@ -6,12 +6,12 @@
 // - The chat attaches with `visible` from the page's visibility.
 // - Hiding the page (a tab in a background workspace, an occluded window) sends
 //   `_acpmux/view` visible false; showing it again sends true.
+// - A reader who steps away (no pointer move, wheel, key or focus for the idle time, attention.ts)
+//   leaves the chat shown but unattended: `_acpmux/view` visible true, `attending: false`, with the
+//   seq it had at their last input; their next move sends `attending: true` and draws "New since you
+//   looked" where acpmux's answer puts it.
 // - acpmux handles each request on its own task, so a view sent while the attach is in flight
 //   could overtake it and be refused; the pane sends it once the attach is answered.
-// - Showing is not seeing (attention.ts; Leo, 2026-11-11: "if they didn't move the mouse at all,
-//   then it's like, well, they didn't see it"): a shown pane with no input for the idle window says
-//   `attending: false` with the seq it had at the last input, and the next input says
-//   `attending: true` and draws "New since you looked" where acpmux's answer puts it.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -179,12 +179,9 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
   /// Waits until the pane has sent `count` `_acpmux/view` requests.
   const sentViews = (count: number) => until(() => views().length >= count, `${count} views`);
 
-  async function openPane(): Promise<Page> {
-    return openPaneWith();
-  }
-  async function openPaneWith(init?: () => void): Promise<Page> {
+  async function openPane(before?: (page: Page) => Promise<void>): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
-    if (init) await page.addInitScript(init);
+    await before?.(page);
     // Keeps the page's sockets, so a test can send a marker down the pane's own connection.
     await page.addInitScript(() => {
       const sockets: WebSocket[] = [];
@@ -225,6 +222,44 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
       }
     }, 120_000);
 
+    test("a reader who steps away leaves the chat shown but unattended, and their next move attends it", async () => {
+      const from = sent.length;
+      returnOnAttend = true;
+      const pane = await openPane((p) => p.clock.install());
+      try {
+        await until(
+          () => sent.slice(from).some((m) => m.method === "_acpmux/attach" && m.params.visible === true),
+          "the attach",
+          ATTACH_MS,
+        );
+        await caughtUp(pane);
+        expect(views(from)).toEqual([]);
+        const viewsFrom = () =>
+          sent.slice(from).filter((m) => m.method === "_acpmux/view" && m.params.sessionId === SESSION);
+        // Nobody touched the page for the idle time (attention.ts ATTENTION_IDLE_MS): the chat stays
+        // shown (its process and presence), and acpmux hears where the reader left off.
+        await pane.clock.fastForward(2 * 60_000 + 1000);
+        await until(() => viewsFrom().length >= 1, "the away view");
+        const away = viewsFrom()[0]!;
+        expect(away.params.visible).toBe(true);
+        expect(away.params.attending).toBe(false);
+        expect(typeof away.params.seenSeq).toBe("number");
+        await pane.mouse.move(200, 200);
+        await pane.mouse.move(240, 260);
+        await until(() => viewsFrom().length >= 2, "the return view");
+        await settled();
+        expect(viewsFrom().map((m) => [m.params.visible, m.params.attending])).toEqual([
+          [true, false],
+          [true, true],
+        ]);
+        // acpmux answers the return with where the reader stopped: the New line is drawn there.
+        await pane.waitForSelector(".cv-since", { timeout: 10_000 });
+      } finally {
+        returnOnAttend = false;
+        await pane.close();
+      }
+    }, 120_000);
+
     test("a pane hidden while its attach is in flight tells acpmux once the attach is answered", async () => {
       const from = sent.length;
       holdAttach = true;
@@ -248,27 +283,29 @@ await requireBrowserLane("agent-pane-seen.test.ts", async () => {
       }
     }, 120_000);
 
-    test("idle on screen says not attending; the next input attends and draws the return", async () => {
+    test("a reader who leaves and comes back while the attach is out still tells acpmux both", async () => {
       const from = sent.length;
-      returnOnAttend = true;
-      // A short idle window, so the test waits half a second instead of a minute (attention.ts).
-      const pane = await openPaneWith(() => {
-        (globalThis as { __cmuxAttentionIdleMs?: number }).__cmuxAttentionIdleMs = 500;
-      });
+      holdAttach = true;
+      releaseAttach = undefined;
+      const page = await openPane();
       try {
-        const viewsFrom = () =>
-          sent.slice(from).filter((m) => m.method === "_acpmux/view" && m.params.sessionId === SESSION);
-        await until(() => viewsFrom().some((m) => m.params.attending === false), "an idle view", ATTACH_MS);
-        const idle = viewsFrom().find((m) => m.params.attending === false)!;
-        expect(idle.params.visible).toBe(true);
-        expect(typeof idle.params.seenSeq).toBe("number");
-        await pane.mouse.move(40, 40);
-        await pane.mouse.move(60, 60);
-        await until(() => viewsFrom().some((m) => m.params.attending === true), "the return");
-        await pane.waitForSelector(".cv-since", { timeout: 10_000 });
+        await until(() => releaseAttach !== undefined, "the attach", ATTACH_MS);
+        // Away and back before acpmux answered the attach: each view keeps what the page was then.
+        await setVisibility(page, "hidden");
+        await setVisibility(page, "visible");
+        await caughtUp(page);
+        expect(views(from)).toEqual([]);
+        holdAttach = false;
+        releaseAttach!();
+        await until(() => views(from).length >= 2, "both views");
+        await settled();
+        expect(views(from)).toEqual([
+          { sessionId: SESSION, visible: false },
+          { sessionId: SESSION, visible: true },
+        ]);
       } finally {
-        returnOnAttend = false;
-        await pane.close();
+        holdAttach = false;
+        await page.close();
       }
     }, 120_000);
   });

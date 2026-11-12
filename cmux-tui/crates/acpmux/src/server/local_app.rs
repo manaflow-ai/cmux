@@ -91,11 +91,10 @@ impl LocalAppAuth {
 #[cfg(unix)]
 pub(crate) fn create_secret(path: &Path) -> anyhow::Result<String> {
     use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
     if let Some(dir) = path.parent() {
         crate::agent_host::ensure_private_dir(dir)?;
     }
-    match std::fs::remove_file(path) {
+    match crate::home_fs::remove_file(path) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(anyhow::anyhow!("remove stale {}: {e}", path.display())),
@@ -104,7 +103,7 @@ pub(crate) fn create_secret(path: &Path) -> anyhow::Result<String> {
     getrandom::fill(&mut bytes)
         .map_err(|e| anyhow::anyhow!("the OS random generator for {}: {e}", path.display()))?;
     let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
-    let mut f = std::fs::OpenOptions::new()
+    let mut f = crate::home_fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
@@ -123,7 +122,7 @@ pub(crate) fn create_secret(path: &Path) -> anyhow::Result<String> {
     if let Some(dir) = path.parent() {
         crate::agent_host::ensure_private_dir(dir)?;
     }
-    match std::fs::remove_file(path) {
+    match crate::home_fs::remove_file(path) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(anyhow::anyhow!("remove stale {}: {e}", path.display())),

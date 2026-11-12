@@ -98,14 +98,19 @@ thread."
 Leo, 2026-11-11: "if someone steps away from the computer for a bit, that doesn't mean they're necessarily
 watching it, right? Like if they didn't move the mouse at all, then it's like, well, they didn't see it."
 
-- A chat's rows are seen only while the person attends it (`attention.ts`): the pane is on screen, its window
-  is key and focused, and they moved the pointer, pressed a key or scrolled in it within 60 s
-  (`ATTENTION_IDLE_MS`: about a screenful of reading without touching anything; a coffee or a call is away).
-- Pinned at the bottom while idle marks nothing seen: the turns that end then are unread (the sidebar's dot),
-  and the next input is a return, with the New line where the person last gave input and the dot on Jump up.
+- A chat's rows are seen only while the person attends it (`attention.ts`): the page shows and their hand
+  was on it (pointer move, wheel, key, touch, focus, showing the page, picking a chat) within two minutes
+  (`ATTENTION_IDLE_MS`: long enough to read a reply untouched, short enough that stepping away leaves what
+  came after unread).
+- Pinned at the bottom while away marks nothing seen: the turns that end then are unread (the sidebar's dot),
+  and a turn that ended after their last input counts as missed even inside the two minutes. The next input is
+  a return, with the New line after the last record they were here for and the dot on Jump up.
+- An away person keeps the chat shown (`visible` stays true: its process, recap and presence are unchanged);
+  only `attending` turns false.
 - acpmux owns it (`hub/seen.rs`, `_acpmux/view` `attending` and `seenSeq`): one mark per chat (`seenSeq` in
   the chat's session.json), the same for every client, kept across tab switches and app restarts. The pane
-  only reports the three facts and draws what the daemon answers (`lastReturn`).
+  reports only the page shown, the reader here and the seq at their last input, and draws what the daemon
+  answers (`lastReturn`).
 
 ## Putting a waiting card away
 

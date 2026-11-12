@@ -1,180 +1,127 @@
-// Whether the person attends the chat on screen: the read model behind "New since you looked" and
-// Jump up (design/transcript-overlays.md, "What counts as seen"). Leo, 2026-11-11: "if someone steps
-// away from the computer for a bit, that doesn't mean they're necessarily watching it, right? Like if
-// they didn't move the mouse at all, then it's like, well, they didn't see it. There's that activity
-// sort of model there."
+// Whether the reader is at the chat: the page shows and their hand moved on it lately (Leo,
+// 2026-11-11: "if someone steps away from the computer for a bit, that doesn't mean they're
+// necessarily watching it, right? Like if they didn't move the mouse at all, then it's like, well,
+// they didn't see it. There's that activity sort of model there.").
 //
-// A chat's rows are seen only while all three hold:
+// The pane tells acpmux whether the reader attends the chat it shows (direct.ts `syncView`,
+// `attending`), so a turn that ends while they are away is unread (acpmux hub/seen.rs) while the
+// chat stays shown (its process, recap and presence), and coming back by hand is seeing it: "New since you looked" goes after the last record they were here for, and Jump up
+// takes them there. Chat apps mark a channel read while it is open in a focused window; this asks
+// for a hand on it, since a window left open on a chat says nothing about whether anyone read it.
 //
-// - the page is on screen (`document.visibilityState`, a background workspace or an occluded window
-//   is hidden);
-// - its window is key and the pane has focus (`document.hasFocus()`, window focus and blur);
-// - the person moved the pointer, pressed a key or a button, or scrolled in the pane within
-//   `ATTENTION_IDLE_MS`.
-//
-// acpmux owns the read state (`hub/seen.rs`): the pane only says whether its person attends
-// (`_acpmux/view` `attending`), with the log seq it held at their last input (`seenSeq`), and the
-// daemon keeps the chat's mark (`seenSeq` in session.json), counts the turns that end unattended and
-// answers the return. This file decides nothing but the three facts above, and runs nothing per
-// input but a timestamp write: the idle timer is armed once per window and re-armed lazily.
+// One record per page: an input moves `lastInputAt` and nothing else; a single timer, armed once
+// per away/back change and re-armed only when it fires early, turns the reader away. No work per
+// pointer move beyond a store. It listens only while something subscribes: a page with no chat
+// client (a guest's fed transcript) keeps no listener, and the last client's dispose removes them.
 
-/// How long without input the person still counts as attending: 60 s. Long enough to read a screenful
-/// of a reply without touching anything (about 250 words at a reading pace of 250 a minute, the most
-/// a 900 px pane shows of prose), short enough that stepping away from the desk (a coffee, a call)
-/// counts as away before the next turn of a working agent ends. Longer windows mark turns read that
-/// ended after the person left; shorter ones put "New" over text they were reading.
-export const ATTENTION_IDLE_MS = 60_000;
+/// How long without a pointer move, wheel, key or focus on the page before the reader counts as
+/// away. Long enough to read a reply without touching anything; short enough that stepping away
+/// leaves what came after unread.
+export const ATTENTION_IDLE_MS = 2 * 60_000;
 
-/// What the pane knows about its person, at `now` (ms).
-export type AttentionFacts = {
-  shown: boolean;
-  focused: boolean;
-  /// When the person last gave input in the pane (ms), if ever since it loaded.
-  lastInputAt: number | undefined;
-  now: number;
-  idleMs?: number;
-};
+/// The inputs that say a hand is on the page.
+const INPUTS = ["pointermove", "pointerdown", "wheel", "keydown", "touchstart"] as const;
 
-/// Whether the person attends the chat: on screen, focused, and input within the idle window.
-export function attending(facts: AttentionFacts): boolean {
-  const { shown, focused, lastInputAt, now, idleMs = ATTENTION_IDLE_MS } = facts;
-  return shown && focused && lastInputAt !== undefined && now - lastInputAt < idleMs;
+/// Whether a reader whose last input was at `lastInputAt` is still here at `now`.
+export function presentAt(lastInputAt: number, now: number, idleMs = ATTENTION_IDLE_MS): boolean {
+  return now - lastInputAt < idleMs;
 }
 
-/// The page's surroundings, injected so tests drive them without a browser.
-export type AttentionEnv = {
-  now(): number;
-  shown(): boolean;
-  focused(): boolean;
-  setTimer(run: () => void, ms: number): unknown;
-  clearTimer(timer: unknown): void;
-  /// Subscribes to the page's input and focus events; returns the unsubscribe.
-  listen(onInput: () => void, onFocusChange: () => void): () => void;
-  idleMs?: number;
+export type Attention = {
+  /// The reader's hand was on the page within the idle time.
+  present(): boolean;
+  /// When their hand was last on the page: what a chat had by then is what they saw (direct.ts
+  /// `noteSeen`, acpmux `seenSeq`).
+  lastInputAt(): number;
+  /// An input this page's own listeners do not see: the reader showed the page (switched to its
+  /// tab or workspace) or picked a chat in it.
+  touch(): void;
+  /// Called when `present()` changes, either way.
+  subscribe(listener: () => void): () => void;
+  dispose(): void;
 };
 
-/// The inputs that are the person: pointer, keys, wheel and scroll. A scroll the transcript makes
-/// itself (following a streaming reply) is no input: only `wheel`, keys and the pointer count, and a
-/// scrollbar drag is a pointerdown.
-const INPUTS = ["pointermove", "pointerdown", "keydown", "wheel", "touchstart"] as const;
+type AttentionTarget = Pick<Window, "addEventListener" | "removeEventListener">;
 
-/// The browser's surroundings: the page's own events, captured so a control that stops propagation
-/// still counts. Passive: nothing here delays an input.
-export function browserAttentionEnv(): AttentionEnv | undefined {
-  if (typeof document === "undefined" || typeof window === "undefined") return undefined;
-  // Test seam: the browser tests shorten the window (agent-pane-seen.test.ts).
-  const idle = (globalThis as { __cmuxAttentionIdleMs?: unknown }).__cmuxAttentionIdleMs;
+/// Watches `target` for input while it has a subscriber; with none it says the reader is here and
+/// listens to nothing. `now` and the timers are the page's unless a test passes its own.
+export function createAttention(
+  target: AttentionTarget,
+  idleMs = ATTENTION_IDLE_MS,
+  now: () => number = Date.now,
+  timers: { set: (fn: () => void, ms: number) => unknown; clear: (id: unknown) => void } = {
+    set: (fn, ms) => setTimeout(fn, ms),
+    clear: (id) => clearTimeout(id as ReturnType<typeof setTimeout>),
+  },
+): Attention {
+  let lastInputAt = now();
+  let here = true;
+  let timer: unknown;
+  const listeners = new Set<() => void>();
+  const changed = () => {
+    for (const listener of listeners) listener();
+  };
+  const arm = (ms: number) => {
+    timer = timers.set(check, Math.max(0, ms));
+  };
+  // The timer runs once per idle time at most: inputs since it was armed only push the next check out.
+  function check(): void {
+    timer = undefined;
+    const left = lastInputAt + idleMs - now();
+    if (left > 0) return arm(left);
+    if (!here) return;
+    here = false;
+    changed();
+  }
+  const input = () => {
+    lastInputAt = now();
+    if (timer === undefined) arm(idleMs);
+    if (here) return;
+    here = true;
+    changed();
+  };
+  const start = () => {
+    for (const name of INPUTS) target.addEventListener(name, input, { capture: true, passive: true });
+    target.addEventListener("focus", input);
+    // Watching starts with a reader here: whoever opened the chat did it by hand.
+    lastInputAt = now();
+    here = true;
+    arm(idleMs);
+  };
+  const stop = () => {
+    for (const name of INPUTS) target.removeEventListener(name, input, { capture: true });
+    target.removeEventListener("focus", input);
+    if (timer !== undefined) timers.clear(timer);
+    timer = undefined;
+    here = true;
+  };
   return {
-    now: () => Date.now(),
-    shown: () => document.visibilityState !== "hidden",
-    focused: () => document.hasFocus(),
-    setTimer: (run, ms) => setTimeout(run, ms),
-    clearTimer: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
-    listen(onInput, onFocusChange) {
-      const options = { capture: true, passive: true } as const;
-      for (const kind of INPUTS) window.addEventListener(kind, onInput, options);
-      window.addEventListener("focus", onFocusChange);
-      window.addEventListener("blur", onFocusChange);
-      document.addEventListener("visibilitychange", onFocusChange);
+    present: () => here,
+    lastInputAt: () => lastInputAt,
+    touch: () => {
+      if (listeners.size > 0) input();
+    },
+    subscribe(listener) {
+      if (listeners.size === 0) start();
+      listeners.add(listener);
       return () => {
-        for (const kind of INPUTS) window.removeEventListener(kind, onInput, options);
-        window.removeEventListener("focus", onFocusChange);
-        window.removeEventListener("blur", onFocusChange);
-        document.removeEventListener("visibilitychange", onFocusChange);
+        if (!listeners.delete(listener) || listeners.size > 0) return;
+        stop();
       };
     },
-    ...(typeof idle === "number" && idle > 0 ? { idleMs: idle } : {}),
+    dispose() {
+      if (listeners.size > 0) stop();
+      listeners.clear();
+    },
   };
 }
 
-/// Follows whether the person attends and calls `onChange` once per flip. `onInput` runs on the
-/// input that starts (or restarts) attending, and on each later one at most once per second, so its
-/// owner can note the log seq the person has seen (`seenAt`).
-export class Attention {
-  private lastInputAt: number | undefined;
-  private timer: unknown;
-  private was: boolean;
-  private readonly stop: () => void;
-  private lastNoted = -Infinity;
+let page: { target: AttentionTarget; attention: Attention } | undefined;
 
-  constructor(
-    private readonly env: AttentionEnv,
-    private readonly onChange: (attending: boolean) => void,
-    private readonly onInput: () => void = () => {},
-  ) {
-    // The page opening on screen with focus is the person's doing (a click on the chat's row, a
-    // shortcut): it counts as input. A page restored unfocused waits for the person.
-    if (env.shown() && env.focused()) this.lastInputAt = env.now();
-    this.was = this.now();
-    if (this.was) {
-      this.arm();
-      this.lastNoted = env.now();
-      this.onInput();
-    }
-    this.stop = env.listen(this.input, this.focusChanged);
-  }
-
-  /// Whether the person attends now.
-  now(): boolean {
-    return attending({
-      shown: this.env.shown(),
-      focused: this.env.focused(),
-      lastInputAt: this.lastInputAt,
-      now: this.env.now(),
-      idleMs: this.env.idleMs,
-    });
-  }
-
-  private readonly input = (): void => {
-    const at = this.env.now();
-    this.lastInputAt = at;
-    if (at - this.lastNoted >= 1_000 || !this.was) {
-      this.lastNoted = at;
-      this.onInput();
-    }
-    if (!this.was) this.settle();
-    else if (this.timer === undefined) this.arm();
-  };
-
-  /// Focus or visibility changed. Coming back on screen and focused is the person's doing too.
-  private readonly focusChanged = (): void => {
-    if (this.env.shown() && this.env.focused()) {
-      this.lastInputAt = this.env.now();
-      this.onInput();
-    }
-    this.settle();
-  };
-
-  /// The idle timer: fires at the window's end from the last input it knows of; an input since moves
-  /// the end, so it re-arms for the rest instead of being reset on every pointer move.
-  private arm(): void {
-    if (this.timer !== undefined) this.env.clearTimer(this.timer);
-    const idle = this.env.idleMs ?? ATTENTION_IDLE_MS;
-    const left = this.lastInputAt === undefined ? idle : this.lastInputAt + idle - this.env.now();
-    this.timer = this.env.setTimer(
-      () => {
-        this.timer = undefined;
-        this.settle();
-      },
-      Math.max(0, left),
-    );
-  }
-
-  private settle(): void {
-    const next = this.now();
-    if (next) this.arm();
-    else if (this.timer !== undefined) {
-      this.env.clearTimer(this.timer);
-      this.timer = undefined;
-    }
-    if (next === this.was) return;
-    this.was = next;
-    this.onChange(next);
-  }
-
-  dispose(): void {
-    this.stop();
-    if (this.timer !== undefined) this.env.clearTimer(this.timer);
-    this.timer = undefined;
-  }
+/// The page's own attention, made on first use (and again for another window, as tests swap it);
+/// none where there is no window (tests without a DOM, workers), where the reader counts as here.
+export function pageAttention(): Attention | undefined {
+  if (typeof window === "undefined" || typeof window.addEventListener !== "function") return undefined;
+  if (page?.target !== window) page = { target: window, attention: createAttention(window) };
+  return page.attention;
 }
