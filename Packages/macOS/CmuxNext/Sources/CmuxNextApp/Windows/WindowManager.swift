@@ -117,6 +117,7 @@ final class WindowManager {
     private(set) var isTerminating = false
     /// False in tests: windows are created but never ordered on screen.
     var ordersWindowsIn = true
+    var reopenCreating = false // a reopen with no window is making one (`reopenOrCreateWindow`): another reopen meanwhile makes none
     /// Restore finished: windows saved in full screen may enter it.
     var fullScreenRestoreReady = false
     /// A restored window is entering full screen (one at a time).
