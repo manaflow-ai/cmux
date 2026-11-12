@@ -16,7 +16,6 @@
 
 use super::*;
 use crate::hub::settled_view::{SettledKey, SettledView};
-use cmux_json::JsonSet as _;
 
 /// The saved view an attach asking `settled` may answer with, before it waits for any log.
 pub(super) fn saved(
