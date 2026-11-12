@@ -706,9 +706,6 @@ public struct WorkspacesList: View {
     private var anchor: some View {
         Color.clear
             .frame(width: max(confirmFrame.width, 1), height: max(confirmFrame.height, 1))
-            // Padding, not an offset: the popover points at the layout frame.
-            .padding(.leading, max(confirmFrame.minX, 0))
-            .padding(.top, max(confirmFrame.minY, 0))
             .allowsHitTesting(false)
             .accessibilityHidden(true)
             .confirmationDialog(bulkClosing.map { WorkspaceBulkClose.question($0.targets.count) } ?? "", isPresented: isPresented($bulkClosing),
@@ -743,6 +740,13 @@ public struct WorkspacesList: View {
             } message: { (target: GroupTarget) in
                 Text(deleteGroupMessage(target))
             }
+            // The dialogs hang off the row-sized view, and padding (not an
+            // offset: the popover reads the layout frame) places it over the
+            // row. Padded first, the popover's source was the whole region from
+            // the list's corner to the row's bottom: it could only open below
+            // the row, so near the bottom it slid up over the row it named.
+            .padding(.leading, max(confirmFrame.minX, 0))
+            .padding(.top, max(confirmFrame.minY, 0))
     }
 
     /// Set Icon…: the symbol picker.
