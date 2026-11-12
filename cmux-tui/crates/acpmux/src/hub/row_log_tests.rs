@@ -80,7 +80,7 @@ async fn hub_with(chats: usize, peers: usize, rows: usize) -> Arc<Hub> {
             .map(|r| json!({"sessionId": format!("m{r}"), "name": "lane", "status": "idle", "updatedAt": 5}))
             .collect();
         let mut settled = peer.settled();
-        for notice in [PeerNotice::Sessions(list), PeerNotice::Connected] {
+        for notice in [PeerNotice::sessions_from_values(list), PeerNotice::Connected] {
             hub.peer_notices.send((name.clone(), peer.generation, notice)).await.unwrap();
         }
         tokio::time::timeout(Duration::from_secs(10), settled.wait_for(|n| *n >= 1))

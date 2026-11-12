@@ -129,6 +129,7 @@ members = [
     "crates/cmux-view-rows",
     "crates/acpmux-hot",
     "crates/cmux-command-class",
+    "crates/cmux-source-scan",
 ]
 default-members = [
     "crates/acpmux",

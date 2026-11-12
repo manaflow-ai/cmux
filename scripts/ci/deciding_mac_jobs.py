@@ -36,6 +36,8 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tests"))
 from runs_on_labels import Unknown, disallowed_labels, resolve_labels  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 import workflow_jobs  # noqa: E402 - tests/workflow_jobs.py, the one reader of a job's runs-on
 
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
@@ -57,7 +59,7 @@ LINUX_DECIDING = {
 def check_name(job_id: str, job: dict) -> str:
     """The check run's name for a job: its `name`, with a whole-expression name as GitHub shows it unevaluated."""
     name = str(job.get("name") or job_id)
-    whole = re.fullmatch(r"\$\{\{\s*(.*?)\s*\}\}", name, re.DOTALL)
+    whole = gh_expressions.STRIPPED.fullmatch(name)
     return whole.group(1) if whole else name
 
 

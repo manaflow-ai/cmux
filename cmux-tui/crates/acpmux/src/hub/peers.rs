@@ -758,20 +758,25 @@ impl Hub {
     }
 
     /// Peer `peer`'s whole list after a follow (`PeerNotice::SessionsPatch`), as the peer would
-    /// list it: each row it last listed, in its live form, unless `gone` names it or `rows` holds
-    /// it anew.
-    fn patched_peer_list(&self, peer: &str, rows: Vec<Value>, gone: &[String]) -> Vec<Value> {
-        let id = |row: &Value| row.get("sessionId").and_then(Value::as_str).map(str::to_owned);
+    /// list it, each row as its text: each row it last listed, in its live form, unless `gone`
+    /// names it or `rows` holds it anew.
+    fn patched_peer_list(&self, peer: &str, rows: Vec<Arc<str>>, gone: &[String]) -> Vec<Arc<str>> {
+        #[derive(serde::Deserialize)]
+        struct Id {
+            #[serde(rename = "sessionId")]
+            session_id: Option<String>,
+        }
+        let id = |row: &Arc<str>| serde_json::from_str::<Id>(row).ok()?.session_id;
         let mut out: std::collections::HashSet<String> = gone.iter().cloned().collect();
         out.extend(rows.iter().filter_map(id));
         let held = self.remote_sessions.snapshot();
-        let mut list: Vec<Value> = held
+        let mut list: Vec<Arc<str>> = held
             .live_of_peer(peer)
             .filter(|row| {
                 let mux = session_receipt(row).map(|r| r.mux_session_id);
                 mux.is_some_and(|mux| !out.contains(&mux))
             })
-            .cloned()
+            .map(|row| Arc::from(row.to_string()))
             .collect();
         list.extend(rows);
         list
@@ -868,52 +873,43 @@ impl Hub {
                                     .iter()
                                     .cloned(),
                             );
+                            // The rows themselves, shared with the table: no summary is copied.
                             let map = self.remote_sessions.settled();
                             (
                                 map.of_peer(&peer)
-                                    .map(|(id, r)| (id.clone(), r.summary.clone()))
+                                    .map(|(id, r)| (id.clone(), Arc::clone(r)))
                                     .collect::<HashMap<_, _>>(),
                                 epoch,
                                 purged,
                             )
                         };
-                        let mut listed_rows = Vec::new();
-                        let mut updates = Vec::new();
+                        // Each row is parsed from its text here, one at a time, so a list is
+                        // never held parsed whole. A row that is not an object is skipped.
+                        let mut listed = Vec::new();
                         let mut changed = Vec::new();
-                        for s in &list {
-                            let summary = Self::remote_summary(&peer, s.clone());
+                        for text in &list {
+                            let Ok(s) = serde_json::from_str::<Value>(text) else { continue };
+                            let summary = Self::remote_summary(&peer, s);
                             let Some(receipt) = session_receipt(&summary) else { continue };
                             if purged.contains(&receipt.mux_session_id) {
                                 continue;
                             }
                             let id = receipt.qualified_id();
                             let previous = old.remove(&id);
-                            let summary = Self::retain_summary_tools(summary, previous.as_ref());
-                            if previous.as_ref() != Some(&summary) {
-                                changed.push(summary.clone());
-                                updates.push((
-                                    id.clone(),
-                                    RemoteSession {
-                                        peer: peer.clone(),
-                                        summary: summary.clone(),
-                                        receipt: receipt.clone(),
-                                    },
-                                ));
+                            let previous = previous.as_ref().map(|r| &r.summary);
+                            let summary = Self::retain_summary_tools(summary, previous);
+                            listed.push((
+                                receipt.mux_session_id.clone(),
+                                summary.get("createdAt").and_then(Value::as_u64),
+                            ));
+                            if previous != Some(&summary) {
+                                // One row for the table and the announcement both.
+                                let row = RemoteSession { peer: peer.clone(), summary, receipt };
+                                changed.push((id, Arc::new(row)));
                             }
-                            listed_rows
-                                .push((id, RemoteSession { peer: peer.clone(), summary, receipt }));
                         }
                         let gone_ids = old.keys().cloned().collect::<Vec<_>>();
                         let gone = old.into_values().collect::<Vec<_>>();
-                        let listed = listed_rows
-                            .iter()
-                            .map(|(_, r)| {
-                                (
-                                    r.receipt.mux_session_id.clone(),
-                                    r.summary.get("createdAt").and_then(Value::as_u64),
-                                )
-                            })
-                            .collect::<Vec<_>>();
                         #[cfg(test)]
                         self.pause_after_peer_session_projection_for_test();
                         let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
@@ -931,8 +927,8 @@ impl Hub {
                         for id in gone_ids {
                             map.remove(&id);
                         }
-                        for (id, row) in updates {
-                            map.insert(id, row);
+                        for (id, row) in &changed {
+                            map.insert_shared(id.clone(), Arc::clone(row));
                         }
                         if !changed.is_empty() || !gone.is_empty() {
                             current
@@ -959,11 +955,12 @@ impl Hub {
                     // notice. The throttle admits one snapshot per interval; disconnect/drop
                     // paths still call with `now = true` for the final state.
                     self.save_peer_cache(&peer, generation, false);
-                    for summary in changed {
-                        self.announce_remote(&peer, summary, "status");
+                    // Each summary copied as it is announced, one at a time.
+                    for (_, row) in changed {
+                        self.announce_remote(&peer, row.summary.clone(), "status");
                     }
-                    for summary in gone {
-                        self.announce_remote(&peer, summary, "purged");
+                    for row in gone {
+                        self.announce_remote(&peer, row.summary.clone(), "purged");
                     }
                     // Its live asks that came before this list.
                     self.release_held_peer_asks(&peer, generation);

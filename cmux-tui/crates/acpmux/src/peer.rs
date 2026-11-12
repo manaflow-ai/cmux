@@ -131,13 +131,14 @@ pub enum PeerNotice {
     Disconnected(String),
     /// The remote daemon sent WebSocket Close 1012; its rows stay usable while it restarts.
     Restarting,
-    /// Full session list from `_acpmux/watch` or a single `session_changed`.
-    Sessions(Vec<Value>),
+    /// Full session list from `_acpmux/watch` or a single `session_changed`: each row's compact
+    /// JSON, which the hub parses one row at a time.
+    Sessions(Vec<Arc<str>>),
     /// What changed in the peer's list since the link's cursor (`hub/row_log.rs`): the rows
-    /// changed, and the peer's own ids of the rows that went. The rest stand as the peer last
-    /// listed them.
+    /// changed, each as its text, and the peer's own ids of the rows that went. The rest stand as
+    /// the peer last listed them.
     SessionsPatch {
-        rows: Vec<Value>,
+        rows: Vec<Arc<str>>,
         gone: Vec<String>,
     },
     SessionChanged {
@@ -151,6 +152,25 @@ pub enum PeerNotice {
         /// The link it came on (`Peer::link_epoch` when it was read).
         link: u64,
     },
+}
+
+#[cfg(test)]
+impl PeerNotice {
+    /// A list of `rows`, each sent as its text, as a link sends it.
+    pub(crate) fn sessions_from_values(rows: Vec<Value>) -> Self {
+        Self::Sessions(rows.iter().map(row_text).collect())
+    }
+}
+
+/// The rows of a list as a test reads them.
+#[cfg(test)]
+pub(crate) fn parse_rows(rows: &[Arc<str>]) -> Vec<Value> {
+    rows.iter().map(|row| serde_json::from_str(row).unwrap_or(Value::Null)).collect()
+}
+
+/// A row as a list carries it: its compact JSON.
+fn row_text(row: &Value) -> Arc<str> {
+    Arc::from(serde_json::to_string(row).unwrap_or_default())
 }
 
 /// Which list a request's reply is, for the reader (`Peer::watch_key`).
@@ -2379,7 +2399,7 @@ impl Peer {
         // The rows of a watch list read in pages so far, and the changes the peer sent
         // meanwhile: published once the last page is in, the list first. A link that drops
         // before then publishes neither, so the hub keeps its last whole list.
-        let mut paged: Option<(Vec<Value>, Vec<PeerNotice>)> = None;
+        let mut paged: Option<(Vec<Arc<str>>, Vec<PeerNotice>)> = None;
         // The position the watch list read so far is current to (`list_position`), and whether
         // this link's list reached the hub: until it does, a change moves no cursor, since the
         // hub holds the last link's list and misses what changed while no link was up.
@@ -2883,15 +2903,16 @@ fn gone_ids(reply: &Value) -> Vec<String> {
         .collect()
 }
 
-/// The sessions an `_acpmux/watch` reply lists, without the rows the peer itself mirrors.
-fn watch_sessions(reply: &Value) -> Vec<Value> {
+/// The sessions an `_acpmux/watch` reply lists, without the rows the peer itself mirrors, each
+/// as its text: no row is copied as a `Value`.
+fn watch_sessions(reply: &Value) -> Vec<Arc<str>> {
     reply
         .get("sessions")
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
         .filter(|session| session.is_object() && !is_mirrored_session(session))
-        .cloned()
+        .map(row_text)
         .collect()
 }
 

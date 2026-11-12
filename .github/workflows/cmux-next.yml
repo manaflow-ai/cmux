@@ -124,6 +124,7 @@ on:
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
+      - scripts/ci/gh_expressions.py
       - scripts/ci/swiftpm_build_metrics.py
       - scripts/ci/build_metrics.py
       - tests/test_ci_swiftpm_build_metrics.py
@@ -460,6 +461,7 @@ on:
       - tests/fixtures/cua-helper-signatures/**
       - scripts/whats-new/fixtures/**
       - scripts/ci/cmux_next_route.py
+      - scripts/ci/gh_expressions.py
       - scripts/ci/swiftpm_build_metrics.py
       - scripts/ci/build_metrics.py
       - tests/test_ci_swiftpm_build_metrics.py
