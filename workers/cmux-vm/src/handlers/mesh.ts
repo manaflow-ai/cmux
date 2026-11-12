@@ -470,7 +470,7 @@ const reconcileCurrent = <C, M>(caller: Named<C, Principal>, mesh: Named<M, Mesh
     const wanted = yield* limits.coverageWanted(tenantId, coverageKey(mesh.value)).pipe(Effect.option);
     const acl = yield* phase(phases, "aclMs", store.currentAcl(tenantId, mesh.value).pipe(Effect.catchAll(dependencyDown("mesh.currentAcl"))));
     const document = Option.match(acl, { onNone: () => EMPTY_ACL, onSome: (row) => row.document });
-    const { result } = yield* phase(phases, "compileMs", compileFor(tenantId, mesh.value, document, false));
+    const { result } = yield* phase(phases, "compileMs", compileFor(tenantId, mesh.value, document, false, [], phases));
     const desired = yield* compiled(result);
     const applied = yield* reconcile(caller, mesh, ownsMesh, desired, phases);
     if (Option.isSome(wanted)) {
