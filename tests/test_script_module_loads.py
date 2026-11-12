@@ -35,8 +35,9 @@ LOADERS = {"spec_from_file_location", "SourceFileLoader", "load_source", "run_pa
 IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
 
 # Test helpers loaded by path in each test file on purpose and never registered: `python3 -I` puts no folder on
-# sys.path (tests/git_fixture_env.py, tests/process_gone.py, tests/guard_child_env.py).
-PRIVATE_COPIES = {"git_fixture_env", "process_gone", "guard_child_env"}
+# sys.path (tests/git_fixture_env.py, tests/process_gone.py, tests/guard_child_env.py, and tests/git_history.py and
+# tests/known_red.py, whose docstrings say "Load this module by path, never `import ...`").
+PRIVATE_COPIES = {"git_fixture_env", "process_gone", "guard_child_env", "git_history", "known_red"}
 
 # Path loads this check found when it was widened to scripts' imports and to files more than one test loads, left
 # to convert (the nine that made a second object at runtime are converted). Shrink-only: an entry that is no longer
