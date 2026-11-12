@@ -27,6 +27,9 @@ function installDom(): HTMLElement {
     "MouseEvent",
     "KeyboardEvent",
     "IS_REACT_ACT_ENVIRONMENT",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "getComputedStyle",
   ])
     saved.set(key, scope[key]);
   Object.assign(scope, {
@@ -39,6 +42,12 @@ function installDom(): HTMLElement {
     MouseEvent: dom.window.MouseEvent,
     KeyboardEvent: dom.window.KeyboardEvent,
     IS_REACT_ACT_ENVIRONMENT: true,
+    // Base UI's menu (the page's own context menu) schedules its focus on frames, through one shared
+    // scheduler: a frame asked of a window this file already closed would never come, so frames are
+    // timers here, as in src/ui/ContextMenu.test.tsx.
+    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
   });
   return dom.window.document.getElementById("root")!;
 }
@@ -216,8 +225,10 @@ test("opens at the pointer, skips disabled rows, selects by keyboard, and restor
 
   await act(async () => openContextMenu(target));
   const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
-  expect(menu.style.left).toBe("80px");
-  expect(menu.style.top).toBe("64px");
+  // The menu is a Base UI Menu: its positioner places it, its top-left corner at the pointer, once
+  // Floating UI has measured (a promise, so a turn later).
+  await act(async () => await new Promise((done) => setTimeout(done, 0)));
+  expect(menu.closest<HTMLElement>(".ui-positioner")!.style.transform).toBe("translate(80px, 64px)");
   expect(menu.querySelectorAll('[role="menuitem"]')).toHaveLength(3);
 
   await act(async () => menu.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));

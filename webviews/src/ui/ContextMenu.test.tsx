@@ -11,6 +11,10 @@ import { installNativeMenu, type NativeMenuRequest } from "./nativeMenu";
 import { contextDescription } from "./popupDescriptors";
 import type { PopupHost } from "./popupHost";
 import { UiProvider } from "./UiProvider";
+import { until } from "../../test/support/until";
+
+/** One turn of the event loop, with React's renders from it flushed. */
+const turn = () => act(async () => {});
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -292,7 +296,11 @@ test("a declarative native menu the host refuses opens the page's own at the rig
   expect(models.length).toBe(1);
   const menu = document.querySelector<HTMLElement>(".ui-context-menu");
   expect(menu).not.toBeNull();
-  expect(menu!.style.left).toBe("40px");
+  // The page's menu is a Base UI Menu: its positioner places it at the pointer once Floating UI has
+  // measured (a promise, so a turn later).
+  const placed = menu!.closest<HTMLElement>(".ui-positioner")!;
+  await until(() => placed.style.transform !== "", turn);
+  expect(placed.style.transform).toBe("translate(40px, 60px)");
   expect(target.getAttribute("data-popup-open")).toBe("");
 });
 
@@ -362,4 +370,86 @@ test("a right-click on the page's own menu stays in the menu, also under asChild
         .dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true, button: 1 })),
   );
   expect(document.querySelector(".ui-context-menu")).toBeNull();
+});
+
+// The page's own menu is a Base UI Menu (the reference component kit's context menu): focus moves onto
+// the rows themselves, so VoiceOver reads each one as the arrows reach it.
+async function openPageMenu(list: ContextMenuItem[]): Promise<{ target: HTMLElement; menu: HTMLElement }> {
+  const target = render(list);
+  target.focus();
+  await rightClick(target);
+  // Base UI focuses the menu, then its first row, over a frame.
+  await until(() => document.activeElement?.getAttribute("role")?.startsWith("menuitem") === true, turn);
+  return { target, menu: document.querySelector<HTMLElement>('[role="menu"]')! };
+}
+
+function key(element: Element, name: string): void {
+  act(() => void element.dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true })));
+}
+
+function rows(names: string[], ran: string[] = []): ContextMenuItem[] {
+  return names.map((name) => ({
+    id: name.toLowerCase(),
+    label: name,
+    onSelect: () => ran.push(name),
+  }));
+}
+
+test("the page's menu puts focus on its first row, and the arrows move focus row to row", async () => {
+  const { menu } = await openPageMenu(rows(["Open", "Rename", "Close"]));
+  expect(document.activeElement?.textContent).toBe("Open");
+  expect(document.activeElement?.getAttribute("role")).toBe("menuitem");
+  // One Tab stop: only the focused row is in the tab order.
+  expect([...menu.querySelectorAll('[role="menuitem"]')].map((row) => (row as HTMLElement).tabIndex)).toEqual([
+    0, -1, -1,
+  ]);
+  key(document.activeElement!, "ArrowDown");
+  expect(document.activeElement?.textContent).toBe("Rename");
+  expect(document.activeElement?.hasAttribute("data-highlighted")).toBe(true);
+  key(document.activeElement!, "ArrowUp");
+  expect(document.activeElement?.textContent).toBe("Open");
+});
+
+test("the arrows skip a disabled row, which stays in the menu as unavailable", async () => {
+  const list = rows(["Open", "Copy", "Close"]);
+  list[1] = { ...list[1]!, disabled: true };
+  const { menu } = await openPageMenu(list);
+  key(document.activeElement!, "ArrowDown");
+  expect(document.activeElement?.textContent).toBe("Close");
+  const copy = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')][1]!;
+  expect(copy.getAttribute("aria-disabled")).toBe("true");
+});
+
+test("typing a row's first letters moves focus to it", async () => {
+  const { menu } = await openPageMenu(rows(["Open", "Rename", "Reveal in Finder", "Close"]));
+  key(document.activeElement!, "c");
+  expect(document.activeElement?.textContent).toBe("Close");
+  // A fresh menu starts a fresh search: Escape, then open it again at the same control.
+  key(menu, "Escape");
+  await rightClick(document.querySelector<HTMLElement>("#target")!);
+  await until(() => document.activeElement?.getAttribute("role")?.startsWith("menuitem") === true, turn);
+  key(document.activeElement!, "r");
+  key(document.activeElement!, "e");
+  key(document.activeElement!, "v");
+  expect(document.activeElement?.textContent).toBe("Reveal in Finder");
+});
+
+test("Return on the focused row runs it, and focus goes back to the control it opened from", async () => {
+  const ran: string[] = [];
+  const { target } = await openPageMenu(rows(["Open", "Rename"], ran));
+  key(document.activeElement!, "ArrowDown");
+  act(() => (document.activeElement as HTMLElement).click());
+  await act(async () => await Promise.resolve());
+  expect(ran).toEqual(["Rename"]);
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  expect(document.activeElement).toBe(target);
+});
+
+test("Tab closes the page's menu and puts focus back, never moving it apart from the rows", async () => {
+  const ran: string[] = [];
+  const { target } = await openPageMenu(rows(["Open", "Rename"], ran));
+  key(document.activeElement!, "Tab");
+  expect(document.querySelector('[role="menu"]')).toBeNull();
+  expect(document.activeElement).toBe(target);
+  expect(ran).toEqual([]);
 });
