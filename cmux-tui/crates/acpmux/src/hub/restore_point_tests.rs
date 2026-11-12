@@ -35,7 +35,7 @@ impl PointStore {
 
     /// A daemon start over this store: a hub with the chat listed and its log not read yet.
     fn start(&self) -> (Arc<Hub>, Arc<Session>) {
-        let hub = Arc::new(Hub::new(Config::default(), Box::new(self.clone())));
+        let hub = Hub::new(Config::default(), Box::new(self.clone()));
         let meta = hub.store.load(ID).unwrap().unwrap();
         let session = hub.make_session(meta);
         hub.sessions.lock().unwrap().insert(session.id.clone(), session.clone());
@@ -160,7 +160,7 @@ fn restored(hub: &Arc<Hub>, s: &Arc<Session>, from: u64) -> Value {
         .iter()
         .map(|q| json!({"prompt": q.prompt_id, "held": q.held}))
         .collect();
-    let branch = hub.git_watch.now.lock().unwrap().get(ID).cloned();
+    let branch = hub.git_branch_now(&s.meta());
     let written: Vec<Value> = hub
         .store
         .events(ID, from, usize::MAX)

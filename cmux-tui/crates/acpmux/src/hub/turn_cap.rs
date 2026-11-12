@@ -158,13 +158,8 @@ impl Hub {
                 .unwrap_or_else(|e| e.into_inner())
                 .iter()
                 .any(|q| q.run.agent.is_some() && q.run.class != Some(PromptClass::Fyi));
-            let held = session
-                .inbox
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .items
-                .iter()
-                .any(|i| !i.noticed && i.class != PromptClass::Fyi);
+            let held =
+                session.inbox().items.iter().any(|i| !i.noticed && i.class != PromptClass::Fyi);
             if running == turn_id && (queued || held) {
                 hub.turn_cap_notice(&session, &running, cap);
             }
