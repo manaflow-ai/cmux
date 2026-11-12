@@ -109,4 +109,32 @@ import Testing
             #expect(inner.contains(frame), "button \(button.button.id) at \(frame) is outside the card's padding \(inner)")
         }
     }
+
+    /// A long message scrolls in a bounded box (#37778), and the box ends partway through a line, so the person
+    /// sees there is more: a box that ends on a line's edge reads as the whole list (24 workspaces, 11 shown).
+    @Test func aLongMessageEndsPartwayThroughALineSoItReadsAsScrolling() throws {
+        let center = Self.center()
+        let window = Self.window()
+        defer { window.close() }
+        let lines = ["These workspaces come from the file you picked:"] + (1...24).map { "• project-\($0)" }
+        let id = center.present(CmuxDialogSpec(title: "Import 24 Workspaces?", lines: lines, buttons: [.cancel(), .ok()]),
+                                in: .window(window)) { _ in }
+        defer { center.dismiss(id) }
+        let root = try #require(center.dialog(id)?.view)
+        root.layoutSubtreeIfNeeded()
+        let scroll = try #require(Self.all(root).first { $0 is NSScrollView } as? NSScrollView)
+        let clip = scroll.contentView
+        let shown = clip.bounds
+        let labels = Self.all(try #require(scroll.documentView)).compactMap { $0 as? ChromeLabel }
+        #expect(labels.count == lines.count)
+        let cut = labels.filter { label in
+            let frame = label.convert(label.bounds, to: clip)
+            return shown.intersects(frame) && !shown.contains(frame)
+        }
+        #expect(cut.count == 1, "no line is cut at the box's edge \(shown)")
+        if let line = cut.first {
+            let visible = line.convert(line.bounds, to: clip).intersection(shown).height
+            #expect(visible >= line.bounds.height * 0.3 && visible <= line.bounds.height * 0.7)
+        }
+    }
 }
