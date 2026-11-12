@@ -2,19 +2,24 @@
 // socket, and the pane connects again to the new daemon. That daemon can be newer and name
 // capabilities the old one did not: the 2026-11-12 nightly's restart brought `settled-attach-v1`,
 // the page asked `_acpmux/attach {settled: true}`, and the cmux host refused the whole attach as
-// `transport.intent_invalid` because its params rule did not know `settled` (cmux#42185). Every
-// open chat showed empty history and "Something went wrong, so that didn't go through" though the
-// new daemon held every chat.
+// `transport.intent_invalid` because its params rule did not know `settled` (cmux#42185). In the
+// app every open chat showed empty history and "Something went wrong, so that didn't go through"
+// though the new daemon held every chat.
+//
+// The page's own fallback (direct.ts `settledAttachFailed`) now retries a refused settled attach
+// plain, so a chat opens even through a host that refuses it. What this test holds is the host's
+// side: the settled ask goes through to acpmux unrefused, and the chat draws its rows again.
 //
 // The socket here stands in for the app's bridge (AgentPaneTransport): it applies the host's pane
 // policy as data (cmux-agent-pane-policy policy.json, which tests/swift.rs keeps equal to
 // AcpmuxPaneMethods.swift) and answers a refused request with the host's own refusal frame
 // (AcpmuxPaneMethods.refusal). Behind it is the mock daemon; a restart closes the socket as the
 // bridge does when the daemon goes, and the next socket reaches a new daemon over the same chats.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { AcpmuxSnapshot } from "./model";
+import { resetKeptTailsForTests } from "./tailCache";
 
 type Policy = {
   initialize: string;
@@ -90,13 +95,18 @@ class HostSocket {
   close(): void {
     if (this.readyState === 3) return;
     this.readyState = 3;
+    this.daemon.close?.();
     queueMicrotask(() => this.onclose?.({ code: 1000, reason: "", wasClean: true }));
   }
 }
 
 type Globals = { cmuxAcpmuxMockCapabilities?: string[] };
+// The mock's one chat id: a tail another file's client kept of it, or this test's lost path keeps,
+// must not stand in front of the next open (bun shares one module cache across files).
+beforeEach(() => resetKeptTailsForTests());
 afterEach(() => {
   delete (globalThis as Globals).cmuxAcpmuxMockCapabilities;
+  resetKeptTailsForTests();
 });
 
 test("after acpmux restarts with a newer daemon, the open chat reconnects and draws its history again", async () => {
