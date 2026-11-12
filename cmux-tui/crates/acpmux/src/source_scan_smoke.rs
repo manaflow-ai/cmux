@@ -1,8 +1,8 @@
 //! A few rows of each cmux-source-scan check, through its public API, so `cargo test -p acpmux
 //! --lib` (which PR CI runs) is red when a rule breaks: `cargo test -p cmux-source-scan`, which
 //! holds every row, is not in PR CI. The rows are in source_scan_smoke_rows.txt. Also holds the
-//! timing check's KNOWN_MISSES: each row stays a miss, and the tree holds exactly those instances
-//! of the shape.
+//! timing check's KNOWN_MISSES: each row stays a miss, and the tree holds exactly the instances
+//! of the shape marked `in_tree`.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -137,7 +137,8 @@ fn the_tree_holds_no_new_instance_of_a_known_miss() {
     let scan = scan_with(&checkout, &roots, spread_bounds).expect("cmux-tui/crates scans");
     let sites: BTreeSet<String> =
         scan.found.iter().map(|f| format!("{} {} {}", f.rel, f.test, f.text)).collect();
-    let known: BTreeSet<String> = KNOWN_MISSES.iter().map(|m| m.site.to_string()).collect();
+    let known: BTreeSet<String> =
+        KNOWN_MISSES.iter().filter(|m| m.in_tree).map(|m| m.site.to_string()).collect();
     let new: Vec<&String> = sites.difference(&known).collect();
     let gone: Vec<&String> = known.difference(&sites).collect();
     assert!(
@@ -146,5 +147,8 @@ fn the_tree_holds_no_new_instance_of_a_known_miss() {
          cmux-source-scan/src/timing_ratio.rs): bound a timing the check reads, or move the bound \
          to an #[ignore]d test: {new:?}"
     );
-    assert!(gone.is_empty(), "these KNOWN_MISSES sites are gone; take them out: {gone:?}");
+    assert!(
+        gone.is_empty(),
+        "these KNOWN_MISSES sites are gone from the tree; set their in_tree to false: {gone:?}"
+    );
 }

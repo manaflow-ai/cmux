@@ -240,13 +240,16 @@ pub fn scan_text(
 /// A shape the check is known to miss: `site` is `PATH TEST COMPARISON` (the path from the
 /// checkout, the test, the comparison [`spread_bounds`] names), `row` a file of that shape. [`scan_text`] finds nothing
 /// in `row` and [`spread_bounds`] finds it there; acpmux's `source_scan_smoke` holds both, and
-/// holds [`spread_bounds`] over cmux-tui/crates to exactly these sites, so a fix that catches the
-/// shape, or a new instance of it, fails there until this list changes with it.
+/// holds [`spread_bounds`] over cmux-tui/crates to exactly the sites with `in_tree`, so a fix that
+/// catches the shape, or a new instance of it, fails there until this list changes with it.
+/// `in_tree` is false once `site` is no default-run instance (its test went to a group nextest
+/// runs alone, or away): the row still guards the shape.
 #[derive(Debug, Clone, Copy)]
 pub struct KnownMiss {
     pub site: &'static str,
     pub why: &'static str,
     pub row: &'static str,
+    pub in_tree: bool,
 }
 
 pub const KNOWN_MISSES: &[KnownMiss] = &[KnownMiss {
@@ -255,6 +258,9 @@ pub const KNOWN_MISSES: &[KnownMiss] = &[KnownMiss {
     why: "milliseconds parsed from a JSON log (`hook[\"ms\"].as_f64()`), then a median taken by a \
           local fn that sorts them: no clock is read, and `g50` is no percentile word",
     row: include_str!("timing_ratio_known_miss_start_mode.txt"),
+    // Not in the tree since cmux-tui/.config/nextest.toml put the test in the timing-alone group:
+    // the check skips a test nextest runs alone, so the site is no miss there any more.
+    in_tree: false,
 }];
 
 const SPREAD_KIND: &str = "spread bound";
