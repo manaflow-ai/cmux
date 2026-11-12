@@ -554,6 +554,13 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private var loaded = false
     /// Applies (tests and the rig's log).
     private(set) var applies = 0
+    /// The main actor's time in `reload`, in all (the scroll-up bench, `chat_scroll_fill_ui`: a
+    /// page that lands between two frames costs the frame after it).
+    private(set) var reloadTime: Duration = .zero
+    /// Older history is read ahead as the reader scrolls (`readAheadIfNear`). Off, only the oldest
+    /// row coming into view asks (`willDisplay`): the trigger before the read-ahead, which the
+    /// scroll-up bench measures as its before.
+    var readsAhead = true
     private(set) var lastReconfigured = 0
 
     init(store: AgentChatStore, surface: AgentChatSurface) {
@@ -640,7 +647,7 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     /// more page ahead, so a fling up meets rows, never an empty top. Not on the tab grid's
     /// card, which holds its transcript.
     private func readAheadIfNear() {
-        guard loaded, !surface.holdsTranscript, store.hasEarlierHistory, !store.isLoadingEarlier else { return }
+        guard readsAhead, loaded, !surface.holdsTranscript, store.hasEarlierHistory, !store.isLoadingEarlier else { return }
         let screen = collectionView.bounds.height
         guard screen > 0 else { return }
         let above = collectionView.contentOffset.y + collectionView.adjustedContentInset.top
@@ -807,6 +814,8 @@ final class ChatTranscriptList: NSObject, UICollectionViewDelegate, UICollection
     private var shownDisclosures = -1
 
     func reload() {
+        let reloadStart = ContinuousClock.now
+        defer { reloadTime += reloadStart.duration(to: .now) }
         // A disclosure opened or closed, or a file was marked viewed: shown rows may change
         // their cell type or their drawing.
         let disclosures = surface.disclosures.revision

@@ -496,6 +496,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     private weak var hub: AcpmuxHub?
     private let records: AcpmuxRecords
     private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []
+    /// Readers whose stream is still open (``events()``): a chat closing ends its stream, and
+    /// with none left nothing waits for an older page (``readerLeft()``).
+    private var readers = 0
     private var replay: [AgentSessionEvent] = []
     private var lastSeq = 0
     private var attached = false
@@ -617,7 +620,7 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         keptEarlier = false
         earlierBefore = nil
         earlierCarry = []
-        heldEarlier = nil
+        stopEarlier()
         seenPermissions = []
         listedPermissions = []
         questions = [:]
@@ -662,7 +665,21 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             continuation.yield(.historyLoading(false))
         }
         continuations.append(continuation)
+        readers += 1
+        continuation.onTermination = { [weak self] _ in
+            Task { @MainActor [weak self] in self?.readerLeft() }
+        }
         return stream
+    }
+
+    /// A reader's stream ended (its chat closed, or ``dropKept()`` ended it): with no reader left,
+    /// the older read on the wire is cancelled and the page held ahead is let go. A chat that
+    /// opens again asks for its own.
+    private func readerLeft() {
+        readers -= 1
+        guard readers <= 0 else { return }
+        readers = 0
+        stopEarlier()
     }
 
     public func send(_ intent: AgentClientIntent) {
@@ -1480,6 +1497,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         attachTask?.cancel()
         retryTask?.cancel()
         gapTask?.cancel()
+        earlierTask?.cancel()
+        earlierRetryTask?.cancel()
     }
 
     /// How long a failed attach waits before the next try: 250 ms, doubling, at most 15 s.
@@ -1980,6 +1999,44 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The next older page, read and decoded ahead while the chat shows the one after it
     /// (one page at most: the records back to the next prompt, in `olderBytes` reads).
     private var heldEarlier: AcpmuxEarlierPage?
+    /// The older read on the wire (`readingEarlier`'s): cancelled when no chat reads this source
+    /// any more (``readerLeft()``), when it drops its kept copy, and when it goes away.
+    private var earlierTask: Task<Void, Never>?
+    /// Older reads that failed in a row (a refused, timed-out or non-advancing page): the next
+    /// read waits ``retryDelay(afterFailures:)`` after the last, 250 ms doubling to 15 s, so a
+    /// reader near the top of a chat whose reads fail does not send one per scroll step.
+    private var earlierFailures = 0
+    /// No older read starts before this (the last failure plus its delay).
+    private var earlierRetryAt: ContinuousClock.Instant?
+    /// The read an ask during the delay waits for: it starts when the delay ends.
+    private var earlierRetryTask: Task<Void, Never>?
+
+    /// Nothing waits for older history any more: the read on the wire stops (its requests are
+    /// cancelled) and the page held ahead goes. The next ask reads again.
+    private func stopEarlier() {
+        earlierTask?.cancel()
+        earlierTask = nil
+        earlierRetryTask?.cancel()
+        earlierRetryTask = nil
+        earlierFailures = 0
+        earlierRetryAt = nil
+        readingEarlier = nil
+        earlierWanted = false
+        heldEarlier = nil
+    }
+
+    /// An ask while the last failure's delay runs: the read starts when it ends (the chat's
+    /// loading state stays on until then, so its scroll steps ask nothing more).
+    private func retryEarlierLater(at instant: ContinuousClock.Instant) {
+        guard earlierRetryTask == nil else { return }
+        earlierRetryTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(until: instant, clock: .continuous)
+            guard !Task.isCancelled, let self else { return }
+            self.earlierRetryTask = nil
+            guard self.earlierWanted else { return }
+            self.loadEarlierHistory()
+        }
+    }
 
     /// The chat scrolled near its oldest turn: the page before it. One read ahead already is
     /// shown at once; one on the wire shows when it lands. After each page the next is read
@@ -1994,6 +2051,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
         earlierWanted = true
         guard readingEarlier == nil else { return }
+        if let at = earlierRetryAt, ContinuousClock.now < at, earlierBefore != nil {
+            retryEarlierLater(at: at)
+            return
+        }
         guard let before = earlierBefore, let hub, hub.isReady else {
             // Nothing to read now (the start is shown, or the link is down): the chat's
             // loading state ends, so the next scroll up asks again.
@@ -2009,8 +2070,11 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         let sessionID = sessionID
         let mapper = records
         let carry = earlierCarry
-        Task { [weak self] in
+        earlierTask = Task { [weak self] in
             let page = await Self.fetchEarlier(hub, sessionID: sessionID, before: before, carry: carry, mapper: mapper)
+            // Cancelled (`stopEarlier`): another read may be on the wire by now, and this one's
+            // failure is not the chat's.
+            guard !Task.isCancelled else { return }
             self?.landEarlier(page)
         }
     }
@@ -2076,6 +2140,14 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     private func landEarlier(_ page: AcpmuxEarlierPage) {
         readingEarlier = nil
+        earlierTask = nil
+        if page.failed {
+            earlierFailures += 1
+            earlierRetryAt = .now + Self.retryDelay(afterFailures: earlierFailures)
+        } else {
+            earlierFailures = 0
+            earlierRetryAt = nil
+        }
         guard earlierBefore == page.before else {
             // The chat opened again since (a first attach, kept records restored): a reader
             // still waiting gets the page before what it shows now.
@@ -2096,8 +2168,9 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// Puts an older page in front of the chat as whole turns, and reads the next one ahead.
     private func showEarlier(_ page: AcpmuxEarlierPage) {
         guard !page.failed else {
-            // Nothing applied: the next scroll up reads the same page again.
-            log.info("earlier \(self.sessionID, privacy: .public) before \(page.before, privacy: .public): failed")
+            // Nothing applied: the next scroll up reads the same page again, once the failure's
+            // delay has passed (`earlierRetryAt`).
+            log.info("earlier \(self.sessionID, privacy: .public) before \(page.before, privacy: .public): failed \(self.earlierFailures, privacy: .public) in a row")
             yieldEarlier([], hasEarlier: earlierBefore != nil)
             return
         }
@@ -2248,6 +2321,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
 
     /// How many events the source keeps for a later reader (tests).
     var replayCount: Int { replay.count + (openChunk == nil ? 0 : 1) }
+    /// An older read is on the wire or waits for its retry (tests).
+    var isReadingEarlier: Bool { readingEarlier != nil || earlierRetryTask != nil }
 }
 
 // MARK: - Older history pages (AcpmuxSessionSource.loadEarlierHistory)
