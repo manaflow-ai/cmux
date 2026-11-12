@@ -120,6 +120,15 @@ def evaluate(node, context):
                 return {}
         if node[1].lower() == 'contains':
             return str(args[1]).lower() in str(args[0]).lower()
+        # Status functions read the run's state from the context (`job.status`: success, failure or cancelled).
+        if node[1].lower() == 'cancelled':
+            return context.get('job.status', 'success') == 'cancelled'
+        if node[1].lower() == 'success':
+            return context.get('job.status', 'success') == 'success'
+        if node[1].lower() == 'failure':
+            return context.get('job.status', 'success') == 'failure'
+        if node[1].lower() == 'always':
+            return True
     if kind == 'prop':
         value = evaluate(node[1], context)
         return value.get(node[2], DEFAULT_POOL_MEMBERS.get(node[2], '')) if isinstance(value, dict) else DEFAULT_POOL_MEMBERS.get(node[2], '')
@@ -590,7 +599,10 @@ class NightlyTrustedRouting(unittest.TestCase):
         self.assertIn('superseded', resolver['outputs'])
         context = {'needs.decide.outputs.should_build': 'true', 'github.event_name': 'push',
                    'needs.resolve-nightly-cmux-tui-client.outputs.already_published': 'false',
-                   'needs.decide.outputs.continue_only': 'false'}
+                   'needs.decide.outputs.continue_only': 'false',
+                   # The builds gate on their needs' success, not on the continue-on-error pick's (2026-11-12).
+                   'needs.decide.result': 'success', 'needs.resolve-nightly-cmux-tui-client.result': 'success',
+                   'needs.resolve-nightly-ghostty-cli-helper.result': 'success'}
         for job in ('build-nightly-app', 'build-nightly-ghostty-cli-helper'):
             build_if = parse_expression(DOC['jobs'][job]['if'])
             with self.subTest(job=job):

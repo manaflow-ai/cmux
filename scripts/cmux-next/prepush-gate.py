@@ -91,6 +91,11 @@ Also on every local run, the same way: "Runs-on variables declare their single-h
 hook) refuses each runs-on variable or single-host label the head reads with no declared fallback that the base did
 not already have (cmux#40221 merged two). CI runs it only with --advisory: warnings, never a red step.
 
+Also on every local run, the same way: "Test redefinitions" (check-test-redefinitions.py): each tests/**/*.py file
+the push changes may not define one name twice in one class or module body (ruff/pyflakes F811); only a
+redefinition the head has and the base did not refuses. cmux#41779 landed a second `count_fetches` that replaced the
+locked one, so its parallel test appended from several threads with no lock.
+
 Also on every local run, the same way: "Every Cargo.lock matches its manifests" (cargo-locks.py check): when the push
 changes any Cargo.toml or Cargo.lock, every tracked Cargo.lock in the repository is resolved with
 `cargo update --workspace --locked` (index only, no build, seconds), not only the changed workspace's: a manifest
@@ -285,6 +290,15 @@ FALLBACKS_DECLARATION = ".github/single-host-fallbacks.json"
 FALLBACKS_HINT = ("Declare each name in .github/single-host-fallbacks.json (variables.NAME or labels.LABEL: the "
                   "`fallback` that takes the job and `after_minutes`), then push. Check with "
                   "`python3 scripts/cmux-next/check-single-host-fallbacks.py`.")
+# A test file that defines one name twice in one body keeps only the last (ruff/pyflakes F811): cmux#41779's second
+# `count_fetches` replaced the locked one and its parallel test appended without the lock. Local only, like SwiftFormat.
+REDEFINITION_CHECK = "Test redefinitions (scripts/cmux-next/check-test-redefinitions.py)"
+REDEFINITION_SCRIPT = SCRIPTS + "/check-test-redefinitions.py"
+REDEFINITION_FILE = re.compile(r"^tests/.+\.py$")
+REDEFINITION_LINE = re.compile(r"^(?P<path>[^:]+):\d+: (?P<what>.+?) redefines line \d+")
+REDEFINITION_HINT = ("Keep one definition of each name: Python keeps only the last `def` of a name in a class or module, "
+                     "so the earlier one never runs (a lock it held, a fixture it set up, a test it was). Merge what "
+                     "the two did into the one that stays, then push.")
 CARGO_LOCK_CHECK = "Every Cargo.lock matches its manifests (scripts/cmux-next/cargo-locks.py)"
 CARGO_FILE = re.compile(r"(^|/)Cargo\.(toml|lock)$")
 CARGO_LOCKS_SCRIPT = SCRIPTS + "/cargo-locks.py"
@@ -1533,6 +1547,60 @@ def conflict_markers(repo: Path, base: str, head: str) -> list[str]:
             for n, text in marks]
 
 
+def test_redefinition_problems(repo: Path, base: str, head: str, trusted_scripts: Path | None = None,
+                               restrict: set[str] | None = None) -> list[str]:
+    """Each name a tests/**/*.py file the push changes defines twice in one class or module body at HEAD and not at
+    BASE (REDEFINITION_CHECK). A finding is keyed by file and dotted name, not line, so moved code is not new.
+
+    The checker is the installed reviewed copy on a hook run, HEAD's own on a plain run; a checker that gives no
+    verdict (a crash, a timeout, an exit other than 0 or 1) refuses."""
+    names = [n for n in git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", base, head,
+                            "--", "tests/").decode().split("\0") if n and REDEFINITION_FILE.match(n)]
+    if restrict is not None:
+        names = [n for n in names if n in restrict]
+    if not names:
+        return []
+    if trusted_scripts is None:
+        script = blob_at(repo, head, REDEFINITION_SCRIPT)
+    else:
+        installed = trusted_scripts / Path(REDEFINITION_SCRIPT).name
+        script = installed.read_bytes() if installed.is_file() else None
+    if script is None:
+        log(f"prepush-gate: WARNING: no {Path(REDEFINITION_SCRIPT).name} in the hook's checks copy yet, so the test "
+            "redefinition check did not run; `scripts/install-git-hooks.sh` from origin/feat-cmux-next adds it.")
+        return []
+    with tempfile.TemporaryDirectory(prefix="cmux-redefinitions-") as tmp:
+        work = Path(tmp)
+        (work / "check.py").write_bytes(script)
+
+        def findings(rev: str) -> tuple[list[str], str | None]:
+            tree = work / rev[:12]
+            files = []
+            for name in names:
+                data = blob_at(repo, rev, name)
+                if data is None:
+                    continue
+                (tree / name).parent.mkdir(parents=True, exist_ok=True)
+                (tree / name).write_bytes(data)
+                files.append(name)
+            if not files:
+                return [], None
+            code, out = run(["python3", "-I", str(work / "check.py"), "--root", str(tree), *files], tree)
+            return [line for line in out.splitlines() if REDEFINITION_LINE.match(line)], no_verdict(code, out, (0, 1))
+
+        head_lines, stopped = findings(head)
+        if stopped:
+            return [f"{REDEFINITION_SCRIPT} {stopped}; no verdict, so the push is refused"]
+        base_lines, base_stopped = findings(base)
+
+    def key(line: str) -> tuple[str, str]:
+        match = REDEFINITION_LINE.match(line)
+        return (match["path"], match["what"]) if match else (line, "")
+
+    old = set() if base_stopped else {key(line) for line in base_lines}
+    return [line for line in head_lines if key(line) not in old]
+
+
 def yaml_problem(text: str) -> tuple[bool, str | None]:
     """(whether TEXT could be parsed here, `line:column: problem` when it does not parse).
 
@@ -2084,6 +2152,11 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
         drift = cargo_lock_drift(repo, base, head, trusted_scripts)
         if drift:
             reserved.append((CARGO_LOCK_CHECK, drift))
+    # Local only, like SwiftFormat (CLAUDE.md: no new CI gates).
+    if highlights_layer if only is None else "redefinitions" in only:
+        redefined = test_redefinition_problems(repo, base, head, trusted_scripts, restrict)
+        if redefined:
+            reserved.append((REDEFINITION_CHECK, redefined))
     if only is None or "sidebar" in only:
         owner = sidebar_owner(repo, base, head, ack_rev)
         if owner:
@@ -2850,7 +2923,7 @@ def main(argv: list[str] | None = None) -> int:
                                             "commit and the owner file; one inside it is an error")
     parser.add_argument("--only", help="comma list of layers: scanners,ast-grep,swiftformat,rustfmt,swiftlint,reserved,ui-font,conflicts,"
                                        "cargo-lock,sidebar,crash-allow,crash-ratchet,freeze,highlights,pictures,workflows,"
-                                       "single-host-fallbacks")
+                                       "single-host-fallbacks,redefinitions")
     parser.add_argument("--timings", action="store_true")
     parser.add_argument("--no-guardrails", action="store_true", help="skip guardrails.py and its arch ratchet (they never run on CI)")
     parser.add_argument("--advisory-only", action="store_true", help=argparse.SUPPRESS)  # advisory_start's child
@@ -3023,6 +3096,8 @@ def main(argv: list[str] | None = None) -> int:
         print(CRASH_RATCHET_HINT)
     if any(name == WORKFLOW_CHECK for name, _ in found_any):
         print(WORKFLOW_HINT)
+    if any(name == REDEFINITION_CHECK for name, _ in found_any):
+        print(REDEFINITION_HINT)
     print(HOW_TO_FIX)
     print(f"prepush-gate: push refused ({elapsed:.1f}s)")
     return 1
