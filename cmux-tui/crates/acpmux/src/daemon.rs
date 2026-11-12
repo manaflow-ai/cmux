@@ -334,7 +334,6 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if std::env::var("ACPMUX_LOCAL_ROUTER").as_deref() == Ok("1") {
         ensure_router();
     }
-    let store = crate::store::open(&config.store, &home())?;
     // The dashboard and WebSocket always run. First run picks a loopback port
     // and a random token and saves both, so the URL is stable afterwards.
     // The token is mandatory (plans/cmux-next/identity.md section 4): a saved
@@ -418,6 +417,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if cfg!(unix) && bound_socket.is_none() && socket_path().is_absolute() {
         anyhow::bail!("the acpmux socket {} went away as it was bound", socket_path().display());
     }
+    // Opening the journal store can inspect per-chat state. Keep it after the socket-ready
+    // boundary so a god home cannot delay the daemon's first local endpoint.
+    let store = crate::store::open(&config.store, &home())?;
     let mut moved_listener = false;
     let ws_listener = match &ws {
         // cx-fcaq: a taken explicit `--listen` stops the daemon (the caller asked for that

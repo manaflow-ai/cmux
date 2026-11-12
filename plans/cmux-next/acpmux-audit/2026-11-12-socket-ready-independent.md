@@ -13,10 +13,11 @@ status while per-chat durable work is still running.
   `socket_answers_before_post_hub_setup_finishes` holds post-listener setup and
   asserts `_acpmux/status` answers with `ready: false` before the public ready
   line.
-- Root cause: `daemon::run` originally marked socket-ready only after hub
-  construction and durable setup, so the benchmark's mark included work
+- Root cause: `daemon::run` originally opened the journal store and then marked
+  socket-ready after hub construction, so the benchmark's mark included work
   proportional to the home and its chat logs. The corrected boundary is the
-  successful Unix bind; the listener then starts serving once the hub exists.
+  successful Unix bind; journal-store open and hub setup follow it, and the
+  listener starts serving once the hub exists.
 - Invariant: bind the local socket before any per-home or per-chat durable
   setup; keep serving, the public ready line and `ready: true` gated until the
   hub startup work is ready.
