@@ -128,6 +128,7 @@ import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { noteTranscriptReplace } from "./flickerLog";
 import { chatPerfCapture } from "./chatPerfCapture";
 import { acpmuxPerf } from "./perf";
+import { passTranscript } from "./transcriptGate";
 import { BUSY_TRIES, busyDelay, RequestBudget, waitsForSlot } from "./requestBudget";
 import { translate } from "./i18n";
 import { approvePlan, clearPlanScope, editPaths, rememberPlanEdit } from "./planScopeDriftStore";
@@ -9414,7 +9415,11 @@ export class AcpmuxDirectClient {
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
     this.placeSince();
-    const publishedRows = this.rows.sorted();
+    const sortedRows = this.rows.sorted();
+    // A replay seeks back on purpose; every other draw goes forward only (transcriptGate.ts).
+    const publishedRows = this.replayMode
+      ? sortedRows
+      : passTranscript(this.selectedSessionId, this.rowsGeneration, this.lastSeq, sortedRows);
     this.noteReplace(publishedRows);
     const progressPlan = this.progressRow ? this.rows.get(this.progressRow)?.plan : undefined;
     const progress = projectLiveProgress(this.publishedProgress, progressPlan, working && !this.progressSuperseded);
