@@ -550,6 +550,7 @@ class GrammarAgainstBash(unittest.TestCase):
         rows = (
             'echo "${x:-$(( $(gh release create v1 dist/x) + 1 ))}"',  # #41398 F1
             "unset x0 x1 x2 x3 x4 x5\ny=abc\narr=(0 1)\nf0() ( : ${y/$[ ${x2:-\"\"${x3:-'$(gh release create v1 dist/x)'}\"\"}0 + 1 ]/r}; )\nf0",  # legacy $[ ] inside a parameter pattern
+            "eval -- gh release create v1 dist/x",  # #41133 BLOCK F3
             "function publish { gh release create v1 dist/x; }; publish",  # #41133 BLOCK F1
             'echo "${X:-$(case x in x) gh release create v1 dist/x;; esac)}"',  # #41768 F2
             "echo $(case x in x) gh release create v1 dist/x;; esac)",

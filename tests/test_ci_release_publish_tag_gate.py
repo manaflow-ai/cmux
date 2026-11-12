@@ -994,7 +994,9 @@ REVIEWER_SUBCOMMAND_ROWS = {
     "python3 build.py -m twine upload": ("python3 build.py -m twine upload", False),
     "gh release create v1": ("gh release create v1", True),
     "npm publish": ("npm publish", True),
+    "npm exec publish": ("npm exec -- npm publish", True),
     "python3 -m twine upload dist/*": ("python3 -m twine upload dist/*", True),
+    "python3 -m unreadable upload": ('python3 -m "$MODULE" upload', True),
 }
 
 
