@@ -29,7 +29,7 @@ import UIKit
         bar.frame = CGRect(x: 0, y: 0, width: 240, height: 46)
         bar.layoutIfNeeded()
         let scroll = try #require(keyScroller(bar))
-        #expect(scroll.contentSize.width > scroll.bounds.width + fadeWidth)
+        #expect(scroll.contentSize.width > scroll.bounds.width + 2 * fadeWidth)
 
         // At the start: the left edge is crisp, the right one fades.
         var drawn = try #require(edges(bar), "the key scroller has no edge fade")
@@ -48,7 +48,7 @@ import UIKit
         scroll.layoutIfNeeded()
         drawn = try #require(edges(bar))
         #expect(drawn.left == 0)
-        #expect(drawn.right == 1)
+        #expect(abs(drawn.right - 1) < 0.001)
 
         // Half the fade's width from the end: half faded.
         scroll.contentOffset.x -= fadeWidth / 2

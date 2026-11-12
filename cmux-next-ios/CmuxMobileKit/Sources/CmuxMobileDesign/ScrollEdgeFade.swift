@@ -48,6 +48,16 @@ public final class ScrollEdgeFadeScrollView: UIScrollView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { return nil }
 
+    // A content size or inset set from code changes the fade without a layout pass of its own.
+    override public var contentSize: CGSize {
+        didSet { if oldValue != contentSize { setNeedsLayout() } }
+    }
+
+    override public func adjustedContentInsetDidChange() {
+        super.adjustedContentInsetDidChange()
+        setNeedsLayout()
+    }
+
     override public func layoutSubviews() {
         super.layoutSubviews()
         guard fadesEdges else { return }

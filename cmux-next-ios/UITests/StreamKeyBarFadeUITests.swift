@@ -11,6 +11,11 @@ final class StreamKeyBarFadeUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    override func tearDown() {
+        // The appearance is the whole simulator's: leave it as other suites expect.
+        XCUIDevice.shared.appearance = .light
+    }
+
     @MainActor
     private func shot(_ app: XCUIApplication, _ name: String) {
         let attachment = XCTAttachment(screenshot: app.screenshot())
