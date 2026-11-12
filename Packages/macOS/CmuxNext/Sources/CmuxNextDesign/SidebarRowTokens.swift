@@ -93,13 +93,12 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
     public static func listFillGain(isCodexDensity: Bool, density: SidebarDensity, space1: CGFloat) -> CGFloat {
         isCodexDensity && density == .compact ? space1 : 0
     }
-    /// The gap between list rows: none when ``matchesCodex`` (Codex's rows touch), else `space1`.
-    public var rowGap: CGFloat { matchesCodex ? 0 : base.space1 }
+    /// The gap between list rows keeps adjacent hover and selection fills apart.
+    public var rowGap: CGFloat { base.space1 }
     /// A row's content (icon, title, trailing marks) from its fill's edge: `space4` (8 pt) when ``matchesCodex``,
     /// else the outer inset.
     public var contentInset: CGFloat { matchesCodex ? base.space4 : horizontalInset }
-    /// The row fill's corner when ``matchesCodex``: a third of the row (10 on 30, Codex's ratio); nil keeps the tab
-    /// pill's radius.
+    /// The Codex row corner exported to pages that share the sidebar row geometry.
     public var codexCornerRadius: CGFloat? { matchesCodex ? (listRowHeight / 3).rounded() : nil }
     /// A row title's and a detail line's text size.
     public var titleSize: CGFloat { base.body + textSize.textStep }
@@ -115,6 +114,19 @@ public nonisolated struct SidebarRowTokens: Equatable, Sendable {
             cornerRadius: base.cornerRadius + paddingY, titleSize: titleSize, noteSize: captionSize,
             buttonHeight: rowHeight - 2 * base.space1, buttonPaddingX: horizontalInset, buttonRadius: base.cornerRadius,
             closeSide: rowHeight - 2 * base.space2)
+    }
+
+    /// A list row's height, corner and content inset as `--cmux-sidebar-row-*` CSS px of a page zoomed
+    /// by `pageZoom`: pages whose rows match the sidebar's (Settings) read them. The values are the
+    /// list row's (``listRowHeight``, ``codexCornerRadius``, ``contentInset``), so at Default a page
+    /// row is Codex's 30 px row with a 10 px corner and 8 px content inset, as the sidebar draws it.
+    public func rowCSSVariables(pageZoom: CGFloat) -> [String: String] {
+        let zoom = max(pageZoom, 0.01)
+        return [
+            "--cmux-sidebar-row-height": SidebarCardMetrics.px(listRowHeight / zoom),
+            "--cmux-sidebar-row-radius": SidebarCardMetrics.px((codexCornerRadius ?? base.cornerRadius) / zoom),
+            "--cmux-sidebar-row-inset": SidebarCardMetrics.px(contentInset / zoom),
+        ]
     }
 
     /// The app's tokens now (`Metrics`, `Typography`) under the sidebar's settings.

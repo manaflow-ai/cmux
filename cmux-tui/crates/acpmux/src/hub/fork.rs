@@ -767,7 +767,18 @@ impl Hub {
         match made {
             Made::ClaudeResume => *new.fork_from.lock().unwrap() = Some(sid.clone()),
             // Its first prompt carries the chat's transcript (`hub/turns.rs`).
-            Made::Fresh => new.rehydrate.store(true, Ordering::SeqCst),
+            Made::Fresh => {
+                // A fork onto another harness: its agent is told it was forked from the chat, and
+                // whose the earlier replies are (Leo, 2026-11-11: "ChatGPT can have, like, a small
+                // little briefing of, like, you were forked from this chat").
+                if new.meta().harness != parent_meta.harness {
+                    *new.rehydrate_note.lock().unwrap_or_else(|e| e.into_inner()) = Some(format!(
+                        "this chat was forked from {} chat {} ({}) when the person switched to you; the conversation so far is below, and the earlier replies are {}'s, not yours; carry on from where it ended; tool state was not restored",
+                        parent_meta.harness, parent_meta.name, session.id, parent_meta.harness
+                    ));
+                }
+                new.rehydrate.store(true, Ordering::SeqCst)
+            }
             Made::Copy(_) | Made::Agent(..) | Made::Empty => {}
         }
         if let Err(e) = self.write_meta(&new) {
