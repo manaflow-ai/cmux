@@ -613,9 +613,9 @@ mod tests {
             let mut samples = Vec::with_capacity(5);
             for sample in 0..5 {
                 let start = Instant::now();
-                let subscription = hub
-                    .subscribe(&Sub::new(format!("{sid}-{round}-{sample}"), Stream::from("list")))
-                    .unwrap();
+                let mut sub = Sub::new(format!("{sid}-{round}-{sample}"), Stream::from("list"));
+                sub.window = Some(20);
+                let subscription = hub.subscribe(&sub).unwrap();
                 let _: Window<Summary> = subscription.window.decode_json().unwrap();
                 samples.push(start.elapsed().as_nanos().max(1));
                 drop(subscription);
