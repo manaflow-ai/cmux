@@ -110,7 +110,6 @@ impl Subscriber {
         Self {
             state: Mutex::new(SubscriberState {
                 pending: HashMap::new(),
-                gone: HashMap::new(),
                 bytes: 0,
                 dropped: None,
                 cursor,
