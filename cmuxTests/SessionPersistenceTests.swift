@@ -1955,6 +1955,14 @@ final class SessionPersistenceTests: XCTestCase {
                 ]
             ),
             (
+                .qwen,
+                [
+                    "/usr/local/bin/qwen",
+                    "--model",
+                    "qwen3-coder-plus",
+                ]
+            ),
+            (
                 .kimi,
                 [
                     "/usr/local/bin/kimi",
@@ -2134,6 +2142,8 @@ final class SessionPersistenceTests: XCTestCase {
                 resolvedEnvironment = ["CODEBUDDY_CONFIG_DIR": "/tmp/codebuddy"]
             case .qoder:
                 resolvedEnvironment = ["QODER_CONFIG_DIR": "/tmp/qoder"]
+            case .qwen:
+                resolvedEnvironment = ["QWEN_DIR": "/tmp/qwen"]
             case .kimi:
                 resolvedEnvironment = ["KIMI_SHARE_DIR": "/tmp/kimi"]
             }
