@@ -14,6 +14,7 @@ byte for byte what it was and that the fixture repository got the commit and the
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import subprocess
@@ -54,6 +55,14 @@ git_q -C "$work/repo" commit -q --allow-empty -m "inherited env"
 git_fixture_clone "$work/repo" "$work/clone"
 git_fixture_init --bare "$work/bare.git"
 """
+
+
+def fixture_module():
+    """tests/git_fixture_env.py, loaded by path (suites run with python3 -I) when a read first needs it."""
+    spec = importlib.util.spec_from_file_location("git_fixture_env", MODULE)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def digest(path: Path) -> str:
@@ -113,8 +122,10 @@ class DecoyEnvironment(unittest.TestCase):
         self.assertEqual(changed, [], f"the fixture wrote into a decoy:\n{done.stdout}\n{done.stderr}")
 
     def assertFixtureRepo(self, path: Path, commits: int) -> None:
-        # Read the fixture with this process's own env, minus the decoys (setUp never exported them here).
-        env = dict(os.environ)
+        # Read the fixture through the helper's own fixture_env: this process's env without git's redirects (GIT_DIR,
+        # GIT_WORK_TREE, GIT_INDEX_FILE, GIT_CONFIG, ...) and with the config isolation kept. A copy of os.environ kept
+        # an inherited GIT_DIR (a run from a hook), and both reads went to that repository (review of hq#9676 F3).
+        env = fixture_module().fixture_env(dict(os.environ))
         count = subprocess.run(["git", "-C", str(path), "rev-list", "--count", "HEAD"], env=env,
                                capture_output=True, text=True)
         self.assertEqual(count.stdout.strip(), str(commits), count.stderr)

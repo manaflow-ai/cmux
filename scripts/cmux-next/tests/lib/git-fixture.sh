@@ -62,19 +62,24 @@ unset _git_fixture_count _git_fixture_pair
 
 # git_fixture_trap_exit CMD: run CMD at exit, as `trap CMD EXIT` would (it replaces the previous CMD), and still
 # remove this file's folder first. The script's exit status is kept for CMD ($?) and for the shell.
+# The caller's action lives in its own variable, never in the trap text: `saved=$(trap -p EXIT); eval "$saved"`
+# hands this file's own dispatcher back, and keeping that as the action made the trap eval itself until bash
+# segfaulted, so the caller's cleanup never ran (review of hq#9676 F1). That restore keeps the current action.
 git_fixture_trap_exit() {
+  [[ "$1" == "$_git_fixture_exit_trap" ]] && return 0
   _git_fixture_caller_exit=$1
 }
 
 # Removes the folder; the caller's cleanup then runs from the trap itself (not inside this function), so it sees the
 # script's own positional parameters, as a direct `trap CMD EXIT` would.
-# Every folder this file made, as DEPTH:PATH: a second source after GIT_CONFIG_GLOBAL is unset adds one, and each is
-# removed (cmux#41021 review F2). Only the shell that made a folder removes it: an EXIT trap a subshell sets must not
-# delete it under us (cmux#41021). Never fails: a failed rm only warns.
+# Every folder this file made, as PID:PATH ($BASHPID of the shell that made it): a second source after
+# GIT_CONFIG_GLOBAL is unset adds one, and each is removed (cmux#41021 review F2). Only the shell that made a folder
+# removes it: an EXIT trap a subshell sets must not delete it under us (cmux#41021). Never fails: a failed rm only
+# warns.
 _git_fixture_remove_dir() {
   local entry
   for entry in ${_git_fixture_cleanup_dirs[@]+"${_git_fixture_cleanup_dirs[@]}"}; do
-    [[ "${entry%%:*}" == "$BASH_SUBSHELL" ]] || continue
+    [[ "${entry%%:*}" == "$BASHPID" ]] || continue
     rm -rf -- "${entry#*:}" || echo "git-fixture.sh: could not remove ${entry#*:}" >&2
   done
   return 0
@@ -86,17 +91,29 @@ _git_fixture_return() { return "$1"; }
 # exit), then exit with that status (cmux#41021 review F1). An `exit` in the caller's action still wins.
 _git_fixture_exit_trap='_git_fixture_status=$?; set +e; _git_fixture_remove_dir; _git_fixture_return "$_git_fixture_status"; eval "${_git_fixture_caller_exit:-:}"; exit "$_git_fixture_status"'
 
-# Once per shell (a second source keeps the first folder and caller cleanup): the caller's exit cleanup starts as
-# what was trapped on EXIT before sourcing, then git_fixture_trap_exit replaces it.
-_git_fixture_previous_exit=$(trap -p EXIT)
-if [[ "$_git_fixture_previous_exit" != *_git_fixture_remove_dir* ]]; then
-  _git_fixture_caller_exit=${_git_fixture_previous_exit#trap -- }
-  eval "_git_fixture_caller_exit=${_git_fixture_caller_exit% EXIT}"
-  _git_fixture_cleanup_dirs=()
-  # shellcheck disable=SC2064  # expand the variable now: it holds the trap text, whose $? expands at exit
+# Arms EXIT in this shell and records which shell that is.
+_git_fixture_arm_exit() {
+  _git_fixture_armed_pid=$BASHPID
   builtin trap -- "$_git_fixture_exit_trap" EXIT
+}
+
+# Once per shell (a second source keeps the first folder and caller cleanup): the caller's exit cleanup starts as
+# what was trapped on EXIT before sourcing, then git_fixture_trap_exit replaces it. "This shell" is $BASHPID, not
+# the trap text: a subshell still shows its parent's trap text but runs no EXIT trap until it sets one, so a guard on
+# the text never armed `(unset GIT_CONFIG_GLOBAL; source lib)` and left that subshell's folder (review of hq#9676
+# F2). The parent's action is not the subshell's: inherited dispatcher text starts it empty.
+if [[ "${_git_fixture_armed_pid-}" != "$BASHPID" ]]; then
+  _git_fixture_previous_exit=$(builtin trap -p EXIT)
+  if [[ "$_git_fixture_previous_exit" == *_git_fixture_remove_dir* ]]; then
+    _git_fixture_caller_exit=
+  else
+    _git_fixture_caller_exit=${_git_fixture_previous_exit#trap -- }
+    eval "_git_fixture_caller_exit=${_git_fixture_caller_exit% EXIT}"
+  fi
+  _git_fixture_cleanup_dirs=()
+  _git_fixture_arm_exit
+  unset _git_fixture_previous_exit
 fi
-unset _git_fixture_previous_exit
 
 # Most tests used to set their own `trap ... EXIT` after sourcing this file, which replaced the cleanup above and
 # left one folder per run (cmux#41021). So `trap` keeps it: an EXIT action goes to git_fixture_trap_exit (it runs
@@ -112,7 +129,7 @@ trap() {
   esac
   if (( $# == 1 )); then
     case "$1" in
-      EXIT | 0 | SIGEXIT) git_fixture_trap_exit ''; builtin trap -- "$_git_fixture_exit_trap" EXIT; return ;;
+      EXIT | 0 | SIGEXIT) git_fixture_trap_exit ''; _git_fixture_arm_exit; return ;;
       *) builtin trap -- "$@"; return ;;
     esac
   fi
@@ -133,7 +150,7 @@ trap() {
     -) git_fixture_trap_exit '' ;;
     *) git_fixture_trap_exit "$_git_fixture_action" ;;
   esac
-  builtin trap -- "$_git_fixture_exit_trap" EXIT
+  _git_fixture_arm_exit
 }
 
 # Only when unset: an empty GIT_CONFIG_GLOBAL means "no global config" and is kept (Codex F2 on cmux#40871).
@@ -147,7 +164,7 @@ if [[ -z "${GIT_CONFIG_GLOBAL+x}" ]]; then
     _git_fixture_text=$'[maintenance]\n\tauto = false\n[gc]\n\tauto = 0\n[receive]\n\tautogc = false'
   fi
   if _git_fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/cmux-git-fixture.XXXXXXXX"); then
-    _git_fixture_cleanup_dirs+=("$BASH_SUBSHELL:$_git_fixture_dir")
+    _git_fixture_cleanup_dirs+=("$BASHPID:$_git_fixture_dir")
     printf '%s\n' "$_git_fixture_text" >"$_git_fixture_dir/global.gitconfig"
     export GIT_CONFIG_GLOBAL="$_git_fixture_dir/global.gitconfig"
   else
