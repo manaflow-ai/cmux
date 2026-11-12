@@ -37,4 +37,18 @@ struct AgentPaneOpenTabKeepTests {
         _ = await Self.ask(model, ["kind": "browser", "text": "example.com"])
         #expect(opened.map(\.inPlace) == [true, true, false])
     }
+
+    /// Option-Return on the New Tab page sends `beside` for a browser open (a new tab where links go); a plain
+    /// Return sends none, so the address navigates the page's tab (Lawrence 2026-11-11). A terminal never takes it.
+    @Test func besideReachesTheHostOnlyForABrowserTheTabAsksFor() async {
+        let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
+        var opened: [AgentPaneOpenTab] = []
+        model.onOpenTab = { opened.append($0) }
+        _ = await Self.ask(model, ["kind": "browser", "text": "example.com"])
+        _ = await Self.ask(model, ["kind": "browser", "text": "example.com", "beside": true])
+        _ = await Self.ask(model, ["kind": "browser", "text": "tides", "search": true, "beside": true])
+        _ = await Self.ask(model, ["kind": "terminal", "text": "", "run": false, "beside": true])
+        #expect(opened.map(\.beside) == [false, true, true, false])
+        #expect(opened.map(\.navigatesInPlace) == [true, false, false, false])
+    }
 }

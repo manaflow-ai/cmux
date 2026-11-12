@@ -236,7 +236,12 @@ function menuViolations(doc: Document): Violation[] {
   );
   const rowHeight = Number.parseFloat(getComputedStyle(doc.documentElement).getPropertyValue("--ds-control-row")) || 28;
   for (const menu of menus) {
-    const name = labelOf(menu).slice(0, 48);
+    // A scroll shell (`.ui-popup-scroll-shell`) carries the glass and no name of its own; the list it
+    // holds does, so the menu keeps the name its rows' list gives it.
+    const named = menu.matches(".ui-popup-scroll-shell:not([aria-label])")
+      ? (menu.querySelector(":scope > [aria-label]") ?? menu)
+      : menu;
+    const name = labelOf(named).slice(0, 48);
     const items = [...menu.querySelectorAll(ITEM)].filter((item) => visible(item.getBoundingClientRect()));
     if (items.length < 2) continue;
     violations.push(
