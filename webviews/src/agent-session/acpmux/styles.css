@@ -396,6 +396,10 @@
 /* A tab's chat that is not here (ChatUnavailableState.tsx): the hero's place and type, a muted line
    under it and one quiet button. */
 .acpmux-unavailable{gap:10px}
+/* An existing chat still opening, or that could not be read (ChatLoadState.tsx): centered over its empty
+   transcript, which stays mounted under it; only Try Again takes the pointer. */
+.acpmux-chat-load{position:absolute;inset:0;pointer-events:none}
+.acpmux-chat-load .acpmux-unavailable-action{pointer-events:auto}
 /* Loading has no transcript under the dock. Keep the existing dock height/shrink rules, but let
    its actual height reserve the stage's room (including a growing draft in a short pane). */
 .acpmux-main[data-dock="float"]:has(>.acpmux-stage>.acpmux-unavailable[data-unavailable="connecting"])>.acpmux-dock{position:relative;flex:none;max-height:calc(100% - 44px - var(--acpmux-transcript-min,96px))}

@@ -5532,6 +5532,16 @@ export class AcpmuxDirectClient {
     this.emit();
   }
 
+  /// Try Again over an existing chat whose rows did not come (ChatLoadState: the open was refused, or
+  /// the wait ran past its deadline): a link that is down reconnects now, and the reconnect attaches
+  /// the chat; an open link attaches it again. Its rows replace the error when they land.
+  retryOpen(): void {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId || this.chatRead()) return;
+    if (this.socket?.readyState !== WebSocket.OPEN) return this.reconnectNow();
+    void this.attach(sessionId, this.selectionGeneration).catch(() => undefined);
+  }
+
   /// acpmux's on-demand retry (subagents/retryState.ts `runRetry`): fires a waiting retry now, or
   /// retries the last failed turn or subagent. Its refusals name their code (`retry.busy`).
   retry(method: string, params: Record<string, unknown>): Promise<unknown> {

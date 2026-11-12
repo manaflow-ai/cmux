@@ -181,6 +181,7 @@ import {
 } from "./emojiShortcodes";
 import { COMPOSER_LABELS, slashMenuEmptyLabel } from "./composerModel";
 import { SlashMenuEmpty } from "./SlashMenu";
+import { useCommandsDeadline } from "./loadDeadline";
 import { attachmentViewMenu } from "./composer/attachmentViewMenu";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -1315,7 +1316,9 @@ function ComposerFrame({
   const matches = useMemo(() => (typedSlash ? slashMatches(commands ?? [], typedSlash) : []), [commands, typedSlash]);
   const open = typedSlash !== undefined && (typedSlash.leading || matches.length > 0);
   // The chat's command list could not be read: the menu's empty line offers Try Again.
-  const retryCommands = snapshot.commandsFailed && onRetryCommands ? onRetryCommands : undefined;
+  // "Loading commands…" ends after its deadline in the failure, with Try Again (loadDeadline.ts).
+  const commandList = useCommandsDeadline(snapshot, snapshot.sessionId, onRetryCommands);
+  const retryCommands = commandList.retry;
   const slashNames = useSlashNames(commands);
 
   // The row the arrows chose: Return picks it whatever was typed (returnPicks). A new word, a cleared
@@ -2833,7 +2836,7 @@ function ComposerFrame({
                   key={query}
                   matches={matches}
                   active={selected}
-                  empty={t(slashMenuEmptyLabel(commands, snapshot.commandsPending, snapshot.commandsFailed))}
+                  empty={t(slashMenuEmptyLabel(commands, commandList.pending, commandList.failed))}
                   {...(retryCommands ? { onRetry: retryCommands } : {})}
                   fast={fastModeState(snapshot.summary?.configOptions)}
                   onHover={setActive}

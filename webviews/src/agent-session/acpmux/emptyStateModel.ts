@@ -48,3 +48,18 @@ export function isNewChat(snapshot: AcpmuxSnapshot, newSession = false): boolean
   if (turns === undefined) return false;
   return snapshot.rows.length === 0 && !snapshot.isWorking && snapshot.queue.length === 0 && turns === 0;
 }
+
+/// What the transcript area draws for an existing chat whose rows are not in yet (ui-state-fixes M3
+/// and the rule for every surface): "loading" while its attach is out, "failed" (with Try Again)
+/// once the open was refused or the wait ran past its deadline (`timedOut`), never a blank
+/// transcript. Undefined once its rows are read (rows, or for a truly empty read the hero), for a
+/// chat that is new (its hero), for rows already drawn (a kept tail, a send), and for a chat that
+/// is not here (ChatUnavailableState says why).
+export type ChatLoad = "loading" | "failed";
+export function chatLoad(snapshot: AcpmuxSnapshot, newSession = false, timedOut = false): ChatLoad | undefined {
+  if (!snapshot.sessionId || snapshot.chatRead === true) return undefined;
+  if (snapshot.rows.length > 0 || snapshot.isWorking || snapshot.queue.length > 0) return undefined;
+  if (snapshot.missingSession !== undefined || snapshot.unavailable !== undefined) return undefined;
+  if (isNewChat(snapshot, newSession)) return undefined;
+  return timedOut || snapshot.connection.startsWith("failed") ? "failed" : "loading";
+}

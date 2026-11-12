@@ -55,6 +55,7 @@ import {
 } from "../attachments";
 import { composerCommand } from "../cmuxCommands";
 import { slashMenuEmptyLabel } from "../composerModel";
+import { useCommandsDeadline, type LoadDeadlineOptions } from "../loadDeadline";
 import type { UploadResult } from "../cloudUploads";
 import { AttachmentStrip } from "../composer/attachmentIntake";
 import { backspacedAttachment, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntakeModel";
@@ -334,6 +335,8 @@ type Props = NewTabScreenActions & {
   onCommands?(harness: string, cwd?: string): void;
   /// Try Again in the `/` menu when the command list could not be read (`commandsFailed`).
   onRetryCommands?(): void;
+  /// The `/` menu's "Loading commands…" deadline (loadDeadline.ts); tests pass their own timers.
+  commandsDeadline?: LoadDeadlineOptions;
   /// false: the field does not take the keyboard when the screen appears (Cmd-L gave it to the
   /// omnibar); Cmd-L on the page still focuses it when the page shows no omnibar.
   focusField?: boolean;
@@ -953,7 +956,9 @@ export function NewTabScreen(props: Props) {
   if (!text.trim() && pickedSkills.current.size) pickedSkills.current = new Set();
   const onCommands = props.onCommands;
   // The command list could not be read: the `/` menu's empty line offers Try Again.
-  const retryCommands = snapshot.commandsFailed ? props.onRetryCommands : undefined;
+  // "Loading commands…" ends after its deadline in the failure, with Try Again (loadDeadline.ts).
+  const commandList = useCommandsDeadline(snapshot, snapshot.sessionId, props.onRetryCommands, props.commandsDeadline);
+  const retryCommands = commandList.retry;
   const pickCommand = (command: SlashCommand) => {
     setCommandActive(0);
     // A picked Codex skill goes as `/$name` even where a command shares its name (withSkillDollars).
@@ -2243,7 +2248,7 @@ export function NewTabScreen(props: Props) {
                 <SlashMenu
                   matches={commandMatches}
                   active={commandIndex}
-                  empty={t(slashMenuEmptyLabel(snapshot.commands, snapshot.commandsPending, snapshot.commandsFailed))}
+                  empty={t(slashMenuEmptyLabel(snapshot.commands, commandList.pending, commandList.failed))}
                   {...(retryCommands ? { onRetry: retryCommands } : {})}
                   onHover={setCommandActive}
                   onPick={pickCommand}

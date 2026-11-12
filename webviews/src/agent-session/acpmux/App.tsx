@@ -198,6 +198,7 @@ import { openPicker } from "./pickerOpeners";
 import { startRefusalRoute } from "./startRefusal";
 import { EmptyState, type EmptyStateProjects } from "./EmptyState";
 import { isNewChat, projectName, shownChatName } from "./emptyStateModel";
+import { ChatLoadState, useChatLoad } from "./ChatLoadState";
 import { TourStartContext } from "./repoTour/TourBlock";
 import type { TourOfferActions } from "./repoTour/TourOffer";
 import { dismissTour, isTourDismissed, offersTour, TOUR_PROMPT, type TourTask } from "./repoTour/tourModel";
@@ -2399,6 +2400,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // a new chat's hero stay, and a review that arrives takes their place (Leo 2026-10-19: the
   // composer left for the read on every open, switch and reconnect).
   const freshChat = !reviewing && isNewChat(snapshot, newSession);
+  // An existing chat still opening draws "Loading conversation…" where its messages go, and an open
+  // that was refused or never answered draws an error with Try Again (ChatLoadState.tsx, M3).
+  const reopenChat = useCallback(() => directClient.current?.retryOpen(), []);
+  const chatLoading = useChatLoad(snapshot, newSession, reopenChat);
   /// The chat's start folder (startFolder.tsx): the host's folder for a new chat or the user's
   /// pick, for every start of this new chat (the agent row, a harness pick, the first Send).
   /// Undefined: the host fills the chat's folder (the workspace's agent-home folder).
@@ -10536,10 +10541,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ),
     [newTabSnapshot, commandSession, newTabCommands, newTabCommandsFailed, newTabCommandsAsk],
   );
-  // New Tab's `/` Try Again: the deferred chat's read again, else the refused ask again.
+  // New Tab's `/` Try Again: the deferred chat's read again, else the ask again (refused, or not
+  // answered before the menu's deadline, loadDeadline.ts).
   const retryNewTabCommands = () => {
     if (commandSession) return pendingCommands.retry();
-    if (commandsAsked?.failed && commandsAsked.page === newTabGeneration)
+    if (commandsAsked?.page === newTabGeneration)
       askCommands(commandsAsked.page, commandsAsked.harness, commandsAsked.cwd);
   };
   // The daemon has not listed the chats to this page yet and none are known (newtab/recentProject.ts).
@@ -12997,17 +13003,20 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     tour={tourOffer}
                   />
                 ) : (
-                  <AgentTonesContext.Provider value={chatTones}>
-                    <AgentNamesContext.Provider value={chatAgentNames}>
-                      <AgentOpenContext.Provider value={chatAgentOpen}>
-                        <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
-                          <TourStartContext.Provider value={tourHere ? startTourTask : undefined}>
-                            {transcript}
-                          </TourStartContext.Provider>
-                        </BackgroundTaskOutputContext.Provider>
-                      </AgentOpenContext.Provider>
-                    </AgentNamesContext.Provider>
-                  </AgentTonesContext.Provider>
+                  <>
+                    <AgentTonesContext.Provider value={chatTones}>
+                      <AgentNamesContext.Provider value={chatAgentNames}>
+                        <AgentOpenContext.Provider value={chatAgentOpen}>
+                          <BackgroundTaskOutputContext.Provider value={backgroundTaskOutput}>
+                            <TourStartContext.Provider value={tourHere ? startTourTask : undefined}>
+                              {transcript}
+                            </TourStartContext.Provider>
+                          </BackgroundTaskOutputContext.Provider>
+                        </AgentOpenContext.Provider>
+                      </AgentNamesContext.Provider>
+                    </AgentTonesContext.Provider>
+                    {chatLoading.state && <ChatLoadState state={chatLoading.state} onRetry={chatLoading.retry} />}
+                  </>
                 )}
                 {displayAnchor && (
                   <ChatDisplaySettings
