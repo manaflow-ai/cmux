@@ -59,6 +59,11 @@ impl Daemon {
     /// `settings` is relative to the test's folder; its folders are created
     /// only when the file is at the top.
     fn start_with_settings(name: &str, settings: &Path) -> Self {
+        Self::start_with_env(name, settings, &[])
+    }
+
+    /// [`Daemon::start_with_settings`] with `env` added to the daemon's environment.
+    fn start_with_env(name: &str, settings: &Path, env: &[(&str, &std::ffi::OsStr)]) -> Self {
         let stamp = unique_nanos();
         let dir =
             PathBuf::from("/tmp").join(format!("cmux-idle-{name}-{}-{stamp}", std::process::id()));
@@ -96,6 +101,7 @@ impl Daemon {
             .env("CMUX_NEXT_CONFIG_FILE", &settings)
             .env("ACPMUX_SOCKET", &acpmux)
             .env("CMUX_TUI_TEST_JOURNAL_MAINTENANCE_INTERVAL_MS", MAINTENANCE_INTERVAL_MS)
+            .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -532,6 +538,56 @@ fn cmux_next_daemon_idle_ignores_writes_below_a_missing_settings_folder() {
     // acpmux has never run here: its folder appears with its socket.
     assert!(!daemon.acpmux.parent().unwrap().exists());
     assert_follows_acpmux_when_it_appears(&daemon);
+}
+
+/// Usage patterns (opt-in counters) are written by a thread that must not
+/// wake an idle daemon, so it writes a count some time after it was made.
+/// A count made just before the daemon stops (an update's SIGTERM) must
+/// still be on disk after the stop: the shutdown writes it. The request comes
+/// after the first write of the 5-second loop the thread had before, which
+/// then wrote again only 30 s later and lost every count of the last
+/// 5-35 s of a daemon's life.
+#[test]
+fn cmux_next_daemon_writes_its_usage_counts_when_it_stops() {
+    let stamp = unique_nanos();
+    let counts = PathBuf::from("/tmp").join(format!("cmux-usage-{}-{stamp}", std::process::id()));
+    let mut daemon = Daemon::start_with_env(
+        "usage",
+        Path::new("cmux-next.json"),
+        &[
+            ("CMUX_USAGE_PATTERNS", std::ffi::OsStr::new("1")),
+            ("CMUX_USAGE_PATTERNS_DIR", counts.as_os_str()),
+        ],
+    );
+    std::thread::sleep(Duration::from_secs(6));
+    request(&daemon.socket, serde_json::json!({"id": 1, "cmd": "list-workspaces"}))
+        .expect("list-workspaces");
+    // SAFETY: the pid is this test's own daemon, still running.
+    unsafe { libc::kill(daemon.child.id() as libc::pid_t, libc::SIGTERM) };
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while daemon.child.try_wait().unwrap().is_none() {
+        assert!(Instant::now() < deadline, "the daemon did not stop on SIGTERM");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    let commands: u64 = fs::read_dir(&counts)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+        .filter_map(|entry| fs::read(entry.path()).ok())
+        .filter_map(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .flat_map(|rollup| {
+            rollup["counts"]["command"]
+                .as_object()
+                .into_iter()
+                .flat_map(|keys| {
+                    keys.values().filter_map(serde_json::Value::as_u64).collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>()
+        })
+        .sum();
+    let _ = fs::remove_dir_all(&counts);
+    assert!(commands >= 1, "the command counted before the stop was not written");
 }
 
 /// Starts a terminal, keeps the app's streams open, settles, then runs

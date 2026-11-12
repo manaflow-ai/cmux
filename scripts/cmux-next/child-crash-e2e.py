@@ -19,6 +19,8 @@ socket; the script never launches or quits it.
 Usage: child-crash-e2e.py --socket <path> [--app-pid PID] [--only renderer,gpu,webkit,agent]
 """
 import argparse, functools, http.server, json, os, signal, socket, subprocess, sys, tempfile, threading, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True)
@@ -163,7 +165,7 @@ def main():
         sys.exit("FAIL the app does not answer on its socket")
     url = serve()
     only = set(opts.only.split(","))
-    print(f"app pid {pid}, page {url}", flush=True)
+    safe_print(f"app pid {pid}, page {url}", flush=True)
 
     # First, while the window still shows its New Tab page (an agent page).
     if "agent" in only:
