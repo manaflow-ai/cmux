@@ -225,7 +225,39 @@ async function paste(clipboard: { files?: File[]; html?: string; plain?: string 
   await until(() => (opened!.current!.wakeState().attachments ?? []).length > 0, "the pasted chips");
 }
 
-const screenshot = (index: number) => new File([PNG], "image.png", { type: "image/png", lastModified: index });
+/// Screenshot `index`: its own bytes (the last filler byte), as two different screenshots have.
+const screenshot = (index: number) =>
+  new File([PNG.slice(0, -1), Uint8Array.of(index)], "image.png", { type: "image/png", lastModified: index });
+
+// Leo, 2026-11-06: "Why am I seeing that, like the app is trying to attach doubled up screenshots?"
+// A screenshot tool that copies the saved file and its picture hands the page one image as two files.
+test("one screenshot the clipboard holds twice is one attachment atom and one image to the agent", async () => {
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const shot = screenshot(1);
+  const twin = new File([await shot.arrayBuffer()], "Screenshot 2026-11-06 at 18.40.12.png", { type: "image/png" });
+  await paste({ files: [shot, twin], plain: "" });
+  await until(() => field().querySelectorAll("[data-inline-attachment] img").length === 1, "one inline thumbnail");
+  expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image"]);
+  await act(async () => {
+    composer.current!.send();
+  });
+  expect(promptBlocks(sent[0]!.text, sent[0]!.attachments).filter((block) => block.type === "image")).toHaveLength(1);
+});
+
+test("a gesture's files keep every different file, and answer at once when none could be a twin", async () => {
+  const { filesOnce } = await import("../src/agent-session/acpmux/attachments");
+  const [one, two] = [screenshot(1), screenshot(2)];
+  // Two screenshots of one size are two: only the same bytes are one.
+  expect(await filesOnce([one, two])).toEqual([one, two]);
+  // The same bytes as another type are another file.
+  const asText = new File([await one.arrayBuffer()], "image.txt", { type: "text/plain" });
+  expect(await filesOnce([one, asText])).toEqual([one, asText]);
+  expect(await filesOnce([one, new File([await one.arrayBuffer()], "copy.png", { type: "image/png" })])).toEqual([one]);
+  // No two files of one type and size: no read, the chips draw in the gesture's own task.
+  const small = new File([Uint8Array.of(1)], "a.png", { type: "image/png" });
+  expect(filesOnce([one, small])).toEqual([one, small]);
+});
 
 test("pasting two copied images puts two attachment atoms in the prompt", async () => {
   const composer = await openComposer();
