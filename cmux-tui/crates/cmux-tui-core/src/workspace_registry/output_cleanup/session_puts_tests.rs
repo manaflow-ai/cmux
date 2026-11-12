@@ -96,9 +96,17 @@ fn build_step(db_path: &Path) -> String {
 
 /// Seals the whole journal through a new checkpoint.
 fn seal_all(mux: &crate::Mux, label: &str) {
+    seal_all_after(mux, label, |_| {});
+}
+
+/// [`seal_all`], with `before_seal` run between the checkpoint and the first
+/// seal, where the mux's own maintenance worker can seal the same range (it
+/// ticks every 30 s; a fixture of 10,000 puts on a loaded host takes longer).
+fn seal_all_after(mux: &crate::Mux, label: &str, before_seal: impl FnOnce(u64)) {
     let checkpoint =
         mux.create_journal_checkpoint("client_test", &format!("puts_checkpoint_{label}")).unwrap();
     let through = checkpoint.checkpoint.source_sequence;
+    before_seal(through);
     for batch in 0..64 {
         let sealed = mux
             .seal_journal_segments(through, "client_test", &format!("puts_seal_{label}_{batch}"))
@@ -108,6 +116,35 @@ fn seal_all(mux: &crate::Mux, label: &str) {
         }
     }
     panic!("sealing never reached sequence {through}");
+}
+
+/// The flake of `flapping_session_puts_compact_to_the_latest_and_the_created_put`
+/// in a loaded full run (post49 at 568c707e, `seal_all` line 105): the
+/// maintenance worker sealed the fixture's range between its checkpoint and
+/// its seal, and the seal answered "requested journal range is already
+/// sealed". The range is sealed, which is all the fixture needs.
+#[test]
+fn sealing_the_fixture_finishes_when_the_maintenance_worker_sealed_the_range_first() {
+    let mux = open(&temp_root("maintenance-sealed"));
+    for round in 0..3 {
+        put(&mux, LIVE, round);
+    }
+    seal_all_after(&mux, "raced", |through| {
+        for batch in 0..64 {
+            let sealed = mux
+                .seal_journal_segments(
+                    through,
+                    "journal-maintenance",
+                    &format!("auto_segment_{through}_{batch}"),
+                )
+                .unwrap();
+            if sealed.through_sequence >= through {
+                return;
+            }
+        }
+        panic!("the maintenance seal never reached sequence {through}");
+    });
+    mux.shutdown();
 }
 
 /// One live `terminal.output` row the way an older build wrote it, with
