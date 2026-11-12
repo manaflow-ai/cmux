@@ -374,6 +374,53 @@ class ResolverGaps(unittest.TestCase):
                 self.assertTrue(found.unresolved)
 
 
+class MatrixReadsNothingResolves(unittest.TestCase):
+    """A matrix read that is not a whole `${{ matrix.KEY }}` is a value nothing resolves, never a known cell (#40784
+    review F1): `${{ matrix[inputs.axis] }}` was kept as one literal cell, so a signing job whose matrix picks
+    vars.LINUX_RUNNER failed the keychain guard written `matrix.runner` and passed written with a computed index.
+    One row per form; each also checks the dotted twin still fails, so the row is about the form alone."""
+
+    SECRET = {"run": "sign", "env": {"K": "${{ secrets['APPLE_CERTIFICATE_PASSWORD'] }}"}}
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.keychain = importlib.import_module(KEYCHAIN)
+
+    def _failures(self, runs_on: str, matrix: dict) -> list[str]:
+        job = {"runs-on": runs_on, "strategy": {"matrix": matrix}, "steps": [self.SECRET]}
+        failures: list[str] = []
+        self.keychain.check_job("matrix-read-fixture.yml sign", job, failures)
+        return failures
+
+    def _assert_unresolved(self, runs_on: str, key: str = "runner") -> None:
+        matrix = {key: ["${{ vars.LINUX_RUNNER }}"], "axis": [key]}
+        self.assertTrue(self._failures("${{ matrix.runner }}", {"runner": matrix[key]}), "the dotted twin passes")
+        job = {"runs-on": runs_on, "strategy": {"matrix": matrix}}
+        self.assertIsNone(workflow_jobs.runs_on_cells(job), f"{runs_on} read as a known cell")
+        self.assertIsNone(workflow_jobs.expand_matrix(job, runs_on))
+        self.assertTrue(self._failures(runs_on, matrix), f"{runs_on} passes the keychain guard")
+
+    def test_a_computed_index(self) -> None:
+        self._assert_unresolved("${{ matrix[inputs.axis] }}")
+
+    def test_a_computed_index_with_an_or_default(self) -> None:
+        self._assert_unresolved("${{ matrix[inputs.axis] || 'blacksmith-4vcpu-ubuntu-2404' }}")
+
+    def test_a_computed_index_in_format(self) -> None:
+        self._assert_unresolved("${{ format('{0}', matrix[inputs.axis]) }}")
+
+    def test_the_whole_matrix_through_fromjson(self) -> None:
+        self._assert_unresolved("${{ fromJSON(toJSON(matrix)).runner }}")
+
+    def test_a_literal_index_dotted_cannot_write(self) -> None:
+        self._assert_unresolved("${{ matrix['runner label'] }}", key="runner label")
+
+    def test_matrix_as_a_property_name_or_text_is_not_the_context(self) -> None:
+        job = {"runs-on": "${{ needs.matrix.outputs.runner || 'matrix-runner' }}",
+               "strategy": {"matrix": {"runner": ["macos-26"]}}}
+        self.assertEqual(workflow_jobs.runs_on_cells(job), [job["runs-on"]])
+
+
 HERE = __name__
 # Fixtures whose fix added a guard rather than changed a reader: the guard as it was before (absent), per list.
 PRE_FIX_GUARDS = {
