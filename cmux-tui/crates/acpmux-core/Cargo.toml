@@ -1,0 +1,23 @@
+[package]
+name = "acpmux-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The v2 agent service core: published summaries and bounded stream frames"
+
+[lints]
+workspace = true
+
+[dependencies]
+acpmux-book = { path = "../acpmux-book" }
+arc-swap.workspace = true
+bytes = "1"
+serde.workspace = true
+serde_json = { workspace = true, features = ["raw_value"] }
+thiserror = "2"
+tokio = { version = "1.52", features = ["rt", "sync", "time"] }
+
+[dev-dependencies]
+serde = { workspace = true, features = ["derive"] }
