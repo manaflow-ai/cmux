@@ -8,6 +8,29 @@ import Testing
 /// retirer drained every page in one main-actor turn; the regression test keeps that turn bounded
 /// to one page even when a workspace closes a large batch.
 @Suite struct AgentPageRetirementQueueTests {
+    @Test func aLaterWakeStateCannotOvertakeAnEarlierClose() {
+        final class Page {
+            let id: Int
+            var wakeStateReady = false
+
+            init(_ id: Int) { self.id = id }
+        }
+
+        var queue = AgentPageRetirementQueue<Page>()
+        let first = Page(1), second = Page(2)
+        queue.append(first)
+        queue.append(second)
+        second.wakeStateReady = true
+
+        var closed: [Int] = []
+        if queue.peek?.wakeStateReady == true { closed.append(queue.takeNext()!.id) }
+        #expect(closed.isEmpty, "a later wake-state answer cannot overtake the first page")
+
+        first.wakeStateReady = true
+        while queue.peek?.wakeStateReady == true { closed.append(queue.takeNext()!.id) }
+        #expect(closed == [1, 2])
+    }
+
     @Test func retirementPreservesCloseOrder() {
         var queue = AgentPageRetirementQueue<Int>()
         for page in 0..<4 { queue.append(page) }
@@ -67,7 +90,7 @@ import Testing
         #expect(clock.sleeperDeadlines.map(\.offset) == [.milliseconds(500)])
 
         clock.advance(by: .milliseconds(500))
-        await Task.yield()
+        for _ in 0..<10 { await Task.yield() }
         #expect(await events.values == ["quiet"])
     }
 }
