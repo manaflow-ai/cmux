@@ -109,11 +109,17 @@ fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
 /// deliberate `WaitExpiredAtHold` panic after it observed the idle hold. Any panic before the hold
 /// (the store's `open`, a hold that never came) or any other panic after it is not the case under
 /// test, and a return or a hang fails it too; each `Err` says which.
-fn judge_expired_at_hold(_hold_seen: bool, ending: Ending) -> Result<(), String> {
-    // The judging #41816 merged: any panic counts.
+fn judge_expired_at_hold(hold_seen: bool, ending: Ending) -> Result<(), String> {
     match ending {
         Ending::Hung => Err("it hung: still running after the bound".to_string()),
         Ending::Returned => Err("it returned instead of panicking at the hold".to_string()),
+        Ending::Panicked(payload) if !hold_seen => {
+            Err(format!("it panicked before the idle hold was observed: {}", panic_text(&*payload)))
+        }
+        Ending::Panicked(payload) if !payload.is::<WaitExpiredAtHold>() => Err(format!(
+            "it panicked after the hold, but not with the deliberate panic: {}",
+            panic_text(&*payload)
+        )),
         Ending::Panicked(_) => Ok(()),
     }
 }
