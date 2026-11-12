@@ -72,7 +72,7 @@ type Snapshot = {
 async function cutAndWhole(
   special: (sessionId: string) => Map<number, Omit<EventRecord, "sessionId" | "seq" | "at">>,
   /// More rebuilds past a cut after the lag read's, before the cut rows are read.
-  more?: (rebuild: (changedFrom: number) => void) => void,
+  more?: (rebuild: (changedFrom: number) => void, pane: unknown) => void,
 ) {
   const { AcpmuxDirectClient } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
@@ -137,7 +137,7 @@ async function cutAndWhole(
     for (let index = 0; index < 20; index += 1) await tick();
     flush();
     if (more) {
-      more((changedFrom) => pane.rebuild(changedFrom));
+      more((changedFrom) => pane.rebuild(changedFrom), pane);
       pane.emit();
       flush();
     }
@@ -457,4 +457,23 @@ test("a sender claim a repair brings past a cut draws on its inbox notice above 
     JSON.stringify((snapshot.rows as { incoming?: { kind?: string } }[]).find((row) => row.incoming?.kind === "inbox"));
   expect(notice(whole)).toContain("Claude.app");
   expect(notice(cut)).toEqual(notice(whole));
+});
+
+test("a sender unknown above a cut is still read again when the chat list names it", async () => {
+  // Codex review of #41806 at 236a739: a cut cleared `unknownSenders`, so a listing that later named
+  // a sender a row above the cut met no unknown sender and never read that row again.
+  let unknown: number | undefined;
+  await cutAndWhole(
+    spanning((sessionId) => [
+      mux(sessionId, 101, "user_message", {
+        text: "peer-lane -> this-chat: status?",
+        promptId: "from-peer-1",
+        client: "acpmux-peer#01a161",
+      }),
+    ]),
+    (_rebuild, pane) => {
+      unknown = (pane as unknown as { unknownSenders: Set<string> }).unknownSenders.size;
+    },
+  );
+  expect(unknown).toBeGreaterThan(0);
 });

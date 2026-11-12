@@ -7392,7 +7392,9 @@ export class AcpmuxDirectClient {
     const previous = new Map(this.shownRowsToKeep() ?? []);
     for (const row of frozenBefore === undefined ? this.rows.values() : this.rows.rowsFrom(frozenBefore))
       previous.set(row.id, row);
-    this.unknownSenders.clear();
+    // Past a cut, a sender a row above it named before the chat was listed stays unknown: a listing
+    // that names it later refolds the whole chat (`recheckSenders`).
+    if (frozenBefore === undefined) this.unknownSenders.clear();
     // A prompt still in flight keeps its optimistic row until an event settles it; a failed one stays to show it was not sent.
     // Only prompts still awaiting acceptance are retained before replay. Durable keys are used
     // when their replayed user_message is reduced, but retaining every historical key here would
