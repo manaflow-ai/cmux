@@ -89,6 +89,14 @@ unsafe extern "C" {
     pub fn CFDictionaryGetKeysAndValues(d: CFTypeRef, keys: *mut CFTypeRef, values: *mut CFTypeRef);
     pub fn CFPreferencesCopyAppValue(key: CFTypeRef, app: CFTypeRef) -> CFTypeRef;
     pub fn CFPreferencesAppSynchronize(app: CFTypeRef) -> u8;
+    pub fn CFDataCreate(alloc: CFTypeRef, bytes: *const u8, len: CFIndex) -> CFTypeRef;
+    pub fn CFPropertyListCreateWithData(
+        alloc: CFTypeRef,
+        data: CFTypeRef,
+        options: usize,
+        format: *mut CFIndex,
+        error: *mut CFTypeRef,
+    ) -> CFTypeRef;
     pub static kCFBooleanTrue: CFTypeRef;
     pub static kCFBooleanFalse: CFTypeRef;
     pub static kCFTypeArrayCallBacks: Opaque;
@@ -332,6 +340,25 @@ impl Cf {
     }
 
     /// A value of a CFDictionary by string key, retained.
+    /// A property list (binary or XML) read from `bytes`.
+    pub fn property_list(bytes: &[u8]) -> Option<Cf> {
+        // SAFETY: the bytes are valid for `len`; CFDataCreate copies them.
+        let data = Cf::created(unsafe {
+            CFDataCreate(std::ptr::null(), bytes.as_ptr(), bytes.len() as CFIndex)
+        })?;
+        // SAFETY: data is a live CFData; a null format and error are allowed
+        // (kCFPropertyListImmutable is 0).
+        Cf::created(unsafe {
+            CFPropertyListCreateWithData(
+                std::ptr::null(),
+                data.ptr(),
+                0,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        })
+    }
+
     pub fn get(&self, key: &str) -> Option<Cf> {
         let k = Cf::string(key)?;
         // SAFETY: checked to be a CFDictionary; k is live for the call.

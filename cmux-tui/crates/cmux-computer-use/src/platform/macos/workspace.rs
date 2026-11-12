@@ -276,6 +276,66 @@ pub fn apps_named(name: &str) -> Option<Vec<String>> {
     Some(ids)
 }
 
+/// [`apps_named`] from the built index alone, with no LaunchServices
+/// lookup: for scanning many words of menu titles (a font pop-up has
+/// hundreds of items). `None` while the first build runs.
+pub fn apps_named_indexed(name: &str) -> Option<Vec<String>> {
+    let key = name.trim().to_lowercase();
+    if key.is_empty() {
+        return Some(Vec::new());
+    }
+    let (_, by_name) = names_index().current()?;
+    Some(by_name.get(&key).cloned().unwrap_or_default())
+}
+
+/// Whether the app-name index has been built (menu items are checked
+/// against it; while it is not, they fail closed while anything is denied).
+pub fn app_names_ready() -> bool {
+    names_index().current().is_some()
+}
+
+/// AppKit's titles, in every language it ships, of the submenus whose items
+/// launch, open or hand data to other apps: Services, Quick Actions, Share,
+/// Open With, Recent Items. Read once from AppKit's string tables, so an
+/// app in any language (its own or the person's) is matched.
+pub fn launch_submenu_titles() -> &'static [String] {
+    static TITLES: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    TITLES.get_or_init(|| {
+        // (table, key): the keys are AppKit's own.
+        const ENTRIES: &[(&str, &str)] = &[
+            ("Services", "Services"),
+            ("MenuCommands", "Open With"),
+            ("MenuCommands", "Share"),
+            ("Menus", "Recent Items"),
+            // AppKit names Quick Actions only in its control strip images.
+            ("AccessibilityImageDescriptions", "NSTouchBarControlStripUserActionsTemplate"),
+        ];
+        const RESOURCES: &str = "/System/Library/Frameworks/AppKit.framework/Resources";
+        let mut out: Vec<String> = Vec::new();
+        let mut add = |t: String| {
+            let t = super::roles::submenu_title_key(&t);
+            if !t.is_empty() && !out.contains(&t) {
+                out.push(t);
+            }
+        };
+        for (table, key) in ENTRIES {
+            let path = format!("{RESOURCES}/{table}.loctable");
+            let Some(plist) = std::fs::read(&path).ok().and_then(|b| Cf::property_list(&b)) else {
+                // No table (an older layout): the key, which is AppKit's
+                // English title for all but Quick Actions.
+                add((*key).to_string());
+                continue;
+            };
+            for language in plist.dict_values() {
+                if let Some(title) = language.get(key).and_then(|v| v.as_string()) {
+                    add(title);
+                }
+            }
+        }
+        out
+    })
+}
+
 /// How often the app folders are checked for changes.
 const FOLDER_CHECK: Duration = Duration::from_secs(5);
 /// How long one LaunchServices answer is reused.

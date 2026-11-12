@@ -104,9 +104,24 @@ impl MacDesktop {
             return true;
         }
         let Some(guard) = self.guard() else { return false };
-        std::iter::once(title.to_string())
-            .chain(menus::item_path(item))
-            .any(|t| crate::menus::title_names_blocked_app(&*guard, &t, &workspace::apps_named))
+        let path = menus::item_path_checked(item);
+        // Under Services, Quick Actions, Share, Open With or Recent Items (or
+        // a title above that cannot be read), while anything is denied, only
+        // an item that names an allowed installed app may run: the rest
+        // ("Services Settings…", "Make Sticky", "Customize…") can open or
+        // hand data to any app.
+        if guard.denies_any()
+            && roles::in_opened_launch_list(path.as_deref(), workspace::launch_submenu_titles())
+        {
+            let name = roles::menu_app_name(title).0;
+            let ids = workspace::apps_named_indexed(name).unwrap_or_default();
+            if ids.is_empty() || ids.iter().any(|id| guard.app_blocked(id, name)) {
+                return true;
+            }
+        }
+        std::iter::once(title.to_string()).chain(path.unwrap_or_default()).any(|t| {
+            crate::menus::title_names_blocked_app(&*guard, &t, &workspace::apps_named_indexed)
+        })
     }
 
     fn menu_policy(&self) -> crate::menus::MenuPolicy {

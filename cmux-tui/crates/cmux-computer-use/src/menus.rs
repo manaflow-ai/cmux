@@ -207,16 +207,60 @@ pub const MENU_KEYS_REFUSAL: &str = "Space, Return and the arrow keys open this 
 pub const PERSONS_APP_REFUSAL: &str = "this menu belongs to the app the person is using, and a menu left open there takes their pointer and keyboard; use set_value with the item's title (it picks and closes the menu in one call), or delivery foreground";
 
 /// Why Return or Space is refused while a menu is open.
-pub const OPEN_MENU_KEYS_REFUSAL: &str = "a menu is open in this window: press its item by element (perform_action press, or click with element_id), or press_key Escape to close it";
+pub const OPEN_MENU_KEYS_REFUSAL: &str = "a menu is open in this app: keys and typed text would reach the menu, not the window. Press its item by element (perform_action press, or click with element_id), move with the arrow keys, or press_key Escape to close it";
+
+/// Why a drag is refused while a menu is open.
+pub const OPEN_MENU_DRAG_REFUSAL: &str = "a menu is open in this app, and a drag would release over one of its items and run it; press the item by element, or press_key Escape to close the menu first";
 
 /// Why a menu bar menu stays closed in the background.
 pub const MENU_BAR_REFUSAL: &str = "menu bar menus are not opened in the background: the menu bar is the frontmost app's, so opening one would take over the person's menu bar; use the item's keyboard shortcut with press_key, the app's own controls, or delivery foreground";
 
-/// Why an item leading to a denied app is refused.
-pub fn denied_item_refusal(title: &str) -> String {
+/// Why an item leading to a denied app is refused. It is named only by the
+/// text the agent gave (`wanted`): a hidden item's own title stays hidden.
+pub fn denied_item_refusal(wanted: Option<&str>) -> String {
+    let which = match wanted {
+        Some(w) => format!("the menu item matching {w:?}"),
+        None => "this menu item".to_string(),
+    };
     format!(
-        "the menu item {title:?} would open or hand data to an app Computer Use may not use (it is protected or on the deny list)"
+        "{which} would open or hand data to an app Computer Use may not use (it is protected or on the deny list)"
     )
+}
+
+/// Why a pick fails while the installed app names are still being read
+/// (menu items are checked against them and stay hidden until then).
+pub const APP_NAMES_LOADING: &str = "the menu's items are still being checked against the installed apps (app names are loading); retry in a moment";
+
+/// Why a menu that opened was closed again: the person's keyboard could
+/// not be given back while it showed.
+pub const KEYBOARD_KEPT_REFUSAL: &str = "the menu opened, but the person's keyboard could not be given back to their app while it showed, so it was closed again; use set_value with the item's title (it picks and closes the menu in one call), or delivery foreground";
+
+/// Why a menu that opened was closed again: it could not be read.
+pub const MENU_UNREAD: &str = "the app showed a menu that could not be read, so it was closed again; try perform_action on an element's own actions, or delivery foreground";
+
+/// How a wanted title picks among a menu's items, the visible ones first.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Pick {
+    /// The index (into all items) of the visible item to press.
+    Item(usize),
+    /// It matches only a hidden item.
+    Hidden,
+    /// Nothing visible matched (the match over the visible titles).
+    Missing(ItemMatch),
+}
+
+/// Matches `wanted` against the visible items first; only when none
+/// matches is a hidden item looked for, so it is refused, never pressed.
+pub fn pick(titles: &[String], hidden: &[bool], wanted: &str) -> Pick {
+    let visible: Vec<usize> = (0..titles.len()).filter(|i| !hidden[*i]).collect();
+    let shown: Vec<String> = visible.iter().map(|i| titles[*i].clone()).collect();
+    match match_item(&shown, wanted) {
+        ItemMatch::Found(i) => Pick::Item(visible[i]),
+        other => match match_item(titles, wanted) {
+            ItemMatch::Found(i) if hidden[i] => Pick::Hidden,
+            _ => Pick::Missing(other),
+        },
+    }
 }
 
 /// Why no item matched, with the items there are.

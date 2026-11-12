@@ -32,7 +32,7 @@ use super::input::{self, Route};
 use super::sys::AX_CANNOT_COMPLETE;
 use super::{MacDesktop, Target, cgwindows, key_focus, roles, workspace};
 use crate::desktop::*;
-use crate::menus::{self, ItemMatch, MenuItemInfo, MenuReport};
+use crate::menus::{self, MenuItemInfo, MenuReport};
 
 /// `NSPopUpMenuWindowLevel`: pop-up and context menus show at this layer.
 const MENU_LAYER: i64 = 101;
@@ -45,36 +45,59 @@ const CLOSE_WAIT: Duration = Duration::from_millis(1000);
 const CANCEL_WAIT: Duration = Duration::from_millis(300);
 const STEP: Duration = Duration::from_millis(10);
 const ESCAPE: u16 = 53;
+/// Why a press or right click showed no menu.
+const MENU_DID_NOT_OPEN: &str = "the menu did not open (the app showed no menu)";
 
 /// How long a call waits for the keyboard to go back to the person after
 /// its menu shows.
 const RELEASE_WAIT: Duration = Duration::from_millis(300);
 
-/// The key-focus guard for a call about to open a menu of `t`'s app: armed
-/// when the person's frontmost app is another app (a menu in their own app
-/// takes their keyboard inside that app; nothing to give back). The counts
-/// before the press, when armed.
-fn guard_keyboard(t: &Target) -> Option<(u64, u64)> {
-    let front = workspace::frontmost_pid()?;
-    (front != t.window.pid && key_focus::arm(front, t.window.pid)).then(key_focus::counts)
+/// The key-focus guard for one call that opens a menu of an app: armed when
+/// the person's frontmost app is another app (a menu in their own app takes
+/// their keyboard inside that app; nothing to give back). Disarmed when it
+/// drops, on every path out of the call.
+pub(super) struct KeyGuard(Option<(u64, u64)>);
+
+impl KeyGuard {
+    fn arm(t: &Target) -> Self {
+        let armed = workspace::frontmost_pid()
+            .is_some_and(|front| front != t.window.pid && key_focus::arm(front, t.window.pid));
+        KeyGuard(armed.then(key_focus::counts))
+    }
+
+    fn armed(&self) -> bool {
+        self.0.is_some()
+    }
+
+    /// `person` when the keyboard went back to the person's app since the
+    /// guard armed, else `menu` (the menu holds it, as with Codex Computer
+    /// Use when the guard could not arm).
+    fn report(&self) -> String {
+        let given_back =
+            self.0.is_some_and(|before| key_focus::released_since(before, RELEASE_WAIT));
+        if given_back { "person".into() } else { "menu".into() }
+    }
 }
 
-/// `person` when the guard gave the keyboard back, else `menu`; the guard
-/// is disarmed either way (it never outlives the call).
-fn keyboard(guard: Option<(u64, u64)>) -> String {
-    let given_back = guard.is_some_and(|before| key_focus::released_since(before, RELEASE_WAIT));
-    key_focus::disarm();
-    if given_back { "person".into() } else { "menu".into() }
+impl Drop for KeyGuard {
+    fn drop(&mut self) {
+        if self.armed() {
+            key_focus::disarm();
+        }
+    }
 }
 
 /// A menu just opened: its element, its windows, when it was asked for, and
-/// the keyboard guard's counts when armed.
-type OpenedMenu = (Ax, Vec<u32>, Instant, Option<(u64, u64)>);
+/// the keyboard guard.
+type OpenedMenu = (Ax, Vec<u32>, Instant, KeyGuard);
 
 /// A menu this desktop opened and left open: the window it is for, its
 /// element and its menu windows.
 pub(super) struct Opened {
     pub window_id: String,
+    /// Its app: keys posted to this process reach the menu while it shows,
+    /// whichever of the app's windows they are aimed at.
+    pub pid: i32,
     pub menu: Ax,
     pub windows: Vec<u32>,
     /// Where an Escape goes if `AXCancel` does not close it.
@@ -98,11 +121,15 @@ fn cancel(menu: &Ax, windows: &[u32], escape_to: Route) {
     if wait_for(CANCEL_WAIT, || !showing(windows)) {
         return;
     }
-    // Never into the person's app: if the menu closed in between, the
-    // Escape would reach their window (a sheet, a field).
-    if let Route::Pid { pid, .. } = escape_to
-        && workspace::frontmost_pid() == Some(pid)
-    {
+    escape_while_showing(escape_to, windows);
+}
+
+/// Posts Escape to the menu's app only while one of `windows` shows, read
+/// right before posting: an Escape after the menu closed would reach the
+/// app's key window (in the person's own app, their sheet or field). A menu
+/// in the person's app that AXCancel left open is closed this way too.
+fn escape_while_showing(escape_to: Route, windows: &[u32]) {
+    if !showing(windows) {
         return;
     }
     let _ = input::key(escape_to, ESCAPE, 0, None);
@@ -208,23 +235,26 @@ pub(super) fn items(d: &MacDesktop, menu: &Ax) -> Vec<Item> {
         .collect()
 }
 
-/// The titles of the menu items and menu bar items above `el` (outermost first).
-pub(super) fn item_path(el: &Ax) -> Vec<String> {
+/// The titles of the menu items and menu bar items above `el` (outermost
+/// first), or None when a role or a title above it cannot be read (the
+/// caller fails closed).
+pub(super) fn item_path_checked(el: &Ax) -> Option<Vec<String>> {
+    let text = |n: &Ax, a: &str| n.attr(a).map(|v| v.and_then(|v| v.as_string()));
     let mut path = Vec::new();
-    let mut current = el.element("AXParent");
+    let mut current = el.attr("AXParent").ok()?.and_then(Ax::from_cf);
     for _ in 0..16 {
         let Some(node) = current else { break };
-        match node.string("AXRole").as_deref() {
+        match text(&node, "AXRole").ok()?.as_deref() {
             Some("AXMenuItem") | Some("AXMenuBarItem") => {
-                path.push(node.string("AXTitle").unwrap_or_default());
+                path.push(text(&node, "AXTitle").ok()?.unwrap_or_default());
             }
             Some("AXMenu") => {}
             _ => break,
         }
-        current = node.element("AXParent");
+        current = node.attr("AXParent").ok()?.and_then(Ax::from_cf);
     }
     path.reverse();
-    path
+    Some(path)
 }
 
 impl MacDesktop {
@@ -247,8 +277,7 @@ impl MacDesktop {
             return Ok(());
         }
         if self.opened_item_blocked(el) {
-            let title = el.string("AXTitle").unwrap_or_default();
-            return Err(DesktopError::Unsupported(menus::denied_item_refusal(&title)));
+            return Err(DesktopError::Unsupported(menus::denied_item_refusal(None)));
         }
         Ok(())
     }
@@ -264,17 +293,30 @@ impl MacDesktop {
         Some(o.menu.clone())
     }
 
+    /// Whether a menu this desktop left open for an app of `pid` still shows.
+    pub(super) fn menu_open_in(&self, pid: i32) -> bool {
+        let mut opened = self.opened.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(o) = opened.as_ref().filter(|o| o.pid == pid) else { return false };
+        if !showing(&o.windows) {
+            *opened = None;
+            return false;
+        }
+        true
+    }
+
     /// Waits for a menu window that was not on screen in `before` and for
     /// its menu element: `find`, else the menu inside that window, up to
     /// [`OPEN_WAIT`].
     fn await_menu(
         &self,
+        t: &Target,
         before: &[u32],
         mut press_failed: impl FnMut() -> Option<DesktopError>,
         mut find: impl FnMut() -> Option<Ax>,
     ) -> DResult<(Ax, Vec<u32>)> {
         let mut failed = None;
         let mut found = None;
+        let mut unread: Vec<u32> = Vec::new();
         wait_for(OPEN_WAIT, || {
             if let Some(e) = press_failed() {
                 failed = Some(e);
@@ -283,6 +325,7 @@ impl MacDesktop {
             let new: Vec<cgwindows::CgWindow> =
                 menu_windows().into_iter().filter(|w| !before.contains(&w.id)).collect();
             if !new.is_empty() {
+                unread = new.iter().filter(|w| w.pid == t.window.pid).map(|w| w.id).collect();
                 let menu = find().or_else(|| new.iter().find_map(menu_in_window));
                 found = menu.map(|m| (m, new.iter().map(|w| w.id).collect()));
             }
@@ -291,9 +334,16 @@ impl MacDesktop {
         if let Some(e) = failed {
             return Err(e);
         }
-        found.ok_or_else(|| {
-            DesktopError::Failed("the menu did not open (the app showed no menu)".into())
-        })
+        if let Some(found) = found {
+            return Ok(found);
+        }
+        // A menu window of the app showed, but no menu element in time: it
+        // is closed, never left open unrecorded (it could hold the keyboard).
+        if !unread.is_empty() {
+            escape_while_showing(Route::Pid { pid: t.window.pid, window: t.window.id }, &unread);
+            return Err(DesktopError::Failed(menus::MENU_UNREAD.into()));
+        }
+        Err(DesktopError::Failed(MENU_DID_NOT_OPEN.into()))
     }
 
     /// Opens `el`'s menu with `action` and waits until it shows.
@@ -302,7 +352,7 @@ impl MacDesktop {
             DesktopError::TargetNotFound(format!("the app of window {}", t.window.id))
         })?;
         self.close_opened();
-        let guard = guard_keyboard(t);
+        let guard = KeyGuard::arm(t);
         let before = menu_window_ids();
         let start = Instant::now();
         let (tx, rx) = mpsc::channel();
@@ -313,6 +363,7 @@ impl MacDesktop {
             let _ = tx.send(presser.perform(&action));
         });
         let opened = self.await_menu(
+            t,
             &before,
             || match rx.try_recv() {
                 Ok(Err(e)) if e != AX_CANNOT_COMPLETE => Some(ax_error(e, "opening the menu")),
@@ -321,7 +372,7 @@ impl MacDesktop {
             || shown_menu(el, &app),
         );
         el.set_timeout(super::ax::MESSAGE_TIMEOUT_SECONDS);
-        let (menu, windows) = opened.inspect_err(|_| key_focus::disarm())?;
+        let (menu, windows) = opened?;
         Ok((menu, windows, start, guard))
     }
 
@@ -352,6 +403,7 @@ impl MacDesktop {
         let all = items(self, &menu);
         *self.opened.lock().unwrap_or_else(|e| e.into_inner()) = Some(Opened {
             window_id: t.id(),
+            pid: t.window.pid,
             menu,
             windows,
             escape_to: Route::Pid { pid: t.window.pid, window: t.window.id },
@@ -371,10 +423,17 @@ impl MacDesktop {
         action: &str,
     ) -> DResult<ActionOutcome> {
         let (menu, windows, _, guard) = self.open_menu(t, el, action)?;
+        let keyboard = guard.report();
+        // Armed and nothing given back: the person's window would look
+        // active while their typing went to the menu. It is closed.
+        if guard.armed() && keyboard == "menu" {
+            self.cancel_menu(t, &menu, &windows);
+            return Err(DesktopError::Unsupported(menus::KEYBOARD_KEPT_REFUSAL.into()));
+        }
         let route = format!("ax_{}_menu", roles::snake(action));
         let mut out = self.leave_open(t, menu, windows, &route);
         if let Some(report) = out.menu.as_mut() {
-            report.keyboard = keyboard(guard);
+            report.keyboard = keyboard;
         }
         if let Some(frame) = el.frame() {
             out = out.at(roles::center(&frame));
@@ -395,22 +454,23 @@ impl MacDesktop {
         let (menu, windows, opened, guard) = self.open_menu(t, el, "AXPress")?;
         let all = items(self, &menu);
         let titles: Vec<String> = all.iter().map(|i| i.info.title.clone()).collect();
+        let hidden: Vec<bool> = all.iter().map(|i| i.denied).collect();
         let refuse = |msg: String| -> DResult<ActionOutcome> {
             self.cancel_menu(t, &menu, &windows);
-            Err(DesktopError::Unsupported(msg))
+            Err(DesktopError::Unsupported(format!("{msg} (keyboard: {})", guard.report())))
         };
-        let item = match menus::match_item(&titles, value) {
-            ItemMatch::Found(i) => &all[i],
-            _ => {
+        let item = match menus::pick(&titles, &hidden, value) {
+            menus::Pick::Item(i) => &all[i],
+            menus::Pick::Hidden => return refuse(menus::denied_item_refusal(Some(value))),
+            menus::Pick::Missing(found) => {
+                if self.denies_any() && !workspace::app_names_ready() {
+                    return refuse(menus::APP_NAMES_LOADING.into());
+                }
                 let shown: Vec<String> =
                     all.iter().filter(|i| !i.denied).map(|i| i.info.title.clone()).collect();
-                let found = menus::match_item(&shown, value);
                 return refuse(menus::not_found(value, &found, &shown));
             }
         };
-        if item.denied {
-            return refuse(menus::denied_item_refusal(&item.info.title));
-        }
         if item.info.disabled {
             return refuse(format!("the item {:?} is disabled", item.info.title));
         }
@@ -443,7 +503,7 @@ impl MacDesktop {
             );
         }
         let mut report = MenuReport::picked(&title, Some(open_ms));
-        report.keyboard = keyboard(guard);
+        report.keyboard = guard.report();
         out.menu = Some(report);
         if let Some(frame) = el.frame() {
             out = out.at(roles::center(&frame));
@@ -467,7 +527,7 @@ impl MacDesktop {
             el = current.element("AXParent");
         }
         self.close_opened();
-        let guard = guard_keyboard(t);
+        let guard = KeyGuard::arm(t);
         let before = menu_window_ids();
         let route = Route::Pid { pid, window: t.window.id };
         input::click(route, at, Button::Right, 1, 0, Duration::ZERO)?;
@@ -476,19 +536,24 @@ impl MacDesktop {
                 .filter(is_menu)
                 .or_else(|| app.elements("AXChildren").into_iter().find(is_menu))
         };
-        match self.await_menu(&before, || None, find) {
+        match self.await_menu(t, &before, || None, find) {
             Ok((menu, windows)) => {
+                let keyboard = guard.report();
+                if guard.armed() && keyboard == "menu" {
+                    self.cancel_menu(t, &menu, &windows);
+                    return Err(DesktopError::Unsupported(menus::KEYBOARD_KEPT_REFUSAL.into()));
+                }
                 let mut out = self.leave_open(t, menu, windows, route.name()).at(at);
                 if let Some(report) = out.menu.as_mut() {
-                    report.keyboard = keyboard(guard);
+                    report.keyboard = keyboard;
                 }
                 Ok(out)
             }
             // The click was delivered and showed no menu (nothing there has one).
-            Err(_) => {
-                key_focus::disarm();
+            Err(DesktopError::Failed(m)) if m == MENU_DID_NOT_OPEN => {
                 Ok(ActionOutcome::delivered(route.name()).at(at))
             }
+            Err(e) => Err(e),
         }
     }
 }

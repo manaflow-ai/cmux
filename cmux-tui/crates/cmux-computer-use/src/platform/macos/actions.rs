@@ -225,6 +225,18 @@ impl MacDesktop {
         Ok(None)
     }
 
+    /// Refuses a point whose element (or an ancestor) is a menu item that
+    /// leads to a denied app.
+    fn refuse_denied_at(&self, t: &Target, at: Point) -> DResult<()> {
+        let mut el = Ax::application(t.window.pid).and_then(|app| app.element_at(at.x, at.y));
+        for _ in 0..4 {
+            let Some(current) = el else { break };
+            self.refuse_denied_item(&current)?;
+            el = current.element("AXParent");
+        }
+        Ok(())
+    }
+
     /// Opens the menu of `el` (which [`Self::menu_gate`] allowed) and leaves
     /// it open with its items in the result.
     fn open_menu_of(&self, t: &Target, el: &Ax, element: &str) -> DResult<ActionOutcome> {
@@ -288,6 +300,11 @@ fn click_point(
     spec: &ClickSpec,
 ) -> DResult<ActionOutcome> {
     let at = d.point_in(t, point)?;
+    // A click on a menu left open presses the item under it in either
+    // delivery: a hidden item there is refused.
+    if spec.delivery != Delivery::Background && d.menu_open_in(t.window.pid) {
+        d.refuse_denied_at(t, at)?;
+    }
     if spec.delivery == Delivery::Background
         && let Some(el) = d.menu_at(t, at)?
     {
@@ -449,6 +466,11 @@ pub(super) fn type_text(
             el.set("AXFocused", &yes).map_err(|e| ax_error(e, "focusing the element"))?;
         }
     }
+    // Typed keys would type-select (and with a newline, run) an item of a
+    // menu left open in this app, a hidden one too.
+    if d.menu_open_in(t.window.pid) {
+        return Err(DesktopError::Unsupported(menus::OPEN_MENU_KEYS_REFUSAL.into()));
+    }
     let route = d.key_route(&t, delivery)?;
     input::type_text(route, text)?;
     Ok(ActionOutcome::delivered(route.name()))
@@ -471,23 +493,24 @@ pub(super) fn press_keys(
     if shift {
         flags |= keymap::FLAG_SHIFT;
     }
-    // Return or Space would activate the highlighted item of a menu left
-    // open, which may be one hidden from the tree (a denied app's).
-    if delivery == Delivery::Background
-        && matches!(combo.key, crate::keys::Key::Return | crate::keys::Key::Space)
-        && d.opened_menu_for(&t.id()).is_some()
-    {
-        return Err(DesktopError::Unsupported(menus::OPEN_MENU_KEYS_REFUSAL.into()));
-    }
-    // Escape closes the menu a call left open for this window, through
-    // accessibility (a posted Escape does not reach every app's menu).
-    if delivery == Delivery::Background
-        && combo.key == crate::keys::Key::Escape
-        && combo.modifiers.is_empty()
-        && d.opened_menu_for(&t.id()).is_some()
-        && d.close_opened()
-    {
-        return Ok(ActionOutcome::confirmed("ax_cancel_menu"));
+    // While a menu this desktop left open shows, every key posted to its
+    // app reaches the menu, whichever window it is aimed at: Return or Space
+    // runs the highlighted item and letters type-select one, either may be
+    // an item hidden from the tree (a denied app's). Only Escape (it closes
+    // the menu, through accessibility: a posted Escape does not reach every
+    // app's menu) and the bare arrows (they only move the highlight) are
+    // taken, in either delivery.
+    if d.menu_open_in(t.window.pid) {
+        match roles::key_with_open_menu(combo) {
+            roles::OpenMenuKey::Close => {
+                d.close_opened();
+                return Ok(ActionOutcome::confirmed("ax_cancel_menu"));
+            }
+            roles::OpenMenuKey::Post => {}
+            roles::OpenMenuKey::Refuse => {
+                return Err(DesktopError::Unsupported(menus::OPEN_MENU_KEYS_REFUSAL.into()));
+            }
+        }
     }
     // A chord a menu item or a Service can own (Command, Control or Option,
     // or a function key), in either delivery: the app's menus are searched
@@ -606,7 +629,13 @@ pub(super) fn drag(
     delivery: Delivery,
 ) -> DResult<ActionOutcome> {
     let t = d.target(window_id)?;
+    // A drag that starts or ends on a menu left open runs the item under
+    // its end (a hidden one too): refused while one shows in this app.
+    if d.menu_open_in(t.window.pid) {
+        return Err(DesktopError::Unsupported(menus::OPEN_MENU_DRAG_REFUSAL.into()));
+    }
     let from = d.point_in(&t, from)?;
+    let to = d.point_in(&t, to)?;
     let route = d.pointer_route(&t, delivery)?;
     input::drag(route, from, to, button)?;
     Ok(ActionOutcome::delivered(route.name()).at(to))
@@ -725,21 +754,24 @@ fn pick_closed(
         return Ok(None);
     }
     let titles: Vec<String> = items.iter().map(|i| i.info.title.clone()).collect();
-    let item = match menus::match_item(&titles, value) {
-        menus::ItemMatch::Found(i) => &items[i],
-        _ => {
+    let hidden: Vec<bool> = items.iter().map(|i| i.denied).collect();
+    let item = match menus::pick(&titles, &hidden, value) {
+        menus::Pick::Item(i) => &items[i],
+        menus::Pick::Hidden => {
+            return Err(DesktopError::Unsupported(menus::denied_item_refusal(Some(value))));
+        }
+        menus::Pick::Missing(found) => {
+            if d.denies_any() && !workspace::app_names_ready() {
+                return Err(DesktopError::Unsupported(menus::APP_NAMES_LOADING.into()));
+            }
             let shown: Vec<String> =
                 items.iter().filter(|i| !i.denied).map(|i| i.info.title.clone()).collect();
-            let found = menus::match_item(&shown, value);
             return Err(DesktopError::Unsupported(format!(
                 "element {element_id}: {}",
                 menus::not_found(value, &found, &shown).replace(" (it was closed again)", "")
             )));
         }
     };
-    if item.denied {
-        return Err(DesktopError::Unsupported(menus::denied_item_refusal(&item.info.title)));
-    }
     if item.info.disabled {
         return Err(DesktopError::Unsupported(format!(
             "the item {:?} is disabled",

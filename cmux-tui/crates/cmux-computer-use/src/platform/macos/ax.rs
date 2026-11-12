@@ -507,7 +507,15 @@ impl Walk {
         described.pop().ok_or(AX_INVALID_ELEMENT)
     }
 
-    fn node(&mut self, ax: Ax, depth: usize) -> Result<Element, AXError> {
+    /// One element and its subtree. A menu inside it (an open pop-up's, or
+    /// one a closed pop-up lists) is walked by [`Walk::menu_node`], so the
+    /// items `menu_blocked` hides never show, whichever way the menu is reached.
+    fn node(
+        &mut self,
+        ax: Ax,
+        depth: usize,
+        menu_blocked: &dyn Fn(&Ax) -> bool,
+    ) -> Result<Element, AXError> {
         let index = self.elements.len();
         self.elements.push(ax.clone());
         let (mut element, children) = self.describe(&ax, index)?;
@@ -526,7 +534,11 @@ impl Walk {
                 self.truncated = true;
                 break;
             }
-            match self.node(child, depth + 1) {
+            let walked = match roles::child_walk(child.attr("AXRole")) {
+                roles::ChildWalk::Menu => self.menu_node(child, depth + 1, menu_blocked),
+                roles::ChildWalk::Plain => self.node(child, depth + 1, menu_blocked),
+            };
+            match walked {
                 Ok(e) => element.children.push(e),
                 // A child that vanished mid-walk is skipped; the rest stands.
                 Err(AX_INVALID_ELEMENT) => {}
@@ -690,8 +702,9 @@ impl ElementCache {
             elements: Vec::new(),
             truncated: false,
         };
-        let mut root =
-            walk.node(window, 0).map_err(|e| ax_error(e, &format!("window {window_id}")))?;
+        let mut root = walk
+            .node(window, 0, extra_blocked)
+            .map_err(|e| ax_error(e, &format!("window {window_id}")))?;
         for more in extra {
             if walk.elements.iter().any(|seen| seen.same(&more)) {
                 continue;

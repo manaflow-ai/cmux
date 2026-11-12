@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use super::*;
 use crate::keys::KeyCombo;
-use crate::menus::{self, ItemMatch, MenuItemInfo, MenuPolicy, MenuReport};
+use crate::menus::{self, MenuItemInfo, MenuPolicy, MenuReport};
 
 /// A pop-up button of a fake window: what its menu holds and shows.
 #[derive(Clone, Debug, PartialEq)]
@@ -262,23 +262,27 @@ impl FakeDesktop {
                 ..ActionOutcome::delivered("fake_menu_open")
             }));
         };
-        if let ItemMatch::Found(i) = menus::match_item(&p.items, wanted)
-            && self.item_blocked(&p.items[i])
-        {
-            return Some(Err(DesktopError::Unsupported(menus::denied_item_refusal(&p.items[i]))));
-        }
-        let found = menus::match_item(&visible, wanted);
+        let hidden: Vec<bool> = p.items.iter().map(|t| self.item_blocked(t)).collect();
         p.open = false;
-        let ItemMatch::Found(i) = found else {
-            return Some(Err(DesktopError::Unsupported(menus::not_found(
-                wanted, &found, &visible,
-            ))));
+        let i = match menus::pick(&p.items, &hidden, wanted) {
+            menus::Pick::Item(i) => i,
+            menus::Pick::Hidden => {
+                return Some(Err(DesktopError::Unsupported(menus::denied_item_refusal(Some(
+                    wanted,
+                )))));
+            }
+            menus::Pick::Missing(found) => {
+                return Some(Err(DesktopError::Unsupported(menus::not_found(
+                    wanted, &found, &visible,
+                ))));
+            }
         };
-        p.value = visible[i].clone();
+        p.value = p.items[i].clone();
+        let picked = p.items[i].clone();
         drop(popups);
         self.push(event);
         Some(Ok(ActionOutcome {
-            menu: Some(MenuReport::picked(&visible[i], Some(1))),
+            menu: Some(MenuReport::picked(&picked, Some(1))),
             ..ActionOutcome::confirmed("fake_menu_pick")
         }))
     }

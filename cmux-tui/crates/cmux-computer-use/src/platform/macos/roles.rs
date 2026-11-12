@@ -335,6 +335,73 @@ pub fn menu_name_candidates(title: &str) -> Vec<&str> {
     out
 }
 
+/// What a key does while a menu this desktop left open shows in its app.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OpenMenuKey {
+    /// Escape: close the menu (through accessibility).
+    Close,
+    /// A bare arrow: it only moves the highlight.
+    Post,
+    /// Anything else could run or type-select an item, a hidden one too.
+    Refuse,
+}
+
+pub fn key_with_open_menu(combo: &crate::keys::KeyCombo) -> OpenMenuKey {
+    use crate::keys::Key;
+    if !combo.modifiers.is_empty() {
+        return OpenMenuKey::Refuse;
+    }
+    match combo.key {
+        Key::Escape => OpenMenuKey::Close,
+        Key::Up | Key::Down | Key::Left | Key::Right => OpenMenuKey::Post,
+        _ => OpenMenuKey::Refuse,
+    }
+}
+
+/// How a tree walk takes a child element.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChildWalk {
+    /// A menu: its items are held to the deny list (hidden when blocked).
+    Menu,
+    Plain,
+}
+
+/// A child whose role is `AXMenu`, or whose role cannot be read, is walked
+/// as a menu (fail closed: its items are checked).
+pub fn child_walk<E>(role: Result<Option<super::sys::Cf>, E>) -> ChildWalk {
+    match role {
+        Ok(r) => {
+            if r.and_then(|r| r.as_string()).as_deref() == Some("AXMenu") {
+                ChildWalk::Menu
+            } else {
+                ChildWalk::Plain
+            }
+        }
+        Err(_) => ChildWalk::Menu,
+    }
+}
+
+/// A submenu title as [`super::workspace::launch_submenu_titles`] keeps it:
+/// trimmed, lower case, no trailing ellipsis, no-break spaces as spaces.
+pub fn submenu_title_key(title: &str) -> String {
+    let t = title.replace('\u{a0}', " ");
+    let t = t.trim();
+    let t = t.strip_suffix('\u{2026}').or_else(|| t.strip_suffix("...")).unwrap_or(t);
+    t.trim().to_lowercase()
+}
+
+/// Whether an item of a menu the desktop opened (a context menu, a pop-up)
+/// sits in a launch list: some item above it is titled as one of AppKit's
+/// launch submenus (Services, Quick Actions, Share, Open With, Recent
+/// Items, in any language). `path` is None when a title above it could not
+/// be read: that counts as a launch list (fail closed).
+pub fn in_opened_launch_list(path: Option<&[String]>, launch_titles: &[String]) -> bool {
+    match path {
+        None => true,
+        Some(path) => path.iter().any(|p| launch_titles.contains(&submenu_title_key(p))),
+    }
+}
+
 /// Whether a submenu is a launch list: under the Apple menu (Recent Items:
 /// apps, documents, servers) or the app menu (Services), or one where most
 /// items name installed apps (Open With in any app and any language).

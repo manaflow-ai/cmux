@@ -97,9 +97,27 @@ struct SkyLight {
 }
 
 /// The private SkyLight calls, when this macOS has them.
+/// The macOS major versions these SkyLight signatures are known for
+/// (cua-driver's `skylight.rs`): 12 through 26.
+const TESTED_MAJORS: std::ops::RangeInclusive<u32> = 12..=26;
+
+/// Whether `version` ("26.7", "27.0") is a macOS major the private calls
+/// were checked on. On any other, the guard never arms and a menu holds the
+/// keyboard while it shows, as Codex Computer Use's does.
+pub(super) fn tested_os(version: &str) -> bool {
+    version
+        .split('.')
+        .next()
+        .and_then(|m| m.trim().parse::<u32>().ok())
+        .is_some_and(|m| TESTED_MAJORS.contains(&m))
+}
+
 fn skylight() -> Option<&'static SkyLight> {
     static S: OnceLock<Option<SkyLight>> = OnceLock::new();
     S.get_or_init(|| {
+        if !tested_os(&super::sys::sysctl_string(c"kern.osproductversion").unwrap_or_default()) {
+            return None;
+        }
         // SAFETY: dlopen of a system framework path; it stays loaded.
         unsafe {
             libc::dlopen(

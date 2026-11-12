@@ -97,3 +97,18 @@ fn reports_serialize_without_empty_fields() {
     assert_eq!(v["hidden"], 1);
     assert!(v["next"].as_str().unwrap().contains("press an item"));
 }
+
+#[test]
+fn a_pick_matches_visible_items_first_and_never_a_hidden_one() {
+    let items = titles(&["New Terminal at Folder", "New Folder", "Never"]);
+    let hidden = [true, false, false];
+    // "New" is a unique prefix among the visible items, though a hidden one shares it.
+    assert_eq!(pick(&items, &hidden, "New"), Pick::Item(1));
+    assert_eq!(pick(&items, &hidden, "never"), Pick::Item(2));
+    // Only the hidden item matches: refused, and it is not listed.
+    assert_eq!(pick(&items, &hidden, "New Terminal"), Pick::Hidden);
+    assert_eq!(pick(&items, &hidden, "Open"), Pick::Missing(ItemMatch::NotFound));
+    let msg = denied_item_refusal(Some("New Terminal"));
+    assert!(msg.contains("\"New Terminal\"") && !msg.contains("at Folder"), "{msg}");
+    assert!(!denied_item_refusal(None).contains("Terminal"));
+}

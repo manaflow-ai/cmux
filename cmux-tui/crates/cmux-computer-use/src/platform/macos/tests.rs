@@ -995,3 +995,61 @@ fn an_unchecked_match_is_never_pressed() {
         assert_eq!(roles::decide_chord(&f), A::Post);
     }
 }
+
+#[test]
+fn only_escape_and_bare_arrows_reach_an_open_menu() {
+    use roles::{OpenMenuKey, key_with_open_menu};
+    let k = |s: &str| key_with_open_menu(&KeyCombo::parse(s).unwrap());
+    assert_eq!(k("Escape"), OpenMenuKey::Close);
+    assert_eq!(k("Down"), OpenMenuKey::Post);
+    assert_eq!(k("Left"), OpenMenuKey::Post);
+    for refused in ["Return", "space", "n", "shift+Down", "cmd+Down", "Tab", "shift+Escape"] {
+        assert_eq!(k(refused), OpenMenuKey::Refuse, "{refused}");
+    }
+}
+
+#[test]
+fn a_menu_inside_any_element_is_walked_as_a_menu() {
+    use roles::{ChildWalk, child_walk};
+    assert_eq!(child_walk::<()>(Ok(sys::Cf::string("AXMenu"))), ChildWalk::Menu);
+    assert_eq!(child_walk::<()>(Ok(sys::Cf::string("AXButton"))), ChildWalk::Plain);
+    assert_eq!(child_walk::<()>(Ok(None)), ChildWalk::Plain);
+    // A role that cannot be read is checked like a menu.
+    assert_eq!(child_walk::<()>(Err(())), ChildWalk::Menu);
+}
+
+#[test]
+fn appkit_launch_submenus_are_read_in_every_language() {
+    let titles = workspace::launch_submenu_titles();
+    for english in ["services", "open with", "share", "recent items", "quick actions"] {
+        assert!(titles.iter().any(|t| t == english), "{english}: {titles:?}");
+    }
+    // Other languages come from the same tables (German: Dienste, Öffnen mit).
+    assert!(titles.iter().any(|t| t == "dienste"), "{titles:?}");
+    assert!(titles.iter().any(|t| t == "öffnen mit"), "{titles:?}");
+}
+
+#[test]
+fn an_item_under_a_launch_submenu_or_an_unreadable_parent_is_in_a_launch_list() {
+    let launch = vec!["services".to_string(), "quick actions".to_string()];
+    let path = |p: &[&str]| p.iter().map(|s| (*s).to_string()).collect::<Vec<_>>();
+    assert!(roles::in_opened_launch_list(Some(&path(&["Services"])), &launch));
+    assert!(roles::in_opened_launch_list(Some(&path(&["Quick Actions\u{2026}"])), &launch));
+    assert!(roles::in_opened_launch_list(Some(&path(&["Tags", "Services"])), &launch));
+    assert!(!roles::in_opened_launch_list(Some(&path(&["Sort By"])), &launch));
+    assert!(!roles::in_opened_launch_list(Some(&[]), &launch));
+    assert!(roles::in_opened_launch_list(None, &launch));
+    assert_eq!(
+        roles::submenu_title_key(" Dienste-Einstellungen\u{a0}\u{2026} "),
+        "dienste-einstellungen"
+    );
+}
+
+#[test]
+fn the_keyboard_handoff_arms_only_on_tested_macos_majors() {
+    assert!(key_focus::tested_os("26.7"));
+    assert!(key_focus::tested_os("12.0"));
+    assert!(!key_focus::tested_os("27.0"));
+    assert!(!key_focus::tested_os("11.7"));
+    assert!(!key_focus::tested_os(""));
+}
