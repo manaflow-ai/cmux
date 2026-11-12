@@ -370,7 +370,7 @@ pub struct Peer {
     /// repeat and dropped. It lasts only until the chat's first newer live frame, or the next
     /// request about the chat (a `session/load` sends its history again, which is no repeat).
     replay_tail: StdMutex<HashMap<String, u64>>,
-    notices: mpsc::Sender<(String, u64, PeerNotice)>,
+    notices: crate::peer_notice_queue::NoticeSender,
     stop: AtomicBool,
     /// A replacement requested now attempts immediately, even if its cache is parked.
     retry_immediately: AtomicBool,
@@ -475,8 +475,9 @@ impl Peer {
         url: &str,
         token: Option<String>,
         peer_token: Option<String>,
-        notices: mpsc::Sender<(String, u64, PeerNotice)>,
+        notices: impl Into<crate::peer_notice_queue::NoticeSender>,
     ) -> Arc<Self> {
+        let notices = notices.into();
         let (out, out_rx) = mpsc::channel(1024);
         Arc::new(Self {
             scope: cmux_scope::Scope::new("acpmux peer"),
