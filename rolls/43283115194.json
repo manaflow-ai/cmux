@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43283115194",
+  "recorded_at": "2026-11-12T19:00:31Z",
+  "reason": "cmux-tui 8db1c969aed8 changes the image's cmux-tui (pinned 02779f7afc6a)",
+  "dry_run": false,
+  "cmux_tui": "8db1c969aed882267a82b18aa341ea4a9baa2b20",
+  "fixes": [
+    {
+      "sha": "8db1c969aed882267a82b18aa341ea4a9baa2b20",
+      "mergedAt": "2026-11-12T12:08:50-06:00",
+      "subject": "cmux-tui-core: input queued for a creating terminal waits for the creation's end"
+    },
+    {
+      "sha": "47cf9a890fd4cf64fa31bc8396de5e7a340fa02b",
+      "mergedAt": "2026-11-12T12:08:50-06:00",
+      "subject": "cmux-tui tests: input typed into a creation slower than the input expiry reaches it"
+    },
+    {
+      "sha": "2b0b87ea1e16dfe80dc1415a052840b92740d5c0",
+      "mergedAt": "2026-11-12T10:06:22-08:00",
+      "subject": "acpmux tests: every wait on a hold's arrival is bounded, with a detector (#41816 follow-up) (#41842)"
+    },
+    {
+      "sha": "8888c50829a1761b2b7ea29962fcb4809ae03f67",
+      "mergedAt": "2026-11-12T10:06:02-08:00",
+      "subject": "acpmux gauges: count list replies, the durable gate and the transport; fix god bench timings (#42038)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T19:00:31Z",
+    "snapshot_id": "sh-5ae494d12c4d4c91902c749494751980",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43283115194): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ce8e57c8feaa594481f396a2899d2d43ffebac3a",
+    "image": "cloud-native-auto-8db1c969-43283115194-1",
+    "revision": "ci-43283115194-1",
+    "at": "2026-11-12T19:00:31Z"
+  },
+  "rolled_back": false
+}
