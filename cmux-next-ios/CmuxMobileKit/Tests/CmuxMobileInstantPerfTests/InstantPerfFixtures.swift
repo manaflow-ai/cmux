@@ -360,24 +360,33 @@ final class InstantPerfAcpmux: @unchecked Sendable {
     }
 
     func link() -> MockMacLink {
-        MockMacLink { [self] _, data in
-            guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let method = object["method"] as? String else { return [] }
-            let id = object["id"].map { "\($0)" } ?? "null"
-            let params = object["params"] as? [String: Any] ?? [:]
-            func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
-            let end = self.end
-            switch method {
-            case "initialize": return [reply(#"{"protocolVersion":1}"#)]
-            case "_acpmux/watch":
-                return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
-            case "_acpmux/attach":
-                return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"lastSeq":\#(end),\#(page(params, end: end))}"#)]
-            case "_acpmux/events":
-                return [reply("{\(page(params, end: end))}")]
-            default:
-                return [reply("{}")]
-            }
+        MockMacLink { [self] _, data in respond(data) }
+    }
+
+    /// A channel to this fake over a phone's link: each reply lands `rtt` after its request,
+    /// and the link carries `bytesPerSecond`, one reply after another (`LatencyChannel`).
+    func channel(rtt: Duration, bytesPerSecond: Double) -> LatencyChannel {
+        LatencyChannel(rtt: rtt, bytesPerSecond: bytesPerSecond) { [self] data in respond(data) }
+    }
+
+    /// acpmux's replies to one request line.
+    func respond(_ data: Data) -> [Data] {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let method = object["method"] as? String else { return [] }
+        let id = object["id"].map { "\($0)" } ?? "null"
+        let params = object["params"] as? [String: Any] ?? [:]
+        func reply(_ result: String) -> Data { Data(#"{"jsonrpc":"2.0","id":\#(id),"result":\#(result)}"#.utf8) }
+        let end = self.end
+        switch method {
+        case "initialize": return [reply(#"{"protocolVersion":1}"#)]
+        case "_acpmux/watch":
+            return [reply(#"{"sessions":[{"sessionId":"s1","name":"Fix","harness":"codex","cwd":"/tmp/w","status":"idle"}]}"#)]
+        case "_acpmux/attach":
+            return [reply(#"{"session":{"sessionId":"s1","status":"idle","pending":[]},"lastSeq":\#(end),\#(page(params, end: end))}"#)]
+        case "_acpmux/events":
+            return [reply("{\(page(params, end: end))}")]
+        default:
+            return [reply("{}")]
         }
     }
 
@@ -424,5 +433,56 @@ final class InstantPerfAcpmux: @unchecked Sendable {
             }
         }
         return #""hasMore":\#(more),"events":[\#(picked.map { log.records[$0] }.joined(separator: ","))]"#
+    }
+}
+
+// MARK: - A phone's link to the fake
+
+/// A channel with a phone's link between it and the fake Mac: each reply lands `rtt` after its
+/// request at the soonest, and the link carries `bytesPerSecond`, one reply after another (a
+/// big page holds up the replies behind it, as one link does). In-process links answer in
+/// microseconds, which hides what a read costs a person scrolling up a chat on a phone.
+final class LatencyChannel: LinkChannel, @unchecked Sendable {
+    let id: UInt32 = 1
+    private let rtt: Duration
+    private let bytesPerSecond: Double
+    private let respond: @Sendable (Data) -> [Data]
+    private let inbox: AsyncStream<Data>
+    private let continuation: AsyncStream<Data>.Continuation
+    private let lock = NSLock()
+    private var iterator: AsyncStream<Data>.AsyncIterator
+    /// When the link is done carrying the replies sent so far.
+    private var linkFree = ContinuousClock.now
+
+    init(rtt: Duration, bytesPerSecond: Double, respond: @escaping @Sendable (Data) -> [Data]) {
+        self.rtt = rtt
+        self.bytesPerSecond = bytesPerSecond
+        self.respond = respond
+        (inbox, continuation) = AsyncStream.makeStream()
+        iterator = inbox.makeAsyncIterator()
+    }
+
+    func send(_ data: Data) async throws {
+        let sent = ContinuousClock.now
+        for reply in respond(data) {
+            let carry = Duration.seconds(Double(reply.count) / bytesPerSecond)
+            let lands = lock.withLock { () -> ContinuousClock.Instant in
+                linkFree = max(linkFree, sent + rtt) + carry
+                return linkFree
+            }
+            let continuation = continuation
+            Task.detached {
+                try? await Task.sleep(until: lands, clock: .continuous) // test: the link's delay
+                continuation.yield(reply)
+            }
+        }
+    }
+
+    func receive() async throws -> Data? {
+        await iterator.next()
+    }
+
+    func close(code: String, reason: String) async {
+        continuation.finish()
     }
 }

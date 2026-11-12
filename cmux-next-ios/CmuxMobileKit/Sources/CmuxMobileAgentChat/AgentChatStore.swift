@@ -208,6 +208,9 @@ public final class AgentChatStore {
     @ObservationIgnored private var sourceHasEarlier = false
     /// An older page is being read (``loadEarlier()``).
     public private(set) var isLoadingEarlier = false
+    /// The main actor's time spent putting older pages in, in all (the scroll-up bench reads it
+    /// per frame: a page that lands costs the frame it lands in).
+    @ObservationIgnored public private(set) var earlierApplyTime: Duration = .zero
     /// The source is still reading the chat's history from the Mac
     /// (``AgentSessionSource/loadsHistory``, then ``AgentSessionEvent/historyLoading(_:)``). With no
     /// turns yet the chat shows a loading state, never the empty new-chat screen; with turns it
@@ -1024,6 +1027,8 @@ public final class AgentChatStore {
         case .historyLoading(let loading):
             if isLoadingHistory != loading { isLoadingHistory = loading }
         case .earlierPage(let events, let hasEarlier):
+            let start = ContinuousClock.now
+            defer { earlierApplyTime += start.duration(to: .now) }
             isLoadingEarlier = false
             sourceHasEarlier = hasEarlier
             refreshEarlierHistory()
