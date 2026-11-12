@@ -89,4 +89,24 @@ import Testing
         #expect(answer?.button == "ok")
         #expect(answer?.values["name"] == .text("typed"))
     }
+
+    /// The card keeps its padding under the buttons as above the title: a horizontal stack aligned to the top
+    /// drops its bottom inset, which left the buttons on the card's bottom edge in the first After capture.
+    @Test func theCardKeepsItsPaddingOnEverySide() throws {
+        let center = Self.center()
+        let window = Self.window()
+        defer { window.close() }
+        let id = center.present(CmuxDialogSpec(title: "Save changes?", lines: ["Your changes are lost."],
+                                               buttons: [.cancel(), .ok()]), in: .window(window)) { _ in }
+        defer { center.dismiss(id) }
+        let root = try #require(center.dialog(id)?.view)
+        root.layoutSubtreeIfNeeded()
+        let card = try #require(Self.all(root).first { $0 is CmuxDialogView })
+        let padding = CmuxDialogMetrics.cardPadding
+        let inner = card.bounds.insetBy(dx: padding - 0.5, dy: padding - 0.5)
+        for button in Self.all(card).compactMap({ $0 as? CmuxDialogButtonView }) {
+            let frame = button.convert(button.bounds, to: card)
+            #expect(inner.contains(frame), "button \(button.button.id) at \(frame) is outside the card's padding \(inner)")
+        }
+    }
 }
