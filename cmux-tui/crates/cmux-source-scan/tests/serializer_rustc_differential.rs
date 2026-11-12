@@ -473,53 +473,53 @@ fn write_crate(dir: &Path, files: &[(&str, String)]) {
     }
 }
 
-#[test]
-fn the_check_takes_hook_test_as_a_mutex_exactly_when_rustc_does() {
-    let root: PathBuf =
-        std::env::temp_dir().join(format!("cmux-source-scan-differential-{}", std::process::id()));
-    let cases = cases();
-    assert!(cases.len() >= 2 * SHAPES.len(), "the corpus generated {} crates", cases.len());
+/// One generated crate's two answers: rustc's (or why it gave none) and the check's.
+struct Outcome<'a> {
+    case: &'a Case<'a>,
+    /// Whether rustc takes HOOK_TEST as a `Mutex<()>`, or why the shape is broken.
+    truth: Result<bool, String>,
+    /// Whether the check takes it as a serializer.
+    verdict: bool,
+    /// The crate's files, for a failure.
+    shown: String,
+}
+
+/// Every way `outcomes` disagree with rustc, and every refusal allowance of their shapes that
+/// none of them used.
+fn disagreements(outcomes: &[Outcome<'_>]) -> Vec<String> {
     let mut failed: Vec<String> = Vec::new();
     let mut allowance_used: Vec<&str> = Vec::new();
-    for (index, case) in cases.iter().enumerate() {
-        let dir = root.join(index.to_string());
-        let files = case.files();
-        write_crate(&dir, &files);
-        let shown = || {
-            files
-                .iter()
-                .map(|(rel, text)| format!("--- {rel}\n{text}"))
-                .collect::<Vec<_>>()
-                .join("")
-        };
-        let truth = match rustc_says_mutex(&dir) {
-            Ok(truth) => truth,
+    for Outcome { case, truth, verdict, shown } in outcomes {
+        let truth = match truth {
+            Ok(truth) => *truth,
             Err(why) => {
-                failed.push(format!("{}: {why}\n{}", case.label(), shown()));
+                failed.push(format!("{}: {why}\n{shown}", case.label()));
                 continue;
             }
         };
-        let verdict = check_says_mutex(&dir);
-        match (truth, verdict) {
+        match (truth, *verdict) {
             (true, true) | (false, false) => {}
             (false, true) => failed.push(format!(
                 "{}: the check takes HOOK_TEST as a Mutex<()> serializer; rustc says it is none \
-                 (E0308)\n{}",
-                case.label(),
-                shown()
+                 (E0308)\n{shown}",
+                case.label()
             )),
             (true, false) => match case.shape.may_refuse_valid {
                 Some(_) => allowance_used.push(case.shape.name),
                 None => failed.push(format!(
-                    "{}: the check refuses HOOK_TEST; rustc takes it as a Mutex<()>\n{}",
-                    case.label(),
-                    shown()
+                    "{}: the check refuses HOOK_TEST; rustc takes it as a Mutex<()>\n{shown}",
+                    case.label()
                 )),
             },
         }
     }
-    let _ = std::fs::remove_dir_all(&root);
-    for shape in SHAPES.iter().filter(|s| s.may_refuse_valid.is_some()) {
+    let mut shapes: Vec<&Shape> = Vec::new();
+    for outcome in outcomes {
+        if !shapes.iter().any(|s| s.name == outcome.case.shape.name) {
+            shapes.push(outcome.case.shape);
+        }
+    }
+    for shape in shapes.into_iter().filter(|s| s.may_refuse_valid.is_some()) {
         if !allowance_used.contains(&shape.name) {
             failed.push(format!(
                 "{} ({}): the shape says the check refuses a valid serializer ({}), but it refused \
@@ -530,11 +530,95 @@ fn the_check_takes_hook_test_as_a_mutex_exactly_when_rustc_does() {
             ));
         }
     }
+    failed
+}
+
+#[test]
+fn the_check_takes_hook_test_as_a_mutex_exactly_when_rustc_does() {
+    let root: PathBuf =
+        std::env::temp_dir().join(format!("cmux-source-scan-differential-{}", std::process::id()));
+    let cases = cases();
+    assert!(cases.len() >= 2 * SHAPES.len(), "the corpus generated {} crates", cases.len());
+    let mut outcomes: Vec<Outcome<'_>> = Vec::new();
+    for (index, case) in cases.iter().enumerate() {
+        let dir = root.join(index.to_string());
+        let files = case.files();
+        write_crate(&dir, &files);
+        let shown: String = files.iter().map(|(rel, text)| format!("--- {rel}\n{text}")).collect();
+        let truth = rustc_says_mutex(&dir);
+        let verdict = truth.is_ok() && check_says_mutex(&dir);
+        outcomes.push(Outcome { case, truth, verdict, shown });
+    }
+    let _ = std::fs::remove_dir_all(&root);
+    let failed = disagreements(&outcomes);
     assert!(
         failed.is_empty(),
         "{} of {} generated crates disagree with rustc:\n\n{}",
         failed.len(),
         cases.len(),
         failed.join("\n\n")
+    );
+}
+
+/// The cell a case puts in `slot`.
+fn cell_of(case: &Case<'_>, slot: &str) -> &'static str {
+    case.cells.iter().find(|(s, _)| *s == slot).map_or("", |(_, cell)| *cell)
+}
+
+/// What the harness says when the check answers `verdict` for each crate of shape `name`, rustc
+/// answering `truth` (no rustc runs: the meta-tests judge the harness, not the check).
+fn judged_with(
+    name: &str,
+    truth: impl Fn(&Case<'_>) -> bool,
+    verdict: impl Fn(&Case<'_>) -> bool,
+) -> Vec<String> {
+    let cases: Vec<Case<'static>> = cases().into_iter().filter(|c| c.shape.name == name).collect();
+    assert!(!cases.is_empty(), "no shape named {name}");
+    let outcomes: Vec<Outcome<'_>> = cases
+        .iter()
+        .map(|case| Outcome {
+            case,
+            truth: Ok(truth(case)),
+            verdict: verdict(case),
+            shown: String::new(),
+        })
+        .collect();
+    disagreements(&outcomes)
+}
+
+/// Review of cmux#41826 F1: an allowance covered every slot combination of its shape, so a
+/// check that refused a combination outside the allowance's reason passed. In
+/// body_rebinding_in_the_file rustc reads `Lock` from `mutexes` (`@Y@`); the allowance is for
+/// `@X@=RwLock,@Y@=Mutex` (the file binds `Lock` two ways and one is an RwLock). A check that also
+/// refuses `@X@=Mutex,@Y@=Mutex`, where both bindings are Mutexes, must be named.
+#[test]
+fn an_allowance_does_not_hide_a_refusal_outside_its_combination() {
+    let failed = judged_with(
+        "body_rebinding_in_the_file",
+        |case| cell_of(case, "@Y@") == "Mutex",
+        // The check refuses every crate: both RwLock ones (rightly), the allowed one and the
+        // all-Mutex one.
+        |_| false,
+    );
+    assert!(
+        failed.iter().any(|f| f.contains("body_rebinding_in_the_file[@X@=Mutex,@Y@=Mutex]")),
+        "a refusal of the all-Mutex crate went unnamed: {failed:#?}"
+    );
+}
+
+/// The same review: a check that regressed to refusing every crate of a shape with an allowance
+/// must fail, not pass under it.
+#[test]
+fn an_allowance_does_not_hide_a_shape_refused_whole() {
+    let failed = judged_with(
+        "block_rebinding_stays_in_its_block",
+        |case| cell_of(case, "@X@") == "Mutex",
+        |_| false,
+    );
+    assert!(
+        failed
+            .iter()
+            .any(|f| f.contains("block_rebinding_stays_in_its_block[@X@=Mutex,@Y@=Mutex]")),
+        "a check refusing the whole shape went unnamed: {failed:#?}"
     );
 }
