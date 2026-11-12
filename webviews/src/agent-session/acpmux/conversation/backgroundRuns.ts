@@ -6,12 +6,11 @@
 // member: acpmux called its turn not quiet, so it has no line and its reply draws as it came.
 //
 // Members: a quiet background turn's line that has ended (backgroundTurns.ts), and a background
-// shell's end noted where it ended (BackgroundTaskNote.tsx), finished or stopped. A failed shell stays
-// on its own row, in sight. Between members, a reply that draws nothing (visibleMessage.ts: empty or
-// a lone period) and the rows of a member line the reader
-// opened on its own (`inBackground`) go with the run. Anything else ends it. A line acpmux weighed
-// (backgroundTurns.ts `backgroundWeight`: a result its call could not carry, a failure) names its
-// own task and is no member either.
+// shell that finished or stopped, noted where it ended (BackgroundTaskNote.tsx) or marked on the call
+// that started it (CommandRow.tsx). A failed shell stays on its own row, in sight. Between members,
+// quiet rows go with the run: a thought, a message sent to or received from another agent, a
+// subagent's end, a reply that draws nothing, the rows of a member line the reader opened on its own
+// (`inBackground`). Anything else ends it. Which row is which is one table, foldPolicy.ts.
 //
 // The line reuses the background turn's row kind, so it takes that line's height, spacing and look
 // everywhere (model.ts, App.tsx); it carries `backgroundRun` instead of `background`. Its open state
@@ -20,87 +19,50 @@
 // turn shaping already does.
 import type { AcpmuxBackgroundRun, AcpmuxRow } from "../model";
 import type { Translate } from "../i18n";
-import { experimentArm } from "../../../experiments/experiment";
-import { backgroundTurnLook, backgroundTurnsInline } from "./backgroundTurnLook.experiment";
-import { BACKGROUND_TURN, backgroundWeight } from "./backgroundTurns";
+import { BACKGROUND_TURN } from "./backgroundTurns";
+import { foldSpans, rowRoles, runLabelKey } from "./foldPolicy";
 import type { Folds } from "./viewFolds";
-import { isVisiblyEmptyMessage } from "./visibleMessage";
 
 export const BACKGROUND_RUN = "backgroundRun";
 
 export const backgroundRunRowId = (firstId: string) => `${BACKGROUND_RUN}-${firstId}`;
 
-/// What a member adds to its run's line, or undefined for a row that is no member.
-function memberKind(row: AcpmuxRow): "finished" | "stopped" | "scheduled" | "other" | undefined {
-  if (row.kind === BACKGROUND_TURN) {
-    const turn = row.background;
-    if (!turn || turn.running || turn.quiet !== true || backgroundWeight(turn)) return undefined;
-    if (turn.trigger === "task_notification") return "finished";
-    return turn.trigger === "scheduled" ? "scheduled" : "other";
-  }
-  if (row.kind === "backgroundTask") {
-    const state = row.backgroundTask?.state;
-    if (state === "completed") return "finished";
-    if (state === "stopped") return "stopped";
-  }
-  return undefined;
-}
-
-/// A row of a member line the reader opened (`lines` holds the members' background turn ids): it
-/// goes with the run, also after its last member, so closing the run hides it with its line.
-const ownedBy = (row: AcpmuxRow, lines: ReadonlySet<string>) =>
-  row.inBackground !== undefined && lines.has(row.inBackground);
-
-/// A reply between members that draws nothing goes with the run without counting.
-const bareReply = (row: AcpmuxRow) => row.kind === "assistant" && !row.streaming && isVisiblyEmptyMessage(row);
-
 /// `rows` with each run of two or more background-task notifications folded under one line: the
 /// line alone while closed, the line and the run's rows while open (`expanded` holds the line's
-/// id). Without such a run, `rows` itself.
+/// id). Without such a run, `rows` itself. Which rows are members, which ride along and which end a
+/// run is the fold policy's (foldPolicy.ts); this draws its spans.
+///
+/// Both looks of a background turn fold (backgroundTurnLook.experiment.ts). Inline, a quiet
+/// background turn has no line of its own, so its members are the shells that finished: the line
+/// reads as a tool call's, "14 background commands finished" (Leo, 2026-11-12: "this is prob pretty
+/// obvious as fold candidates").
 export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRow[] {
-  // Inline, no "N background updates" line: each member draws as it came, as a tool call's row does
-  // (backgroundTurnLook.experiment.ts).
-  if (backgroundTurnsInline(experimentArm(backgroundTurnLook))) return rows;
-  let out: AcpmuxRow[] | undefined;
-  let index = 0;
-  while (index < rows.length) {
-    const first = rows[index]!;
-    if (!memberKind(first)) {
-      out?.push(first);
-      index += 1;
-      continue;
-    }
-    const counts = { finished: 0, stopped: 0, scheduled: 0, other: 0 };
-    const lines = new Set<string>();
-    let end = index;
-    let last = index;
-    for (; end < rows.length; end += 1) {
-      const row = rows[end]!;
-      const kind = memberKind(row);
-      if (kind) {
-        counts[kind] += 1;
-        if (row.background) lines.add(row.background.id);
-        last = end;
-      } else if (ownedBy(row, lines)) last = end;
-      else if (!bareReply(row)) break;
-    }
-    // Bare replies after the run's last member are not the run's: they draw (nothing) as before.
-    end = last + 1;
-    const members = counts.finished + counts.stopped + counts.scheduled + counts.other;
-    if (members < 2) {
-      out?.push(...rows.slice(index, end));
-      index = end;
-      continue;
-    }
-    out ??= rows.slice(0, index);
-    const folded = rows.slice(index, end);
+  if (rows.length < 2) return rows;
+  const roles = rowRoles(rows, (row) => row.background?.id);
+  const spans = foldSpans(roles);
+  if (!spans.length) return rows;
+  const out: AcpmuxRow[] = rows.slice(0, spans[0]!.from);
+  spans.forEach((span, at) => {
+    const folded = rows.slice(span.from, span.to);
+    const first = folded[0]!;
     // Open under any member's key, as a message run is (messageRuns.ts): two runs a reply that draws
     // nothing joins, or a run whose first member changed, keep the open the reader gave one of them.
-    // Its id is that key, so a click closes it by the same key. Keyed lookups, one per member.
+    // Its id is that key, so a click closes it by the same key. Keyed lookups, one per row.
     const opened = folded.find((row) => expanded.has(backgroundRunRowId(row.id)));
     const id = backgroundRunRowId((opened ?? first).id);
     const open = opened !== undefined;
-    const run: AcpmuxBackgroundRun = { ...counts, rows: folded.map((row) => row.id) };
+    const { command, finished, stopped, scheduled, other, sent, received } = span.tallies;
+    const run: AcpmuxBackgroundRun = {
+      // A shell that completed is a finished task to the line's older words (`backgroundRunLabel`).
+      finished: finished + command,
+      stopped,
+      scheduled,
+      other,
+      ...(command > 0 && { commands: command }),
+      ...(sent > 0 && { sent }),
+      ...(received > 0 && { received }),
+      rows: folded.map((row) => row.id),
+    };
     out.push({
       id,
       // Moves with every member's version and the open state: the memoized line and the height
@@ -112,9 +74,9 @@ export function foldBackgroundRuns(rows: AcpmuxRow[], expanded: Folds): AcpmuxRo
       backgroundRun: run,
     });
     if (open) out.push(...folded);
-    index = end;
-  }
-  return out ?? rows;
+    out.push(...rows.slice(span.to, spans[at + 1]?.from ?? rows.length));
+  });
+  return out;
 }
 
 /// The open background-run lines among a turn's rows `rows[start..end)`, which a cached turn
@@ -137,9 +99,33 @@ export function backgroundRunFoldFor(drawn: readonly AcpmuxRow[], rowId: string)
   return undefined;
 }
 
-/// The line's words: "4 background tasks finished" when every member finished, else "5 background
-/// updates" (a stopped shell, a scheduled check or another kind of background turn among them).
+/// The line's words, from the policy's table (foldPolicy.ts `RUN_LABELS`): "14 background commands
+/// finished" when every member is a shell that completed, "4 background tasks finished" when every
+/// member finished, else "5 background updates"; then the messages the rows it folded carried, as a
+/// message run names them ("sent 2 messages, received 9 messages").
 export function backgroundRunLabel(t: Translate, run: AcpmuxBackgroundRun): string {
   const n = run.finished + run.stopped + run.scheduled + run.other;
-  return n === run.finished ? t("backgroundRun.finished", { n }) : t("backgroundRun.updates", { n });
+  const commands = run.commands ?? 0;
+  const key = runLabelKey(
+    "background",
+    {
+      command: commands,
+      finished: run.finished - commands,
+      stopped: run.stopped,
+      scheduled: run.scheduled,
+      other: run.other,
+      sent: run.sent ?? 0,
+      received: run.received ?? 0,
+    },
+    n,
+  );
+  const sent = run.sent ?? 0;
+  const received = run.received ?? 0;
+  return [
+    t(key, { n }),
+    ...(sent ? [sent === 1 ? t("messageRun.sent.one") : t("messageRun.sent.other", { n: sent })] : []),
+    ...(received
+      ? [received === 1 ? t("messageRun.received.one") : t("messageRun.received.other", { n: received })]
+      : []),
+  ].join(t("toolRun.separator"));
 }

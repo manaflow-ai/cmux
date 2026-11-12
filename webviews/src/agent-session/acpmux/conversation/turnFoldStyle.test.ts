@@ -7,6 +7,7 @@
 import { afterEach, expect, test } from "bun:test";
 import { SINCE_DIVIDER, type AcpmuxRow } from "../model";
 import { WORKED, turnView } from "./turns";
+import { backgroundRunRowId } from "./backgroundRuns";
 import { CLAUDE_IN_PLACE, TURN_FOLD_STYLES, turnFoldStyle } from "./turnFoldStyle";
 
 // Claude's older in-place arm, as the experiment's host override sets it (claudeTurnFold.experiment.ts).
@@ -227,10 +228,15 @@ for (const family of ["claude", "codex", "gemini", "muse"])
     const closed = drawn(family, new Set(), rows);
     const worked = closed.find((row) => row.kind === WORKED)!;
     expect(ids(closed.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "a"]);
-    // Opened, they draw in their places among the work.
+    // Opened, they draw in their place among the work, two in a row as their one counted line
+    // (backgroundRuns.ts, foldPolicy.ts), which opens to each.
+    const run = backgroundRunRowId("bg1");
     const opened = ids(drawn(family, new Set([worked.id]), rows));
-    expect(opened.indexOf("bg1")).toBeGreaterThan(opened.indexOf(worked.id));
-    expect(opened.indexOf("bg2")).toBeLessThan(opened.indexOf("a"));
+    expect(opened.indexOf(run)).toBeGreaterThan(opened.indexOf(worked.id));
+    expect(opened.indexOf(run)).toBeLessThan(opened.indexOf("a"));
+    const both = ids(drawn(family, new Set([worked.id, run]), rows));
+    expect(both.indexOf("bg1")).toBeGreaterThan(both.indexOf(run));
+    expect(both.indexOf("bg2")).toBeLessThan(both.indexOf("a"));
   });
 
 test("a background command that failed stays in sight beside the closed Worked for", () => {

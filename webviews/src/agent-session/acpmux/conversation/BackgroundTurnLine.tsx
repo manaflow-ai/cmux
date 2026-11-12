@@ -24,7 +24,7 @@ import { experimentArm } from "../../../experiments/experiment";
 import { backgroundRunLabel } from "./backgroundRuns";
 import { backgroundTurnLook, backgroundTurnsInline } from "./backgroundTurnLook.experiment";
 import { backgroundTurnLabel, foldsBackground } from "./backgroundTurns";
-import { Clock, Spinner } from "./icons";
+import { Clock, Spinner, TerminalSquare } from "./icons";
 import { RowShimmer } from "./ShimmerText";
 import { TranscriptActivityRow } from "./TranscriptActivityRow";
 import { SubagentReportLine } from "../subagents/SubagentReportLine";
@@ -44,9 +44,13 @@ export function BackgroundTurnLine({
   const run = row.backgroundRun;
   if (run) {
     const label = backgroundRunLabel(t, run);
+    // A run of shells that completed reads as a command row does, with its terminal glyph
+    // (BackgroundTaskNote.tsx): a counted tool line, not a background turn's clock.
+    const commands =
+      run.commands !== undefined && run.commands === run.finished + run.stopped + run.scheduled + run.other;
     return (
       <TranscriptActivityRow
-        icon={<Clock />}
+        icon={commands ? <TerminalSquare /> : <Clock />}
         before={label}
         className="cv-background-turn"
         ariaLabel={label}
@@ -55,6 +59,7 @@ export function BackgroundTurnLine({
           "aria-expanded": String(expanded),
           "data-find-skip": "",
           "data-background-turn": "run",
+          ...(commands && { "data-background-run": "commands" }),
         }}
         onClick={onToggle}
       />

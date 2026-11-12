@@ -234,10 +234,16 @@ export type AcpmuxBackgroundReaction = {
 /// task turns and finished shells, stopped shells, scheduled checks, other quiet background turns,
 /// and the ids of the rows it folds (Find and links open it for one).
 export type AcpmuxBackgroundRun = {
+  /// Members that finished: quiet background turns a task's end woke, and shells that completed.
   finished: number;
   stopped: number;
   scheduled: number;
   other: number;
+  /// Of `finished`, the shells that completed (conversation/foldPolicy.ts `command`).
+  commands?: number;
+  /// Messages the quiet rows it folds sent to and received from other agents.
+  sent?: number;
+  received?: number;
   rows: string[];
 };
 
