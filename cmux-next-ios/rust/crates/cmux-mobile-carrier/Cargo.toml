@@ -27,4 +27,4 @@ webpki-roots = "1"
 zeroize.workspace = true
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["test-util"] }
+tokio = { workspace = true, features = ["test-util", "macros", "rt-multi-thread"] }
