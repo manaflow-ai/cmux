@@ -24,11 +24,13 @@ impl PeerNoticeProjectionHook {
         })
     }
 
+    /// Waits, with a bound, for the projection to reach the hook; a test fails instead of
+    /// hanging when it never does.
     pub(crate) fn wait_reached(&self) {
-        let mut reached = self.reached.0.lock().unwrap_or_else(|e| e.into_inner());
-        while !*reached {
-            reached = self.reached.1.wait(reached).unwrap_or_else(|e| e.into_inner());
-        }
+        assert!(
+            self.wait_reached_timeout(std::time::Duration::from_secs(30)),
+            "the peer notice projection never reached its hold"
+        );
     }
 
     pub(crate) fn wait_reached_timeout(&self, timeout: std::time::Duration) -> bool {

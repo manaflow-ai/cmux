@@ -3,6 +3,9 @@
 use super::*;
 use serde_json::json;
 
+/// How long a test waits for a thread to reach its hold before it fails instead of hanging.
+const ARRIVE: std::time::Duration = std::time::Duration::from_secs(30);
+
 struct Home(PathBuf);
 
 impl Home {
@@ -347,8 +350,9 @@ fn a_second_archive_waits_for_a_commit_between_its_renames() {
             store.commit_cold("c", staged).unwrap()
         })
     };
-    let (arrived, release) = rx.recv().unwrap();
-    arrived.recv().unwrap();
+    let (arrived, release) =
+        rx.recv_timeout(ARRIVE).expect("the commit thread never installed its hold");
+    arrived.recv_timeout(ARRIVE).expect("the commit never reached HOLD_AFTER_COLD_PUBLISH");
     assert!(store.cold_path("c").exists() && store.dir("c").join("events").exists());
     // The second archive: it says when it reaches the cold lock, or that it is done.
     let (said, heard) = std::sync::mpsc::channel::<&'static str>();
@@ -361,7 +365,8 @@ fn a_second_archive_waits_for_a_commit_between_its_renames() {
             staged.unwrap().is_some()
         })
     };
-    assert_eq!(heard.recv().unwrap(), "settle", "the settle waits for the commit");
+    let heard = heard.recv_timeout(ARRIVE).expect("the second archive never reached the cold lock");
+    assert_eq!(heard, "settle", "the settle waits for the commit");
     release.send(()).unwrap();
     assert!(first.join().unwrap());
     assert!(!second.join().unwrap(), "the log is archived: nothing left to stage");
@@ -391,8 +396,9 @@ fn a_sealed_store_does_not_settle_the_next_daemons_archive() {
             next.commit_cold("c", staged).unwrap()
         })
     };
-    let (arrived, release) = rx.recv().unwrap();
-    arrived.recv().unwrap();
+    let (arrived, release) =
+        rx.recv_timeout(ARRIVE).expect("the commit thread never installed its hold");
+    arrived.recv_timeout(ARRIVE).expect("the commit never reached HOLD_AFTER_COLD_PUBLISH");
     assert!(next.cold_path("c").exists() && next.dir("c").join("events").exists());
     assert!(old.stage_cold("c").is_err(), "the sealed store settles nothing");
     assert!(old.cold_path("c").exists(), "the next daemon's archive is still there");
@@ -423,8 +429,9 @@ fn an_append_during_another_rehydrate_goes_on_in_the_last_segment() {
             store.rehydrate("c").unwrap()
         })
     };
-    let (arrived, release) = rx.recv().unwrap();
-    arrived.recv().unwrap();
+    let (arrived, release) =
+        rx.recv_timeout(ARRIVE).expect("the rehydrate thread never installed its hold");
+    arrived.recv_timeout(ARRIVE).expect("the rehydrate never reached HOLD_BEFORE_THAW");
     // The append: it lists no segment, finds the archive, and reaches the cold lock the reader
     // holds.
     let next = record(records.len() as u64 + 1, "mux", "status", json!({"status": "idle"}));
@@ -438,7 +445,8 @@ fn an_append_during_another_rehydrate_goes_on_in_the_last_segment() {
             store.close_log("c");
         })
     };
-    assert_eq!(heard.recv().unwrap(), "rehydrate");
+    let heard = heard.recv_timeout(ARRIVE).expect("the append never reached the cold lock");
+    assert_eq!(heard, "rehydrate");
     release.send(()).unwrap();
     assert!(reader.join().unwrap());
     appender.join().unwrap();

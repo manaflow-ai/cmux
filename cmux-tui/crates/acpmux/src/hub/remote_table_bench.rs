@@ -176,7 +176,10 @@ fn a_peer_notice_lands_while_a_reader_is_parked_mid_walk() {
             release_rx.recv().unwrap();
             std::hint::black_box(rows.iter().count());
         });
-        assert_eq!(parked.recv().unwrap(), PEERS * PER_PEER / 2);
+        let walked = parked
+            .recv_timeout(Duration::from_secs(30))
+            .expect("the reader never parked half way through its walk");
+        assert_eq!(walked, PEERS * PER_PEER / 2);
         scope.spawn(move || {
             let session = row(PEERS - 1, 0, 1_000_000);
             hub.apply_peer_notice(
