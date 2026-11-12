@@ -76,7 +76,14 @@ pub(crate) fn run(args: &[OsString]) -> i32 {
     // The arguments as given, before the hooks are folded in: what a respawn
     // after a reboot starts Claude with again (relaunch_store::agent_launch).
     command.env(AGENT_ARGS_ENV, agent_args_json(args));
-    crate::agent_terminal_identity::apply(&mut command);
+    crate::agent_terminal_identity::apply(|key, value| match value {
+        Some(value) => {
+            command.env(key, value);
+        }
+        None => {
+            command.env_remove(key);
+        }
+    });
     let mut launch_args = args.to_vec();
     if std::env::var_os(HOOKS_DISABLED_ENV).is_some_and(|value| value == "1") {
         drop_cmux_plugin(&mut command);

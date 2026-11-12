@@ -29,16 +29,14 @@ pub(crate) fn agent_identity_edits(getenv: impl Fn(&str) -> Option<OsString>) ->
     vec![IdentityEdit::Set("TERM_PROGRAM", "ghostty"), IdentityEdit::Remove("TERM_PROGRAM_VERSION")]
 }
 
-/// Applies [`agent_identity_edits`] for this process's environment to `command`.
-pub(crate) fn apply(command: &mut std::process::Command) {
+/// Hands [`agent_identity_edits`] for this process's environment to the
+/// agent's launch command: `set(key, Some(value))` sets a key,
+/// `set(key, None)` removes it.
+pub(crate) fn apply(mut set: impl FnMut(&'static str, Option<&'static str>)) {
     for edit in agent_identity_edits(|key| std::env::var_os(key)) {
         match edit {
-            IdentityEdit::Set(key, value) => {
-                command.env(key, value);
-            }
-            IdentityEdit::Remove(key) => {
-                command.env_remove(key);
-            }
+            IdentityEdit::Set(key, value) => set(key, Some(value)),
+            IdentityEdit::Remove(key) => set(key, None),
         }
     }
 }
