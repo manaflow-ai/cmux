@@ -197,13 +197,13 @@ final class TerminalProjectionView: UIView, UIScrollViewDelegate {
             let frame = TerminalProjectionMock.frame(content, columns: mac.0, rows: mac.1)
             setSurface(gridSize(columns: mac.0, rows: mac.1))
             if content == .shell {
-                caption("B · Reflow. The Mac keeps \(mac.0)×\(mac.1). The phone parses it in its own VT at \(mac.0) columns and re-wraps each line at \(phoneColumns). The programs still format for \(mac.0). Font \(font) pt.")
-                surface.feed(frame.bytes, completion: { [weak self] in
-                    guard let self else { return }
-                    // The local VT re-wraps its lines at the phone's width.
-                    self.setSurface(self.gridSize(columns: self.phoneColumns, rows: phoneRows))
-                    self.showIndicator("reflowed from \(mac.0) to \(self.phoneColumns) cols")
-                })
+                // The Mac's 120-column rows (its VT's soft wraps), each re-wrapped
+                // cell by cell at the phone's width: what reflowing a local VT gives.
+                let reflowed = TerminalProjectionMock.reflowedShell(macColumns: mac.0, phoneColumns: phoneColumns)
+                setSurface(gridSize(columns: phoneColumns, rows: phoneRows))
+                caption("B · Reflow. The Mac keeps \(mac.0)×\(mac.1). The phone keeps its rows at \(mac.0) columns and re-wraps each one at \(phoneColumns), cell by cell. The programs still laid out for \(mac.0): boxes and columns break. Font \(font) pt.")
+                surface.feed(reflowed)
+                showIndicator("\(mac.0) cols re-wrapped at \(phoneColumns)")
             } else {
                 caption("B · Reflow, alt screen. A full-screen app cannot be re-wrapped: it is shown at the Mac's \(mac.0)×\(mac.1), native \(font) pt font, panned sideways (indicator). Normal-screen output re-wraps.")
                 surface.feed(frame.bytes)
@@ -345,6 +345,35 @@ enum TerminalProjectionMock {
             return line
         }
 
+        /// The line in pieces of `width` cells (the last one shorter).
+        func chunks(of width: Int) -> [Line] {
+            guard width > 0, self.width > width else { return [self] }
+            var out: [Line] = [], current = Line()
+            for span in spans {
+                var rest = Substring(span.text)
+                while !rest.isEmpty {
+                    let room = width - current.width
+                    current.add(String(rest.prefix(room)), span.sgr)
+                    rest = rest.dropFirst(room)
+                    if current.width == width { out.append(current); current = Line() }
+                }
+            }
+            if current.width > 0 { out.append(current) }
+            return out
+        }
+
+        /// Without its trailing unstyled spaces.
+        func trimmingTrailingBlanks() -> Line {
+            var line = self
+            while let last = line.spans.last, last.sgr == "0" {
+                let text = String(last.text.reversed().drop(while: { $0 == " " }).reversed())
+                if text.isEmpty { line.spans.removeLast(); continue }
+                line.spans[line.spans.count - 1].text = text
+                break
+            }
+            return line
+        }
+
         func truncated(to width: Int) -> Line {
             var out = Line(), left = width
             for span in spans where left > 0 {
@@ -358,6 +387,22 @@ enum TerminalProjectionMock {
         var rendered: String {
             spans.map { "\(TerminalProjectionMock.esc)0;\($0.sgr)m\($0.text)" }.joined() + "\(TerminalProjectionMock.esc)0m"
         }
+    }
+
+    /// B: the shell frame as the Mac's VT holds it (rows of `macColumns`,
+    /// long lines soft-wrapped there, trailing blanks dropped), each row
+    /// re-wrapped at `phoneColumns` with its styles.
+    static func reflowedShell(macColumns: Int, phoneColumns: Int) -> Data {
+        var rows: [Line] = []
+        for line in shellLines(width: macColumns) {
+            for macRow in line.chunks(of: macColumns) {
+                let trimmed = macRow.trimmingTrailingBlanks()
+                rows += trimmed.width == 0 ? [trimmed] : trimmed.chunks(of: phoneColumns)
+            }
+        }
+        var text = "\u{1B}c" + rows.map(\.rendered).joined(separator: "\r\n")
+        text += "\(esc)2A\r\(esc)4C"
+        return Data(text.utf8)
     }
 
     static func frame(_ content: TerminalProjectionContent, columns: Int, rows: Int) -> Frame {
@@ -426,6 +471,11 @@ enum TerminalProjectionMock {
     }
 
     private static func shell(columns width: Int, rows: Int) -> Frame {
+        let lines = shellLines(width: width)
+        return render(lines, width: width, rows: rows)
+    }
+
+    private static func shellLines(width: Int) -> [Line] {
         var lines: [Line] = []
         lines.append(prompt("ls"))
         lines += lsColumns(width: width)
@@ -468,7 +518,10 @@ enum TerminalProjectionMock {
             status.add(accept, "38;5;141")
         }
         lines.append(status)
+        return lines
+    }
 
+    private static func render(_ lines: [Line], width: Int, rows: Int) -> Frame {
         // Rows each line takes at this width (the terminal wraps longer ones).
         let total = lines.reduce(0) { $0 + max(1, ($1.width + width - 1) / width) }
         var text = "\u{1B}c"
