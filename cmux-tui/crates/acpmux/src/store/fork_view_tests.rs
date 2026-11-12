@@ -766,9 +766,10 @@ fn a_cold_commit_waits_for_the_forks_history_write() {
             view.delete("chat").unwrap();
         })
     };
+    let arrive = std::time::Duration::from_secs(30);
     let (arrived, release): (std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>) =
-        rx.recv().unwrap();
-    arrived.recv().unwrap();
+        rx.recv_timeout(arrive).expect("the delete thread never installed its hold");
+    arrived.recv_timeout(arrive).expect("the delete never reached HOLD_AFTER_HISTORY_REHYDRATE");
     // The commit: it says when it waits for `dropping`, or that it is done.
     let (said, heard) = std::sync::mpsc::channel::<&'static str>();
     let commit = {
@@ -780,7 +781,9 @@ fn a_cold_commit_waits_for_the_forks_history_write() {
             committed.unwrap()
         })
     };
-    assert_eq!(heard.recv().unwrap(), "waits", "the commit waits for the history's write");
+    let heard =
+        heard.recv_timeout(arrive).expect("the commit never reached its wait for `dropping`");
+    assert_eq!(heard, "waits", "the commit waits for the history's write");
     release.send(()).unwrap();
     delete.join().unwrap();
     assert!(!commit.join().unwrap(), "the log changed since it was staged");

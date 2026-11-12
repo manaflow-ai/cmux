@@ -176,13 +176,13 @@ final class KeyRouter: BrowserKeyRouting {
     /// Runs from `CmuxApplication.sendEvent` for every key-down of the
     /// process, before any window or responder. `window` is where the key
     /// goes (the key window). Returns whether the key was consumed.
-    func interceptKeyDown(_ event: NSEvent, in window: NSWindow?) -> Bool { // perf-hot: 0.5ms key-dispatch (every key-down of the process)
+    func interceptKeyDown(_ event: NSEvent, in window: NSWindow?, heldBefore: Bool = false) -> Bool { // perf-hot: 0.5ms key-dispatch (every key-down of the process)
         guard event.type == .keyDown else { return false }
         services?.linkHints.noteKeyDown(event, in: window) // whether the page had it (Chromium sends back a key it left unhandled)
         // A key-down the dispatcher already decided (sent again: a view's doCommand re-sending a chord, a replayed
         // dispatch) is not decided twice: it goes on to AppKit's dispatch, so its action never runs a second time.
         if decided.contains(event) { return false }
-        if menuPickKeys.capture(event) { return true }
+        if !heldBefore, menuPickKeys.capture(event) { return true } // `heldBefore`: a hold runs the key again; it was typed before the menu, and the hold's rule gets it
         if answersBlockingDialog(event, in: window) { return true }  // never the view's under the dialog
         if newTabInputCoordinator.capture(event, in: window) { return true }
         if creationInputCoordinator.capture(event, in: window) { return true }
@@ -337,7 +337,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// Printable keys typed before a page could take them, and the page
     /// (focus, readiness id) they wait for and one delivering now.
     var typeAhead = TypeAheadQueue()
-    var typeAheadFocus: FocusState.Resolved?
+    var typeAheadFocus: TypeAheadWait?
     var deliveringTypeAhead: String?
     var typeAheadTail = TypeAheadTail<HeldTypeAheadKey>() // Return and the keys after it, waiting behind a page's queued text
     /// The New Tab action owns this buffer before a cold page has a readiness object.
@@ -393,7 +393,7 @@ final class KeyRouter: BrowserKeyRouting {
 
     /// `window`'s focus settled: a chord armed there in another focus ends.
     func focusDidSettle(_ focus: FocusState, in window: NSWindow?) {
-        typeAheadFocusDidSettle(focus.resolved)
+        typeAheadFocusDidSettle(focus.resolved, in: window)
         newTabInputCoordinator.flush(in: window)
         creationInputCoordinator.focusDidSettle(in: window)
         guard chords.isPending, let window, chords.focusDidChange(to: focus.resolved, in: ObjectIdentifier(window)) else { return }

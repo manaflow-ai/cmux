@@ -726,6 +726,8 @@ pub struct Mux {
     /// The chat-index project import's wake (`project_chats.rs`).
     #[cfg(unix)]
     project_chats: project_chats::ProjectChatsWake,
+    /// The editor and app project sources' file watch (`state/project_watch.rs`).
+    pub(crate) project_watch: crate::state::project_watch::ProjectWatch,
     /// Nonterminal notifications remain placement-local. Terminal unread state is keyed by
     /// stable content identity so every view of one terminal shares the same attention marker.
     placement_notifications: Mutex<HashMap<SurfaceId, SurfaceNotification>>,
