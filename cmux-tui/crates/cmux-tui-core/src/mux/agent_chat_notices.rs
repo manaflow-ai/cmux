@@ -689,8 +689,9 @@ fn follow(
 
 /// The `initialize` capability of an acpmux that stamps each list change with a position
 /// (`listSeq`) and answers `_acpmux/watch {afterSeq}` with what changed since (acpmux
-/// `hub/row_log.rs`).
-const FOLLOW_CAPABILITY: &str = "session-list-follow-v1";
+/// `hub/row_log.rs`). acpmux's capability, read from its reply: cmux-tui's `identify` does not
+/// advertise it, so it is not named as one of cmux-tui's `*_CAPABILITY` constants.
+const ACPMUX_LIST_FOLLOW: &str = "session-list-follow-v1";
 
 /// The highest list position the watch applied, and the acpmux run it counts in. Kept across
 /// reconnects: a reconnect, or a watch acpmux says lagged, reads the rows changed since it
@@ -719,12 +720,12 @@ fn ask_follow(writer: &mut UnixStream, last_id: &mut u64, at: &ListCursor) -> st
     Ok(*last_id)
 }
 
-/// Whether acpmux's `initialize` reply names [`FOLLOW_CAPABILITY`].
+/// Whether acpmux's `initialize` reply names [`ACPMUX_LIST_FOLLOW`].
 fn follows(initialized: &Value) -> bool {
     initialized
         .pointer("/result/_meta/acpmux/capabilities")
         .and_then(Value::as_array)
-        .is_some_and(|ids| ids.iter().any(|id| id == FOLLOW_CAPABILITY))
+        .is_some_and(|ids| ids.iter().any(|id| id == ACPMUX_LIST_FOLLOW))
 }
 
 /// Whether a `session_changed` is older than the row the watch holds: its list position is
@@ -742,7 +743,7 @@ fn older_than_held(held: Option<&Chat>, params: &Value) -> bool {
 /// message whatever the number of sessions. `unlisted` is what the watch knew
 /// before this connection, less the chats a page or a push has reached.
 ///
-/// With a `cursor` from an acpmux that follows ([`FOLLOW_CAPABILITY`]) the watch asks for the
+/// With a `cursor` from an acpmux that follows ([`ACPMUX_LIST_FOLLOW`]) the watch asks for the
 /// rows changed since it (`follow: true`, the rows and `gone`) and the rows it held stand; an
 /// acpmux that cannot follow it answers the list's first page (`reset`), read as a first list.
 ///
@@ -781,7 +782,7 @@ fn read_watch(
     let mut pushed = HashSet::new();
     // Every local chat this connection's list named, whatever its status.
     let mut listed = HashSet::new();
-    // This acpmux follows a cursor ([`FOLLOW_CAPABILITY`]).
+    // This acpmux follows a cursor ([`ACPMUX_LIST_FOLLOW`]).
     let mut capable = false;
     // The position of the list being read: its rows come with it, and the cursor is it once the
     // list is whole (a list cut short leaves no cursor, so the next connection reads it whole).
@@ -1554,9 +1555,9 @@ mod tests {
         assert_eq!(known, ["chat-1", "chat-2"]);
     }
 
-    /// acpmux's `initialize` reply, naming [`FOLLOW_CAPABILITY`] when `follows`.
+    /// acpmux's `initialize` reply, naming [`ACPMUX_LIST_FOLLOW`] when `follows`.
     fn initialized(follows: bool) -> String {
-        let capabilities = if follows { json!([FOLLOW_CAPABILITY]) } else { json!([]) };
+        let capabilities = if follows { json!([ACPMUX_LIST_FOLLOW]) } else { json!([]) };
         format!(
             "{}\n",
             json!({"jsonrpc": "2.0", "id": 1, "result": {"_meta": {"acpmux": {"capabilities": capabilities}}}})
