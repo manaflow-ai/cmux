@@ -32,6 +32,7 @@ import argparse, glob, json, os, signal, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import LaunchError, launch_app  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, "../.."))
@@ -492,7 +493,7 @@ def main():
         if error.reason == "no-gui-session":
             sys.exit(1)
         # macOS 27 minis: a first launch can stall before its socket (NSXPCSharedListener interrupted); one relaunch.
-        print("the tagged app did not come up in 120 s; relaunching once", flush=True)
+        safe_print("the tagged app did not come up in 120 s; relaunching once", flush=True)
         if app and app.poll() is None:
             app.kill()  # the pid this script started
             app.wait(timeout=30)

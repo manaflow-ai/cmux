@@ -47,6 +47,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_idle import Client, usage, wait_for_socket  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 COLORS = ["#c0392b", "#27ae60", "#2980b9", "#8e44ad", "#d35400", "#16a085", "#2c3e50", "#f39c12", "#7f8c8d", "#e84393"]
 
@@ -291,7 +292,7 @@ def main():
         "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
     }
     app = subprocess.Popen([binary], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print(f"bench-tab-switch: app pid {app.pid}")
+    safe_print(f"bench-tab-switch: app pid {app.pid}")
     socket_path = f"/tmp/cmux-debug-{tag}.sock"
     report = {"tag": tag, "sha": args.sha, "label": args.label, "args": vars(args), "scenarios": {}}
     try:

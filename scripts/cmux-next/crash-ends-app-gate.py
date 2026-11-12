@@ -30,6 +30,7 @@ import argparse, json, os, re, signal, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PRIMARY = "SentryCrash Exception Handler (Primary)"
@@ -140,7 +141,7 @@ def run(kind):
     process = subprocess.Popen([os.path.join(bundle, "Contents/MacOS/cmux DEV"), "-ApplePersistenceIgnoreState", "YES"], env=env,
                                stdout=log, stderr=log, stdin=subprocess.DEVNULL)
     pid = process.pid
-    print(f"crash-ends-app-gate: {kind}: launched {tag} pid {pid}", flush=True)
+    safe_print(f"crash-ends-app-gate: {kind}: launched {tag} pid {pid}", flush=True)
     try:
         last = {}
 

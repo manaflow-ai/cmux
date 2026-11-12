@@ -42,6 +42,7 @@ import argparse, glob, importlib.util, json, os, re, signal, socket, statistics,
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import BenchApp, bundle_id  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -361,7 +362,7 @@ def summarize(label, samples):
 
 
 def cleanup():
-    print("cleanup", flush=True)
+    safe_print("cleanup", flush=True)
     if VDISPLAY is not None and VDISPLAY.poll() is None:
         VDISPLAY.terminate()  # the helper this script started; its display arrangement goes with it
     if os.environ.get("PALETTEOPEN_KEEP") or not LAUNCHED:
@@ -379,7 +380,7 @@ def cleanup():
         for line in ps.splitlines():
             parts = line.split(None, 2)
             if len(parts) == 3 and parts[2].startswith(APP + "/") and int(parts[0]) != os.getpid():
-                print("leftover", line[:160], flush=True)
+                safe_print("leftover", line[:160], flush=True)
                 try:
                     os.kill(int(parts[0]), signal.SIGTERM)
                 except OSError:

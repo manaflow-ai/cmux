@@ -21,10 +21,21 @@ check   For each tracked Cargo.lock, `cargo update --workspace --locked` in its 
         only when the change touches it (--base: a Cargo.toml or Cargo.lock in it or in a package it reaches by
         path; with no --base every workspace counts as touched), and otherwise prints a `warning:` line. A busy
         runner makes the check slower, never red: cmux#41586, run 43124136001, 2026-11-12, 30 workspaces, 0 stale,
-        5 timed out after 120 s waiting on each other on a 2-vCPU runner with an empty cargo home.
+        5 timed out after 120 s waiting on each other on a 2-vCPU runner with an empty cargo home. A workspace's
+        tree stops at a Cargo.toml below it with a [workspace] of its own or in its `exclude`: that is another
+        workspace, so a change only there does not touch the outer one (cmux#41742 review F1). A package reached by
+        path brings its `{ workspace = true }` dependencies' paths from its own workspace's [workspace.dependencies]
+        (cmux#41767 review: cmux-next-ios/rust reaches cmux-tui crates, which inherit paths from cmux-tui).
+        The whole check ends by --deadline seconds (default with no usable --base: NO_BASE_DEADLINE): past it no
+        resolve starts, a running one is cut at it, and what is left is `unchecked` (a timeout). Every caller
+        without a base has an outer limit of its own: the pre-push gate's (it passes --deadline below it), the
+        base autofix job's, CI's job's (cmux#41742 review F2: with no base there was no budget at all, serial
+        resolves ran past the gate's limit, and the gate then skipped the lock check).
 fix     The same check, then `cargo update --workspace` in each stale workspace: it rewrites only what the
         manifests now need (the workspace's own entries and new or dropped dependencies; no other version
         moves). Prints `fixed: ...` or `left: ...` lines (scripts/cmux-next/base-autofix.sh's format) and exits 0.
+        The deadline is one absolute time for the whole run: the rewrites and their re-checks stop at it too, and
+        a lock they did not reach is `left:` (cmux#41767 review F3: `fix --deadline 1.1` ran 1.44 s).
         Only Cargo.lock files are written: a run that would touch anything else is undone and reported.
 
 Every workspace runs on one toolchain (RUSTUP_TOOLCHAIN, else the one active at the repository root, with no
@@ -36,7 +47,7 @@ Cargo.lock; rust-workspaces.yml's plan job on every pull request and push, with 
 backstop: an unchecked workspace is red there, a timeout only in a workspace the change touches); the base autofix
 (base-autofix.sh --locks) after a feat-cmux-next push that does.
 
-Usage: scripts/cmux-next/cargo-locks.py check|fix [--repo DIR] [--strict] [--base SHA] [--jobs N]
+Usage: scripts/cmux-next/cargo-locks.py check|fix [--repo DIR] [--strict] [--base SHA] [--deadline S] [--jobs N]
 """
 from __future__ import annotations
 
@@ -45,12 +56,13 @@ import concurrent.futures
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
 from pathlib import Path, PurePosixPath
 
-# Both of cargo's spellings of a stale lock under --locked (check-cargo-locks.py STALE reads the same two).
+# Both of cargo's spellings of a stale lock under --locked.
 DRIFT = "cannot update the lock file"
 STALE = re.compile(r"cannot (?:update|create) the lock file .* because --locked was passed"
                    r"|the lock file .* needs to be updated but --locked was passed")
@@ -60,6 +72,11 @@ RETRY_TIMEOUT = 300
 # Seconds the network pass and the retries may spend on workspaces the change does not touch; past it they are not
 # started (and only warn). Touched workspaces always run to their limits.
 BUDGET = 300
+# Seconds the whole check may take when there is no usable --base and no --deadline: below the pre-push gate's own
+# limit on it (prepush-gate.py CARGO_LOCKS_TIMEOUT), the base autofix job's and CI's.
+NO_BASE_DEADLINE = 240
+# The clock the budget and the deadline read (tests replace it).
+clock = time.monotonic
 # cargo's line while another cargo holds the package cache lock.
 LOCK_WAIT = "Blocking waiting for file lock on package cache"
 
@@ -92,24 +109,64 @@ def cargo_env(repo: Path) -> dict[str, str]:
 
 
 def cargo(args: list[str], cwd: Path, env: dict[str, str], timeout: float = TIMEOUT) -> tuple[int, str]:
+    """cargo's exit code and stderr; 124 past TIMEOUT, when cargo and everything it started (git, a registry
+    fetch) are stopped as one process group, so nothing of it outlives the limit or the deadline: SIGTERM, a
+    grace period, then SIGKILL to the group whether or not cargo itself has exited, since a child that ignores
+    SIGTERM and has closed stderr would otherwise outlive it unseen."""
     try:
-        run = subprocess.run(["cargo", *args], cwd=cwd, env=env, text=True, stdin=subprocess.DEVNULL,
-                             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=timeout)
-    except subprocess.TimeoutExpired as expired:
-        err = expired.stderr.decode(errors="replace") if isinstance(expired.stderr, bytes) else expired.stderr or ""
-        waited = ", waiting on cargo's package cache lock" if LOCK_WAIT in err else ""
-        return 124, f"timed out after {timeout:g}s{waited}"
+        process = subprocess.Popen(["cargo", *args], cwd=cwd, env=env, text=True, stdin=subprocess.DEVNULL,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True)
     except OSError as error:
         return 127, str(error)
-    return run.returncode, run.stderr
+    try:
+        _, err = process.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        err = ""
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            _, err = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        try:
+            _, rest = process.communicate(timeout=5)
+            err = (err or "") + (rest or "")
+        except (subprocess.TimeoutExpired, ValueError):
+            pass
+        # SIGKILL lands asynchronously: return once the group is empty (bounded), so nothing of it is still
+        # running when the caller retries or the deadline is reported.
+        until = time.monotonic() + 5
+        while time.monotonic() < until:
+            try:
+                os.killpg(process.pid, 0)
+            except (ProcessLookupError, PermissionError):
+                break
+            time.sleep(0.02)
+        waited = ", waiting on cargo's package cache lock" if LOCK_WAIT in (err or "") else ""
+        return 124, f"timed out after {timeout:g}s{waited}"
+    return process.returncode, err
+
+
+def remaining(end: float | None, wanted: float) -> float:
+    """WANTED seconds, cut to what is left before END (a `clock()` time; None: no end)."""
+    return wanted if end is None else min(wanted, end - clock())
 
 
 def judge(repo: Path, root: str, env: dict[str, str], passes: tuple[list[str], ...] = (["--offline"], []),
-          timeout: float = TIMEOUT) -> tuple[str, str]:
-    """('ok' | 'stale' | 'unchecked' | 'timeout', detail) for the workspace at ROOT."""
+          timeout: float = TIMEOUT, end: float | None = None) -> tuple[str, str]:
+    """('ok' | 'stale' | 'unchecked' | 'timeout', detail) for the workspace at ROOT; no pass starts past END."""
     verdict, last = "unchecked", ""
     for network in passes:
-        code, err = cargo(["update", "--workspace", "--locked", *network], repo / root, env, timeout=timeout)
+        limit = remaining(end, timeout)
+        if limit <= 1:
+            return "timeout", "not started: the deadline was spent"
+        code, err = cargo(["update", "--workspace", "--locked", *network], repo / root, env, timeout=limit)
         if code == 0:
             return "ok", ""
         if DRIFT in err or STALE.search(err):
@@ -123,21 +180,40 @@ def label(root: str) -> str:
     return root or "."
 
 
-def check(repo: Path, jobs: int, strict: bool = False, touched: set[str] | None = None) -> dict[str, tuple[str, str]]:
-    """Every workspace's verdict. TOUCHED: the workspaces the change touches (None: all of them)."""
+def check(repo: Path, jobs: int, strict: bool = False, touched: set[str] | None = None,
+          deadline: float | None = None, end: float | None = None) -> dict[str, tuple[str, str]]:
+    """Every workspace's verdict. TOUCHED: the workspaces the change touches (None: all of them). DEADLINE: seconds
+    the whole check may take (default NO_BASE_DEADLINE when TOUCHED is None, else none); past it nothing starts,
+    and a running resolve is cut at it. END: the `clock()` time the deadline runs out, when the caller has one for
+    a longer run (main: check and fix share it)."""
     if shutil.which("cargo") is None:
         return {root: ("unchecked", "no cargo on PATH") for root in tracked_roots(repo)}
-    started = time.monotonic()
+    started = clock()
+    if deadline is None and touched is None:
+        deadline = NO_BASE_DEADLINE
+    if end is None and deadline is not None:
+        end = started + deadline
     env = cargo_env(repo)
     roots = tracked_roots(repo)
     is_touched = (lambda root: True) if touched is None else (lambda root: root in touched)
 
     def over_budget(root: str) -> bool:
-        return not is_touched(root) and time.monotonic() - started > BUDGET
+        return not is_touched(root) and clock() - started > BUDGET
+
+    def left() -> float:
+        return float("inf") if end is None else end - clock()
+
+    def limit(wanted: float) -> float:
+        return min(wanted, left())
+
+    def spent() -> tuple[str, str]:
+        return "timeout", ("not started: the deadline was spent" if deadline is None
+                           else f"not started: the check's {deadline:g}s deadline was spent")
 
     # Offline, in parallel: from the cached index alone, each resolve holds cargo's lock only briefly.
     with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, jobs)) as pool:
-        verdicts = list(pool.map(lambda root: judge(repo, root, env, passes=(["--offline"],)), roots))
+        verdicts = list(pool.map(lambda root: judge(repo, root, env, passes=(["--offline"],), timeout=limit(TIMEOUT))
+                                 if left() > 1 else spent(), roots))
     results = dict(zip(roots, verdicts))
     # With the network, one at a time: cargo holds the package cache lock for a whole resolve, so parallel resolves
     # queue on it and the queue counts against each one's limit. The index entries one fetches serve the next.
@@ -147,13 +223,16 @@ def check(repo: Path, jobs: int, strict: bool = False, touched: set[str] | None 
         if over_budget(root):
             results[root] = ("timeout", f"not started: the {BUDGET}s budget for untouched workspaces was spent")
             continue
-        results[root] = judge(repo, root, env, passes=([],))
+        if left() <= 1:
+            results[root] = spent()
+            continue
+        results[root] = judge(repo, root, env, passes=([],), timeout=limit(TIMEOUT))
     if strict:
         for root in pending:
             verdict, first = results[root]
-            if verdict != "timeout" or over_budget(root):
+            if verdict != "timeout" or over_budget(root) or first.startswith("not started") or left() <= 1:
                 continue
-            verdict, detail = judge(repo, root, env, passes=([],), timeout=RETRY_TIMEOUT)
+            verdict, detail = judge(repo, root, env, passes=([],), timeout=limit(RETRY_TIMEOUT))
             results[root] = (verdict, f"{first}; then {detail}" if verdict == "timeout" else detail)
     return results
 
@@ -175,10 +254,29 @@ def path_specs(table: object, in_dependencies: bool = False) -> list[str]:
     return found
 
 
+def inherited_names(table: object) -> list[str]:
+    """The dependencies a manifest table takes from its workspace (`name = { workspace = true }` or
+    `name.workspace = true`) in [dependencies], [dev-dependencies], [build-dependencies] and their
+    [target.*] forms."""
+    found: list[str] = []
+    if isinstance(table, dict):
+        for key, value in table.items():
+            if not isinstance(value, dict):
+                continue
+            if key in DEPENDENCY_KEYS[:3]:
+                found += [name for name, spec in value.items()
+                          if isinstance(spec, dict) and spec.get("workspace") is True]
+            elif key == "target":
+                for platform in value.values():
+                    found += inherited_names(platform)
+    return found
+
+
 def touched_roots(repo: Path, roots: list[str], base: str) -> set[str] | None:
     """The workspaces whose lock the change since BASE can reach: a Cargo.toml or Cargo.lock under the workspace, in
-    a package it reaches by path, or a workspace manifest above one of those. None (all of them) with no usable base.
-    An over-count only keeps a workspace strict."""
+    a package it reaches by path (directly or through a `{ workspace = true }` dependency's path), or a workspace
+    manifest above one of those. None (all of them) with no usable base. An over-count only keeps a workspace
+    strict."""
     if not base or set(base) == {"0"}:
         return None
     try:
@@ -192,7 +290,12 @@ def touched_roots(repo: Path, roots: list[str], base: str) -> set[str] | None:
     cargo_files = [path for path in out.split("\0") if PurePosixPath(path).name in ("Cargo.toml", "Cargo.lock")]
     if not cargo_files:
         return set()
-    import tomllib  # Python 3.11; only CI passes --base
+    try:
+        import tomllib  # Python 3.11; only CI passes --base (the pre-push hook's python3 can be macOS's 3.9)
+    except ImportError:
+        print(f"cargo-locks: --base needs Python 3.11+ (tomllib), not {sys.version.split()[0]}; every workspace "
+              "counts as touched", file=sys.stderr)
+        return None
 
     listed = subprocess.run(["git", "-C", str(repo), "ls-files", "-z", "--", "*Cargo.toml"], capture_output=True,
                             check=True).stdout.decode("utf-8", "surrogateescape")
@@ -207,26 +310,77 @@ def touched_roots(repo: Path, roots: list[str], base: str) -> set[str] | None:
     def under(path: str, directory: str) -> bool:
         return directory in ("", ".") or path == directory or path.startswith(directory + "/")
 
+    # Where one workspace's tree ends: a manifest with a [workspace] of its own, or a directory a workspace
+    # manifest excludes (cargo makes each its own workspace, with its own lock).
+    boundaries = {directory for directory, manifest in manifests.items() if "workspace" in manifest}
+    for directory, manifest in list(manifests.items()):
+        table = manifest.get("workspace")
+        if isinstance(table, dict):
+            boundaries |= {os.path.normpath(str(PurePosixPath(directory) / str(entry)))
+                           for entry in table.get("exclude", []) if isinstance(entry, str)}
+    boundaries.discard(".")
+
+    def nearest(path: str) -> str | None:
+        """The deepest boundary at or above PATH."""
+        for candidate in (path, *map(str, PurePosixPath(path).parents)):
+            if candidate in boundaries:
+                return candidate
+        return None
+
+    def owns(directory: str, path: str) -> bool:
+        """PATH is in DIRECTORY's tree with no other workspace in between."""
+        if not under(path, directory):
+            return False
+        inner = nearest(path)
+        return inner is None or inner == directory or not under(inner, directory)
+
+    def workspace_of(directory: str) -> str | None:
+        """The workspace whose manifest DIRECTORY's package inherits from: the nearest one at or above it, never
+        one past a nested workspace or an exclude."""
+        own = nearest(directory) or "."
+        return own if "workspace" in manifests.get(own, {}) and owns(own, directory) else None
+
+    def targets(directory: str) -> list[str]:
+        """The package directories DIRECTORY's manifest uses by path: its own `path =` entries, and each
+        `{ workspace = true }` dependency's path in its workspace's [workspace.dependencies] (cmux#41767 review:
+        cmux-next-ios/rust reaches cmux-tui crates, and they inherit paths from cmux-tui's manifest)."""
+        manifest = manifests.get(directory, {})
+        found = [os.path.normpath(str(PurePosixPath(directory) / spec)) for spec in path_specs(manifest)]
+        own = workspace_of(directory)
+        if own is not None:
+            table = manifests[own]["workspace"]
+            shared = table.get("dependencies", {}) if isinstance(table, dict) else {}
+            for name in inherited_names(manifest):
+                spec = shared.get(name) if isinstance(shared, dict) else None
+                if isinstance(spec, dict) and isinstance(spec.get("path"), str):
+                    found.append(os.path.normpath(str(PurePosixPath(own) / spec["path"])))
+        return found
+
     def reach(root: str) -> set[str]:
+        # seen: directories whose whole tree the workspace watches. read: those whose manifests are queued. A
+        # workspace a reached package inherits from is watched (its manifest is read for the package) but not read:
+        # its other members are followed only when something names them, so a member there that reaches out of
+        # the tree, or into a nested workspace, is still followed.
         seen = {root or "."}
-        queue = [directory for directory in manifests if under(directory, root)]
+        read = {root or "."}
+        queue = [directory for directory in manifests if owns(root or ".", directory)]
         while queue:
             directory = queue.pop()
-            for spec in path_specs(manifests.get(directory, {})):
-                target = os.path.normpath(str(PurePosixPath(directory) / spec))
-                if target.startswith("..") or any(under(target, known) for known in seen):
+            for target in targets(directory):
+                if target.startswith("..") or any(owns(known, target) for known in read):
                     continue
                 seen.add(target)
-                queue += [other for other in manifests if under(other, target)]
-                # A package that inherits from its own workspace reads that workspace's manifest.
-                seen |= {str(parent) for parent in PurePosixPath(target).parents
-                         if "workspace" in manifests.get(str(parent), {})}
+                read.add(target)
+                queue += [other for other in manifests if owns(target, other)]
+                own = workspace_of(target)
+                if own is not None and own != target:
+                    seen.add(own)
         return seen
 
     found = set()
     for root in roots:
         watched = reach(root)
-        if any(under(str(PurePosixPath(path).parent), directory) for path in cargo_files for directory in watched):
+        if any(owns(directory, str(PurePosixPath(path).parent)) for path in cargo_files for directory in watched):
             found.add(root)
     return found
 
@@ -237,7 +391,8 @@ def changed(repo: Path) -> set[str]:
     return {entry[3:] for entry in out.split("\0") if len(entry) > 3}
 
 
-def fix(repo: Path, results: dict[str, tuple[str, str]]) -> list[str]:
+def fix(repo: Path, results: dict[str, tuple[str, str]], end: float | None = None) -> list[str]:
+    """Rewrite each stale lock; no rewrite or re-check starts past END, and a running one is cut at it."""
     lines = []
     stale = [root for root, (verdict, _) in results.items() if verdict == "stale"]
     if not stale:
@@ -246,14 +401,23 @@ def fix(repo: Path, results: dict[str, tuple[str, str]]) -> list[str]:
     before = changed(repo)
     for root in stale:
         lock = f"{root}/Cargo.lock" if root else "Cargo.lock"
-        done = False
+        done = spent = False
         for network in (["--offline"], []):
-            code, _ = cargo(["update", "--workspace", *network], repo / root, env)
-            if code == 0 and judge(repo, root, env)[0] == "ok":
+            limit = remaining(end, TIMEOUT)
+            if limit <= 1:
+                spent = True
+                break
+            code, _ = cargo(["update", "--workspace", *network], repo / root, env, timeout=limit)
+            if code == 0 and judge(repo, root, env, end=end)[0] == "ok":
                 done = True
                 break
-        lines.append(f"fixed: {lock} (cargo update --workspace in {label(root)})" if done
-                     else f"left: {lock} is stale and cargo update --workspace could not rewrite it (run it there by hand)")
+        if done:
+            lines.append(f"fixed: {lock} (cargo update --workspace in {label(root)})")
+        elif spent:
+            lines.append(f"left: {lock} is stale and the deadline was spent before cargo update --workspace could "
+                         "rewrite it (run it there by hand)")
+        else:
+            lines.append(f"left: {lock} is stale and cargo update --workspace could not rewrite it (run it there by hand)")
     stray = sorted(p for p in changed(repo) - before if p.rpartition("/")[2] != "Cargo.lock")
     if stray:
         subprocess.run(["git", "-C", str(repo), "checkout", "--", *stray], capture_output=True)
@@ -269,12 +433,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--strict", action="store_true", help="a workspace cargo could not judge fails the check")
     parser.add_argument("--base", default="", help="the change's base commit: under --strict, a timed-out "
                         "workspace the change does not touch only warns")
+    parser.add_argument("--deadline", type=float, default=None,
+                        help=f"seconds the whole check may take (default with no usable --base: {NO_BASE_DEADLINE})")
     parser.add_argument("--jobs", type=int, default=8)
     args = parser.parse_args(argv)
     repo = Path(args.repo).resolve()
 
     touched = touched_roots(repo, tracked_roots(repo), args.base) if args.mode == "check" and args.strict else None
-    results = check(repo, args.jobs, strict=args.strict and args.mode == "check", touched=touched)
+    # One absolute deadline for the whole run: check, then fix's rewrites and their re-checks.
+    deadline = NO_BASE_DEADLINE if args.deadline is None and touched is None else args.deadline
+    end = None if deadline is None else clock() + deadline
+    results = check(repo, args.jobs, strict=args.strict and args.mode == "check", touched=touched,
+                    deadline=deadline, end=end)
     stale = [root for root, (verdict, _) in results.items() if verdict == "stale"]
     unchecked = {root: (verdict, detail) for root, (verdict, detail) in results.items()
                  if verdict in ("unchecked", "timeout")}
@@ -288,7 +458,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{prefix}cargo-locks: {label(root)} timed out on this runner and is not checked; this change touches "
               "no manifest or lock it reads, so it does not fail the check")
     if args.mode == "fix":
-        for line in fix(repo, results):
+        for line in fix(repo, results, end=end):
             print(line)
         return 0
     for root in stale:
