@@ -87,6 +87,8 @@ mod review_queue_tests;
 #[cfg(test)]
 mod sender_claim_tests;
 #[cfg(test)]
+mod shutdown_flush_bench_tests;
+#[cfg(test)]
 mod shutdown_scan_tests;
 #[cfg(test)]
 mod shutdown_tests;

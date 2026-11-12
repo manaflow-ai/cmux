@@ -344,15 +344,30 @@ impl Hub {
 
     /// Save every session's meta and sync the event log to disk.
     pub fn flush(&self) {
+        // Synchronous disk work: the shutdown's deadline cannot cut it, and the next daemon waits
+        // for this one's lock meanwhile. Named when slow (`shutdown_flush_bench_tests.rs`).
+        let started = std::time::Instant::now();
         // Each chat's last change is on disk before this returns, also while another save of it
-        // runs: the seal that follows refuses every later write.
-        for s in self.sessions() {
-            if let Err(e) = self.write_meta(&s) {
+        // runs: the seal that follows refuses every later write. A chat whose `session.json`
+        // holds its metadata already journals nothing (`store/journal_store/meta.rs`).
+        let sessions = self.sessions();
+        for s in &sessions {
+            if let Err(e) = self.write_meta(s) {
                 tracing::error!(session = %s.id, "save meta at shutdown failed: {e}");
             }
         }
+        let saved = started.elapsed();
         if let Err(e) = self.store.flush() {
             tracing::warn!("store flush failed: {e}");
+        }
+        let checkpointed = started.elapsed();
+        if checkpointed > SLOW_FLUSH {
+            tracing::warn!(
+                chats = sessions.len(),
+                saved_ms = saved.as_millis(),
+                checkpointed_ms = checkpointed.as_millis(),
+                "the shutdown's flush was slow"
+            );
         }
         // The outbox's journal folded into its snapshot (`hub/outbox.rs`): the next daemon to
         // start, an older one too, reads every delivery from `outbox.json` alone.
@@ -364,6 +379,9 @@ impl Hub {
         self.audit.close(AUDIT_DRAIN);
     }
 }
+
+/// A shutdown flush slower than this is logged with its parts (`Hub::flush`).
+const SLOW_FLUSH: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// How long the shutdown waits for the audit writer (`audit_log.rs`) to finish.
 const AUDIT_DRAIN: std::time::Duration = std::time::Duration::from_secs(2);
