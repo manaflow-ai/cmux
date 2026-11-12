@@ -349,10 +349,15 @@ fn field_types(fields: &syn::Fields) -> impl Iterator<Item = Type> + '_ {
 
 /// What the names in a file's static types stand for, as far as the file shows: its aliases,
 /// structs, enums, unions and consts, its `use` names, and its modules.
+///
+/// The file's modules share one table, so a name another module binds differently is not taken
+/// at one of its meanings: `uses` keeps every path a name is imported as, and `twice` the names
+/// defined more than once (review of cmux#41693, F1).
 #[derive(Default)]
 struct Names {
     defs: HashMap<String, Def>,
-    uses: HashMap<String, String>,
+    twice: HashSet<String>,
+    uses: HashMap<String, Vec<String>>,
     mods: HashSet<String>,
 }
 
@@ -365,12 +370,19 @@ impl Names {
         }
         if path.contains("::")
             && !seen.iter().any(|s| s == root)
-            && let Some(full) = self.uses.get(root)
+            && let Some(fulls) = self.uses.get(root)
         {
             seen.push(root.to_string());
-            return self.local(full, seen);
+            return fulls.iter().any(|full| self.local(full, &mut seen.clone()));
         }
         false
+    }
+
+    fn bind_use(&mut self, local: String, path: String) {
+        let paths = self.uses.entry(local).or_default();
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
     }
 
     fn use_tree(&mut self, prefix: &str, tree: &UseTree) {
@@ -386,11 +398,11 @@ impl Names {
             UseTree::Name(n) => {
                 let path = path_of(&n.ident);
                 let local = path.rsplit("::").next().unwrap_or(&path).to_string();
-                self.uses.insert(local, path);
+                self.bind_use(local, path);
             }
             UseTree::Rename(r) => {
                 if r.rename != "_" {
-                    self.uses.insert(r.rename.to_string(), path_of(&r.ident));
+                    self.bind_use(r.rename.to_string(), path_of(&r.ident));
                 }
             }
             UseTree::Glob(_) => {}
@@ -407,7 +419,9 @@ struct Collect<'n> {
 impl Collect<'_> {
     fn define(&mut self, name: &syn::Ident, generics: &Generics, body: Body) {
         let params = params_of(generics);
-        self.names.defs.insert(name.to_string(), Def { params, body });
+        if self.names.defs.insert(name.to_string(), Def { params, body }).is_some() {
+            self.names.twice.insert(name.to_string());
+        }
     }
 }
 
@@ -825,14 +839,19 @@ impl Resolver<'_> {
             stack.pop();
             return option;
         }
-        if let Some(full) = self.names.uses.get(name) {
-            if self.names.local(full, &mut Vec::new()) {
-                facts.unresolved.insert(name.to_string());
-                self.args(args, env, stack, facts);
-                return false;
+        if let Some(fulls) = self.names.uses.get(name) {
+            // Every path the name is imported as, in any module: what any of them holds counts.
+            let mut option = false;
+            for full in fulls {
+                if self.names.local(full, &mut Vec::new()) {
+                    facts.unresolved.insert(name.to_string());
+                    self.args(args, env, stack, facts);
+                } else {
+                    let last = full.rsplit("::").next().unwrap_or(full);
+                    option |= self.foreign(last, args, env, stack, facts);
+                }
             }
-            let last = full.rsplit("::").next().unwrap_or(full);
-            return self.foreign(last, args, env, stack, facts);
+            return option;
         }
         if !is_cell(name) && !WELL_KNOWN.contains(&name) {
             facts.unresolved.insert(name.to_string());
@@ -907,25 +926,38 @@ impl Resolver<'_> {
         }
     }
 
-    /// `idents` with its first segment replaced by the path the file's `use` gives it, again and
-    /// again (`use std::sync as s; use s::Mutex as Lock;`), until no `use` names its head.
-    fn used_path(&self, idents: &[String]) -> Vec<String> {
-        let mut path = idents.to_vec();
-        let mut seen: Vec<String> = Vec::new();
-        while let Some(head) = path.first().cloned()
-            && !seen.contains(&head)
-            && let Some(full) = self.names.uses.get(&head)
-        {
-            seen.push(head);
-            let mut next: Vec<String> = full.split("::").map(str::to_string).collect();
-            next.extend(path.drain(1..));
-            path = next;
+    /// Every path `idents` can stand for: its first segment replaced by each path the file's `use`
+    /// items give it, again and again (`use std::sync as s; use s::Mutex as Lock;`), until no `use`
+    /// names its head. A name two modules import differently gives both; None past 64 paths.
+    fn used_paths(&self, idents: &[String]) -> Option<Vec<Vec<String>>> {
+        let mut done = Vec::new();
+        let mut todo: Vec<(Vec<String>, Vec<String>)> = vec![(idents.to_vec(), Vec::new())];
+        while let Some((path, seen)) = todo.pop() {
+            let Some(head) = path.first().filter(|h| !seen.contains(h)).cloned() else {
+                done.push(path);
+                continue;
+            };
+            let Some(fulls) = self.names.uses.get(&head) else {
+                done.push(path);
+                continue;
+            };
+            for full in fulls {
+                let mut next: Vec<String> = full.split("::").map(str::to_string).collect();
+                next.extend(path.iter().skip(1).cloned());
+                let mut seen = seen.clone();
+                seen.push(head.clone());
+                todo.push((next, seen));
+            }
+            if done.len() + todo.len() > 64 {
+                return None;
+            }
         }
-        path
+        Some(done)
     }
 
     /// Whether `ty` is a `Mutex<()>`, std's or tokio's (through the file's aliases and its
-    /// `use` names, renames included: `use std::sync::Mutex as Lock` makes `Lock<()>` one).
+    /// `use` names, renames included: `use std::sync::Mutex as Lock` makes `Lock<()>` one). A name
+    /// the file binds more than one way is one only when every way is (review of cmux#41693, F1).
     fn is_serializer(&self, ty: &Type, depth: usize) -> bool {
         let Type::Path(p) = ty else {
             return false;
@@ -937,6 +969,9 @@ impl Resolver<'_> {
         if let [name] = idents.as_slice()
             && let Some(def) = self.names.defs.get(name)
         {
+            if self.names.twice.contains(name) {
+                return false;
+            }
             return match def {
                 Def { params, body: Body::Alias(inner) } if params.is_empty() => {
                     self.is_serializer(inner, depth + 1)
@@ -944,14 +979,17 @@ impl Resolver<'_> {
                 _ => false,
             };
         }
-        let shape = match self.used_path(&idents).iter().map(String::as_str).collect::<Vec<_>>()[..]
-        {
-            // A bare `Mutex` the file does not import is taken as std's (the prelude has none,
-            // so it is an import from another file or a glob).
-            ["Mutex"] => true,
-            ["std" | "tokio", "sync", "Mutex"] => true,
-            _ => false,
+        // A bare `Mutex` the file does not import is taken as std's (the prelude has none, so it
+        // is an import from another file or a glob).
+        let is_mutex = |path: &Vec<String>| {
+            matches!(
+                path.iter().map(String::as_str).collect::<Vec<_>>().as_slice(),
+                ["Mutex"] | ["std" | "tokio", "sync", "Mutex"]
+            )
         };
+        let shape = self
+            .used_paths(&idents)
+            .is_some_and(|paths| !paths.is_empty() && paths.iter().all(is_mutex));
         let Some(PathArguments::AngleBracketed(args)) =
             p.path.segments.last().map(|s| &s.arguments)
         else {
