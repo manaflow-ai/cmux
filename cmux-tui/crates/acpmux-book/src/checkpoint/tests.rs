@@ -33,10 +33,11 @@ fn production_caps_fit_separate_checkpoint_budgets_and_roundtrip() -> TestResult
     assert_eq!(Checkpoint::decode(&encoded)?, state);
     drop(log);
     let (_, recovered) = Log::open(home.path(), Options::default())?;
-    assert_eq!(Checkpoint::decode(&recovered.state)?, state);
+    assert_eq!(Checkpoint::from_recovered(&recovered)?, state);
     // An inline body cannot consume spare queue room.
     for open in &mut state.open {
         open.body.spilled = false;
+        open.body.fields.clear();
         open.body.fields.insert("text".into(), Value::Inline(vec![b'x'; 1024]));
     }
     assert!(matches!(state.encode(64), Err(Error::CheckpointTooLarge { .. })));
@@ -136,5 +137,26 @@ fn lost_heads_use_injected_editions_and_checkpointed_editions_survive_reopen() -
     assert_eq!(editions, vec![10, 20, 30]);
     assert_eq!(next_edition(Some(u32::MAX), || 99), 1);
     assert_ne!(next_edition(None, || 0), 0);
+    Ok(())
+}
+
+#[test]
+fn checkpoint_rejects_inconsistent_editions_and_missing_open_ids() -> TestResult {
+    let home = tempfile::tempdir()?;
+    let (mut log, _) = Log::open(home.path(), Options::default())?;
+    let mut state = Checkpoint::new(5);
+    state.edition = 7;
+    // The lower-level opaque writer cannot check actor state. Its typed wrapper can.
+    log.write_checkpoint(&state.encode(0)?, &[])?;
+    drop(log);
+    let (mut log, recovered) = Log::open(home.path(), Options::default())?;
+    assert!(matches!(Checkpoint::from_recovered(&recovered), Err(Error::Rebuild(_))));
+    state.last_row = 1;
+    state.open.push(OpenBody { body: Body::new(1)?, raw: RawRange::NONE });
+    assert!(matches!(state.write(&mut log, &[]), Err(Error::InvalidInput(_))));
+    state.write(&mut log, &[1])?;
+    drop(log);
+    let (_, recovered) = Log::open(home.path(), Options::default())?;
+    assert_eq!(Checkpoint::from_recovered(&recovered)?, state);
     Ok(())
 }

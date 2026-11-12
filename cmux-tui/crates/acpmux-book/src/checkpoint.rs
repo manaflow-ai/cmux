@@ -227,8 +227,23 @@ impl Checkpoint {
     /// Sync raw, named blobs and folds before calling this; the log then syncs its
     /// segment and indexes and publishes one checkpoint with matching head/body editions.
     pub fn write(&self, log: &mut crate::log::Log, open_rows: &[u64]) -> Result<(), Error> {
+        let ids = open_rows.iter().copied().collect::<BTreeSet<_>>();
+        if ids.len() != open_rows.len()
+            || ids.iter().any(|id| *id == 0 || *id > self.last_row)
+            || self.open.iter().any(|open| !ids.contains(&open.body.row))
+        {
+            return Err(Error::InvalidInput("checkpoint open rows do not cover its bodies"));
+        }
         let bytes = self.encode(open_rows.len())?;
         log.write_checkpoint_in_edition(&bytes, open_rows, self.edition)
+    }
+
+    pub fn from_recovered(recovered: &crate::log::Recovered) -> Result<Self, Error> {
+        let state = Self::decode(&recovered.state)?;
+        if !recovered.checkpoint || state.edition != recovered.edition {
+            return Err(bad());
+        }
+        Ok(state)
     }
 
     fn validate(&self) -> Result<(), Error> {
