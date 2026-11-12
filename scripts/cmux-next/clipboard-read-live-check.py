@@ -30,6 +30,8 @@ PNGs to --out. Fleet GUI host only (cmux-lawrence-2), never a laptop in use.
 Exit 1 on a failed check; an UNVERIFIED Allow alone is not a failure.
 """
 import argparse, glob, json, os, plistlib, re, secrets, shlex, signal, socket, subprocess, sys, tempfile, time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -263,7 +265,7 @@ env = {**BASE_ENV, "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "autom
 log = open(os.path.join(OUT, "app.log"), "a")
 app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
 report["pid"] = app.pid
-print(f"launched pid {app.pid} (log {OUT}/app.log)", flush=True)
+safe_print(f"launched pid {app.pid} (log {OUT}/app.log)", flush=True)
 try:
     if not wait(lambda: os.path.exists(SOCKET) and rpc("debug.surfaces").get("windows"), 120, 0.5):
         report["startup"] = {"socket": os.path.exists(SOCKET), "alive": app.poll() is None,

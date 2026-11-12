@@ -126,6 +126,9 @@ final class LinkOpener {
             sourceWidth: Self.width(of: source), width: width, kind: kind, holds: holds, left: besideChat || source.selectedTab?.showsPage != true ? nil : source.workspace.flatMap { PaneHandlers.neighbor(of: source.layoutPaneID, direction: .left, in: $0) })
     }
 
+    /// Whether the chat header's Terminal from `source` is one Split Right (one `split`, its stand-in pane at the press; ``AgentChatTabActions/run(_:cwd:on:)``), not a tab made in the chat's pane and moved: nothing is on its right, no open beside it is on its way, its pane has room, and its daemon shows a split at the press (`split-client-keys`).
+    func terminalSplitsAtOnce(from source: PaneController) -> Bool { if case .splitRight = target(from: source, besideChat: true, kind: .terminal), !turns.isBusy(beside: source.layoutPaneID), source.daemon.supports(DaemonCapability.splitClientKeys.rawValue), case .split = source.services.toolSplit(from: source.pane, edge: .right, byPerson: true) { true } else { false } }
+
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
     /// `mainPane` false: main pane layout does not apply (a chat, which belongs in the dock, not
     /// the column on its right). False with no source pane (no window) or when `make` refused.

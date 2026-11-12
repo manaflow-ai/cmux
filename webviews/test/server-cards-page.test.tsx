@@ -10,6 +10,7 @@ import { createStrings } from "../src/pages/shared/i18n";
 import table from "../src/pages/server-cards/generated/strings.json";
 import { arrivedStatus, endedStatus, showingStatus } from "../src/pages/server-cards/pairInvite/fixtures";
 import type { PairInviteStatus } from "../src/pages/server-cards/pairInvite/types";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -39,12 +40,9 @@ beforeAll(() => {
   host = window.document.getElementById("root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 type Call = { op: string; params: unknown };

@@ -65,6 +65,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_idle import Client, classify, process_table, usage, wait_for_socket  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line before a kill never skips the kill)
 
 
 class _ThreadInfo(ctypes.Structure):
@@ -510,7 +511,7 @@ def main():
         "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json"),
     }
     app = subprocess.Popen([binary], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print(f"pane-scale: launched pid {app.pid}", flush=True)
+    safe_print(f"pane-scale: launched pid {app.pid}", flush=True)
     report = {
         "tag": tag, "sha": sha, "label": args.label, "app": bundle, "shape": args.shape, "rows": args.rows,
         "depth": args.depth, "tabs": args.tabs, "host": os.uname().nodename,

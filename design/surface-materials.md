@@ -65,6 +65,35 @@ What the rule means in practice:
 - **Window chrome and system menus stay native.** They are the frame that web content sits in.
 - Reduce Transparency is the one opaque path, for every kind (`overlay-surfaces.md`).
 
+## One floating material (2026-11-11)
+
+Leo, 2026-11-11, on the context card over the composer beside the model picker and the native menus:
+
+> Like, man, it's really f***ing ugly when it mixes like this, you know?
+
+> The whole point is to have things show through to show off the f***ing art. The point is, the
+> styles mix and they don't look good. So they need to look good.
+
+His reference is the account menu of a desktop chat app: one translucent surface, one radius, one row rhythm.
+
+- **Every floating web surface is one material**: menus, context menus, selects, popovers, pickers
+  (the model picker included), the combobox, the slash and @ lists, hover cards and the context
+  ring's card are all the menu glass level (`--ds-glass-menu-tint` 78%, `--ds-glass-menu-blur`),
+  one radius (`--ui-popup-radius`, the native popovers' 8 pt), one hairline and one drop. On the
+  App's glass each lays the same 40% veil of the theme surface (`--host-glass-fill`). No surface
+  sets a tint, blur, veil or radius of its own (`webviews/test/glass-levels.test.ts`).
+- **Translucent, never opaque.** The art shows through every surface the same way; the frost and
+  the veil keep text legible. A solid fill is never the fix (`design/menus.md`).
+- Removed private looks: the model menu's 92% tint and 10 px corner, the + menu's and New Tab
+  suggestions' 86%, the context card's popover level (70%, 24 px), and the model menus' private
+  veil (now everyone's). Gallery `ui.menu-material`: before, one, host-clear, host-veil (ships),
+  host-veil-light, dense.
+- The popover level stays for glass in the page that is not a popup: the composer, Session Info,
+  the running tray, side tabs.
+- Native NSMenus stay system-drawn (Lawrence 2026-10-23: "we don't want ANYTHING custom besides the
+  icons"). Host glass puts the web menus on the same App material, so the two meet; the web side
+  matches the native one, never the reverse.
+
 ## Inventory (2026-11-09, feat-cmux-next efdf71a9)
 
 `Sources/` is `Packages/macOS/CmuxNext/Sources/`; `W/` is `webviews/src/`.
@@ -80,7 +109,7 @@ What the rule means in practice:
 | Dock backdrop | window-chrome | real glass rim around the terminal's background | `CmuxNextLayout/Views/DockBackdropView.swift` |
 | Browser omnibar | window-chrome | real glass | `CmuxNextBrowser/UI/OmnibarViews.swift` |
 | Terminal pane | (content, native Metal) | clear on the window material | `CmuxNextTerminal` |
-| Sidebar cards | sidebar-card | card veil | `SidebarNoticeCardView`, `SidebarUpdateCardView`, `SidebarNowPlayingCardView` |
+| Sidebar cards | sidebar-card | card veil | `SidebarNoticeCardView`, `SidebarUpdateCardView`, `SidebarNowPlayingCardView`, app health's footer chip (`AppHealthIndicatorView`) |
 | Command palette | native-overlay | real glass | `CmuxNextPalette/PaletteContentView.swift` |
 | Tooltips, hover cards | material-source | real glass | `CmuxNextDesign/Tooltip/TooltipPanel.swift`, `HoverCards/HoverCardPanel.swift` |
 | Toasts | native-overlay | real glass (the toast role: Liquid Glass on macOS 26, the blur before it, opaque under Reduce Transparency) | `CmuxNextDesign/Toast/CmuxToastView.swift`, `CmuxToastOverlayHost.swift` |

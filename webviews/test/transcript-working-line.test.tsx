@@ -13,6 +13,7 @@ import { ActivityLine } from "../src/agent-session/acpmux/conversation/ActivityL
 import { pageClocks } from "../src/ui/pageClock";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { translate } from "../src/agent-session/acpmux/i18n";
+import { settleReact } from "./support/domTeardown";
 
 let at = 0;
 const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -85,7 +86,7 @@ test("a running command keeps only its static terminal mark", () => {
   expect(html).not.toContain("cv-spinner");
 });
 
-test("live activity lines share the page's one second and rest while the page is hidden", () => {
+test("live activity lines share the page's one second and rest while the page is hidden", async () => {
   const scope = globalThis as Record<string, unknown>;
   const keys = ["window", "document", "IS_REACT_ACT_ENVIRONMENT", "setInterval"];
   const saved = keys.map((key) => [key, scope[key]] as const);
@@ -127,6 +128,7 @@ test("live activity lines share the page's one second and rest while the page is
     expect(pageClocks(dom.window.document)).toMatchObject({ running: 0, subscribers: 5 });
   } finally {
     act(() => root.unmount());
+    await settleReact();
     dom.window.close();
     for (const [key, value] of saved) {
       if (value === undefined) delete scope[key];

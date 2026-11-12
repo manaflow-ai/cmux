@@ -1129,10 +1129,7 @@ impl Hub {
         if session.rehydrate.swap(false, Ordering::SeqCst)
             && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
         {
-            blocks.insert(
-                    0,
-                    json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
-                );
+            blocks.insert(0, restored_transcript(session, &transcript));
         }
         // The forum rules this session was not told yet (`hub/forum.rs`).
         let mut told = self.forum_context(session, pushed.clone(), &mut blocks).await;
@@ -1390,10 +1387,7 @@ impl Hub {
                         if session.rehydrate.swap(false, Ordering::SeqCst)
                             && let Some(transcript) = self.transcript(session, 24_000, &prompt_id)
                         {
-                            blocks.insert(
-                                0,
-                                json!({"type": "text", "text": format!("<restored_transcript note=\"acpmux restored this conversation on a new agent session; tool state was not restored\">\n{transcript}\n</restored_transcript>\n")}),
-                            );
+                            blocks.insert(0, restored_transcript(session, &transcript));
                             // The new agent session gets every rule again.
                             told = self.forum_retell(session, pushed.clone(), &mut blocks).await;
                         }
@@ -2691,4 +2685,20 @@ fn take_if_turn(slot: &StdMutex<Option<String>>, turn_id: &str) -> bool {
     } else {
         false
     }
+}
+
+/// The chat's transcript as a rehydrated agent's first prompt gets it, under the note its session
+/// holds (`Session::rehydrate_note`, a fork onto another harness), else the restore's own.
+fn restored_transcript(session: &Session, transcript: &str) -> Value {
+    let note = session
+        .rehydrate_note
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .take()
+        .unwrap_or_else(|| {
+            "acpmux restored this conversation on a new agent session; tool state was not restored"
+                .to_owned()
+        })
+        .replace('"', "'");
+    json!({"type": "text", "text": format!("<restored_transcript note=\"{note}\">\n{transcript}\n</restored_transcript>\n")})
 }
