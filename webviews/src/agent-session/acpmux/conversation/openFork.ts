@@ -12,8 +12,7 @@ export async function openFork(
   },
 ): Promise<string | undefined> {
   if (!session) return session;
-  if (typeof placement === "string" && placement !== "default" && (await host.open(session, placement)))
-    return session;
+  if (typeof placement === "string" && placement !== "default" && (await host.open(session, placement))) return session;
   if (host.selected() !== parent) return session;
   const selected = await host.select(session);
   await host.persist(selected);

@@ -1105,16 +1105,17 @@ export class MockAcpmuxSocket {
           ...(typeof source.model === "string" && source.model !== "default" ? { model: source.model } : {}),
         }
       : undefined;
-    if (origin)
-      this.record(sessionId, {
-        mux: "forked",
-        msg: {
-          parentId: target,
+    this.record(sessionId, {
+      mux: "forked",
+      msg: {
+        parentId: target,
+        ...(origin && {
           harness,
           fromHarness: origin.harness,
           ...(origin.model && { fromModel: origin.model }),
-        },
-      });
+        }),
+      },
+    });
     // A switch runs the new harness's agent: its own modes, options and family, never the old
     // agent's (hub/fork.rs clears them and sets the new harness's start mode).
     const fresh = origin
@@ -1131,7 +1132,8 @@ export class MockAcpmuxSocket {
       }),
       ...(harness ? { harness } : {}),
       ...(model ? { model } : {}),
-      ...(origin ? { forkOrigin: origin, parentId: target } : {}),
+      parentId: target,
+      forkOrigin: origin,
       sessionId,
       status: "idle",
       unread: false,

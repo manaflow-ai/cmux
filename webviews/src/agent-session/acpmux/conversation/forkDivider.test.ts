@@ -58,17 +58,28 @@ test("a switch's divider names the model the chat ran, from acpmux's record", as
     }),
   ];
   const dividers = forkDividers("b", sessions, catalog, translate, true);
-  expect(dividers).toEqual([{ label: "Forked from Claude Opus 5.5", parentId: "a", openInTab: { sessionId: "b", parentId: "a" } }]);
+  expect(dividers).toEqual([
+    { label: "Forked from Claude Opus 5.5", parentId: "a", openInTab: { sessionId: "b", parentId: "a" } },
+  ]);
   const rows: AcpmuxRow[] = [
     { id: "u1", version: 1, at: 1, kind: "user", text: "hi" },
-    { id: "forked-from-10", forkParentId: "a", version: 1, at: 2, kind: "notice", text: "Forked from Fix the login page." },
+    {
+      id: "forked-from-10",
+      forkParentId: "a",
+      version: 1,
+      at: 2,
+      kind: "notice",
+      text: "Forked from Fix the login page.",
+    },
     { id: "u2", version: 1, at: 3, kind: "user", text: "now you" },
   ];
   const drawn = withForkDividers(rows, dividers);
   expect(drawn[1]!.forkDivider?.label).toBe("Forked from Claude Opus 5.5");
   expect(drawn[0]).toBe(rows[0]!);
   // Without a native host there is no tab to open: the line only.
-  expect(forkDividers("b", sessions, catalog, translate, false)).toEqual([{ label: "Forked from Claude Opus 5.5", parentId: "a" }]);
+  expect(forkDividers("b", sessions, catalog, translate, false)).toEqual([
+    { label: "Forked from Claude Opus 5.5", parentId: "a" },
+  ]);
 });
 
 test("a switch back names Codex's model, an earlier cut its own, and an id never reads as code", async () => {
@@ -117,14 +128,23 @@ test("an ordinary fork's divider names its chat, and one whose chat is gone keep
     entry({ sessionId: "b", harness: "claude", parentId: "a", forkSeq: 4 }),
     entry({ sessionId: "c", harness: "claude", parentId: "gone", forkSeq: 4 }),
   ];
-  expect(forkDividers("b", sessions, catalog, translate, true)).toEqual([{ label: "Forked from Fix the login page", parentId: "a" }]);
+  expect(forkDividers("b", sessions, catalog, translate, true)).toEqual([
+    { label: "Forked from Fix the login page", parentId: "a" },
+  ]);
   expect(forkDividers("c", sessions, catalog, translate, true)).toEqual([undefined]);
   expect(forkDividers("a", sessions, catalog, translate, true)).toEqual([]);
 });
 
 test("late divider metadata and renamed parents reach the transcript's outer frame", async () => {
   const { sameRowFrame } = await import("../virtualTranscriptModel");
-  const row: AcpmuxRow = { id: "forked-from-10", forkParentId: "a", version: 1, at: 2, kind: "notice", text: "Earlier chat" };
+  const row: AcpmuxRow = {
+    id: "forked-from-10",
+    forkParentId: "a",
+    version: 1,
+    at: 2,
+    kind: "notice",
+    text: "Earlier chat",
+  };
   const named = { ...row, forkDivider: { label: "Forked from Claude Opus 5.5" } };
   expect(sameRowFrame({ row }, { row: named })).toBe(false);
   expect(sameRowFrame({ row: named }, { row: { ...named } })).toBe(true);
@@ -132,7 +152,10 @@ test("late divider metadata and renamed parents reach the transcript's outer fra
   expect(sameRowFrame({ row: named }, { row: renamed })).toBe(false);
   const linked = { ...named, forkDivider: { ...named.forkDivider, openInTab: { sessionId: "b", parentId: "a" } } };
   expect(sameRowFrame({ row: named }, { row: linked })).toBe(false);
-  const retargeted = { ...linked, forkDivider: { ...linked.forkDivider, openInTab: { sessionId: "b", parentId: "c" } } };
+  const retargeted = {
+    ...linked,
+    forkDivider: { ...linked.forkDivider, openInTab: { sessionId: "b", parentId: "c" } },
+  };
   expect(sameRowFrame({ row: linked }, { row: retargeted })).toBe(false);
 });
 
@@ -208,6 +231,13 @@ test("a switch forks in place, asks nothing, and the chat is the new model's fro
     // A name, never the model's id.
     expect(divider?.label).not.toContain(String(before.model));
     expect(divider?.openInTab).toEqual({ sessionId: forked, parentId: source });
+    // An ordinary fork after a switch names its immediate chat, without inheriting the switch's origin.
+    const ordinary = await client.fork("live");
+    await settle(() => shown?.summary?.sessionId === ordinary);
+    const child = shown!.sessions.find((s) => s.sessionId === ordinary);
+    expect(child?.parentId).toBe(forked);
+    expect(child?.forkOrigin).toBeUndefined();
+    expect(shown!.rows.some((row) => row.forkParentId === forked)).toBe(true);
   } finally {
     client.close?.();
   }
@@ -217,10 +247,18 @@ test("an earlier-turn fork labels only the ancestor cuts actually inherited, eve
   const { forkDividers, withForkDividers } = await import("./forkDivider");
   const sessions = [
     entry({ sessionId: "a", title: "Original" }),
-    entry({ sessionId: "b", parentId: "a", forkSeq: 9,
-      forkOrigin: { sessionId: "a", harness: "claude", model: "claude-opus-5-5" } }),
-    entry({ sessionId: "c", parentId: "b", forkSeq: 19,
-      forkOrigin: { sessionId: "b", harness: "codex", model: "gpt-6.1-sol" } }),
+    entry({
+      sessionId: "b",
+      parentId: "a",
+      forkSeq: 9,
+      forkOrigin: { sessionId: "a", harness: "claude", model: "claude-opus-5-5" },
+    }),
+    entry({
+      sessionId: "c",
+      parentId: "b",
+      forkSeq: 19,
+      forkOrigin: { sessionId: "b", harness: "codex", model: "gpt-6.1-sol" },
+    }),
     entry({ sessionId: "d", parentId: "c", forkSeq: 15 }),
   ];
   const dividers = forkDividers("d", sessions, catalog, translate, true);
@@ -242,8 +280,10 @@ test("a prewarmed fork tail retains inherited boundaries and matches the daemon'
     { seq: 2, at: 2, dir: "mux", kind: "forked", msg: { parentId: "a" } },
     { seq: 3, at: 3, dir: "mux", kind: "turn_end", msg: {} },
   ] as import("../direct").EventRecord[];
-  const tail = forkHistoryTail({ events, historyExhausted: true, turnOpener: undefined },
-    { sessionId: "c", forkSeq: 3, lastSeq: 4, createdAt: 4 });
+  const tail = forkHistoryTail(
+    { events, historyExhausted: true, turnOpener: undefined },
+    { sessionId: "c", forkSeq: 3, lastSeq: 4, createdAt: 4 },
+  );
   expect(tail?.events).toEqual(events);
   expect(sameForkHistory(events, tail!.events, 3)).toBe(true);
 });
