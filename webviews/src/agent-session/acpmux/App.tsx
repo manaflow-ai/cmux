@@ -42,7 +42,14 @@ import {
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import { pendingMessagesRow, searchablePendingRows, withWaitingRows } from "./conversation/pendingMessages";
 import { type HeldAnswer, type QueuedMessageActionsValue } from "./conversation/QueuedMessageCard";
-import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
+import {
+  AcpmuxDirectClient,
+  type AcpmuxHostConfig,
+  type CarriedChat,
+  harnessBlock,
+  type HarnessBlock,
+  isTrustRefusal,
+} from "./direct";
 import { readHostTail } from "./tailCache";
 import { failedRowOf, failedRowTrustRetry } from "./failedRowTrustRetry";
 import {
@@ -298,6 +305,7 @@ import { runRetry, type RetryTarget } from "./subagents/retryState";
 import { configureWorkflowCardOpen, configureWorkflowCardSideTab } from "./summary/workflowCardModel";
 import {
   type DoneLineCache,
+  endedInFailure,
   finishedTrayItems,
   type TrayItem,
   trayItemKey,
@@ -521,7 +529,6 @@ import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
   cloudRunsHere,
-  cloudSendAfterCheck,
   composerAgentLocal,
   cloudFolderGrants,
   cloudStartFolder,
@@ -533,6 +540,7 @@ import {
   cloudStartKeys as makeCloudStartKeys,
   type CloudStart,
   type CloudStartAnswer,
+  cloudSendAfterCheck,
 } from "./cloudRun";
 import { repickCloudChat, type RepickMachine } from "./cloudRepick";
 import { holdsDraft, promptBeforeTyped, type CloudStartDraft } from "./cloudStartCarry";
@@ -5644,7 +5652,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- endedCommandList is new on every snapshot; its key is not
   }, [endedCommandsKey, trayAgents]);
   const endedTray = useMemo(
-    () => (subagentTray ? [...endedCommandItems, ...finishedTrayItems(trayAgents, childSessions)] : []),
+    () =>
+      subagentTray
+        ? [...endedCommandItems, ...finishedTrayItems(trayAgents, childSessions)].filter(
+            (item) => !endedInFailure(item),
+          )
+        : [],
     [subagentTray, endedCommandItems, trayAgents, childSessions],
   );
   const lingerLive = useMemo(() => trayList.map(trayItemKey), [trayList]);
@@ -7568,6 +7581,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.
     let reconnect = false;
+    /// The chat the lost client held (direct.ts `CarriedChat`): the next client starts from it, so
+    /// a reconnect keeps every row on screen instead of reading the chat again from nothing.
+    let carriedChat: CarriedChat | undefined;
     /// When the handshakes began failing (cleared by a connect): a recovery is said only once it
     /// has failed for HOST_ERROR_DEADLINE_MS (hostRetry.ts).
     let failingSince: number | undefined;
@@ -7921,6 +7937,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
             if (cancelled) return;
             reconnect = true;
+            carriedChat = directClient.current?.takeCarried() ?? carriedChat;
             // A switch in flight runs again on the next client.
             harnessSwitch.disconnect(switchPort);
             setStartModeSource(undefined);
@@ -7943,7 +7960,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               ? () => new BridgeSocket() as unknown as WebSocket
               : undefined,
           mock ? "daemon" : "native",
+          undefined,
+          carriedChat,
         );
+        carriedChat = undefined;
         if (cancelled) {
           client.close();
           return;
