@@ -5424,8 +5424,20 @@ function TranscriptView({
   // of every mounted row, and rendered each, on every such frame (Leo, 2026-11-11: "scrolling up is
   // slow and it layout shift and everythng lag"). Now such a frame moves one element.
   // A prompt entering as a send has been drawn above: the thinking lines entering after it take the
-  // send's clock (RowFrame `sendPaced`), in the order the rows render.
-  let sendEntering = false;
+  // send's clock (RowFrame `sendPaced`), in the order the rows render. Read in one pass over the
+  // mounted rows (as the placement below), not by a flag the row callback reassigns.
+  const sendPacedRows = new Set<string>();
+  {
+    let sendEntering = false;
+    for (const { first, last } of mountedRanges)
+      for (let index = first; index < last; index++) {
+        const row = rows[index]!;
+        const key = rowFrameKey(row);
+        if (sessionChanged || !enteringRows.current.has(key)) continue;
+        if (row.kind === THINKING && sendEntering) sendPacedRows.add(key);
+        if (entersAsSend(row)) sendEntering = true;
+      }
+  }
   const roomAbove = layout.origin ?? 0;
   const threadRoom = Math.floor(roomAbove);
   const threadRoomFraction = roomAbove - threadRoom;
@@ -5620,8 +5632,7 @@ function TranscriptView({
                   rows.slice(first, last).map((row, index) => {
                     const absoluteIndex = first + index;
                     const enter = !sessionChanged && enteringRows.current.has(rowFrameKey(row));
-                    const sendPaced = enter && row.kind === THINKING && sendEntering;
-                    if (enter && entersAsSend(row)) sendEntering = true;
+                    const sendPaced = enter && sendPacedRows.has(rowFrameKey(row));
                     const next = nextDrawnRow(rows, absoluteIndex);
                     const actions = hasReplyActions(row, next);
                     const kind = rowKind(row);

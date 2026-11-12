@@ -6642,7 +6642,8 @@ a.cv-sha:focus-visible {
     display: block;
     position: sticky;
     top: 0;
-    z-index: 2;
+    /* Over the rows, under the prompt rail (z 3). */
+    z-index: calc(var(--layer-raised) + 1);
     height: 0;
     pointer-events: none;
   }
