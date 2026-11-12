@@ -198,24 +198,26 @@ def variant_types(body: str) -> list[str]:
     return out
 
 
-def params_of(code: str, at: int) -> tuple[set[str], int]:
-    """The generic parameter names of a definition whose `<` (if any) is at or after code[at]."""
+def params_of(code: str, at: int) -> tuple[list[tuple[str, str]], int]:
+    """The generic parameters of a definition whose `<` (if any) is at or after code[at], in order:
+    (name, its default type or "") each. A lifetime is left out, as expand leaves out a lifetime argument."""
     rest = code[at:]
     stripped = rest.lstrip()
     if not stripped.startswith("<"):
-        return set(), at
+        return [], at
     start = at + len(rest) - len(stripped)
     end = balanced(code, start)
-    names = set()
+    params = []
     for piece in top_level(code[start + 1:end - 1], ","):
         piece = re.sub(r"^const\s+", "", piece)
         match = re.match(r"[A-Za-z_]\w*", piece)
         if match:
-            names.add(match.group(0))
-    return names, end
+            default = top_level(piece, "=")
+            params.append((match.group(0), default[1] if len(default) > 1 else ""))
+    return params, end
 
 
-def definitions(code: str) -> dict[str, tuple[str, str, set[str]]]:
+def definitions(code: str) -> dict[str, tuple[str, str, list[tuple[str, str]]]]:
     """This file's type aliases, structs and enums: name -> (kind, the type text it holds, its parameters)."""
     defs = {}
     for match in DEF.finditer(code):
@@ -295,14 +297,72 @@ class Names:
             return self.local(self.uses[root], (*seen, root))
         return False
 
-    def expand(self, text: str, unresolved: list[str], params: frozenset[str] = frozenset(),
+    def expand(self, text: str, unresolved: list[str], params: dict[str, tuple[str, list[str]]] | None = None,
                stack: tuple[str, ...] = ()) -> str:
-        """text with each name of this file replaced by what it stands for; names it cannot see go to unresolved."""
+        """text with each name of this file replaced by what it stands for; names it cannot see go to unresolved.
+
+        params: the parameters of the definition text is the body of, each with the expanded argument it was
+        given and the names that argument could not see (an argument is "" when none was given). A generic
+        definition named with arguments has them put in for its parameters by position, so
+        `type Cache<T> = Mutex<Option<Cached>>` named `Cache<fn()>` is `Mutex<Option<Cached>>`: an argument
+        no parameter uses is dropped, with its unresolved names, and a used one is judged where it is used."""
+        params = params or {}
         text = re.sub(r'"(?:[^"\\]|\\.)*"', '""', text)
         text = re.sub(r"'\w+", "", text)
         text = re.sub(r";[^\[\]]*\]", "]", text)  # an array's length is a value
 
-        def sub(match: re.Match) -> str:
+        def arguments(at: int) -> tuple[list[str], int]:
+            """The generic arguments written at text[at] (after spaces), and the index past them."""
+            rest = text[at:]
+            stripped = rest.lstrip()
+            if not stripped.startswith("<"):
+                return [], at
+            start = at + len(rest) - len(stripped)
+            end = balanced(text, start)
+            return top_level(text[start + 1:end - 1], ","), end
+
+        def named(path: str, at: int) -> tuple[str, int]:
+            """What the name path (its token ending at text[at]) stands for, and the index past what it used."""
+            if path in KEYWORDS or path in PRELUDE:
+                return path, at
+            if path in params:
+                arg, missed = params[path]
+                unresolved.extend(missed)
+                return (arg or path), at
+            if path in self.defs:
+                if path in stack:
+                    return path, at
+                kind, body, own = self.defs[path]
+                args, end = arguments(at) if own else ([], at)
+                given: dict[str, tuple[str, list[str]]] = {}
+                for index, (param, default) in enumerate(own):
+                    raw = args[index] if index < len(args) else default
+                    missed: list[str] = []
+                    # An argument is read where it is written (the caller's parameters); a default, in the definition.
+                    arg = (self.expand(raw, missed, params, stack) if index < len(args)
+                           else self.expand(raw, missed, {}, (*stack, path)) if raw else "")
+                    given[param] = (arg, missed)
+                inner = self.expand(body, unresolved, given, (*stack, path))
+                # An alias is its type; a struct or enum is named with its fields' types.
+                return (inner if kind == "type" else f"{path}{{{inner}}}"), end
+            if path in self.uses:
+                full = self.uses[path]
+                if self.local(full):
+                    unresolved.append(path)
+                    return path, at
+                return full, at
+            if re.fullmatch(CELL_NAME, path):
+                return path, at  # a cell by its name (a glob-imported `StdMutex`): what it holds is judged
+            if path not in WELL_KNOWN:
+                unresolved.append(path)
+            return path, at
+
+        out = []
+        pos = 0
+        for match in TOKEN.finditer(text):
+            if match.start() < pos:
+                continue  # inside generic arguments already put in
+            out.append(text[pos:match.start()])
             token = match.group(0)
             path = token.lstrip(":")
             if path.startswith("self::") and path.count("::") == 1:
@@ -310,29 +370,13 @@ class Names:
             if "::" in path:
                 if self.local(path):
                     unresolved.append(path)
-                return token
-            if path in KEYWORDS or path in PRELUDE or path in params:
-                return token
-            if path in self.defs:
-                if path in stack:
-                    return token
-                kind, body, own = self.defs[path]
-                inner = self.expand(body, unresolved, frozenset(own), (*stack, path))
-                # An alias is its type; a struct or enum is named with its fields' types.
-                return inner if kind == "type" else f"{path}{{{inner}}}"
-            if path in self.uses:
-                full = self.uses[path]
-                if self.local(full):
-                    unresolved.append(path)
-                    return token
-                return full
-            if re.fullmatch(CELL_NAME, path):
-                return token  # a cell by its name (a glob-imported `StdMutex`): what it holds is judged
-            if path not in WELL_KNOWN:
-                unresolved.append(path)
-            return token
-
-        return TOKEN.sub(sub, text)
+                out.append(token)
+                pos = match.end()
+                continue
+            replaced, pos = named(path, match.end())
+            out.append(token if replaced == path else replaced)
+        out.append(text[pos:])
+        return "".join(out)
 
     def resolve(self, ty: str) -> tuple[str, list[str], bool]:
         """(the type with this file's names resolved, the names it cannot see, whether one of them heads it)."""

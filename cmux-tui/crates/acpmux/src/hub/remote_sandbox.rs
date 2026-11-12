@@ -492,14 +492,13 @@ fn refused_folder(cwd: &Path, home: &Path, tmp: &Path, path_dirs: &[PathBuf]) ->
 /// that `uid` owns.
 #[cfg(unix)]
 fn own_dir(dir: &Path, uid: u32) -> Result<(), String> {
-    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    use std::os::unix::fs::MetadataExt;
     match std::fs::symlink_metadata(dir) {
         Ok(m) if m.is_dir() && m.uid() == uid => Ok(()),
         Ok(_) => Err(format!("{} is not a folder this user owns", dir.display())),
-        Err(_) => std::fs::DirBuilder::new()
-            .mode(0o700)
-            .create(dir)
-            .map_err(|e| format!("{}: {e}", dir.display())),
+        Err(_) => {
+            crate::home_fs::create_dir(dir, 0o700).map_err(|e| format!("{}: {e}", dir.display()))
+        }
     }
 }
 
@@ -598,12 +597,8 @@ impl Bound {
             return Err("a remote chain needs a session id".into());
         }
         let tmp = shared_tmp.join(format!("acpmux-remote-{safe}"));
-        {
-            use std::os::unix::fs::DirBuilderExt;
-            let mut b = std::fs::DirBuilder::new();
-            b.recursive(true).mode(0o700);
-            b.create(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
-        }
+        crate::home_fs::create_dir_all(&tmp, 0o700)
+            .map_err(|e| format!("{}: {e}", tmp.display()))?;
         let tmp = canon(&tmp)?;
         // SAFETY: getuid has no preconditions and cannot fail.
         let uid = unsafe { libc::getuid() };
@@ -1031,7 +1026,7 @@ fn canary_persistence_probe(cwd: &Path, linux: bool) -> Result<Option<Persistenc
         return Ok(None);
     }
     let probe = cwd.join(format!(".acpmux-canary-{}", uuid::Uuid::now_v7()));
-    std::fs::create_dir_all(probe.join(".git/hooks"))
+    crate::home_fs::create_dirs(probe.join(".git/hooks"))
         .map_err(|e| format!("canary setup persistence probe: {e}"))?;
     #[cfg(not(target_os = "linux"))]
     {
@@ -1185,7 +1180,7 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     let run = tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output()).await;
     let landed = std::fs::symlink_metadata(&outside).is_ok();
     if landed {
-        let _ = std::fs::remove_file(&outside);
+        let _ = crate::home_fs::remove_file(&outside);
     }
     #[cfg(target_os = "linux")]
     let probe_paths_absent =
@@ -1199,10 +1194,10 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     #[cfg(not(target_os = "linux"))]
     let sources_intact = true;
     if let Some(probe) = &persistence_probe {
-        let _ = std::fs::remove_dir_all(&probe.path);
+        let _ = crate::home_fs::remove_dir_all(&probe.path);
     }
     #[cfg(unix)]
-    let _ = std::fs::remove_file(&socket_path);
+    let _ = crate::home_fs::remove_file(&socket_path);
     let arrived =
         listener.accept().is_ok() || listener6.as_ref().is_some_and(|l| l.accept().is_ok());
     #[cfg(unix)]

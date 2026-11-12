@@ -55,7 +55,7 @@ public extension AgentDialogLine {
         }
         return read.flatMap { found -> [AgentDialogPrompt] in
             let summary = found.row
-            guard let session = summary["sessionId"] as? String else { return [] }
+            guard let session = AcpmuxPendingReads.sessionKey(summary) else { return [] }
             return AcpmuxPendingReads.prompts(found.pending).map {
                 AgentDialogPrompt(session: session, sessionName: summary["name"] as? String, permission: $0.permission, request: $0.request)
             }

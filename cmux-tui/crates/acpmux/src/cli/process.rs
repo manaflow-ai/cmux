@@ -83,10 +83,21 @@ pub async fn run(cmd: ProcessCmd, json_out: bool) -> Result<()> {
     let client = crate::daemon::connect(false).await?;
     match cmd {
         ProcessCmd::List { session } => {
-            let v = list(&client, session.as_deref()).await?;
+            let params = session.as_deref().map_or_else(|| json!({}), |s| json!({"sessionId": s}));
+            let reply = client.request(method::MUX_PROCESS_LIST, params).await?;
+            let v = reply.get("processes").and_then(Value::as_array).cloned().unwrap_or_default();
+            // The daemon sends the newest that fit one reply, and how many older it left out.
+            let omitted = reply.get("omitted").and_then(Value::as_u64).unwrap_or(0);
             if json_out {
-                print_json(&json!({"processes": v}));
+                let mut out = json!({"processes": v});
+                if omitted > 0 {
+                    out.set("omitted", json!(omitted));
+                }
+                print_json(&out);
                 return Ok(());
+            }
+            if omitted > 0 {
+                eprintln!("{omitted} older processes not shown");
             }
             let now = now_ms();
             for p in &v {

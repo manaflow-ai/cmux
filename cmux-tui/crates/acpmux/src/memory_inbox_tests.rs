@@ -317,6 +317,37 @@ fn an_edit_saved_between_the_checks_and_the_swap_is_kept() {
 
 #[cfg(unix)]
 #[test]
+fn an_edit_of_the_same_size_saved_in_the_same_clock_tick_is_kept() {
+    use std::io::Write as _;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("RACE-SAME.md");
+    std::fs::write(&path, "# Mine: one\n").unwrap();
+    let saved = path.clone();
+    let hook = crate::folder_instructions::on_swap(move |name, window| {
+        if name != "RACE-SAME.md" || window != "before" {
+            return;
+        }
+        // An editor writes the same number of bytes in place, within the tick the file was
+        // read in: its file, size and modification time are all as they were.
+        let modified = std::fs::metadata(&saved).unwrap().modified().unwrap();
+        let mut file = std::fs::OpenOptions::new().write(true).open(&saved).unwrap();
+        file.write_all(b"# Mine: two\n").unwrap();
+        file.set_modified(modified).unwrap();
+    });
+    let got = write(dir.path(), "RACE-SAME.md", &["Use pnpm, not npm.".into()]);
+    assert_eq!(hook.reached(), reached(&[("RACE-SAME.md", "before"), ("RACE-SAME.md", "after")]));
+    drop(hook);
+    assert!(got.is_err(), "{got:?}");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), "# Mine: two\n");
+    let names: Vec<String> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(names, vec!["RACE-SAME.md".to_owned()]);
+}
+
+#[cfg(unix)]
+#[test]
 fn a_file_made_between_the_checks_and_the_swap_is_kept() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("RACE-NEW.md");
