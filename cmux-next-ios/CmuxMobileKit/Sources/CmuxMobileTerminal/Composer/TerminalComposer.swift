@@ -15,40 +15,15 @@ import UniformTypeIdentifiers
 /// circle inside it, riding the last line. Send delivers the draft as one
 /// paste plus Return (`ComposerSubmit`); Return in the field starts a new line.
 /// It sits below the key row, nearest the keyboard, and is open by default.
+/// Jump to bottom is its own row above the key row (`TerminalJumpToBottomRow`).
 struct TerminalComposer: View {
     @Bindable var model: TerminalModel
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showCamera = false
     private let voice = AgentVoiceLauncher.shared
-    @AppStorage(CmuxMobilePreferences.Key.terminalJumpToBottom)
-    private var jumpToBottomEnabled = CmuxMobilePreferences.defaultTerminalJumpToBottom
-
-    private var showsJumpToBottom: Bool {
-        JumpToBottomVisibility.showsInTerminal(scrolledUp: model.isScrolledUp, isTUI: model.isTUI, enabled: jumpToBottomEnabled)
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            if showsJumpToBottom {
-                // In the stack, not over the rows: a floating button hid the
-                // end of the lines under it (Codex QA F3).
-                Button {
-                    model.scrollToBottom()
-                } label: {
-                    Label("Jump to bottom", systemImage: "arrow.down")
-                        .font(.footnote.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .frame(height: 28)
-                        .glassSurface(in: .rect(cornerRadius: KeyRowGlass.cornerRadius, style: .continuous))
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Scroll to bottom")
-                .accessibilityIdentifier("terminal.jumpToBottom")
-                // Centered, as it first shipped and as the agent chat's
-                // jump circle sits (CMUX-10); it had drifted to the trailing edge.
-                .frame(maxWidth: .infinity, alignment: .center)
-                .transition(.opacity)
-            }
             if let notice = model.composerNotice {
                 Label(notice, systemImage: "exclamationmark.arrow.circlepath")
                     .font(.footnote)
@@ -84,11 +59,6 @@ struct TerminalComposer: View {
         }
         .animation(.smooth(duration: 0.3).unlessReduceMotion, value: model.attachments.count)
         .onChange(of: model.composerText) { _, _ in model.composerEdited() }
-        // Shown with a fade; gone at once when following starts (a Jump to
-        // bottom tap: qa11 wt-fling-c, the row still drawn after the page
-        // reached the bottom, and the card shrinking over 0.2 s moved the
-        // page's inset on every frame of the jump).
-        .animation(showsJumpToBottom ? Animation.smooth(duration: 0.2).unlessReduceMotion : nil, value: showsJumpToBottom)
         .photosPicker(isPresented: $model.showPhotoPicker, selection: $photoItems, maxSelectionCount: 6,
                       matching: .any(of: [.images, .videos]), preferredItemEncoding: .compatible)
         .onChange(of: photoItems) { _, items in
