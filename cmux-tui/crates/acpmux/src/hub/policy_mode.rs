@@ -862,6 +862,57 @@ mod tests {
         assert_eq!(claim_distrust(&meta, &cfg), Some("entry_changed"));
     }
 
+    /// The PreToolUse gate and the Claude Code family come from the kind the agent started under
+    /// (`SessionMeta::started_kind`), never from the entry's kind now: a change of only the kind
+    /// does not restart the agent (`HarnessProfile::launch_digest` leaves the kind out), so an
+    /// ACP agent that says it is acpmux's Claude Code backend with the gate keeps no policy when
+    /// its entry becomes `claude-stdio` (review of #40790). And a claim of the gate is believed
+    /// only while the entry still launches what the agent started from (`claim_distrust`).
+    #[test]
+    fn the_gate_and_the_family_are_the_kind_the_agent_started_under() {
+        let mut cfg: Config = serde_json::from_value(json!({"harnesses": {
+            "lane": {"argv": ["/opt/x/agent"], "family": "lane"},
+        }}))
+        .unwrap();
+        let launch = cfg.harnesses["lane"].launch_digest();
+        let started = |kind: &str| -> SessionMeta {
+            serde_json::from_value(json!({
+                "schema": crate::store::META_SCHEMA, "id": "s", "name": "s", "harness": "lane",
+                "cwd": "/w", "status": "ready", "createdAt": 0, "updatedAt": 0,
+                "launchDigest": launch, "startedKind": kind,
+                "agentInfo": {"name": "claude-stdio", "_meta": {"acpmux": {"toolGate": true}}},
+            }))
+            .unwrap()
+        };
+        cfg.harnesses.get_mut("lane").unwrap().kind = crate::config::HarnessKind::ClaudeStdio;
+        let acp = started("acp");
+        assert!(!super::super::policy_gate::has_gate(&acp, &cfg), "an ACP start has no gate");
+        assert_eq!(policy_family(&acp, &cfg), "lane", "an ACP start keeps its entry's family");
+        // Guard: started as acpmux's Claude Code backend from the entry as it is.
+        let claude = started("claude-stdio");
+        assert!(super::super::policy_gate::has_gate(&claude, &cfg));
+        assert_eq!(policy_family(&claude, &cfg), "claude");
+        // The entry's launch changed since the start: the agent's gate is not believed.
+        cfg.harnesses.get_mut("lane").unwrap().env.insert("LANE_FLAG".to_owned(), "1".to_owned());
+        assert!(!super::super::policy_gate::has_gate(&claude, &cfg), "entry changed");
+    }
+
+    /// Deny-all holds in a read-only mode only of a family whose own mode is it: Codex's
+    /// `read-only`, Muse Code's `readOnly`. Another family that offers a mode of that name is
+    /// held in its mode that asks, or not at all (review of #40790).
+    #[test]
+    fn deny_all_holds_in_a_read_only_mode_only_of_a_family_that_has_it() {
+        let deny = PermissionPolicy::DenyAll;
+        let offered = ids(&["ask", "readOnly", "read-only"]);
+        assert_eq!(policy_mode(deny, "lane", &offered).as_deref(), Some("ask"));
+        assert_eq!(policy_mode(deny, "lane", &ids(&["default", "readOnly", "read-only"])), None);
+        assert_eq!(policy_mode(deny, "", &ids(&["read-only"])), None);
+        assert_eq!(policy_mode(deny, "codex", &offered).as_deref(), Some("read-only"));
+        assert_eq!(policy_mode(deny, "muse", &offered).as_deref(), Some("readOnly"));
+        // Another policy: the mode that asks, on every family.
+        assert_eq!(policy_mode(PermissionPolicy::Ask, "muse", &offered).as_deref(), Some("ask"));
+    }
+
     fn ids(modes: &[&str]) -> Vec<String> {
         modes.iter().map(|m| (*m).to_owned()).collect()
     }

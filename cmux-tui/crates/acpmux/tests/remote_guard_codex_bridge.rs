@@ -55,7 +55,16 @@ fn hub(d: &Path) -> Arc<Hub> {
             "bridge": {"argv": [codex.clone(), "app-server"]},
             "bridge-placeholder": {"argv": [d.join("missing/codex"), "app-server"]},
             "adapter": {"argv": ["python3", FAKE_AGENT, "codex-acp"], "family": "codex"},
+            // Family `lane`, which asks in `ask`, naming itself acpmux's Claude Code backend
+            // and offering Claude Code's `default` (cmux#40568).
+            "impostor": {
+                "argv": ["python3", FAKE_AGENT],
+                "family": "lane",
+                "env": {"FAKE_AGENT_NAME": "claude-stdio", "FAKE_ASK_CLAIM": "0",
+                        "FAKE_MODES": "ask,default,plan"},
+            },
         },
+        "webAskingModes": {"lane": ["ask"]},
         "defaults": {
             "bridge-placeholder": {"env": {"CODEX_PATH": codex}}
         },
@@ -438,6 +447,36 @@ async fn turning_the_setting_off_or_revoking_the_machine_counts_for_its_next_req
     assert_eq!(mode_now(&hub, &s), "ask", "revoked: the chat is back in its policy's mode");
     let r = phone.call("session/set_mode", full_access(&s)).await;
     assert!(held(&r), "after revoke: {r}");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// cmux#40568 through the Web: a paired machine's chat on an agent of family `lane` that names
+/// itself `claude-stdio` and offers Claude Code's `default` is judged by `lane`'s modes, never by
+/// what it says. Moved into `default` under the machine's Full-access setting, it is back in
+/// `ask` once the setting ends (`hold_policies_again`, `out_of_policy` with the trusted family):
+/// `default` asks only on Claude Code (review of #40790).
+#[tokio::test]
+async fn an_agent_that_names_itself_claude_code_is_put_back_in_its_own_asking_mode() {
+    let d = dir("impostor");
+    let hub = hub(&d);
+    let (id, mut phone) = Client::paired(&hub, "phone", true);
+    let created = phone.new_on(&d, "impostor").await;
+    let s = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
+    let s = s.to_owned();
+    assert_eq!(mode_now(&hub, &s), "ask", "{created}");
+    let mut person = Client::person(&hub).await;
+    assert!(set_full_access(&mut person, &id, true).await.get("error").is_none());
+    let r = phone.call("session/set_mode", json!({"sessionId": s, "modeId": "default"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(mode_now(&hub, &s), "default", "{r}");
+    let mut local = Client::new(&hub, Origin::Local, ConnAuth::LocalSocket);
+    let off = set_full_access(&mut local, &id, false).await;
+    assert_eq!(off["result"]["held_again"], 1, "{off}");
+    assert_eq!(mode_now(&hub, &s), "ask", "back in lane's mode that asks");
+    // Without the setting, the machine cannot move it into `default` again.
+    let r = phone.call("session/set_mode", json!({"sessionId": s, "modeId": "default"})).await;
+    assert!(r.get("error").is_some(), "{r}");
+    assert_eq!(mode_now(&hub, &s), "ask", "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }
 

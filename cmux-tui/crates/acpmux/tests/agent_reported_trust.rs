@@ -12,7 +12,7 @@ mod daemon_env;
 // This process runs stand-in agents (the fake agents under tests/).
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
-use acpmux::config::{Config, StoreMode};
+use acpmux::config::{Config, HarnessKind, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
 use acpmux::server::{ConnAuth, Origin, serve_connection_authed};
@@ -36,7 +36,10 @@ mod agent_reported_trust {
     /// (`FAKE_ASK_CLAIM=0`), so no claim holds its policy:
     /// - `impostor`: offers `ask`, `default` and `plan`, current `default`;
     /// - `impostor-gate`: also says it has acpmux's PreToolUse gate, and offers no mode that asks;
-    /// - `impostor-claude`: offers every one of Claude Code's mode names, current `default`.
+    /// - `impostor-claude`: offers every one of Claude Code's mode names, current `default`;
+    /// - `impostor-ro`: offers `default` and Muse Code's `readOnly`, and no mode that asks.
+    ///
+    /// `muse` runs the same stand-in as family `muse`, whose own read-only mode is `readOnly`.
     fn hub(tag: &str) -> (Arc<Hub>, PathBuf) {
         let _ = &HERMETIC;
         let d = std::env::temp_dir().join(format!("art-{tag}-{}", std::process::id()));
@@ -58,6 +61,12 @@ mod agent_reported_trust {
                 "impostor-claude": impostor(
                     json!({"FAKE_MODES": "default,auto,acceptEdits,plan,bypassPermissions"}),
                 ),
+                "impostor-ro": impostor(json!({"FAKE_MODES": "default,readOnly"})),
+                "muse": {
+                    "argv": ["python3", FAKE_AGENT],
+                    "family": "muse",
+                    "env": {"FAKE_ASK_CLAIM": "0", "FAKE_MODES": "default,readOnly"},
+                },
             },
             "defaultHarness": "claude-sr2",
             "permissionPolicy": "approve-all",
@@ -136,6 +145,12 @@ mod agent_reported_trust {
             r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{harness}: {r}")).to_owned()
         }
 
+        /// The records of kind `kind` in chat `id`'s log.
+        async fn records(&mut self, id: &str, kind: &str) -> Vec<Value> {
+            let r = self.call("_acpmux/events", json!({"sessionId": id, "kinds": [kind]})).await;
+            r["result"]["events"].as_array().cloned().unwrap_or_else(|| panic!("{r}"))
+        }
+
         /// The chat's mode and policy, as `_acpmux/info` reports them now.
         async fn state(&mut self, id: &str) -> (String, Value) {
             let r = self.call("_acpmux/info", json!({"sessionId": id})).await;
@@ -182,6 +197,18 @@ mod agent_reported_trust {
             !(mode == "default" && policy == json!("ask")),
             "the impostor runs in default under policy ask: {set}"
         );
+        // Which of the two: a refusal for the policy's mode, with the chat still in `ask`, or the
+        // person's move, with the policy widened to approve-all first. Never another error.
+        match set.get("error") {
+            Some(e) => {
+                assert_eq!(e["data"]["reason"], json!("policy_mode"), "{set}");
+                assert_eq!((mode.as_str(), &policy), ("ask", &json!("ask")), "{set}");
+            }
+            None => {
+                assert_eq!(policy, json!("approve-all"), "{set}");
+                assert_eq!(mode, "default", "{set}");
+            }
+        }
         hub.shutdown_all().await;
         let _ = std::fs::remove_dir_all(&d);
     }
@@ -222,6 +249,45 @@ mod agent_reported_trust {
         let set = cli.call("session/set_mode", json!({"sessionId": sr2, "modeId": "auto"})).await;
         assert!(set.get("error").is_none(), "claude-sr2 into auto: {set}");
         assert_eq!(cli.state(&sr2).await.0, "auto", "claude-sr2 moved: {set}");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// The gate and the family are the kind the agent started under: an ACP agent that says it is
+    /// acpmux's Claude Code backend with the PreToolUse gate, whose entry the person then makes
+    /// kind `claude-stdio` with the same launch (no restart: the kind is not part of the launch
+    /// digest), keeps no narrower policy. Narrowed to `ask`, its agent is stopped
+    /// (`policy_refused`), since it offers no mode that asks (review of #40790).
+    #[tokio::test]
+    async fn an_entry_made_claude_code_after_the_start_gives_its_agent_no_gate() {
+        let (hub, d) = hub("kind");
+        let mut person = Client::person(&hub).await;
+        let id = person.chat(&d, "impostor-gate", None).await;
+        let mut cfg = hub.config.write().await;
+        cfg.harnesses.get_mut("impostor-gate").expect("impostor-gate").kind =
+            HarnessKind::ClaudeStdio;
+        drop(cfg);
+        let r = person.call("_acpmux/set_policy", json!({"sessionId": id, "policy": "ask"})).await;
+        assert!(r.get("error").is_none(), "{r}");
+        let refused = person.records(&id, "policy_refused").await;
+        assert_eq!(refused.len(), 1, "the agent was stopped: {refused:?}");
+        assert_eq!(refused[0]["msg"]["reason"], json!("policy_unenforceable"), "{refused:?}");
+        hub.shutdown_all().await;
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Deny-all holds in a read-only mode only of a family whose own mode it is: an agent of
+    /// family `lane` that offers Muse Code's `readOnly`, and no mode that asks, does not start
+    /// under deny-all. Family `muse` starts in `readOnly` (review of #40790).
+    #[tokio::test]
+    async fn a_read_only_mode_name_holds_deny_all_only_for_its_own_family() {
+        let (hub, d) = hub("ro");
+        let mut person = Client::person(&hub).await;
+        let r = person.new_chat(&d, "impostor-ro", Some("deny-all")).await;
+        assert_eq!(r["error"]["data"]["reason"], json!("policy_unenforceable"), "{r}");
+        // Guard: Muse Code's own read-only mode keeps deny-all.
+        let id = person.chat(&d, "muse", Some("deny-all")).await;
+        assert_eq!(person.state(&id).await, ("readOnly".to_owned(), json!("deny-all")));
         hub.shutdown_all().await;
         let _ = std::fs::remove_dir_all(&d);
     }
