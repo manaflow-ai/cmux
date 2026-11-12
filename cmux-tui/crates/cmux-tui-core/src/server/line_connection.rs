@@ -187,8 +187,11 @@ pub(super) fn serve_line_connection(
     }
     if drain_accepted {
         surface_scheduler.finish_and_wait();
+        // The git requests it sent still answer before it closes (server/git_lane.rs).
+        mux.control_clients.git_lane.drain(client);
     } else {
         let _ = surface_scheduler.close_and_wait(CONNECTION_SURFACE_SHUTDOWN_TIMEOUT);
+        mux.control_clients.git_lane.abandon(client);
     }
     disconnect_client(&mux, client, false);
     let _ = writer_thread.join();

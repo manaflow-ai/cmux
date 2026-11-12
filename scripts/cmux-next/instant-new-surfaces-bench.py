@@ -13,7 +13,10 @@ display frame of visibility (1 = the first frame drawn after the key) is above N
 
 `--commands` picks the commands (default all; `link_right`, a web link opened to the right as a new split,
 `link_home`, the same link from Home's dock alone (a new column beside it), `split_browser`, Split Browser Right,
-`dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, `browser_workspace`, New Browser
+`newtab_url`, Return on an address typed into a New Tab page opened (Cmd-T) beside a terminal in its pane, which navigates the
+page's tab in place (`page_ms`: the address painted), `newtab_url_beside`, the same with Option-Return (a new tab where links go,
+the pane on the right), `dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, `header_terminal`, an agent chat's
+header Terminal button with nothing on the chat's right (the app opens the chat in the pane first), `browser_workspace`, New Browser
 Workspace (`chrome_ms`: its browser in the pane; a terminal shown first makes it later than `visible_ms`), `github_right`, a github.com
 pull request link opened to the right in the native GitHub page (`--link-url`, default a cmux pull request; its
 pull request is seeded into the app's cache, as a chat's link card has read it, and `page_ms` is the page drawing it),
@@ -98,7 +101,8 @@ LINK_URL = opts.link_url or "file://" + LINK_PAGE
 GITHUB_URL = opts.link_url if opts.link_url.startswith("https://github.com/") else "https://github.com/manaflow-ai/cmux/pull/34637"
 DIFF_COMMANDS = {"diff_small": (1, 20), "diff_5k": (10, 500), "diff_200": (200, 10)}  # files, changed lines per file
 READY_COMMANDS = ("new_workspace", "new_tab")  # the app reports ready_ms (the New Tab page painted and taking keys) for these
-PAGE_COMMANDS = ("link_right", "link_home", "split_browser", "github_right", *DIFF_COMMANDS)  # the app reports page_ms (the new pane's page painted) for these
+NEWTAB_URL_COMMANDS = ("newtab_url", "newtab_url_beside")  # Return / Option-Return on an address in a New Tab page
+PAGE_COMMANDS = ("link_right", "link_home", "split_browser", "github_right", *NEWTAB_URL_COMMANDS, *DIFF_COMMANDS)  # the app reports page_ms (the new pane's page painted) for these
 open(CONFIG, "w").write(json.dumps({"tabs": {"nativeNewTabPage": True}} if opts.native_new_tab else {}) + "\n")
 CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
@@ -211,11 +215,11 @@ def stop_load():
 
 def undo(command, window, before_panes):
     """Back to one terminal pane in the bench workspace."""
-    if command in ("new_workspace", "browser_workspace", "dock_respawn"):  # a dock leaves two panes: the workspace goes, the next run gets a fresh one
+    if command in ("new_workspace", "browser_workspace", "dock_respawn", *NEWTAB_URL_COMMANDS):  # a dock leaves two panes: the workspace goes, the next run gets a fresh one
         rpc("action.run", {"action": "closeWorkspace"})
         wait(lambda: (focused() or {}).get("kind") == "terminal", 10)
         return
-    if command == "link_home":  # the new column's tab has the focus: its close leaves Home's dock alone again
+    if command in ("link_home", "header_terminal"):  # the new pane's tab has the focus: its close leaves Home's dock (the chat's pane) alone again
         rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
         wait(lambda: len(panes()) <= before_panes, 10)
         return
@@ -232,8 +236,24 @@ def home_dock():
 
 
 def ready(command, settle=True):
-    """The pane a timed press starts from: Home's dock for `link_home`, else a shown terminal."""
+    """The pane a timed press starts from: Home's dock for `link_home`, a New Tab page beside a terminal for
+    `newtab_url*`, else a shown terminal."""
+    if command == "header_terminal" and len(panes()) == 1 and (focused() or {}).get("kind") != "terminal":
+        return True  # the chat the app opened for the first press (DebugInstantCreateBench) is shown, alone
+    if command in NEWTAB_URL_COMMANDS:
+        return new_tab_page(settle)
     return home_dock() if command == "link_home" else ensure_terminal(settle)
+
+
+def new_tab_page(settle=True):
+    """Cmd-T from a shown terminal: the New Tab page in the terminal's pane, focused (as the person types into it)."""
+    if not ensure_terminal(settle):
+        return False
+    rpc("debug.key", {"key": "t", "modifiers": ["command"], "window": window_key()})
+    ok = wait(lambda: (focused() or {}).get("kind") not in (None, "terminal"), 10, step=0.05)
+    if ok and settle:
+        time.sleep(1)  # test harness: the page's handshake and field, as before a person types
+    return ok
 
 
 def focused():
@@ -264,6 +284,8 @@ def timed(command, phase, index, arm=None):
         params.update({"url": GITHUB_URL, "seed": True})
     if command in DIFF_COMMANDS:
         params.update({"command": "diff_right", "folder": DIFF_FOLDERS[command]})
+    if command in NEWTAB_URL_COMMANDS:
+        params.update({"command": "newtab_url", "url": LINK_URL, "beside": command == "newtab_url_beside"})
     if command == "browser_workspace":  # New Browser Workspace: visible_ms is the window on the new workspace, chrome_ms its browser in the pane
         params.update({"command": "new_workspace", "run": "newBrowserWorkspace"})
     result = rpc("debug.new_tab", params, timeout=20) or {}

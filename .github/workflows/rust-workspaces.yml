@@ -75,6 +75,8 @@ jobs:
       # silent pass; the pre-push gate stays lenient. A timeout is the runner's, not the change's: it is retried
       # with a longer limit, and fails only in a workspace the change touches (--base); elsewhere it warns
       # (cmux#41586: 0 stale, 5 timed out on a cold 2-vCPU runner, red on a change with no Rust in it).
+      # --deadline: the whole check ends inside this job's timeout-minutes, with room for the setup and the plan
+      # after it, so a slow resolve is reported as unchecked instead of the job being cut (cmux#41742 review F2).
       - name: Set up pinned Rust (lock check)
         uses: ./.github/actions/setup-cmux-tui-rust
 
@@ -83,7 +85,7 @@ jobs:
           BASE_SHA: ${{ steps.base.outputs.sha }}
         run: |
           status=0
-          python3 scripts/cmux-next/cargo-locks.py check --strict --base "$BASE_SHA" || status=$?
+          python3 scripts/cmux-next/cargo-locks.py check --strict --base "$BASE_SHA" --deadline 840 || status=$?
           if [[ $status == 1 ]]; then
             echo "::error::a Cargo.lock no longer matches its manifests; run scripts/cmux-next/cargo-locks.py fix and commit the locks"
           elif [[ $status != 0 ]]; then
