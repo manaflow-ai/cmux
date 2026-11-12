@@ -364,6 +364,14 @@ await requireBrowserLane("agent-pane-queue-row-click.test.ts", async () => {
         await focusByKey(page, ROW);
         expect(await opacity(page, `${ROW} .acpmux-queued-actions`)).toBe(1);
         await page.evaluate(() => window.dispatchEvent(new Event("blur")));
+        // The blur marks the page inactive (pageKey.ts) and takes the ring away (focusModality.ts).
+        expect(
+          await page.evaluate(() => ({
+            inactive: document.documentElement.hasAttribute("data-page-inactive"),
+            modality: document.documentElement.getAttribute("data-focus-modality"),
+            focused: document.activeElement?.className ?? null,
+          })),
+        ).toEqual({ inactive: true, modality: "pointer", focused: "acpmux-queued" });
         await hidden();
         await page.close();
       });
