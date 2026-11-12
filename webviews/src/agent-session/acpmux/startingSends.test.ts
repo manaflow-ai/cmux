@@ -199,7 +199,12 @@ test("an edited waiting row keeps its picture in place and sends a pasted chip's
 });
 
 test("an edited waiting row keeps a text file left in the strip apart from its words", async () => {
-  const notes = { id: "5191ce85-b54c-4acd-9a1e-1f2e3d4c5b6a", kind: "text", name: "notes.txt", text: "BODY" } as unknown as ComposerAttachment;
+  const notes = {
+    id: "5191ce85-b54c-4acd-9a1e-1f2e3d4c5b6a",
+    kind: "text",
+    name: "notes.txt",
+    text: "BODY",
+  } as unknown as ComposerAttachment;
   const h = harness();
   const sent: string[] = [];
   h.sends.add("first", [], h.go);
