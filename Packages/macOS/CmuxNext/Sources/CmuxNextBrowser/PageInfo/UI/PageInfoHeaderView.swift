@@ -39,7 +39,7 @@ final class PageInfoHeaderView: NSView {
             close.trailingAnchor.constraint(equalTo: trailingAnchor),
             close.topAnchor.constraint(equalTo: topAnchor),
             texts.trailingAnchor.constraint(lessThanOrEqualTo: close.leadingAnchor, constant: -PageInfoStyle.spacing),
-            texts.centerYAnchor.constraint(equalTo: close.centerYAnchor).withPriority(.defaultLow),
+            texts.centerYAnchor.constraint(equalTo: close.centerYAnchor).prioritized(.defaultLow),
             texts.topAnchor.constraint(greaterThanOrEqualTo: topAnchor),
             bottomAnchor.constraint(greaterThanOrEqualTo: texts.bottomAnchor),
             bottomAnchor.constraint(greaterThanOrEqualTo: close.bottomAnchor),
