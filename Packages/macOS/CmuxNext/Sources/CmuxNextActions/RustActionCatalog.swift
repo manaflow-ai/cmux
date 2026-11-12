@@ -264,6 +264,7 @@ nonisolated struct RustActionCatalog: Sendable {
         descriptor.surfacePlan = plan
         descriptor.hint = value["hint"] as? String
         descriptor.paletteTarget = (value["paletteTarget"] as? String).flatMap(ActionTargetKind.init(rawValue:))
+        descriptor.paletteTargetSource = value["paletteTargetSource"] as? String
         if let chord = value["defaultChord"] as? [String: Any], let first = shortcut(chord["first"]), let second = shortcut(chord["second"]) {
             descriptor.defaultChord = ShortcutChord(first, second)
         }

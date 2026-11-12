@@ -1,7 +1,10 @@
 @testable import CmuxNextApp
 import CmuxNextCloud
+import CmuxNextCloudUI
+import CmuxNextDaemonService
 import CmuxNextDaemon
 import Foundation
+import CmuxNextPalette
 import Testing
 
 @MainActor
@@ -12,10 +15,16 @@ struct CloudPaletteTargetSourceTests {
         return try #require(CloudMachine(next: .object(record)))
     }
 
+    private func options(machines: [CloudMachine], desktop: Bool) -> [CmuxNextPalette.PaletteTargetOption] {
+        CloudPaletteTargetSource.options(machines: machines, desktop: desktop) {
+            CloudHandlerRules().ask("cloud_handler_palette_targets", $0)
+        }
+    }
+
     @Test func readyMachinesComeBeforeOlderImagesAndPausedMachinesOfferResume() throws {
         let machines = try [machine("old", desktop: false), machine("paused", desktop: true, status: "paused"),
                             machine("ready", desktop: true)]
-        let rows = CloudPaletteTargetSource.options(machines: machines, desktop: true)
+        let rows = options(machines: machines, desktop: true)
         #expect(Set(rows.prefix(2).map(\.id)) == ["paused", "ready"])
         let old = try #require(rows.first { $0.id == "old" })
         #expect(old.subtitle?.isEmpty == false)
@@ -28,7 +37,7 @@ struct CloudPaletteTargetSourceTests {
     }
 
     @Test func unnamedMachinesNeverShowTheirIDsOrCLIInstructions() throws {
-        let rows = CloudPaletteTargetSource.options(machines: try [machine("private-machine-id", desktop: false)], desktop: true)
+        let rows = options(machines: try [machine("private-machine-id", desktop: false)], desktop: true)
         let row = try #require(rows.first)
         let visible = [row.title, row.subtitle ?? "", row.accessory ?? "", row.recovery?.title ?? ""].joined(separator: " ")
         #expect(!visible.contains("private-machine-id"))
@@ -37,13 +46,13 @@ struct CloudPaletteTargetSourceTests {
     }
 
     @Test func emptyAccountOffersCreatingADesktop() throws {
-        let row = try #require(CloudPaletteTargetSource.options(machines: [], desktop: true).first)
+        let row = try #require(options(machines: [], desktop: true).first)
         #expect(row.recovery?.action == "newCloudMachine")
         #expect(row.isEnabled)
     }
 
     @Test func otherCloudActionsIncludeMachinesWithoutDesktop() throws {
-        let rows = CloudPaletteTargetSource.options(machines: try [machine("old", desktop: false)], desktop: false)
+        let rows = options(machines: try [machine("old", desktop: false)], desktop: false)
         let row = try #require(rows.first)
         #expect(row.isEnabled)
         #expect(row.recovery == nil)

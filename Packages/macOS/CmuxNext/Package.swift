@@ -1893,6 +1893,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCompat",
                 "CmuxNextDesign",
                 "CmuxNextPages",
+                "CmuxNextPalette",
                 "CmuxNextSettings",
             ],
             resources: [.process("Resources")],

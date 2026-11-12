@@ -88,7 +88,7 @@ struct PaletteTargetPickerSnapshotTests {
         let create = PaletteTargetRecovery(action: "newCloudMachine", title: "Create desktop machine")
         let ready = PaletteTargetOption(id: "ready", title: "Design desktop", symbol: "desktopcomputer")
         let paused = PaletteTargetOption(id: "paused", title: "Review desktop", subtitle: "Paused", symbol: "desktopcomputer", accessory: "Resume and open")
-        let missing = PaletteTargetOption(id: "old", title: "Cloud Machine 2", subtitle: "This image has no desktop", symbol: "desktopcomputer", recovery: create)
+        let missing = PaletteTargetOption(id: "old", title: "Cloud Machine 2", subtitle: "Desktop service unavailable", symbol: "desktopcomputer", recovery: create)
         let states: [(String, [PaletteTargetOption])] = [
             ("Desktop ready first", [ready, paused, missing]),
             ("Resume and open", [paused]),

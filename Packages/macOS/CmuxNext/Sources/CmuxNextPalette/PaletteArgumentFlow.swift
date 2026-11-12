@@ -35,7 +35,9 @@ struct PaletteArgumentFlow {
         let subject = collected.target == nil ? descriptor.paletteTarget.map {
             ActionArgument(name: Self.subjectSlot, title: PaletteStrings.target, kind: .target($0))
         } : nil
-        guard let argument = subject ?? descriptor.arguments.first(where: { asks(for: $0) && collected.arguments[$0.name] == nil }) else {
+        guard let argument = subject ?? descriptor.arguments.first(where: {
+            asks(for: $0) && collected.arguments[$0.name] == nil && !ActionRegistry.target(of: collected, supplies: $0, for: descriptor)
+        }) else {
             let invocation = collected
             return .perform { registry.perform(id, invocation: invocation) }
         }
@@ -154,7 +156,15 @@ struct PaletteArgumentFlow {
 
     /// The captured object of the first kind the action targets.
     var capturedTarget: ActionTargetRef? {
-        if let kind = descriptor.paletteTarget { return captured.first { $0.kind == kind } }
+        if let kind = descriptor.paletteTarget {
+            guard let target = captured.first(where: { $0.kind == kind }) else { return nil }
+            // A captured Cloud machine cannot satisfy an SSH-only command.
+            // This runs on selection, never while listing the command rows.
+            if let targets, !targets.targets(of: kind, for: descriptor.id).contains(where: {
+                $0.recovery == nil && (ActionTargetRef(parsing: $0.id) ?? ActionTargetRef(kind: kind, id: $0.id)) == target
+            }) { return nil }
+            return target
+        }
         for kind in descriptor.targets {
             if let ref = captured.first(where: { $0.kind == kind }) { return ref }
         }

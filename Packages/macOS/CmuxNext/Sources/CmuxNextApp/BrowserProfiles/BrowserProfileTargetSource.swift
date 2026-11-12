@@ -17,6 +17,12 @@ final class BrowserProfileTargetSource: PaletteTargetSource {
     }
 
     func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] {
+        if kind == .bookmark {
+            let profile = BookmarkResolver(services: services).profile(ActionInvocation())
+            return services.bookmarks.tree(profile).bookmarks.map {
+                PaletteTargetOption(id: $0.id, title: $0.displayTitle, subtitle: $0.url?.host, symbol: "star")
+            }
+        }
         guard kind == .browserProfile else { return next.targets(of: kind) }
         return services.browserProfiles.ordered.map { record in
             PaletteTargetOption(id: record.id, title: record.name, subtitle: record.icon, symbol: record.isDefault ? "person.crop.circle" : "person.crop.circle.fill")

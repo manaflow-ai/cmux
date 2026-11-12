@@ -48,13 +48,14 @@ struct PaletteSubjectPickerTests {
         var received: ActionTargetRef?
         registry.bind("cloudOpenDesktop", invoke: { received = $0.target })
         let machine = ActionTargetRef(kind: .machine, id: "original")
+        targets.options = [PaletteTargetOption(id: machine.id, title: "Original desktop")]
         let item = try row("cloudOpenDesktop", registry: registry, targets: targets, captured: [machine])
         guard case .perform(let run) = item.primary.effect.resolved() else {
             Issue.record("a captured target must not ask again"); return
         }
         run()
         #expect(received == machine)
-        #expect(targets.reads == 0)
+        #expect(targets.reads == 1, "validate the captured subject against this action's inventory once")
     }
 
     @Test func sharedMachinePickerPrecedesRequiredFilePath() async throws {
@@ -78,7 +79,7 @@ struct PaletteSubjectPickerTests {
             #expect($0.target == nil)
             created = true
         })
-        targets.options = [PaletteTargetOption(id: "old", title: "Older machine", subtitle: "This image has no desktop",
+        targets.options = [PaletteTargetOption(id: "old", title: "Older machine", subtitle: "Desktop service unavailable",
             recovery: PaletteTargetRecovery(action: "newCloudMachine", title: "Create desktop machine"))]
         let item = try row("cloudOpenDesktop", registry: registry, targets: targets)
         guard case .push(let page) = item.primary.effect.resolved() else { Issue.record("missing picker"); return }

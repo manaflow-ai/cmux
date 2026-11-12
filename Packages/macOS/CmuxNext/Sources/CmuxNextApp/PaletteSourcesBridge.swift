@@ -2,6 +2,8 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextAgentLanes
 import CmuxNextBridge
+import CmuxNextCloudUI
+import CmuxNextDaemonService
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextSettings
@@ -73,7 +75,22 @@ enum PaletteSourcesBridge {
         let spaces = SpaceAndPaneTargetSource(services: services, next: screens)
         let sections = SidebarSectionTargetSource(services: services, next: spaces)
         let groups = TabAndGroupTargetSource(services: services, next: PriorityChatTargetSource(chats: chats, next: sections))
-        let cloud = CloudPaletteTargetSource(services: services, next: groups)
+        let descriptors = services.registry.descriptors.filter { $0.paletteTarget == .machine }
+        let all = RefreshingPaletteTargetSource(kind: .machine, actions: Set(descriptors.filter { $0.paletteTargetSource == nil }.map(\.id)),
+                                                next: groups, read: { windows.machines(includeDisconnected: true) })
+        let remote = RefreshingPaletteTargetSource(kind: .machine, actions: Set(descriptors.filter { $0.paletteTargetSource == "remote" }.map(\.id)),
+                                                   next: all, read: { windows.machines(includeDisconnected: true).filter { $0.id != MachineRegistry.localID } })
+        let ssh = RefreshingPaletteTargetSource(kind: .machine, actions: Set(descriptors.filter { $0.paletteTargetSource == "ssh" }.map(\.id)), next: remote) { [weak services] in
+            guard let services else { return [] }
+            let rows = services.machines.ssh.map { PaletteTargetOption(id: $0.machineID, title: $0.host.label, symbol: "server.rack") }
+            guard rows.isEmpty, let title = services.registry.title(for: "machine.add") else { return rows }
+            return [PaletteTargetOption(id: "add-machine", title: title, symbol: "plus", recovery: PaletteTargetRecovery(action: "machine.add", title: title))]
+        }
+        let cloud = CloudPaletteTargetSource(
+            actions: Set(descriptors.filter { $0.paletteTargetSource == "cloud" }.map(\.id)), next: ssh,
+            machines: { [weak services] in services?.machines.cloud.map(\.machine) ?? [] },
+            refresh: { [weak services] in _ = await services?.cloud.refresh() },
+            ask: { CloudHandlerRules().ask("cloud_handler_palette_targets", $0) })
         return agentChatTargets(AgentChatDestinations(services: services), next: cloud)
     }
 
