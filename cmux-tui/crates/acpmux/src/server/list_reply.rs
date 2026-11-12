@@ -240,9 +240,14 @@ async fn list(
     // A byte page costs its bytes' share of the list: a whole list read in pages costs about one
     // list in all, not one per page.
     if tools || !whole(params) {
-        return reply(hub, conn, guard.share_bytes(most), excludes_closed(params), cursor, |list| {
-            within_limit(raw, most, |budget| list.bounded(hub, params, tools, budget))
-        })
+        return reply(
+            hub,
+            conn,
+            guard.share_bytes(most),
+            excludes_closed(params),
+            cursor,
+            |list| within_limit(raw, most, |budget| list.bounded(hub, params, tools, budget)),
+        )
         .await;
     }
     reply(hub, conn, guard.share_bytes(most), excludes_closed(params), cursor, |list| {

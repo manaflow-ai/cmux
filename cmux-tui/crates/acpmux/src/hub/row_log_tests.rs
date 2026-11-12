@@ -320,5 +320,5 @@ async fn reaches_other_rows_resets(kind: &str) {
     assert_eq!(ids(&follow["sessions"]), ["chat-1"], "{follow}");
 }
 
-#[path = "row_log_bench.rs"]
+#[path = "row_log_bench_tests.rs"]
 mod bench;
