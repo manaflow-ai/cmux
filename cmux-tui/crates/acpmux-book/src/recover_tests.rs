@@ -271,23 +271,28 @@ fn a_torn_patch_restores_the_previous_revision() {
     let segment = book.join("rows/000001.seg");
     let whole = fs::read(&segment).unwrap();
     let patch_at = SEGMENT_HEADER_LEN as usize + old.len() + RECORD_OVERHEAD;
-    for cut in patch_at..=whole.len() {
+    for cut in patch_at..=whole.len() + 16 {
         let copy = home.path().join(format!("patch-cut-{cut}"));
         copy_book(&book, &copy);
-        fs::write(copy.join("rows/000001.seg"), &whole[..cut]).unwrap();
+        let record_end = cut.min(whole.len());
+        fs::write(copy.join("rows/000001.seg"), &whole[..record_end]).unwrap();
         // The patch's index is written only after its complete record has been synced.
-        if cut < whole.len() {
-            fs::write(copy.join("rows.idx"), &old_index).unwrap();
-        }
+        let mut partial_index = old_index.clone();
+        let index_bytes = cut.saturating_sub(whole.len());
+        let new_index = fs::read(book.join("rows.idx")).unwrap();
+        partial_index[16..16 + index_bytes].copy_from_slice(&new_index[16..16 + index_bytes]);
+        fs::write(copy.join("rows.idx"), &partial_index).unwrap();
         let (mut log, recovered) = open(&copy);
-        assert_eq!(recovered.scanned_bytes, (cut - patch_at) as u64, "cut {cut}");
+        assert_eq!(recovered.scanned_bytes, (record_end - patch_at) as u64, "cut {cut}");
         if cut < whole.len() {
             let row = log.row(1).expect("the old revision remains settled");
             assert_eq!(row.rev, 1, "cut {cut}");
             assert_eq!(texts(&mut log, &[row]).0[0], old, "cut {cut}");
             assert_eq!(log.patch(1, 2, RawRange::NONE, b"repaired").unwrap(), 2, "cut {cut}");
         } else {
-            assert_eq!(log.row(1).unwrap().rev, 2, "cut {cut}");
+            let row = log.row(1).unwrap();
+            assert_eq!(row.rev, 2, "cut {cut}");
+            assert_eq!(texts(&mut log, &[row]).0[0], next);
             assert_eq!(log.patch(1, 3, RawRange::NONE, b"third").unwrap(), 3, "cut {cut}");
         }
         drop(log);

@@ -503,6 +503,12 @@ fn an_index_entry_that_does_not_match_its_record_is_reported_not_served() {
         log.fill(&window.rows, &mut buf, &mut at),
         Err(Error::CorruptRow { row_id: 5, .. })
     ));
+    assert!(matches!(
+        log.patch(5, 2, RawRange::NONE, b"patch"),
+        Err(Error::CorruptRow { row_id: 5, .. })
+    ));
+    let good = log.row(6).unwrap();
+    assert_eq!(texts(&mut log, &[good]).0[0], text(6));
     // The ghost's id can settle, and then it is a row like any other.
     log.append_settled(21, 1, RawRange::NONE, &text(21)).unwrap();
     let row = log.row(21).unwrap();

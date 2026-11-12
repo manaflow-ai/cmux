@@ -441,15 +441,14 @@ impl Log {
                         reason: "a row index entry does not match its record",
                     });
                 }
-                if let Some(header) = header {
-                    if header.raw_len != 0
-                        && (header.raw_file == 0 || header.raw_file > self.raw_files)
-                    {
-                        return Err(Error::CorruptRow {
-                            row_id: row.row_id,
-                            reason: "a record names a raw file absent from raw.map",
-                        });
-                    }
+                if let Some(header) = header
+                    && header.raw_len != 0
+                    && (header.raw_file == 0 || header.raw_file > self.raw_files)
+                {
+                    return Err(Error::CorruptRow {
+                        row_id: row.row_id,
+                        reason: "a record names a raw file absent from raw.map",
+                    });
                 }
                 let text = header_at.saturating_add(HEADER_LEN);
                 at.push(text..text.saturating_add(row.len as usize));

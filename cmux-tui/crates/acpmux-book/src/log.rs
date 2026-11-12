@@ -448,8 +448,10 @@ impl Log {
 
         let (mut last_seq, mut min_row, mut max_row) = (mark.last_seq, mark.min_row, mark.max_row);
         let (mut rewritten, mut rewrites) = (0u64, 0u64);
-        let mut scanned = Vec::new();
-        let mut scan_seq = last_seq;
+        // Retain only the checkpoint interval's identities. A rebuild without a checkpoint
+        // streams the whole book without collecting its records in memory.
+        let mut found_rows = std::collections::BTreeSet::new();
+        let mut found_slots = std::collections::BTreeSet::new();
         for seg in mark.seg..=last {
             let path = segment_path(&rows_dir, seg);
             let file = OpenOptions::new().read(true).write(seg == last).open(&path)?;
@@ -459,14 +461,42 @@ impl Log {
                 if header.raw_len != 0 && (header.raw_file == 0 || header.raw_file > raw_files) {
                     return Err(Error::Corrupt("a record names a raw file absent from raw.map"));
                 }
-                if scan_seq.checked_add(1) != Some(header.seq) {
+                if last_seq.checked_add(1) != Some(header.seq) {
                     return Ok(false);
                 }
                 if u32::try_from(offset).is_err() {
                     return Ok(false);
                 }
-                scanned.push((seg, offset, *header));
-                scan_seq = header.seq;
+                let off =
+                    u32::try_from(offset).map_err(|_| Error::Corrupt("a segment is past 4 GiB"))?;
+                let entry = Entry { seg, off, len: header.len, rev: header.rev };
+                if rows.get(header.row_id) != Some(entry) {
+                    rewritten = rewritten.saturating_add(rows.set(header.row_id, entry)?);
+                    rewrites = rewrites.saturating_add(1);
+                } else {
+                    // The bytes may have reached the index before the previous process died. It is
+                    // still part of this replay and must be included in the next checkpoint's sync.
+                    rows.mark_dirty();
+                }
+                if header.seq.is_multiple_of(SEQ_STRIDE) {
+                    let slot = header.seq / SEQ_STRIDE;
+                    if seqs.get(slot)? != Some((seg, off)) {
+                        rewritten = rewritten.saturating_add(seqs.set(slot, seg, off)?);
+                        rewrites = rewrites.saturating_add(1);
+                    } else {
+                        seqs.mark_dirty();
+                    }
+                }
+                last_seq = header.seq;
+                min_row = if min_row == 0 { header.row_id } else { min_row.min(header.row_id) };
+                max_row = max_row.max(header.row_id);
+                recovered.replayed = recovered.replayed.saturating_add(1);
+                if recovered.checkpoint {
+                    found_rows.insert(header.row_id);
+                    if header.seq.is_multiple_of(SEQ_STRIDE) {
+                        found_slots.insert(header.seq / SEQ_STRIDE);
+                    }
+                }
                 Ok(true)
             })?;
             recovered.scanned_bytes = recovered.scanned_bytes.saturating_add(scan.bytes_read);
@@ -481,14 +511,6 @@ impl Log {
                 recovered.truncated = len.saturating_sub(scan.end);
             }
         }
-
-        let found_rows: Vec<u64> = scanned.iter().map(|(_, _, header)| header.row_id).collect();
-        let found_slots: Vec<u64> = scanned
-            .iter()
-            .filter_map(|(_, _, header)| {
-                header.seq.is_multiple_of(SEQ_STRIDE).then_some(header.seq / SEQ_STRIDE)
-            })
-            .collect();
 
         // Only new settlements can outlive their records: every patch is synced first.
         // Repair the explicitly checkpointed open rows plus the new-id tail. Mapping growth
@@ -519,36 +541,6 @@ impl Log {
                 }
                 slot = slot.saturating_add(1);
             }
-        }
-
-        // Replay the scanned records only after stale index entries have been cleared. A clean
-        // reopen therefore writes nothing, while a power-loss tail gets exactly the records that
-        // survived in the segment.
-        for (seg, offset, header) in scanned {
-            let off =
-                u32::try_from(offset).map_err(|_| Error::Corrupt("a segment is past 4 GiB"))?;
-            let entry = Entry { seg, off, len: header.len, rev: header.rev };
-            if rows.get(header.row_id) != Some(entry) {
-                rewritten = rewritten.saturating_add(rows.set(header.row_id, entry)?);
-                rewrites = rewrites.saturating_add(1);
-            } else {
-                // The bytes may have reached the index before the previous process died. It is
-                // still part of this replay and must be included in the next checkpoint's sync.
-                rows.mark_dirty();
-            }
-            if header.seq.is_multiple_of(SEQ_STRIDE) {
-                let slot = header.seq / SEQ_STRIDE;
-                if seqs.get(slot)? != Some((seg, off)) {
-                    rewritten = rewritten.saturating_add(seqs.set(slot, seg, off)?);
-                    rewrites = rewrites.saturating_add(1);
-                } else {
-                    seqs.mark_dirty();
-                }
-            }
-            last_seq = header.seq;
-            min_row = if min_row == 0 { header.row_id } else { min_row.min(header.row_id) };
-            max_row = max_row.max(header.row_id);
-            recovered.replayed = recovered.replayed.saturating_add(1);
         }
 
         let tail = if last == 0 {
@@ -723,11 +715,11 @@ impl Log {
             return Err(Error::AlreadySettled { row_id });
         }
         let (seq, entry) = self.append_record(row_id, rev, raw, text)?;
-        if raw.len == 0 {
-            if let Err(error) = self.sync() {
-                self.broken = true;
-                return Err(error);
-            }
+        if raw.len == 0
+            && let Err(error) = self.sync()
+        {
+            self.broken = true;
+            return Err(error);
         }
         self.index_record(row_id, seq, entry)?;
         Ok(seq)
@@ -844,11 +836,10 @@ impl Log {
         let record_len = self.scratch.len() as u64;
         if self.tail.len != 0
             && self.tail.len.saturating_add(record_len) > self.options.segment_bytes
+            && let Err(error) = self.roll()
         {
-            if let Err(error) = self.roll() {
-                self.broken = true;
-                return Err(error);
-            }
+            self.broken = true;
+            return Err(error);
         }
         let off =
             u32::try_from(self.tail.len).map_err(|_| Error::Corrupt("a segment is past 4 GiB"))?;
