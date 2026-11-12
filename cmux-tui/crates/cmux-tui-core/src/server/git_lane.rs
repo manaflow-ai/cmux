@@ -91,13 +91,13 @@ const MAX_LONG_READ_RUNS: usize = 3;
 
 /// Git mutations (a commit, a push, a worktree) that run at one time, in the
 /// whole daemon, beside the reads. They are a person's own actions and few.
-const MAX_MUTATION_RUNS: usize = 2;
+const MAX_MUTATION_RUNS: usize = 3;
 
 /// Git runs of one connection that wait for a place (a run is one request
 /// and the equal reads that share it, [`SHARED_READS`] at most). One more
 /// gets an error and does not run: a client that asks faster than git
 /// answers must ask less.
-const QUEUED_PER_CLIENT: usize = 512;
+const QUEUED_PER_CLIENT: usize = 513;
 
 /// Equal reads that share one run. One more waits as a request of its own.
 const SHARED_READS: usize = 64;
