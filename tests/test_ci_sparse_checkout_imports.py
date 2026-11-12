@@ -238,6 +238,11 @@ IMPORT_BY_NAME = {"__import__", "builtins.__import__", "__builtins__.__import__"
 _IMPORT_ATTRS = {name.rsplit(".", 1)[-1] for name in IMPORT_BY_NAME}
 # Names that call the one builtin: replacing any of them replaces what each of them calls.
 _BUILTIN_IMPORT = {"__import__", "builtins.__import__", "__builtins__.__import__"}
+# The modules the import functions live on: swapping one in sys.modules replaces every function on it.
+_IMPORT_MODULES = {name.rsplit(".", 1)[0] for name in IMPORT_BY_NAME if "." in name}
+# Keywords naming the attribute or dotted target a patch replaces (monkeypatch.setattr(m, name=...),
+# mock.patch.object(m, attribute=...), mock.patch(target=...)).
+_PATCH_KEYWORDS = {"name", "attribute", "target"}
 
 
 def _unproven_imports(tree: ast.AST, aliases: dict[str, str]) -> tuple[frozenset[str], frozenset[str]]:
@@ -249,10 +254,26 @@ def _unproven_imports(tree: ast.AST, aliases: dict[str, str]) -> tuple[frozenset
     parameter, loop/with/except/match target, del), or when imports bind it to two different things. An import name
     is replaced by an assignment or del of it (`importlib.import_module = f`, `builtins.__import__ = hook`, the last
     replacing every spelling of the builtin), or by any call that names it as a string (`setattr(importlib,
-    "import_module", f)`, `mock.patch("importlib.import_module")`, `monkeypatch.setattr(b, "__import__", f)`)."""
+    "import_module", f)`, `mock.patch("importlib.import_module")`, `monkeypatch.setattr(b, "__import__", f)`), positionally or
+    by keyword (`name=`, `attribute=`, `target=`, `mock.patch.multiple(importlib, import_module=f)`), by a write
+    through a mapping (`vars(importlib)["import_module"] = f`, `importlib.__dict__[...]`, or a dict of them passed
+    to a call such as `mock.patch.dict(importlib.__dict__, {...})`), or by swapping the module that holds it in
+    sys.modules (`sys.modules["importlib"] = fake`, `mock.patch.dict(sys.modules, {"importlib": fake})`). A bare
+    attribute name names no object, so it replaces every import function; reading a name replaces nothing."""
     roots: set[str] = set()
     imported: dict[str, set[str]] = {}
     replaced: set[str] = set()
+
+    def names_a_patch(key: ast.AST | None) -> None:
+        # A string key that names an import function, an attribute one lives under, or the module holding one.
+        if isinstance(key, ast.Constant) and type(key.value) is str:
+            if key.value in IMPORT_BY_NAME:
+                replaced.add(key.value)
+            elif key.value in _IMPORT_ATTRS:
+                replaced.update(IMPORT_BY_NAME)
+            elif key.value in _IMPORT_MODULES:
+                replaced.update(name for name in IMPORT_BY_NAME if name.startswith(key.value + "."))
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -283,6 +304,16 @@ def _unproven_imports(tree: ast.AST, aliases: dict[str, str]) -> tuple[frozenset
                         replaced.add(arg.value)
                     elif arg.value in _IMPORT_ATTRS and len(node.args) >= 2:
                         replaced.update(IMPORT_BY_NAME)  # an attribute of some object: whose, this cannot tell
+                elif isinstance(arg, ast.Dict):
+                    for key in arg.keys:  # mock.patch.dict(importlib.__dict__, {"import_module": f})
+                        names_a_patch(key)
+            for keyword in node.keywords:
+                if keyword.arg in _PATCH_KEYWORDS:
+                    names_a_patch(keyword.value)  # monkeypatch.setattr(importlib, name="import_module", value=f)
+                elif keyword.arg in _IMPORT_ATTRS:
+                    replaced.update(IMPORT_BY_NAME)  # mock.patch.multiple(importlib, import_module=f)
+        elif isinstance(node, ast.Subscript) and not isinstance(node.ctx, ast.Load):
+            names_a_patch(node.slice)  # vars(importlib)["import_module"] = f, sys.modules["importlib"] = fake
     roots.update(name for name, targets in imported.items() if len(targets) > 1)
     if replaced & _BUILTIN_IMPORT:
         replaced |= _BUILTIN_IMPORT
@@ -4770,6 +4801,61 @@ class GuardScopeAndRebindingTests(unittest.TestCase):
         ("import importlib\ndef run(importlib):\n    return importlib.import_module('helper')\n", "importlib.import_module('helper')"),
         ("import importlib\nimportlib = None\nmod = importlib.import_module('helper')\n", "importlib.import_module('helper')"),
     )
+
+    IM = "importlib.import_module('helper')"
+    PATCHED = (
+        # (how the import function is replaced, the call the diagnostic names). Every way a test or script can patch
+        # it: positional and keyword setattr-style patches, a dotted target, patch.multiple's keyword name, a write
+        # through the module's __dict__, and a whole-module swap in sys.modules (#41736 review).
+        ("import importlib\ndef test(monkeypatch):\n    monkeypatch.setattr(importlib, name='import_module', value=print)\n"
+         "mod = importlib.import_module('helper')\n", IM),
+        ("import importlib\nfrom unittest import mock\nmock.patch.object(importlib, attribute='import_module').start()\n"
+         "mod = importlib.import_module('helper')\n", IM),
+        ("import importlib\nfrom unittest import mock\nmock.patch.object(importlib, 'import_module', print).start()\n"
+         "mod = importlib.import_module('helper')\n", IM),
+        ("import importlib\nfrom unittest import mock\nmock.patch(target='importlib.import_module').start()\n"
+         "mod = importlib.import_module('helper')\n", IM),
+        ("import importlib\nfrom unittest import mock\nmock.patch.multiple(importlib, import_module=print).start()\n"
+         "mod = importlib.import_module('helper')\n", IM),
+        ("import importlib\nfrom unittest import mock\nmock.patch.dict(importlib.__dict__, {'import_module': print}).start()\n"
+         "mod = importlib.import_module('helper')\n", IM),
+        ("import importlib\nvars(importlib)['import_module'] = print\nmod = importlib.import_module('helper')\n", IM),
+        ("import importlib\nimportlib.__dict__['import_module'] = print\nmod = importlib.import_module('helper')\n", IM),
+        ("import sys, types\nfrom unittest import mock\nfake = types.ModuleType('importlib')\n"
+         "mock.patch.dict(sys.modules, {'importlib': fake}).start()\nimport importlib\n"
+         "mod = importlib.import_module('helper')\n", IM),
+        ("import sys, types\nsys.modules['importlib'] = types.ModuleType('importlib')\nimport importlib\n"
+         "mod = importlib.import_module('helper')\n", IM),
+        ("import builtins\ndef test(monkeypatch):\n    monkeypatch.setattr(builtins, name='__import__', value=print)\n"
+         "mod = __import__('helper')\n", "__import__('helper')"),
+        ("import builtins\nfrom unittest import mock\nmock.patch.object(builtins, attribute='__import__').start()\n"
+         "mod = __import__('helper')\n", "__import__('helper')"),
+    )
+
+    def test_f2_every_form_of_patching_the_import_function_keeps_the_dynamic_diagnostic(self) -> None:
+        for source, text in self.PATCHED:
+            with self.subTest(source=source):
+                line = source.count("\n")
+                self.assertEqual(
+                    self._misses(self.block("scripts/ci/rebind.py"), more={"scripts/ci/rebind.py": source}),
+                    [
+                        f"{self.PREFIX}scripts/ci/rebind.py calls {text} (line {line}), which this check cannot follow; "
+                        "make the import static or audit it in DYNAMIC_IMPORT_AUDIT"
+                    ],
+                )
+
+    def test_f2_reading_the_import_function_by_name_is_not_a_patch(self) -> None:
+        # A comparison against the name (as a checker does) patches nothing: the literal import stays static.
+        source = ("import importlib\nKNOWN = ('importlib.import_module', 'import_module')\n"
+                  "ok = 'import_module' in KNOWN\nmod = importlib.import_module('helper')\n")
+        self.assertEqual(
+            self._misses(self.block("scripts/ci/reads.py"), more={"scripts/ci/reads.py": source}),
+            [
+                f"{self.PREFIX}scripts/ci/helper.py imports scripts/ci/deadline_http.py, not in its sparse checkout "
+                "(via scripts/ci/reads.py)",
+                f"{self.PREFIX}scripts/ci/reads.py imports scripts/ci/helper.py, not in its sparse checkout",
+            ],
+        )
 
     def test_f2_a_rebound_import_function_keeps_the_dynamic_diagnostic(self) -> None:
         for source, text in self.REBOUND:
