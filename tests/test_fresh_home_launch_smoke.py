@@ -753,7 +753,6 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
                                        "FAIL: seeded home: the app exited")):
             with self.subTest(mode=mode):
                 app, out = make_app(self.dir / f"cut-{mode}", mode), self.dir / f"out-cut-{mode}"
-                began = time.monotonic()
                 harness = subprocess.Popen([sys.executable, str(SCRIPT), "--app", str(app), "--out", str(out),
                                             "--seconds", "2", "--startup-timeout", "10", *arms],
                                            env=late, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -769,7 +768,7 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
                         harness.kill()
                     harness.stdout.close()
                 output = "".join(lines)
-                self.assertLess(time.monotonic() - began, 25, output)
+                # The run ended AT the cut: a run that reached the end of its wait exits 1, not 128 + SIGTERM.
                 self.assertEqual(status, 128 + signal.SIGTERM, output)
                 report = json.loads((out / "report.json").read_text())
                 self.assertEqual((report["verdict"], report["exit"], report.get("arm"), report["crash_reports_late"]),
@@ -840,13 +839,13 @@ class FreshHomeLaunchSmokeTest(unittest.TestCase):
 
     def test_only_a_launch_whose_app_ended_waits_for_a_late_report(self):
         # A pass, and a failure of an app that stayed up (no Home), must not get slower: no crash, no report to come.
-        late = {**self.env, "CMUX_FRESH_SMOKE_CRASH_EVIDENCE_WAIT_SECONDS": "60"}
-        for mode, verdict in (("healthy", "pass"), ("no-home", "fail")):
+        # The late look itself says when it runs (no clock): it does for an app that ended, and only for that.
+        told = "smoke.late_crash_reports = lambda *a, **k: smoke.log('the late look ran') or []"
+        for mode, verdict, looked in (("healthy", "pass", False), ("no-home", "fail", False), ("crash", "fail", True)):
             with self.subTest(mode=mode):
-                began = time.monotonic()
-                status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "3", env=late)
+                status, output, report = self.run_smoke(mode, "--seconds", "2", "--startup-timeout", "3", setup=told)
                 self.assertEqual(report["verdict"], verdict, output)
-                self.assertLess(time.monotonic() - began, 40, output)
+                self.assertEqual("the late look ran" in output, looked, output)
                 self.assertEqual(report.get("crash_reports_late", []), [])
 
     def test_a_crash_report_of_another_builds_launch_never_fails_a_healthy_first_arm(self):
