@@ -10869,8 +10869,9 @@ rows: `stop` an agent's Computer Use, `resume` it, `spotlight` its cursor,
 `raise_window` the window it works in).
 Any local Unix connection may read, refresh, ask macOS for a grant, restart a
 worker, lower access, stop an agent's Computer Use and spotlight its cursor.
-Turning sharing on, raising a device's access and resuming a stopped agent are
-the verified app's only (`origin.forbidden`).
+Turning sharing on, raising a device's access, resuming a stopped agent and
+raising its window (which takes the person's focus) are the verified app's
+only (`origin.forbidden`).
 
 ### remote-host-config
 

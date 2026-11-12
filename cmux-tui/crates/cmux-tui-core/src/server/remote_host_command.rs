@@ -169,10 +169,11 @@ pub(super) fn call(mux: &Mux, client: u64, method: &str, params: Value) -> anyho
 }
 
 /// `computer_use.session {action, session, label?}`: the person's Stop for one
-/// agent's Computer Use (the cmux menu bar), its Resume, and Show Cursor
-/// (`spotlight`). Stop and spotlight only lower or show, so any local
-/// connection may ask; Resume lets an agent act again and needs the verified
-/// app.
+/// agent's Computer Use (the cmux menu bar), its Resume, Show Cursor
+/// (`spotlight`) and Show Window (`raise_window`). Stop and spotlight only
+/// lower or show, so any local connection may ask; Resume lets an agent act
+/// again, and Show Window brings an app to the front (it takes the person's
+/// focus, which only the person asks for), so both need the verified app.
 fn computer_use_session(caller: &Caller, params: &Value) -> Result<(), RemoteRefused> {
     let action = params.get("action").and_then(Value::as_str).unwrap_or_default();
     let session = params.get("session").and_then(Value::as_str).unwrap_or_default();
@@ -188,9 +189,14 @@ fn computer_use_session(caller: &Caller, params: &Value) -> Result<(), RemoteRef
         "resume" => Err(forbidden(
             "resuming an agent's Computer Use needs the cmux app (its menu bar Resume)",
         )),
+        "raise_window" if caller.verified_app => Ok(()),
+        "raise_window" => Err(forbidden(
+            "showing an agent's window needs the cmux app (its menu bar Show Window)",
+        )),
         _ => Err(RemoteRefused {
             code: "bad_request",
-            message: "computer_use.session action is stop, resume or spotlight".into(),
+            message: "computer_use.session action is stop, resume, spotlight or raise_window"
+                .into(),
         }),
     }
 }
@@ -241,6 +247,16 @@ mod computer_use_session_tests {
         let refused = computer_use_session(&caller(false), &resume).unwrap_err();
         assert_eq!(refused.code, ORIGIN_FORBIDDEN);
         assert!(computer_use_session(&caller(true), &resume).is_ok());
+    }
+
+    /// Show Window (the menu bar's `raise_window`) brings the agent's app to
+    /// the front: the cmux app may ask, another local connection may not.
+    #[test]
+    fn raise_window_needs_the_app() {
+        let raise = json!({"action": "raise_window", "session": "s1"});
+        assert!(computer_use_session(&caller(true), &raise).is_ok());
+        let refused = computer_use_session(&caller(false), &raise).unwrap_err();
+        assert_eq!(refused.code, ORIGIN_FORBIDDEN);
     }
 
     #[test]

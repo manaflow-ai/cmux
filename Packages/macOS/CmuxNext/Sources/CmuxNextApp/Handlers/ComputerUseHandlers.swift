@@ -1,5 +1,8 @@
 import CmuxNextActions
 import CmuxNextComputerUse
+import os
+
+nonisolated private let focusLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "computer-use")
 
 /// Focus Computer Use, Focus Calling Terminal and Stop Computer Use (File
 /// menu, `cmux agent focus-computer-use|focus-calling-terminal|stop-computer-use`).
@@ -37,8 +40,13 @@ enum ComputerUseHandlers {
         }
         work("computerUseFocus") { session in
             // The window the agent works in first (within its app, by cmux Remote), then its app in
-            // front: the person asked to see it. A window the worker cannot raise still brings the app.
-            try? await sessions.raiseWindow(session.id)
+            // front: the person asked to see it. A window the worker cannot raise still brings the app,
+            // and the reason is logged rather than dropped.
+            do {
+                try await sessions.raiseWindow(session.id)
+            } catch {
+                focusLogger.error("Show Window: the worker did not raise the window: \(String(describing: error), privacy: .public)")
+            }
             guard focus.raiseTarget(of: session) else { throw ComputerUseSessionError.failed(ComputerUseSessionStrings.noTarget) }
         }
         work("computerUseFocusCallingTerminal") { session in
