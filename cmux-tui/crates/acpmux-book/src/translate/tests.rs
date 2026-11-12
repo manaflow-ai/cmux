@@ -282,7 +282,6 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
                     stretch.steered = true;
                     stretches.push(stretch);
                     stretch = Stretch::default();
-                    open = false;
                 }
             }
         }
@@ -334,6 +333,45 @@ fn th_ten_thousand_random_splits_restore_identical_ops_and_final_replies() {
             }
         }
     }
+}
+
+#[test]
+fn claude_split_property_and_final_reply_visibility() {
+    let lines = [
+        r#"{"type":"user","uuid":"p","message":{"content":"Question"}}"#,
+        r#"{"type":"assistant","message":{"id":"a","content":[{"type":"text","text":"Working note."},{"type":"tool_use","id":"t","name":"Read","input":{"path":"a"}}]}}"#,
+        r#"{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"output"}]}}"#,
+        r#"{"type":"assistant","message":{"id":"a","content":[{"type":"text","text":"Final answer?"}],"stop_reason":"end_turn"}}"#,
+    ];
+    let mut whole = State::default();
+    let mut full = Mirror::default();
+    for line in lines {
+        full.line(&mut whole, Harness::Claude, line);
+    }
+    for seed in 1..=10_000usize {
+        let cut = seed % (lines.len() + 1);
+        let mut state = State::default();
+        let mut view = Mirror::default();
+        for line in &lines[..cut] {
+            view.line(&mut state, Harness::Claude, line);
+        }
+        state = State::restore(&state.checkpoint().unwrap()).unwrap();
+        for line in &lines[cut..] {
+            view.line(&mut state, Harness::Claude, line);
+        }
+        assert_eq!(state, whole);
+        assert_eq!(view, full);
+    }
+    assert!(full.visible(full.reply("Final answer?")));
+}
+
+#[test]
+fn malformed_harness_lines_are_counted_and_do_not_block_replay() {
+    let mut state = State::default();
+    assert!(translate(&mut state, Harness::Claude, br#"{"type":7}"#).is_ok());
+    assert_eq!(state.counters().invalid_records, 1);
+    assert!(translate(&mut state, Harness::V1, br#"not-json"#).is_ok());
+    assert_eq!(state.counters().invalid_records, 2);
 }
 #[test]
 fn large_tool_bodies_are_ranges_and_streamed_replies_have_small_checkpoints() {

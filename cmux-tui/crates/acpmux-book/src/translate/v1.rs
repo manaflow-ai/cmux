@@ -241,6 +241,7 @@ fn agent(
                 &metadata,
                 &parts,
                 matches!(u.status.as_ref(), "completed" | "failed"),
+                kind == "tool_call",
                 out,
             )?;
         }

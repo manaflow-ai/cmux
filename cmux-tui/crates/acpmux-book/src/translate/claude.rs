@@ -80,6 +80,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                             &[("status", if block.is_error { "failed" } else { "completed" })],
                             parts.as_slice(),
                             true,
+                            false,
                             out,
                         )?;
                     }
@@ -137,6 +138,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                                 &[("tool", &block.name), ("status", "running")],
                                 parts.as_slice(),
                                 false,
+                                true,
                                 out,
                             )?;
                         }

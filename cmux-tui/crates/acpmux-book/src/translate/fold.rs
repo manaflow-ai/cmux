@@ -26,7 +26,12 @@ impl Reply {
             }
         }
         if self.runs.len() == 8 {
-            return Err(super::Error::InvalidRecord("reply exceeds eight row runs"));
+            // Keep the bounded candidate state total: widening the final range
+            // leaves the intervening rows visible rather than dropping an answer.
+            if let Some(last) = self.runs.last_mut() {
+                last.1 = id;
+            }
+            return Ok(());
         }
         self.runs.push(Run(id, id));
         Ok(())

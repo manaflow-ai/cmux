@@ -153,6 +153,9 @@ pub struct State {
     dropped_fold_steers: u64,
     fold: fold::Fold,
     ignored_supersedes: u64,
+    invalid_records: u64,
+    dropped_tool_updates: u64,
+    forced_tools: BTreeMap<u64, u64>,
     turn_start_ms: u64,
     at_ms: u64,
 }
@@ -177,13 +180,15 @@ impl std::error::Error for Error {}
 pub fn translate(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error> {
     let mut next = state.clone();
     let mut out = input::Output::new(bytes);
-    match harness {
-        Harness::V1 => v1::line(&mut next, bytes, &mut out)?,
-        Harness::Claude => claude::line(&mut next, bytes, &mut out)?,
+    let result = match harness {
+        Harness::V1 => v1::line(&mut next, bytes, &mut out),
+        Harness::Claude => claude::line(&mut next, bytes, &mut out),
+    };
+    if result.is_err() {
+        state.invalid_records = state.invalid_records.saturating_add(1);
+        return Ok(Vec::new());
     }
     next.bound_open_rows(&mut out);
-    // Count live state, never settled history. A capacity failure is transactional.
-    next.checkpoint()?;
     *state = next;
     Ok(out.ops)
 }
@@ -202,6 +207,8 @@ pub struct Counters {
     pub dropped_fold_steers: u64,
     pub replayed_prompts: u64,
     pub ignored_supersedes: u64,
+    pub invalid_records: u64,
+    pub dropped_tool_updates: u64,
 }
 impl State {
     pub fn counters(&self) -> Counters {
@@ -211,6 +218,8 @@ impl State {
             dropped_fold_steers: self.dropped_fold_steers.saturating_add(self.fold.dropped_steers),
             replayed_prompts: self.replayed_prompts,
             ignored_supersedes: self.ignored_supersedes,
+            invalid_records: self.invalid_records,
+            dropped_tool_updates: self.dropped_tool_updates,
         }
     }
     pub fn last_row_id(&self) -> u64 {
@@ -294,7 +303,6 @@ impl State {
                 .fields
                 .insert("ms".into(), self.at_ms.saturating_sub(self.turn_start_ms).to_string());
             group.fields.insert("last".into(), self.last_id.to_string());
-            group.fields.entry("status".into()).or_insert_with(|| "\"completed\"".into());
             if let Ok(visible) = serde_json::to_string(&self.fold.out()) {
                 group.fields.insert("out".into(), visible);
             }
@@ -354,7 +362,9 @@ impl State {
                 prompt.row.fields.insert("hidden".into(), "true".into());
             }
             out.row(&prompt.row);
-            self.settled_prompt(hash);
+            if !hidden && prompt.has_body {
+                self.settled_prompt(hash);
+            }
         }
     }
     fn finish_steers(&mut self, except: Option<u64>, out: &mut input::Output<'_>) {
@@ -412,7 +422,6 @@ impl State {
         let already_steer =
             self.prompts.get(&hash).is_some_and(|p| p.row.fields.contains_key("steer"));
         if !already_steer {
-            self.close_text(out);
             self.fold.steer();
         }
         self.reserve_prompt(key, None, out)?;
@@ -444,7 +453,6 @@ impl State {
         let steer = steer || already_read;
         if steer {
             if !already_read {
-                self.close_text(out);
                 self.fold.steer();
             }
         } else {
@@ -492,7 +500,7 @@ impl State {
         } else {
             row.open = false;
             out.row(&row);
-            if !prompt_key.is_empty() {
+            if !prompt_key.is_empty() && body.is_some() {
                 self.settled_prompt(hash);
             }
         }
@@ -539,7 +547,7 @@ impl State {
         let mut stream = if let Some(s) = slot {
             s
         } else {
-            let group = Some(self.group(out)?);
+            let group = self.group.as_ref().map(|g| g.id);
             let mut row =
                 self.row(if thinking { RowKind::Thinking } else { RowKind::Text }, out)?;
             row.group = group;
@@ -600,7 +608,7 @@ impl State {
                 out.text(stream.row.id, &text[start..end], start);
                 start = end;
             }
-            if cut {
+            if cut && (ch != '\n' || end < text.len()) {
                 // Reserve the continuation now, even at the end of an event, so a
                 // notice arriving before the next chunk cannot take its place.
                 self.continue_text(&mut stream, ch != '\n', out)?;
@@ -653,7 +661,12 @@ impl State {
         loop {
             let mut ids: Vec<_> = self
                 .open_rows()
-                .filter(|r| !matches!(r.kind, RowKind::User | RowKind::Group))
+                .filter(|r| {
+                    !matches!(
+                        r.kind,
+                        RowKind::User | RowKind::Group | RowKind::Text | RowKind::Thinking
+                    )
+                })
                 .map(|r| r.id)
                 .collect();
             if ids.len() <= limit {
@@ -683,6 +696,14 @@ impl State {
                     if let Some(key) = key {
                         if let Some(mut row) = rows.remove(&key) {
                             row.open = false;
+                            if row.kind == RowKind::Tool {
+                                if self.forced_tools.len() == 64 {
+                                    if let Some(old) = self.forced_tools.keys().next().copied() {
+                                        self.forced_tools.remove(&old);
+                                    }
+                                }
+                                self.forced_tools.insert(prompt_hash(&key), row.id);
+                            }
                             out.row(&row);
                         }
                     }
@@ -716,7 +737,7 @@ impl State {
         let mut row = if let Some(row) = self.subs.remove(key) {
             row
         } else {
-            self.group(out)?;
+            // Background rows after a settled turn live outside that group.
             let mut row = self.row(RowKind::Sub, out)?;
             row.field("book", key)?;
             row
@@ -738,19 +759,29 @@ impl State {
         metadata: &[(&str, &str)],
         parts: &[(BodyField, bool, &serde_json::value::RawValue)],
         ended: bool,
+        starts: bool,
         out: &mut input::Output<'_>,
     ) -> Result<(), Error> {
         bounded(key)?;
+        let hash = prompt_hash(key);
+        if !starts && !self.tools.contains_key(key) {
+            if self.forced_tools.contains_key(&hash) {
+                self.dropped_tool_updates = self.dropped_tool_updates.saturating_add(1);
+            } else {
+                // An update for an unknown id retains the historical behavior:
+                // it may establish a row when no cap tombstone exists.
+                return self.tool(key, metadata, parts, ended, true, out);
+            }
+            return Ok(());
+        }
         if !self.tools.contains_key(key) {
-            self.close_text(out);
             self.fold.work();
         }
         let mut row = if let Some(row) = self.tools.remove(key) {
             row
         } else {
-            let group = self.group(out)?;
             let mut row = self.row(RowKind::Tool, out)?;
-            row.group = Some(group);
+            row.group = self.group.as_ref().map(|g| g.id);
             row.field("callId", key)?;
             if let Some(group) = &mut self.group {
                 let n = group.fields.get("calls").and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);

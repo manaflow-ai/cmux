@@ -41,6 +41,12 @@ fn v1_corpus() -> Vec<String> {
     ].iter().map(|body|format!("{{\"seq\":0,\"at\":1000,{body},\"cold\":\"{padding}\"}}\n")).collect()
 }
 fn line_at(harness: Harness, lines: &[String], n: usize) -> String {
+    if harness == Harness::Claude && n == 0 {
+        return format!(
+            "{{\"type\":\"user\",\"message\":{{\"content\":[{{\"type\":\"tool_result\",\"tool_use_id\":\"blob\",\"content\":\"{}\"}}]}}}}\n",
+            "b".repeat(5 * 1024 * 1024)
+        );
+    }
     let line = &lines[n % lines.len()];
     if harness == Harness::V1 {
         line.replacen("\"seq\":0", &format!("\"seq\":{}", n + 1), 1)
@@ -127,6 +133,18 @@ fn measure_child() {
         p95(&mut cold_all),
         checkpoint.len()
     );
+    if let Ok(path) = std::env::var("V2_GATE_OUT") {
+        let line = format!(
+            "{{\"name\":\"v2.pr02.translate_line\",\"small_p95\":{},\"god_p95\":{},\"unit\":\"ns\"}}\n",
+            best,
+            p95(&mut all)
+        );
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .and_then(|mut file| std::io::Write::write_all(&mut file, line.as_bytes()));
+    }
     assert!(peak * 1024 < 64_000_000, "resident peak {peak} KiB must be under 64 MB");
 }
 fn child(harness: &str, count: usize) -> Vec<u64> {
