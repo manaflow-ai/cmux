@@ -5171,7 +5171,8 @@ a.cv-sha:focus-visible {
   transition: opacity var(--agent-motion-hover) var(--agent-ease-out);
 }
 .cv-recap[data-terminal]:hover .cv-recap__close,
-.cv-recap[data-terminal]:focus-within .cv-recap__close {
+.cv-recap[data-terminal]:focus-within .cv-recap__close,
+.cv-recap[data-terminal]:has([data-popup-open]) .cv-recap__close {
   opacity: 1;
 }
 .cv-recap__text {
