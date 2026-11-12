@@ -67,19 +67,30 @@ fn target(key: &str, id: bool) -> Value {
 }
 
 /// The policy a start names when `--policy` is left out: the starter's effective one, from its
-/// `_acpmux/info` (`info`). A mode that skips every approval (`hub/start_mode.rs`
-/// `FULL_ACCESS_MODES`) is approve-all whatever the policy says; else the session's own policy,
-/// else the daemon default it follows (`enforcement.policy`). `None` when `info` names none.
+/// `_acpmux/info` (`info`). `enforcement.policy` is the policy it runs, capped to ask while full
+/// access is off on its machine (`hub/views.rs` `enforcement`); the stored `policy` is read only
+/// from an info that has no `enforcement`. A mode that skips every approval (`hub/start_mode.rs`
+/// `FULL_ACCESS_MODES`) is approve-all, unless full access is off there or the policy denies
+/// (deny-all, review): then the stricter one is sent. `None` when `info` names none.
 pub(crate) fn starter_policy(info: &Value) -> Option<String> {
-    let mode = info.get("currentModeId").and_then(Value::as_str);
-    if mode.is_some_and(|m| crate::hub::start_mode::FULL_ACCESS_MODES.contains(&m)) {
-        return Some("approve-all".to_owned());
-    }
-    info.get("policy")
+    use crate::config::PermissionPolicy;
+    let policy = info
+        .pointer("/enforcement/policy")
         .and_then(Value::as_str)
-        .or_else(|| info.pointer("/enforcement/policy").and_then(Value::as_str))
-        .filter(|p| p.parse::<crate::config::PermissionPolicy>().is_ok())
-        .map(str::to_owned)
+        .or_else(|| info.get("policy").and_then(Value::as_str))
+        .and_then(|p| p.parse::<PermissionPolicy>().ok());
+    let full_access_off = info
+        .pointer("/enforcement/detail")
+        .and_then(Value::as_str)
+        .is_some_and(|d| d.contains(crate::hub::views::FULL_ACCESS_OFF_NOTE));
+    let mode = info.get("currentModeId").and_then(Value::as_str);
+    let full_access_mode =
+        mode.is_some_and(|m| crate::hub::start_mode::FULL_ACCESS_MODES.contains(&m));
+    let denies = matches!(policy, Some(PermissionPolicy::DenyAll | PermissionPolicy::Review));
+    if full_access_mode && !full_access_off && !denies {
+        return Some(PermissionPolicy::ApproveAll.to_string());
+    }
+    policy.map(|p| p.to_string())
 }
 
 /// The refusal for a start that names no policy and runs in no session to take one from.
@@ -254,6 +265,25 @@ mod tests {
         assert_eq!(starter_policy(&default).as_deref(), Some("deny-all"));
         assert_eq!(starter_policy(&json!({"policy": "bogus"})), None);
         assert_eq!(starter_policy(&json!({})), None);
+    }
+
+    /// Review F1 (#41877): with full access off (MDM or a team policy) a stored approve-all runs
+    /// as ask, and a mode that skips approvals does not run; the start sends the stricter policy.
+    #[test]
+    fn full_access_off_sends_the_capped_policy() {
+        let off = crate::hub::views::FULL_ACCESS_OFF_NOTE;
+        let capped = json!({"policy": "approve-all", "currentModeId": "default",
+            "enforcement": {"policy": "ask",
+                            "detail": format!("claude mode default; acpmux policy ask{off}")}});
+        assert_eq!(starter_policy(&capped).as_deref(), Some("ask"));
+        let bypass_capped = json!({"policy": null, "currentModeId": "bypassPermissions",
+            "enforcement": {"policy": "ask",
+                            "detail": format!("claude mode bypassPermissions; acpmux policy ask{off}")}});
+        assert_eq!(starter_policy(&bypass_capped).as_deref(), Some("ask"));
+        // A policy that denies stays stricter than a full-access mode.
+        let deny = json!({"currentModeId": "bypassPermissions",
+                          "enforcement": {"policy": "deny-all", "detail": ""}});
+        assert_eq!(starter_policy(&deny).as_deref(), Some("deny-all"));
     }
 
     #[test]
