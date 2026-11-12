@@ -41,9 +41,9 @@ const PAGE: usize = 1_024;
 
 /// The segment the test watches, and what each reader gave from it before
 /// the pass came to it.
-struct Big {
+pub(super) struct Big {
     start: u64,
-    end: u64,
+    pub(super) end: u64,
     records: u64,
     subject: JournalSubject,
     whole: Answers,
@@ -163,7 +163,10 @@ fn observe_on_a_second_thread(
 
 /// A session whose first sealed segment has more than two holds of
 /// records, and that segment.
-fn session_with_a_big_segment(root: &Path, next_step: &mut u64) -> (Arc<Mux>, Vec<Agent>, Big) {
+pub(super) fn session_with_a_big_segment(
+    root: &Path,
+    next_step: &mut u64,
+) -> (Arc<Mux>, Vec<Agent>, Big) {
     let (mux, agents) = session(1, root);
     // No checkpoint and no tick while these are written: they seal as one
     // segment.
@@ -468,7 +471,8 @@ fn the_retention_pass_hands_each_hold_to_the_wal_syncer_with_the_registry_lock_f
     let held = count(|handoff| !handoff.lock_was_free);
     if held > 0 {
         problems.push(format!(
-            "at {held} of {} points a second thread did not get the registry lock after a hold              of the pass",
+            "at {held} of {} points a second thread did not get the registry lock after a hold \
+             of the pass",
             handoffs.len()
         ));
     }
@@ -476,7 +480,8 @@ fn the_retention_pass_hands_each_hold_to_the_wal_syncer_with_the_registry_lock_f
     if unrequested > 0 {
         let most = handoffs.iter().map(|handoff| handoff.unrequested).max().unwrap_or(0);
         problems.push(format!(
-            "at {unrequested} of {} points the pass was free to begin its next hold with commits              that no flush was asked for (up to {most}): the WAL takes each byte of a tick",
+            "at {unrequested} of {} points the pass was free to begin its next hold with commits \
+             that no flush was asked for (up to {most}): the WAL takes each byte of a tick",
             handoffs.len()
         ));
     }
@@ -484,7 +489,8 @@ fn the_retention_pass_hands_each_hold_to_the_wal_syncer_with_the_registry_lock_f
     if unhandled > 0 {
         let most = handoffs.iter().map(|handoff| handoff.unhandled).max().unwrap_or(0);
         problems.push(format!(
-            "at {unhandled} of {} points the pass was free to begin its next hold before the WAL              syncer took its commits (up to {most}): the pass did not wait for it",
+            "at {unhandled} of {} points the pass was free to begin its next hold before the WAL \
+             syncer took its commits (up to {most}): the pass did not wait for it",
             handoffs.len()
         ));
     }

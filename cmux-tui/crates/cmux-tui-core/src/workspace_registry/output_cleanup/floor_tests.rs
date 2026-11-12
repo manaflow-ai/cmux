@@ -856,6 +856,11 @@ fn retention_leaves_a_run_worth_a_rebuild_to_the_rebuild() {
 /// runs a rebuild worker (its swap would replace the kept file with a newer
 /// and smaller one), and retention deletes in place. The start after the
 /// file went runs the worker again.
+///
+/// The run here is the daily one: below the product's count of records that
+/// are worth a rebuild, so the delete in place has no bound (the bound of a
+/// run that is worth one:
+/// `one_start_deletes_in_place_at_most_a_rebuilds_worth_of_a_run_no_rebuild_can_take`).
 #[test]
 fn no_rebuild_worker_runs_beside_a_kept_file_and_one_runs_after() {
     let root = Root::new("held");
@@ -869,6 +874,9 @@ fn no_rebuild_worker_runs_beside_a_kept_file_and_one_runs_after() {
     let mux = open(&root.0);
     assert!(!mux.journal_rebuild_possible(), "a rebuild worker runs beside the kept file");
     let old_run = old_run_below_the_retention_floor(&mux);
+    // The product's count (`stage::PUT_RECORDS_WORTH_A_CLEANUP`).
+    mux.set_rebuild_records_limit_for_test(100_000);
+    assert!(old_run < 100_000, "the fixture is wrong: a run of {old_run} records");
     for _ in 0..24 {
         if mux.journal_pruned_through().unwrap() >= old_run {
             break;
@@ -897,32 +905,50 @@ fn no_rebuild_worker_runs_beside_a_kept_file_and_one_runs_after() {
     mux.shutdown();
 }
 
-/// The rebuild is not the only way down: when no rebuild can run in this
-/// start (here: an earlier attempt of this build failed, so no cleanup
-/// worker starts), the tick deletes the run in place, as it does a run too
-/// small for a rebuild.
+/// The rebuild is not the only way down: when no rebuild can run (here: an
+/// earlier attempt of this build failed, so no cleanup worker starts), the
+/// tick deletes the run in place, as it does a run too small for a rebuild.
+///
+/// A run that is worth a rebuild goes a bounded part a start (the test
+/// below). The starts here have room for two full segments each, and the
+/// run is gone after a few of them.
 #[test]
 fn retention_deletes_in_place_when_no_rebuild_can_run() {
+    /// Two segments of the most records a segment holds.
+    const ROOM: u64 = 2 * 1_024;
+    const STARTS: usize = 8;
     let root = Root::new("join-in-place");
     let mux = open(&root.0);
     let db_path = mux.workspace_registry.lock().unwrap().session_journal_database_path().unwrap();
     mux.shutdown();
     drop(mux);
     write_failure_marker(&db_path, "a test: no rebuild in this start");
-    let mux = open(&root.0);
+    let mut mux = open(&root.0);
     let old_run = old_run_below_the_retention_floor(&mux);
-    for _ in 0..24 {
-        if mux.journal_pruned_through().unwrap() >= old_run {
-            break;
+    let mut starts = 1;
+    let pruned_through = loop {
+        mux.set_rebuild_records_limit_for_test(ROOM);
+        for _ in 0..24 {
+            if mux.journal_pruned_through().unwrap() >= old_run {
+                break;
+            }
+            mux.run_journal_maintenance_for_test();
         }
-        mux.run_journal_maintenance_for_test();
-    }
-    let pruned_through = mux.journal_pruned_through().unwrap();
-    mux.shutdown();
-    drop(mux);
+        let pruned_through = mux.journal_pruned_through().unwrap();
+        mux.shutdown();
+        drop(mux);
+        if pruned_through >= old_run || starts == STARTS {
+            break pruned_through;
+        }
+        starts += 1;
+        mux = open(&root.0);
+        mux.stop_journal_maintenance();
+    };
+    println!("floor_tests in place: deleted through {pruned_through} in {starts} starts");
     assert!(
         pruned_through >= old_run,
-        "retention deleted through {pruned_through}; the old run ends at {old_run}"
+        "retention deleted through {pruned_through} in {starts} starts with room for {ROOM} \
+         records each; the old run ends at {old_run}"
     );
 }
 

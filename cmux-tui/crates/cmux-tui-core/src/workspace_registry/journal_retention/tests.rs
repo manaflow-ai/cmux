@@ -167,6 +167,19 @@ fn prune(registry: &mut WorkspaceRegistry) {
 }
 
 impl WorkspaceRegistry {
+    /// The whole delete of the oldest sealed segment at or below `floor`,
+    /// hold by hold as one retention pass does it. False when no segment
+    /// was deleted.
+    pub(super) fn prune_oldest_journal_segment(&mut self, floor: u64) -> anyhow::Result<bool> {
+        let Some(segment) = self.begin_journal_segment_prune(floor)? else { return Ok(false) };
+        loop {
+            while self.delete_pruned_segment_rows(&segment)? {}
+            if self.finish_journal_segment_prune(&segment)? {
+                return Ok(true);
+            }
+        }
+    }
+
     /// Test seam: makes every sealed segment older than the age window, as
     /// if the daemon had sealed it more than an hour ago. A test that seals
     /// and wants retention to delete in the same run calls it before the

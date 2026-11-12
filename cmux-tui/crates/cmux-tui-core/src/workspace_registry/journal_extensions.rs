@@ -438,10 +438,14 @@ pub(super) fn create_journal_extensions_schema(
          BEGIN
            SELECT RAISE(ABORT, 'journal segments are immutable');
          END;
-         CREATE TRIGGER IF NOT EXISTS journal_segments_reject_delete
+         DROP TRIGGER IF EXISTS journal_segments_reject_delete;
+         CREATE TRIGGER IF NOT EXISTS journal_segments_keep_above_floor
            BEFORE DELETE ON journal_segments
+           WHEN OLD.end_sequence
+                  > COALESCE((SELECT CAST(value AS INTEGER) FROM meta
+                              WHERE key = 'journal_retention_floor'), 0)
          BEGIN
-           SELECT RAISE(ABORT, 'journal segments are immutable');
+           SELECT RAISE(ABORT, 'journal segments are immutable above the retention floor');
          END;
          CREATE TRIGGER IF NOT EXISTS journal_content_blobs_reject_update
            BEFORE UPDATE ON journal_content_blobs

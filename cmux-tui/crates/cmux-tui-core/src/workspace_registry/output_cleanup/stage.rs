@@ -172,6 +172,26 @@ pub(super) fn rebuild_owed(source: &Connection, floor: u64) -> anyhow::Result<bo
     Ok(cut > 0 && below >= put_records_worth_a_cleanup())
 }
 
+/// The records the retention pass may still delete in place in this start,
+/// after `deleted` of them; `None` when it has no bound.
+///
+/// A run that is worth a rebuild ([`rebuild_owed`]) is the rebuild's work.
+/// When no rebuild takes it in this start, the pass is the only way down,
+/// and a delete in place writes each page of each row two times (the WAL,
+/// then the checkpoint): at the size of a registry that is worth a rebuild,
+/// that is hours and tens of gigabytes of writes on a person's disk. So one
+/// start deletes in place at most as many records as are worth a rebuild
+/// ([`PUT_RECORDS_WORTH_A_CLEANUP`]), in whole segments. What then stays is
+/// for the next start, which tries the rebuild again. A run below that count
+/// is deleted in place with no bound: it is the daily path.
+pub(super) fn in_place_room(
+    source: &Connection,
+    floor: u64,
+    deleted: u64,
+) -> anyhow::Result<Option<u64>> {
+    Ok(rebuild_owed(source, floor)?.then(|| put_records_worth_a_cleanup().saturating_sub(deleted)))
+}
+
 /// The cut this staging file is built at: the one it recorded when that is
 /// at or below `cut` (leaving out less than the floor allows is safe), else
 /// `None`: the file left out records the caller now keeps.

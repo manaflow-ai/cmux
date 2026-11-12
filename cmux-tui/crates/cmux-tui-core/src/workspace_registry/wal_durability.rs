@@ -43,6 +43,17 @@
 //! fleet M4 Pro, one to three of them on every create and close reply, and
 //! every other request that needed the lock waited behind them.
 //!
+//! A PASSIVE checkpoint also cannot catch up with a writer that is faster
+//! than the copy: each look copies the frames that were there when it began,
+//! and a write restarts the WAL only when all of it is copied. A request is
+//! never slowed for that. A BACKGROUND writer that nobody waits for (the
+//! journal retention pass) pays for the checkpoint of what it wrote before
+//! it writes more ([`WalDurability::checkpoint_and_wait`]), as SQLite's own
+//! automatic checkpoint makes each writer do
+//! (<https://www.sqlite.org/wal.html>, "Performance Considerations"), and it
+//! adds nothing to a WAL that is past the limit with frames not yet copied
+//! ([`WalRoom`]).
+//!
 //! The thread sleeps on a condition variable while nothing is owed (no
 //! timer, no wakeups at idle).
 
@@ -50,7 +61,7 @@ use std::cell::RefCell;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rusqlite::Connection;
 
@@ -78,6 +89,15 @@ struct SyncState {
     requested: u64,
     /// Announced commits the syncer has looked at (checkpointed or not).
     handled: u64,
+    /// A background writer waits for a look that begins after it asked
+    /// ([`WalDurability::checkpoint_and_wait`]): the syncer looks with or
+    /// without a new commit, and clears this when such a look ended. No
+    /// request sets it.
+    look_wanted: bool,
+    /// Frames the last ended look left in the WAL and not copied into the
+    /// database: commits that came while it copied, or frames a reader's
+    /// snapshot holds. 0 after a look of a small WAL (no checkpoint).
+    uncopied_frames: u64,
     /// Commits a caller must see on disk ([`WalDurability::wait_durable`]).
     forced: u64,
     /// The database closed: the thread flushes what is owed and ends.
@@ -113,6 +133,26 @@ thread_local! {
     /// The syncer of the commit in progress on this thread: the commit hook
     /// sets it before SQLite writes the frames, the WAL hook takes it after.
     static COMMITTING: RefCell<Option<Arc<Shared>>> = const { RefCell::new(None) };
+}
+
+/// What a background writer may do after
+/// [`WalDurability::checkpoint_and_wait`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WalRoom {
+    /// It may write more. The syncer's look at its commits ended in time,
+    /// and the WAL file is at or below [`WAL_SIZE_LIMIT_BYTES`], or that
+    /// look copied each frame (the next write then restarts the WAL and
+    /// SQLite cuts the file to the limit).
+    Room,
+    /// It must not write more now: more frames would only make the file
+    /// larger. The look did not end in time (`looked` is false), or the
+    /// file is past the limit with `uncopied_frames` not yet in the
+    /// database: other writers are faster than the copy, or a reader holds
+    /// an old snapshot.
+    Full { looked: bool, file_bytes: u64, uncopied_frames: u64 },
+    /// No syncer runs (it did not start, or the database closes): nothing
+    /// checkpoints this WAL before the close.
+    NoSyncer,
 }
 
 /// A view of one database's syncer (see the module docs): its commit
@@ -270,6 +310,40 @@ impl WalDurability {
         request_flush(&self.shared);
     }
 
+    /// For a BACKGROUND writer only, with no registry lock held: asks the
+    /// syncer for a look at the WAL (a PASSIVE checkpoint once it is large)
+    /// and waits until a look that began after this call ended, at most
+    /// `timeout`. That look covers every commit made before the call. It
+    /// runs with no new commit too: the look before it can have left frames
+    /// that a reader held, and an idle daemon makes no commit that would ask
+    /// again. Never on a request's path: no request waits for the disk
+    /// (module docs).
+    pub(crate) fn checkpoint_and_wait(&self, timeout: Duration) -> WalRoom {
+        let deadline = Instant::now() + timeout;
+        let mut state = self.shared.state.lock().recover_poison();
+        state.requested = state.requested.max(state.committed);
+        state.look_wanted = true;
+        self.shared.changed.notify_all();
+        while state.look_wanted && !state.stopping {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                break;
+            }
+            state = self.shared.changed.wait_timeout(state, left).recover_poison().0;
+        }
+        if state.stopping {
+            return WalRoom::NoSyncer;
+        }
+        let (looked, uncopied_frames) = (!state.look_wanted, state.uncopied_frames);
+        drop(state);
+        let file_bytes = wal_file_len(&self.shared);
+        if looked && (file_bytes <= WAL_SIZE_LIMIT_BYTES || uncopied_frames == 0) {
+            WalRoom::Room
+        } else {
+            WalRoom::Full { looked, file_bytes, uncopied_frames }
+        }
+    }
+
     /// (committed, synced) commit counts, for `server-stats` `write_path`.
     pub(crate) fn counts(&self) -> (u64, u64) {
         let state = self.shared.state.lock().recover_poison();
@@ -337,7 +411,11 @@ fn run(shared: &Shared) {
     let mut checkpointer: Option<Connection> = None;
     let mut state = shared.state.lock().recover_poison();
     loop {
-        while state.requested <= state.handled && state.forced <= state.synced && !state.stopping {
+        while state.requested <= state.handled
+            && state.forced <= state.synced
+            && !state.stopping
+            && !state.look_wanted
+        {
             state = shared.changed.wait(state).recover_poison();
         }
         if state.stopping && state.committed <= state.synced {
@@ -346,30 +424,75 @@ fn run(shared: &Shared) {
         let force = state.stopping || state.forced > state.synced;
         let target = if force { state.committed } else { state.requested };
         state.handled = state.handled.max(state.requested);
+        // A background writer that asked before this look began.
+        let wanted = state.look_wanted;
         drop(state);
         // A forced flush syncs the WAL; otherwise the WAL reaches the disk
         // with its checkpoint (SQLite syncs it first), or at close.
-        let synced = if force {
+        let look = if force {
             flush(shared);
-            true
+            None
         } else {
-            checkpoint_if_large(shared, &mut checkpointer)
+            Some(checkpoint_if_large(shared, &mut checkpointer))
         };
         state = shared.state.lock().recover_poison();
-        if synced {
+        // The waiters are `wait_durable` (tests) and `checkpoint_and_wait`
+        // (the retention pass): a wake only when one of them can go on.
+        let mut wake = false;
+        if matches!(look, None | Some(Look::Copied { .. })) {
             state.synced = state.synced.max(target);
+            wake = true;
+        }
+        if let Some(look) = look {
+            state.uncopied_frames = look.uncopied(state.wal_frames);
+            if wanted {
+                state.look_wanted = false;
+                wake = true;
+            }
+        }
+        if wake {
             shared.changed.notify_all();
+        }
+    }
+}
+
+/// What one look of the syncer at the WAL did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Look {
+    /// The WAL was at or below [`CHECKPOINT_BYTES`]: no checkpoint.
+    Small,
+    /// A PASSIVE checkpoint ran: the WAL held `frames` when it began and
+    /// `copied` of them are in the database now.
+    Copied { frames: u64, copied: u64 },
+    /// The checkpoint did not run (its connection or the statement failed).
+    Failed,
+}
+
+impl Look {
+    /// Frames in the WAL and not in the database after this look, when the
+    /// WAL holds `frames_now` (the count after the newest commit).
+    fn uncopied(self, frames_now: u64) -> u64 {
+        match self {
+            Self::Small => 0,
+            // No commit of this process yet: the look saw what an earlier
+            // run left.
+            Self::Copied { frames, copied } if frames_now == 0 => frames.saturating_sub(copied),
+            // Fewer frames than the look saw: a write restarted the WAL
+            // while it ran, and each frame there now is new.
+            Self::Copied { frames, .. } if frames_now < frames => frames_now,
+            Self::Copied { copied, .. } => frames_now.saturating_sub(copied),
+            Self::Failed => frames_now,
         }
     }
 }
 
 /// A PASSIVE checkpoint on the syncer's own connection once the WAL is
 /// large: it copies what it can without waiting for a writer or reader.
-/// True when a checkpoint ran (it synced the WAL before copying it).
-fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -> bool {
+/// [`Look::Copied`] when a checkpoint ran (it synced the WAL before copying it).
+fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -> Look {
     let size = wal_file_len(shared);
     if size <= CHECKPOINT_BYTES {
-        return false;
+        return Look::Small;
     }
     if checkpointer.is_none() {
         *checkpointer = super::open_registry_database_with_flags(
@@ -384,12 +507,21 @@ fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -
         .map_err(|error| eprintln!("cmux-tui: open the WAL checkpointer failed: {error:#}"))
         .ok();
     }
-    let Some(connection) = checkpointer.as_ref() else { return false };
-    match connection.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |_| Ok(())) {
-        Ok(()) => true,
+    let Some(connection) = checkpointer.as_ref() else { return Look::Failed };
+    // The row is (busy, frames in the WAL, frames copied into the database).
+    // A statement that ran is a checkpoint that ran, as before: a number
+    // that cannot be read counts as "nothing copied".
+    let row = connection.query_row("PRAGMA wal_checkpoint(PASSIVE)", [], |row| {
+        Ok((row.get::<_, i64>(1).unwrap_or(0), row.get::<_, i64>(2).unwrap_or(0)))
+    });
+    match row {
+        Ok((frames, copied)) => Look::Copied {
+            frames: u64::try_from(frames).unwrap_or(0),
+            copied: u64::try_from(copied).unwrap_or(0),
+        },
         Err(error) => {
             eprintln!("cmux-tui: WAL checkpoint failed: {error}");
-            false
+            Look::Failed
         }
     }
 }
@@ -527,6 +659,43 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// No background writer asks here (`checkpoint_and_wait` is not called),
+    /// so the syncer's wait has the same two reasons to end as before that
+    /// function came: a request that asked, or a forced flush. Commits alone
+    /// do not wake it, before a request and after one.
+    #[test]
+    fn a_syncer_that_no_background_writer_asks_looks_only_when_a_request_asks() {
+        let (dir, connection) = database("no-look-wanted");
+        let durability = WalDurability::attach(&connection, &dir.join("r.sqlite"), None, false);
+        for value in 0..5 {
+            connection.execute("INSERT INTO t VALUES (?1)", [value]).unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(150));
+        assert_eq!(
+            durability.unhandled_commits(),
+            5,
+            "the syncer looked at commits that no request asked it to flush"
+        );
+        durability.request_flush();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while durability.unhandled_commits() > 0 && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(durability.unhandled_commits(), 0, "the syncer did not take the request");
+        for value in 5..8 {
+            connection.execute("INSERT INTO t VALUES (?1)", [value]).unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(150));
+        assert_eq!(
+            durability.unhandled_commits(),
+            3,
+            "the syncer looked again with no request after its first look"
+        );
+        assert_eq!(durability.counts(), (8, 0), "a small WAL was synced with no forced flush");
+        drop(connection);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_commit_does_not_wait_for_a_slow_flush() {
         let (dir, connection) = database("slow");
@@ -619,6 +788,90 @@ mod tests {
         let (now, high_water) = durability.wal_file_bytes();
         assert_eq!(now, after);
         assert!(high_water >= pinned, "a high-water mark of {high_water} bytes, {pinned} pinned");
+        drop(connection);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The journal retention pass writes megabytes with no request between
+    /// its commits. With one flush request at its end the WAL file took each
+    /// of those bytes (284 MB for one tick on a generated registry). A writer
+    /// that waits for the syncer's look after each commit keeps the file at
+    /// the checkpoint size class: the look copies all, the next commit
+    /// restarts the WAL.
+    #[test]
+    fn a_background_writer_that_waits_for_its_checkpoint_keeps_the_wal_small() {
+        let (dir, connection) = database("background-writer");
+        let path = dir.join("r.sqlite");
+        let durability = WalDurability::attach(&connection, &path, None, false);
+        let blob = vec![7u8; 1024 * 1024];
+        // Three times the limit, in commits of 2 MiB.
+        let commits = 3 * WAL_SIZE_LIMIT_BYTES / (2 * blob.len() as u64);
+        for commit in 0..commits {
+            let tx = connection.unchecked_transaction().unwrap();
+            tx.execute("INSERT INTO t VALUES (?1)", [&blob]).unwrap();
+            tx.execute("INSERT INTO t VALUES (?1)", [&blob]).unwrap();
+            tx.commit().unwrap();
+            let room = durability.checkpoint_and_wait(Duration::from_secs(30));
+            assert_eq!(room, WalRoom::Room, "commit {commit}: no room with one writer");
+        }
+        let (_, high_water) = durability.wal_file_bytes();
+        // One look can find the WAL just below CHECKPOINT_BYTES and leave
+        // it; the next commit then adds to it.
+        let bound = 2 * CHECKPOINT_BYTES + 2 * (2 * blob.len() as u64 + 64 * 1024);
+        assert!(
+            high_water <= bound,
+            "the WAL file reached {high_water} bytes (bound {bound}) while {commits} commits of \
+             2 MiB each waited for their checkpoint"
+        );
+        drop(connection);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A reader's snapshot holds the WAL past the limit: the look cannot copy
+    /// past it, and a background writer has no room until the reader ends.
+    ///
+    /// Then the idle case: the reader is gone and nobody commits, so no
+    /// request asks the syncer again. The writer's own question starts a look
+    /// that copies each frame; the file keeps its size (SQLite does not cut a
+    /// WAL at a checkpoint), and the writer has room all the same: its next
+    /// commit restarts the WAL and SQLite cuts the file to the limit. A gate
+    /// on the file's size alone would keep that writer out for ever.
+    #[test]
+    fn a_background_writer_has_no_room_while_a_reader_holds_a_wal_past_the_limit() {
+        let (dir, connection) = database("background-no-room");
+        let path = dir.join("r.sqlite");
+        let durability = WalDurability::attach(&connection, &path, None, false);
+        let reader = Connection::open(&path).unwrap();
+        reader.execute_batch("BEGIN").unwrap();
+        let _: i64 = reader.query_row("SELECT COUNT(*) FROM t", [], |row| row.get(0)).unwrap();
+        let blob = vec![7u8; 1024 * 1024];
+        for _ in 0..(WAL_SIZE_LIMIT_BYTES / blob.len() as u64 + 8) {
+            connection.execute("INSERT INTO t VALUES (?1)", [&blob]).unwrap();
+        }
+        let held = durability.checkpoint_and_wait(Duration::from_secs(30));
+        assert!(
+            matches!(
+                held,
+                WalRoom::Full { looked: true, file_bytes, uncopied_frames }
+                    if file_bytes > WAL_SIZE_LIMIT_BYTES && uncopied_frames > 0
+            ),
+            "a look that ended, a file past the limit and frames not copied: {held:?}"
+        );
+        reader.execute_batch("COMMIT").unwrap();
+        drop(reader);
+        let free = durability.checkpoint_and_wait(Duration::from_secs(30));
+        assert_eq!(free, WalRoom::Room, "no room after the reader ended, with no new commit");
+        let (still, _) = durability.wal_file_bytes();
+        assert!(
+            still > WAL_SIZE_LIMIT_BYTES,
+            "the setup: the file keeps its size until a write restarts the WAL: {still} bytes"
+        );
+        connection.execute("INSERT INTO t VALUES (1)", []).unwrap();
+        let (cut, _) = durability.wal_file_bytes();
+        assert!(
+            cut <= WAL_SIZE_LIMIT_BYTES,
+            "the WAL file is {cut} bytes after the first commit that follows the whole copy"
+        );
         drop(connection);
         let _ = std::fs::remove_dir_all(&dir);
     }

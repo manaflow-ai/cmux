@@ -5,7 +5,29 @@
 //! records, 2.02 GB of segments, 3.30 GB of subject index, 0.33 GB of
 //! ingress receipts, 0.31 GB of event index). The maintenance worker now
 //! deletes sealed segments at or below a floor, with every row that names
-//! their records, a segment per transaction.
+//! their records.
+//!
+//! One segment goes in more than one transaction, each in its own hold of
+//! the registry lock, so a request never waits for a whole segment:
+//!
+//! 1. [`WorkspaceRegistry::begin_journal_segment_prune`] writes the reducer
+//!    bases and moves the floor to the segment's end. It deletes nothing.
+//! 2. [`WorkspaceRegistry::delete_pruned_segment_rows`] deletes the rows of
+//!    [`RETENTION_RECORDS_PER_HOLD`] records, the lowest first, one hold a
+//!    call.
+//! 3. [`WorkspaceRegistry::finish_journal_segment_prune`] deletes the
+//!    segment's row with its content, when no row of its records is left.
+//!
+//! Between two of those the segment is at or below the floor with rows for
+//! a part of its records. No reader may take those rows for the segment:
+//! a subject page starts above the floor, and a kind-scoped read decodes
+//! such a segment from its content (which is whole until step 3). A kill
+//! between two transactions leaves that same state; the next pass selects
+//! the segment again by its end and goes on. No marker is stored.
+//!
+//! The delete triggers of `journal_segments` and `journal_subject_index`
+//! refuse a row above `meta.journal_retention_floor` and let a row at or
+//! below it go, so the pass changes no schema.
 //!
 //! The floor is the end of a sealed segment that no reader still needs:
 //! at or below the oldest kept checkpoint (a restore preview reads after
@@ -62,6 +84,60 @@ const MIN_RETAINED_AGE_MS: u64 = 60 * 60 * 1_000;
 /// segment's seal time is stored after its content, so SQLite walks the
 /// content's pages to read it.
 const MAX_AGE_RETAINED_RECORDS: u64 = 65_536;
+
+/// Records whose rows one hold of the registry lock deletes
+/// ([`WorkspaceRegistry::delete_pruned_segment_rows`]): a quarter of a full
+/// segment. A full segment in one hold was up to 2.2 s of the registry lock
+/// on a busy Mac (the delete's own page writes: about 12 subject rows a
+/// record, each in two B-trees).
+pub(crate) const RETENTION_RECORDS_PER_HOLD: u64 = 256;
+
+/// The tables with a row for each record, and their sequence column.
+const PRUNED_ROW_TABLES: [(&str, &str); 4] = [
+    ("journal_segment_reducer_records", "sequence"),
+    ("journal_subject_index", "sequence"),
+    ("journal_event_index", "sequence"),
+    ("journal_ingress_receipts", "journal_sequence"),
+];
+
+/// A sealed segment whose delete began: the floor is at its `end`.
+#[derive(Debug)]
+pub(crate) struct PrunedSegment {
+    segment_id: String,
+    end: u64,
+    records: u64,
+}
+
+impl PrunedSegment {
+    /// The records the segment holds.
+    pub(crate) fn records(&self) -> u64 {
+        self.records
+    }
+}
+
+/// The oldest sealed segment that ends at or below `floor`, never the
+/// newest one: the next one the retention pass deletes.
+fn oldest_segment_at_or_below(
+    connection: &Connection,
+    floor: u64,
+) -> anyhow::Result<Option<PrunedSegment>> {
+    let segment = connection
+        .query_row(
+            "SELECT segment_id, end_sequence, record_count FROM journal_segments
+             WHERE end_sequence <= ?1
+               AND end_sequence < (SELECT MAX(end_sequence) FROM journal_segments)
+             ORDER BY end_sequence ASC LIMIT 1",
+            [i64::try_from(floor)?],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?)),
+        )
+        .optional()?;
+    let Some((segment_id, end, records)) = segment else { return Ok(None) };
+    Ok(Some(PrunedSegment {
+        segment_id,
+        end: u64::try_from(end)?,
+        records: u64::try_from(records)?,
+    }))
+}
 
 /// The retention floor of the registry behind `connection`: every sealed
 /// segment that ends at or below it, and every index, receipt and kept
@@ -275,65 +351,126 @@ impl WorkspaceRegistry {
         Ok(kept.is_some())
     }
 
-    /// Deletes the oldest sealed segment that ends at or below `floor`
-    /// (never the newest one) with the rows of its records: kept reducer
-    /// records, segment kinds, subject index, event index and ingress
-    /// receipts, in one transaction of at most one segment (1,024 records).
-    /// False when no such segment is left.
-    pub(crate) fn prune_oldest_journal_segment(&mut self, floor: u64) -> anyhow::Result<bool> {
+    /// The segment that [`Self::begin_journal_segment_prune`] takes at
+    /// `floor`, with its record count. It reads only: the pass asks before
+    /// it writes, so a tick that may not write (no room in the WAL, or no
+    /// room left for a delete in place in this start) begins no delete.
+    pub(crate) fn journal_segment_to_prune(
+        &self,
+        floor: u64,
+    ) -> anyhow::Result<Option<PrunedSegment>> {
+        oldest_segment_at_or_below(&self.connection.get(), floor)
+    }
+
+    /// The first hold of the delete of one segment: the oldest sealed
+    /// segment that ends at or below `floor` (never the newest one). It
+    /// writes the reducer bases and moves the floor to the segment's end,
+    /// and deletes no row. From this commit each reader answers from the
+    /// floor (see the module doc), so the rows can go in more than one
+    /// transaction. `None` when no such segment is left, or when a reducer
+    /// can have no base at that floor.
+    pub(crate) fn begin_journal_segment_prune(
+        &mut self,
+        floor: u64,
+    ) -> anyhow::Result<Option<PrunedSegment>> {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
-        let segment = tx
-            .query_row(
-                "SELECT segment_id, end_sequence FROM journal_segments
-                 WHERE end_sequence <= ?1
-                   AND end_sequence < (SELECT MAX(end_sequence) FROM journal_segments)
-                 ORDER BY end_sequence ASC LIMIT 1",
-                [i64::try_from(floor)?],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
-            )
-            .optional()?;
-        let Some((segment_id, end)) = segment else { return Ok(false) };
+        let Some(segment) = oldest_segment_at_or_below(&tx, floor)? else { return Ok(None) };
         // The saved reducer states are the only copy of what this delete
         // takes from the journal: each gets its base first. A state that
         // cannot be a base (another version, a rebuild owed) leaves the
         // segment: `retention_limit` gives no floor for such a state, so
         // only a caller with a floor of its own comes here.
-        if !save_reducer_bases(&tx, "main", u64::try_from(end)?)? {
-            return Ok(false);
+        if !save_reducer_bases(&tx, "main", segment.end)? {
+            return Ok(None);
         }
-        // The tables refuse deletes by trigger; as the seal does for the
-        // live rows it archives, this transaction alone may delete.
-        tx.execute_batch(
-            "DROP TRIGGER IF EXISTS journal_segments_reject_delete;
-             DROP TRIGGER IF EXISTS journal_subject_index_reject_delete;",
-        )?;
-        for table in
-            ["journal_segment_reducer_records", "journal_subject_index", "journal_event_index"]
-        {
-            tx.execute(&format!("DELETE FROM {table} WHERE sequence <= ?1"), [end])?;
+        note_journal_pruned_through(&tx, segment.end)?;
+        tx.commit()?;
+        Ok(Some(segment))
+    }
+
+    /// One hold of the rows of `segment`: each kept reducer record, subject
+    /// row, event index row and ingress receipt of the
+    /// [`RETENTION_RECORDS_PER_HOLD`] lowest records that still have a row
+    /// at or below the segment's end, in one transaction. True when rows of
+    /// more records can be left. The delete triggers let these rows go: the
+    /// floor is at or above them since [`Self::begin_journal_segment_prune`].
+    pub(crate) fn delete_pruned_segment_rows(
+        &mut self,
+        segment: &PrunedSegment,
+    ) -> anyhow::Result<bool> {
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
+        let end = i64::try_from(segment.end)?;
+        // The last record of this hold: each table gives its lowest
+        // sequences from its own index, so the read is of this hold's rows
+        // and not of the segment's.
+        let last: Option<i64> = tx
+            .prepare_cached(
+                "SELECT sequence FROM (
+                   SELECT sequence FROM (
+                     SELECT sequence FROM journal_segment_reducer_records
+                     WHERE sequence <= ?1 ORDER BY sequence LIMIT ?2)
+                   UNION
+                   SELECT sequence FROM (
+                     SELECT DISTINCT sequence FROM journal_subject_index
+                     WHERE sequence <= ?1 ORDER BY sequence LIMIT ?2)
+                   UNION
+                   SELECT sequence FROM (
+                     SELECT sequence FROM journal_event_index
+                     WHERE sequence <= ?1 ORDER BY sequence LIMIT ?2)
+                   UNION
+                   SELECT journal_sequence FROM (
+                     SELECT journal_sequence FROM journal_ingress_receipts
+                     WHERE journal_sequence <= ?1 ORDER BY journal_sequence LIMIT ?2)
+                 ) ORDER BY sequence LIMIT 1 OFFSET ?2 - 1",
+            )?
+            .query_row(params![end, i64::try_from(RETENTION_RECORDS_PER_HOLD)?], |row| row.get(0))
+            .optional()?;
+        // Fewer records than a hold takes: all of them, through the end.
+        let through = last.unwrap_or(end);
+        for (table, column) in PRUNED_ROW_TABLES {
+            tx.prepare_cached(&format!("DELETE FROM {table} WHERE {column} <= ?1"))?
+                .execute([through])?;
         }
-        tx.execute("DELETE FROM journal_ingress_receipts WHERE journal_sequence <= ?1", [end])?;
-        tx.execute("DELETE FROM journal_segment_kinds WHERE segment_id = ?1", [&segment_id])?;
-        tx.execute("DELETE FROM journal_segments WHERE segment_id = ?1", [&segment_id])?;
-        note_journal_pruned_through(&tx, u64::try_from(end)?)?;
-        tx.execute_batch(
-            "CREATE TRIGGER IF NOT EXISTS journal_segments_reject_delete
-               BEFORE DELETE ON journal_segments
-             BEGIN
-               SELECT RAISE(ABORT, 'journal segments are immutable');
-             END;
-             CREATE TRIGGER IF NOT EXISTS journal_subject_index_reject_delete
-               BEFORE DELETE ON journal_subject_index
-             BEGIN
-               SELECT RAISE(ABORT, 'journal subject index is append-only');
-             END;",
+        tx.commit()?;
+        Ok(through < end)
+    }
+
+    /// The last hold of the delete of `segment`: its kind map and its row
+    /// with the content, when no row of a record at or below its end is
+    /// left. False when a row is left (the backfill of kept reducer records
+    /// can write rows of a segment again between two holds): the caller
+    /// deletes rows again, and the content stays until then, so a kept row
+    /// never outlives the segment it is a copy of.
+    pub(crate) fn finish_journal_segment_prune(
+        &mut self,
+        segment: &PrunedSegment,
+    ) -> anyhow::Result<bool> {
+        let db = self.connection.get();
+        let tx = db.unchecked_transaction()?;
+        let end = i64::try_from(segment.end)?;
+        for (table, column) in PRUNED_ROW_TABLES {
+            let left = tx
+                .prepare_cached(&format!("SELECT 1 FROM {table} WHERE {column} <= ?1 LIMIT 1"))?
+                .query_row([end], |_| Ok(()))
+                .optional()?;
+            if left.is_some() {
+                return Ok(false);
+            }
+        }
+        tx.execute(
+            "DELETE FROM journal_segment_kinds WHERE segment_id = ?1",
+            [&segment.segment_id],
         )?;
+        tx.execute("DELETE FROM journal_segments WHERE segment_id = ?1", [&segment.segment_id])?;
         tx.commit()?;
         Ok(true)
     }
 }
 
+#[cfg(test)]
+mod hold_tests;
 #[cfg(test)]
 mod part_deleted_tests;
 #[cfg(test)]

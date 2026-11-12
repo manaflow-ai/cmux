@@ -45,6 +45,14 @@ pub(super) struct OutputCleanupState {
     /// Retention ticks of this start that waited for the agent history fold
     /// before they named a rebuild floor.
     fold_waits: std::sync::atomic::AtomicU32,
+    /// Records the retention pass deleted in place in this start while a
+    /// rebuild was owed that no worker of this start can make: the pass
+    /// stops at the count of records that are worth a rebuild
+    /// (`journal_in_place_room`), and the next start tries the rebuild again.
+    in_place_records: AtomicU64,
+    /// Retention ticks of this start that began no hold because the WAL
+    /// had no room for the frames of the pass (`wal_durability::WalRoom`).
+    no_wal_room_ticks: std::sync::atomic::AtomicU32,
     /// A test's count of records that are worth a rebuild (0: the
     /// product's), for the worker thread of that test's daemon.
     #[cfg(test)]
@@ -192,6 +200,28 @@ impl Mux {
     /// Counts one more such tick; the count with it.
     pub(super) fn note_journal_rebuild_fold_wait(&self) -> u32 {
         self.output_cleanup.fold_waits.fetch_add(1, Ordering::AcqRel).saturating_add(1)
+    }
+
+    /// Records the retention pass deleted in place in this start under the
+    /// bound of a rebuild that is owed and cannot run.
+    pub(super) fn journal_in_place_records(&self) -> u64 {
+        self.output_cleanup.in_place_records.load(Ordering::Acquire)
+    }
+
+    /// Counts the records of one more segment deleted under that bound.
+    pub(super) fn note_journal_in_place_records(&self, records: u64) {
+        self.output_cleanup.in_place_records.fetch_add(records, Ordering::AcqRel);
+    }
+
+    /// Retention ticks of this start that began no hold for want of WAL room.
+    #[cfg(test)]
+    pub(crate) fn journal_no_wal_room_ticks(&self) -> u32 {
+        self.output_cleanup.no_wal_room_ticks.load(Ordering::Acquire)
+    }
+
+    /// Counts one more such tick; the count with it.
+    pub(super) fn note_journal_no_wal_room_tick(&self) -> u32 {
+        self.output_cleanup.no_wal_room_ticks.fetch_add(1, Ordering::AcqRel).saturating_add(1)
     }
 
     /// Names the retention floor for the cleanup worker, which builds the

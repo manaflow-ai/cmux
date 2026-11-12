@@ -501,6 +501,18 @@ impl WorkspaceRegistry {
         stage::rebuild_owed(&self.connection.get(), floor)
     }
 
+    /// The records the retention pass may still delete in place in this
+    /// start, after `deleted` of them, when no rebuild of this start takes
+    /// the run at or below `floor` (`stage::in_place_room`); `None`: no
+    /// bound, the run is not worth a rebuild.
+    pub(crate) fn journal_in_place_room(
+        &self,
+        floor: u64,
+        deleted: u64,
+    ) -> anyhow::Result<Option<u64>> {
+        stage::in_place_room(&self.connection.get(), floor, deleted)
+    }
+
     /// Records that this registry holds no stored terminal output.
     pub(crate) fn mark_output_cleanup_done(&self, value: &str) -> anyhow::Result<()> {
         self.connection.get().execute(

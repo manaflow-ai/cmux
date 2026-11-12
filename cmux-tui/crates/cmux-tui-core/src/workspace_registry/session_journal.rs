@@ -570,10 +570,14 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
          BEGIN
            SELECT RAISE(ABORT, 'journal subject index is append-only');
          END;
-         CREATE TRIGGER IF NOT EXISTS journal_subject_index_reject_delete
+         DROP TRIGGER IF EXISTS journal_subject_index_reject_delete;
+         CREATE TRIGGER IF NOT EXISTS journal_subject_index_keep_above_floor
            BEFORE DELETE ON journal_subject_index
+           WHEN OLD.sequence
+                  > COALESCE((SELECT CAST(value AS INTEGER) FROM meta
+                              WHERE key = 'journal_retention_floor'), 0)
          BEGIN
-           SELECT RAISE(ABORT, 'journal subject index is append-only');
+           SELECT RAISE(ABORT, 'journal subject index is append-only above the retention floor');
          END;",
     )?;
     // Every append writes its event index row in the same transaction, so an
@@ -1880,7 +1884,9 @@ fn query_session_journal_after_subjects(
            INDEXED BY journal_subject_index_by_subject_sequence
            ON indexed.kind = json_extract(requested.value, '$.kind')
           AND indexed.id = json_extract(requested.value, '$.id')
-         WHERE indexed.sequence > ?2
+         WHERE indexed.sequence > MAX(?2, COALESCE(
+                 (SELECT CAST(value AS INTEGER) FROM meta
+                  WHERE key = 'journal_retention_floor'), 0))
          ORDER BY indexed.sequence ASC
          LIMIT ?3",
     )?;

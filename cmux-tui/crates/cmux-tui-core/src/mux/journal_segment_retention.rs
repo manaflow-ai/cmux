@@ -3,18 +3,27 @@
 //! `cmux-journal-maintenance`, never on a request thread.
 
 use std::sync::PoisonError;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use super::Mux;
 use super::journal_maintenance::{
     JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS, JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK,
+    journal_maintenance_interval,
 };
+use crate::workspace_registry::wal_durability::WalRoom;
 
-/// Sealed segments one tick deletes, each in its own transaction and its
-/// own hold of the registry lock (at most 1,024 records: about 1,024 kept
-/// reducer rows, event index rows and receipts, and their subject rows).
-/// The seal's own bound a tick, so retention keeps up with the fastest
-/// sealing and a large old registry drains 8 segments each 30 s.
+/// Sealed segments one tick deletes at most (1,024 records each at most:
+/// about 1,024 kept reducer rows, event index rows and receipts, and their
+/// subject rows). The seal's own bound a tick, so retention keeps up with
+/// the fastest sealing.
+///
+/// One segment is more than one hold of the registry lock
+/// ([`Mux::retain_journal_segment`]): no hold deletes the rows of more than
+/// `RETENTION_RECORDS_PER_HOLD` records, and after each hold the pass waits,
+/// with no lock held, for the WAL syncer's checkpoint of what the hold wrote
+/// ([`Mux::after_retention_hold`]). So a tick deletes fewer segments than
+/// this when the disk is slow: the tick ends at its deadline, one tick
+/// period after the pass began.
 const JOURNAL_RETENTION_SEGMENTS_PER_TICK: usize = JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK;
 /// How long a tick folds the agent history toward the journal head before
 /// the pass: the floor waits for that fold, so a daemon where nobody opens
@@ -78,6 +87,26 @@ fn before_next_retention_hold_for_test() {
     }
 }
 
+/// How the pass left the oldest sealed segment at or below the floor
+/// ([`Mux::retain_journal_segment`]).
+enum SegmentPass {
+    /// The segment, its content and each row of its records are gone.
+    Deleted,
+    /// No sealed segment is at or below the floor.
+    NoSegment,
+    /// A rebuild is owed that no worker of this start can make, and this
+    /// start has deleted in place what one rebuild is worth: the segment
+    /// stays for the rebuild of a later start.
+    Bounded,
+    /// The worker was paused between two holds.
+    Paused,
+    /// The WAL has no room for more frames of this pass
+    /// ([`WalRoom::Full`]).
+    NoWalRoom,
+    /// No WAL syncer runs ([`WalRoom::NoSyncer`]).
+    NoSyncer,
+}
+
 impl Mux {
     /// One retention pass. True while work remains for the next tick.
     pub(super) fn retain_journal(&self) -> anyhow::Result<bool> {
@@ -116,27 +145,202 @@ impl Mux {
             // Nothing is deleted in place; the fold may still have work.
             return Ok(!folded);
         }
+        // Each wait of this tick for the WAL syncer ends here: the next
+        // tick would begin then.
+        let deadline = Instant::now() + journal_maintenance_interval();
+        // The pass asks the syncer only when it has a segment to delete, so
+        // a tick with nothing to delete makes no look at the WAL.
+        if !self.journal_segment_waits_in_place(floor)? {
+            return Ok(!folded);
+        }
+        // Before the first hold: requests can have left a WAL with no room
+        // (`WalRoom`). The pass then adds nothing to it; the next tick asks
+        // again, and its question alone starts the syncer's look, so a
+        // daemon with no request after that still gets its room.
+        match self.wal_room_for_retention(deadline) {
+            WalRoom::Room => {}
+            WalRoom::Full { looked, file_bytes, uncopied_frames } => {
+                let ticks = self.note_journal_no_wal_room_tick();
+                if ticks.is_power_of_two() {
+                    eprintln!(
+                        "cmux-tui: journal retention: no hold in {ticks} ticks of this start; \
+                         the registry WAL has no room (file {file_bytes} bytes, \
+                         {uncopied_frames} frames not copied, the syncer's look ended: {looked})"
+                    );
+                }
+                return Ok(true);
+            }
+            // Nothing checkpoints this WAL: the pass deletes nothing, and
+            // the worker may settle (no wake by the period).
+            WalRoom::NoSyncer => return Ok(!folded),
+        }
         let mut pruned = 0;
-        while pruned < JOURNAL_RETENTION_SEGMENTS_PER_TICK && !self.journal_maintenance_paused() {
-            let deleted = self
+        let end = loop {
+            if pruned == JOURNAL_RETENTION_SEGMENTS_PER_TICK {
+                // More segments can wait: the next tick looks.
+                return Ok(true);
+            }
+            if self.journal_maintenance_paused() {
+                break SegmentPass::Paused;
+            }
+            match self.retain_journal_segment(floor, deadline)? {
+                SegmentPass::Deleted => pruned += 1,
+                end => break end,
+            }
+        };
+        Ok(match end {
+            // The segments at or below the floor stay: the next tick takes
+            // them when the WAL has room.
+            SegmentPass::NoWalRoom => true,
+            SegmentPass::Deleted
+            | SegmentPass::NoSegment
+            | SegmentPass::Bounded
+            | SegmentPass::Paused
+            | SegmentPass::NoSyncer => !folded,
+        })
+    }
+
+    /// True when a sealed segment at or below `floor` waits that this start
+    /// may delete in place ([`Self::next_segment_in_place`]). Reads only.
+    fn journal_segment_waits_in_place(&self, floor: u64) -> anyhow::Result<bool> {
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        Ok(self.next_segment_in_place(&registry, floor)?.is_ok())
+    }
+
+    /// The oldest sealed segment at or below `floor` and whether the delete
+    /// of it counts toward the bound of this start, or why the pass leaves
+    /// it. Reads only, under the caller's hold of the registry lock.
+    ///
+    /// The bound: a run at or below the floor that is worth a rebuild
+    /// (`journal_in_place_room`) is the rebuild's work. When no worker of
+    /// this start can make it (a rebuild failed or was refused, or the file
+    /// that the last swap replaced is still kept), the pass deletes in place
+    /// at most the records one rebuild is worth, in whole segments, then it
+    /// leaves the run to the rebuild of a later start: at the size of a
+    /// long-lived registry the delete in place of all of it is hours of
+    /// ticks and tens of gigabytes of WAL frames, and it leaves the file at
+    /// its size. A run that is not worth a rebuild has no bound: the pass
+    /// deletes it as it does each day.
+    fn next_segment_in_place(
+        &self,
+        registry: &crate::workspace_registry::WorkspaceRegistry,
+        floor: u64,
+    ) -> anyhow::Result<Result<bool, SegmentPass>> {
+        let Some(segment) = registry.journal_segment_to_prune(floor)? else {
+            return Ok(Err(SegmentPass::NoSegment));
+        };
+        let room = registry.journal_in_place_room(floor, self.journal_in_place_records())?;
+        Ok(match room {
+            Some(room) if segment.records() > room => Err(SegmentPass::Bounded),
+            room => Ok(room.is_some()),
+        })
+    }
+
+    /// Deletes the oldest sealed segment at or below `floor`, in more than
+    /// one hold of the registry lock (`workspace_registry::journal_retention`,
+    /// the module doc): the base and the floor first, then the rows of at
+    /// most `RETENTION_RECORDS_PER_HOLD` records a hold, the segment row with
+    /// its content last. When the worker is paused between two holds, or
+    /// the WAL has no room for more frames of this pass after a hold
+    /// ([`Self::after_retention_hold`]), the segment stays at or below the
+    /// floor, where no reader takes its rows, and the next pass takes it
+    /// again.
+    fn retain_journal_segment(&self, floor: u64, deadline: Instant) -> anyhow::Result<SegmentPass> {
+        let (segment, bounded) = {
+            let mut registry =
+                self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+            let bounded = match self.next_segment_in_place(&registry, floor)? {
+                Ok(bounded) => bounded,
+                Err(left) => return Ok(left),
+            };
+            let Some(segment) = registry.begin_journal_segment_prune(floor)? else {
+                return Ok(SegmentPass::NoSegment);
+            };
+            (segment, bounded)
+        };
+        if let Some(stop) = self.after_retention_hold(deadline) {
+            return Ok(stop);
+        }
+        loop {
+            loop {
+                if self.journal_maintenance_paused() {
+                    return Ok(SegmentPass::Paused);
+                }
+                let more = self
+                    .workspace_registry
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .delete_pruned_segment_rows(&segment)?;
+                if let Some(stop) = self.after_retention_hold(deadline) {
+                    return Ok(stop);
+                }
+                if !more {
+                    // The last rows are gone: the segment row and its
+                    // content go next, in the one hold that this pass
+                    // cannot divide.
+                    break;
+                }
+            }
+            // False: a row of the segment came back between two holds (the
+            // backfill of kept reducer records runs on this thread, so not
+            // in this pass; a start after a kill can leave one). The rows
+            // go again before the content does.
+            let gone = self
                 .workspace_registry
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
-                .prune_oldest_journal_segment(floor)?;
-            #[cfg(test)]
-            after_retention_hold_for_test();
-            #[cfg(test)]
-            before_next_retention_hold_for_test();
-            if !deleted {
-                break;
+                .finish_journal_segment_prune(&segment)?;
+            let stop = self.after_retention_hold(deadline);
+            if gone {
+                if bounded {
+                    // Counted when the segment is gone: a segment that a
+                    // pass began and a later pass ended counts one time.
+                    self.note_journal_in_place_records(segment.records());
+                }
+                return Ok(stop.unwrap_or(SegmentPass::Deleted));
             }
-            pruned += 1;
+            if let Some(stop) = stop {
+                return Ok(stop);
+            }
         }
-        if pruned > 0 {
-            // No request answer follows to flush these commits.
-            self.request_registry_flush();
+    }
+
+    /// After each hold of the delete, with no lock held: the WAL syncer
+    /// checkpoints what the hold wrote before the pass writes more, and
+    /// then a locker that waits for the registry has its turn before the
+    /// next hold (`SignaledMutex::give_way_to_waiters`: the mutex alone
+    /// gives the lock to this thread again). `Some` when the pass must not
+    /// write more in this tick ([`Self::wal_room_for_retention`]).
+    ///
+    /// The pass is a background writer that nobody waits for, so it pays
+    /// for its own checkpoint (`workspace_registry::wal_durability`, the
+    /// module doc). With one flush request at the tick's end the WAL file
+    /// took each byte of a tick: 284 MB for 8 segments of a generated
+    /// registry of a long-lived session, on a WAL the syncer keeps near
+    /// 4 MiB for requests.
+    fn after_retention_hold(&self, deadline: Instant) -> Option<SegmentPass> {
+        #[cfg(test)]
+        after_retention_hold_for_test();
+        let room = self.wal_room_for_retention(deadline);
+        #[cfg(test)]
+        before_next_retention_hold_for_test();
+        self.workspace_registry.give_way_to_waiters();
+        match room {
+            WalRoom::Room => None,
+            WalRoom::Full { .. } => Some(SegmentPass::NoWalRoom),
+            WalRoom::NoSyncer => Some(SegmentPass::NoSyncer),
         }
-        Ok(!folded || pruned == JOURNAL_RETENTION_SEGMENTS_PER_TICK)
+    }
+
+    /// With no lock held: asks the WAL syncer for a look at the registry's
+    /// WAL and waits for it, at most until `deadline` (the end of this
+    /// tick's period). [`WalRoom::Full`]: the look did not end in time, or
+    /// the WAL file is past its limit with frames that the look could not
+    /// copy (requests write faster than the copy, or a reader holds an old
+    /// snapshot). The pass then adds nothing to that WAL in this tick.
+    fn wal_room_for_retention(&self, deadline: Instant) -> WalRoom {
+        self.registry_connection
+            .checkpoint_and_wait(deadline.saturating_duration_since(Instant::now()))
     }
 
     /// True when this tick deletes nothing in place, because the rebuild

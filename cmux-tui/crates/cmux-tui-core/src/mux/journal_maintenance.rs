@@ -62,7 +62,7 @@ impl MaintenanceSteps {
 #[cfg(debug_assertions)]
 const JOURNAL_MAINTENANCE_INTERVAL_TEST_ENV: &str = "CMUX_TUI_TEST_JOURNAL_MAINTENANCE_INTERVAL_MS";
 
-fn journal_maintenance_interval() -> Duration {
+pub(super) fn journal_maintenance_interval() -> Duration {
     #[cfg(debug_assertions)]
     if let Some(ms) = std::env::var(JOURNAL_MAINTENANCE_INTERVAL_TEST_ENV)
         .ok()
