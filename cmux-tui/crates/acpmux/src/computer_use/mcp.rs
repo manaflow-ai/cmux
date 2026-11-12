@@ -150,7 +150,7 @@ where
                     caller.set_label(name);
                 }
                 defer = client_defers(&params, primary);
-                initialize(&params)
+                initialize_with(&params, defer)
             }
             "ping" => json!({}),
             "tools/list" => tools_list(defer),
