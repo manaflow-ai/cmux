@@ -37,6 +37,12 @@ public struct PageRegistry {
         let live = pages(id: id, probing: true)
         if let instance { return live.first { Self.instance(of: $0) == instance } }
         let candidates = live.filter { $0.isParkedSpare == parked }
-        return candidates.first { $0.window?.isKeyWindow == true } ?? candidates.last
+        return choose(candidates, inKeyWindow: { $0.window?.isKeyWindow == true },
+                      hidden: { $0.isHiddenOrHasHiddenAncestor })
+    }
+
+    /// Which of `candidates` (oldest first) a probe reads.
+    static func choose<Page>(_ candidates: [Page], inKeyWindow: (Page) -> Bool, hidden: (Page) -> Bool) -> Page? {
+        candidates.first(where: inKeyWindow) ?? candidates.last
     }
 }
