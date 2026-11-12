@@ -127,22 +127,29 @@ await requireBrowserLane("agent-pane-unread-jump.browser.test.ts", async () => {
         height: scroller.clientHeight,
       };
     });
-  /// Presses Jump up and waits for its glide to end: the offset moved, then held for ten painted
-  /// frames. The glide may hold still for its first frames, so holding alone is not the end.
+  /// Presses Jump up and waits for its glide to end: the offset moved, then held through ten painted
+  /// frames and 400 ms of frame time. The glide may hold still for its first frames, and on a loaded
+  /// runner for a few long ones after its skip while the rows it lands on mount, so frames alone
+  /// read a glide still under way as ended.
   const press = async (page: Page) => {
     const start = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
     await page.click(".acpmux-jump-up");
-    await page.waitForFunction(
-      async (from) => {
-        const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-        const top = node.scrollTop;
-        if (Math.abs(top - from) < 1) return false;
-        for (let left = 10; left > 0; left -= 1) await window.cmuxPaintFrame();
-        return node.scrollTop === top;
-      },
-      start,
-      { timeout: 30_000, polling: "raf" },
-    );
+    const ended = await page.evaluate(async (from) => {
+      const node = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      let top = node.scrollTop;
+      let still = 0;
+      let since = await window.cmuxPaintFrame();
+      for (let left = 2_000; left > 0; left -= 1) {
+        const at = await window.cmuxPaintFrame();
+        if (node.scrollTop !== top || Math.abs(top - from) < 1) {
+          top = node.scrollTop;
+          still = 0;
+          since = at;
+        } else if ((still += 1) >= 10 && at - since >= 400) return true;
+      }
+      return false;
+    }, start);
+    expect(ended).toBe(true);
   };
   /// The line near the top: inside the view's top fifth, the first unseen row right under it.
   const landedNearTop = (at: Awaited<ReturnType<typeof read>>) => {
