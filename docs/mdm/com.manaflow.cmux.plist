@@ -3125,6 +3125,18 @@
 			<string>real</string>
 		</dict>
 		<dict>
+			<key>pfm_name</key>
+			<string>appearance.metrics.sidebarRowHeight</string>
+			<key>pfm_range_max</key>
+			<real>48</real>
+			<key>pfm_range_min</key>
+			<real>20</real>
+			<key>pfm_title</key>
+			<string>Workspace Row Height</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
 			<key>pfm_default</key>
 			<string>default</string>
 			<key>pfm_description</key>
@@ -3218,22 +3230,6 @@
 			<string>Window Style</string>
 			<key>pfm_type</key>
 			<string>string</string>
-		</dict>
-		<dict>
-			<key>pfm_default</key>
-			<integer>1</integer>
-			<key>pfm_description</key>
-			<string>How much darker the title bar, the tab bar and the sidebar are than the content. 1 is the default; lower is softer, higher is stronger.</string>
-			<key>pfm_name</key>
-			<string>appearance.titleAreaContrast</string>
-			<key>pfm_range_max</key>
-			<real>1.5</real>
-			<key>pfm_range_min</key>
-			<real>0.0</real>
-			<key>pfm_title</key>
-			<string>Title Area Contrast</string>
-			<key>pfm_type</key>
-			<string>real</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>

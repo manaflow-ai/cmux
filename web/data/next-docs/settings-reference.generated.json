@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 629,
+  "count": 628,
   "sections": [
     {
       "id": "general",
@@ -3245,19 +3245,6 @@
           "kind": "text",
           "default": null,
           "group": "App Theme"
-        },
-        {
-          "key": "appearance.titleAreaContrast",
-          "title": "Title Area Contrast",
-          "help": "How much darker the title bar, the tab bar and the sidebar are than the content. 1 is the default; lower is softer, higher is stronger.",
-          "kind": "number",
-          "default": 1,
-          "group": "Panes",
-          "range": {
-            "min": 0,
-            "max": 1.5,
-            "unit": "fraction"
-          }
         },
         {
           "key": "appearance.wallpaperTint",

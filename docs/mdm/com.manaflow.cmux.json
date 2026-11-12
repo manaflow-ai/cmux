@@ -1356,6 +1356,13 @@
       "title" : "Divider Thickness",
       "type" : "number"
     },
+    "appearance.metrics.sidebarRowHeight" : {
+      "description" : "appearance.metrics.sidebarRowHeight",
+      "maximum" : 48,
+      "minimum" : 20,
+      "title" : "Workspace Row Height",
+      "type" : "number"
+    },
     "appearance.metrics.sidebarWidth" : {
       "description" : "appearance.metrics.sidebarWidth",
       "maximum" : 420,
@@ -1701,14 +1708,6 @@
       "description" : "A look from a file in ~/.config/cmux/themes, such as \"tokyo\" for tokyo.json. Its values apply over these settings, live as you save it. Unset, no file applies.",
       "title" : "Theme File",
       "type" : "string"
-    },
-    "appearance.titleAreaContrast" : {
-      "default" : 1,
-      "description" : "How much darker the title bar, the tab bar and the sidebar are than the content. 1 is the default; lower is softer, higher is stronger.",
-      "maximum" : 1.5,
-      "minimum" : 0,
-      "title" : "Title Area Contrast",
-      "type" : "number"
     },
     "appearance.wallpaperTint" : {
       "default" : true,
