@@ -29,6 +29,12 @@ pub struct ForkParams {
     /// `cancelFork` and this token stops it, or takes it back once made (`hub/fork_cancel.rs`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cancel_token: Option<String>,
+    /// With `live`: the harness the fork runs on, carrying the conversation over (a model switch).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
+    /// With `harness`: the model the fork starts on, at most 256 bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
     pub meta: Option<Value>,
 }

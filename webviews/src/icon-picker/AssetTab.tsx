@@ -148,11 +148,11 @@ export function AssetTab({
         </button>
       </form>
       <p className="icon-asset-hint">{t(kind === "svg" ? "iconPicker.svg.hint" : "iconPicker.image.hint")}</p>
-      {error && (
-        <p className="icon-asset-error" role="alert">
-          {error}
-        </p>
-      )}
+      {/* Always in the sheet, with the place of one line (styles.css): an error that comes in, or that
+          a new try takes away, moves no row over it. */}
+      <p className="icon-asset-error" role="alert">
+        {error}
+      </p>
     </div>
   );
 }

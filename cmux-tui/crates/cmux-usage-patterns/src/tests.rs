@@ -187,3 +187,172 @@ fn opaque_ids_are_sha_based_and_stable() {
     assert_eq!(opaque_id("main"), opaque_id("main"));
     assert_eq!(opaque_id("main").len(), 12);
 }
+
+/// The writer thread sleeps with no timeout while nothing is counted, writes
+/// a count once its interval has passed, and writes at once when counting
+/// stops. (A 5-second gate loop woke every idle daemon; `idle_wakeups.rs`.)
+#[test]
+fn the_writer_waits_for_a_count_and_writes_it_after_its_interval() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::{Duration, Instant};
+    let dir = scratch("writer");
+    let on = config(&dir, true);
+    let recorder = Arc::new(Recorder::open(&dir.join("out"), "session-a", on.clone()));
+    let stop = Arc::new(AtomicBool::new(false));
+    let interval = Duration::from_millis(300);
+    let writer = {
+        let recorder = Arc::clone(&recorder);
+        let stop = Arc::clone(&stop);
+        std::thread::spawn(move || recorder.run_writer(interval, &|| stop.load(Ordering::Relaxed)))
+    };
+    std::thread::sleep(interval * 3);
+    assert!(!recorder.path().exists(), "the writer wrote with nothing counted");
+    let counted = Instant::now();
+    recorder.count("command", "split");
+    let deadline = counted + Duration::from_secs(5);
+    while !recorder.path().exists() {
+        assert!(Instant::now() < deadline, "a count was never written");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(read_dir(&dir.join("out")).rollup.counts["command"]["split"], 1);
+    // Turning counting off writes what was counted at once, not after the interval.
+    recorder.count("command", "split");
+    std::fs::write(&on, "{\"diagnostics\":{\"usagePatterns\":false}}  ").unwrap();
+    let turned_off = Instant::now();
+    assert!(!recorder.refresh_gate());
+    while read_dir(&dir.join("out")).rollup.counts["command"]["split"] != 2 {
+        assert!(turned_off.elapsed() < Duration::from_secs(5), "turning off did not write");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    stop.store(true, Ordering::Relaxed);
+    recorder.wake_writer();
+    writer.join().unwrap();
+}
+
+/// Waits up to 5 s for the gate to say `on`.
+fn gate_becomes(recorder: &Recorder, on: bool, what: &str) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while recorder.enabled() != on {
+        assert!(Instant::now() < deadline, "{what}: the gate did not turn {on}");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// The gate follows the settings file with no timer: a file created later in
+/// a folder created later, then a file replaced by rename (editors and the
+/// settings writer save that way), each change the setting at once.
+#[test]
+fn the_gate_follows_the_settings_file_created_later_and_replaced_by_rename() {
+    let dir = scratch("gate-watch");
+    let folder = dir.join("config").join("cmux");
+    let settings = folder.join("cmux-next.json");
+    let recorder = Arc::new(Recorder::open(&dir.join("out"), "session-a", settings.clone()));
+    assert!(!recorder.enabled());
+    let _watch = watch_gate(&recorder).expect("the gate watch starts");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(&settings, "{\"diagnostics\":{\"usagePatterns\":true}}").unwrap();
+    gate_becomes(&recorder, true, "a settings file created in a folder made later");
+    let staged = folder.join("cmux-next.json.tmp");
+    std::fs::write(&staged, "{\"diagnostics\":{\"usagePatterns\":false}}").unwrap();
+    std::fs::rename(&staged, &settings).unwrap();
+    gate_becomes(&recorder, false, "a settings file replaced by rename");
+    std::fs::write(&staged, "{\"diagnostics\":{\"usagePatterns\":true}} ").unwrap();
+    std::fs::rename(&staged, &settings).unwrap();
+    gate_becomes(&recorder, true, "a second replace by rename");
+}
+
+/// A recorder counting into `dir/out` and its writer thread, which writes
+/// only an hour after a count: what a stop finds is unwritten.
+fn recorder_with_writer(
+    dir: &Path,
+    on: bool,
+) -> (Arc<Recorder>, Arc<AtomicBool>, std::thread::JoinHandle<()>) {
+    let recorder = Arc::new(Recorder::open(&dir.join("out"), "session-a", config(dir, on)));
+    let stop = Arc::new(AtomicBool::new(false));
+    let writer = {
+        let recorder = Arc::clone(&recorder);
+        let stop = Arc::clone(&stop);
+        std::thread::spawn(move || {
+            recorder.run_writer(Duration::from_secs(3600), &|| stop.load(Ordering::Relaxed));
+        })
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !recorder.wake.writer.load(Ordering::Acquire) {
+        assert!(Instant::now() < deadline, "the writer thread did not start");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    (recorder, stop, writer)
+}
+
+/// The stop's last write runs on another thread; the result, or None when it
+/// did not return within `within`.
+fn stop_flush(recorder: &Arc<Recorder>, within: Duration) -> Option<(bool, Duration)> {
+    let (sent, got) = std::sync::mpsc::channel();
+    let recorder = Arc::clone(recorder);
+    std::thread::spawn(move || {
+        let started = Instant::now();
+        let written = recorder.flush_within(STOP_FLUSH_WAIT);
+        let _ = sent.send((written, started.elapsed()));
+    });
+    got.recv_timeout(within).ok()
+}
+
+/// A stop writes the counts its daemon made since the last write, at once
+/// (the writer thread would write them only after its interval).
+#[test]
+fn a_stop_writes_the_unwritten_counts_at_once() {
+    let dir = scratch("stop-writes");
+    let (recorder, stop, writer) = recorder_with_writer(&dir, true);
+    recorder.count("command", "split");
+    let (written, took) = stop_flush(&recorder, Duration::from_secs(5)).expect("the stop returned");
+    assert!(written, "the stop did not write");
+    assert!(took <= STOP_FLUSH_WAIT, "the stop took {took:?}");
+    assert_eq!(read_dir(&dir.join("out")).rollup.counts["command"]["split"], 1);
+    stop.store(true, Ordering::Relaxed);
+    recorder.wake_writer();
+    writer.join().unwrap();
+}
+
+/// With counting off a stop writes nothing: no file appears.
+#[test]
+fn a_stop_with_counting_off_writes_nothing() {
+    let dir = scratch("stop-off");
+    let (recorder, stop, writer) = recorder_with_writer(&dir, false);
+    recorder.count("command", "split");
+    let (written, _) = stop_flush(&recorder, Duration::from_secs(5)).expect("the stop returned");
+    assert!(written);
+    assert!(!recorder.path().exists(), "a stop with counting off wrote a file");
+    assert!(!dir.join("out").exists(), "a stop with counting off made the folder");
+    stop.store(true, Ordering::Relaxed);
+    recorder.wake_writer();
+    writer.join().unwrap();
+}
+
+/// A disk that does not answer (here a pipe nobody reads, where the write's
+/// open blocks) costs a stop at most [`STOP_FLUSH_WAIT`]: the stop returns
+/// false and only the unwritten counts are lost. The stop used to write on
+/// its own thread and waited on such a disk for as long as it did not answer.
+#[test]
+fn a_stop_waits_on_a_disk_that_does_not_answer_at_most_its_bound() {
+    let dir = scratch("stop-stalled");
+    let (recorder, stop, writer) = recorder_with_writer(&dir, true);
+    std::fs::create_dir_all(dir.join("out")).unwrap();
+    let staged = recorder.path().with_extension("json.tmp");
+    let made = std::process::Command::new("mkfifo").arg(&staged).status().unwrap();
+    assert!(made.success(), "mkfifo failed");
+    recorder.count("command", "split");
+    let returned = stop_flush(&recorder, Duration::from_secs(5));
+    // Let the stalled write finish: a reader opens the pipe and drains it.
+    let drain = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut std::fs::File::open(&staged).unwrap(), &mut bytes);
+    });
+    let (written, took) = returned.expect("the stop waited on the stalled disk past 5 s");
+    assert!(!written, "the stop said the counts were written");
+    assert!(took < STOP_FLUSH_WAIT + Duration::from_secs(1), "the stop took {took:?}");
+    drain.join().unwrap();
+    stop.store(true, Ordering::Relaxed);
+    recorder.wake_writer();
+    writer.join().unwrap();
+}

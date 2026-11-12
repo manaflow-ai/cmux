@@ -181,25 +181,93 @@ pub(crate) fn refuse_lost_home(path: &Path) -> Result<()> {
         Ok(())
     };
     #[cfg(test)]
-    if let Some(hook) = seams::CHECKED.get() {
-        hook(path, checked.is_ok());
-    }
+    seams::checked(path, checked.is_ok());
     checked
 }
 
 /// Test seams for the forced lost-home races (`lost_home_race_tests.rs`): each holds a writer at
-/// one point so the order its race depends on is the test's, not the clock's.
+/// one point so the order its race depends on is the test's, not the clock's. Each hook is the
+/// setting thread's own (`thread_local!`), set by an `on_*` guard and taken off when it drops:
+/// a test runs its writer on a thread it owns, so a hook set by one test never fires in another
+/// test running beside it.
 #[cfg(test)]
 pub(crate) mod seams {
+    use std::cell::RefCell;
     use std::path::Path;
+    use std::rc::Rc;
 
-    /// Called on the writing thread at the end of each home check under the home, with the path
-    /// checked and whether the check passed: after the check, before the write it guards.
-    pub(crate) static CHECKED: std::sync::OnceLock<fn(&Path, bool)> = std::sync::OnceLock::new();
+    type Checked = Rc<dyn Fn(&Path, bool)>;
+    type BeforeRename = Rc<dyn Fn(&Path)>;
+    type MidWrite = Rc<dyn Fn(&Path) -> std::io::Result<()>>;
 
-    /// Called with a file's path once its temporary copy is written and synced, before that copy
-    /// is renamed over the file.
-    pub(crate) static BEFORE_RENAME: std::sync::OnceLock<fn(&Path)> = std::sync::OnceLock::new();
+    thread_local! {
+        static CHECKED: RefCell<Option<Checked>> = const { RefCell::new(None) };
+        static BEFORE_RENAME: RefCell<Option<BeforeRename>> = const { RefCell::new(None) };
+        static MID_WRITE: RefCell<Option<MidWrite>> = const { RefCell::new(None) };
+    }
+
+    /// While the guard lives, `hook` is called on this thread at the end of each home check
+    /// under the home, with the path checked and whether the check passed: after the check,
+    /// before the write it guards.
+    pub(crate) fn on_checked(hook: impl Fn(&Path, bool) + 'static) -> Guard {
+        CHECKED.with(|slot| *slot.borrow_mut() = Some(Rc::new(hook)));
+        Guard(Which::Checked)
+    }
+
+    /// While the guard lives, `hook` is called on this thread with a file's path once its
+    /// temporary copy is written and synced, before that copy is renamed over the file.
+    pub(crate) fn on_before_rename(hook: impl Fn(&Path) + 'static) -> Guard {
+        BEFORE_RENAME.with(|slot| *slot.borrow_mut() = Some(Rc::new(hook)));
+        Guard(Which::BeforeRename)
+    }
+
+    /// While the guard lives, `hook` is called on this thread with the path a `home_fs` write
+    /// is filling once part of its bytes are written, before the rest: its error fails the
+    /// write there, as a full disk would.
+    pub(crate) fn on_mid_write(hook: impl Fn(&Path) -> std::io::Result<()> + 'static) -> Guard {
+        MID_WRITE.with(|slot| *slot.borrow_mut() = Some(Rc::new(hook)));
+        Guard(Which::MidWrite)
+    }
+
+    pub(crate) fn mid_write(path: &Path) -> std::io::Result<()> {
+        match MID_WRITE.with(|slot| slot.borrow().clone()) {
+            Some(hook) => hook(path),
+            None => Ok(()),
+        }
+    }
+
+    pub(crate) fn checked(path: &Path, passed: bool) {
+        // Cloned out first: the hook may block, or check again, with the slot free.
+        if let Some(hook) = CHECKED.with(|slot| slot.borrow().clone()) {
+            hook(path, passed);
+        }
+    }
+
+    pub(crate) fn before_rename(path: &Path) {
+        if let Some(hook) = BEFORE_RENAME.with(|slot| slot.borrow().clone()) {
+            hook(path);
+        }
+    }
+
+    enum Which {
+        Checked,
+        BeforeRename,
+        MidWrite,
+    }
+
+    /// Takes its hook off this thread when dropped.
+    #[must_use = "the hook is taken off when the guard drops"]
+    pub(crate) struct Guard(Which);
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            match self.0 {
+                Which::Checked => drop(CHECKED.with(|slot| slot.borrow_mut().take())),
+                Which::BeforeRename => drop(BEFORE_RENAME.with(|slot| slot.borrow_mut().take())),
+                Which::MidWrite => drop(MID_WRITE.with(|slot| slot.borrow_mut().take())),
+            }
+        }
+    }
 }
 
 /// Make one acpmux state directory owner-only, including an existing directory
@@ -2086,7 +2154,8 @@ fn write_then_rename(tmp: &Path, path: &Path, bytes: &[u8]) -> Result<()> {
         // A file a crashed process left under a reused pid is stale.
         let mut f = match crate::owner_only::create_new(tmp) {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                std::fs::remove_file(tmp).with_context(|| format!("remove {}", tmp.display()))?;
+                crate::home_fs::remove_file(tmp)
+                    .with_context(|| format!("remove {}", tmp.display()))?;
                 crate::owner_only::create_new(tmp)
             }
             other => other,

@@ -4,7 +4,7 @@
 // the tool rows' quieter one, the theme's tertiary text
 // (`--cv-text-dim`, `--agent-soft`, the host's textTertiary), never a literal color, in tabular
 // numerals so the count ticks in place. Both lines that say it, the Codex layout's live line at the
-// bottom (Thinking.tsx) and the line over the turn with that layout off (WorkingFor.tsx), draw the
+// bottom (Thinking.tsx) and the line under the work with that layout off (WorkingFor.tsx), draw the
 // count in the same span, so one rule covers both. agent-pane-turn-tokens-muted-browser.test.tsx
 // resolves the real stylesheets in Chromium.
 import { expect, test } from "bun:test";

@@ -16,7 +16,7 @@
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -175,11 +175,8 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     await daemon?.stop(true);
   });
 
-  test("a background shell ends on its own Ran row; one without its call is one short line", async () => {
-    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
-    await page.goto(url(CHAT));
-    await page.getByText("Dev server stopped.").waitFor();
-    // A finished Claude turn folds its work under one Worked for (Codex parity): open both turns'.
+  /// Opens every closed Worked for on `page`, each after the last one's motion settles.
+  const openWorked = async (page: Page) => {
     const closed = page.locator('button.cv-worked[aria-expanded="false"]');
     while (await closed.count()) {
       await closed.first().click();
@@ -194,6 +191,14 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
             ),
       );
     }
+  };
+
+  test("a background shell ends on its own Ran row; one without its call is one short line", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await page.goto(url(CHAT));
+    await page.getByText("Dev server stopped.").waitFor();
+    // A finished Claude turn folds its work under one Worked for (Codex parity): open both turns'.
+    await openWorked(page);
     // No second row for a shell whose call is in the transcript.
     expect(await page.getByText(/Background (task|command) .*npm run dev/).count()).toBe(0);
     // The one whose call is not loaded is noted in the turn it ended, before its reply.
@@ -318,6 +323,10 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
   test("clicking a background task's end opens it in place; only Open in terminal opens its terminal", async () => {
     const page = await recordingPage();
     const note = page.getByRole("button", { name: /Background command completed pytest -x/ });
+    // A background command that finished is the turn's work: it folds under the turn's Worked for
+    // (Leo, 2026-11-11: "Background command completed. Do those not count as the f-ing works for?").
+    expect(await note.count()).toBe(0);
+    await openWorked(page);
     const top = await note.evaluate((node) => node.getBoundingClientRect().top);
     await note.click();
     expect(await note.getAttribute("aria-expanded")).toBe("true");

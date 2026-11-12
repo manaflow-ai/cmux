@@ -26,7 +26,7 @@ const shell = (command: string, description: string | undefined, output: string,
 
 /// Each call in its own run of a working chat, with the agent's note on it after: a note of two
 /// paragraphs keeps the runs apart (turns.ts mergeShortNotes), so every call draws as its own row.
-/// The stretch ended with its summary while the chat works on: under the shipped live-turn-work
+/// The stretch ended with its summary while the chat works on: under the live-turn-work
 /// `line` a stretch still running draws none of its calls, only its notes and the live line
 /// (turns.ts `codexRuns`). The ended stretch folds under its "Worked for" line, which draws its
 /// notes and none of its calls (turnFoldReplies.experiment.ts `replies`): a variant draws its calls

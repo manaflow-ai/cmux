@@ -7435,5 +7435,22 @@
   "liveWeb.failed": {
     "class": "brand",
     "source": "cmux Live: %@"
+  },
+  "settings.category.chat": {
+    "source": "Chat",
+    "identityLocales": {
+      "de": {
+        "reason": "Chat is the standard German noun for a chat conversation.",
+        "values": [
+          "Chat"
+        ]
+      },
+      "es": {
+        "reason": "Chat is the standard Spanish noun for a chat conversation.",
+        "values": [
+          "Chat"
+        ]
+      }
+    }
   }
 }
