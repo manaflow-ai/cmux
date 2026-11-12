@@ -4416,8 +4416,13 @@ def _maintenance_off(text: str, path_suffix: str) -> bool:
         return False
 
 
-def detect_git_temp_repo_maintenance(code_lines: list[str], text: str, path_suffix: str) -> Optional[int]:
-    """0-based line of the first git write in a temp-dir test with no auto-maintenance opt-out, else None."""
+def detect_git_temp_repo_maintenance(
+    code_lines: list[str], text: str, path_suffix: str, rel_posix: str = ""
+) -> Optional[int]:
+    """0-based line of the first git write in a temp-dir test with no auto-maintenance opt-out, else None. The helpers
+    are the opt-out: git_fixture_init writes it into the repo it inits."""
+    if rel_posix in _GIT_FIXTURE_HELPERS:
+        return None
     code = "\n".join(code_lines)
     covered = _git_fixture_load_cover(text, path_suffix)
     if covered is None or _maintenance_off(text, path_suffix):
@@ -4869,8 +4874,30 @@ def _sh_inline_functions(action: str, functions: dict[str, object]) -> object:
         if body is _UNRESOLVED:
             return _UNRESOLVED
         if isinstance(body, str):
-            action = action[:cmd.words[0].start] + body + action[cmd.words[-1].end:]
+            action = action[:cmd.words[0].start] + _sh_function_returns(body) + action[cmd.words[-1].end:]
     return action
+
+
+def _sh_function_returns(body: str) -> str:
+    """A function BODY to inline into a trap action: its `return N` leaves only the function, so it sets $? (a status
+    restore, which errexit turns fatal) without ending the trap; it reads as a call `_function_return N`, not as the
+    trap's own re-raise. An `exit` still ends the shell."""
+    script = _sh_parse(body)
+    if script is None:
+        return body
+    tree = _shell_tree()
+    starts = []
+    for cmd in tree.commands(script):
+        for word in cmd.words:
+            value = _sh_value(body, word)
+            if value in tree.KEYWORDS:
+                continue
+            if value == "return":
+                starts.append(word.start)
+            break
+    for start in sorted(starts, reverse=True):
+        body = body[:start] + "_function_" + body[start:]
+    return body
 
 
 def _sh_action(value: str, assigned: dict[str, object], functions: dict[str, object], depth: int = 0) -> object:
@@ -5465,7 +5492,7 @@ def scan_text(rel_posix: str, text: str) -> list[Finding]:
                 Finding(rel_posix, duration_line + 1, RULE_ASSERT_ON_DURATION, raw_lines[duration_line].strip())
             )
 
-    git_line = detect_git_temp_repo_maintenance(code_lines, text, suffix)
+    git_line = detect_git_temp_repo_maintenance(code_lines, text, suffix, rel_posix)
     if git_line is not None:
         findings.append(
             Finding(rel_posix, git_line + 1, RULE_GIT_TEMP_REPO_MAINTENANCE, raw_lines[git_line].strip())
@@ -7306,6 +7333,20 @@ def _self_test() -> int:
             "scripts/cmux-next/tests/reraise_order_ok.test.sh",
             "set -e\ntmp=$(mktemp -d)\na='s=$?; rm -rf \"$tmp\"; exit \"$s\"'; trap \"$a\" EXIT; a='(exit 1); rm -rf x'\n"
             "cleanup() { rm -rf \"$tmp\"; }\ntrap 'cleanup' EXIT\nb=cleanup; trap \"$b\" EXIT\n",
+        ),
+        # A function's `return` leaves only the function: it restores $? (here with errexit off) and the trap goes
+        # on to its cleanup and exit (the helper's own exit trap).
+        (
+            "scripts/cmux-next/tests/reraise_function_return_ok.test.sh",
+            "tmp=$(mktemp -d)\nret() { return \"$1\"; }\nact='s=$?; set +e; rm -rf \"$tmp\"; ret \"$s\"; eval \"${c:-:}\"; exit \"$s\"'\n"
+            "arm() {\n  builtin trap -- \"$act\" EXIT\n}\narm\n",
+        ),
+        # The helper is the opt-out: git_fixture_init writes it into the repo it inits.
+        (
+            "scripts/cmux-next/tests/lib/git-fixture.sh",
+            "opt=(maintenance.auto=false)\ngit_fixture_init() {\n  git init -q \"$1\" || return\n"
+            "  for pair in \"${opt[@]}\"; do git -C \"$1\" config \"${pair%%=*}\" \"${pair#*=}\"; done\n}\n"
+            "d=$(mktemp -d); git_fixture_init \"$d\"\n",
         ),
         # Deterministic scenario-pacing sleep with NO following assertion.
         (
