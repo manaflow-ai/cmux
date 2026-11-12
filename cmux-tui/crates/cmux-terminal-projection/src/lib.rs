@@ -49,13 +49,20 @@ pub enum Segment {
 pub struct Projection {
     term: Terminal,
     view: Option<View>,
+    /// How far up the reader is: phone rows from the end of the phone's
+    /// document to the top of what they read (0: at the bottom).
+    reader_rows_from_end: usize,
 }
 
 impl Projection {
     /// A projection of a host terminal of `host_cols` x `host_rows`. Nothing
     /// is painted before [`Projection::set_viewport`].
     pub fn new(host_cols: usize, host_rows: usize, history_limit: usize) -> Projection {
-        Projection { term: Terminal::new(host_cols, host_rows, history_limit), view: None }
+        Projection {
+            term: Terminal::new(host_cols, host_rows, history_limit),
+            view: None,
+            reader_rows_from_end: 0,
+        }
     }
 
     pub fn is_alternate(&self) -> bool {
@@ -76,8 +83,19 @@ impl Projection {
         self.term.resize(cols, rows);
     }
 
+    /// Where the reader is (phone rows from the end of the phone's
+    /// document to the top of the screen they read; 0 at the bottom). A
+    /// viewport change keeps their lines in the window it paints.
+    pub fn set_reader_rows_from_end(&mut self, rows: usize) {
+        self.reader_rows_from_end = rows;
+    }
+
     /// The phone's grid. A change starts the phone's terminal over, painted
-    /// at once (on the primary screen).
+    /// at once (on the primary screen): the host's screen and
+    /// [`project::TAIL_SCREENS`] screens of scrollback above it, plus the
+    /// lines the reader is on, re-wrapped at the new width. The cost is that
+    /// window, not the scrollback; older rows come with
+    /// [`Projection::load_older`] as the reader scrolls up to them.
     pub fn set_viewport(&mut self, cols: usize, rows: usize) -> Vec<Segment> {
         let (cols, rows) = (cols.max(2), rows.max(1));
         if self.viewport() == Some((cols, rows)) {
@@ -87,9 +105,35 @@ impl Projection {
         if let Some(old) = &self.view {
             view.bytes_out = old.bytes_out;
             view.resets = old.resets;
+            // The reader's lines (in the old view's rows, above its live
+            // part) and a screen above them stay in the window.
+            let live = old.live_rows();
+            if self.reader_rows_from_end > live {
+                let back = self.reader_rows_from_end - live + old.rows;
+                let from = project::rows_back(&self.term, self.term.history.len(), old.cols, back);
+                view.keep_from = Some(self.term.history_dropped + from as u64);
+            }
         }
         self.view = Some(view);
         if self.term.is_alternate() {
+            return Vec::new();
+        }
+        self.paint().into_iter().collect()
+    }
+
+    /// Host scrollback rows the phone's terminal does not hold yet (older
+    /// than its window).
+    pub fn older_rows(&self) -> usize {
+        self.view.as_ref().map_or(0, |v| v.older_rows(&self.term))
+    }
+
+    /// The reader scrolled up to the oldest row the phone holds: `host_rows`
+    /// more of the scrollback, as a reset (the page keeps the reader's place
+    /// across it). Empty when the phone holds all of it, or on the
+    /// alternate screen.
+    pub fn load_older(&mut self, host_rows: usize) -> Vec<Segment> {
+        let Some(view) = &mut self.view else { return Vec::new() };
+        if self.term.is_alternate() || !view.load_older(&self.term, host_rows) {
             return Vec::new();
         }
         self.paint().into_iter().collect()

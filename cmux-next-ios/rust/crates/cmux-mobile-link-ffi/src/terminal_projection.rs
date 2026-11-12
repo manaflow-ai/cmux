@@ -86,6 +86,25 @@ impl TerminalProjection {
         segments(self.inner().paint().into_iter().collect())
     }
 
+    /// Where the reader is: phone rows from the end of the surface's
+    /// document to the top of the rows read (0: at the bottom). A viewport
+    /// change keeps those lines in the window it paints.
+    pub fn set_reader_rows_from_end(&self, rows: u32) {
+        self.inner().set_reader_rows_from_end(usize::try_from(rows).unwrap_or(usize::MAX));
+    }
+
+    /// Mac scrollback rows older than what the surface holds (a viewport
+    /// change paints a window: the screen and two phone screens above it).
+    pub fn older_rows(&self) -> u64 {
+        u64::try_from(self.inner().older_rows()).unwrap_or(u64::MAX)
+    }
+
+    /// The reader reached the oldest row the surface holds: `host_rows` more
+    /// of the scrollback, as a reset. Empty when the surface has all of it.
+    pub fn load_older(&self, host_rows: u32) -> Vec<ProjectionSegment> {
+        segments(self.inner().load_older(usize::try_from(host_rows).unwrap_or(usize::MAX)))
+    }
+
     /// The next paint starts the surface over.
     pub fn request_reset(&self) {
         self.inner().request_reset();

@@ -112,6 +112,34 @@ pub fn wrap_line(
     Wrapped { rows: out, cursor: cursor_at, empty }
 }
 
+/// Phone screens of scrollback a reset paints above the host's screen
+/// (the reader's first flick up); older rows come on demand.
+pub const TAIL_SCREENS: usize = 2;
+
+/// The start (an index in `term.history`) of the logical line holding
+/// history row `index` (`history.len()`: the screen's first line).
+pub fn line_start(term: &Terminal, index: usize) -> usize {
+    let mut i = index.min(term.history.len());
+    while i > 0 && term.history[i - 1].wrapped {
+        i -= 1;
+    }
+    i
+}
+
+/// Walks back from history index `end` (exclusive, at a line start) over
+/// whole logical lines until they fill `want` rows at `cols`; their start.
+pub fn rows_back(term: &Terminal, end: usize, cols: usize, want: usize) -> usize {
+    let mut start = line_start(term, end);
+    let mut rows = 0;
+    while start > 0 && rows < want {
+        let first = line_start(term, start - 1);
+        let line: Vec<&Row> = (first..start).map(|i| &term.history[i]).collect();
+        rows += wrap_line(term, &line, term.cols, cols, None).rows.len();
+        start = first;
+    }
+    start
+}
+
 /// What a feed gives the phone's terminal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Paint {
@@ -137,6 +165,12 @@ pub struct View {
     phone_style: Option<Style>,
     phone_cursor_visible: bool,
     needs_reset: bool,
+    /// The oldest host row (absolute) a reset must paint (rows the reader
+    /// is on, or asked for by scrolling up); nil: only the tail window.
+    pub keep_from: Option<u64>,
+    /// The first host row (absolute) the last reset painted: older rows are
+    /// in the model, not on the phone, until [`View::load_older`].
+    window_from: u64,
     /// Bytes painted since creation (for benches).
     pub bytes_out: u64,
     pub resets: u64,
@@ -154,6 +188,8 @@ impl View {
             phone_style: None,
             phone_cursor_visible: true,
             needs_reset: true,
+            keep_from: None,
+            window_from: 0,
             bytes_out: 0,
             resets: 0,
         }
@@ -161,6 +197,45 @@ impl View {
 
     pub fn request_reset(&mut self) {
         self.needs_reset = true;
+    }
+
+    /// Host scrollback rows older than what the phone's terminal holds.
+    pub fn older_rows(&self, term: &Terminal) -> usize {
+        (self.window_from.saturating_sub(term.history_dropped) as usize).min(term.history.len())
+    }
+
+    /// The phone's terminal takes `host_rows` more of the older scrollback
+    /// (a reset painted at the next paint). False: it has all of it.
+    pub fn load_older(&mut self, term: &Terminal, host_rows: usize) -> bool {
+        let older = self.older_rows(term);
+        if older == 0 {
+            return false;
+        }
+        let from = line_start(term, older.saturating_sub(host_rows.max(1)));
+        self.keep_from = Some(term.history_dropped + from as u64);
+        self.needs_reset = true;
+        true
+    }
+
+    /// Where a reset starts painting (an index in `term.history`, at a
+    /// logical line's start): the scrollback lines that fill
+    /// [`TAIL_SCREENS`] of the phone's screens above the host's screen, or
+    /// older ones kept by [`View::keep_from`]. A width change costs this
+    /// window, not the whole scrollback.
+    fn window_start(&self, term: &Terminal) -> usize {
+        let tail = rows_back(term, term.history.len(), self.cols, TAIL_SCREENS * self.rows);
+        match self.keep_from {
+            Some(keep) => {
+                let keep = keep.saturating_sub(term.history_dropped) as usize;
+                line_start(term, keep.min(tail))
+            }
+            None => tail,
+        }
+    }
+
+    /// Rows of the live part (the unsettled lines and the screen) shown.
+    pub fn live_rows(&self) -> usize {
+        self.shown.len()
     }
 
     fn shown_end(&self) -> u64 {
@@ -186,7 +261,8 @@ impl View {
         if reset {
             self.needs_reset = false;
             self.settled_end = 0;
-            self.settled_host = term.history_dropped;
+            self.settled_host = term.history_dropped + self.window_start(term) as u64;
+            self.window_from = self.settled_host;
             self.shown.clear();
             self.phone_cursor = (0, 0);
             self.phone_style = None;

@@ -49,10 +49,11 @@ fn row_text(term: &Terminal, row: &Row) -> String {
 
 /// The terminal's logical lines (history and screen), trailing blanks and
 /// trailing empty lines dropped; and the cursor as (line, offset in it).
-fn logical(term: &Terminal) -> (Vec<String>, (usize, usize)) {
-    let rows: Vec<&Row> = term.history.iter().chain(term.primary_rows().iter()).collect();
+fn logical(term: &Terminal, skip: usize) -> (Vec<String>, (usize, usize)) {
+    let rows: Vec<&Row> =
+        term.history.iter().skip(skip).chain(term.primary_rows().iter()).collect();
     let (cx, cy) = term.primary_cursor();
-    let cursor_row = term.history.len() + cy;
+    let cursor_row = term.history.len() - skip + cy;
     let mut lines = Vec::new();
     let mut current = String::new();
     let mut cursor = (0, 0);
@@ -83,10 +84,11 @@ fn logical(term: &Terminal) -> (Vec<String>, (usize, usize)) {
     (lines, cursor)
 }
 
-/// The host and the phone hold the same lines; the cursor is on the same glyph.
+/// The host and the phone hold the same lines (the host's from the
+/// phone's window on); the cursor is on the same glyph.
 fn assert_same(host: &Projection, phone: &Phone, context: &str) {
-    let (host_lines, host_cursor) = logical(host.terminal());
-    let (phone_lines, phone_cursor) = logical(&phone.term);
+    let (host_lines, host_cursor) = logical(host.terminal(), host.older_rows());
+    let (phone_lines, phone_cursor) = logical(&phone.term, 0);
     // A wrapped row's trailing spaces are dropped by the phone's own trim.
     let norm = |lines: &[String]| {
         let mut lines: Vec<String> = lines.iter().map(|l| l.trim_end().to_string()).collect();
@@ -276,6 +278,75 @@ fn a_viewport_change_repaints_as_if_fresh() {
     let mut phone = Phone::new(70, 20);
     phone.apply(rotated);
     assert_same(&host, &phone, "rotated");
+}
+
+fn numbered(lines: usize) -> Vec<u8> {
+    (0..lines)
+        .flat_map(|i| format!("{i:05} {}\r\n", "word ".repeat(5 + i % 17)).into_bytes())
+        .collect()
+}
+
+#[test]
+fn a_rotation_repaints_a_window_and_older_rows_come_on_demand() {
+    let mut host = Projection::new(120, 40, 10_000);
+    let mut phone = Phone::new(54, 38);
+    phone.apply(host.set_viewport(54, 38));
+    feed(&mut host, &mut phone, &numbered(3_000));
+    assert_eq!(host.older_rows(), 0, "streamed output keeps all of it");
+    assert_same(&host, &phone, "streamed");
+    let mut phone = Phone::new(116, 16);
+    let rotated = host.set_viewport(116, 16);
+    let bytes: usize = rotated
+        .iter()
+        .map(|s| match s {
+            Segment::Reset(b) | Segment::Paint(b) => b.len(),
+            _ => 0,
+        })
+        .sum();
+    phone.apply(rotated);
+    assert!(host.older_rows() > 2_000, "the rotation painted a window, not 3,000 lines");
+    assert!(bytes < 20_000, "a window's bytes ({bytes})");
+    assert_same(&host, &phone, "rotated window");
+    // Scrolling up brings the rest, a chunk at a time.
+    let mut loads = 0;
+    while host.older_rows() > 0 {
+        let before = host.older_rows();
+        let mut fresh = Phone::new(116, 16);
+        fresh.apply(host.load_older(1_000));
+        assert!(host.older_rows() < before);
+        phone = fresh;
+        assert_same(&host, &phone, "older rows");
+        loads += 1;
+    }
+    assert!((2..=4).contains(&loads), "{loads} loads");
+    assert!(host.load_older(1_000).is_empty(), "nothing older");
+    // Output after it is still incremental.
+    feed(&mut host, &mut phone, b"$ ls\r\n");
+    assert_same(&host, &phone, "after loading");
+}
+
+#[test]
+fn a_rotation_keeps_the_lines_being_read() {
+    let mut host = Projection::new(120, 40, 10_000);
+    let mut phone = Phone::new(54, 38);
+    phone.apply(host.set_viewport(54, 38));
+    feed(&mut host, &mut phone, &numbered(3_000));
+    // Reading the 1000th line from the end, roughly: the phone's rows to it.
+    let phone_rows = phone.term.history.len() + 38;
+    let target = phone
+        .term
+        .history
+        .iter()
+        .position(|r| row_text(&phone.term, r).starts_with("02000 "))
+        .unwrap();
+    host.set_reader_rows_from_end(phone_rows - target);
+    let mut phone = Phone::new(116, 16);
+    phone.apply(host.set_viewport(116, 16));
+    let (lines, _) = logical(&phone.term, 0);
+    assert!(lines.iter().any(|l| l.starts_with("02000 ")), "the line read is on the phone");
+    assert!(lines.iter().any(|l| l.starts_with("01999 ")), "and a screen above it");
+    assert!(host.older_rows() > 1_000, "but not the whole scrollback");
+    assert_same(&host, &phone, "anchored");
 }
 
 #[test]

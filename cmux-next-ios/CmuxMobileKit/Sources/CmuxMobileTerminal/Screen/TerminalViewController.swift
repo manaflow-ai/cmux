@@ -2255,6 +2255,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
         updateViewport(visibleMinY: scrollView.contentOffset.y)
         if !settingOffset { scroll.scrolled(offsetY: scrollView.contentOffset.y, bottomOffsetY: maxOffsetY) }
+        if cell.height > 0 {
+            // A rotation's re-wrap keeps the lines being read (the projection).
+            let below = max(0, (maxOffsetY - scrollView.contentOffset.y) / cell.height)
+            model.session.noteReaderRowsFromEnd(Int(below.rounded() + scrollView.bounds.height / cell.height))
+        }
         // The reader moved to within a screen of the oldest row held: a Mac
         // terminal that attached with its latest screen first brings older
         // rows (never for the page's own placement or a short document).

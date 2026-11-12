@@ -82,7 +82,32 @@ public final class TerminalProjectingSession: TerminalSession {
     public func setOutputPaused(_ paused: Bool) { inner.setOutputPaused(paused) }
     public func noteInteraction() { inner.noteInteraction() }
     public func clearHistory() async throws { try await inner.clearHistory() }
-    public func loadOlderHistory() { inner.loadOlderHistory() }
+    /// Older rows: the projection's own first (a re-wrap paints a window of
+    /// the scrollback, so a rotation costs the same at any length), then the
+    /// Mac's.
+    public func loadOlderHistory() {
+        guard !shownAlternate, handler != nil else { return inner.loadOlderHistory() }
+        if projection.olderRows() > 0 {
+            let started = CFAbsoluteTimeGetCurrent()
+            // One chunk per replay: the page keeps calling while its reset is parsed.
+            if let last = lastOlderLoad, started - last < 0.5 { return }
+            lastOlderLoad = started
+            let segments = projection.loadOlder(hostRows: Self.olderChunkRows)
+            log.notice("projection: \(Self.olderChunkRows, privacy: .public) older rows re-wrapped in \(Int((CFAbsoluteTimeGetCurrent() - started) * 1000), privacy: .public) ms, \(self.projection.olderRows(), privacy: .public) left")
+            emit(segments)
+        } else {
+            inner.loadOlderHistory()
+        }
+    }
+
+    public func noteReaderRowsFromEnd(_ rows: Int) {
+        projection.setReaderRowsFromEnd(rows: UInt32(clamping: max(0, rows)))
+    }
+
+    private var lastOlderLoad: CFAbsoluteTime?
+
+    /// Mac scrollback rows each ``loadOlderHistory()`` re-wraps.
+    static let olderChunkRows: UInt32 = 2_000
 
     public func resize(columns: Int, rows: Int) {
         guard columns > 0, rows > 0 else { return }
@@ -91,9 +116,11 @@ public final class TerminalProjectingSession: TerminalSession {
         // Remembered by the Mac's session for a claim; sent only while it claims.
         if macClaims { inner.resize(columns: columns, rows: rows) }
         guard changed else { return }
+        let started = CFAbsoluteTimeGetCurrent()
         let segments = projection.setViewport(cols: UInt32(clamping: columns), rows: UInt32(clamping: rows))
+        let micros = Int((CFAbsoluteTimeGetCurrent() - started) * 1_000_000)
         guard !shownAlternate, handler != nil else { return }
-        log.notice("projection: phone grid \(columns, privacy: .public)x\(rows, privacy: .public), Mac keeps \(self.macGrid.columns, privacy: .public)x\(self.macGrid.rows, privacy: .public)")
+        log.notice("projection: phone grid \(columns, privacy: .public)x\(rows, privacy: .public) re-wrapped in \(micros, privacy: .public) us (\(self.projection.olderRows(), privacy: .public) older rows on demand), Mac keeps \(self.macGrid.columns, privacy: .public)x\(self.macGrid.rows, privacy: .public)")
         showGrid()
         emit(segments)
     }

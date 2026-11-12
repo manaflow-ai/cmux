@@ -2383,6 +2383,18 @@ public protocol TerminalProjectionProtocol: AnyObject, Sendable {
     func isAlternate()  -> Bool
     
     /**
+     * The reader reached the oldest row the surface holds: `host_rows` more
+     * of the scrollback, as a reset. Empty when the surface has all of it.
+     */
+    func loadOlder(hostRows: UInt32)  -> [ProjectionSegment]
+    
+    /**
+     * Mac scrollback rows older than what the surface holds (a viewport
+     * change paints a window: the screen and two phone screens above it).
+     */
+    func olderRows()  -> UInt64
+    
+    /**
      * Paints what changed since the last paint.
      */
     func paint()  -> [ProjectionSegment]
@@ -2396,6 +2408,13 @@ public protocol TerminalProjectionProtocol: AnyObject, Sendable {
      * The Mac's PTY grid changed (its replay follows).
      */
     func setHostGrid(cols: UInt32, rows: UInt32) 
+    
+    /**
+     * Where the reader is: phone rows from the end of the surface's
+     * document to the top of the rows read (0: at the bottom). A viewport
+     * change keeps those lines in the window it paints.
+     */
+    func setReaderRowsFromEnd(rows: UInt32) 
     
     /**
      * The phone's grid; a change repaints at once.
@@ -2497,6 +2516,31 @@ open func isAlternate() -> Bool  {
 }
     
     /**
+     * The reader reached the oldest row the surface holds: `host_rows` more
+     * of the scrollback, as a reset. Empty when the surface has all of it.
+     */
+open func loadOlder(hostRows: UInt32) -> [ProjectionSegment]  {
+    return try!  FfiConverterSequenceTypeProjectionSegment.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_load_older(
+            self.uniffiCloneHandle(),
+        FfiConverterUInt32.lower(hostRows),$0
+    )
+})
+}
+    
+    /**
+     * Mac scrollback rows older than what the surface holds (a viewport
+     * change paints a window: the screen and two phone screens above it).
+     */
+open func olderRows() -> UInt64  {
+    return try!  FfiConverterUInt64.lift(try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_older_rows(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
      * Paints what changed since the last paint.
      */
 open func paint() -> [ProjectionSegment]  {
@@ -2524,6 +2568,19 @@ open func setHostGrid(cols: UInt32, rows: UInt32)  {try! rustCall() {
     uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_set_host_grid(
             self.uniffiCloneHandle(),
         FfiConverterUInt32.lower(cols),
+        FfiConverterUInt32.lower(rows),$0
+    )
+}
+}
+    
+    /**
+     * Where the reader is: phone rows from the end of the surface's
+     * document to the top of the rows read (0: at the bottom). A viewport
+     * change keeps those lines in the window it paints.
+     */
+open func setReaderRowsFromEnd(rows: UInt32)  {try! rustCall() {
+    uniffi_cmux_mobile_link_ffi_fn_method_terminalprojection_set_reader_rows_from_end(
+            self.uniffiCloneHandle(),
         FfiConverterUInt32.lower(rows),$0
     )
 }
@@ -4863,6 +4920,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_is_alternate() != 62553) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_load_older() != 3182) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_older_rows() != 21444) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_paint() != 61759) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -4870,6 +4933,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_set_host_grid() != 62931) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_set_reader_rows_from_end() != 42508) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cmux_mobile_link_ffi_checksum_method_terminalprojection_set_viewport() != 49630) {
