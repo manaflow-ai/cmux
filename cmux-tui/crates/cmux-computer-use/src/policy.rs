@@ -224,13 +224,18 @@ const PROTECTED_IDS: &[&str] = &[
     "gcr-prompter",
 ];
 
+/// The protected apps' id prefixes (see [`protected`]).
+pub fn protected_prefixes() -> &'static [&'static str] {
+    PROTECTED_PREFIXES
+}
+
+const PROTECTED_PREFIXES: &[&str] =
+    &["com.apple.coreauthentication.", "com.apple.localauthentication.", "com.cmuxterm.remote."];
+
 /// Never usable, in any mode, and not on the editable list.
 fn protected(app_id: &str) -> bool {
     let id = app_id.to_ascii_lowercase();
-    PROTECTED_IDS.contains(&id.as_str())
-        || id.starts_with("com.apple.coreauthentication.")
-        || id.starts_with("com.apple.localauthentication.")
-        || id.starts_with("com.cmuxterm.remote.")
+    PROTECTED_IDS.contains(&id.as_str()) || PROTECTED_PREFIXES.iter().any(|p| id.starts_with(p))
 }
 
 /// One deny-list entry: an exact app id, a `prefix*` glob, or `name:App Name`.

@@ -267,12 +267,13 @@ pub enum BlockReason {
     Denied,
     /// A name it shows cannot be checked yet: the app names are loading.
     Loading,
-    /// Its title could not be read, so it cannot be checked.
+    /// Its title, or an item above it, could not be read, so it cannot be
+    /// checked.
     Unreadable,
 }
 
 /// Why an item whose title cannot be read is refused.
-pub const UNREADABLE_ITEM_REFUSAL: &str = "this menu item's title cannot be read, so Computer Use cannot check where it leads and does not press it; try another item, or retry";
+pub const UNREADABLE_ITEM_REFUSAL: &str = "this menu item, or an item above it, cannot be read, so Computer Use cannot check where it leads and does not press it; try another item, or retry";
 
 /// The refusal for a blocked item: `wanted` is the agent's own text, so a
 /// hidden item's title is never shown. Pure, for tests.

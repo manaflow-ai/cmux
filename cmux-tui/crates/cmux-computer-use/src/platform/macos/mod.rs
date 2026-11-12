@@ -74,9 +74,10 @@ impl MacDesktop {
                 launch: None,
             };
             // While something is denied an item that cannot be placed is
-            // blocked, and stays blocked once the names load: not "loading".
+            // blocked, and stays blocked once the names load: an item above
+            // it cannot be read.
             if guard.denies_any() {
-                return roles::ItemCheck::Blocked;
+                return roles::ItemCheck::Unplaced;
             }
             return roles::menu_item_check(&*guard, &ctx, &workspace::apps_named);
         };
@@ -101,17 +102,18 @@ impl MacDesktop {
             // Unreadable: blocked, whatever the deny list.
             Err(_) => return Some(BlockReason::Unreadable),
         };
-        match self.menu_item_check_titled(item, &title) {
+        let check = self.menu_item_check_titled(item, &title);
+        match check {
             roles::ItemCheck::Blocked => return Some(BlockReason::Denied),
-            roles::ItemCheck::Unknown => return Some(BlockReason::Loading),
-            roles::ItemCheck::Allowed => {}
+            roles::ItemCheck::Unplaced => return Some(BlockReason::Unreadable),
+            roles::ItemCheck::Unknown | roles::ItemCheck::Allowed => {}
         }
         let path = menus::item_path_checked(item);
         opened_reason(
             &*guard,
             &title,
             path.as_deref(),
-            workspace::app_names_ready(),
+            check == roles::ItemCheck::Unknown,
             &workspace::cold_blocked_answer,
             &workspace::apps_named_indexed,
         )
@@ -149,7 +151,8 @@ impl MacDesktop {
     }
 }
 
-/// The opened-menu rules past the menu bar's: under Services, Quick
+/// The opened-menu rules past the menu bar's: an item under one that cannot
+/// be read is blocked while anything is denied; under Services, Quick
 /// Actions, Share, Open With or Recent Items (or a title above that cannot
 /// be read), while anything is denied, only an item that names an allowed
 /// installed app may run ("Services Settings…", "Make Sticky", "Customize…"
@@ -161,6 +164,11 @@ fn opened_rules(
     path: Option<&[String]>,
     resolve: &dyn Fn(&str) -> Option<Vec<String>>,
 ) -> bool {
+    // An item above it cannot be read: while something is denied it is
+    // hidden and refused (the listing and the press agree).
+    if path.is_none() && guard.denies_any() {
+        return true;
+    }
     if guard.denies_any() && roles::in_opened_launch_list(path, workspace::launch_submenu_titles())
     {
         let name = roles::menu_app_name(title).0;
@@ -176,16 +184,12 @@ fn opened_rules(
 
 /// The rules of [`opened_rules`] that need no app names: a word run of the
 /// title or the path above it that the guard blocks by name (a `name:`
-/// entry, a protected app's name), and, while something is denied, a path
-/// that could not be read. A block here is real, loading or not.
+/// entry, a protected app's name). A block here is real, loading or not.
 pub(super) fn opened_rules_name_free(
     guard: &dyn MenuGuard,
     title: &str,
     path: Option<&[String]>,
 ) -> bool {
-    if path.is_none() && guard.denies_any() {
-        return true;
-    }
     let no_names = |_: &str| -> Option<Vec<String>> { Some(Vec::new()) };
     std::iter::once(title)
         .chain(path.unwrap_or_default().iter().map(String::as_str))
@@ -193,19 +197,26 @@ pub(super) fn opened_rules_name_free(
 }
 
 /// Why an opened-menu item past the menu-bar rule is hidden and refused,
-/// and how to say it: a name-free block, or a word run that names a
-/// blocked app known before the index (`cold`), is Denied; the full rules
-/// on the index (`indexed`) block as Denied once it is built and as
-/// Loading while it loads (a name may only be unknown yet). Pure, for tests.
+/// and how to say it, in this order: an item above it that cannot be read
+/// while something is denied is Unreadable; a name-free block, or a word
+/// run that names a blocked app known before the index (`cold`), is
+/// Denied; a name the menu-bar rule could not resolve yet (`menu_unknown`)
+/// is Loading; the full rules on the index (`indexed`) block as Loading
+/// when it left a name unanswered during this check, else as Denied.
+/// Whether it blocks at all is exactly what [`opened_rules`] says with the
+/// same index, which the listing uses. Pure, for tests.
 pub(super) fn opened_reason(
     guard: &dyn MenuGuard,
     title: &str,
     path: Option<&[String]>,
-    names_ready: bool,
+    menu_unknown: bool,
     cold: &dyn Fn(&str) -> Option<Vec<String>>,
     indexed: &dyn Fn(&str) -> Option<Vec<String>>,
 ) -> Option<crate::menus::BlockReason> {
     use crate::menus::BlockReason;
+    if path.is_none() && guard.denies_any() {
+        return Some(BlockReason::Unreadable);
+    }
     if opened_rules_name_free(guard, title, path) {
         return Some(BlockReason::Denied);
     }
@@ -215,8 +226,19 @@ pub(super) fn opened_reason(
     if cold_hit {
         return Some(BlockReason::Denied);
     }
-    let reason = if names_ready { BlockReason::Denied } else { BlockReason::Loading };
-    opened_rules(guard, title, path, indexed).then_some(reason)
+    if menu_unknown {
+        return Some(BlockReason::Loading);
+    }
+    let unanswered = std::cell::Cell::new(false);
+    let tracked = |name: &str| {
+        let ids = indexed(name);
+        if ids.is_none() {
+            unanswered.set(true);
+        }
+        ids
+    };
+    opened_rules(guard, title, path, &tracked)
+        .then(|| if unanswered.get() { BlockReason::Loading } else { BlockReason::Denied })
 }
 
 /// A resolved window: the window server's entry and its app's identity.

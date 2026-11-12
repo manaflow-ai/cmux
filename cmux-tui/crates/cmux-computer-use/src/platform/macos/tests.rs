@@ -1423,11 +1423,16 @@ fn an_open_with_item_naming_an_allowed_app_is_allowed_once_the_index_is_built() 
         })
     };
     let cold = |_: &str| -> Option<Vec<String>> { Some(Vec::new()) };
-    let reason = |t: &str, ready| opened_reason(&guard, t, Some(&open_with), ready, &cold, &index);
-    assert_eq!(reason("TextEdit", true), None);
-    assert_eq!(reason("Terminal", true), Some(BlockReason::Denied));
+    let reason = |t: &str| opened_reason(&guard, t, Some(&open_with), false, &cold, &index);
+    assert_eq!(reason("TextEdit"), None);
+    assert_eq!(reason("Terminal"), Some(BlockReason::Denied));
     // An Open With item the index does not know: blocked (launch list).
-    assert_eq!(reason("Some Document", true), Some(BlockReason::Denied));
+    assert_eq!(reason("Some Document"), Some(BlockReason::Denied));
+    // The menu-bar rule could not resolve a name yet: Loading.
+    assert_eq!(
+        opened_reason(&guard, "TextEdit", Some(&open_with), true, &cold, &index),
+        Some(BlockReason::Loading)
+    );
     // While the index loads, an index-only block says Loading.
     let loading = |_: &str| -> Option<Vec<String>> { None };
     assert_eq!(
@@ -1442,8 +1447,15 @@ fn the_name_free_rules_do_not_block_a_launch_list_item() {
     let open_with = vec!["Open With".to_string()];
     // A launch list needs names: the name-free pass leaves it alone.
     assert!(!opened_rules_name_free(&guard, "TextEdit", Some(&open_with)));
-    // An unreadable path while something is denied: blocked.
-    assert!(opened_rules_name_free(&guard, "TextEdit", None));
+    // An item above it that cannot be read while something is denied: the
+    // listing hides it and the press refuses it, as Unreadable.
+    let index = |_: &str| -> Option<Vec<String>> { Some(vec!["com.apple.TextEdit".into()]) };
+    let cold = |_: &str| -> Option<Vec<String>> { Some(Vec::new()) };
+    assert!(opened_rules(&guard, "TextEdit", None, &index));
+    assert_eq!(
+        opened_reason(&guard, "TextEdit", None, false, &cold, &index),
+        Some(crate::menus::BlockReason::Unreadable)
+    );
     // A `name:` deny entry is matched by the name alone.
     let by_name = PolicyGuard(crate::policy::PolicyConfig {
         denied_apps: vec!["name:Diary".into()],
@@ -1471,4 +1483,91 @@ fn a_word_run_naming_a_blocked_app_known_before_the_index_is_denied_not_loading(
         opened_reason(&guard, "Open in 1Password", Some(&[]), false, &cold, &loading),
         Some(BlockReason::Denied)
     );
+}
+
+#[test]
+fn the_press_and_the_listing_agree_on_every_item() {
+    // For any guard, title and path, with the index answering every name
+    // and the names known before it a part of the index, the press
+    // (opened_reason) blocks exactly what the listing (opened_rules) hides.
+    let guards = [
+        PolicyGuard(crate::policy::PolicyConfig::default()),
+        PolicyGuard(crate::policy::PolicyConfig { denied_apps: vec![], ..Default::default() }),
+        PolicyGuard(crate::policy::PolicyConfig {
+            denied_apps: vec!["com.agilebits.*".into(), "name:Diary".into()],
+            ..Default::default()
+        }),
+    ];
+    let index = |n: &str| -> Option<Vec<String>> {
+        Some(match n.to_lowercase().as_str() {
+            "textedit" => vec!["com.apple.TextEdit".into()],
+            "terminal" => vec!["com.apple.Terminal".into()],
+            "1password" => vec!["com.agilebits.onepassword7".into()],
+            "securityagent" => vec!["com.apple.securityagent".into()],
+            _ => vec![],
+        })
+    };
+    let cold = |n: &str| -> Option<Vec<String>> {
+        Some(match n.to_lowercase().as_str() {
+            "terminal" => vec!["com.apple.Terminal".into()],
+            _ => vec![],
+        })
+    };
+    let titles = [
+        "TextEdit",
+        "Terminal",
+        "New Terminal at Folder",
+        "Open in 1Password",
+        "Write in Diary",
+        "SecurityAgent",
+        "Make Sticky",
+        "Copy",
+        "",
+    ];
+    let open_with = vec!["Open With".to_string()];
+    let services = vec!["Services".to_string()];
+    let terminal = vec!["Terminal".to_string()];
+    let sort = vec!["Sort By".to_string()];
+    let paths: [Option<&[String]>; 6] =
+        [None, Some(&[]), Some(&open_with), Some(&services), Some(&terminal), Some(&sort)];
+    for guard in &guards {
+        for title in titles {
+            for path in paths {
+                let press = opened_reason(guard, title, path, false, &cold, &index).is_some();
+                let listing = opened_rules(guard, title, path, &index);
+                assert_eq!(press, listing, "{title:?} under {path:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn entries_split_into_exact_ids_and_prefixes() {
+    let (ids, prefixes) = workspace::split_entries(vec![
+        "com.apple.Terminal".into(),
+        "com.AgileBits.*".into(),
+        "*".into(),
+    ]);
+    assert_eq!(ids, vec!["com.apple.Terminal".to_string()]);
+    // Lower-cased; a lone `*` is the empty prefix: every app.
+    assert_eq!(prefixes, vec!["com.agilebits.".to_string(), String::new()]);
+    let mut map = workspace::NameMap::new();
+    workspace::add_prefixed_running(
+        &mut map,
+        &[String::new()],
+        &[("com.apple.TextEdit".into(), "TextEdit".into())],
+    );
+    assert!(map.contains_key("textedit"));
+    // A deny-list edit rebuilds the cached names; the same set reuses them.
+    let a = vec!["com.apple.Terminal".to_string()];
+    let b = vec!["com.apple.Terminal".to_string(), "com.example.x".to_string()];
+    assert!(workspace::reuse_cached(&a, &a));
+    assert!(!workspace::reuse_cached(&a, &b));
+}
+
+#[test]
+fn the_protected_prefixes_are_sent_as_prefix_entries() {
+    let prefixes = crate::policy::protected_prefixes();
+    assert!(prefixes.contains(&"com.cmuxterm.remote."));
+    assert!(prefixes.iter().all(|p| p.ends_with('.')));
 }

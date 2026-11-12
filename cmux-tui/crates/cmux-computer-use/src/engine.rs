@@ -129,6 +129,7 @@ impl crate::desktop::MenuGuard for PolicyMenuGuard {
             .filter(|e| !e.is_empty() && !e.starts_with("name:"))
             .map(str::to_string)
             .chain(policy::protected_ids().iter().map(|s| (*s).to_string()))
+            .chain(policy::protected_prefixes().iter().map(|p| format!("{p}*")))
             .collect()
     }
 }

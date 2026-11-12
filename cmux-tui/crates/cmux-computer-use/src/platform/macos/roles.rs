@@ -441,6 +441,9 @@ pub enum ItemCheck {
     /// A name it shows could not be resolved yet (the app names are still
     /// loading): blocked, and a refusal says the names are loading.
     Unknown,
+    /// Its place in the menus could not be read while something is denied:
+    /// blocked, and a refusal says an item above it cannot be read.
+    Unplaced,
 }
 
 /// [`menu_item_blocked`], telling a real block from a name not resolved yet.

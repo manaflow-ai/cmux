@@ -111,6 +111,9 @@ impl MacDesktop {
         if check == roles::ItemCheck::Unknown {
             return Err(DesktopError::Unsupported(menus::APP_NAMES_LOADING.into()));
         }
+        if check == roles::ItemCheck::Unplaced {
+            return Err(DesktopError::Unsupported(menus::UNREADABLE_ITEM_REFUSAL.into()));
+        }
         if check == roles::ItemCheck::Blocked {
             return Err(DesktopError::Unsupported(menus::block_message(
                 menus::BlockReason::Denied,

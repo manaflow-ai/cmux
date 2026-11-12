@@ -452,7 +452,17 @@ impl NamesIndex {
                             }
                         }
                         let _done = Done(self);
-                        let map = std::sync::Arc::new(build_name_index());
+                        let mut map = build_name_index();
+                        // The prefix-covered apps the cold map knew, kept.
+                        for (name, ids) in prefix_covered_names() {
+                            let known = map.entry(name).or_default();
+                            for id in ids {
+                                if !known.contains(&id) {
+                                    known.push(id);
+                                }
+                            }
+                        }
+                        let map = std::sync::Arc::new(map);
                         let mut st = self.state.lock().unwrap_or_else(|e| e.into_inner());
                         st.generation += 1;
                         st.built = Some(map);
@@ -728,6 +738,38 @@ pub fn set_blocked_ids_source(source: BlockedIds) {
     *blocked_ids_source().lock().unwrap_or_else(|e| e.into_inner()) = Some(source);
 }
 
+/// The guard's entries as (exact ids, lower-cased `prefix*` prefixes). A
+/// lone `*` is the empty prefix: every app. Pure, for tests.
+pub(super) fn split_entries(entries: Vec<String>) -> (Vec<String>, Vec<String>) {
+    let (prefixes, ids): (Vec<String>, Vec<String>) =
+        entries.into_iter().partition(|e| e.ends_with('*'));
+    let prefixes =
+        prefixes.into_iter().map(|p| p.trim_end_matches('*').to_ascii_lowercase()).collect();
+    (ids, prefixes)
+}
+
+/// Whether the names cached for `cached` serve `ids` (the same set, so a
+/// deny-list edit rebuilds them). Pure, for tests.
+pub(super) fn reuse_cached(cached: &[String], ids: &[String]) -> bool {
+    cached == ids
+}
+
+/// The names of the windowed apps a `prefix*` entry of the guard covers (as
+/// the cold map adds them), for the index to keep once built: so the listing
+/// (index only) and the press agree for prefix apps outside the app folders.
+fn prefix_covered_names() -> NameMap {
+    let entries = {
+        let source = blocked_ids_source().lock().unwrap_or_else(|e| e.into_inner());
+        source.as_ref().map(|s| s()).unwrap_or_default()
+    };
+    let (_, prefixes) = split_entries(entries);
+    let mut map = NameMap::new();
+    if !prefixes.is_empty() {
+        add_prefixed_running(&mut map, &prefixes, &running_ids_and_names());
+    }
+    map
+}
+
 /// The blocked apps' names: the exact ids' names built once per id set
 /// (again when it changes), and, only when there are `prefix*` entries, the
 /// windowed apps they cover, refreshed every few seconds. None with no guard
@@ -745,14 +787,11 @@ fn cold_blocked_names() -> Option<std::sync::Arc<NameMap>> {
         let source = blocked_ids_source().lock().unwrap_or_else(|e| e.into_inner());
         (source.as_ref()?)()
     };
-    let (prefixes, ids): (Vec<String>, Vec<String>) =
-        entries.into_iter().partition(|e| e.ends_with('*'));
-    let prefixes: Vec<String> =
-        prefixes.into_iter().map(|p| p.trim_end_matches('*').to_ascii_lowercase()).collect();
+    let (ids, prefixes) = split_entries(entries);
     let exact = {
         let mut cache = EXACT.lock().unwrap_or_else(|e| e.into_inner());
         match cache.as_ref() {
-            Some((cached, map)) if *cached == ids => map.clone(),
+            Some((cached, map)) if reuse_cached(cached, &ids) => map.clone(),
             _ => {
                 let map = std::sync::Arc::new(names_of_bundles(&ids)?);
                 *cache = Some((ids, map.clone()));
