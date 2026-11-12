@@ -33441,25 +33441,25 @@
     },
     {
       "accepts" : [
-        "twoTone",
-        "oneColor"
+        "oneColor",
+        "subtleTone"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
         {
           "title" : {
-            "key" : "settings.choice.titleAreaTone.twoTone",
-            "text" : "Two Tones"
-          },
-          "value" : "twoTone"
-        },
-        {
-          "title" : {
             "key" : "settings.choice.titleAreaTone.oneColor",
             "text" : "One Color"
           },
           "value" : "oneColor"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.titleAreaTone.subtleTone",
+            "text" : "Subtle Tone"
+          },
+          "value" : "subtleTone"
         }
       ],
       "consumers" : [
@@ -33473,12 +33473,13 @@
       },
       "help" : {
         "key" : "settings.appearance.titleAreaTone.help",
-        "text" : "Two Tones shades the title bar, the tab bar and the sidebar apart from the content, and the selected tab opens into the content. One Color draws them in the content's color, with a divider under the tabs and a highlighted selected tab."
+        "text" : "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.titleAreaTone",
       "keywords" : [
         "tone",
+        "subtle tone",
         "two tone",
         "one color",
         "single color",
@@ -33507,7 +33508,7 @@
       "section" : "appearance",
       "summary" : {
         "key" : "settings.appearance.titleAreaTone.summary",
-        "text" : "Two tones or one color for the title and tab bar"
+        "text" : "One color or a subtle tone for the title bar, tab bar and sidebar"
       },
       "surfaces" : {
         "cli" : {
@@ -33603,8 +33604,8 @@
     {
       "accepts" : [
         0,
-        1.5,
-        0.75
+        2,
+        1
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -33619,7 +33620,7 @@
       },
       "help" : {
         "key" : "settings.appearance.titleAreaContrast.help",
-        "text" : "How much darker the title bar, the tab bar and the sidebar are than the content. 1 is the default; lower is softer, higher is stronger."
+        "text" : "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.titleAreaContrast",
@@ -33644,15 +33645,15 @@
       ],
       "placeholder" : null,
       "range" : {
-        "max" : 1.5,
+        "max" : 2,
         "min" : 0,
         "placeholder" : 1,
         "step" : 0.05,
         "unit" : "fraction"
       },
       "refuses" : [
-        -1.5,
-        3,
+        -2,
+        4,
         "1"
       ],
       "section" : "appearance",

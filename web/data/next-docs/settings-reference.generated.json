@@ -3262,26 +3262,26 @@
         {
           "key": "appearance.titleAreaContrast",
           "title": "Title Area Contrast",
-          "help": "How much darker the title bar, the tab bar and the sidebar are than the content. 1 is the default; lower is softer, higher is stronger.",
+          "help": "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger.",
           "kind": "number",
           "default": 1,
           "group": "Panes",
           "range": {
             "min": 0,
-            "max": 1.5,
+            "max": 2,
             "unit": "fraction"
           }
         },
         {
           "key": "appearance.titleAreaTone",
           "title": "Title Area",
-          "help": "Two Tones shades the title bar, the tab bar and the sidebar apart from the content, and the selected tab opens into the content. One Color draws them in the content's color, with a divider under the tabs and a highlighted selected tab.",
+          "help": "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content.",
           "kind": "choice",
           "default": "oneColor",
           "group": "Panes",
           "values": [
-            "twoTone",
-            "oneColor"
+            "oneColor",
+            "subtleTone"
           ]
         },
         {

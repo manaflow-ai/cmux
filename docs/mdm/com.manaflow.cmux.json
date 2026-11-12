@@ -1711,18 +1711,18 @@
     },
     "appearance.titleAreaContrast" : {
       "default" : 1,
-      "description" : "How much darker the title bar, the tab bar and the sidebar are than the content. 1 is the default; lower is softer, higher is stronger.",
-      "maximum" : 1.5,
+      "description" : "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger.",
+      "maximum" : 2,
       "minimum" : 0,
       "title" : "Title Area Contrast",
       "type" : "number"
     },
     "appearance.titleAreaTone" : {
       "default" : "oneColor",
-      "description" : "Two Tones shades the title bar, the tab bar and the sidebar apart from the content, and the selected tab opens into the content. One Color draws them in the content's color, with a divider under the tabs and a highlighted selected tab.",
+      "description" : "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content.",
       "enum" : [
-        "twoTone",
-        "oneColor"
+        "oneColor",
+        "subtleTone"
       ],
       "title" : "Title Area",
       "type" : "string"
