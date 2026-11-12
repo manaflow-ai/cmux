@@ -18,8 +18,16 @@ public struct RemoteTmuxFailureClassifier: Sendable, Equatable {
     /// tmux prints `error connecting to <socket> (File name too long)` when the socket path
     /// (`$TMUX_TMPDIR/tmux-<uid>/<name>`) exceeds the AF_UNIX limit, which a long `-L <name>`
     /// under a long `TMUX_TMPDIR` can reach.
+    ///
+    /// The reason is read from the end of the diagnostic line, so a socket path that happens to
+    /// contain the words (`/tmp/file name too long/…`) with another reason, such as
+    /// `(Permission denied)`, is not taken for this failure.
     public var indicatesSocketPathTooLong: Bool {
-        lowered.contains("error connecting to") && lowered.contains("file name too long")
+        lowered.split(whereSeparator: \.isNewline).contains { line in
+            guard line.contains("error connecting to") else { return false }
+            let end = line.lastIndex { !$0.isWhitespace } ?? line.startIndex
+            return line[...end].hasSuffix("(file name too long)")
+        }
     }
 
     /// Whether the remote tmux server simply isn't running.
