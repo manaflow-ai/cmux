@@ -59,6 +59,8 @@ struct HomeRecipientSnapshot: Sendable {
     var canInvite: Bool
     /// The open Cloud Chief's agent id: it joins a group as itself.
     var openCloudChiefAgent: String?
+    /// The team could not be read: the list shows no Team section (as the Mac shows no team).
+    var teamUnread = false
 }
 
 /// New Message's directory and list for Home: ``HomeRecipientSnapshot``'s
@@ -120,7 +122,7 @@ final class HomeNewMessageDirectory: ConversationDirectory, ConversationComposeL
             rows += chiefs.map { .contact($0.contact) }
             if snapshot.canCreateChief { rows.append(.action(Self.newChiefAction)) }
         }
-        if !team.isEmpty || snapshot.canInvite {
+        if !snapshot.teamUnread, !team.isEmpty || snapshot.canInvite {
             rows.append(.header(String(localized: "Team")))
             rows += team.isEmpty ? [.action(Self.inviteAction)] : team.map { .contact($0.contact) }
         }
@@ -360,7 +362,7 @@ final class HomeNewMessageDirectory: ConversationDirectory, ConversationComposeL
         HomeRecipientEntry(
             contact: ConversationContact(id: "address:\(address)", name: address, initials: isEmail ? "@" : "#", colorHex: "#8E8E93",
                                          handles: [ConversationContactHandle(value: address, label: "", service: isEmail ? .iMessage : .sms)],
-                                         detail: isEmail ? String(localized: "Email") : String(localized: "Phone")),
+                                         detail: isEmail ? String(localized: "Email") : String(localized: "Phone"), tintsWithService: true),
             kind: .address(address, isEmail: isEmail)
         )
     }

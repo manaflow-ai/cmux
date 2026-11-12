@@ -32,9 +32,13 @@ public struct ConversationContact: Sendable, Hashable, Identifiable {
     /// color, instead of the first handle ("Chief · Main · Cloud"). Nil:
     /// Messages' handle line.
     public var detail: String?
+    /// The detail line names an address: it takes the service color, as Messages tints an
+    /// address row, instead of the secondary gray of cmux's "Chief · …" and "Team" lines.
+    public var tintsWithService = false
 
     public init(id: String, name: String, initials: String, colorHex: String, handles: [ConversationContactHandle],
-                detail: String? = nil) {
+                detail: String? = nil, tintsWithService: Bool = false) {
+        self.tintsWithService = tintsWithService
         self.id = id
         self.name = name
         self.initials = initials

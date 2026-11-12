@@ -102,6 +102,22 @@ public final class ConversationStore {
     /// store would take its updates.
     public var hasPrimaryObserver: Bool { primaryObserver != nil }
 
+    /// The screen that set `onChange` (``claimPrimary(_:)``), so only it gives the updates back.
+    public private(set) weak var primaryOwner: AnyObject?
+
+    /// Sets `onChange` for `owner`.
+    public func claimPrimary(_ owner: AnyObject, _ observer: @escaping @MainActor (ConversationStoreChange) -> Void) {
+        primaryOwner = owner
+        primaryObserver = observer
+    }
+
+    /// Clears `onChange` only while `owner` still holds it (a newer screen keeps its own).
+    public func releasePrimary(_ owner: AnyObject) {
+        guard primaryOwner === owner else { return }
+        primaryOwner = nil
+        primaryObserver = nil
+    }
+
     func notify(_ change: ConversationStoreChange) {
         primaryObserver?(change)
         for observer in observers { observer.observe(change) }

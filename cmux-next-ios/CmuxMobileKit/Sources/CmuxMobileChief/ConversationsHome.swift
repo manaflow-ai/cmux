@@ -614,9 +614,6 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         if macs.contains(where: { $0.id == id && $0.isOnline }) { selectMac?(id) }
     }
 
-    /// The first pin's name: the Cloud Chief's own name once it is the default.
-    // MARK: New Message
-
     /// The Chief conversation's composer: Forward opens Home's New Message.
     private func chiefComposer(_ chief: ChiefSession) -> ChiefComposer {
         let composer = ChiefComposer(store: store, session: chief, open: open)
@@ -693,6 +690,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         )
     }
 
+    /// The first pin's name: the Cloud Chief's own name once it is the default.
     private var primaryName: String {
         if let chief = sources.cloudChief, !chief.displayName.isEmpty { return chief.displayName }
         return String(localized: "Chief")

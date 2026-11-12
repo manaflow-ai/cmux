@@ -256,6 +256,10 @@ final class HomeNewMessageUITests: XCTestCase {
             XCTAssertTrue((macChief.value as? String ?? "").contains("Main"), "tagged Main: \(macChief.value ?? "")")
             let invite = app.cells["conversation.compose.action.invite"]
             XCTAssertTrue(invite.waitForExistence(timeout: 5), "Invite for a team of one\n\(app.debugDescription)")
+            // N2: the Invite row on screen (the list scrolls above the message bar).
+            if !invite.isHittable { app.tables["conversation.compose.suggestions"].swipeUp() }
+            Self.pause(0.6)
+            XCTAssertTrue(invite.isHittable, "the Invite row is on screen")
             attach(app, look, "19-mac-only-invite")
             invite.tap()
             // The share sheet up (its list of apps), not mid-animation.

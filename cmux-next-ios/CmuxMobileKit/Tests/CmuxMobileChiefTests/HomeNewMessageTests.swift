@@ -45,6 +45,17 @@ import Testing
         ])
     }
 
+    @Test func anUnreadTeamShowsNoTeamSectionAndAddressesTakeTheServiceColor() async throws {
+        let directory = Self.directory(team: [])
+        var snapshot = directory.snapshot
+        snapshot.teamUnread = true
+        directory.update(snapshot)
+        #expect(!directory.idleRows(excluding: []).contains(.header("Team")), "a failed read is not a team of one")
+        let found = try await directory.searchContacts("ada@example.com", limit: 20, excluding: [])
+        #expect(found.first?.tintsWithService == true, "a typed address row is tinted as Messages tints it")
+        #expect(Self.ada.contact.tintsWithService == false, "a teammate's Team line stays secondary")
+    }
+
     @Test func typedTextFindsWordStartsBeforeNamesThatContainIt() async throws {
         let directory = Self.directory()
         // "ho": Grace *Ho*pper starts a word; nobody else contains it.

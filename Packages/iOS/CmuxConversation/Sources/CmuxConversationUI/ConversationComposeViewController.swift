@@ -356,6 +356,14 @@ public final class ConversationComposeViewController: UIViewController {
         listAboveKeyboard?.isActive = hidden
     }
 
+    /// Asks the host again for the conversation of the chosen people (its data arrived after the
+    /// tokens settled: a Mac Chief whose channel just opened).
+    public func reloadExistingConversation() {
+        guard existingController == nil else { return }
+        existingKey = []
+        updateExisting()
+    }
+
     /// The sheet composer's text and images, as the first message.
     private func currentMessage() -> ConversationComposeMessage {
         let images = composer.attachments.filter { $0.file == nil }.map { attachment in
@@ -644,7 +652,11 @@ final class ComposeSuggestionCell: UITableViewCell {
         max(1, UIFontMetrics(forTextStyle: .body).scaledValue(for: 17, compatibleWith: traits) / 17)
     }
 
-    static func height(_ traits: UITraitCollection) -> CGFloat { (height * scale(traits)).rounded(.up) }
+    /// The measured height at the default size (55.33 on iOS 27), scaled up with larger text.
+    static func height(_ traits: UITraitCollection) -> CGFloat {
+        let s = scale(traits)
+        return s == 1 ? height : (height * s).rounded(.up)
+    }
 
     /// An action row's height: one line, or two for a long title ("Invite … to <team>").
     static func height(_ title: String, width: CGFloat, traits: UITraitCollection) -> CGFloat {
@@ -677,10 +689,18 @@ final class ComposeSuggestionCell: UITableViewCell {
         }
         name.attributedText = text
         let handle = contact.handles.first
-        if let line = contact.detail {
+        if let line = contact.detail, !contact.tintsWithService {
             // cmux Home's line ("Chief · Main · Cloud", "Team"): where the person is, not an address.
             detail.text = line
             detail.textColor = .secondaryLabel
+        } else if let line = contact.detail {
+            // A typed address: Messages tints the name and its line with the service color.
+            detail.text = line
+            detail.textColor = contact.service == .iMessage ? .systemBlue : .systemGreen
+            if ComposeMetrics.iOS27 {
+                text.addAttribute(.foregroundColor, value: detail.textColor ?? .label, range: NSRange(location: 0, length: text.length))
+                name.attributedText = text
+            }
         } else {
             detail.text = handle.map { ComposeMetrics.iOS27 || $0.label.isEmpty ? $0.value : "\($0.label) \($0.value)" }
             detail.textColor = contact.service == .iMessage ? .systemBlue : .systemGreen

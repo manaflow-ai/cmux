@@ -141,8 +141,16 @@ public final class HomeNewMessage {
         let team = context.store.activeTeam.flatMap { context.sources.cloudTeamID(stackTeamID: $0.id) }
         // task-owner: one team read for this sheet; ends with its reply
         Task { [weak self] in
+            // As the Mac: listing the teams first lets the Cloud sync a team it has not mirrored yet.
             if team != nil { _ = try? await account.read("user.teams.list") }
-            guard let data = try? await account.read("team.members.list", params: ["limit": 200], team: team) else { return }
+            guard let data = try? await account.read("team.members.list", params: ["limit": 200], team: team) else {
+                // Unread (offline, refused): no Team section rather than a wrong "nobody else" Invite row.
+                guard let self else { return }
+                var snapshot = self.context.snapshot()
+                snapshot.teamUnread = true
+                self.apply(snapshot)
+                return
+            }
             guard let self else { return }
             var snapshot = self.context.snapshot()
             snapshot.team = HomeNewMessageDirectory.withLines(HomeNewMessageDirectory.teammates(from: data, excluding: me))
@@ -205,8 +213,12 @@ public final class HomeNewMessage {
             route = .cloud(cloud)
         case let .macChief(mac):
             session = context.feed.keptSession(for: mac)
-            // task-owner: opens the conversation's channel; the kept session goes live in place
-            Task { [feed = context.feed] in _ = try? await feed.session(for: mac) }
+            // task-owner: opens the conversation's channel; the kept session goes live in place, and a
+            // Chief this phone kept nothing of shows once its channel answers
+            Task { [feed = context.feed, weak sheet] in
+                guard (try? await feed.session(for: mac)) != nil else { return }
+                sheet?.reloadExistingConversation()
+            }
             route = .mac(mac)
         case .teammate, .agentTab, .address:
             return nil
@@ -218,8 +230,12 @@ public final class HomeNewMessage {
         let view = EmbeddedConversation(session: session, keyboard: sheet?.keyboard, carrying: carrying.text)
         // A message sent there (a new row of mine, not an older one's progress): New Message is
         // done, and the conversation opens on Home.
-        view.sentToken = session.store.addObserver { [weak self, weak view] change in
-            guard let view, !view.sent, case let .live(inserted, true) = change, !inserted.isEmpty else { return }
+        let store = session.store
+        view.sentToken = store.addObserver { [weak self, weak view, weak store] change in
+            // A row this phone just sent (pending, no seq yet): not my message arriving from another device.
+            guard let view, let store, !view.sent, case let .live(inserted, true) = change,
+                  inserted.contains(where: { store.message(rowID: $0).map { $0.seq == nil && $0.delivery == .sending } ?? false })
+            else { return }
             view.sent = true
             self?.finish(route)
         }
