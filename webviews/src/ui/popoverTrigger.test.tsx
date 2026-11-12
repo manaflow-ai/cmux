@@ -2,7 +2,7 @@
 // while open, `aria-controls` naming the popup, so VoiceOver says "collapsed" or "expanded" and can
 // move to the popover, whichever caller drew the button.
 import { afterEach, expect, test } from "bun:test";
-import { act, useRef, useState } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { Popover } from "./Popover";
@@ -86,18 +86,19 @@ const keyboardClick = (element: Element) =>
 
 function Chip() {
   const [open, setOpen] = useState(false);
-  const button = useRef<HTMLButtonElement>(null);
+  // The anchor element in state, not a ref: render reads no ref (React Compiler).
+  const [button, setButton] = useState<HTMLButtonElement | null>(null);
   const trigger = usePopoverTrigger(open, setOpen);
   return (
     <>
-      <button ref={button} type="button" {...trigger}>
+      <button ref={setButton} type="button" {...trigger}>
         Branch
       </button>
       <Popover
         id={trigger["aria-controls"]}
         open={open}
         onOpenChange={setOpen}
-        anchor={open ? button.current : null}
+        anchor={open ? button : null}
         label="Branch status"
       >
         <p>clean</p>
