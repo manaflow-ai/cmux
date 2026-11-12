@@ -1545,7 +1545,20 @@ function shapeTurn(
     // Edits after it join the card too, so its Undo covers the whole turn.
     const id = `${WORKED}-${segment.anchor.id}`;
     // A family with no turn fold draws as an open "Worked for" without the line.
-    const open = !style.conclusion || foldOpen || expanded.has(id);
+    // Split in order, a received message inside the fold that a history page started at keeps its
+    // provisional key (openFolds); a steer that closes it is the next fold's anchor, not its own.
+    const open =
+      !style.conclusion ||
+      foldOpen ||
+      expanded.has(id) ||
+      (inOrder &&
+        [...before, ...after].some(
+          (row) =>
+            row.kind === "user" &&
+            continuesTurn(row) &&
+            expanded.has(`${WORKED}-${row.id}`) &&
+            !segments.some((other) => other.anchor === row),
+        ));
     // A call still waiting for its permission stays in sight: beside the closed fold, and in its
     // folded run once the fold opens (TurnRows.tsx `staysInSight`).
     // A reply to the person is never folded (Leo, 2026-11-06: "your intermediate message got lost. that
