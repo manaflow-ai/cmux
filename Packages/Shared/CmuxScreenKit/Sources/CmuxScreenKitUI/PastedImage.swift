@@ -8,13 +8,14 @@ import UniformTypeIdentifiers
 /// named (an allow-list, so an unknown tag is dropped, never sent).
 ///
 /// An upright PNG or JPEG is copied by ImageIO with empty metadata and the same pixels (no second
-/// lossy encode); the copy is read back, and anything beyond what describes the pixels, in its
-/// properties or in the file's own segments and chunks (a JPEG comment, PNG text), sends the photo
-/// down the decode path instead. Anything else (HEIC, a turned photo, a copy ImageIO cannot
-/// make clean) is decoded with its orientation applied to the pixels (an agent that reads pixels,
-/// not the EXIF tag, sees it the right way up) and written again with no metadata: PNG when it has
-/// transparency or was a PNG (lossless, so the same pixels), JPEG otherwise. The image's color
-/// profile travels with its pixels on both paths. A photo whose pixel size ImageIO cannot read is
+/// lossy encode). Anything else (HEIC, a turned photo, a copy ImageIO cannot make clean) is decoded
+/// with its orientation applied to the pixels (an agent that reads pixels, not the EXIF tag, sees
+/// it the right way up) and written again: PNG when it has transparency or was a PNG (lossless, so
+/// the same pixels), JPEG otherwise. On both paths the file is then rebuilt from its pixel segments
+/// only (``pixelSegmentsOnly(_:type:)``: no comment, APP1, APP13 or text chunk, by an allow-list of
+/// the file's own structure) and read back; anything beyond what describes the pixels sends a copy
+/// down the decode path, and a decoded photo is refused. The image's color profile travels with its
+/// pixels. A photo whose pixel size ImageIO cannot read is
 /// refused. No UIKit drawing context is made. No size limit: the image goes to the Mac in chunks
 /// (``ScreenInput/pasteImageChunks(_:type:id:)``). Builds on macOS too, so its tests run there.
 struct PastedImage: Sendable, Equatable {
@@ -139,12 +140,11 @@ struct PastedImage: Sendable, Equatable {
             kCGImageMetadataShouldExcludeGPS: true,
         ]
         // CopyImageSource finalizes the destination itself.
-        guard CGImageDestinationCopyImageSource(destination, source, options as CFDictionary, nil) else { return nil }
-        let copied = output as Data
+        guard CGImageDestinationCopyImageSource(destination, source, options as CFDictionary, nil),
+              let copied = pixelSegmentsOnly(output as Data, type: type) else { return nil }
         guard let check = CGImageSourceCreateWithData(copied as CFData, nil), CGImageSourceGetCount(check) > 0,
               let properties = CGImageSourceCopyPropertiesAtIndex(check, 0, nil) as? [CFString: Any],
-              !carriesMetadata(check, properties: properties),
-              holdsOnlyPixelSegments(copied, type: type) else { return nil }
+              !carriesMetadata(check, properties: properties) else { return nil }
         return copied
     }
 
@@ -179,8 +179,12 @@ struct PastedImage: Sendable, Equatable {
         let written: [CFString: Any] = png ? [:] : [kCGImageDestinationLossyCompressionQuality: 0.9]
         CGImageDestinationAddImage(destination, image, written as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { return nil }
-        // The encoder writes no text of its own; checked all the same, so nothing is sent unchecked.
-        guard holdsOnlyPixelSegments(output as Data, type: type.identifier) else { return nil }
-        return PastedImage(data: output as Data, type: type.identifier)
+        // ImageIO's JPEG encoder writes segments of its own (APP1 EXIF, APP13 Photoshop): rebuilt
+        // from the pixel segments only, then read back like a copy, so nothing is sent unchecked.
+        guard let written = pixelSegmentsOnly(output as Data, type: type.identifier),
+              let check = CGImageSourceCreateWithData(written as CFData, nil), CGImageSourceGetCount(check) > 0,
+              let properties = CGImageSourceCopyPropertiesAtIndex(check, 0, nil) as? [CFString: Any],
+              !carriesMetadata(check, properties: properties) else { return nil }
+        return PastedImage(data: written, type: type.identifier)
     }
 }

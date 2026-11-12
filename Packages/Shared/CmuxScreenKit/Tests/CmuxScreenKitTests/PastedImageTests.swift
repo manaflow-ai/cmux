@@ -219,11 +219,12 @@ struct PastedImageTests {
         #expect(read.isRed(.topLeft) && !read.isRed(.bottomRight))
     }
 
-    /// What ImageIO's own encoders write for a decoded photo passes the segment check, so the
-    /// decode path is never refused for the encoder's own segments. The message lists them.
+    /// What ImageIO's own encoders write for a decoded photo (with an APP1 EXIF and an APP13
+    /// Photoshop segment in a JPEG) is rebuilt with the pixel segments only, and reads as the same
+    /// image. The message lists the segments before and after.
     @Test(arguments: [(UTType.tiff, UTType.jpeg), (.jpeg, .jpeg), (.tiff, .png), (.png, .png)])
-    func theEncodersOwnSegmentsPassTheCheck(_ source: UTType, _ output: UTType) throws {
-        let photo = try Self.photo(source, width: 64, height: 48, alpha: false, orientation: 6)
+    func theEncodersOwnSegmentsAreDropped(_ source: UTType, _ output: UTType) throws {
+        let photo = try Self.photo(source, width: 64, height: 48, alpha: false, orientation: 6, location: .camera)
         let image = try #require(CGImageSourceCreateWithData(photo as CFData, nil).flatMap {
             CGImageSourceCreateThumbnailAtIndex($0, 0, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true,
@@ -234,8 +235,17 @@ struct PastedImageTests {
         let destination = try #require(CGImageDestinationCreateWithData(data as CFMutableData, output.identifier as CFString, 1, nil))
         CGImageDestinationAddImage(destination, image, (output == .jpeg ? [kCGImageDestinationLossyCompressionQuality: 0.9] : [:]) as CFDictionary)
         #expect(CGImageDestinationFinalize(destination))
-        #expect(PastedImage.holdsOnlyPixelSegments(data as Data, type: output.identifier),
-                "\(source.identifier) to \(output.identifier): \(Self.segments(data as Data, type: output))")
+        let before = Self.segments(data as Data, type: output)
+        let rebuilt = try #require(PastedImage.pixelSegmentsOnly(data as Data, type: output.identifier), "\(before)")
+        let after = Self.segments(rebuilt, type: output)
+        let allowed: Set<String> = output == .jpeg
+            ? ["D8", "E0", "E2", "DB", "C4", "CC", "DD", "DC", "DA", "EOI"] + (0xC0...0xCF).map { String(format: "%02X", $0) }
+            : ["IHDR", "PLTE", "IDAT", "IEND", "tRNS", "gAMA", "cHRM", "sRGB", "iCCP", "cICP", "sBIT", "bKGD", "pHYs"]
+        let kinds = after.map { String($0.prefix { $0 != "(" && $0 != ":" }) }
+        #expect(kinds.allSatisfy(allowed.contains), "\(source.identifier) to \(output.identifier): \(before) became \(after)")
+        #expect(!after.contains { $0.contains("Exif") || $0.contains("Photoshop") || $0.hasPrefix("eXIf") })
+        #expect(try Self.read(rebuilt).pixels == (try Self.read(data as Data)).pixels, "the same pixels")
+        #expect(try Self.read(rebuilt).metadata == [])
     }
 
     /// The segments (JPEG: marker and the payload's first bytes) or chunks (PNG) of `data`, in order.
@@ -254,11 +264,12 @@ struct PastedImageTests {
             return found
         }
         var index = 2
-        while index + 3 < bytes.count, found.count < 64 {
+        while index + 1 < bytes.count, found.count < 64 {
             let marker = bytes[index + 1]
             if bytes[index] != 0xFF { found.append("not-a-marker@\(index)"); break }
             if marker == 0xD9 { found.append("EOI"); break }
             if marker == 0x01 || (0xD0...0xD7).contains(marker) || marker == 0xFF { index += marker == 0xFF ? 1 : 2; continue }
+            if index + 3 >= bytes.count { found.append("truncated@\(index)/\(bytes.count)"); break }
             let length = Int(bytes[index + 2]) << 8 | Int(bytes[index + 3])
             let head = bytes[min(index + 4, bytes.count)..<min(index + 4 + 12, bytes.count)]
             found.append(String(format: "%02X", marker) + "(\(length)):" + head.map { (32...126).contains($0) ? String(UnicodeScalar($0)) : "." }.joined())
@@ -270,7 +281,6 @@ struct PastedImageTests {
                 }
             }
         }
-        if index + 3 >= bytes.count { found.append("end@\(index)/\(bytes.count)") }
         return found
     }
 
