@@ -188,7 +188,7 @@ import { experimentArm } from "../../experiments/experiment";
 import { MOTION_MS, MOTION_SEND_CURVE, MOTION_SEND_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { editableTarget, wheelScrollsDown } from "./conversation/wheelChain";
-import { type OlderReserve, olderReserve } from "./conversation/olderReserve";
+import { type OlderReserve, olderReserve, fillsView } from "./conversation/olderReserve";
 import { hasPromptTops, keepPromptTops, knownPromptTop } from "./conversation/transcriptHeights";
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
 import { playChatSwitch, type ChatSwitchPlay } from "./chatSwitch";
@@ -3006,8 +3006,14 @@ function TranscriptView({
           );
     // Gone until a page lands above the first row (a new first row): then estimated again, from the
     // rows that page brought.
+    // A tail shorter than the view holds no room at all (olderReserve.ts `fillsView`): it draws from
+    // the view's top, never under a blank band, and a page that fills the view seeds the room.
     const gone =
-      canLoadOlder && roomGone && roomGone.sessionId === sessionId && rows[0]?.id === roomGone.firstId
+      canLoadOlder &&
+      roomGone &&
+      roomGone.sessionId === sessionId &&
+      rows[0]?.id === roomGone.firstId &&
+      fillsView(placed.totalHeight - placedOrigin, height)
         ? roomGone
         : undefined;
     const reserved = gone
@@ -3025,6 +3031,7 @@ function TranscriptView({
           knownAbove: hasPromptTops(sessionId, rowWidth)
             ? (row) => knownPromptTop(sessionId, rowWidth, row.id)
             : undefined,
+          viewHeight: height,
         });
     olderRoom.current = reserved.state;
     const layout = placedWithOrigin(placed, reserved.reserve);
@@ -3056,6 +3063,7 @@ function TranscriptView({
     promptCount,
     roomGone,
     roomRose,
+    height,
   ]);
   // A chat held whole keeps each prompt's measured place (transcriptHeights.ts), so the next open on
   // its tail holds exactly the older history's room. In idle time, once the rows stop changing: one
@@ -4471,9 +4479,9 @@ function TranscriptView({
     const first = rows[0];
     if (!node || !first || !canLoadOlder || room <= 0.5 || !didOpenAtLatest.current || node.clientHeight === 0) return;
     if (layoutScrollTop(node) - room >= node.clientHeight * OLDER_LATE_VIEWPORTS) return;
-    // A tail shorter than the view keeps its place at the view's foot: the room left is what lies
-    // between the view's top and the rows, so nothing scrolls (read from the scroller itself, whose
-    // height also holds the thread's own padding).
+    // What is left is only what the thread's own padding leaves past the view (rows that fill it, a
+    // shorter tail holds no room: olderReserve.ts `fillsView`), so nothing scrolls into the room (read
+    // from the scroller itself, whose height also holds the thread's own padding).
     const next = Math.max(0, Math.floor(room - Math.max(0, node.scrollHeight - node.clientHeight)));
     if (next >= room - 0.5) return;
     setRoomGone({ sessionId, firstId: first.id, room: next });
