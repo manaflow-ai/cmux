@@ -7208,6 +7208,138 @@
         }
       }
     },
+    "remote.tab.originalStayed": {
+      "comment": "A tab moved to a workspace on another machine opened there, but its original tab here (for example a pinned column's tab) could not close.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The tab opened on the other machine, but its original tab here could not close."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فُتحت علامة التبويب على الجهاز الآخر، لكن تعذّر إغلاق علامة التبويب الأصلية هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kartica se otvorila na drugoj mašini, ali originalna kartica ovdje se nije mogla zatvoriti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fanen blev åbnet på den anden maskine, men den oprindelige fane her kunne ikke lukkes."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Tab wurde auf der anderen Maschine geöffnet, aber der ursprüngliche Tab hier ließ sich nicht schließen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La pestaña se abrió en la otra máquina, pero la pestaña original de aquí no se pudo cerrar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’onglet s’est ouvert sur l’autre machine, mais l’onglet d’origine ici n’a pas pu être fermé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La scheda si è aperta sull’altra macchina, ma la scheda originale qui non si è potuta chiudere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブは別のマシンで開きましたが、こちらの元のタブは閉じられませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងបានបើកនៅលើម៉ាស៊ីនផ្សេងទៀត ប៉ុន្តែផ្ទាំងដើមនៅទីនេះមិនអាចបិទបានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "탭이 다른 머신에서 열렸지만, 여기의 원래 탭을 닫을 수 없었습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fanen ble åpnet på den andre maskinen, men den opprinnelige fanen her kunne ikke lukkes."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Karta otworzyła się na drugiej maszynie, ale nie udało się zamknąć oryginalnej karty tutaj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A aba foi aberta na outra máquina, mas a aba original aqui não pôde ser fechada."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладка открылась на другой машине, но исходную вкладку здесь закрыть не удалось."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บเปิดบนเครื่องอื่นแล้ว แต่ไม่สามารถปิดแท็บต้นฉบับที่นี่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sekme diğer makinede açıldı, ancak buradaki asıl sekme kapatılamadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вкладка відкрилася на іншій машині, але початкову вкладку тут не вдалося закрити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Thẻ đã mở trên máy kia, nhưng không thể đóng thẻ gốc ở đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "标签页已在另一台机器上打开，但无法关闭这里的原标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分頁已在另一台機器上開啟，但無法關閉這裡的原分頁。"
+          }
+        }
+      }
+    },
     "remote.terminal.noResource": {
       "extractionState": "manual",
       "localizations": {

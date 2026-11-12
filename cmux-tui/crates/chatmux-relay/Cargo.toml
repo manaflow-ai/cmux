@@ -47,6 +47,8 @@ url.workspace = true
 x25519-dalek.workspace = true
 
 [target.'cfg(unix)'.dependencies]
+# The reap grace help probe the app's launcher runs (`ensure::reap_grace_probes`).
+cmux-daemon-launch-core = { path = "../cmux-daemon-launch-core" }
 libc.workspace = true
 
 [target.'cfg(windows)'.dependencies]
