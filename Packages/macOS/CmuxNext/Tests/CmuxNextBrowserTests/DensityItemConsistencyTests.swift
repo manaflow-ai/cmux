@@ -51,8 +51,7 @@ import Testing
         inDensity(preset) {
             let omnibar = OmnibarStyle.cardCornerRadius
             let tab = Metrics.tabCornerRadius
-            let tokens = SidebarRowTokens.current
-            let row = tokens.codexCornerRadius ?? tab
+            let row = tab  // rows draw the tab radius (SidebarDensityTokens.rowCornerRadius)
             #expect(omnibar == chrome, "\(preset): omnibar radius \(omnibar), Chrome's \(chrome)")
             #expect(tab == chrome, "\(preset): tab radius \(tab), Chrome's \(chrome)")
             #expect(row == chrome, "\(preset): row radius \(row), Chrome's \(chrome)")
