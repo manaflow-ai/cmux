@@ -3892,6 +3892,24 @@ def guard_test_file(name: str, output: list[str]) -> str | None:
     return frames.pop() if len(frames) == 1 else None
 
 
+def cited_red(view: FailedView, unnamed: "list[tuple[str, list[str]]]") -> str:
+    """What a refusal quotes as the red of VIEW's job, given UNNAMED, the (status, error lines) of each part that
+    names no failing test: the job's own `red check: NAME` lines (its rollup, ROLLUP_RED) when it has any; else the
+    first error line of a FAILED part (a step the jobs API says failed) that is not the runner's exit line, then its
+    exit line; else the failed steps by name. Never an ERRORED part's line: a continue-on-error or warn-only step
+    that printed `##[error]` is not why the job is red (cmux#40455 at a199e5e0)."""
+    rollup = [line.removeprefix("##[error]") for line in test_reds.lines_of(view_text(view)) if ROLLUP_RED.match(line)]
+    if rollup:
+        return "the job's " + "; ".join(dict.fromkeys(rollup))
+    failed = [error for status, errors in unnamed if status == FAILED for error in errors]
+    said = ([error for error in failed if not test_reds.PROCESS_EXIT.match(error)] or failed)[:1]
+    if said:
+        return said[0]
+    steps = sorted(str(step.get("name") or "") for step in view.job.get("steps") or []  # step-name: display
+                   if step_failed(step))
+    return "failed steps: " + ("; ".join(steps) or "none named; only continue-on-error steps printed errors")
+
+
 def guard_tests(view: "FailedView | Unplaced", reads: dict | None = None) -> dict[str, str]:
     """{failing test: its tests/*.py file} for a job (VIEW: its failed_view) whose every failed step is a guard
     test's or a check rule's (CHECK_RULE_JOBS: keyed by its finding, its file the check's script); raises Refused
@@ -3900,14 +3918,25 @@ def guard_tests(view: "FailedView | Unplaced", reads: dict | None = None) -> dic
     reads = {} if reads is None else reads
     if view is UNPLACED:
         raise Refused(UNPLACED_WHY)
-    lines = test_reds.log_lines(view_text(view))
-    skip = test_reds.echoed(lines)
-    starts = [n for n in sorted(skip) if test_reds.ECHO_START.match(lines[n])]
+    view_text(view)
     found: dict[str, str] = {}
     tested_steps = rolled_up = 0
-    for start, end in zip([0] + starts, starts + [len(lines)]):
-        output = [lines[n] for n in range(start, end) if n not in skip]
-        script = [lines[n] for n in range(start, end) if n in skip]
+    # Each part of each section, with whether the jobs API says its step failed: a part split off at a script echo
+    # (a composite's inner step) is its section's step's.
+    parts = []
+    for _, status, section in view.sections:
+        lines = test_reds.log_lines("\n".join(section))
+        skip = test_reds.echoed(lines)
+        starts = [n for n in sorted(skip) if test_reds.ECHO_START.match(lines[n])]
+        for start, end in zip([0] + starts, starts + [len(lines)]):
+            parts.append((status, [lines[n] for n in range(start, end) if n not in skip],
+                          [lines[n] for n in range(start, end) if n in skip]))
+    # A part with an error line and no failing test refuses, but only after every part is read, so the refusal cites
+    # the job's red, never a warn-only or continue-on-error step's `##[error]` line (2026-11-11, cmux#40455 at
+    # a199e5e0: the first error of the checks job, './scripts/lint-ios-package-conventions.sh' from the warn-only
+    # Package conventions lint, was cited, where the job was red for 'red check: Check the app FFI pin'; cited_red).
+    unnamed: list[tuple[str, list[str]]] = []
+    for status, output, script in parts:
         errors = [text for text in output if test_reds.STEP_ERROR.match(text)]
         if not errors:
             continue
@@ -3917,7 +3946,8 @@ def guard_tests(view: "FailedView | Unplaced", reads: dict | None = None) -> dic
             continue
         names = test_reds.failed_names(output)
         if not names:
-            raise Refused(f"a failed step names no failing test ({errors[0][:200]})")
+            unnamed.append((status, errors))
+            continue
         if rules := {name for name in names if name.split(" ", 1)[0] in CHECK_RULE_JOBS}:
             if rules != names:
                 raise Refused(f"a failed step names a check rule's finding and tests together: {sorted(names)[0]}")
@@ -3941,6 +3971,8 @@ def guard_tests(view: "FailedView | Unplaced", reads: dict | None = None) -> dic
             if (wrapped := wrapped_rule_reads(path, name, output)) is not None:
                 reads[name] = wrapped
         tested_steps += 1
+    if unnamed:
+        raise Refused(f"a failed step names no failing test ({cited_red(view, unnamed)[:300]})")
     if not found:
         raise Refused("no failing guard test")
     if rolled_up > tested_steps:
