@@ -329,6 +329,19 @@ struct NewTabHoldCloseKeyTests {
         }
     }
 
+    /// The person's page took the keyboard after the person's opening, and then a script's opening replaces the
+    /// hold. The script's opening is not a moment that the person chose: what had the keyboard at the PERSON'S
+    /// opening stays the owner. So the person's page, which took the keyboard after it, still gets the line.
+    @Test func aLineHeldForThePersonsPageStillGoesToThatPageWhenAScriptsOpeningReplacesTheHoldAfterItTookTheKeyboard() async throws {
+        try await Self.withAHeldLine { held in
+            let page = try held.laterKeyboardView()
+            _ = try #require(ActionRunScope.$current.withValue(Self.scriptRun) { held.input.begin(for: held.pane) }, "the script's opening began no hold")
+            held.passTheLimit()
+            #expect(page.typed == "ls\r", "the line for the person's page, which took the keyboard before a script's opening, did not reach it: \"\(page.typed)\" (hold log \(held.input.log))")
+            Self.expectNoKeyReachedTheOldView(held, "the limit of a script's hold that replaced the person's hold after the page took the keyboard")
+        }
+    }
+
     /// The same for the rule's own type: a hold whose opening is not the person's records no owner and drops no key.
     @Test func aHoldOfAnOpeningThatIsNotThePersonsDropsNoKey() throws {
         _ = NSApplication.shared
