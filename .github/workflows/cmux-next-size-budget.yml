@@ -99,7 +99,9 @@ jobs:
           set -euo pipefail
           (cd webviews && bun install --frozen-lockfile >/dev/null)
           ./scripts/cmux-next/build-web-bundles.sh --out-root "$RUNNER_TEMP/web"
-          echo "bytes=$(python3 -I scripts/cmux-next/bundle-size-pr.py web-bytes "$RUNNER_TEMP/web")" >> "$GITHUB_OUTPUT"
+          # An assignment, not an echo argument: set -e then stops on a missing output (exit 2).
+          bytes="$(python3 -I scripts/cmux-next/bundle-size-pr.py web-bytes "$RUNNER_TEMP/web")"
+          echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
 
   web-head:
     name: cmux-next size budget (web, head)
@@ -132,7 +134,8 @@ jobs:
           git show HEAD^1:scripts/cmux-next/bundle-size-budget.json > "$RUNNER_TEMP/bundle-size-budget.json"
           (cd webviews && bun install --frozen-lockfile >/dev/null)
           ./scripts/cmux-next/build-web-bundles.sh --out-root "$RUNNER_TEMP/web"
-          echo "bytes=$(python3 -I "$RUNNER_TEMP/bundle-size-pr.py" web-bytes "$RUNNER_TEMP/web" --budget "$RUNNER_TEMP/bundle-size-budget.json")" >> "$GITHUB_OUTPUT"
+          bytes="$(python3 -I "$RUNNER_TEMP/bundle-size-pr.py" web-bytes "$RUNNER_TEMP/web" --budget "$RUNNER_TEMP/bundle-size-budget.json")"
+          echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
 
   size-budget:
     name: cmux-next size budget

@@ -222,6 +222,20 @@ def test_web_bundles_count_when_both_builds_are_given(tmp: Path) -> None:
     assert "| web | `pages` | 1,000 | 3,000 |" in r.stdout, r.stdout
     r, _ = run(repo, commit_free, "--web-base", str(wb))
     assert r.returncode == 2, r.stdout + r.stderr
+    # A head build that never wrote an output is broken (exit 2), not a 1,000-byte cut.
+    (wh / "pages/settings/index.html").unlink()
+    (wh / "pages/settings").rmdir()
+    (wh / "pages").rmdir()
+    r, _ = run(repo, commit_free, "--web-base", str(wb), "--web-head", str(wh))
+    assert r.returncode == 2 and "has no web output pages" in r.stderr, r.stdout + r.stderr
+    r = subprocess.run([sys.executable, "-I", str(TOOL), "web-bytes", str(wh), "--budget", str(repo / "budget.json")],
+                       capture_output=True, text=True)
+    assert r.returncode == 2 and "has no web output pages" in r.stderr, r.stdout + r.stderr
+    # An empty or partial count handed over by a web job is broken too (exit 2), never a pass.
+    for text in ("", "{}", '{"pages": "x"}'):
+        (tmp / "wh.json").write_text(text)
+        r, _ = run(repo, commit_free, "--web-base", str(wb), "--web-head", str(tmp / "wh.json"))
+        assert r.returncode == 2 and "lacks a byte count" in r.stderr, (text, r.stdout + r.stderr)
 
 
 def test_the_real_budget_lists_existing_lockfiles_and_roots(tmp: Path) -> None:

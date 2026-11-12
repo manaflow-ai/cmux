@@ -98,10 +98,21 @@ def web_bytes(source: Path, rules: dict) -> dict[str, int]:
     """Bytes of each web output: a `build-web-bundles.sh --out-root` folder, or the JSON that
     `web-bytes` wrote from one in another job."""
     if source.is_file():
-        data = json.loads(source.read_text())
-        if not all(isinstance(data.get(p), int) for p in rules["web_outputs"]):
-            raise SystemExit(f"bundle-size-pr: {source} lacks a byte count for a web output")
+        try:
+            data = json.loads(source.read_text())
+        except json.JSONDecodeError:
+            data = None
+        if not isinstance(data, dict) or not all(isinstance(data.get(p), int) for p in rules["web_outputs"]):
+            print(f"bundle-size-pr: {source} lacks a byte count for a web output", file=sys.stderr)
+            raise SystemExit(2)
         return {p: data[p] for p in rules["web_outputs"]}
+    # A build that wrote no folder for an output is broken, not a cut: counting it as 0 would
+    # let an incomplete head build pass as a shrink.
+    missing = [p for p in rules["web_outputs"] if not (source / p).exists()]
+    if missing:
+        print(f"bundle-size-pr: {source} has no web output {', '.join(missing)}: the build did not finish",
+              file=sys.stderr)
+        raise SystemExit(2)
     return {p: dir_bytes(source, p) for p in rules["web_outputs"]}
 
 
