@@ -160,6 +160,68 @@ impl Hub {
         Some(HostRecords { live, unreadable })
     }
 
+    /// Reach `child`, this session's hosted agent, again over a new link when its link was lost
+    /// while its host lives (another owner took the host over, or the socket broke): at the reader's
+    /// notice (`Inbound::LinkBroken`) and when an answer was written to it (`respond_answer`), so
+    /// its open requests get their real answers (`ChildAgent::start_reader` keeps them for this).
+    /// Not under the spawn lock: a start holds that lock while it waits on one of those requests
+    /// (its `initialize`), which only this reattach answers. Two at once make one link
+    /// (`ChildAgent::reattach_if_lost`). Whether `child` is alive after it. False, and nothing
+    /// reached, for an agent that exited, whose host is dead (its live lock, bounded as `readopt`
+    /// waits for it), whose link broke because an entry could not be logged (the next request
+    /// reattaches it: a full disk must not loop here), that another agent took the session from,
+    /// or under MDM's off (an unheard agent ends then, `end_every_managed_full_access`).
+    pub(super) async fn reach_lost_link(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        child: &Arc<ChildAgent>,
+    ) -> bool {
+        // A reader that stopped on a socket that still looks open (an acknowledgement failed) is
+        // a lost link too: nothing reads its entries.
+        if child.is_alive().await && !child.is_stopped() {
+            return true;
+        }
+        let Some(record) = child.host_record() else { return false };
+        // Ended or replaced on purpose (`ChildAgent::kill`, `terminate`, a failover): never woken.
+        if child.has_exited()
+            || child.is_broken()
+            || child.is_retired()
+            || child.ended_on_purpose()
+            || self.shutting_down()
+            || self.full_access_managed_off()
+        {
+            return false;
+        }
+        let still_asked =
+            session.child.lock().await.as_ref().is_some_and(|c| Arc::ptr_eq(c, child));
+        if !still_asked {
+            return false;
+        }
+        let dead = agent_host::wait_dead_async(
+            agent_host::hosts_dir(),
+            record.session_id.clone(),
+            record.start_nonce.clone(),
+            std::time::Duration::from_secs(2),
+        )
+        .await;
+        if dead || child.has_exited() {
+            return false;
+        }
+        let off = self.off_latch();
+        match child.reattach_if_lost().await {
+            Ok(true) => {
+                self.append(session, "mux", "host_reattached", json!({"reason": "link_lost"}));
+                self.judged_after_reattach(session, child, &off).await.is_some()
+                    && child.is_alive().await
+            }
+            Ok(false) => child.is_alive().await,
+            Err(e) => {
+                tracing::warn!(session = %session.id, "agent host reattach after a lost link failed: {e:#}");
+                false
+            }
+        }
+    }
+
     /// Adopt this session's running host again (its link was lost, or a
     /// first adoption failed). Returns the adopted child.
     pub(super) async fn readopt(

@@ -243,10 +243,13 @@ def run_probe(script, args, out, timeout=900):
                 os.killpg(process.pid, signal.SIGTERM)
                 process.wait(timeout=10)
             except (ProcessLookupError, subprocess.TimeoutExpired):
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
+                pass
+            # Whether or not the probe exited: a child that ignores SIGTERM would outlive it (cmux#41767 review F1).
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
             return 124
 
 

@@ -42,7 +42,14 @@ import {
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import { pendingMessagesRow, searchablePendingRows, withWaitingRows } from "./conversation/pendingMessages";
 import { type HeldAnswer, type QueuedMessageActionsValue } from "./conversation/QueuedMessageCard";
-import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
+import {
+  AcpmuxDirectClient,
+  type AcpmuxHostConfig,
+  harnessBlock,
+  type HarnessBlock,
+  isTrustRefusal,
+  type CarriedChat,
+} from "./direct";
 import { readHostTail } from "./tailCache";
 import { failedRowOf, failedRowTrustRetry } from "./failedRowTrustRetry";
 import {
@@ -90,7 +97,6 @@ import {
   carriedAnchor,
   keepAdoptedTail,
   useSessionAdoption,
-  useNewTabWeather,
   type SessionAdoption,
   withHandshakeNewTab,
 } from "./newtab/adoption";
@@ -111,7 +117,6 @@ import { TaskGoalStrip } from "./TaskGoalStrip";
 import { goalHatPlace } from "./goalHat.experiment";
 import { PageDots } from "./newtab/PageDots";
 import { useSessionCommands } from "./newtab/useSessionCommands";
-import { editNewTabWidgets, shownPageWidgets, withWidgetEdit } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
@@ -306,6 +311,7 @@ import {
   trayItems,
   useSubagentTray,
   withSubagentLines,
+  endedInFailure,
 } from "./subagents/runningTray";
 import { lingeringTrayItems, trayItemEnd, useTrayLinger } from "./subagents/trayLinger";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
@@ -773,6 +779,7 @@ import { CloudChatHint } from "./CloudChatHint";
 import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHintClaim } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
+import { nativeUnsentPrompts } from "./unsentPrompts";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import { showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
 import { flushHeldModePick, holdModePick } from "./heldModePick";
@@ -4437,7 +4444,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [newTabStartPage, setNewTabStartPage] = useState<number>();
   const newTabRetainsDraft = useRef(false);
   useNewTabPlaces(setNewTab);
-  useNewTabWeather(setNewTab);
   // Whether the page knows it is a New Tab page or a chat: the host's context came with the
   // document (WebKit), or its `newTab.context` answer did, either way. A Chromium page gets none
   // with the document, and its window shows over the pane before the host's alpha can hide it:
@@ -5647,7 +5653,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- endedCommandList is new on every snapshot; its key is not
   }, [endedCommandsKey, trayAgents]);
   const endedTray = useMemo(
-    () => (subagentTray ? [...endedCommandItems, ...finishedTrayItems(trayAgents, childSessions)] : []),
+    () =>
+      subagentTray
+        ? [...endedCommandItems, ...finishedTrayItems(trayAgents, childSessions)].filter(
+            (item) => !endedInFailure(item),
+          )
+        : [],
     [subagentTray, endedCommandItems, trayAgents, childSessions],
   );
   const lingerLive = useMemo(() => trayList.map(trayItemKey), [trayList]);
@@ -7591,6 +7602,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.
     let reconnect = false;
+    /// The chat the lost client held (direct.ts `CarriedChat`): the next client starts from it, so
+    /// a reconnect keeps every row on screen instead of reading the chat again from nothing.
+    let carriedChat: CarriedChat | undefined;
     /// When the handshakes began failing (cleared by a connect): a recovery is said only once it
     /// has failed for HOST_ERROR_DEADLINE_MS (hostRetry.ts).
     let failingSince: number | undefined;
@@ -7944,6 +7958,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
             if (cancelled) return;
             reconnect = true;
+            carriedChat = directClient.current?.takeCarried() ?? carriedChat;
             // A switch in flight runs again on the next client.
             harnessSwitch.disconnect(switchPort);
             setStartModeSource(undefined);
@@ -7966,7 +7981,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               ? () => new BridgeSocket() as unknown as WebSocket
               : undefined,
           mock ? "daemon" : "native",
+          undefined,
+          carriedChat,
         );
+        carriedChat = undefined;
         if (cancelled) {
           client.close();
           return;
@@ -7989,6 +8007,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (!mock) client.handoffTurn = handoffTurns(callNative, host);
         // Attachments too large to go inline upload at the Send, under its ticket (sendUploads.ts).
         if (!mock) client.uploadForSend = (chips, prompt) => uploadForSend(chips, prompt, callNative);
+        // Prompts no agent took yet outlive the page: the app keeps them and a relaunch draws them
+        // again as Not sent rows (unsentPrompts.ts).
+        if (!mock) client.setUnsentPromptStore(nativeUnsentPrompts(callNative));
         setClientEpoch((epoch) => epoch + 1);
         // The minimap's prompt bookmarks live in acpmux's session (threadMinimap/bookmarks.ts).
         setBookmarkTransport({
@@ -11987,8 +12008,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     // hold it does it come back to the composer, saying why.
                     void keepLostPrompt(error, connectedClients, sentOn, { input: text, attachments }).then(
                       (outcome) => {
-                        if (outcome === "shown") return promptLanded.current();
+                        // A failed row keeps the host's copy (unsentPrompts.ts) for a relaunch;
+                        // a shown prompt is acpmux's, and one given back is the composer's.
                         if (outcome === "failed") return;
+                        sentOn?.forgetUnsentPrompt(lostPrompt(error)!.promptId);
+                        if (outcome === "shown") return promptLanded.current();
                         giveBack();
                         const line = heldSendNotice(error, attachments);
                         if (line) directClient.current?.notice(line);
@@ -12648,17 +12672,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
           {!harnessesOpen && showNewTab && !newTab.history && (
-            // The page's dots, under it: Claude Minimal, Claude Minimal with the quick actions, Codex
-            // Minimal (newtab/tabDots.ts, from the look and Minimal's actions widget), then with the
-            // style dots on (on Minimal a widget, off by default: newtab/pageWidgets.ts) the page's
-            // other styles (newtab/PageDots.tsx); a pick shows in place at once.
+            // The page's dots, under it: Claude Minimal and Codex Minimal (newtab/tabDots.ts, the
+            // composer's look), then on every layout but Minimal the page's other styles
+            // (newtab/PageDots.tsx); a pick shows in place at once.
             <PageDots
               template={shownTemplate(newTab)}
-              styleDots={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets).has("styleDots")}
-              actions={shownPageWidgets("minimal", newTab.pageWidgets).has("actions")}
               callNative={callNative}
               show={(next) => setNewTab((current) => current && { ...current, template: next })}
-              showWidgets={(done) => setNewTab((current) => current && withWidgetEdit(current, done))}
               onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
             />
           )}
@@ -12785,18 +12805,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   // The host answers only for a page on this Mac; another machine's keeps the refusal.
                   {...(!quick ? { localPaths } : {})}
                   template={screenTemplate(shownTemplate(newTab))}
-                  {...(newTab.widgets ? { widgets: true } : {})}
-                  pageWidgets={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets)}
-                  {...(newTab.headlineOff ? { headlineOff: true } : {})}
                   {...(newTab.allChats === false ? { allChats: false } : {})}
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
-                  {...(newTab.weather ? { weather: newTab.weather } : {})}
-                  onEditWidgets={(edit) =>
-                    editNewTabWidgets(edit, {
-                      callNative,
-                      show: (done) => setNewTab((current) => current && withWidgetEdit(current, done)),
-                    })
-                  }
                   snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
                   {...(newTabFixError ? { fixError: newTabFixError } : {})}
                   omnibar={newTab.omnibar}

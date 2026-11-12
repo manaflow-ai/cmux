@@ -2427,12 +2427,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         model.session.noteInteraction()
         // A tap that ends a selection only ends it, as in the shell.
         if selection.selection == nil, tuiSelection.selection == nil, model.isTUI, surface.superview === tuiHost {
+            // A touch that is part of scrolling the app is never its click
+            // (a thumb flicking a transcript clicked the rows it landed on).
+            let verdict = tuiScroll.tapVerdict(at: tap.location(in: tuiClip))
+            if verdict == .ignore { return }
             // A link opens unless the app asked for the mouse: then the tap is its click.
             if !surface.capturesMouse, let url = tuiLink(at: tap.location(in: tuiHost)) {
                 model.openLink(url)
                 return
             }
-            surface.click(at: tap.location(in: surface))
+            if verdict == .click { surface.click(at: tap.location(in: surface)) }
         }
         terminalTapped()
     }

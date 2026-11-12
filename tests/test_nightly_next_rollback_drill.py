@@ -14,6 +14,9 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
+
 
 def load(name: str, path: Path):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -203,7 +206,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("github.event_name == 'schedule'", job)
         self.assertIn("github.event.schedule == '15 9 * * 1' && 'publish' || 'pull'", job)
         self.assertIn("--ref nightly-next -f step=\"$STEP\"", job)
-        self.assertNotIn("secrets.", job)
+        self.assertEqual(workflow_jobs.secret_names(job), set())
 
     def test_a_failed_pull_still_writes_its_receipt(self):
         job = self.job(self.text, "receipt")
