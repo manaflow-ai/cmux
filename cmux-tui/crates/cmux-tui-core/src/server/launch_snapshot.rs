@@ -11,6 +11,13 @@
 //! (`settle` after the last one, `max_delay` after the first at the latest):
 //! one computed deadline per burst and no timer while idle. Each write goes
 //! to a temporary file that is renamed over the old one, owner-only.
+//!
+//! Each write is the whole file, so the writer has a byte budget
+//! (`max_bytes_per_second`): after a write it waits in proportion to the
+//! bytes it wrote, and a clean stop writes what that wait held back. A
+//! session whose snapshot is megabytes and whose tabs change state every few
+//! seconds then costs a bounded number of bytes an hour, not one whole file
+//! per change.
 
 use crate::panic_free::RecoverPoison;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -144,6 +151,8 @@ pub fn start_launch_snapshot_writer_with(
                 Instant::now().checked_sub(timing.settle).unwrap_or_else(Instant::now);
             let mut retry = WRITE_RETRY_INITIAL;
             let mut retry_at: Option<Instant> = None;
+            // The earliest next write: the last write's size over the byte budget.
+            let mut budget_at: Option<Instant> = None;
             // The projections the last written snapshot left out (reported when it changes).
             let mut last_dropped: Vec<String> = Vec::new();
             loop {
@@ -155,7 +164,8 @@ pub fn start_launch_snapshot_writer_with(
                     let settled = last_change + timing.settle;
                     let latest = first + timing.max_delay;
                     let due = settled.min(latest);
-                    retry_at.map_or(due, |retry_at| due.max(retry_at))
+                    let due = retry_at.map_or(due, |retry_at| due.max(retry_at));
+                    budget_at.map_or(due, |budget_at| due.max(budget_at))
                 });
                 if let Some(due) = due
                     && now >= due
@@ -163,6 +173,12 @@ pub fn start_launch_snapshot_writer_with(
                     let Some(mux) = weak.upgrade() else { break };
                     match write_launch_snapshot(&mux, &thread_path) {
                         Ok((dropped, written)) => {
+                            if written > 0 {
+                                budget_at = Some(
+                                    Instant::now()
+                                        + budget_wait(written, timing.max_bytes_per_second),
+                                );
+                            }
                             thread_bytes.fetch_add(written as u64, Ordering::AcqRel);
                             if dropped != last_dropped {
                                 report_dropped_projections(&mux, &dropped);
@@ -208,6 +224,17 @@ pub fn start_launch_snapshot_writer_with(
                     }
                 }
             }
+            // A clean stop writes what the byte budget still held back, so a
+            // relaunch draws the last layout. Not when the file is gone (a
+            // stop that ends the session removed it).
+            if dirty_since.is_some()
+                && thread_path.exists()
+                && let Some(mux) = weak.upgrade()
+                && let Ok((_, written)) = write_launch_snapshot(&mux, &thread_path)
+            {
+                thread_bytes.fetch_add(written as u64, Ordering::AcqRel);
+                thread_writes.fetch_add(1, Ordering::AcqRel);
+            }
         })?;
     mux.set_launch_snapshot_path(Some(path.clone()));
     Ok(Some(LaunchSnapshotWriter {
@@ -219,6 +246,11 @@ pub fn start_launch_snapshot_writer_with(
         mux: Arc::downgrade(mux),
         thread: Some(thread),
     }))
+}
+
+/// How long the writer waits after it wrote `written` bytes.
+fn budget_wait(written: usize, max_bytes_per_second: u64) -> Duration {
+    Duration::from_secs_f64(written as f64 / max_bytes_per_second.max(1) as f64)
 }
 
 fn launch_snapshot_value(mux: &Mux, include_projections: bool) -> anyhow::Result<Value> {
