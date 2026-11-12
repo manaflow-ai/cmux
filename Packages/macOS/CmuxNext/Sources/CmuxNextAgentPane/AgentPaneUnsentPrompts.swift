@@ -28,11 +28,13 @@ import os
 public nonisolated final class AgentPaneUnsentPrompts: Sendable {
     public static let directoryName = "agent-unsent-prompts"
     /// The app's store; nil keeps nothing (a test host, the gallery).
-    public static var shared: AgentPaneUnsentPrompts? {
-        get { current.withLock { $0 } }
-        set { current.withLock { $0 = newValue } }
-    }
-    private static let current = Mutex<AgentPaneUnsentPrompts?>(nil)
+    /// `<Application Support>/<bundle id>/agent-unsent-prompts`, beside the prompt journal. Nil
+    /// outside an app bundle (package tests, tools), so they never write the app's files.
+    public static let shared: AgentPaneUnsentPrompts? = {
+        guard Bundle.main.bundleURL.pathExtension == "app", let bundle = Bundle.main.bundleIdentifier, !bundle.isEmpty,
+              let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+        return AgentPaneUnsentPrompts(directory: support.appending(path: bundle))
+    }()
     /// How long an unsent prompt is kept; an older one goes the next time its chat is written.
     public static let maximumAge: TimeInterval = 30 * 24 * 60 * 60
 
@@ -116,8 +118,8 @@ public nonisolated final class AgentPaneUnsentPrompts: Sendable {
     }
 
     private static func decode(_ url: URL, sessionId: String) -> Read {
-        guard FileManager.default.fileExists(atPath: url.path) else { return .none }
-        guard let data = try? Data(contentsOf: url),
+        guard FileManager.checked.fileExists(atPath: url.path) else { return .none }
+        guard let data = try? Data(blockingContentsOf: url),
               let document = try? decoder.decode(Document.self, from: data), document.sessionId == sessionId else { return .unreadable }
         return .entries(document.prompts)
     }
@@ -145,7 +147,7 @@ public nonisolated final class AgentPaneUnsentPrompts: Sendable {
     /// Moves an unreadable file beside itself; true when nothing unreadable is left at `url`.
     @discardableResult
     private func setAside(_ url: URL) -> Bool {
-        let files = FileManager.default
+        let files = FileManager.checked
         guard files.fileExists(atPath: url.path) else { return true }
         let aside = url.deletingPathExtension().appendingPathExtension("unreadable-\(Int(now().timeIntervalSince1970 * 1000))")
             .appendingPathExtension("json")
@@ -161,7 +163,7 @@ public nonisolated final class AgentPaneUnsentPrompts: Sendable {
 
     private func write(_ entries: [Entry], for sessionId: String) -> Bool {
         let url = file(for: sessionId)
-        let files = FileManager.default
+        let files = FileManager.checked
         // An unreadable file still in place is never written over.
         if case .unreadable = Self.decode(url, sessionId: sessionId), !setAside(url) { return false }
         let cutoff = now().addingTimeInterval(-Self.maximumAge)
@@ -175,7 +177,7 @@ public nonisolated final class AgentPaneUnsentPrompts: Sendable {
                 try files.copyItem(at: url, to: bak)
             }
             let data = try Self.encoder.encode(Document(sessionId: sessionId, prompts: kept))
-            try data.write(to: url, options: [.atomic])
+            try data.blockingWrite(to: url, options: [.atomic])
             return true
         } catch {
             Self.logger.error("unsent prompts not written: \(String(describing: error), privacy: .public)")
@@ -200,12 +202,13 @@ extension AgentPaneUnsentPrompts {
     /// The reply to `chat.unsentPrompt.put {sessionId, prompt}`, `chat.unsentPrompt.remove
     /// {sessionId, promptId}` and `chat.unsentPrompts.get {sessionId}` (answers `{prompts}`), the
     /// same on the pane's own host and the shared page host. No store: nothing kept, nothing read.
-    nonisolated public static func reply(to method: String, params: JSONValue) async -> Result<JSONValue, PageReplyError> {
+    nonisolated public static func reply(to method: String, params: JSONValue,
+                                         store: AgentPaneUnsentPrompts? = shared) async -> Result<JSONValue, PageReplyError> {
         guard handles(method: method) else { return .failure(.invalid("No such unsent prompt request")) }
         guard case .object(let body) = params, case .string(let session)? = body["sessionId"], !session.isEmpty else {
             return .failure(.invalid("Unsent prompts need a sessionId"))
         }
-        guard let store = shared else {
+        guard let store else {
             return .success(method == "chat.unsentPrompts.get" ? .object(["prompts": .array([])]) : .null)
         }
         switch method {

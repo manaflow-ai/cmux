@@ -196,7 +196,10 @@ matches the label's literal text; `<x>` matches an interpolation). Its owner row
   serial: its file reads and writes block this queue, never main; saves of one chat coalesce to the newest, at most
   20 files of 1 MiB, and a read waits only behind the saves queued before it; the quit awaits its saves with the
   state files', holding no thread, under the quit deadline),
-  `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.inbound`,
+  `com.cmuxterm.app.next.agent-pane.prompt-journal`, `com.cmuxterm.app.next.agent-pane.unsent-prompts` (each
+  chat's prompts no agent took yet, AgentPaneUnsentPrompts, utility, serial: its small per-chat file reads and atomic
+  writes block this queue, never main; one write per sent, refused or taken prompt, so no back-pressure),
+  `com.cmuxterm.app.next.agent-pane.inbound`,
   `cmux.next.agent-pane.acpmux-exit.<pid>`, `cmux.next.agent-pane.acpmux-log-progress`,
   `cmux.next.agent-pane.acpmux-launch-reap.<pid>`, `cmux.next.agent-pane.acpmux-status`, `cmux.acpmux.checked-line`,
   `cmux.next.agent-pane.acpmux-socket-wait` (one person-socket exchange's readiness wait, userInitiated, serial, one

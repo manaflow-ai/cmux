@@ -92,21 +92,19 @@ import Testing
     @Test func thePageOpsRoundTrip() async throws {
         let dir = directory()
         defer { try? FileManager.default.removeItem(at: dir) }
-        let previous = AgentPaneUnsentPrompts.shared
-        AgentPaneUnsentPrompts.shared = AgentPaneUnsentPrompts(directory: dir)
-        defer { AgentPaneUnsentPrompts.shared = previous }
+        let store = AgentPaneUnsentPrompts(directory: dir)
         let put = await AgentPaneUnsentPrompts.reply(to: "chat.unsentPrompt.put",
-                                                     params: .object(["sessionId": .string("s"), "prompt": record("a", "hi", refused: true)]))
+                                                     params: .object(["sessionId": .string("s"), "prompt": record("a", "hi", refused: true)]), store: store)
         #expect(put == .success(.null))
-        let got = await AgentPaneUnsentPrompts.reply(to: "chat.unsentPrompts.get", params: .object(["sessionId": .string("s")]))
+        let got = await AgentPaneUnsentPrompts.reply(to: "chat.unsentPrompts.get", params: .object(["sessionId": .string("s")]), store: store)
         guard case .success(.object(let body)) = got, case .array(let prompts)? = body["prompts"] else {
             Issue.record("no prompts: \(got)")
             return
         }
         #expect(ids(prompts) == ["a"])
         let removed = await AgentPaneUnsentPrompts.reply(to: "chat.unsentPrompt.remove",
-                                                         params: .object(["sessionId": .string("s"), "promptId": .string("a")]))
+                                                         params: .object(["sessionId": .string("s"), "promptId": .string("a")]), store: store)
         #expect(removed == .success(.null))
-        #expect(await AgentPaneUnsentPrompts.shared?.prompts(for: "s").isEmpty == true)
+        #expect(await store.prompts(for: "s").isEmpty)
     }
 }

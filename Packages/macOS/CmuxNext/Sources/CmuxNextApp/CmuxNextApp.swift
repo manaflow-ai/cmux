@@ -60,9 +60,6 @@ public struct CmuxNextApp {
             ?? FileManager.default.temporaryDirectory
         // Each chat's unsent chips, beside it, so reopening or restoring a chat brings them back.
         AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
-        // Each chat's prompts no agent took yet (refused, timed out, lost with a connection), so a
-        // relaunch draws them again as Not sent rows instead of losing them.
-        AgentPaneUnsentPrompts.shared = environment.sidebarSnapshotFile.map { AgentPaneUnsentPrompts(directory: $0.url.deletingLastPathComponent()) }
         // The last quit's agent pages, terminal frames and chat composers are read and decoded off the main thread
         // from here, while AppKit starts, so each pane's first frame can use them without waiting.
         let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), work = BackgroundWork()
