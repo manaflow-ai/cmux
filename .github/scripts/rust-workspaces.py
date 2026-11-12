@@ -88,7 +88,15 @@ class Tree:
                 return key
         return None
 
+    def workspace_named(self, directory: str) -> str | None:
+        """The workspace the package's own `package.workspace` names (cmux-rd-ffi: "../cmux-app-ffi"), which cargo
+        takes over the nearest one above it (cmux#42082 review F1)."""
+        named = self.manifests.get(directory, {}).get("package", {}).get("workspace")
+        return os.path.normpath(str(PurePosixPath(directory) / named)) if isinstance(named, str) else None
+
     def excluded(self, root: str, directory: str) -> bool:
+        if not under(directory, root):
+            return False  # a member beside the root ("../x") is outside every `exclude` entry
         relative = str(PurePosixPath(directory).relative_to(root))
         return any(relative == path.rstrip("/") or relative.startswith(path.rstrip("/") + "/")
                    for path in self.manifests[root]["workspace"].get("exclude", []))
@@ -100,6 +108,8 @@ class Tree:
             if "workspace" in manifest:
                 found.add(directory)
             elif "package" in manifest:
+                if isinstance(manifest["package"].get("workspace"), str):
+                    continue  # a member of the workspace it names (cmux-rd-ffi names ../cmux-app-ffi)
                 above = self.workspace_above(directory)
                 if above is None or self.excluded(above, directory):
                     found.add(directory)
@@ -112,7 +122,8 @@ class Tree:
         found = {root} if "package" in manifest else set()
         if table is None:
             return found
-        patterns = [str(PurePosixPath(root) / member) for member in table.get("members", [])]
+        # Normalized: a member may sit beside the root (cmux-app-ffi's members are "../cmux-rd-ffi" and its siblings).
+        patterns = [os.path.normpath(str(PurePosixPath(root) / member)) for member in table.get("members", [])]
         for directory, other in self.manifests.items():
             if "package" in other and any(fnmatch(directory, pattern) for pattern in patterns) \
                     and not self.excluded(root, directory):
@@ -133,7 +144,8 @@ class Tree:
                 base = directory
                 if spec.get("workspace") is True:
                     # Inherited from the package's workspace: its own manifest when it is the root.
-                    base = directory if "workspace" in manifest else (self.workspace_above(directory) or directory)
+                    base = directory if "workspace" in manifest else (self.workspace_named(directory)
+                                                                      or self.workspace_above(directory) or directory)
                     spec = self.manifests.get(base, {}).get("workspace", {}).get("dependencies", {}).get(name, {})
                     if not isinstance(spec, dict):
                         continue

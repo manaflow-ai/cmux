@@ -888,13 +888,12 @@ jobs:
         if: ${{ !cancelled() }}
         run: python3 -I tests/test_asc_review_package.py
 
-      # cmux-ci sends a package-test-lane suite step that names a display suite to a display
-      # worker; the list it reads is derived from the suites' own display skip traits, so a
-      # Swift change that adds or drops such a trait without the list fails here.
-      - name: The display suite list matches the suites' display skip traits (display_suites.py)
+      # The display suite list is derived from the suites' own display skip traits wherever it
+      # is read, never committed; this derives it from every package's tests and checks the parser.
+      - name: The display suite list derives from the suites' display skip traits (display_suites.py)
         if: ${{ !cancelled() }}
         run: |
-          python3 scripts/ci/display_suites.py --check
+          python3 scripts/ci/display_suites.py
           python3 tests/test_ci_display_suites.py
 
       - name: The exact-run SwiftPM test product transport (swiftpm_test_product.py)
