@@ -146,12 +146,13 @@ import Testing
     /// With `handsOff`, the quit is a Restart to Update that hands acpmux off (`acpmux_handoff`).
     static func quit(_ limiter: QuitStepLimiter, timeLeft: TimeLeft, step name: String = "agent_composers", handsOff: Bool = false,
                      order: @escaping @MainActor (String) -> Void, save: @escaping @MainActor () async -> Void) -> QuitSteps {
-        QuitSteps(
+        let handOff: @MainActor () async -> Void = { order("acpmux_handoff") }
+        return QuitSteps(
             prepareWindows: { await limiter.run(name, limit: .milliseconds(400), save) },
             endLocalSessions: { order("end_sessions"); return [] },
             confirmFailures: { _ in .quitAnyway },
             endLocalAgents: { order("end_agents"); return [] },
-            handOffAcpmux: handsOff ? { order("acpmux_handoff") } : nil,
+            handOffAcpmux: handsOff ? handOff : nil,
             stopBrowserEngines: { order("engines_stopped") },
             limiter: limiter,
             timeLeft: { timeLeft.value }
