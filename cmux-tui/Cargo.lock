@@ -26,6 +26,7 @@ dependencies = [
  "cmux-coderouter",
  "cmux-codex-acp",
  "cmux-config",
+ "cmux-file-lock",
  "cmux-git",
  "cmux-host",
  "cmux-host-budget",

@@ -261,18 +261,14 @@ pub(super) async fn wait_for_lock_release_with_budget(
     }
 }
 /// One look at the daemon lock through `file`: whether no daemon holds it now (an interrupted
-/// look reads held, to look again).
-#[cfg(unix)]
+/// look reads held, to look again). The look leaves no lock behind: it unlocks before it returns
+/// ([`cmux_file_lock::FileLock::held_elsewhere`]), so a child that another thread forks meanwhile
+/// keeps no daemon lock through its copy of the descriptor, and the next daemon starts.
 fn lock_released(file: &std::fs::File) -> std::io::Result<bool> {
-    use std::os::unix::io::AsRawFd;
-    // SAFETY: flock on a descriptor the caller keeps open through the call.
-    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
-        return Ok(true);
-    }
-    let error = std::io::Error::last_os_error();
-    match error.kind() {
-        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted => Ok(false),
-        _ => Err(error),
+    match cmux_file_lock::FileLock::held_elsewhere(file, cmux_file_lock::Kind::Exclusive) {
+        Ok(held) => Ok(!held),
+        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => Ok(false),
+        Err(error) => Err(error),
     }
 }
 
@@ -293,10 +289,10 @@ pub(super) async fn wait_for_lock_release_with_budget(
     };
     let deadline = budget.map(|budget| tokio::time::Instant::now() + budget);
     loop {
-        match file.try_lock() {
-            Ok(()) => return true,
-            Err(std::fs::TryLockError::WouldBlock) => {}
-            Err(std::fs::TryLockError::Error(_)) => return false,
+        match lock_released(&file) {
+            Ok(true) => return true,
+            Ok(false) => {}
+            Err(_) => return false,
         }
         if deadline.is_some_and(|deadline| tokio::time::Instant::now() >= deadline) {
             return false;
