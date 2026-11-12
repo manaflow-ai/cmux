@@ -116,7 +116,7 @@ jobs:
           test "${PIPESTATUS[0]}" -eq 0
       - name: Walk the journey on a freshly erased iPhone
         # The test caps itself at 30 min (FirstUserJourneyUITests.journeyBudget);
-        # `timeout` below stops a hang, and the steps after still report.
+        # The perl alarm below stops a hang (macOS has no `timeout`), and the steps after still report.
         timeout-minutes: 45
         run: |
           # Never -e: a failing suite must still leave its log and screenshots
@@ -145,14 +145,17 @@ jobs:
           echo "SIM=$udid" >> "$GITHUB_ENV"
           xcrun simctl io "$udid" recordVideo --codec h264 --force "$OUT/journey.mp4" > "$RAW/video.log" 2>&1 &
           video=$!
-          timeout -s INT 2400 xcodebuild test-without-building -xctestrun "$xctestrun" \
+          perl -e 'alarm shift; exec @ARGV or die "exec: $!"' 2400 xcodebuild test-without-building -xctestrun "$xctestrun" \
             -destination "id=$udid,arch=arm64" -resultBundlePath "$RAW/journey.xcresult" \
             -only-testing:CmuxMobileAppUITests/FirstUserJourneyUITests \
             -test-timeouts-enabled YES -maximum-test-execution-time-allowance 420 \
             > "$RAW/journey.log" 2>&1
           code=$?
-          # Our own recorder, by its PID: SIGINT finishes the file.
+          # Our own recorder, by its PID: SIGINT finishes the file. A recorder that never started writing
+          # ignores it, so it gets 20 s, then KILL: an unbounded `wait` here hung the step to its limit.
           kill -INT "$video" 2>/dev/null
+          for _ in $(seq 20); do kill -0 "$video" 2>/dev/null || break; sleep 1; done
+          kill -KILL "$video" 2>/dev/null
           wait "$video" 2>/dev/null
           echo "$code" > "$RAW/exit"
           grep -E '^FUJ |Executed [0-9]+ tests|^Test Case .* failed' "$RAW/journey.log" | tail -n 200

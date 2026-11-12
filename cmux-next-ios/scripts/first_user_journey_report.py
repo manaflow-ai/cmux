@@ -185,6 +185,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     args.out.mkdir(parents=True, exist_ok=True)
     events = read_events(args.log)
+    if not events:
+        # The journey never started (the runner broke: a missing tool, a simulator that never booted): no cell
+        # was walked, so there is no result. Writing every cell as an app crash would put a runner fault in the
+        # quality report as app reds; with no results.json the report shows this surface n/a, and the run is red.
+        why = f"the journey never started (xcodebuild exit {args.exit_code}, no FUJ events in its log)"
+        (args.out / "summary.md").write_text(f"# First-user journey: iOS (simulator)\n\nNo result: {why}.\n")
+        print(f"first-user journey (ios): {why}", file=sys.stderr)
+        return 1
     index = attachment_index(args.attachments)
     cells = build(events, index, args.out, args.exit_code)
     # Every journey screenshot by its step name, for the screens that passed.
