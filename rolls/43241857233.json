@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43241857233",
+  "recorded_at": "2026-11-12T15:00:47Z",
+  "reason": "cmux-tui f130207ad96b changes the image's cmux-tui (pinned 99dea7b3734c)",
+  "dry_run": false,
+  "cmux_tui": "f130207ad96b4e088fcf5cacda38afccf55be968",
+  "fixes": [
+    {
+      "sha": "f130207ad96b4e088fcf5cacda38afccf55be968",
+      "mergedAt": "2026-11-12T06:37:04-08:00",
+      "subject": "acpmux: the home read detector keeps a path's shape through clone, to_owned, to_path_buf and as_path (#41721 F1) (#41743)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T15:00:47Z",
+    "snapshot_id": "sh-e8013b50f5a84a3a89040471329ca962",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43241857233): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f76199c783eb2c153cc232111b3922f891f4f363",
+    "image": "cloud-native-auto-f130207a-43241857233-1",
+    "revision": "ci-43241857233-1",
+    "at": "2026-11-12T15:00:47Z"
+  },
+  "rolled_back": false
+}
