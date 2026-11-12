@@ -138,7 +138,7 @@ test("another agent's message with no reply before it folds in place, in the tur
 });
 
 test("a message that draws nothing splits nothing: Find opens the fold the turn draws", () => {
-  const dot = messaged.map((shown) => (shown.id === "m-1" ? { ...shown, text: "." } : shown));
+  const dot = messaged.map((shown) => (shown.id === "m-1" ? message("m-1", 90, "lane-box/ux-owner", ".") : shown));
   const drawn = view(dot, "codex");
   expect(drawn.filter((shown) => shown.kind === WORKED).map((shown) => shown.id)).toEqual([`${WORKED}-u-0`]);
   expect(
