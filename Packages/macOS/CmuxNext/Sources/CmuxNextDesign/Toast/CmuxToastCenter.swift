@@ -11,7 +11,9 @@ import CmuxNextWakeups
 /// the keybindings lead) asks `takesUndoKey(in:)` and calls `runUndo(in:)`.
 @MainActor
 public final class CmuxToastCenter {
-    public static let shared = CmuxToastCenter(tunables: .shared)
+    /// The app's center: the kinds hidden with Don't Show Again persist in the app's defaults, and the look
+    /// and timing follow Debug Settings. Centers made in tests keep their choices in memory.
+    public static let shared = CmuxToastCenter(neverShow: CmuxToastNeverShowStore(defaults: .standard), tunables: .shared)
 
     private struct Entry {
         let handle: CmuxToastHandle
@@ -38,8 +40,8 @@ public final class CmuxToastCenter {
     /// A toast with an action (Undo, Reopen, Retry) is never quieted.
     public var closedCooldown: Duration = .seconds(120)
     /// The kinds the person hid with Don't Show Again (``CmuxToast/offersNeverShow``): a toast of one
-    /// never shows. The app gives the shared center a store over `UserDefaults.standard` at startup.
-    public var neverShow: CmuxToastNeverShowStore
+    /// never shows. The shared center's store persists in `UserDefaults.standard`.
+    public let neverShow: CmuxToastNeverShowStore
     /// Where the toasts' look and timing are read (``CmuxToastTuning``): Debug Settings' store in the
     /// app (inert in Release, so the code defaults), a test's own store in tests.
     public let tunables: TunableStore

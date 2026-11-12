@@ -534,11 +534,7 @@ final class AppServices {
     let hoverCards = HoverCardCoordinator()
     let overlayProcess = PageOverlayProcess() // the overlay pages' one web content process, handed to each page's owner
     private(set) lazy var healthFeeds = AppHealthFeeds(daemon: daemon, stateDirectory: environment.daemonStateDirectory, work: work, overlayProcess: overlayProcess) // app health (CmuxNextAppHealth)
-    let toasts: CmuxToastOverlayHost = {
-        // The kinds the person hid with Don't Show Again persist in the app's defaults (Lawrence 2026-11-12).
-        CmuxToastCenter.shared.neverShow = CmuxToastNeverShowStore(defaults: .standard)
-        return CmuxToastOverlayHost(drawing: .shared) // the shared center's toasts draw as native views on the window's overlay
-    }()
+    let toasts = CmuxToastOverlayHost(drawing: .shared) // the shared center's toasts draw as native views on the window's overlay
     /// Refusal messages for keyboard and menu runs.
     let refusalHUD = RefusalHUD()
     /// The app's one set of blocking-work lanes: file I/O, sync system calls and long CPU work run there,

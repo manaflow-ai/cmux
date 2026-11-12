@@ -74,7 +74,6 @@ enum AppActions {
         FocusRingHandlers.bind(into: registry, context: context)
         HibernationHandlers.bind(into: registry, context: context)
         TabHandlers.bind(into: registry, context: context)
-        ToastHandlers.bind(into: registry, context: context)
         TabIconHandlers.bind(into: registry, context: context)
         TabGroupHandlers.bind(into: registry, context: context)
         GroupIconHandlers.bind(into: registry, context: context)
