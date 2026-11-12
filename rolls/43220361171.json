@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43220361171",
+  "recorded_at": "2026-11-12T12:59:07Z",
+  "reason": "cmux-tui e6049f3aa0ac changes the image's cmux-tui (pinned 23a7c13d1eba)",
+  "dry_run": false,
+  "cmux_tui": "e6049f3aa0ac764bcc283fd54cab4b740badf94b",
+  "fixes": [
+    {
+      "sha": "e6049f3aa0ac764bcc283fd54cab4b740badf94b",
+      "mergedAt": "2026-11-12T06:28:26-06:00",
+      "subject": "cmux-tui tests: statement counts leave out the sidebar document reads that the process-wide cache decides"
+    },
+    {
+      "sha": "afef153535b2f629ab8f2cab2ad31cd558b87962",
+      "mergedAt": "2026-11-12T06:28:26-06:00",
+      "subject": "test(cmux-tui): the statement-count tests count the same at 4 and 32 workspaces whatever the sidebar cache holds (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T12:59:07Z",
+    "snapshot_id": "sh-6f35bc588e834397828332b8bc20d143",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43220361171): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9136a7573128bbce47cb47e1b6fd9a258d095e22",
+    "image": "cloud-native-auto-e6049f3a-43220361171-1",
+    "revision": "ci-43220361171-1",
+    "at": "2026-11-12T12:59:07Z"
+  },
+  "rolled_back": false
+}
