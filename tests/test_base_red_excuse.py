@@ -12974,7 +12974,7 @@ class GuardJobsFollowTheWorkflows(unittest.TestCase):
             "cmux-next-chromium-currency.yml", "ci-cache-receipts.yml"),
         "guard checks of their own whose reds are judged as any job's: no guard test declares its reads yet": (
             "ci-artifact-transport.yml", "classic-api-guard.yml", "cmux-next-batch.yml", "cmux-next-car-guards.yml",
-            "cmux-next-fast-gates.yml", "fleet-artifact-cdn.yml", "ios-shared-packages-sync.yml", "pr-checks.yml",
+            "cmux-next-fast-gates.yml", "fleet-artifact-cdn.yml", "pr-checks.yml",
             "release-rails.yml", "repair-nightly-appcast-content-types.yml", "risk-tier-tests.yml"),
     }
 
