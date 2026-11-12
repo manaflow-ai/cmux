@@ -11,9 +11,9 @@ import Testing
 /// the switch asks AppKit for that responder. The level is the focus model, not typed text in a real pane.
 struct SidebarSwitchPressFocusTests {
     /// The kinds of the old workspace's tab whose content is a page window (the press takes its new path with them).
-    static let pageKinds: [FocusTopology.Kind] = [.browser, .agent]
+    nonisolated static let pageKinds: [FocusTopology.Kind] = [.browser, .agent]
     /// The kinds of the new workspace's tab.
-    static let kinds: [FocusTopology.Kind] = [.terminal, .browser, .agent, .page, .conversation]
+    nonisolated static let kinds: [FocusTopology.Kind] = [.terminal, .browser, .agent, .page, .conversation]
 
     /// Workspace `name`: one pane with one tab of `kind`.
     private static func workspace(_ name: String, _ kind: FocusTopology.Kind) -> FocusTopology {
