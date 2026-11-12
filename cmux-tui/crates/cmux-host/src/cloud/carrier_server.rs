@@ -220,6 +220,10 @@ impl<H: Http> Shared<H> {
     }
 }
 
+/// The ticket state before the bind request starts. Any intervening bind or
+/// resume invalidates the answer's first ticket, even before it is installed.
+pub struct BindGeneration(u64);
+
 /// The worker's handle on the ticket threads.
 pub struct CarrierServer<H: Http> {
     shared: Arc<Shared<H>>,
@@ -290,8 +294,15 @@ impl<H: Http + Send + 'static> CarrierServer<H> {
         self.bound_with_ticket(client, prefetch, None);
     }
 
+    /// Capture before starting the bind request, to fence its ticket against
+    /// resumes while the HTTP request or answer installation is in progress.
+    pub fn bind_generation(&self) -> BindGeneration {
+        BindGeneration(self.shared.lock().generation)
+    }
+
     /// [`CarrierServer::bound`], with the ticket the bind answer carried
-    /// (`first`, the reply line the session host gets): on a carrier machine
+    /// (`first`, the generation captured before the request and the reply
+    /// line the session host gets): on a carrier machine
     /// it is kept in the bind's own transition, so the session host's first
     /// Register takes it at once instead of waiting for the bearer mint and
     /// the ticket request (three platform requests after the bind). The
@@ -299,13 +310,22 @@ impl<H: Http + Send + 'static> CarrierServer<H> {
     /// ticket is refreshed before it expires like any other, at most
     /// [`MAX_REFRESHES`] times. A ticket too close to its expiry to keep is
     /// dropped, and the bind asks for one as before.
-    pub fn bound_with_ticket(&self, client: CloudClient<H>, prefetch: bool, first: Option<Value>) {
-        let now = (self.hooks.now)();
-        let warm = first.filter(|_| prefetch).and_then(|reply| Warm::of(&reply, now));
-        let seeded = warm.is_some();
-        // The bind's generation starts now, not when the fetch thread takes
-        // it: an ask in between waits for the bind's ticket.
-        self.shared.change(|state| state.bind_with(Next { client, prefetch, seeded }, warm));
+    pub fn bound_with_ticket(
+        &self,
+        client: CloudClient<H>,
+        prefetch: bool,
+        first: Option<(BindGeneration, Value)>,
+    ) {
+        // Check the request's generation and install its answer under the
+        // same lock as a resume. A later resume clears the installed ticket;
+        // an earlier one means this bind must prefetch a replacement.
+        self.shared.change(|state| {
+            let warm = first
+                .filter(|(before, _)| prefetch && before.0 == state.generation)
+                .and_then(|(_, reply)| Warm::of(&reply, (self.hooks.now)()));
+            let seeded = warm.is_some();
+            state.bind_with(Next { client, prefetch, seeded }, warm);
+        });
     }
 }
 

@@ -27,7 +27,7 @@ use cmux_server_core::role::{HostEvent, Role, RoleContext, RoleError, StopContex
 use serde_json::{Value, json};
 
 use super::agent_socket::listen;
-use super::carrier_server::{CarrierServer, Resumes};
+use super::carrier_server::{BindGeneration, CarrierServer, Resumes};
 use super::client::{BindResult, CloudClient, Http, Store, ensure_install_key, ensure_wg_key};
 use super::github;
 use super::github_minter::{Ask, Minter, Stop};
@@ -986,6 +986,7 @@ impl Worker {
         let carrier_lock = self.keyset.carrier_lock();
         let carrier_held = carrier_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // The updater's connect hold, then the request (`hold_then_bind`).
+        let carrier_generation = self.carrier.as_ref().map(CarrierServer::bind_generation);
         let result = super::client::hold_then_bind(
             &self.paths,
             &mut self.store,
@@ -1009,7 +1010,7 @@ impl Worker {
                 if let Err(e) = super::client::record_owner_kind(&mut self.store) {
                     log(&format!("vm-kind write: {e}"));
                 }
-                self.start_live(*bound, key, http, daemon, first_ticket);
+                self.start_live(*bound, key, http, daemon, carrier_generation.zip(first_ticket));
             }
             BindResult::Retry(_) => {
                 let changed = cmux_server::cloud_http::network_changes() != changes;
@@ -1068,7 +1069,7 @@ impl Worker {
         key: InstallKey,
         http: PosterHttp,
         daemon: DaemonInfo,
-        first_ticket: Option<Value>,
+        first_ticket: Option<(BindGeneration, Value)>,
     ) {
         let heartbeat = heartbeat_ms_for(bound.env, self.heartbeat_env.as_deref());
         if heartbeat != super::wire::DEFAULT_HEARTBEAT_MS {

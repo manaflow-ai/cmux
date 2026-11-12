@@ -189,7 +189,11 @@ fn a_ticket_from_the_bind_goes_to_the_first_register_with_no_ticket_request() {
     let dir = tempfile::tempdir().unwrap();
     let (server, path) = serve(&dir);
     let fake = Fake::default();
-    server.bound_with_ticket(client(&fake), true, Some(bind_ticket("bind-ticket-0123", 300)));
+    server.bound_with_ticket(
+        client(&fake),
+        true,
+        Some((server.bind_generation(), bind_ticket("bind-ticket-0123", 300))),
+    );
     let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
     assert_eq!((&reply["ok"], &reply["ticket"]), (&json!(true), &json!("bind-ticket-0123")));
     wait_for_requests(&fake, 2);
@@ -202,21 +206,39 @@ fn a_ticket_from_the_bind_goes_to_the_first_register_with_no_ticket_request() {
     assert!(logged.iter().all(|l| !l.contains("bind-ticket-0123")), "{logged:?}");
 }
 
+#[test]
+fn a_resume_before_the_bind_request_does_not_invalidate_its_answer() {
+    let dir = tempfile::tempdir().unwrap();
+    let (server, path) = serve(&dir);
+    let fake = Fake::default();
+    server.resumes.note();
+    let before = server.bind_generation();
+    server.bound_with_ticket(client(&fake), true, Some((before, bind_ticket("after-resume", 300))));
+    assert_eq!(ask(&path, r#"{"carrier_ticket": {}}"#)["ticket"], "after-resume");
+    wait_for_requests(&fake, 2);
+    drop(server);
+    assert_eq!(fake.urls().len(), 2, "only the bearer was requested");
+}
+
 /// The bind HTTP answer can arrive before the role notes a resume, while
 /// installation of that answer on the ticket threads happens after it.
 #[test]
 fn a_resume_between_the_bind_answer_and_install_drops_the_ticket() {
     let dir = tempfile::tempdir().unwrap();
-    let (server, _path) = serve(&dir);
+    let (server, path) = serve(&dir);
     let fake = Fake::default();
+    let before = server.bind_generation();
     let answer = bind_ticket("before-resume", 300);
     server.resumes.note();
-    server.bound_with_ticket(client(&fake), true, Some(answer));
+    server.bound_with_ticket(client(&fake), true, Some((before, answer)));
     let state = server.shared.lock();
     assert!(
         state.warm.as_ref().is_none_or(|warm| warm.reply["ticket"] != "before-resume"),
         "a bind answer from before resume was kept"
     );
+    drop(state);
+    wait_for("a replacement prefetched before Register", || server.shared.lock().warm.is_some());
+    assert_eq!(ask(&path, r#"{"carrier_ticket": {}}"#)["ticket"], TICKET);
 }
 
 #[test]
@@ -225,7 +247,11 @@ fn a_bind_ticket_too_close_to_expiry_or_on_a_machine_without_a_carrier_is_not_ke
     let dir = tempfile::tempdir().unwrap();
     let (server, path) = serve(&dir);
     let fake = Fake::default();
-    server.bound_with_ticket(client(&fake), true, Some(bind_ticket("short-lived-0123", 30)));
+    server.bound_with_ticket(
+        client(&fake),
+        true,
+        Some((server.bind_generation(), bind_ticket("short-lived-0123", 30))),
+    );
     let reply = ask(&path, r#"{"carrier_ticket": {}}"#);
     assert_eq!(reply["ticket"], TICKET);
     drop(server);
@@ -234,7 +260,11 @@ fn a_bind_ticket_too_close_to_expiry_or_on_a_machine_without_a_carrier_is_not_ke
     let dir = tempfile::tempdir().unwrap();
     let (server, _path) = serve(&dir);
     let fake = Fake::default();
-    server.bound_with_ticket(client(&fake), false, Some(bind_ticket("no-carrier-0123", 300)));
+    server.bound_with_ticket(
+        client(&fake),
+        false,
+        Some((server.bind_generation(), bind_ticket("no-carrier-0123", 300))),
+    );
     drop(server);
     assert!(fake.urls().iter().all(|u| !u.ends_with("/carrier")), "{:?}", fake.urls());
 }
@@ -880,13 +910,16 @@ fn a_resume_before_a_seeded_bind_is_handled_prefetches_for_register() {
     server.bound_with_ticket(
         client_with(LiveHttp(Arc::clone(&live))),
         true,
-        Some(json!({
-            "ok": true,
-            "relay": "relay+do://relay.example",
-            "slot": "slot_0123456789abcdefghijkl",
-            "ticket": "stale-after-resume",
-            "expires_at": wall_now() / 1000 + 300,
-        })),
+        Some((
+            server.bind_generation(),
+            json!({
+                "ok": true,
+                "relay": "relay+do://relay.example",
+                "slot": "slot_0123456789abcdefghijkl",
+                "ticket": "stale-after-resume",
+                "expires_at": wall_now() / 1000 + 300,
+            }),
+        )),
     );
     wait_for("the fetcher held before the seeded bind", || {
         server.shared.test_points.hold_fetcher.lock().unwrap().is_none()
