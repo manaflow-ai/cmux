@@ -36,7 +36,7 @@ nonisolated struct ScreenshotsStrings {
     static var renameFailed: String { t("screenshots.rename.failed", "Couldn’t rename the screenshot") }
 
     /// Why a rename or a drop failed, in plain words: never the system's own error text
-    /// (`NSAlert(error:)` printed "The operation couldn’t be completed. (Cocoa error 513.)").
+    /// (an alert built from the error printed "The operation couldn’t be completed. (Cocoa error 513.)").
     static func reason(_ error: any Error) -> String {
         if let error = error as? FileBrowserError {
             switch error {

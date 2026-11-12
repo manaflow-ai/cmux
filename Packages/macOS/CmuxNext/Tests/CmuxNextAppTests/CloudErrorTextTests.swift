@@ -99,7 +99,8 @@ struct CloudErrorTextTests {
         #expect(CloudStrings.errorText(URLError(.notConnectedToInternet)) == PlainErrorText.words(.offline))
         #expect(CloudStrings.errorText(POSIXError(.ENOSPC)) == PlainErrorText.words(.noSpace))
         #expect(CloudStrings.errorText(Opaque()) == PlainErrorText.generic)
-        #expect(CloudStrings.errorText(NSError(domain: NSCocoaErrorDomain, code: 4)) == PlainErrorText.generic)
+        #expect(CloudStrings.errorText(NSError(domain: "x", code: -1)) == PlainErrorText.generic)
+        #expect(CloudStrings.errorText(NSError(domain: NSCocoaErrorDomain, code: 4)) == PlainErrorText.words(.notFound))
         let errors: [any Error] = [URLError(.badServerResponse), CocoaError(.fileWriteUnknown), Opaque(),
                                    NSError(domain: "x", code: -1), CloudAPIError.transport("Error Domain=NSURLErrorDomain Code=-1009")]
         for error in errors {
