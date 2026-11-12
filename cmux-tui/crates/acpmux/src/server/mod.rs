@@ -1679,10 +1679,11 @@ async fn serve_connection_from(
     let dropped_notifications = Arc::new(AtomicU64::new(0));
     loop {
         // A reader past its byte bound is disconnected (`outbound.rs`): it reads again from its
-        // cursor on a new connection, so nothing this one would still ask is answered.
+        // cursor on a new connection, so nothing this one would still ask is answered. So is one
+        // whose output ended (its reader gone, the journal's writer ended).
         let line = tokio::select! {
             biased;
-            () = conn.out.overrun() => None,
+            () = conn.out.closed() => None,
             line = inbound.recv() => line,
         };
         let Some(line) = line else { break };

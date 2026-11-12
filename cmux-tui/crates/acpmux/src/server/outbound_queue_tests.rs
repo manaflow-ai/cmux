@@ -33,7 +33,7 @@ async fn a_stopped_reader_past_its_bound_is_disconnected_with_a_typed_reason() {
     assert!(queued * 200 <= BOUND, "it overran past its bound: {queued} lines");
     assert!(!out.push(note(0)), "nothing is queued once it overran");
     assert!(out.is_closed());
-    tokio::time::timeout(Duration::from_secs(5), out.overrun()).await.expect("overrun resolves");
+    tokio::time::timeout(Duration::from_secs(5), out.closed()).await.expect("closed resolves");
     // Whatever reached the transport before comes in order, then the reason, then the end.
     let mut n = 0;
     loop {
@@ -79,6 +79,7 @@ async fn a_reader_that_keeps_reading_gets_every_line_in_order_however_many() {
             let line = next(&mut rx).await.expect("every line");
             assert_eq!(line["params"]["n"], n);
         }
+        rx
     });
     for n in 0..total {
         // A producer faster than the reader waits for it here only in this test, by its bound.
@@ -87,7 +88,7 @@ async fn a_reader_that_keeps_reading_gets_every_line_in_order_however_many() {
         }
         assert!(out.push(note(n)), "a reader that reads is never disconnected");
     }
-    reader.await.unwrap();
+    let _rx = reader.await.unwrap();
     assert!(!out.is_closed());
 }
 

@@ -18,7 +18,8 @@
 //!
 //! The transport's channel is counted by its lines: the pump is its only sender, so the lines it
 //! sent minus the room the channel has again are the ones still there, oldest first. One slot is
-//! kept free for the last line.
+//! kept free for the last line. (A WebSocket's upload replies, `upload_frames.rs`, also go into
+//! its channel; while one is there the count reads high, never low, and corrects as it drains.)
 
 use super::*;
 use std::collections::VecDeque;
@@ -75,6 +76,9 @@ struct State {
     /// Every handle is gone: the pump sends what is left and ends.
     finished: bool,
     overrun: Option<Overrun>,
+    /// The pump ended (its transport closed, the journal's writer ended, the daemon is stopping,
+    /// or it overran): nothing queued now would ever be sent.
+    ended: bool,
 }
 
 impl State {
@@ -95,7 +99,8 @@ struct Shared {
     state: StdMutex<State>,
     /// The pump has lines to take, the last handle is gone, or the queue overran.
     wake: Notify,
-    overrun: watch::Sender<bool>,
+    /// True once the queue overran or its pump ended.
+    closed: watch::Sender<bool>,
     bound: usize,
 }
 
@@ -106,7 +111,7 @@ impl Shared {
 
     /// Queues `line` with the lock held; false (and nothing queued) once it overran.
     fn push_locked(&self, state: &mut State, line: String) -> bool {
-        if state.overrun.is_some() {
+        if state.overrun.is_some() || state.ended {
             return false;
         }
         let size = line.len();
@@ -125,7 +130,7 @@ impl Shared {
             state.overrun = Some(overrun);
             state.held = state.sent.iter().sum();
             state.queue = VecDeque::new();
-            self.overrun.send_replace(true);
+            self.closed.send_replace(true);
             self.wake.notify_one();
             return false;
         }
@@ -195,29 +200,20 @@ impl Outbound {
         Queue { shared: &self.shared, state: self.shared.lock() }
     }
 
-    /// The reader is gone, or the queue ended the connection.
+    /// The reader is gone, the queue ended the connection, or its pump ended.
     pub(super) fn is_closed(&self) -> bool {
         let state = self.shared.lock();
-        state.overrun.is_some() || state.transport.upgrade().is_none_or(|t| t.is_closed())
+        state.overrun.is_some()
+            || state.ended
+            || state.transport.upgrade().is_none_or(|t| t.is_closed())
     }
 
-    /// Resolves once [`Self::is_closed`].
+    /// Resolves once the queue overran ([`Overrun`]) or its pump ended, which it does when the
+    /// reader is gone: no line queued after it would be sent. Holds no sender of the transport,
+    /// so a wait here never keeps the connection open.
     pub(super) async fn closed(&self) {
-        let transport = self.shared.lock().transport.upgrade();
-        let mut overrun = self.shared.overrun.subscribe();
-        match transport {
-            Some(transport) => tokio::select! {
-                () = transport.closed() => {}
-                _ = overrun.wait_for(|o| *o) => {}
-            },
-            None => {}
-        }
-    }
-
-    /// Resolves once the queue ended the connection ([`Overrun`]).
-    pub(super) async fn overrun(&self) {
-        let mut overrun = self.shared.overrun.subscribe();
-        let _ = overrun.wait_for(|o| *o).await;
+        let mut closed = self.shared.closed.subscribe();
+        let _ = closed.wait_for(|c| *c).await;
     }
 
     /// Bytes queued and not yet read.
@@ -230,26 +226,41 @@ impl Outbound {
 }
 
 /// What moves a connection's lines to its transport: the plain pump, or the durable gate
-/// (`durable_gate.rs`), which waits for the journal between taking and sending.
+/// (`durable_gate.rs`), which waits for the journal between taking and sending. Dropped, however
+/// its task ends, it closes the queue; after an overrun its last line goes into the slot kept for
+/// it first.
 pub(super) struct Pump {
     shared: Arc<Shared>,
     transport: mpsc::Sender<String>,
-    overrun: watch::Receiver<bool>,
+}
+
+impl Drop for Pump {
+    fn drop(&mut self) {
+        let mut state = self.shared.lock();
+        if let Some(overrun) = state.overrun {
+            let _ = self.transport.try_send(overrun.last_line(self.shared.bound));
+        }
+        state.ended = true;
+        state.queue = VecDeque::new();
+        drop(state);
+        self.shared.closed.send_replace(true);
+    }
 }
 
 impl Pump {
     /// See [`Shared::take`].
-    pub(super) async fn take(&mut self, batch: &mut Vec<String>) -> bool {
+    pub(super) async fn take(&self, batch: &mut Vec<String>) -> bool {
         self.shared.take(batch).await
     }
 
     /// Sends `line` to the transport once it has room, keeping its last slot free; false when its
     /// reader is gone or the queue overran.
-    pub(super) async fn forward(&mut self, line: String) -> bool {
+    pub(super) async fn forward(&self, line: String) -> bool {
         let keep = if self.transport.max_capacity() > 1 { 2 } else { 1 };
+        let mut closed = self.shared.closed.subscribe();
         let room = tokio::select! {
             biased;
-            _ = self.overrun.wait_for(|o| *o) => return false,
+            _ = closed.wait_for(|c| *c) => return false,
             room = self.transport.reserve_many(keep) => room,
         };
         let Ok(mut room) = room else { return false };
@@ -261,29 +272,27 @@ impl Pump {
         }
         permit.send(line);
         state.sent.push_back(size);
+        // Forget what the reader took meanwhile, so `sent` stays as short as the channel.
+        state.settle();
         true
     }
 
-    /// The transport is gone.
-    pub(super) async fn transport_closed(&self) {
-        self.transport.closed().await
-    }
-
-    /// Ends the pump: after an overrun, the last line goes into the slot kept for it.
-    pub(super) fn end(self) {
-        let state = self.shared.lock();
-        if let Some(overrun) = state.overrun {
-            let _ = self.transport.try_send(overrun.last_line(self.shared.bound));
+    /// The transport is gone, or the queue overran: the pump stops.
+    pub(super) async fn stopped(&self) {
+        let mut closed = self.shared.closed.subscribe();
+        tokio::select! {
+            () = self.transport.closed() => {}
+            _ = closed.wait_for(|c| *c) => {}
         }
     }
 
-    async fn run(mut self) {
+    async fn run(self) {
         let mut batch = Vec::new();
         'pump: loop {
             tokio::select! {
                 biased;
-                () = self.transport.closed() => break 'pump,
-                more = self.shared.take(&mut batch) => if !more { break 'pump },
+                () = self.stopped() => break 'pump,
+                more = self.take(&mut batch) => if !more { break 'pump },
             }
             for line in batch.drain(..) {
                 if !self.forward(line).await {
@@ -291,7 +300,6 @@ impl Pump {
                 }
             }
         }
-        self.end();
     }
 }
 
@@ -311,7 +319,7 @@ pub(super) fn start_bounded(
     transport: mpsc::Sender<String>,
     bound: usize,
 ) -> (Arc<Outbound>, Option<Arc<durable_gate::Gate>>) {
-    let (overrun, overrun_rx) = watch::channel(false);
+    let (closed, _) = watch::channel(false);
     let shared = Arc::new(Shared {
         state: StdMutex::new(State {
             queue: VecDeque::new(),
@@ -321,20 +329,21 @@ pub(super) fn start_bounded(
             capacity: transport.max_capacity(),
             finished: false,
             overrun: None,
+            ended: false,
         }),
         wake: Notify::new(),
-        overrun,
+        closed,
         bound,
     });
-    let pump = Pump { shared: Arc::clone(&shared), transport, overrun: overrun_rx };
+    let pump = Pump { shared: Arc::clone(&shared), transport };
     let gate = match durability {
         Some(durability) => {
             let (gate, run) = durable_gate::install(durability, pump);
-            scope.spawn_named("conn-durable-gate", run);
+            scope.spawn_until_cancelled("conn-durable-gate", run);
             Some(gate)
         }
         None => {
-            scope.spawn_named("conn-outbound", pump.run());
+            scope.spawn_until_cancelled("conn-outbound", pump.run());
             None
         }
     };

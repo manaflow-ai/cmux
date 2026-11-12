@@ -125,9 +125,10 @@ impl Journal {
 }
 
 /// The gate's task ([module docs](self)). Ends when the connection's handles are gone, the
-/// transport closed, the queue overran, or the journal's writer ended.
+/// transport closed, the queue overran, or the journal's writer ended; dropping `pump` then
+/// closes the queue (`outbound.rs`).
 async fn run(
-    mut pump: super::outbound::Pump,
+    pump: super::outbound::Pump,
     gate: Arc<Gate>,
     mut journal: Journal,
     stalled: Arc<dyn Fn(Duration) -> bool + Send + Sync>,
@@ -136,7 +137,7 @@ async fn run(
     'pump: loop {
         tokio::select! {
             biased;
-            () = pump.transport_closed() => break 'pump,
+            () = pump.stopped() => break 'pump,
             more = pump.take(&mut batch) => {
                 if !more {
                     break 'pump;
@@ -156,7 +157,7 @@ async fn run(
             loop {
                 tokio::select! {
                     biased;
-                    () = pump.transport_closed() => break 'pump,
+                    () = pump.stopped() => break 'pump,
                     reached = &mut reached => {
                         if !reached {
                             tracing::error!("the event journal's writer ended: this connection closes");
@@ -178,7 +179,6 @@ async fn run(
             }
         }
     }
-    pump.end();
 }
 
 /// Tests: the stall limit in milliseconds when not 0.
