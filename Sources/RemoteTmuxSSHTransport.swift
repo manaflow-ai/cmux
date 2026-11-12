@@ -1,3 +1,4 @@
+import CmuxFoundation
 import Foundation
 
 /// Runs commands against a remote host's tmux server over a shared SSH
@@ -336,11 +337,7 @@ actor RemoteTmuxSSHTransport {
     /// never be contacted, so reading it as idle would turn the failure into an empty session
     /// list.
     static func indicatesNoServer(_ stderr: String) -> Bool {
-        if indicatesSocketPathTooLong(stderr) { return false }
-        let lowered = stderr.lowercased()
-        return lowered.contains("no server running")
-            || lowered.contains("no sessions")
-            || (lowered.contains("error connecting to /") && lowered.contains("/tmux-"))
+        RemoteTmuxFailureClassifier(stderr: stderr).indicatesNoServer
     }
 
     /// Whether stderr is tmux refusing its own socket path as too long.
@@ -349,8 +346,7 @@ actor RemoteTmuxSSHTransport {
     /// (`$TMUX_TMPDIR/tmux-<uid>/<name>`) exceeds the AF_UNIX limit, which a long `-L <name>`
     /// under a long `TMUX_TMPDIR` can reach.
     static func indicatesSocketPathTooLong(_ stderr: String) -> Bool {
-        let lowered = stderr.lowercased()
-        return lowered.contains("error connecting to") && lowered.contains("file name too long")
+        RemoteTmuxFailureClassifier(stderr: stderr).indicatesSocketPathTooLong
     }
 
     static func indicatesRefreshClientSubscriptionUnsupported(_ stderr: String) -> Bool {
