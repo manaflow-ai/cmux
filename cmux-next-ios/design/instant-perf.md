@@ -69,6 +69,16 @@ parts and six months of timestamps. Its last 2 MB log sits about 60 records
 before the end: the open (capped at 128 KiB of whole records) stops short of it,
 so `chat_open_last_messages` shows the cap holding, and the first scroll-up page
 (`chat_older_page`) is the one that reads it.
+Scrolling up (`chat_scroll_fill`, since the read-ahead): the list asks for the page before the
+oldest turn shown when the reader is within four screens of it (`AgentChatStore.readAhead`,
+from `ChatTranscriptList`'s every scroll step and reload), not when the oldest row draws. The
+source (`AcpmuxSessionSource`) then reads the page before that one too, decodes it off the main
+actor and holds it, so the next ask shows at once. What it holds is one page: the records back to
+the next prompt, in 256 KiB reads (2 MiB for 8 reads; one record over the cap is read whole), and
+the end of the turn above it (at most one read), dropped when the chat opens again. Each read's
+records decode off the main actor while the next read is on the wire, straight from the parsed
+record (`JSONValue.decoded(as:)`, no second encode and parse), and the list puts a page's turns
+in once their native rows are laid out, at their real heights.
 `chat_reconnect_catch_up` still times from the link coming back to the newest turn shown.
 What changed with the tail-first reattach (slice 3) is the work inside that window: a gap
 longer than one page reads the newest page (as an open does) and one read after it, and the

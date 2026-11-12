@@ -180,8 +180,15 @@ struct AcpmuxRecords {
                                                        plan: ACPPermissionRequest.plan(toolCall: toolCall)))
     }
 
+    /// `value` as `T`, walked straight from the parsed record (`JSONValue.decoded(as:)`), not
+    /// written out as JSON and parsed again. A value it refuses goes through `JSONDecoder` once
+    /// more, so nothing that decoded before stops decoding.
     static func decode<T: Decodable>(_ type: T.Type, _ value: JSONValue) throws -> T {
-        try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
+        do {
+            return try value.decoded(as: T.self)
+        } catch {
+            return try JSONDecoder().decode(T.self, from: JSONEncoder().encode(value))
+        }
     }
 
     static func convert<T: Decodable, U: Encodable>(_ value: U, to type: T.Type) throws -> T {

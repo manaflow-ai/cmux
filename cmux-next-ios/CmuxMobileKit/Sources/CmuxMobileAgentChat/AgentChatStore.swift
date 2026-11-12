@@ -1081,6 +1081,19 @@ public final class AgentChatStore {
 
     public func subagent(_ id: String) -> AgentSubagent? { subagents.first { $0.id == id } }
 
+    /// How far ahead of the reader older history is read: within this many screens of the
+    /// oldest turn shown, the page before it is asked for (the desktop's transcript reads six
+    /// viewports ahead; a phone's screen holds less, and its source holds one more page ahead).
+    public static let readAheadScreens: Double = 4
+
+    /// The reader is `screensAbove` screens below the oldest turn shown (the list's scroll, each
+    /// step): within ``readAheadScreens``, the page before it is asked for, long before the top
+    /// shows. The source reads one more ahead, so the next ask is answered at once.
+    public func readAhead(screensAbove: Double) {
+        guard screensAbove < Self.readAheadScreens, hasEarlierHistory, !isLoadingEarlier else { return }
+        loadEarlier()
+    }
+
     /// The reader reached the oldest turn shown: the source reads the page before it.
     public func loadEarlier() {
         guard hasEarlierHistory, !isLoadingEarlier else { return }
@@ -1193,6 +1206,8 @@ public final class AgentChatStore {
 
     /// A page of spilled turns (newest first) goes back in front of the shown ones.
     private func restoreSpilled(_ page: [AgentTurn]) {
+        let start = ContinuousClock.now
+        defer { earlierApplyTime += start.duration(to: .now) }
         isLoadingEarlier = false
         turnsOnDisk = page.isEmpty ? 0 : max(0, turnsOnDisk - page.count)
         spilledTurnIDs.subtract(page.map(\.id))

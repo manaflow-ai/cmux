@@ -276,8 +276,8 @@ struct InstantPerfTests {
         let god = try await older(AgentChatFixture.god)
         InstantPerfReport.record(
             "chat_older_page", target: 50, small: small, god: god,
-            knownRed: [.ratio],
-            why: "an older page is up to 256 KiB of whole records (more when one record is larger), decoded and turned into turns before it shows",
+            // Green since each read's records decode off the main actor while the next read is
+            // on the wire, straight from the parsed records (no second encode and parse).
             note: "small: \(AgentChatFixture.smallPaged.count)-record chat (one page over the open); god: \(AgentChatFixture.god.count) records")
     }
 
@@ -313,11 +313,13 @@ struct InstantPerfTests {
         }
     }
 
-    /// What the list does on a scroll step: `screensAbove` is how far the top of the viewport
-    /// is below the oldest row shown, in screens. Base: the read starts when the oldest row
-    /// (`session-start`) is drawn (`ChatTranscriptList` `willDisplay`), about 46 pt from the top.
+    /// What the list does on a scroll step (`ChatTranscriptList.scrollViewDidScroll`):
+    /// `screensAbove` is how far the top of the viewport is below the oldest row shown, in
+    /// screens. Within four, the page before it is asked for (``AgentChatStore/readAhead(screensAbove:)``).
+    /// Before the read-ahead, the read started when the oldest row (`session-start`) drew,
+    /// about 46 pt from the top: `if screensAbove * FlingReader.viewport < 46 { store.loadEarlier() }`.
     static func scrollStep(_ store: AgentChatStore, screensAbove: Double) {
-        if screensAbove * FlingReader.viewport < 46, store.hasEarlierHistory { store.loadEarlier() }
+        store.readAhead(screensAbove: screensAbove)
     }
 
     /// One fling up `log` from its newest turn: each 60 Hz frame moves the reader, tells the
@@ -436,8 +438,8 @@ struct InstantPerfTests {
         let target = 16.7
         InstantPerfReport.record(
             "chat_scroll_fill", target: target, small: small.p95s, god: god.p95s,
-            knownRed: Self.scrollFillKnownRed,
-            why: "the older read starts only when the oldest row draws, so a fling waits at the top for each page's reads",
+            // Green since the read-ahead: the older read starts four screens before the top,
+            // and the source holds the page after it, decoded.
             note: String(format: "p95 per fling of each 60 Hz frame's time to a filled viewport (%d frames, flicks of 8,000 pt/s, 800 pt viewport) over a %d ms, 4 MB/s link; frames with a blank top: small %d, god %d (warm-up included); pages shown: small %d, god %d; worst frame: small %.1f ms, god %.1f ms",
                          FlingReader.frames, 50, small.blank, god.blank, small.pages, god.pages, small.worst, god.worst))
         // The gate (Leo, 2026-11-12: "I don't ever want to be, like, waiting for it to load"):
@@ -447,9 +449,6 @@ struct InstantPerfTests {
             #expect(InstantPerfReport.median(god.p95s) <= target, "god's p95 frame is over one frame")
             #expect(small.blank == 0 && god.blank == 0, "rows were blank while scrolling: small \(small.blank), god \(god.blank) frames")
         }
-        if Self.scrollFillKnownRed.isEmpty { gate() } else { withKnownIssue(isIntermittent: true) { gate() } }
+        gate()
     }
-
-    /// Base: the read waits for the oldest row to draw.
-    static let scrollFillKnownRed: Set<InstantPerfCheck> = [.smallBudget, .godBudget, .ratio]
 }
