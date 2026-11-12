@@ -2024,17 +2024,37 @@ fn every_test_wait_on_a_hold_is_bounded() {
     let mut paths = Vec::new();
     sources(&root, &mut paths);
     paths.sort();
-    let files: Vec<(PathBuf, String)> = paths
+    let mut files: Vec<(PathBuf, String)> = paths
         .iter()
         .map(|file| {
             let relative = file.strip_prefix(&root).unwrap_or(file).to_path_buf();
             (relative, std::fs::read_to_string(file).unwrap_or_default())
         })
         .collect();
-    let CrateScan { checked, unread, unresolved, waits } = scan_crate(&files);
+    // A test module's `#[path]` may name a file outside `src/` (`tests/support/`): read it too.
+    let CrateScan { checked, unread, unresolved, waits } = loop {
+        let scan = scan_crate(&files);
+        let more: BTreeMap<PathBuf, String> = scan
+            .unresolved
+            .iter()
+            .flat_map(|(_, candidates)| candidates)
+            .filter_map(|path| Some((path.clone(), std::fs::read_to_string(root.join(path)).ok()?)))
+            .collect();
+        if more.is_empty() {
+            break scan;
+        }
+        files.extend(more);
+    };
+    let unresolved: Vec<String> = unresolved
+        .iter()
+        .map(|(file, candidates)| {
+            let at: Vec<String> = candidates.iter().map(|p| p.display().to_string()).collect();
+            format!("{file}: no file at {}", at.join(" or "))
+        })
+        .collect();
     assert!(
         unresolved.is_empty(),
-        "a test module's `mod child;` resolves to no file the scan read:\n{}",
+        "a test module's `mod child;` resolves to no file:\n{}",
         unresolved.join("\n")
     );
     let mut found = Vec::new();
@@ -2108,8 +2128,9 @@ struct CrateScan {
     checked: usize,
     /// The files that declare a `#[cfg(test)] mod name {` it read nothing of.
     unread: Vec<String>,
-    /// Each test module declared `mod child;` that no source is the file of.
-    unresolved: Vec<String>,
+    /// Each test module declared `mod child;` that no source is the file of: the file that
+    /// declares it, and where its file may be.
+    unresolved: Vec<(String, Vec<PathBuf>)>,
     /// Each unbounded wait, with its file.
     waits: Vec<(String, Wait)>,
 }
@@ -2163,15 +2184,9 @@ fn scan_crate(files: &[(PathBuf, String)]) -> CrateScan {
                     todo.push(child);
                 }
                 Some(_) => {}
-                None => scan.unresolved.push(format!(
-                    "{}: no file at {}",
-                    files[i].0.display(),
-                    candidates
-                        .iter()
-                        .map(|p| p.display().to_string())
-                        .collect::<Vec<_>>()
-                        .join(" or ")
-                )),
+                None => scan
+                    .unresolved
+                    .push((files[i].0.to_string_lossy().to_string(), candidates.clone())),
             }
         }
     }
@@ -2250,7 +2265,7 @@ fn modules_in(tokens: TokenStream, dir: &Path, base: &Path, in_test: bool, out: 
             if punct(tts.get(j + 2), ';') {
                 if test {
                     out.files.push(match &path {
-                        Some(p) => vec![base.join(p)],
+                        Some(p) => vec![normalize(&base.join(p))],
                         None => {
                             vec![dir.join(format!("{name}.rs")), dir.join(&name).join("mod.rs")]
                         }
@@ -2268,6 +2283,27 @@ fn modules_in(tokens: TokenStream, dir: &Path, base: &Path, in_test: bool, out: 
         }
         i += 1;
     }
+}
+
+/// `path` with each `..` taken out against the folder before it; one that leaves `src/` keeps
+/// its leading `..` (`#[path = "../../tests/support/held_turn.rs"]`).
+fn normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            std::path::Component::ParentDir
+                if out
+                    .components()
+                    .next_back()
+                    .is_some_and(|last| !matches!(last, std::path::Component::ParentDir)) =>
+            {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            part => out.push(part),
+        }
+    }
+    out
 }
 
 /// The file a `#[path = "..."]` attribute names.
@@ -2705,6 +2741,13 @@ fn the_bounded_wait_scan_exempts_by_meaning_not_text_shape() {
                     "#[cfg(test)]\nmod tests {\n    #[path = \"probe.rs\"]\n    mod child;\n}\n",
                 ),
                 ("hub/foo/tests/probe.rs", "fn t() {\n    arrived.RECV.unwrap();\n}\n"),
+            ],
+        ),
+        (
+            "F2: a test file's child by #[path] outside src/",
+            &[
+                ("hub/foo_tests.rs", "#[path = \"../../tests/support/held.rs\"]\nmod held;\n"),
+                ("../tests/support/held.rs", "fn t() {\n    arrived.RECV.unwrap();\n}\n"),
             ],
         ),
         (
