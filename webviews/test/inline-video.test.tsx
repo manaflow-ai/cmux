@@ -15,6 +15,7 @@ import {
 } from "../src/agent-session/acpmux/chips/replyMediaModel";
 import { MEDIA_PREVIEW_DWELL } from "../src/ui/hoverIntent";
 import { setChipHost } from "../src/agent-session/acpmux/chips/host";
+import { settleReact } from "./support/domTeardown";
 
 describe("which sources are video", () => {
   const cases: Array<[source: string, kind: ReturnType<typeof mediaKind>]> = [
@@ -139,6 +140,7 @@ afterEach(async () => {
   jest.useRealTimers();
   setChipHost(undefined);
   await new Promise((resolve) => setTimeout(resolve, 0));
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

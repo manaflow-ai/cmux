@@ -572,10 +572,11 @@ jobs:
     name: cmux-next size cap, crash ratchet, localization debt ratchet, no new generated files
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || fromJSON(vars.RUNNER_POOLS).linux_4 }}
-    # Each former job's cap goes to its steps (size cap 5, crash ratchet 10, localization 5, generated files 2+3), so
-    # with the checkout's 5 the steps' caps sum to the job's 30 and no step's stall can use up another's time. A step
-    # that times out fails and the next step still runs.
-    timeout-minutes: 30
+    # Each former job's cap goes to its steps (size cap 5, crash ratchet 10, localization 5, generated files 2+8), so
+    # with the checkout's 5 the steps' caps sum to the job's 35 and no step's stall can use up another's time. A step
+    # that times out fails and the next step still runs. The generated files guard's 8 covers a generator check's
+    # 120 s try and its 240 s retry (generated_files_guard.py): a busy runner makes it slower, never red.
+    timeout-minutes: 35
     steps:
       - name: Checkout
         timeout-minutes: 5
@@ -676,7 +677,7 @@ jobs:
 
       - name: cmux-next no new generated files
         if: ${{ !cancelled() }}
-        timeout-minutes: 3
+        timeout-minutes: 8
         env:
           EVENT_NAME: ${{ github.event_name }}
           BEFORE: ${{ github.event.before }}
@@ -748,6 +749,18 @@ jobs:
 
       - name: nightly-next's App ID and profile through the ASC API
         run: python3 tests/test_asc_developer_id_app.py
+
+      # Time-bomb row: suites whose fixtures carry calendar dates, with the clock set to 2101. A test
+      # that reads the real clock instead of passing its own goes red here, not the day a date passes.
+      - name: Fixture-date suites with the clock at 2101 (CMUX_NOW_EPOCH)
+        env:
+          CMUX_NOW_EPOCH: "4133980800"
+        run: |
+          python3 tests/test_asc_developer_id_app.py
+          python3 -m unittest tests/test_lint_feature_flags_scope.py tests/test_lint_feature_flags_review_date.py
+
+      - name: A malformed CMUX_NOW_EPOCH stops each script with one line
+        run: python3 -I tests/test_cmux_now_epoch.py
 
       - name: A rebuilt cmux-tui commit reuses its earlier publication
         run: python3 tests/test_cmux_tui_republish_same_commit.py
@@ -927,6 +940,12 @@ jobs:
       - name: The cmux-browser-host release package
         if: ${{ !cancelled() }}
         run: python3 tests/test_browser_host_release_package.py
+
+      # A remote that does not answer is retried and named as the network, never read as a missing
+      # ref, and no script swallows a remote read's failure (nightly run 43113697713).
+      - name: Remote reads tell no answer from no ref
+        if: ${{ !cancelled() }}
+        run: bash scripts/cmux-next/tests/origin-net.test.sh
 
       - name: install-zig-ci.sh installs only a reviewed Zig
         if: ${{ !cancelled() }}

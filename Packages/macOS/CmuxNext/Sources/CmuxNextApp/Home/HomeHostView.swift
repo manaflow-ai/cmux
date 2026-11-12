@@ -555,9 +555,9 @@ final class HomeHostView: NSView {
     var headerHeight: CGFloat { transcript.headerHeight }
 
     /// The view that takes the keyboard when the tab's pane is focused.
-    /// Home's primary input: the message box itself. Focusing the transcript
-    /// view would leave it the responder after it forwards to the box.
-    var focusTarget: NSView { transcript.primaryInput }
+    /// Home's message box (focusing the transcript would leave it the responder
+    /// after it forwards), or the picture viewer while it is open over the chat.
+    var focusTarget: NSView { transcript.keyboardTarget }
 
     /// The person opened this conversation from Home (a click, Return, a switch key): the message
     /// box takes the keyboard, at once or once its first page installs it.
