@@ -71,6 +71,15 @@ function frames(from: number, count: number): string[] {
 const render = (text: string, streaming: boolean) =>
   act(() => root!.render(<RevealedMarkdown text={text} streaming={streaming} />));
 
+test("a completed reply replaced by its full historical text does not re-reveal", () => {
+  root = createRoot(container);
+  render("Already visible suffix.", false);
+  render("Earlier paragraph.\n\nAlready visible suffix.", false);
+
+  expect(container.querySelector(".cv-md")?.textContent).toBe("Earlier paragraph.Already visible suffix.");
+  expect(container.querySelectorAll(".cv-fresh")).toHaveLength(0);
+});
+
 test("a streaming reply grows by whole words with nothing after the last one", () => {
   root = createRoot(container);
   render("", true);
