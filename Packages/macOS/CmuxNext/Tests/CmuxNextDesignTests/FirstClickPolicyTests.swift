@@ -121,8 +121,9 @@ struct FirstClickPolicyTests {
         #expect(!press(window, key: nil))
     }
 
-    /// The key is on a sheet of another window that is not the main one (a sheet on a panel): a press in this
-    /// window, the main one, does not take the keys from that sheet.
+    /// The `keyWindow.sheetParent` clause alone: the key window reports that it is the sheet of another window, one
+    /// that is not the pressed window or the main one. The test sets `sheetParent`; it begins no real sheet, so it
+    /// does not show which windows AppKit puts in this state. A press in this window does not take the keys.
     @Test func aSheetOnAnotherWindowKeepsTheKeys() {
         let window = mainWindow()
         let owner = panel()
