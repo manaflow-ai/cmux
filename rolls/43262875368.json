@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43262875368",
+  "recorded_at": "2026-11-12T16:58:55Z",
+  "reason": "cmux-tui 3ee124bd63c2 changes the image's cmux-tui (pinned 338df222a9ce)",
+  "dry_run": false,
+  "cmux_tui": "3ee124bd63c2abc593c3409b06a38ad16b6e552a",
+  "fixes": [
+    {
+      "sha": "07a25021b29b258f1d435066b8fcd8d3ee4e3b97",
+      "mergedAt": "2026-11-12T08:13:08-08:00",
+      "subject": "acpmux: a followed transcript rewritten in place is read whole again; a current Codex chat past 64 MB reads only what was appended (#42030)"
+    },
+    {
+      "sha": "026012f0118dd12ed689afa30a60a9a0f856623d",
+      "mergedAt": "2026-11-12T08:12:16-08:00",
+      "subject": "acpmux: a peer chat's bare id reads its own row, not all 12,000 (#40935)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T16:58:55Z",
+    "snapshot_id": "sh-5526a5c5f3c14264a85adfaf14365316",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43262875368): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cfb152c8e88e094fa35998cee6aaedf2ce8be370",
+    "image": "cloud-native-auto-3ee124bd-43262875368-1",
+    "revision": "ci-43262875368-1",
+    "at": "2026-11-12T16:58:55Z"
+  },
+  "rolled_back": false
+}
