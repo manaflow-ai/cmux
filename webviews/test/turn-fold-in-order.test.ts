@@ -165,6 +165,20 @@ test("a reply that draws nothing is no reply: Find opens the fold the turn draws
   ).toBe(`${WORKED}-u-0`);
 });
 
+test("a background turn's reply is no reply: the drawn fold and Find agree, opened or closed", () => {
+  // The agent's own turn after a tool's background task, its reply inside it (backgroundTurns.ts).
+  const background = messaged.map((shown) => (shown.id === "a-before" ? { ...shown, inBackground: "bg-1" } : shown));
+  const key = turnFoldFor(
+    background,
+    background.findIndex((shown) => shown.id === "t-2"),
+  );
+  for (const expanded of [new Set<string>(), new Set([backgroundTurnRowId("bg-1")])]) {
+    const folds = view(background, "codex", expanded).filter((shown) => shown.kind === WORKED);
+    expect(folds.map((shown) => shown.id)).toContain(key!);
+    expect(folds.map((shown) => shown.id)).not.toContain(`${WORKED}-m-1`);
+  }
+});
+
 test("a wrap-up after the steer draws its card once, under the answer before the steer", () => {
   const recap = "The fold fix is in review.";
   const wrap: AcpmuxRow = row("w-1", "activity", 290, {

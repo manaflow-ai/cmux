@@ -1186,6 +1186,10 @@ const isOwnSteer = (row: AcpmuxRow) => !row.incoming && !row.received;
 /// The person's steer always does. Another agent's message does only after a reply: with none, nothing
 /// in sight draws above it, so it folds in place, the nearest fold's entry.
 const startsFold = (row: AcpmuxRow, replied: boolean) => splitsFold(row) && (isOwnSteer(row) || replied);
+/// A reply that lets another agent's message start a fold (`startsFold`), read the same way off the
+/// drawn body (foldSegments) and the raw rows (`foldStarts`): one the turn draws (a bare "." only
+/// where it answers the person, `answeringPerson`), and not a background turn's.
+const repliesInFold = (row: AcpmuxRow) => isReply(row) && row.inBackground === undefined && !isVisiblyEmptyMessage(row);
 
 /// The indexes of the rows in `rows` (from `start`, the turn's prompt, to `end`) that start a fold of
 /// their own once the turn is split in order: the same rows foldSegments splits at, read off the
@@ -1201,7 +1205,7 @@ function foldStarts(rows: readonly AcpmuxRow[], start: number, end: number): num
     if (startsFold(row, replied)) {
       starts.push(start + 1 + at);
       replied = false;
-    } else if (isReply(row) && row.inBackground === undefined && !isVisiblyEmptyMessage(row)) replied = true;
+    } else if (repliesInFold(row)) replied = true;
   }
   return starts;
 }
@@ -1218,7 +1222,7 @@ export function foldSegments(opener: AcpmuxRow, rows: readonly AcpmuxRow[], inOr
   const pieces: { anchor: AcpmuxRow; rows: AcpmuxRow[] }[] = [{ anchor: opener, rows: [] }];
   for (const row of drawn) {
     const piece = pieces.at(-1)!;
-    if (!inOrder || !startsFold(row, piece.rows.some(isReply))) piece.rows.push(row);
+    if (!inOrder || !startsFold(row, piece.rows.some(repliesInFold))) piece.rows.push(row);
     else if (isOwnSteer(row)) {
       piece.rows.push(row);
       pieces.push({ anchor: row, rows: [] });
