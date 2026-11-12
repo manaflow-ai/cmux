@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43138706656",
+  "recorded_at": "2026-11-12T02:11:57Z",
+  "reason": "cmux-tui 4d5739a9d264 changes the image's cmux-tui (pinned 3037e02b9860)",
+  "dry_run": false,
+  "cmux_tui": "4d5739a9d264d284d0798c38f3159052784c739c",
+  "fixes": [
+    {
+      "sha": "4d5739a9d264d284d0798c38f3159052784c739c",
+      "mergedAt": "2026-11-11T17:48:24-08:00",
+      "subject": "Agent chat: fork a chat that runs on another computer (#41575)"
+    },
+    {
+      "sha": "02c2c405ad2cdf12bf859e031df03244618b06b0",
+      "mergedAt": "2026-11-11T17:46:29-08:00",
+      "subject": "cli identity: a bundled cmux with only CMUX_SOCKET_PATH keeps its own build (#41631)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T02:11:57Z",
+    "snapshot_id": "sh-225fd9715c414482aa9d0492610ba671",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43138706656): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "f5f41ba8290beb6b4f27c67bb2f6b8928978be4c",
+    "image": "cloud-native-auto-4d5739a9-43138706656-1",
+    "revision": "ci-43138706656-1",
+    "at": "2026-11-12T02:11:57Z"
+  },
+  "rolled_back": false
+}
