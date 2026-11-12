@@ -1,5 +1,5 @@
 //! The checkpoint: where the log stood, and the chat actor's small state, in one file under
-//! 64 KB written atomically.
+//! 64 KB plus 32 bytes per queued prompt, written atomically.
 //!
 //! ```text
 //! magic u32 | version u32 | last_seq u64 | min_row u64 | max_row u64 | seg u32 | off u64 |
@@ -15,8 +15,42 @@
 use super::Error;
 use super::record::{le_u32, le_u64};
 
-/// A checkpoint file is under 64 KB.
-pub const MAX_CHECKPOINT: usize = 64 * 1024 - 1;
+/// The non-queue part, including the log envelope and section headers, stays under 64 KB.
+pub const MAX_CHECKPOINT_STATE: usize = 64 * 1024 - 1;
+/// A waiting prompt occupies exactly 32 bytes; the production queue holds at most 1,024.
+pub const PROMPT_BYTES: usize = 32;
+pub const MAX_PROMPTS: usize = 1024;
+/// The total cap cannot be borrowed by state outside the prompt queue.
+pub const MAX_CHECKPOINT: usize = MAX_CHECKPOINT_STATE + PROMPT_BYTES * MAX_PROMPTS;
+
+/// The log does not parse actor state, only its section envelopes to account for the queue.
+/// Legacy opaque state is still accepted inside the original non-queue budget.
+fn check_budget(state: &[u8], open_count: usize) -> Result<(), Error> {
+    let bytes = state.len().saturating_add(OVERHEAD).saturating_add(open_count.saturating_mul(8));
+    let mut rest = state;
+    let mut queue = None;
+    while !rest.is_empty() {
+        let Some((tag, body)) = sections(rest).next() else {
+            // Incomplete sections cannot claim any queue allowance.
+            queue = None;
+            break;
+        };
+        if tag == section::PROMPT_QUEUE {
+            if queue.is_some()
+                || body.len() % PROMPT_BYTES != 0
+                || body.len() > PROMPT_BYTES * MAX_PROMPTS
+            {
+                return Err(Error::InvalidInput("invalid checkpoint prompt queue"));
+            }
+            queue = Some(body.len());
+        }
+        rest = rest.get(body.len().saturating_add(5)..).unwrap_or_default();
+    }
+    if bytes.saturating_sub(queue.unwrap_or(0)) > MAX_CHECKPOINT_STATE || bytes > MAX_CHECKPOINT {
+        return Err(Error::CheckpointTooLarge { bytes });
+    }
+    Ok(())
+}
 
 const MAGIC: u32 = u32::from_le_bytes(*b"ABCK");
 const VERSION: u32 = 1;
@@ -40,6 +74,7 @@ pub(crate) struct Mark {
 }
 
 pub(crate) fn encode(mark: &Mark, state: &[u8], open_rows: &[u64]) -> Result<Vec<u8>, Error> {
+    check_budget(state, open_rows.len())?;
     let bytes =
         state.len().saturating_add(OVERHEAD).saturating_add(open_rows.len().saturating_mul(8));
     let state_len = u32::try_from(state.len()).ok().filter(|_| bytes <= MAX_CHECKPOINT);
@@ -92,7 +127,10 @@ pub(crate) fn decode(bytes: &[u8]) -> Option<(Mark, &[u8], &[u8])> {
     {
         return None;
     }
-    Some((mark, bytes.get(state_start..state_end)?, bytes.get(FIXED..state_start)?))
+    let state = bytes.get(state_start..state_end)?;
+    let open_rows = bytes.get(FIXED..state_start)?;
+    check_budget(state, open_rows.len() / 8).ok()?;
+    Some((mark, state, open_rows))
 }
 
 /// The tags of the actor's state sections.

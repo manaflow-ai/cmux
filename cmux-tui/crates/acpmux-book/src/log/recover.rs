@@ -22,7 +22,8 @@ pub(crate) struct Scan {
 
 /// Reads the records of `file` from `from`, handing each whole one to `apply` with its offset.
 /// `apply` returns false for a record that cannot follow the one before (its seq is not the
-/// next one); the scan treats it as a stale tail. A complete invalid record is damage.
+/// next one), or its source has lost the raw range. Any failed record after the mark is
+/// replayable: stop there and let open cut the entire suffix before repairing the indexes.
 pub(crate) fn scan(
     file: &File,
     from: u64,
@@ -55,8 +56,7 @@ pub(crate) fn scan(
                 // The record runs past what was read. With more of the file to come, read
                 // again from the record's start; at the file's end it is a torn write.
                 Check::Short if !at_file_end && at > 0 => break,
-                Check::Bad => return Err(Error::Corrupt("a complete record failed its check")),
-                Check::Short => {
+                Check::Bad | Check::Short => {
                     return Ok(Scan {
                         end: offset.saturating_add(at as u64),
                         torn: true,

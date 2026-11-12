@@ -78,3 +78,34 @@ fn unknown_long_raw_end_is_not_checked_as_a_known_end() -> Result {
     assert_eq!(recovered.truncated, 0);
     Ok(())
 }
+
+#[test]
+fn queue_allowance_cannot_pay_for_open_bodies() -> Result {
+    use super::{Error, MAX_CHECKPOINT, MAX_CHECKPOINT_STATE, StateWriter, section};
+    let home = tempfile::tempdir()?;
+    let (mut log, _) = Log::open(home.path(), Options::default())?;
+    let mut state = StateWriter::new();
+    // 68-byte log envelope and two five-byte section headers stay in the state budget.
+    state.push(section::OPEN_ROWS, &vec![b'x'; MAX_CHECKPOINT_STATE - 78]);
+    state.push(section::PROMPT_QUEUE, &vec![0; 1024 * 32]);
+    log.write_checkpoint(state.as_bytes(), &[])?;
+    assert_eq!(std::fs::metadata(home.path().join("checkpoint"))?.len(), MAX_CHECKPOINT as u64);
+    let whole = state.as_bytes().to_vec();
+    drop(log);
+    let (mut log, recovered) = Log::open(home.path(), Options::default())?;
+    assert_eq!(recovered.state, whole);
+    state.clear();
+    state.push(section::OPEN_ROWS, &vec![b'x'; MAX_CHECKPOINT_STATE - 77]);
+    state.push(section::PROMPT_QUEUE, &vec![0; 32]);
+    assert!(matches!(
+        log.write_checkpoint(state.as_bytes(), &[]),
+        Err(Error::CheckpointTooLarge { .. })
+    ));
+    state.clear();
+    state.push(section::PROMPT_QUEUE, &vec![0; 1025 * 32]);
+    assert!(matches!(log.write_checkpoint(state.as_bytes(), &[]), Err(Error::InvalidInput(_))));
+    state.clear();
+    state.push(section::PROMPT_QUEUE, &[0; 31]);
+    assert!(matches!(log.write_checkpoint(state.as_bytes(), &[]), Err(Error::InvalidInput(_))));
+    Ok(())
+}

@@ -6,7 +6,7 @@
 //!   rows.idx              16-byte entries by rowId: segment, offset, length, rev; mapped
 //!   seq.idx               every 256th settle seq to its segment and offset
 //!   blobs/<rowId>         bodies over 16 KB
-//!   checkpoint            under 64 KB, written atomically
+//!   checkpoint            under 64 KB plus 32 bytes per waiting prompt, written atomically
 //!   raw.map               the chat's raw files by number, append-only
 //!   lock                  held by the book's one owner
 //! ```
@@ -28,9 +28,9 @@
 //! **Durability.** A record is in the kernel when `append_settled` returns, so a kill of every
 //! process keeps it. [`Log::sync`] (for an `act` acknowledgement) and [`Log::write_checkpoint`]
 //! put it on the disk. A kill mid-write leaves an incomplete record at the end of the last
-//! segment; [`Log::open`] cuts it off (`set_len`). A complete record with a bad check is damage
-//! and requires a rebuild. Only the last segment can be torn, because a segment is synced
-//! before the next one is made.
+//! segment; [`Log::open`] cuts it off (`set_len`). After the checkpoint, an incomplete record,
+//! a bad check or a range beyond its raw source cuts that record and every later segment.
+//! Replay from raw reconstructs the suffix; none of these cuts requires a rebuild.
 //!
 //! **The indexes are derived.** With a checkpoint, `open` re-applies the records after it (the
 //! index writes before it were synced first). With none, it rebuilds both indexes from the
@@ -46,7 +46,10 @@ mod read;
 mod record;
 mod recover;
 
-pub use checkpoint::{MAX_CHECKPOINT, Sections, StateWriter, section, sections};
+pub use checkpoint::{
+    MAX_CHECKPOINT, MAX_CHECKPOINT_STATE, MAX_PROMPTS, PROMPT_BYTES, Sections, StateWriter,
+    section, sections,
+};
 pub use index::ROW_ENTRY_LEN;
 pub use read::{
     Anchor, Edge, MAX_FRAME_BYTES, MAX_PAGE_BYTES, MAX_ROWS, RowRef, Side, Since, Window,
@@ -77,15 +80,17 @@ const LOCK_WAIT: std::time::Duration = std::time::Duration::from_millis(2);
 /// The most bytes one [`Log::read_blob`] returns.
 pub const MAX_BLOB_READ: usize = 1024 * 1024;
 
-/// The raw bytes that fed a settled row. `file == 0` and `len == 0` mean the daemon made the
+/// The source places that fed a settled row. `file == 0` and `len == 0` mean the daemon made the
 /// row itself (for example a queued prompt or a notice).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RawRange {
     /// The one-based line number in `raw.map`, or 0 when there are no raw bytes.
     pub file: u32,
-    /// The byte offset in the raw file as the harness wrote it.
+    /// The exact first source place (a byte offset for files, a seq for v1).
     pub off: u64,
-    /// The number of raw bytes. Zero for a daemon-created row.
+    /// The span in source places. `u32::MAX` means the end is not recorded: the span
+    /// exceeds `u32::MAX - 1`. Recovery cannot check that end against the source.
+    /// Zero for a daemon-created row.
     pub len: u32,
 }
 
@@ -215,7 +220,7 @@ pub struct Recovered {
     pub checkpoint: bool,
     /// The records read after the checkpoint (all of them when there was none).
     pub replayed: u64,
-    /// The bytes of a torn record cut from the end of the last segment; 0 after a clean stop.
+    /// Bytes cut from the failed record and all later segments; 0 after a clean stop.
     pub truncated: u64,
     /// Segment record bytes read at open, excluding the fixed segment preambles.
     pub scanned_bytes: u64,
@@ -387,7 +392,7 @@ impl Log {
     /// Opens the book in `dir` (made if missing) and repairs its tail.
     ///
     /// Reads the checkpoint, then the records written after it: each is checked by its crc and
-    /// its index entries are set again. A torn record at the end of the last segment is cut off.
+    /// its index entries are set again. The first failed record and all later segments are cut.
     /// The cost is one checkpoint interval, the same for a book of 40 rows and one of 2 million.
     /// With no readable checkpoint the indexes are rebuilt from every segment.
     pub fn open(dir: &Path, options: Options) -> Result<(Log, Recovered), Error> {
@@ -396,7 +401,7 @@ impl Log {
 
     /// Opens with the durable sources' current ends, measured in each source's places.
     /// Checks the existing recovery scan only; the actor separately checks its checkpoint
-    /// cursor. A complete record beyond the raw end is damage, never a torn tail to cut.
+    /// cursor. A record beyond the raw end cuts the replayable suffix, just like a bad crc.
     /// `None` means this raw source no longer exists.
     pub fn open_with_raw_end(
         dir: &Path,
@@ -439,7 +444,7 @@ impl Log {
         let saved = saved.as_deref().and_then(checkpoint::decode);
         // With a checkpoint the last segment is found by stepping up from the checkpoint's (a
         // name or two), not by listing every segment: an open costs the same at any length.
-        let last = match saved {
+        let mut last = match saved {
             Some((mark, _, _)) if mark.seg >= 1 && segment_path(&rows_dir, mark.seg).exists() => {
                 let mut seg = mark.seg;
                 while let Some(next) = seg.checked_add(1) {
@@ -502,7 +507,7 @@ impl Log {
         let mut found_slots = std::collections::BTreeSet::new();
         for seg in mark.seg..=last {
             let path = segment_path(&rows_dir, seg);
-            let mut file = OpenOptions::new().read(true).write(seg == last).open(&path)?;
+            let mut file = OpenOptions::new().read(true).write(true).open(&path)?;
             let segment_len = file.metadata()?.len();
             if seg == last && segment_len < SEGMENT_HEADER_LEN {
                 if segment_len >= 4 {
@@ -525,11 +530,12 @@ impl Log {
                     return Err(Error::Corrupt("a record names a raw file absent from raw.map"));
                 }
                 if header.raw_len != 0
+                    && header.raw_len != u32::MAX
                     && header.raw_off.checked_add(u64::from(header.raw_len)).is_none_or(|end| {
                         raw_end(header.raw_file).is_none_or(|source_end| end > source_end)
                     })
                 {
-                    return Err(Error::Corrupt("a record is ahead of its raw source"));
+                    return Ok(false);
                 }
                 if last_seq.checked_add(1) != Some(header.seq) {
                     return Ok(false);
@@ -571,14 +577,23 @@ impl Log {
             })?;
             recovered.scanned_bytes = recovered.scanned_bytes.saturating_add(scan.bytes_read);
             if scan.torn {
-                if seg != last {
-                    return Err(Error::Corrupt("a torn record before the last segment"));
+                // Remove from the end, so a kill during this repair leaves contiguous
+                // segments and the same failed record to discover on the next open.
+                for later in ((seg + 1)..=last).rev() {
+                    let path = segment_path(&rows_dir, later);
+                    recovered.truncated =
+                        recovered.truncated.saturating_add(fs::metadata(&path)?.len());
+                    fs::remove_file(path)?;
+                    fsio::sync_dir(&rows_dir)?;
                 }
                 let len = file.metadata()?.len();
                 file.set_len(scan.end)?;
                 fsio::sync(&file)?;
                 stats.syncs = stats.syncs.saturating_add(1);
-                recovered.truncated = len.saturating_sub(scan.end);
+                recovered.truncated =
+                    recovered.truncated.saturating_add(len.saturating_sub(scan.end));
+                last = seg;
+                break;
             }
         }
 
@@ -1004,7 +1019,9 @@ impl Log {
     }
 
     /// Writes the checkpoint: the log's place and `state`, the actor's bytes ([`StateWriter`]),
-    /// together under 64 KB. The segment and both indexes are synced first, so the next open
+    /// together under 64 KB plus 32 bytes per queued prompt. Queue entries use the
+    /// `PROMPT_QUEUE` section; its allowance cannot be used by other state.
+    /// The segment and both indexes are synced first, so the next open
     /// reads only what is appended after this call. The file is replaced atomically: a kill at
     /// any moment leaves the old checkpoint or the new one.
     /// Checkpoint the actor state and the ids it has allocated but has not settled. The log
