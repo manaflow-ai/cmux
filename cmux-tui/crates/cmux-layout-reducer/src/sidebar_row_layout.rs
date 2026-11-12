@@ -1,6 +1,6 @@
 //! A workspace row's own layout (`sidebar_row_layout`): the person writes which lines a sidebar
 //! row draws and what each line says, as token rows, and can give one kind of workspace or one
-//! agent its own layout (CMUX-383, Leo: "Sidebar customization (look at BB and Herder)").
+//! agent its own layout (CMUX-383, Leo: "Sidebar customization (look at [reference] and [reference])").
 //!
 //! The settings, all optional and absent by default, so a row draws exactly as before:
 //!

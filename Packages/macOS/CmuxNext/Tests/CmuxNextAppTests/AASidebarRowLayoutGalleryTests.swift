@@ -6,7 +6,7 @@ import CmuxTheme
 import Foundation
 import Testing
 
-/// Sidebar customization (CMUX-383, Leo: "Sidebar customization (look at BB and Herder)"): three
+/// Sidebar customization (CMUX-383, Leo: "Sidebar customization (look at [reference] and [reference])"): three
 /// row layouts a person can write in `sidebar.workspaceRow.lines` (cmux-layout-reducer
 /// `sidebar_row_layout`), drawn with the row elements the sidebar has today so the sheet shows the
 /// same pixels the layouts resolve to. Columns: **quiet** (no layout written, today's default
