@@ -70,8 +70,19 @@ unset _git_fixture_count _git_fixture_pair
 # An action and whether one is set are kept apart: `trap '' EXIT` sets an empty (ignored) action, which `trap -p EXIT`
 # prints as `trap -- '' EXIT`, and a saved ignored trap must come back as one (review of hq#9715 F1 follow-up: one
 # empty string stood for both, so the ignored trap printed nothing and a save/restore lost it).
+# The ignored mark is bash's too: a special trap ignored and then reset keeps it, and a later `trap '' EXIT` does
+# nothing (`trap '' EXIT; trap - EXIT; trap '' EXIT; trap -p EXIT` prints nothing). Only a real action clears it, so
+# a non-empty CMD clears it here and an empty one does nothing while it is set (review of cmux#41772 F1: an action
+# set here left the mark, and the next `trap '' EXIT` kept the action, which still ran at exit).
 git_fixture_trap_exit() {
   [[ "$1" == "$_git_fixture_exit_trap" ]] && return 0
+  if [[ -n "$1" ]]; then
+    _git_fixture_exit_ignored=
+  elif [[ -n "${_git_fixture_exit_ignored-}" ]]; then
+    return 0
+  else
+    _git_fixture_exit_ignored=1
+  fi
   _git_fixture_caller_exit=$1
   _git_fixture_caller_exit_set=1
 }
@@ -100,12 +111,51 @@ _git_fixture_remove_dir() {
   done
   return 0
 }
-_git_fixture_return() { return "$1"; }
-# The exit trap: save the script's status first, turn errexit off (a test that failed under `set -e` would otherwise
-# end the trap at its first failing step, before the caller's cleanup ran: Codex F1 on cmux#41195), remove the
-# folders, run the caller's action with $? set back to the saved status by a function's return (not a subshell's
-# exit), then exit with that status (cmux#41021 review F1). An `exit` in the caller's action still wins.
-_git_fixture_exit_trap='_git_fixture_status=$?; set +e; _git_fixture_remove_dir; _git_fixture_return "$_git_fixture_status"; eval "${_git_fixture_caller_exit:-:}"; exit "$_git_fixture_status"'
+# _git_fixture_quote S prints S single-quoted, as `trap -p` quotes an action.
+_git_fixture_quote() {
+  local q="'\\''"
+  printf "'%s'" "${1//\'/$q}"
+}
+
+# The exit trap. Its first step, _git_fixture_exit_prep, gets the script's status and the caller's DEBUG trap as
+# arguments (expanded where the trap runs: inside a function bash hides DEBUG), turns errexit off (a test that failed
+# under `set -e` would otherwise end the trap at its first failing step, before the caller's cleanup ran: Codex F1 on
+# cmux#41195), removes the folders, and sets the DEBUG trap to ignored, so the caller's DEBUG trap does not run for
+# the dispatcher's own steps (review of cmux#41772 F2: it ran seven times before the caller's action and once after).
+# Then one eval runs _git_fixture_resume, which puts the caller's DEBUG trap back as it returns and returns the saved
+# status, so the caller's action sees $? as the script's status (a function's return, not a subshell's exit:
+# cmux#41021 review F1), then the caller's action, then `exit` with that status. A nonzero status is returned as
+# `_git_fixture_resume N && :`, so it does not trip the caller's ERR trap (it did: three cmux tests set one, and a
+# failed test printed a second "exited" line from the dispatcher). An `exit` in the caller's action still wins.
+# When the caller's DEBUG trap is still set, the final `exit` is left out (bash keeps the script's status through the
+# EXIT trap), and the trap runs once for the dispatcher's first step, which nothing can skip: the bound
+# test_a_debug_trap_still_set_at_exit_sees_one_dispatcher_step holds.
+_git_fixture_exit_prep() {
+  _git_fixture_status=$1
+  set +e
+  _git_fixture_remove_dir
+  _git_fixture_exit_debug=
+  if [[ -n "$2" ]]; then
+    _git_fixture_exit_debug=${2#trap -- }
+    eval "_git_fixture_exit_debug=${_git_fixture_exit_debug% DEBUG}"
+  fi
+  _git_fixture_exit_eval="_git_fixture_resume $1"
+  (( $1 == 0 )) || _git_fixture_exit_eval+=" && :"
+  _git_fixture_exit_eval+=$'\n'"${_git_fixture_caller_exit-}"
+  if [[ -n "$_git_fixture_exit_debug" ]]; then
+    builtin trap '' DEBUG
+  else
+    _git_fixture_exit_eval+=$'\n'"exit $1"
+  fi
+  return 0
+}
+_git_fixture_resume() {
+  if [[ -n "${_git_fixture_exit_debug-}" ]]; then
+    builtin trap "builtin trap - RETURN; builtin trap -- $(_git_fixture_quote "$_git_fixture_exit_debug") DEBUG" RETURN
+  fi
+  return "$1"
+}
+_git_fixture_exit_trap='_git_fixture_exit_prep "$?" "$(builtin trap -p DEBUG)"; eval "$_git_fixture_exit_eval"'
 
 # Arms EXIT in this shell and records which shell that is.
 _git_fixture_arm_exit() {
@@ -122,7 +172,7 @@ _git_fixture_shell_pid=$(_git_fixture_pid)
 if [[ "${_git_fixture_armed_pid-}" != "$_git_fixture_shell_pid" ]]; then
   _git_fixture_previous_exit=$(builtin trap -p EXIT)
   _git_fixture_exit_ignored=
-  if [[ "$_git_fixture_previous_exit" == *_git_fixture_remove_dir* ]]; then
+  if [[ "$_git_fixture_previous_exit" == *_git_fixture_remove_dir* || "$_git_fixture_previous_exit" == *_git_fixture_exit_prep* ]]; then
     _git_fixture_clear_exit
   elif [[ -z "$_git_fixture_previous_exit" ]]; then
     _git_fixture_clear_exit
@@ -200,17 +250,24 @@ _git_fixture_trap_p() {
 # argument lists; a first argument of digits naming a signal, or one signal alone (outside posix mode), resets every
 # signal named; otherwise the first argument is the action, '' ignores and - resets. An invalid signal fails the call
 # (status 1) and the valid ones still take the action.
+# The wrapper is a shell function, and a caller's DEBUG, RETURN and ERR traps see functions (review of cmux#41772 F2):
+# a DEBUG trap set in a function runs for the function's remaining steps, and a RETURN trap set in one runs as it
+# returns. So a DEBUG, RETURN or ERR action (or '') is set by a RETURN trap of the wrapper's own, as its last step,
+# which resets itself (bash then puts the caller's RETURN trap back) and sets the caller's. A failed builtin returns
+# its status through `|| return`, so under set -E the caller's ERR trap runs once, as for the builtin. Not matched,
+# by any function: `trap -p` of DEBUG, RETURN or ERR prints nothing and `trap - DEBUG` (RETURN, ERR) is undone on
+# return, unless set -T (set -E for ERR) is on; with set -T a DEBUG trap also runs for the wrapper's steps.
 # shellcheck disable=SC2064  # the caller's own trap text, passed through unchanged
 trap() {
   local _git_fixture_list=0 _git_fixture_print=0 _git_fixture_op=set _git_fixture_action= _git_fixture_signal_arg
-  local _git_fixture_exit=0 _git_fixture_status=0
-  local -a _git_fixture_other=()
+  local _git_fixture_exit=0 _git_fixture_status=0 _git_fixture_set_on_return=
+  local -a _git_fixture_other=() _git_fixture_on_return=()
   while (( $# > 0 )); do
     case "$1" in
       --) shift; break ;;
       -?*)
         case "${1#-}" in
-          *[!lp]*) builtin trap "$1"; return ;;
+          *[!lp]*) builtin trap "$1" || return; return 0 ;;
         esac
         case "$1" in *l*) _git_fixture_list=1 ;; esac
         case "$1" in *p*) _git_fixture_print=1 ;; esac
@@ -223,8 +280,8 @@ trap() {
     return
   fi
   if (( _git_fixture_print || $# == 0 )); then
-    _git_fixture_trap_p "$@"
-    return
+    _git_fixture_trap_p "$@" || return
+    return 0
   fi
   case "$1" in
     '' | *[!0-9]*) ;;
@@ -238,8 +295,8 @@ trap() {
     _git_fixture_action=$1
     shift
     if (( $# == 0 )); then
-      builtin trap -- "$_git_fixture_action"
-      return
+      builtin trap -- "$_git_fixture_action" || return
+      return 0
     fi
     if [[ -z "$_git_fixture_action" ]]; then
       _git_fixture_op=ignore
@@ -250,9 +307,14 @@ trap() {
   for _git_fixture_signal_arg in "$@"; do
     if [[ "$(_git_fixture_signal "$_git_fixture_signal_arg")" == exit ]]; then
       _git_fixture_exit=1
-    else
-      _git_fixture_other+=("$_git_fixture_signal_arg")
+      continue
     fi
+    case "$_git_fixture_op:$_git_fixture_signal_arg" in
+      set:[Dd][Ee][Bb][Uu][Gg] | set:[Rr][Ee][Tt][Uu][Rr][Nn] | set:[Ee][Rr][Rr] | ignore:[Dd][Ee][Bb][Uu][Gg] \
+        | ignore:[Rr][Ee][Tt][Uu][Rr][Nn] | ignore:[Ee][Rr][Rr])
+        _git_fixture_on_return+=("$_git_fixture_signal_arg") ;;
+      *) _git_fixture_other+=("$_git_fixture_signal_arg") ;;
+    esac
   done
   if (( ${#_git_fixture_other[@]} > 0 )); then
     case "$_git_fixture_op" in
@@ -262,18 +324,17 @@ trap() {
     esac
   fi
   if (( _git_fixture_exit )); then
-    # bash keeps a special trap's "ignored" mark through a reset, and a second `trap '' EXIT` then does nothing:
-    # `trap '' EXIT; trap - EXIT; trap '' EXIT; trap -p EXIT` prints nothing. Only a real action clears the mark.
+    # git_fixture_trap_exit keeps bash's "ignored" mark (see there).
     case "$_git_fixture_op" in
-      set) git_fixture_trap_exit "$_git_fixture_action"; _git_fixture_exit_ignored= ;;
-      ignore)
-        if [[ -z "${_git_fixture_exit_ignored-}" ]]; then
-          git_fixture_trap_exit ''
-          _git_fixture_exit_ignored=1
-        fi ;;
+      set) git_fixture_trap_exit "$_git_fixture_action" ;;
+      ignore) git_fixture_trap_exit '' ;;
       *) _git_fixture_clear_exit ;;
     esac
     _git_fixture_arm_exit
+  fi
+  if (( ${#_git_fixture_on_return[@]} > 0 )); then
+    _git_fixture_set_on_return="builtin trap -- $(_git_fixture_quote "$_git_fixture_action") ${_git_fixture_on_return[*]}"
+    builtin trap "builtin trap - RETURN; $_git_fixture_set_on_return" RETURN
   fi
   return "$_git_fixture_status"
 }
