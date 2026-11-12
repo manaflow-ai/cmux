@@ -137,6 +137,11 @@ public struct TerminalKeyboardCopyModeCursor: Equatable, Sendable {
         case .endOfLine:
             column = clampedColumns - 1
             return 0
+        case .wordForward, .wordBackward, .wordEndForward,
+             .bigWordForward, .bigWordBackward, .bigWordEndForward:
+            // Word targets depend on row text; the host resolves them with
+            // TerminalKeyboardCopyModeWordMotion.
+            return 0
         }
     }
 
