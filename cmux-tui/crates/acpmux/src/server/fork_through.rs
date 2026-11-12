@@ -24,16 +24,18 @@ pub const FORK_OPERATIONS: [&str; 2] =
 
 /// `acp.session.fork` as the `session/fork` it becomes. Any other method
 /// stays as it is, less a `throughSeq`: only `acp.session.fork` names one.
-/// A fork of a chat on another computer (a peer's) stays `acp.session.fork`:
-/// it is forwarded whole (`peer_forward.rs`), and the peer's own daemon makes
-/// it the `session/fork`, with its own checks of the chat it holds.
+/// A fork of a chat on another computer (a peer's) through a turn or before a
+/// prompt stays `acp.session.fork`: it is forwarded whole (`peer_forward.rs`),
+/// and the peer's own daemon makes it the `session/fork`, with its own checks
+/// of the chat it holds. A live one becomes that machine's `session/fork` here
+/// (`to_session_fork`).
 pub(super) async fn as_session_fork<'m>(
     hub: &Hub,
     m: &'m str,
     params: &mut Value,
 ) -> Result<&'m str, RpcError> {
     if m == method::ACP_SESSION_FORK {
-        if names_a_peers_chat(hub, params) {
+        if names_a_peers_chat(hub, params) && !plain_live(params) {
             return Ok(m);
         }
         *params = to_session_fork(hub, params).await?;
@@ -54,9 +56,48 @@ pub(super) fn starts_later(params: &Value) -> bool {
     params.pointer("/_meta/acpmux/startLater").and_then(Value::as_bool).unwrap_or(false)
 }
 
+/// The harness a `session/fork` forks onto (`_meta.acpmux.harness`, with `model`): a pick of
+/// another harness's model in a started chat, at its next send (`hub/fork.rs` `Retarget`).
+pub(super) fn retarget(params: &Value) -> Result<Option<crate::hub::Retarget>, RpcError> {
+    let text = |key: &str| -> Result<Option<String>, RpcError> {
+        match params.pointer(&format!("/_meta/acpmux/{key}")) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(s)) if !s.trim().is_empty() && s.len() <= 256 => Ok(Some(s.clone())),
+            Some(_) => Err(RpcError::invalid_params(format!(
+                "_meta.acpmux.{key} must be a nonempty string of at most 256 bytes"
+            ))),
+        }
+    };
+    let model = text("model")?;
+    // A model is a spawn parameter (`--model`, `${model}` in a launch command): one model id, never
+    // a flag or anything else, as a start's (`cmux-agent-pane-policy` `is_model_id`).
+    if let Some(m) = &model
+        && !cmux_agent_pane_policy::params::is_model_id(&Value::String(m.clone()))
+    {
+        return Err(RpcError::invalid_params(
+            "_meta.acpmux.model must be one model id: ASCII letters, digits and ._-/:@[]+, not starting with -",
+        ));
+    }
+    Ok(match text("harness")? {
+        Some(harness) => Some(crate::hub::Retarget { harness, model, remote: false }),
+        None if model.is_some() => {
+            return Err(RpcError::invalid_params("_meta.acpmux.model needs _meta.acpmux.harness"));
+        }
+        None => None,
+    })
+}
+
 /// The earlier turn a `session/fork` from `acp.session.fork` forks through.
 pub(super) fn through(params: &Value) -> Option<u64> {
     params.pointer("/_meta/acpmux/throughSeq").and_then(Value::as_u64)
+}
+
+/// A `live` fork with no turn or prompt boundary: the one `to_session_fork` sends to a peer's
+/// chat as that machine's `session/fork`.
+fn plain_live(params: &Value) -> bool {
+    params.get("live").and_then(Value::as_bool).unwrap_or(false)
+        && params.get("throughSeq").is_none()
+        && params.get("beforePromptId").is_none()
 }
 
 /// Whether the request names a chat on a peer, not one on this daemon.
@@ -89,6 +130,41 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     // `live`: the whole chat as it is now (Fork Conversation), its running turn cut off
     // there (`hub/fork.rs`).
     let live = params.get("live").and_then(Value::as_bool).unwrap_or(false);
+    // A switch (`harness`, `model`) forks the chat as it is now: with `live` only, never at a turn
+    // or before a prompt, which would drop the target and make an ordinary fork.
+    let switch =
+        ["harness", "model"].iter().any(|key| params.get(*key).is_some_and(|v| !v.is_null()));
+    if switch
+        && (!live || params.get("throughSeq").is_some() || params.get("beforePromptId").is_some())
+    {
+        return Err(RpcError::invalid_params(
+            "harness and model fork the chat as it is now: send them with live, without throughSeq or beforePromptId",
+        ));
+    }
+    // A chat on another computer (a peer's, a Cloud machine's) forks there as it is now: the
+    // `session/fork` goes to that machine (`peer_forward.rs`), onto another harness too (a pick
+    // of another harness's model, sent; Leo 2026-11-11: "across any and all conditions of
+    // workspaces/folders/models/provides/harnesses").
+    if live
+        && hub.resolve(key).is_err()
+        && hub.resolve_remote(key).is_some()
+        && params.get("throughSeq").is_none()
+        && params.get("beforePromptId").is_none()
+    {
+        let mut mux = cancel_token(params);
+        for key in ["via", "requireFullAccess"] {
+            if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
+                mux.insert(key.into(), value.clone());
+            }
+        }
+        for key in ["harness", "model"] {
+            if let Some(value) = params.get(key).filter(|v| v.is_string()) {
+                mux.insert(key.into(), value.clone());
+            }
+        }
+        mux.insert("startLater".into(), json!(true));
+        return Ok(json!({"sessionId": key, "_meta": {"acpmux": mux}}));
+    }
     let session = hub.resolve(key)?;
     if params.get("beforePromptId").is_some() {
         use crate::hub::fork_before::refused;
@@ -132,6 +208,12 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
         let mut mux = cancel_token(params);
         for key in ["via", "requireFullAccess"] {
             if let Some(value) = params.pointer(&format!("/_meta/acpmux/{key}")) {
+                mux.insert(key.into(), value.clone());
+            }
+        }
+        // A pick of another harness's model, sent (`hub/fork.rs` `Retarget`).
+        for key in ["harness", "model"] {
+            if let Some(value) = params.get(key).filter(|v| v.is_string()) {
                 mux.insert(key.into(), value.clone());
             }
         }
@@ -243,9 +325,11 @@ mod tests {
         assert!(carried_meta(&json!({"sessionId": "s"})).is_empty());
     }
 
-    /// Leo, 2026-11-11: "why are only some chats forkable". A fork of a peer's chat, live,
-    /// through a turn or before a prompt, stays `acp.session.fork` with its params as sent, so it
-    /// is forwarded whole and the peer that holds the chat forks it.
+    /// Leo, 2026-11-11: "why are only some chats forkable". A fork of a peer's chat through a turn
+    /// or before a prompt stays `acp.session.fork` with its params as sent, so it is forwarded
+    /// whole and the peer that holds the chat forks it. A `live` one (a Cloud machine's too) is
+    /// that machine's `session/fork`, onto another harness when the pick names one (Leo
+    /// 2026-11-11: "across any and all conditions of workspaces/folders/models/provides/harnesses").
     #[tokio::test]
     async fn a_peer_chats_fork_is_left_for_the_peer() {
         let hub = hub_with_a_peer_chat();
@@ -254,7 +338,6 @@ mod tests {
             "the fixture lists the peer's chat"
         );
         for sent in [
-            json!({"sessionId": "hb/peer-chat-1", "live": true}),
             json!({"sessionId": "hb/peer-chat-1", "throughSeq": 3}),
             json!({"sessionId": "hb/peer-chat-1", "beforePromptId": "p", "requestId": "r"}),
         ] {
@@ -263,8 +346,77 @@ mod tests {
             assert_eq!(m, method::ACP_SESSION_FORK, "{sent}");
             assert_eq!(params, sent);
         }
+        let mut live =
+            json!({"sessionId": "hb/peer-chat-1", "live": true, "harness": "codex", "model": "m"});
+        let m = as_session_fork(&hub, method::ACP_SESSION_FORK, &mut live).await.unwrap();
+        assert_eq!(m, method::SESSION_FORK);
+        assert_eq!(live["sessionId"], "hb/peer-chat-1");
+        assert_eq!(live["_meta"]["acpmux"]["harness"], "codex");
+        assert_eq!(live["_meta"]["acpmux"]["model"], "m");
+        assert_eq!(live["_meta"]["acpmux"]["startLater"], true);
         // A chat neither here nor on a peer is still this daemon's unknown session.
         let mut params = json!({"sessionId": "nowhere", "live": true});
         assert!(as_session_fork(&hub, method::ACP_SESSION_FORK, &mut params).await.is_err());
+    }
+
+    /// A switch onto another harness forks the chat as it is now: `harness` or `model` with a turn
+    /// or a prompt boundary, or without `live`, is refused rather than dropped (a fork that ignored
+    /// the picked harness would send the message to the old model).
+    #[tokio::test]
+    async fn a_switch_needs_live_and_no_boundary() {
+        let hub = hub_with_a_peer_chat();
+        for params in [
+            json!({"sessionId": "hb/peer-chat-1", "harness": "codex"}),
+            json!({"sessionId": "hb/peer-chat-1", "live": true, "throughSeq": 3, "harness": "codex"}),
+            json!({"sessionId": "hb/peer-chat-1", "beforePromptId": "p", "requestId": "r", "model": "m"}),
+        ] {
+            let err = to_session_fork(&hub, &params).await.unwrap_err();
+            assert!(err.message.contains("send them with live"), "{params}: {}", err.message);
+        }
+    }
+
+    /// A Web switch of a peer's chat passes this daemon's guard to that peer (forwarded `via: web`,
+    /// where the peer's own guard applies the Web's rules); an unknown chat is still refused.
+    #[tokio::test]
+    async fn a_web_switch_of_a_peer_chat_goes_to_the_peer() {
+        let hub = hub_with_a_peer_chat();
+        let mut fork = to_session_fork(
+            &hub,
+            &json!({"sessionId": "hb/peer-chat-1", "live": true, "harness": "codex"}),
+        )
+        .await
+        .unwrap();
+        let web = crate::hub::Control::Web;
+        super::super::remote_guard::web_starts_asking(
+            &hub,
+            web,
+            false,
+            method::SESSION_FORK,
+            &mut fork,
+        )
+        .await
+        .unwrap();
+        let mut unknown = json!({"sessionId": "nope", "_meta": {"acpmux": {"harness": "codex"}}});
+        let refused = super::super::remote_guard::web_starts_asking(
+            &hub,
+            web,
+            false,
+            method::SESSION_FORK,
+            &mut unknown,
+        )
+        .await;
+        assert!(refused.is_err());
+    }
+
+    /// A switch's model is one model id: a flag or shell text is refused before it reaches a
+    /// launch command's `${model}`.
+    #[test]
+    fn a_switch_model_is_one_model_id() {
+        let with = |model: &str| json!({"_meta": {"acpmux": {"harness": "codex", "model": model}}});
+        assert!(retarget(&with("claude-opus-5-5[1m]")).is_ok());
+        assert!(retarget(&with("provider/model:tag")).is_ok());
+        for bad in ["m;id", "--dangerously-skip-permissions", "a b", "$(x)", "m`x`"] {
+            assert!(retarget(&with(bad)).is_err(), "{bad}");
+        }
     }
 }
