@@ -104,6 +104,12 @@ function replyScrolls(target: EventTarget | null, deltaY: number): boolean {
   return reply.scrollTop + reply.clientHeight < reply.scrollHeight - 1;
 }
 
+/// Kept in the agent's words on the card: everything but the failures whose copy names a way on.
+const plain = (failure: string | undefined) => {
+  const kind = failureKind(failure);
+  return kind !== "rate-limited" && kind !== "no-credit";
+};
+
 export type PreviewBookmark = { marked: boolean; toggle(): void };
 
 export const PreviewCard = React.forwardRef<
@@ -435,11 +441,12 @@ export const PreviewCard = React.forwardRef<
       {(metadata?.failure || metadata?.failed) && (
         <div className="acpmux-minimap__failure" data-failure="true">
           <Icon name="status.error" size={14} className="acpmux-minimap__failure-icon" />
-          {/* A failure the pane recognizes reads as the turn's own error card does (a spent plan,
-            a sign-in, a network drop), with the agent's words on hover; any other keeps its words. */}
-          <span title={metadata.failure && failureKind(metadata.failure) !== "other" ? metadata.failure : undefined}>
+          {/* A spent plan or an out-of-credit key reads as the turn's error card does, with its way
+            on (switch model, retry when it resets), and the agent's words on hover. Any other failure
+            keeps the agent's words: the card has no Sign in button to stand behind a sign-in note. */}
+          <span title={plain(metadata.failure) ? undefined : metadata.failure}>
             {metadata.failure
-              ? failureKind(metadata.failure) === "other"
+              ? plain(metadata.failure)
                 ? metadata.failure
                 : failureCopy(t, metadata.failure)
               : t("turn.failed")}

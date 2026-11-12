@@ -209,7 +209,7 @@ export default agentPaneEntry({
       },
     },
     "card-failure-signed-out": {
-      note: "A signed-out agent reads as a sign-in note, not the agent's own /login wording.",
+      note: "A signed-out agent keeps its own words (Please run /login): the hover card has no Sign in button, so it does not swap in a sign-in note.",
       snapshot: chat(failedWith("Not logged in · Please run /login"), { title: "Minimap card failure, signed out" }),
       play: async (ctx) => {
         await ctx.hover({ selector: '[data-tick="1"]' });

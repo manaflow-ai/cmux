@@ -43,7 +43,11 @@ function installDom(): HTMLElement {
 }
 
 afterEach(async () => {
-  if (root) await settleReact(() => root!.unmount());
+  if (root) {
+    const mounted = root;
+    act(() => mounted.unmount());
+    await settleReact();
+  }
   root = undefined;
   dom?.window.close();
   dom = undefined;
