@@ -20,3 +20,28 @@ extension PageWebView {
         content as? PageWebView ?? (content as? any PageWebViewContainer)?.shownPageView
     }
 }
+
+extension PageWebView {
+    /// Lifts `content` one point above `host`'s top while the page it shows draws in Chromium, so
+    /// `host` clips Chrome's frame line away. A Chrome-style page window lays its web contents one point
+    /// under its top edge and draws its frame there: on a page whose top is its host's top edge
+    /// (Settings, the Markdown page with its bar below) it doubled the window's top line (Lucas
+    /// 2026-11-12: "the top border looks thicker than the others"), as on New Tab before #40286. Only
+    /// the active constraint from `content`'s top to `host`'s top moves; a page under a bar keeps its
+    /// place. The page asks its host for this layout when Chromium starts or stops showing it
+    /// (``chromiumSession``).
+    ///
+    /// - Parameters:
+    ///   - content: The host's page content (``shown(in:)``).
+    ///   - host: The view that holds `content` and clips it.
+    public static func clipChromiumFrame(of content: NSView, in host: NSView) {
+        let lift: CGFloat = shown(in: content)?.showsChromium == true ? chromiumFrameBand : 0
+        for top in host.constraints where top.firstItem === content && top.firstAttribute == .top
+            && top.secondItem === host && top.secondAttribute == .top && top.constant != -lift {
+            top.constant = -lift
+        }
+    }
+
+    /// The points of a Chrome-style page window above its web contents.
+    public static let chromiumFrameBand: CGFloat = 1
+}
