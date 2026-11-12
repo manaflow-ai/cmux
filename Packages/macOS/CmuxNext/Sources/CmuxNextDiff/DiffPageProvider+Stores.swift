@@ -54,7 +54,7 @@ extension DiffPageProvider {
             do {
                 try await stores.prefs.setPref(key, to: value)
             } catch {
-                throw PageError(code: "cmux.diff.prefs_unavailable", message: String(describing: error))
+                throw PageError.failed(error, code: "cmux.diff.prefs_unavailable")
             }
             return .object([:])
         default:

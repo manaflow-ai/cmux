@@ -6,7 +6,7 @@ public nonisolated enum ServerRestartOutcome: Sendable, Equatable {
     case restarted(gained: [ServerFeature])
     /// The server came back still without these capabilities (an external or pinned binary).
     case stillMissing([String])
-    /// The restart failed; the message is for the toast.
+    /// The restart failed; the reason is for the log, never the toast.
     case failed(String)
 }
 
@@ -21,8 +21,14 @@ extension ServerRestartOutcome {
         case .stillMissing:
             UpdaterStrings.format("server.result.stillMissing",
                                   "%@ restarted but still lacks the new features. It may run from another install.", serverLabel)
-        case .failed(let reason):
-            UpdaterStrings.format("server.result.failed", "Couldn't restart %1$@: %2$@", serverLabel, reason)
+        case .failed:
+            UpdaterStrings.format("server.result.failed", "Couldn't restart %@. Try again.", serverLabel)
         }
+    }
+
+    /// The result toast's one action: Try Again after a failure; none otherwise.
+    public var retryTitle: String? {
+        guard case .failed = self else { return nil }
+        return UpdaterStrings.retry
     }
 }

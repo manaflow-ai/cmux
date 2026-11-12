@@ -69,4 +69,12 @@ public nonisolated struct PageError: Error, Sendable, Equatable {
     }
     /// The link to the owner (or the page) is gone (the Settings lead's page pattern).
     public static let closed = PageError(code: "cmux.protocol.closed", message: "the link to the owner is closed", retryable: true)
+    /// The message of a failure that was not a ``PageError``. Pages show a sentence by code
+    /// (webviews pages/shared/userMessage.ts), never this.
+    public static let failedMessage = "Something went wrong. Try again."
+    /// A failure that is not a ``PageError`` (a daemon refusal, a file error): a fixed message, and
+    /// the error's own text (a Swift Debug string, for logs) in `details.reason`, never in `message`.
+    public static func failed(_ error: any Error, code: String = "cmux.page.failed", retryable: Bool = false) -> PageError {
+        PageError(code: code, message: failedMessage, retryable: retryable, details: ["reason": .string(String(describing: error))])
+    }
 }

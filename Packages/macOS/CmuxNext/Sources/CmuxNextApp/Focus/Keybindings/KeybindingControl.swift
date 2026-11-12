@@ -105,6 +105,12 @@ enum KeybindingStrings {
                table: "Keybindings", bundle: .module)
     }
 
+    static var invalidBinding: String {
+        String(localized: "keybinding.error.invalidBinding",
+               defaultValue: "This shortcut can't be saved. Check its keys and its When clause.",
+               table: "Keybindings", bundle: .module)
+    }
+
     static var familyNeedsDigit: String {
         String(localized: "keybinding.error.familyNeedsDigit",
                defaultValue: "A numbered shortcut takes a digit: press 1 with the modifiers you want.",

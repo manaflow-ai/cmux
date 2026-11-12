@@ -22,7 +22,7 @@ extension PageDescriptor {
     /// daemon's own listener (`GET /attachments/<token>`, ws-attachments-v1); images come as data URLs.
     static let homeChannels = PageDescriptor(
         id: "cmux.home-channels", resource: "home-channels", namespaces: ["cmux.host.credential.", ChiefProfilePageRoute.prefix, ChiefBackendPageRoute.prefix, HomeSwitchPageRoute.prefix],
-        nativeOps: [PageNativeOp.edit, PageNativeOp.actionRun], actions: ["newCloudMachine"], gestureActions: ["newCloudMachine"], commands: PageNativeOp.commands.union([PageSelectionMenu.quoteCommand]),
+        nativeOps: [PageNativeOp.edit, PageNativeOp.actionRun], actions: ["newCloudMachine", "palette.restartServer"], gestureActions: ["newCloudMachine"], commands: PageNativeOp.commands.union([PageSelectionMenu.quoteCommand]),
         csp: PageCSP(connect: ["ws://127.0.0.1:*"], media: ["http://127.0.0.1:*"]), acceptsFirstMouse: true) // Archive and message delete confirm in the page
 }
 
@@ -188,10 +188,12 @@ final class DaemonCredentialPageProvider: PageProvider {
             throw PageError.unavailable("the local cmux daemon is restarting")
         } catch DaemonError.command(_, let message, _, _, _) {
             // The daemon refused (a configured credential, an origin its listener does not admit):
-            // final, the page says why.
-            throw PageError(code: "cmux.daemon.page_listener", message: message, retryable: false)
+            // final. The page says so in its own words and offers Restart cmux-tui; the daemon's
+            // text is only for the log.
+            throw PageError(code: "cmux.daemon.page_listener", message: PageError.failedMessage, retryable: false,
+                            details: ["reason": .string(message)])
         } catch {
-            throw PageError.unavailable(String(describing: error))
+            throw PageError.failed(error, code: "cmux.protocol.unavailable", retryable: true)
         }
         switch outcome {
         case .ready:

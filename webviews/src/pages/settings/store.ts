@@ -7,6 +7,7 @@
 // owner and the per-row refusals. Components read both through useSettingsState (context.ts).
 import { MutationObserver, type QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
+import { userMessage } from "../shared/userMessage";
 import { AppearanceHistory, diff, type HistoryEntry, type TargetState } from "./appearanceHistory";
 import { type AppearancePreset, presetTargets } from "./appearancePresets";
 import {
@@ -72,6 +73,7 @@ import {
   type SettingsStreams,
   type WireError,
   type WorkspaceBackground,
+  SETTINGS_SENTENCES,
 } from "./ops";
 
 /** One project of Settings > Agents > Worktree Setup: its folder, name and saved recipe. */
@@ -647,7 +649,7 @@ export class SettingsStore {
   async runAccounts(run: AccountsRun): Promise<string | null> {
     const reply = await this.request("cmux.settings.accounts.run", run);
     await this.refreshAccounts();
-    if (!reply.ok) return reply.error.message;
+    if (!reply.ok) return userMessage(reply.error, SETTINGS_SENTENCES);
     return reply.value.error ?? null;
   }
 
@@ -667,21 +669,21 @@ export class SettingsStore {
   /** Settings > Updates' Go Back: the app restarts into the kept build; else the host's reason. */
   async channelsGoBack(ring: string, build: string): Promise<string | null> {
     const reply = await this.request("cmux.settings.channels.go_back", { ring, build });
-    return reply.ok ? null : reply.error.message;
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** A build row's Switch in Settings > Updates' Channels card; answers the host's refusal, else
    * null (success quits the app into that build). */
   async channelsSwitchBuild(build: string): Promise<string | null> {
     const reply = await this.request("cmux.settings.channels.switch_build", { build });
-    return reply.ok ? null : reply.error.message;
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** The Update button of a machine in Settings > Updates' row of other machines; answers the
    * host's refusal, else null (the row's push then shows it updating). */
   async channelsUpdateMachine(id: string): Promise<string | null> {
     const reply = await this.request("cmux.settings.channels.update_machine", { id });
-    return reply.ok ? null : reply.error.message;
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** Settings > Agents' state; null when the host has no Agents part. */
@@ -734,14 +736,19 @@ export class SettingsStore {
    * or the host's refusal (a build whose page relay does not reach `project.list`). */
   async worktreeProjects(): Promise<{ projects: WorktreeProject[]; error: string | null; unavailable: boolean }> {
     const reply = await this.request("cmux.settings.worktree.list", { limit: 200 });
-    if (!reply.ok) return { projects: [], error: reply.error.message, unavailable: isUnsupported(reply.error) };
+    if (!reply.ok)
+      return {
+        projects: [],
+        error: userMessage(reply.error, SETTINGS_SENTENCES),
+        unavailable: isUnsupported(reply.error),
+      };
     return { projects: readWorktreeProjects(reply.value), error: null, unavailable: false };
   }
 
   /** The recipe a new worktree of the project at `path` gets, and what each source says. */
   async worktreeRecipe(path: string): Promise<{ recipe: ResolvedWorktreeRecipe | null; error: string | null }> {
     const reply = await this.request("cmux.settings.worktree.read", { path });
-    if (!reply.ok) return { recipe: null, error: reply.error.message };
+    if (!reply.ok) return { recipe: null, error: userMessage(reply.error, SETTINGS_SENTENCES) };
     return { recipe: readSetupReply(reply.value)?.recipe ?? null, error: null };
   }
 
@@ -752,7 +759,7 @@ export class SettingsStore {
       worktree,
       idempotency_key: newIdempotencyKey(),
     });
-    return reply.ok ? null : reply.error.message;
+    return reply.ok ? null : userMessage(reply.error, SETTINGS_SENTENCES);
   }
 
   /** One Cloud Environments gesture, then the fresh state; the host's failure text, else null. */
@@ -761,7 +768,7 @@ export class SettingsStore {
   ): Promise<{ state: CloudEnvironmentsState | null; error: string | null }> {
     const reply = await this.request("cmux.settings.environments.run", run);
     const state = await this.environments();
-    if (!reply.ok) return { state, error: reply.error.message };
+    if (!reply.ok) return { state, error: userMessage(reply.error, SETTINGS_SENTENCES) };
     return { state, error: reply.value?.error ?? null };
   }
 
@@ -786,7 +793,7 @@ export class SettingsStore {
     let error: string | null = null;
     for (const id of ids) {
       const reply = await this.request("cmux.settings.shares.revoke", { share_id: id });
-      if (!reply.ok) error ??= reply.error.message;
+      if (!reply.ok) error ??= userMessage(reply.error, SETTINGS_SENTENCES);
     }
     return error;
   }
@@ -796,7 +803,7 @@ export class SettingsStore {
   async runDevices(run: DevicesRun): Promise<DevicesRunResult> {
     const reply = await this.request("cmux.settings.devices.run", run);
     await this.refreshDevices();
-    if (!reply.ok) return { error: reply.error.message, ok: false };
+    if (!reply.ok) return { error: userMessage(reply.error, SETTINGS_SENTENCES), ok: false };
     return reply.value ?? {};
   }
 

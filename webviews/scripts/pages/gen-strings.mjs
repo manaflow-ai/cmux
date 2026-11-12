@@ -106,6 +106,12 @@ export const PAGES = {
       },
     ],
   },
+  // The sentences every page shows for a failure it has no sentence of its own for
+  // (pages/shared/userMessage.ts): never the error's own text.
+  pageErrors: {
+    out: "webviews/src/pages/shared/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/shared/Localizable.xcstrings" }],
+  },
   variantPick: {
     out: "webviews/src/ui/variant-pick/generated/strings.json",
     catalogs: [{ file: "webviews/src/ui/variant-pick/Localizable.xcstrings" }],
