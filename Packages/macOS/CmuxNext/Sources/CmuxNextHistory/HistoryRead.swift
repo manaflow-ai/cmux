@@ -26,8 +26,9 @@ public nonisolated struct HistoryRead: Sendable {
     }
 
     /// Unanswered (with or without the rows other owners gave): Try Again. Not complete yet (``pending``, with
-    /// or without rows, a search too): still loading, and the reader reads again by itself. An unfiltered
+    /// or without rows, also for a read with a text): still loading, and the reader reads again by itself. An unfiltered
     /// Recently Closed with no rows: nothing was closed. Else nil (the rows, or the list's own "No Results" for a search).
+    /// The palette filters its rows by the typed text itself, so there this row shows only before the person types.
     public func status(_ query: HistoryQuery) -> Status? {
         if unavailable {
             return Status(id: "history.status.unavailable", title: HistoryStrings.readFailed, detail: HistoryStrings.readFailedHint,

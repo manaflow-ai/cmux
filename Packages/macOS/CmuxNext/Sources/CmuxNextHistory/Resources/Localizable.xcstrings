@@ -1478,7 +1478,7 @@
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Verlauf wird noch geladen …"
+            "value": "Verlauf wird noch geladen…"
           }
         },
         "en": {
@@ -1526,7 +1526,7 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Loggen lastes fortsatt inn …"
+            "value": "Historikken lastes fortsatt inn…"
           }
         },
         "pl": {
@@ -1592,7 +1592,7 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "هذه القائمة غير مكتملة بعد. تتحدّث تلقائيًا."
+            "value": "هذه القائمة غير مكتملة بعد. سيتم تحديثها تلقائيًا."
           }
         },
         "bs": {
@@ -1712,7 +1712,7 @@
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此列表尚未完整，會自動更新。"
+            "value": "此清單尚未完整，會自動更新。"
           }
         }
       }

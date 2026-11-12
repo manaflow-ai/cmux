@@ -197,11 +197,12 @@ export function HistoryPage({
       ) : null}
       {down && !downLasting ? null : down ? (
         <output className="history-empty">{t("page.disconnected")}</output>
+      ) : snap.groups.length === 0 && snap.pending ? (
+        // A list that is not complete is never "No history": the page says so (a status region, as the
+        // line above the rows is) and asks again by itself.
+        <output className="history-empty">{t("page.stillLoading")}</output>
       ) : snap.groups.length === 0 ? (
-        // A list that is not complete is never "No history": the page says so and asks again by itself.
-        <div className="history-empty">
-          {snap.pending ? t("page.stillLoading") : snap.loading ? "" : t(snap.text ? "page.emptySearch" : "page.empty")}
-        </div>
+        <div className="history-empty">{snap.loading ? "" : t(snap.text ? "page.emptySearch" : "page.empty")}</div>
       ) : (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         <div id="history-list" className="history-list" role="listbox" tabIndex={0} onKeyDown={listKeys}>

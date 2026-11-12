@@ -103,13 +103,14 @@ public final class AsyncPaletteProvider: PaletteProvider {
         AsyncPaletteProvider(id: id, showsItemsForEmptyQuery: showsItemsForEmptyQuery, once: { await read()?.items ?? [] }, updates: {
             let (stream, continuation) = AsyncStream.makeStream(of: [PaletteItem].self, bufferingPolicy: .bufferingNewest(1))
             // task-owner: one open's reads of a list that is not complete; ends at a complete read or with the stream's consumer
-            // main-hop-allow: not an action's work: it awaits a read and then a clock wait, which no frame queue can; on the main actor it only passes one read's rows on, one time per wait
+            // main-hop-allow: not an action's work: it awaits a read and then a clock wait, which no frame queue can; its main-actor work is `read`'s own (History: the rows of one read, at most 500) and one yield, one time per wait
             let task = Task { @MainActor in
                 var reads = 0
-                // wakeup-allow: each pass awaits one read and then `wait` (History: a Backoff sleep of 1 s to 8 s, because the daemon sends no event when a list becomes complete); a complete read, a source that is gone or the consumer's cancel ends it, so it runs only while the person has the list open
+                // wakeup-allow: each pass awaits one read and then `wait` (History: a Backoff sleep of 1 s to 8 s, because the daemon sends no event when a list becomes complete); a complete read, a source that is gone or the end of the consumer ends it, and the palette ends the consumer when the page goes and when the palette hides (PaletteModel.didHide), so it runs only while the palette shows
                 while !Task.isCancelled, let list = await read() {
                     reads += 1
-                    continuation.yield(list.items)
+                    // A consumer that is gone ends the reads, also one that went with no cancel of this task.
+                    if case .terminated = continuation.yield(list.items) { break }
                     guard list.moreToCome else { break }
                     do { try await wait(reads) } catch { break }
                 }

@@ -25,6 +25,9 @@ final class PageState {
     var answeringSearch: Int?
     var answersQuery: Bool { answeringSearch != nil }
     var tasks: [Task<Void, Never>] = []
+    /// How many of the provider reads in `tasks` have not ended. A list that reads again by itself
+    /// (`AsyncPaletteProvider.rereading`) can run for minutes: a hidden palette ends it (`PaletteModel.didHide`).
+    var liveReads = 0
     /// The query the page's contributed answers last asked for (`PaletteContributedAnswers`).
     var answeredQuery: String?
     /// Each contributed answer's last rows, by section id, and the query they answer: `answeredQuery`'s, or an
@@ -168,10 +171,15 @@ final class PageState {
     }
 
     func cancel() {
-        for task in tasks { task.cancel() }
-        tasks = []
+        cancelReads()
         cancelAnswers()
         sourceTokens = []
+    }
+
+    /// Ends the provider reads that still run; the rows they gave stay.
+    func cancelReads() {
+        for task in tasks { task.cancel() }
+        tasks = []
     }
 
     /// Ends the contributed answers' streams and drops their rows (the page is left).
