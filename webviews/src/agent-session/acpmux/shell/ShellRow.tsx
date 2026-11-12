@@ -8,7 +8,7 @@ import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { OUTPUT_SCROLL_BOX } from "../conversation/blockPartsModel";
 import { Check, Spinner } from "../conversation/icons";
-import { moreBelow, useMoreBelow } from "../conversation/moreBelow";
+import { moreBelow, useMoreBelowOn } from "../conversation/moreBelow";
 import { ShellActionsContext } from "./shellRowModel";
 import "../conversation/outputScrollBox.css";
 
@@ -18,7 +18,8 @@ export function ShellRow({ row }: { row: AcpmuxRow; expanded?: boolean; onToggle
   const actions = useContext(ShellActionsContext);
   const run = row.shell;
   const output = run?.output.replace(/\n$/, "") ?? "";
-  const box = useMoreBelow<HTMLPreElement>(output);
+  const box = useRef<HTMLPreElement>(null);
+  useMoreBelowOn(box, output);
   // While it runs, the box keeps its newest line in view unless the reader scrolled up from the end;
   // scrolling back to the end follows again.
   const away = useRef(false);

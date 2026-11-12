@@ -21,7 +21,7 @@ import { Copy } from "./icons";
 import { useT } from "../i18n";
 import { fileBlockKind, useBlockWrap } from "./blockWrap";
 import { WrapButton } from "./BlockParts";
-import { OUTPUT_SCROLL_BOX, useSidewaysRef } from "./blockPartsModel";
+import { OUTPUT_SCROLL_BOX, useSidewaysEdge } from "./blockPartsModel";
 import { FindReveal, foldFind } from "./chatFind";
 import { watchOutputViewport } from "./outputViewport";
 import "./outputScrollBox.css";
@@ -82,7 +82,8 @@ export function EditDiffFrame({
   const kind = fileBlockKind(file.path);
   const [wrap] = useBlockWrap(kind);
   useFindInFile(file);
-  const body = useSidewaysRef<HTMLDivElement>();
+  const body = useRef<HTMLDivElement>(null);
+  useSidewaysEdge(body);
   const edges = useCallback(
     (node: HTMLDivElement | null) => {
       body.current = node;
