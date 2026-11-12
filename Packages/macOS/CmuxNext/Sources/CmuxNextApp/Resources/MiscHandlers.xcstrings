@@ -11936,6 +11936,399 @@
         }
       }
     },
+    "handlers.misc.failed.terminalChatBusy": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat is still working. Switch when its turn ends."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットはまだ作業中です。ターンが終わってから切り替えてください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال هذه المحادثة تعمل. بدّل عندما ينتهي دورها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj razgovor još radi. Prebacite kada se njegov potez završi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chat arbejder stadig. Skift, når dens tur er slut."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat arbeitet noch. Wechsle, wenn sein Zug endet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat sigue trabajando. Cambia cuando termine su turno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce chat travaille encore. Basculez quand son tour se termine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa chat sta ancora lavorando. Passa quando il suo turno finisce."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនេះនៅតែកំពុងធ្វើការ។ ប្ដូរនៅពេលវេនរបស់វាបញ្ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅은 아직 작업 중입니다. 차례가 끝나면 전환하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chatten jobber fortsatt. Bytt når turen dens er over."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat wciąż pracuje. Przełącz, gdy skończy się jego tura."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat ainda está trabalhando. Alterne quando o turno dele terminar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат ещё работает. Переключитесь, когда его ход закончится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนี้ยังทำงานอยู่ สลับเมื่อรอบของมันจบลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet hâlâ çalışıyor. Sırası bitince geçiş yapın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат ще працює. Перемкніться, коли його хід завершиться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện này vẫn đang làm việc. Hãy chuyển khi lượt của nó kết thúc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天仍在工作。请在其回合结束后再切换。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天仍在工作。請在其回合結束後再切換。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.terminalChatStopFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat could not stop, so no terminal resumes its session."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを停止できなかったため、ターミナルでセッションを再開しません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر إيقاف المحادثة، لذا لن تستأنف أي طرفية جلستها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovor se nije mogao zaustaviti, pa nijedan terminal ne nastavlja njegovu sesiju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten kunne ikke stoppe, så ingen terminal genoptager dens session."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chat konnte nicht anhalten, daher setzt kein Terminal seine Sitzung fort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat no pudo detenerse, así que ninguna terminal reanuda su sesión."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat n'a pas pu s'arrêter, aucun terminal ne reprend donc sa session."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La chat non si è potuta fermare, quindi nessun terminale ne riprende la sessione."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកមិនអាចឈប់បានទេ ដូច្នេះគ្មានទែមីណាល់ណាបន្តវគ្គរបស់វាទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅을 멈출 수 없어 터미널에서 세션을 이어 가지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten kunne ikke stoppe, så ingen terminal gjenopptar økten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się zatrzymać czatu, więc żaden terminal nie wznawia jego sesji."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não foi possível parar o chat, então nenhum terminal retoma a sessão dele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не удалось остановить чат, поэтому ни один терминал не продолжит его сеанс."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่สามารถหยุดแชทได้ จึงไม่มีเทอร์มินัลใดทำเซสชันต่อ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet durdurulamadı, bu yüzden hiçbir terminal oturumunu sürdürmüyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не вдалося зупинити чат, тож жоден термінал не продовжить його сеанс."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không thể dừng cuộc trò chuyện nên không terminal nào tiếp tục phiên của nó."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法停止此聊天，因此没有终端恢复其会话。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法停止此聊天，因此沒有終端機恢復其工作階段。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.terminalChatNoPane": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The chat stopped, but its workspace has no pane for the terminal."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットは停止しましたが、そのワークスペースにはターミナル用のペインがありません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "توقفت المحادثة، لكن مساحة عملها لا تحتوي على جزء للطرفية."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovor je zaustavljen, ali njegov radni prostor nema okno za terminal."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten stoppede, men dens arbejdsområde har ingen rude til terminalen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Chat hat angehalten, aber sein Workspace hat keinen Bereich für das Terminal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El chat se detuvo, pero su espacio de trabajo no tiene panel para la terminal."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat s'est arrêté, mais son espace de travail n'a aucun panneau pour le terminal."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La chat si è fermata, ma il suo spazio di lavoro non ha un riquadro per il terminale."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកបានឈប់ ប៉ុន្តែកន្លែងធ្វើការរបស់វាគ្មានផ្ទាំងសម្រាប់ទែមីណាល់ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅은 멈췄지만 해당 워크스페이스에 터미널을 열 패인이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chatten stoppet, men arbeidsområdet har ingen rute til terminalen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat się zatrzymał, ale jego obszar roboczy nie ma panelu na terminal."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O chat parou, mas o espaço de trabalho dele não tem painel para o terminal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат остановлен, но в его рабочем пространстве нет панели для терминала."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทหยุดแล้ว แต่เวิร์กสเปซของมันไม่มีบานหน้าต่างสำหรับเทอร์มินัล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet durdu, ancak çalışma alanında terminal için bölme yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат зупинено, але в його робочому просторі немає панелі для термінала."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện đã dừng nhưng không gian làm việc của nó không có ô cho terminal."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天已停止，但其工作区没有可放终端的窗格。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "聊天已停止，但其工作區沒有可放終端機的窗格。"
+          }
+        }
+      }
+    },
     "handlers.screenshot.outNeedsValue": {
       "extractionState": "manual",
       "localizations": {

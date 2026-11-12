@@ -213,16 +213,39 @@ extension WindowRules {
     }
 
     /// Toggle Terminal and Chat's facts: the focused tab, and the agent session it runs (a terminal)
-    /// or resumes (a chat).
+    /// or resumes (a chat); for a chat, whether a live terminal runs it, its turn runs, and the
+    /// hand-off to a terminal an earlier Toggle started.
     public nonisolated struct ToggleFacts: Encodable, Equatable, Sendable {
         public var terminal, chat: Bool
         public var agent, session: String?
+        public var running, busy: Bool
+        public var handOff: HandOff?
+        public var handOffOpen: Bool
+        public var now: Double
 
-        public init(terminal: Bool = false, chat: Bool = false, agent: String?, session: String?) {
+        public init(terminal: Bool = false, chat: Bool = false, agent: String?, session: String?, running: Bool = false,
+                    busy: Bool = false, handOff: HandOff? = nil, handOffOpen: Bool = false, now: Double = 0) {
             self.terminal = terminal
             self.chat = chat
             self.agent = agent
             self.session = session
+            self.running = running
+            self.busy = busy
+            self.handOff = handOff
+            self.handOffOpen = handOffOpen
+            self.now = now
+        }
+    }
+
+    /// A chat's session handed to a new terminal, until that terminal's hooks report it: `tab` nil
+    /// while the chat's run stops. Over at `deadline` (seconds since 1970), reported or not.
+    public nonisolated struct HandOff: Codable, Equatable, Sendable {
+        public var deadline: Double
+        public var tab: String?
+
+        public init(deadline: Double, tab: String? = nil) {
+            self.deadline = deadline
+            self.tab = tab
         }
     }
 
@@ -233,10 +256,16 @@ extension WindowRules {
         case unsupportedHarness
         /// The terminal's session shows as the chat resuming it over ACP.
         case toChat(harness: String, session: String)
-        /// The chat shows the terminal running the session it resumes.
+        /// The chat shows the live terminal running the session it resumes.
         case toTerminal(harness: String, session: String)
+        /// No terminal runs the chat's session: its acpmux run stops and a new terminal resumes it.
+        case resumeInTerminal(harness: String, session: String)
+        /// An earlier Toggle is handing the session to a terminal: `tab` shows, if made yet.
+        case handingOff(tab: String?)
+        /// The chat is mid-turn: stopping it would cut the turn off.
+        case busy
 
-        private enum CodingKeys: String, CodingKey { case route, harness, session }
+        private enum CodingKeys: String, CodingKey { case route, harness, session, tab }
 
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -248,6 +277,10 @@ extension WindowRules {
                                           session: try container.decode(String.self, forKey: .session))
             case "toTerminal": self = .toTerminal(harness: try container.decode(String.self, forKey: .harness),
                                                   session: try container.decode(String.self, forKey: .session))
+            case "resumeInTerminal": self = .resumeInTerminal(harness: try container.decode(String.self, forKey: .harness),
+                                                              session: try container.decode(String.self, forKey: .session))
+            case "handingOff": self = .handingOff(tab: try container.decodeIfPresent(String.self, forKey: .tab))
+            case "busy": self = .busy
             case let other: throw DecodingError.dataCorruptedError(forKey: .route, in: container, debugDescription: "route \(other)")
             }
         }

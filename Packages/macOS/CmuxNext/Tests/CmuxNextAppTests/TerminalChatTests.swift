@@ -52,7 +52,13 @@ struct TerminalChatTests {
     @Test func toggleSwapsASessionBetweenItsTerminalAndItsChat() {
         let rules = WindowRules()
         #expect(rules.terminalChatToggle(.init(terminal: true, agent: "claude-code", session: "s-1")) == .toChat(harness: "claude", session: "s-1"))
-        #expect(rules.terminalChatToggle(.init(chat: true, agent: "codex", session: "s-2")) == .toTerminal(harness: "codex", session: "s-2"))
+        #expect(rules.terminalChatToggle(.init(chat: true, agent: "codex", session: "s-2", running: true)) == .toTerminal(harness: "codex", session: "s-2"))
+        #expect(rules.terminalChatToggle(.init(chat: true, agent: "codex", session: "s-2")) == .resumeInTerminal(harness: "codex", session: "s-2"))
+        #expect(rules.terminalChatToggle(.init(chat: true, agent: "codex", session: "s-2", busy: true)) == .busy)
+        // A second Toggle before the new terminal's hooks report the session resumes nothing.
+        let handOff = WindowRules.HandOff(deadline: 160, tab: "t-2")
+        #expect(rules.terminalChatToggle(.init(chat: true, agent: "codex", session: "s-2", handOff: handOff, handOffOpen: true, now: 100)) == .handingOff(tab: "t-2"))
+        #expect(rules.terminalChatToggle(.init(chat: true, agent: "codex", session: "s-2", handOff: handOff, handOffOpen: true, now: 160)) == .resumeInTerminal(harness: "codex", session: "s-2"))
         #expect(rules.terminalChatToggle(.init(terminal: true, agent: "claude", session: nil)) == .noSession)
         #expect(rules.terminalChatToggle(.init(terminal: true, agent: "opencode", session: "x")) == .unsupportedHarness)
         #expect(rules.terminalChatToggle(.init(chat: true, agent: nil, session: nil)) == .noSession)
