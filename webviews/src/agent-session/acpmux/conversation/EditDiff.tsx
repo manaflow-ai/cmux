@@ -10,9 +10,10 @@ import { copyTextResult } from "./clipboard";
 import { Copy } from "./icons";
 import { useT } from "../i18n";
 import { fileBlockKind, useBlockWrap } from "./blockWrap";
-import { PreviewMore, WrapButton } from "./BlockParts";
+import { WrapButton } from "./BlockParts";
 import { usePreview, useSidewaysRef } from "./blockPartsModel";
 import { FindReveal, foldFind } from "./chatFind";
+import { useMoreBelowOn } from "./moreBelow";
 import { EditDiffLoading } from "./EditDiffLoading";
 import { useDiffPainted } from "./editDiffLoadingModel";
 import { loadEditDiffHunks } from "./editDiffModel";
@@ -82,6 +83,7 @@ export function EditDiffFrame({
   const body = useSidewaysRef<HTMLDivElement>();
   const hunks = useRef<HTMLDivElement>(null);
   const painted = useDiffPainted(hunks);
+  useMoreBelowOn(body, painted);
   return (
     <div className="cv-edit-diff" data-wrap={wrap}>
       <div className="cv-edit-diff__header">
@@ -118,7 +120,6 @@ export function EditDiffFrame({
           {painted ? null : <EditDiffLoading file={file} wrap={wrap} />}
         </div>
       </div>
-      <PreviewMore preview={preview} />
     </div>
   );
 }

@@ -2769,7 +2769,7 @@
     "agent-pane.transcript#edit-long-line-code": [],
     "agent-pane.transcript#edit-long-line-code-cut": [],
     "agent-pane.transcript#edit-long-line-prose": [],
-    "agent-pane.transcript#edit-preview-open": [],
+    "agent-pane.transcript#edit-preview-scrolled": [],
     "agent-pane.transcript#edited-files": [],
     "agent-pane.transcript#failed-send-too-large": [],
     "agent-pane.transcript#failed-sends-grouped": [],

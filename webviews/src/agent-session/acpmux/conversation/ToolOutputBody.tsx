@@ -5,7 +5,7 @@ import { useT } from "../i18n";
 import { experimentArm } from "../../../experiments/experiment";
 import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { outputWraps, useBlockWrap } from "./blockWrap";
-import { Lines, PreviewMore, WrapButton } from "./BlockParts";
+import { Lines, WrapButton } from "./BlockParts";
 import { lineCount, SIDEWAYS_SCROLLER, usePreview, useSidewaysRef } from "./blockPartsModel";
 import { CopyButton } from "./CopyButton";
 import { ChevronRight } from "./icons";
@@ -134,9 +134,9 @@ export const ToolOutput = memo(function ToolOutput({
             shaped={shaped}
           />
         )}
-        {/* Show all / Show less is the box's whole bottom row, on its own fill (ExpandRow.tsx). */}
-        <PreviewMore preview={preview} />
-        {!preview.long && <OutputMore output={shown} />}
+        {/* Show all output / Show less, for an output long enough that only its end is drawn, is the
+            box's whole bottom row, on its own fill (ExpandRow.tsx). */}
+        <OutputMore output={shown} />
       </div>
       {markdown && (
         <div className="cv-tool-output__controls" data-find-skip="">

@@ -3612,7 +3612,7 @@ export default agentPaneEntry({
       },
     },
     "shell-long-colored-output": {
-      note: "A long, coloured test run: no colour codes, its end scrolling in an eight-line box with Show all 1200 lines (every line, though only the last 400 draw until opened), and Wrap lines and Copy in the label.",
+      note: "A long, coloured test run: no colour codes, its last 400 lines scrolling in an eight-line box, with Show all output under it to draw the rest, and Wrap lines and Copy in the label.",
       checks: shellDisclosureChecks,
       snapshot: chat(
         shellRows("gallery-shell-long", "Run the whole suite", "bun test", {
@@ -3625,7 +3625,7 @@ export default agentPaneEntry({
       ),
       play: async (ctx) => {
         await openSingleShell(ctx);
-        await ctx.waitFor(() => ctx.document.querySelector(".cv-output-more")?.textContent === "Show all 1200 lines");
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-output-more")?.textContent === "Show all output");
       },
     },
     "edit-long-line-code": {
@@ -3635,29 +3635,25 @@ export default agentPaneEntry({
       play: openEditedDiff,
     },
     "edit-long-line-prose": {
-      note: "An Edited card's diff for a Markdown file: long lines wrap, each hanging under its start; its first eight lines show under a fade with Show all 21 lines.",
+      note: "An Edited card's diff for a Markdown file: long lines wrap, each hanging under its start; it scrolls in an eight-line box whose bottom edge fades, with no Show all row under it.",
       checks: shellDisclosureChecks,
       snapshot: chat(editedRows("gallery-edit-prose", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
       play: openEditedDiff,
     },
-    "edit-preview-open": {
-      note: "Show all 21 lines opens the whole diff and turns into Show less.",
+    "edit-preview-scrolled": {
+      note: "The long diff scrolled to its end in its box: its last line shows whole, the bottom edge hard.",
       checks: shellDisclosureChecks,
-      snapshot: chat(editedRows("gallery-edit-open", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
+      snapshot: chat(editedRows("gallery-edit-scrolled", "docs/codex-excursions.md", EDIT_LONG_PROSE)),
       play: async (ctx) => {
         await openEditedDiff(ctx);
-        // Show all opens the rendered diff: its lines, not the placeholder drawn while their
-        // renderer loads (EditDiffLoading.tsx; the inline-diff-loading entry covers that).
+        // The rendered diff's lines, not the placeholder drawn while their renderer loads
+        // (EditDiffLoading.tsx; the inline-diff-loading entry covers that).
         await ctx.waitFor(() =>
           ctx.document.querySelector(".cv-edit-diff diffs-container")?.shadowRoot?.querySelector("[data-line]"),
         );
-        // The reader clicks the row's words, at its start: the row is the block's whole width
-        // (ExpandRow.tsx), and with the card at the view's foot its centre sits under Jump to latest.
-        ctx.find({ role: "button", name: "Show all 21 lines" });
-        await ctx.click({ selector: ".cv-edit-diff .cv-output-more .cv-expand-row__label" });
-        await ctx.waitFor(
-          () => ctx.document.querySelector(".cv-edit-diff .cv-output-more")?.textContent === "Show less",
-        );
+        const body = ctx.document.querySelector<HTMLElement>(".cv-edit-diff__body")!;
+        body.scrollTop = body.scrollHeight;
+        await ctx.waitFor(() => !body.hasAttribute("data-more-below"));
       },
     },
     "shell-unwrapped-long-line": {

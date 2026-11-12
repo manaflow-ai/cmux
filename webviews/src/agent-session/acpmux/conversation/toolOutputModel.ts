@@ -50,15 +50,15 @@ export function useOutput(output: string | undefined, reveal = 0) {
   };
 }
 
-/// What a block with a preview (BlockParts.tsx) draws of `output`: while it has more lines than
-/// the preview shows, the preview alone decides, all of them once opened and the end of a long one
-/// while cut, so an output opened while short stays whole as it streams past the end it would draw.
+/// What a block with a preview (BlockParts.tsx) draws of `output`: all of it once Find in Chat
+/// opened the block or the reader asked for all of it (Show all output), else the end of a long one,
+/// which its box scrolls through.
 export function previewedOutput(
   output: ReturnType<typeof useOutput>,
   preview: { long: boolean; all: boolean },
 ): ReturnType<typeof useOutput> {
   if (!preview.long) return output;
-  const all = preview.all;
+  const all = output.all || preview.all;
   return {
     ...output,
     all,

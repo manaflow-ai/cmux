@@ -12,7 +12,7 @@ import { cornerAction } from "./cornerActions";
 import { memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from "react";
 import { useT } from "../i18n";
 import { outputWraps, useBlockWrap } from "./blockWrap";
-import { Lines, PreviewMore, WrapButton } from "./BlockParts";
+import { Lines, WrapButton } from "./BlockParts";
 import { lineCount, PREVIEW_LINES, SIDEWAYS_SCROLLER, usePreview, useSidewaysEdge } from "./blockPartsModel";
 import { commandFolder } from "./commandFolder";
 import { CopyButton } from "./CopyButton";
@@ -55,7 +55,7 @@ export function ShellBlock({
   const [wrap] = useBlockWrap("output", shaped);
   const body = useRef<HTMLPreElement>(null);
   // Wrapped, a few printed lines can still take more than eight rows (one 10,000-character line):
-  // they are cut to eight rows too, with Show all, as a call's output is (outputViewport.ts).
+  // they scroll in an eight-row box too, as a call's output does (outputViewport.ts).
   const lines = whole ? 0 : lineCount(raw.text);
   const tall = useWrappedRows(body, wrap && lines > 0 && lines <= PREVIEW_LINES);
   // The output's lines, though a long output draws only its end until opened (none to cut when whole).
@@ -124,8 +124,7 @@ export function ShellBlock({
           </span>
         ) : null}
       </pre>
-      <PreviewMore preview={preview} />
-      {!preview.long && <OutputMore output={shown} />}
+      <OutputMore output={shown} />
       {footer}
     </div>
   );
