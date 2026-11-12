@@ -66,7 +66,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from select_package_tests import input_prefixes, package_dirs, under  # noqa: E402
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 ROOT = Path(__file__).resolve().parents[2]
