@@ -157,8 +157,9 @@ fn names_a_path(ty: &syn::Type) -> bool {
 }
 
 /// The names one module or block brings in: `use` imports (name to full path), glob imports
-/// (their paths), and the functions and modules it defines (which shadow a glob). A module is
-/// `opaque`: it inherits nothing from the module around it; a block sees its enclosing scopes.
+/// (their paths), and the functions and modules it defines outside tests (which shadow a glob).
+/// A module is `opaque`: it inherits nothing from the module around it; a block sees its
+/// enclosing scopes.
 #[derive(Clone, Default)]
 struct Scope {
     opaque: bool,
@@ -175,10 +176,12 @@ impl Scope {
                 syn::Item::Use(u) if !is_test_attr(&u.attrs) => {
                     scope.import(&mut Vec::new(), &u.tree);
                 }
-                syn::Item::Fn(f) => {
+                // A test-only fn or module is not built outside tests: it shadows nothing
+                // there, so an import beside it still names the call (#42026 review).
+                syn::Item::Fn(f) if !is_test_attr(&f.attrs) => {
                     scope.defined.insert(f.sig.ident.to_string());
                 }
-                syn::Item::Mod(m) => {
+                syn::Item::Mod(m) if !is_test_attr(&m.attrs) => {
                     scope.defined.insert(m.ident.to_string());
                 }
                 _ => {}
