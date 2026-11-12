@@ -299,7 +299,9 @@ pub struct TeamRow {
 /// it's ur personal account?"), so the lists show it as Personal.
 fn is_email_default_team(name: &str) -> bool {
     let lower = name.to_lowercase();
-    let Some(owner) = lower.strip_suffix("'s team").or_else(|| lower.strip_suffix("\u{2019}s team")) else {
+    let Some(owner) =
+        lower.strip_suffix("'s team").or_else(|| lower.strip_suffix("\u{2019}s team"))
+    else {
         return false;
     };
     let mut parts = owner.split('@');
@@ -318,7 +320,11 @@ pub fn team_rows(teams: &[TeamFacts], active: Option<&str>) -> Vec<TeamRow> {
         .iter()
         .map(|team| {
             let name = team.name.trim();
-            let name = if !has_personal && is_email_default_team(name) { PERSONAL_TEAM_NAME } else { name };
+            let name = if !has_personal && is_email_default_team(name) {
+                PERSONAL_TEAM_NAME
+            } else {
+                name
+            };
             let plan = team
                 .plan
                 .as_deref()
