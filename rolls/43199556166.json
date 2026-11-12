@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43199556166",
+  "recorded_at": "2026-11-12T10:29:42Z",
+  "reason": "cmux-tui a348eca932a1 changes the image's cmux-tui (pinned 38651ff1654b)",
+  "dry_run": false,
+  "cmux_tui": "a348eca932a18644c237fb038c8ad3fa5bbfa94b",
+  "fixes": [
+    {
+      "sha": "a348eca932a18644c237fb038c8ad3fa5bbfa94b",
+      "mergedAt": "2026-11-12T02:06:02-08:00",
+      "subject": "Agent chat: a row once shown stays shown across reconnects and paging (time-to-settled gate) (#41540)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T10:29:42Z",
+    "snapshot_id": "sh-3366292253fc4fd7949703f73507dc4e",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43199556166): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "9ab21489ed5781027f349d44a7ff37685fab0e08",
+    "image": "cloud-native-auto-a348eca9-43199556166-1",
+    "revision": "ci-43199556166-1",
+    "at": "2026-11-12T10:29:42Z"
+  },
+  "rolled_back": false
+}
