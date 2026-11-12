@@ -20,6 +20,7 @@ import importlib.util
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -451,6 +452,44 @@ class BaseFetchFailsOnceAndNeverPrompts(StaleBaseFixture):
             self.assertEqual(call["env"]["GIT_TERMINAL_PROMPT"], "0")
             self.assertEqual(call["env"]["GCM_INTERACTIVE"], "never")
             self.assert_no_prompt(call)
+
+
+class SshBatchModeWins(StaleBaseFixture):
+    """cmux#41750 review: OpenSSH keeps the FIRST value of an option, so `-o BatchMode=yes` appended after a user's
+    `BatchMode=no` lost, and ssh could still ask. Each row resolves the command the fetch would run with the real ssh
+    (`ssh -G` connects nowhere) and reads the batchmode it ends up with."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.push_range = load("stale_base_push_range_batch", "scripts/cmux-next/push_range.py")
+        for name in ("GIT_SSH", "GIT_SSH_COMMAND"):
+            os.environ.pop(name, None)
+        self.ssh = shutil.which("ssh")
+        self.assertIsNotNone(self.ssh, "these rows need OpenSSH's client on PATH")
+
+    def batchmode(self) -> str:
+        command = self.push_range._no_prompt_env(self.work).get("GIT_SSH_COMMAND", "")
+        self.assertTrue(command, "the fetch runs ssh through a GIT_SSH_COMMAND it set")
+        out = subprocess.run(["sh", "-c", f"{command} -F /dev/null -G fixture.invalid"], capture_output=True,
+                             text=True, stdin=subprocess.DEVNULL, timeout=30)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return next(line.split()[1] for line in out.stdout.splitlines() if line.startswith("batchmode "))
+
+    def test_git_ssh_as_a_full_path_to_openssh(self):
+        os.environ["GIT_SSH"] = self.ssh
+        self.assertEqual(self.batchmode(), "yes")
+
+    def test_git_ssh_command_that_turns_batchmode_off(self):
+        os.environ["GIT_SSH_COMMAND"] = "ssh -o BatchMode=no"
+        self.assertEqual(self.batchmode(), "yes")
+
+    def test_core_sshcommand_that_turns_batchmode_off(self):
+        self.git(self.work, "config", "core.sshCommand", f"{self.ssh} -o BatchMode=no")
+        self.assertEqual(self.batchmode(), "yes")
+
+    def test_a_quoted_program_path_keeps_its_arguments(self):
+        os.environ["GIT_SSH_COMMAND"] = f"'{self.ssh}' -oBatchMode=no -o ConnectTimeout=7"
+        self.assertEqual(self.batchmode(), "yes")
 
 
 if __name__ == "__main__":
