@@ -1503,7 +1503,7 @@ function shapeTurn(
   for (const segment of segments) {
     const said = segment.takeaway;
     const first = segment.anchor === user;
-    // The turn's last disclosure ends with it: its status, tokens and time are the turn's.
+    // The turn's last disclosure ends with it: its status is the turn's.
     const final = segment.until === undefined;
     const before = segment.rows;
     const after = segment.after ?? [];
@@ -1582,7 +1582,8 @@ function shapeTurn(
         // It stands for the prompt it folds as the turn's start, open or closed, so the minimap keeps
         // the turn's tick where the closed fold draws no prompt (threadMinimap/model.ts minimapTurns).
         ...(foldsPrompt && first && { foldedPrompt: user }),
-        ...(final && { tokens: summary.tokens }),
+        // The turn's tokens stay on its first fold, keyed by its prompt, as one fold carries them.
+        ...(first && { tokens: summary.tokens }),
         durationMs:
           segments.length === 1
             ? (summary.durationMs ?? Math.max(0, summary.at - user.at))
