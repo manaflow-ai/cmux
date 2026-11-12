@@ -966,18 +966,45 @@ function warmAnchorTop(
   return index < 0 ? undefined : layoutGeometry(placed).topAt(index) + Number(offset);
 }
 
-/// Where a view whose reader's place is held (`heldPlace`) goes in this pass: the place itself once
-/// its row is back among the rows (`found`); until then the oldest row held, where older pages come
-/// in toward the reader's row, never the end. Undefined: nothing to place (no rows yet).
+/// The rows in a view whose top is `top`, each with how far the view's top is past it: what a
+/// reconnect holds (`heldPlace`), so any of them that comes back first puts the view where it was.
+function heldRows(
+  top: number,
+  placed: Parameters<typeof layoutGeometry>[0],
+  shown: readonly { id: string }[],
+  height: number,
+): ScrollAnchor[] {
+  const geometry = layoutGeometry(placed);
+  const first = visibleLayoutRange(placed, top, 0, 0).first;
+  const held: ScrollAnchor[] = [];
+  for (let index = first; index < shown.length && held.length < 32; index += 1) {
+    const at = geometry.topAt(index);
+    if (index > first && at > top + height) break;
+    held.push({ rowId: shown[index]!.id, offset: top - at });
+  }
+  return held;
+}
+
+/// Where a view whose reader's place is held (`heldPlace`) goes in this pass: where the first held
+/// row that is among the rows again puts it (`found`); until one is, the oldest row held, where
+/// older pages come in toward the reader's rows, never the end. Undefined: no rows yet.
 export function heldReaderPlace(
-  place: ScrollAnchor,
+  place: readonly ScrollAnchor[],
   rows: readonly { id: string }[],
   placed: Parameters<typeof layoutGeometry>[0],
 ): { top: number; found?: true } | undefined {
   if (rows.length === 0) return undefined;
-  const at = rows.findIndex((row) => row.id === place.rowId);
   const geometry = layoutGeometry(placed);
-  return at >= 0 ? { top: geometry.topAt(at) + place.offset, found: true } : { top: geometry.topAt(0) };
+  const index = new Map<string, number>();
+  for (const anchor of place) index.set(anchor.rowId, -1);
+  rows.forEach((row, at) => {
+    if (index.has(row.id)) index.set(row.id, at);
+  });
+  for (const anchor of place) {
+    const at = index.get(anchor.rowId)!;
+    if (at >= 0) return { top: geometry.topAt(at) + anchor.offset, found: true };
+  }
+  return { top: geometry.topAt(0) };
 }
 
 /// Jump to latest's diameter, CSS px (conversation.css .acpmux-jump-latest): its fisheye filter is
@@ -2886,7 +2913,7 @@ function TranscriptView({
   /// PAGINATION/WHATEVER INFINITE SCROLL UP DOESN'T [...] WORK IT JUST [...] SENDS ME TO THE BOTTOM".
   /// The rows' going clamped the offset to the shorter tail's end, the bottom, and nothing found
   /// the reader's row again. Only the reader's own input, Jump to latest or a send lets it go.
-  const heldPlace = useRef<ScrollAnchor | undefined>(undefined);
+  const heldPlace = useRef<ScrollAnchor[] | undefined>(undefined);
   /// When the reader last moved the transcript themselves (wheel, pointer, touch or key).
   const readerAt = useRef(Number.NEGATIVE_INFINITY);
   /// The last upward input has not yet been acknowledged by the native scroll event. A tiny real
@@ -3989,7 +4016,7 @@ function TranscriptView({
         // shorter tail, a rebuild's empty frame): the reader's place is held, not the offset the
         // shrink clamped to the end (`heldPlace`). A row renamed in place keeps the first row.
         if (kept === undefined && !heldPlace.current && oldRows.length > 0 && rows[0]?.id !== oldRows[0]?.id)
-          heldPlace.current = seenAnchor.current ?? restingAnchor(logicalTop, false, old, oldRows) ?? undefined;
+          heldPlace.current = heldRows(logicalTop, old, oldRows, viewHeight);
         const held = heldPlace.current ? heldReaderPlace(heldPlace.current, rows, layout) : undefined;
         // Found, the row stays held where it was while the rows around it settle to their drawn
         // heights (a restore on estimated heights moved it when they measured): the reader's own
@@ -4133,7 +4160,7 @@ function TranscriptView({
       scrolledTo.current = { top: node.scrollTop, atLatest: followingRef.current };
       // While the reader's place is held, it is the place to reopen at, not where the view waits.
       seenAnchor.current =
-        heldPlace.current ?? restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
+        heldPlace.current?.[0] ?? restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
     }
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     // The minimap's band reads the offset this pass settled on.
@@ -4844,7 +4871,7 @@ function TranscriptView({
       });
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     seenAnchor.current =
-      heldPlace.current ?? restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
+      heldPlace.current?.[0] ?? restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
     // The reader's own scroll: where it rests is where they left off (Jump up, jumpUp.ts), and a way
     // back Jump up held is theirs no longer.
     // Jump up's own move (`placeView`) lands inside the press's input hold, so it reads as the
