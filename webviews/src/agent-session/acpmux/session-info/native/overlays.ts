@@ -12,7 +12,7 @@
 // nodes, so a streaming transcript costs nothing more than the nodes it adds) and measured each frame
 // while any is mounted, as they place and animate. The frame loop stops when the last one unmounts.
 import { useEffect } from "react";
-import { PAGE_ZOOM_EVENT, onVisualViewport, pageZoom, visualViewportScale } from "../../../../ui/visualViewportBox";
+import { onVisualViewport, pageZoom, visualViewportScale } from "../../../../ui/visualViewportBox";
 import { postNative } from "../../native";
 
 export const OVERLAY_SELECTOR = ".ui-popup, .ui-tooltip, [data-native-overlay]";
