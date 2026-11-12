@@ -977,14 +977,17 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
     if start < len(words) and words[start].text == "coproc" and not words[start].quoted:
         # `coproc cmd` runs cmd in the background, `coproc NAME { .. }` a group: what runs is not read here.
         return Invocation([w.text for w in words[start:]], False, True)
+    had_prefix_assignment = False
     while start < len(words) and _is_assignment(words[start]):  # a keyword after an assignment is a program
+        had_prefix_assignment = True
         start += 1
     certain = not command.dynamic and not command.nested and command.reached
     any_program = False
     wrappers: list[str] = []
+    wrapper_assignment = False
     while start < len(words) and not _opaque(words[start]):
         name = words[start].text
-        if name in _WRAPPERS:
+        if name in _WRAPPERS and not words[start].quoted:
             program, sure = _unwrap(words, start, _WRAPPERS[name])
         elif name in _SHELLS:
             program, sure = _shell_script(words, start)
@@ -997,13 +1000,15 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
             return Invocation([w.text for w in words[start:]], certain and sure, False)
         certain = certain and sure
         wrappers.append(name)
+        wrapper_assignment = wrapper_assignment or any(_is_assignment(words[i]) for i in range(start + 1, program))
         start = program
         if name in _SHELLS:
             # An unmodeled mode (-i reads rc files, --rcfile FILE, -l a profile) may run a file the words name
             # only as an option value, or none.
             any_program = not sure
             break  # the operand is a script file, whatever its name
-    if wrappers and all(name == "time" for name in wrappers) and start < len(words) \
+    if wrappers and all(name == "time" for name in wrappers) and not had_prefix_assignment and not wrapper_assignment \
+            and start < len(words) \
             and words[start].text == "coproc" and not words[start].quoted:
         # Only time (including repeated or -p forms) keeps coproc as a reserved word after unwrapping.
         return Invocation([w.text for w in words[start:]], False, True)
