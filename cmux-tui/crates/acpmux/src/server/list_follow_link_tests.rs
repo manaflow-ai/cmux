@@ -110,8 +110,8 @@ async fn a_reconnecting_peer_link_follows_from_its_cursor_and_reads_only_what_ch
     };
     assert_eq!(ids(&again), ["own-00007"], "only the chat that changed");
     assert!(gone.is_empty(), "{gone:?}");
-    let (_, total) = peer.received().read();
-    let follow = total - list;
+    // This link's bytes only (`Peer::received` counts per link).
+    let (_, follow) = peer.received().read();
     assert!(follow * 20 < list, "a follow of {follow} bytes, not the list's {list}");
     println!("PERF follow rows={ROWS} whole={list} reconnect={follow}");
     peer.stop();
