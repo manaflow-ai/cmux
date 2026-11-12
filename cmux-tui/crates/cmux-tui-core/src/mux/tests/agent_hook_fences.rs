@@ -926,9 +926,49 @@ fn hook_seq_a_resume_after_a_reboot_starts_a_new_order() {
         &[("SessionStart", 50_000, 1_000), ("Stop", 90_000, 41_000)],
     );
     // `claude --resume` after a reboot keeps the session id; the new boot's
-    // monotonic clock starts again near zero.
-    append_clocked_hook(&mux, &terminal_id, "UserPromptSubmit", "boot-b", 2_000, 900_000);
+    // monotonic clock starts again near zero, and here the wall clock is also
+    // 0.5 s behind (it was set back at the boot). Both clocks are smaller; the
+    // new boot id still applies the event.
+    append_clocked_hook(&mux, &terminal_id, "UserPromptSubmit", "boot-b", 2_000, 40_500);
     assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Working));
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn hook_seq_equal_monotonic_stamps_apply_in_arrival_order() {
+    let (mux, surface, terminal_id, root) = hook_seq_mux("tie");
+    // Two hooks read the same monotonic value: neither is a reorder, so the
+    // journal order decides and the later one sets the state.
+    append_clocked(
+        &mux,
+        &terminal_id,
+        &[
+            ("SessionStart", 1_000, 1_000),
+            ("Stop", 3_000, 3_000),
+            ("UserPromptSubmit", 3_000, 3_000),
+        ],
+    );
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Working));
+    append_clocked(&mux, &terminal_id, &[("Stop", 3_000, 3_000)]);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Idle));
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn hook_seq_an_event_with_no_boot_id_applies_in_arrival_order() {
+    let (mux, surface, terminal_id, root) = hook_seq_mux("no-boot-id");
+    append_clocked(&mux, &terminal_id, &[("SessionStart", 1_000, 1_000), ("Stop", 3_000, 3_000)]);
+    // An older hook helper stamps only the wall clock (no boot id). Its event
+    // applies in journal order, even with an earlier wall clock.
+    append_ordered_hook(&mux, &terminal_id, "UserPromptSubmit", 2_000);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Working));
+    // Two events of the older helper: journal order too.
+    append_ordered_hook(&mux, &terminal_id, "Stop", 1_500);
+    assert_hook_order_state(&mux, surface, &terminal_id, Some(AgentState::Idle));
     mux.shutdown();
     drop(mux);
     let _ = std::fs::remove_dir_all(&root);

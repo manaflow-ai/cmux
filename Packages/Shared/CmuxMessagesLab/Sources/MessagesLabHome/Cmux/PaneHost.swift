@@ -486,6 +486,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     var pasteboardHasText: (NSPasteboard) -> Bool = { $0.availableType(from: [.string]) != nil }
     /// cmux: makes the pane's window key after a drop or a pick aimed at it
     /// (PaneHost+DropFocus.swift); tests stub it so no window comes forward.
+    /// cmux: the picture viewer open over the pane, nil once it starts closing (``ChatController/keyboardTarget``).
+    weak var shownPictureViewer: NSView?
     var bringWindowForward: (NSWindow) -> Void = { window in
         NSApp.activate()
         window.makeKeyAndOrderFront(nil)
@@ -649,7 +651,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }).cgImage { _ = MorphBubble.boxBlur(cg, radiusPx: 9) }
     }
 
-    func focusCompose() { if !Self.noFocus { window?.makeFirstResponder(demo?.compose.textView.view) } }
+    /// Gives the pane's keyboard target the keyboard: the compose field, or the picture viewer while it is open.
+    func focusCompose() { if !Self.noFocus { window?.makeFirstResponder(keyboardTarget) } }
 
     func dispatch(_ a: Action) {
         guard let store else { return }

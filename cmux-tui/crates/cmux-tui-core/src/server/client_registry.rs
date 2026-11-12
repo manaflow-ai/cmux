@@ -374,6 +374,8 @@ pub(crate) struct ClientRegistry {
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
+    /// Where the git requests of every connection wait and run (server/git_lane.rs).
+    pub(super) git_lane: super::git_lane::GitLane,
     /// One permit per open v1 `subscribe` stream, held by its thread.
     pub(super) event_subscription_admission: Arc<ResourceWorkerAdmission>,
     /// Every connection's record. A change publishes the [`ClientFacts`] projection, which a connection's
@@ -455,6 +457,7 @@ impl ClientRegistry {
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
             ),
+            git_lane: Default::default(),
             event_subscription_admission: ResourceWorkerAdmission::new(
                 EVENT_SUBSCRIPTIONS_PER_CLIENT_CAPACITY,
                 EVENT_SUBSCRIPTIONS_SERVER_CAPACITY,
@@ -525,6 +528,11 @@ impl ClientRegistry {
                 started_tabs: HashSet::new(),
             },
         );
+        // Opt-in usage patterns: connections by transport, and the most open at once.
+        if cmux_usage_patterns::enabled() {
+            cmux_usage_patterns::count("connection", transport.as_str());
+            cmux_usage_patterns::peak("connections.open", state.clients.len() as u64);
+        }
         drop(state);
         self.notify_client_presence();
         client
@@ -733,6 +741,8 @@ impl ClientRegistry {
             record.name = Some(clamp_client_label(name));
         }
         if let Some(kind) = kind {
+            // Opt-in usage patterns: which kinds of client connect (`cmux-next`, `cli`, ...).
+            cmux_usage_patterns::count("client", &kind);
             record.kind = Some(clamp_client_label(kind));
         }
         if let Some(capabilities) = capabilities {

@@ -36,11 +36,10 @@ from test_ci_change_areas import (
 ROOT = Path(__file__).resolve().parents[1]
 VALIDATOR = ROOT / "scripts" / "ci" / "validate_test_execution_registry.py"
 
-spec = importlib.util.spec_from_file_location("validate_test_execution_registry", VALIDATOR)
-assert spec and spec.loader
-validator = importlib.util.module_from_spec(spec)
-sys.modules[spec.name] = validator
-spec.loader.exec_module(validator)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import validate_test_execution_registry as validator  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
 RUNNER = ROOT / "scripts" / "ci" / "run_python_test_lane.py"

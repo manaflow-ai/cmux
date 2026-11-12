@@ -13,7 +13,11 @@ display frame of visibility (1 = the first frame drawn after the key) is above N
 
 `--commands` picks the commands (default all; `link_right`, a web link opened to the right as a new split,
 `link_home`, the same link from Home's dock alone (a new column beside it), `split_browser`, Split Browser Right,
-`dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, `github_right`, a github.com
+`newtab_url`, Return on an address typed into a New Tab page opened (Cmd-T) beside a terminal in its pane, which navigates the
+page's tab in place (`page_ms`: the address painted), `newtab_url_beside`, the same with Option-Return (a new tab where links go,
+the pane on the right), `dock_respawn`, the lone tab docked left with a fresh terminal left in its pane, `header_terminal`, an agent chat's
+header Terminal button with nothing on the chat's right (the app opens the chat in the pane first), `browser_workspace`, New Browser
+Workspace (`chrome_ms`: its browser in the pane; a terminal shown first makes it later than `visible_ms`), `github_right`, a github.com
 pull request link opened to the right in the native GitHub page (`--link-url`, default a cmux pull request; its
 pull request is seeded into the app's cache, as a chat's link card has read it, and `page_ms` is the page drawing it),
 and the diff viewer's `diff_small` (one file, 20 changed lines), `diff_5k` (5,000 changed lines in 10 files) and
@@ -72,6 +76,7 @@ parser.add_argument("--budget-key-ms", type=float, default=16.7)
 parser.add_argument("--hang-stacks", action="store_true",
                     help="as the every-action sweep: hang watchdog at 8 ms, the agent pane mock (Cmd-N opens its New Tab page), "
                          "and each run's longest main-thread stall with its whole stack (64 frames) in the row and the log")
+parser.add_argument("--slow-wait", type=float, default=40, help="slow phase: seconds between marking WebKit slow and the first run")
 parser.add_argument("--native-new-tab", action="store_true", help="run with tabs.nativeNewTabPage on (Cmd-T opens the native New Tab page)")
 parser.add_argument("--arms", default=None,
                     help="the arms to time (bench_arms.py; default warm,quick,cold, or warm alone with --budget-frames: a "
@@ -95,7 +100,9 @@ open(LINK_PAGE, "w").write("<!doctype html><title>link</title><body style='backg
 LINK_URL = opts.link_url or "file://" + LINK_PAGE
 GITHUB_URL = opts.link_url if opts.link_url.startswith("https://github.com/") else "https://github.com/manaflow-ai/cmux/pull/34637"
 DIFF_COMMANDS = {"diff_small": (1, 20), "diff_5k": (10, 500), "diff_200": (200, 10)}  # files, changed lines per file
-PAGE_COMMANDS = ("link_right", "link_home", "split_browser", "github_right", *DIFF_COMMANDS)  # the app reports page_ms (the new pane's page painted) for these
+READY_COMMANDS = ("new_workspace", "new_tab")  # the app reports ready_ms (the New Tab page painted and taking keys) for these
+NEWTAB_URL_COMMANDS = ("newtab_url", "newtab_url_beside")  # Return / Option-Return on an address in a New Tab page
+PAGE_COMMANDS = ("link_right", "link_home", "split_browser", "github_right", *NEWTAB_URL_COMMANDS, *DIFF_COMMANDS)  # the app reports page_ms (the new pane's page painted) for these
 open(CONFIG, "w").write(json.dumps({"tabs": {"nativeNewTabPage": True}} if opts.native_new_tab else {}) + "\n")
 CLI_ENV = {"HOME": os.environ["HOME"], "PATH": "/usr/bin:/bin", "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "CMUX_SOCKET_PATH": SOCKET, "CMUX_QUIET": "1", "CMUX_TAG": TAG,
@@ -208,11 +215,11 @@ def stop_load():
 
 def undo(command, window, before_panes):
     """Back to one terminal pane in the bench workspace."""
-    if command in ("new_workspace", "dock_respawn"):  # a dock leaves two panes: the workspace goes, the next run gets a fresh one
+    if command in ("new_workspace", "browser_workspace", "dock_respawn", *NEWTAB_URL_COMMANDS):  # a dock leaves two panes: the workspace goes, the next run gets a fresh one
         rpc("action.run", {"action": "closeWorkspace"})
         wait(lambda: (focused() or {}).get("kind") == "terminal", 10)
         return
-    if command == "link_home":  # the new column's tab has the focus: its close leaves Home's dock alone again
+    if command in ("link_home", "header_terminal"):  # the new pane's tab has the focus: its close leaves Home's dock (the chat's pane) alone again
         rpc("debug.key", {"key": "w", "modifiers": ["command"], "window": window})
         wait(lambda: len(panes()) <= before_panes, 10)
         return
@@ -229,8 +236,24 @@ def home_dock():
 
 
 def ready(command, settle=True):
-    """The pane a timed press starts from: Home's dock for `link_home`, else a shown terminal."""
+    """The pane a timed press starts from: Home's dock for `link_home`, a New Tab page beside a terminal for
+    `newtab_url*`, else a shown terminal."""
+    if command == "header_terminal" and len(panes()) == 1 and (focused() or {}).get("kind") != "terminal":
+        return True  # the chat the app opened for the first press (DebugInstantCreateBench) is shown, alone
+    if command in NEWTAB_URL_COMMANDS:
+        return new_tab_page(settle)
     return home_dock() if command == "link_home" else ensure_terminal(settle)
+
+
+def new_tab_page(settle=True):
+    """Cmd-T from a shown terminal: the New Tab page in the terminal's pane, focused (as the person types into it)."""
+    if not ensure_terminal(settle):
+        return False
+    rpc("debug.key", {"key": "t", "modifiers": ["command"], "window": window_key()})
+    ok = wait(lambda: (focused() or {}).get("kind") not in (None, "terminal"), 10, step=0.05)
+    if ok and settle:
+        time.sleep(1)  # test harness: the page's handshake and field, as before a person types
+    return ok
 
 
 def focused():
@@ -261,13 +284,17 @@ def timed(command, phase, index, arm=None):
         params.update({"url": GITHUB_URL, "seed": True})
     if command in DIFF_COMMANDS:
         params.update({"command": "diff_right", "folder": DIFF_FOLDERS[command]})
+    if command in NEWTAB_URL_COMMANDS:
+        params.update({"command": "newtab_url", "url": LINK_URL, "beside": command == "newtab_url_beside"})
+    if command == "browser_workspace":  # New Browser Workspace: visible_ms is the window on the new workspace, chrome_ms its browser in the pane
+        params.update({"command": "new_workspace", "run": "newBrowserWorkspace"})
     result = rpc("debug.new_tab", params, timeout=20) or {}
     result.update({"phase": phase, "run": index, "command": command})
     if arm:
         result["arm"] = arm
     marks = {s["name"]: round(s["at"], 1) for s in result.get("spans") or [] if s.get("ms", 0) == 0}
     print(f"{phase} {command} #{index}: key={result.get('key_ms')} visible={result.get('visible_ms')} "
-          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} marks={marks} "
+          f"frame={frame_of(result)} confirmed={result.get('confirmed_ms')} page={result.get('page_ms')} ready={result.get('ready_ms')} marks={marks} "
           f"err={result.get('error')}" + (f" github={result['github']}" if 'github' in result else "")
           + (f" diff={json.dumps(result.get('diff'))}" if command in DIFF_COMMANDS else ""), flush=True)
     return result
@@ -315,7 +342,7 @@ def arm_cold(relaunch):
                 print(f"cold {command} #{index}: launch failed: {error}", flush=True)
                 rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": f"launch: {error}"})
                 continue
-            if command != "new_workspace" and not ready(command, settle=False):
+            if command not in ("new_workspace", "browser_workspace") and not ready(command, settle=False):
                 rows.append({"phase": "cold", "run": index, "command": command, "arm": "cold", "error": "no focused start pane"})
                 continue
             rows.append(timed(command, "cold", index, arm="cold"))
@@ -342,7 +369,7 @@ def bench(phase, window):
         sys.exit("no focused terminal: " + json.dumps(panes())[:800])
     for command in COMMANDS:
         for index in range(opts.runs):
-            if command != "new_workspace" and not ready(command):
+            if command not in ("new_workspace", "browser_workspace") and not ready(command):
                 sys.exit("no focused start pane: " + json.dumps(panes())[:800])
             before = len(panes())
             if opts.hang_stacks:
@@ -438,6 +465,11 @@ def summary(rows):
                 "page_p50": pct([r.get("page_ms") for r in sel], .5),
                 "page_p95": pct([r.get("page_ms") for r in sel], .95),
                 "page_max": pct([r.get("page_ms") for r in sel], 1),
+                # Cmd-N, Cmd-T: the New Tab page painted and taking keys (the app's `ready_ms`).
+                "ready_p50": pct([r.get("ready_ms") for r in sel], .5),
+                "ready_p95": pct([r.get("ready_ms") for r in sel], .95),
+                "ready_max": pct([r.get("ready_ms") for r in sel], 1),
+                "ready_missed": sum(r.get("ready_ms") is None for r in sel) if command in READY_COMMANDS else 0,
             }
     return out
 
@@ -514,6 +546,11 @@ def main():
         for phase in opts.phases.split(","):
             if phase == "load":
                 start_load()
+            if phase == "slow":
+                # As on a Mac at load 250, where one New Tab spare took over a second: the pool is emptied and
+                # WebKit's setup marked slow (WebKitSetupGate), then the runs start after its recheck wait.
+                rpc("debug.new_tab", {"action": "drop_spare", "slow": True})
+                time.sleep(opts.slow_wait)  # test harness: the gate's recheck interval (30 s) and a warm
             try:
                 rows += bench(phase + suffix, window)
             finally:
@@ -533,7 +570,8 @@ def main():
     result["arms"] = {command: {metric: bench_arms.report(f"instant-new-surfaces/{command}", metric, "ms",
                                                           arm_samples(rows, command, metric),
                                                           out=lambda line: print(line, flush=True))
-                                for metric in ("visible_ms", "confirmed_ms", "key_ms") + (("page_ms",) if command in PAGE_COMMANDS else ())}
+                                for metric in ("visible_ms", "confirmed_ms", "key_ms") + (("page_ms",) if command in PAGE_COMMANDS else ())
+                                + (("ready_ms",) if command in READY_COMMANDS else ())}
                       for command in COMMANDS}
     result["headline"] = {command: {"metric": "visible_ms", "arm": arms["visible_ms"]["headline"]}
                           for command, arms in result["arms"].items()}

@@ -274,13 +274,22 @@ fn websocket_token(home: &Path) -> String {
         .to_owned()
 }
 
+/// The ids of the whole list, sorted, as a client reads it: a list past one reply page comes in
+/// pages, each with the `nextCursor` of the rest (`server/list_reply.rs`).
 fn listed(rpc: &mut Rpc) -> Vec<String> {
-    let mut ids: Vec<String> = rpc.call("_acpmux/sessions", json!({}))["sessions"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|s| s["sessionId"].as_str().unwrap().to_owned())
-        .collect();
+    let (mut ids, mut cursor) = (Vec::new(), Value::Null);
+    loop {
+        let params = if cursor.is_null() { json!({}) } else { json!({"cursor": cursor}) };
+        let page = rpc.call("_acpmux/sessions", params);
+        let rows = page["sessions"].as_array().unwrap();
+        ids.extend(rows.iter().map(|s| s["sessionId"].as_str().unwrap().to_owned()));
+        let next = page["nextCursor"].clone();
+        if next.is_null() {
+            break;
+        }
+        assert_ne!(next, cursor, "the list's cursor did not move past a page");
+        cursor = next;
+    }
     ids.sort();
     ids
 }

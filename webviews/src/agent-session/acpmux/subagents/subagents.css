@@ -2255,9 +2255,9 @@ button.cv-subagent > :last-child {
   color: var(--agent-accent);
   opacity: 0.8;
 }
-.acpmux-tray-pull__tab:hover .acpmux-tray-pull__hat > svg,
-.acpmux-tray-pull__tab:has([data-popup-open]) .acpmux-tray-pull__hat > svg,
-.acpmux-tray-pull__tab:focus-visible .acpmux-tray-pull__hat > svg {
+.acpmux-tray-pull__tab:hover .acpmux-tray-pull__hat > svg[data-icon],
+.acpmux-tray-pull__tab:has([data-popup-open]) .acpmux-tray-pull__hat > svg[data-icon],
+.acpmux-tray-pull__tab:focus-visible .acpmux-tray-pull__hat > svg[data-icon] {
   opacity: 1;
 }
 

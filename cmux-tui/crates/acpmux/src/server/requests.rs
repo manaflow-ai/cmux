@@ -1216,7 +1216,7 @@ async fn dispatch_request_with_identity(
             let extensions: &[&str] = &[
                 super::peer_forward::TRUST_PEER_EXTENSION,
                 method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
-                method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_REGISTER, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT,
+                method::MUX_DETACH, method::MUX_WATCH, method::MUX_HARNESS_INVENTORY_WATCH, method::MUX_HARNESS_INVENTORY_REFRESH, method::MUX_HARNESS_UPDATE_PLAN, method::MUX_HARNESS_UPDATE_PREPARE, method::MUX_RENAME, method::MUX_REGISTER, method::MUX_DETACH_PARENT, method::MUX_KEEP, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT, method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE, method::MUX_QUEUE_TEXT, method::MUX_ROWS,
                 method::MUX_INFO, method::MUX_MACHINE_INFO, method::MUX_SESSION_FILES, method::MUX_EVENTS, method::MUX_GITHUB_ACTION, method::MUX_GITHUB_APP_LEASE, method::MUX_ATTACHMENT, method::MUX_MAIL_SEND, method::MUX_MAIL_READ, method::MUX_MAIL_WAIT, method::MUX_MAIL_ACK, method::MUX_TEAM_SEND, method::MUX_TEAM_INBOX, method::MUX_TEAM_READ, method::MUX_TEAM_ACK, method::MUX_PERMISSION_RESPOND, method::MUX_PROCESS_LIST, method::MUX_PROCESS_TAIL, method::MUX_PROCESS_KILL, method::MUX_PROCESS_BACKGROUND, method::MUX_WORKTREE_REPORT, method::MUX_WORKTREE_CLEAN, method::MUX_WORKTREE_RESTORE, method::MUX_RETENTION, method::MUX_COLD_ARCHIVE,
                 method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_COMPOSER_SET, method::MUX_COMPOSERS, method::MUX_BOOKMARK_GET, method::MUX_BOOKMARK_SET, method::MUX_MEMORY_RESOLVE, method::MUX_PROMPT_COACH, method::MUX_ASK, method::MUX_BTW, method::MUX_VIEW, method::MUX_TYPING, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                 method::MUX_SET_POLICY, method::MUX_SET_TOOLS, method::MUX_SET_DIRECTORIES, method::MUX_MCP_RECONNECT, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_FILE_PUT, method::MUX_FILE_PUT_BEGIN, method::MUX_FILE_PUT_CHUNK, method::MUX_FILE_PUT_FINISH, method::MUX_FILE_PUT_CANCEL, method::MUX_FILE_PUT_STATUS, method::MUX_UPLOADS_KEEP, method::MUX_MEDIA_OPEN, method::MUX_MEDIA_RANGE, method::MUX_SUBAGENT_TRANSCRIPT, method::MUX_NATIVE_HISTORY, method::MUX_WORKFLOWS, method::MUX_DISPATCH, method::MUX_STEER, method::MUX_BRIEFS, method::MUX_REPORT, method::MUX_TASK_NEW, method::MUX_TASKS, method::MUX_RESOLVE, method::MUX_WHO_ELSE, method::MUX_SHUTDOWN, method::MUX_SESSION_AUTH, method::MUX_MESH_CONTROL,
@@ -1261,7 +1261,7 @@ async fn dispatch_request_with_identity(
                 // The daemon run decision proofs bind (`hub/person.rs`).
                 "personInstance": hub.person.instance(),
                 "extensions": extensions, "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::fork_through::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::watch_delta::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::request_cancel::FEATURE], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", crate::author::QUEUE_APPROVAL_FEATURE, "steerInterrupt", "personHolds", "sessionTransfer", "approverDecisions", "toolInventory", "promptWithdraw", "processes", "worktreeCare", "harnessInventory", super::inventory_watch::FEATURE, crate::harness_health::INVENTORY_REFRESH_FEATURE, crate::harness_health::UPDATE_PLAN_FEATURE, crate::harness_health::UPDATE_PREPARE_FEATURE, "surfaces", crate::hub::FILE_PUT_FEATURE, crate::hub::file_uploads::CHUNKS_FEATURE, crate::hub::MEDIA_READ_FEATURE, crate::hub::SUBAGENT_TRANSCRIPT_FEATURE, crate::hub::NATIVE_HISTORY_FEATURE, crate::attach::FEATURE, crate::prompt_uploads::FEATURE, crate::hub::file_uploads::RESUME_FEATURE, super::upload_frames::FEATURE, crate::peer_states::STATE_EVENTS_FEATURE, crate::hub::session_auth::FEATURE, crate::agent_login::FEATURE, crate::hub::cancel::PERSON_STOP_FEATURE, crate::hub::stop_if_idle::FEATURE, SESSION_RESUME_FEATURE, workflow_dispatch::FEATURE, crate::watch_delta::FEATURE, crate::peer::HANDSHAKE_PIPELINE_FEATURE, super::dual_requests::FEATURE, crate::hub::require_asking::FEATURE, crate::sender_token::FEATURE, crate::request_cancel::FEATURE, super::fork_through::RETARGET_FEATURE], "trustGate": true}}
             });
             // Large messages go compressed from here on (`frame_compress.rs`).
             if conn.wire.as_ref().is_some_and(|wire| wire.enabled()) {
@@ -2001,9 +2001,15 @@ async fn dispatch_request_with_identity(
             // `acpmux send --wait`): when the session a lane reports to sent it, that turn is
             // read, and no lane report of it goes to the same session again
             // (`hub/lane_report_reads.rs`). Held until this request returns.
-            let reply_reader = (flag(crate::cli::output::READS_REPLY_META) == Some(true))
-                .then(|| hub.lane_report_reply_reader(conn.caller(), &s.id, conn.ended.subscribe()))
-                .flatten();
+            // It reads while its connection is open and it has not cancelled this request: a
+            // cancel revokes it (`prompt_cancel.rs`, review F2 of #41361).
+            let reads_reply = flag(crate::cli::output::READS_REPLY_META) == Some(true);
+            let reader = (reads_reply || flag("wakeOrFail") == Some(true))
+                .then(|| super::prompt_cancel::ReaderGone::new(hub, conn.ended.subscribe()));
+            let reply_reader = reader
+                .as_ref()
+                .filter(|_| reads_reply)
+                .and_then(|r| hub.lane_report_reply_reader(conn.caller(), &s.id, r.subscribe()));
             if let Some(reader) = &reply_reader {
                 on_accepted = Some(reader.watch(on_accepted));
             }
@@ -2092,9 +2098,7 @@ async fn dispatch_request_with_identity(
                 wake_or_fail: flag("wakeOrFail") == Some(true),
                 // Only a caller that waits for the reply and prints it reads it
                 // (`hub/question_replies.rs`); an outbox delivery's open request reads nothing.
-                reply_reader: (flag(crate::cli::output::READS_REPLY_META) == Some(true)
-                    || flag("wakeOrFail") == Some(true))
-                .then(|| conn.ended.subscribe()),
+                reply_reader: reader.as_ref().map(super::prompt_cancel::ReaderGone::subscribe),
                 inbox: inbox_on
                     && crate::hub::inbox::plain_send(
                         conn.origin == super::Origin::Peer,
@@ -2139,7 +2143,7 @@ async fn dispatch_request_with_identity(
             }
             // A `$/cancel_request` of this request stops its prompt, and the prompt runs on to
             // its turn's end, never dropped half way (`prompt_cancel.rs`).
-            let stop = super::prompt_cancel::PromptStop::new(hub, &s);
+            let stop = super::prompt_cancel::PromptStop::new(hub, &s, reader);
             opts.on_accepted = stop.watch(opts.on_accepted.take());
             let hub = hub.clone();
             let run = async move {
@@ -2177,10 +2181,21 @@ async fn dispatch_request_with_identity(
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
             let start_later = super::fork_through::starts_later(&params);
+            // A remote device's switch is its new chat (`hub/fork.rs` `Retarget::remote`).
+            let remote_switch = conn.origin.web_class();
+            let retarget = super::fork_through::retarget(&params)?
+                .map(|r| crate::hub::Retarget { remote: remote_switch, ..r });
+            let switched = retarget.is_some();
             let who = who(conn);
             let (new, warning) = if let Some(prompt) =
                 params.pointer("/_meta/acpmux/beforePromptId").and_then(Value::as_str)
             {
+                // A switch forks the chat as it is now; a fork before a prompt keeps its harness.
+                if retarget.is_some() {
+                    return Err(RpcError::invalid_params(
+                        "a fork before a prompt keeps the chat's harness: omit harness",
+                    ));
+                }
                 let request = params
                     .pointer("/_meta/acpmux/requestId")
                     .and_then(Value::as_str)
@@ -2195,12 +2210,42 @@ async fn dispatch_request_with_identity(
                     if crate::hub::fork_cancel::cancelled() {
                         return Err(crate::hub::fork_cancel::cancelled_refusal());
                     }
-                    let fork = hub.fork(&s, name, cwd, env, workspace_id, through, start_later);
-                    let new = admitted.run(fork).await?;
+                    // Onto another harness (`_meta.acpmux.harness`, `hub/fork.rs` `Retarget`): a
+                    // pick of another harness's model in a started chat, at its next send.
+                    let new = match retarget {
+                        Some(retarget) => {
+                            let fork = hub.fork_to(
+                                &s,
+                                retarget,
+                                name,
+                                cwd,
+                                env,
+                                workspace_id,
+                                start_later,
+                            );
+                            admitted.run(fork).await?
+                        }
+                        None => {
+                            let fork =
+                                hub.fork(&s, name, cwd, env, workspace_id, through, start_later);
+                            admitted.run(fork).await?
+                        }
+                    };
                     Ok((new, admitted.warning.clone()))
                 };
                 hub.fork_cancellable(token, fork).await?
             };
+            // Onto another harness from a remote device: the mode a chat that device starts runs
+            // in (`session/new` above), its family's reviewed asking default, or the fork is
+            // ended and refused. A plain fork keeps the chat's mode, which the guard checked.
+            if switched && remote_switch {
+                let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
+                let cloud_mobile = super::remote_guard::cloud_mobile(&params);
+                heap(|| {
+                    super::remote_guard::settle_web_session_mode(hub, &new, peer, cloud_mobile)
+                })
+                .await?;
+            }
             attach(hub, conn, &new.id);
             let meta = new.meta();
             let mut summary = hub.session_summary(&new);
@@ -2976,7 +3021,7 @@ async fn dispatch_request_with_identity(
                 hub,
                 conn,
                 &s,
-                SubOpts { event_stream, filter: filter.clone(), hidden, remote: false },
+                SubOpts { event_stream, filter: filter.clone(), hidden, remote: false, rows: None },
             );
             let after = params.get("afterSeq").and_then(Value::as_u64);
             let before = params.get("beforeSeq").and_then(Value::as_u64);
@@ -3062,6 +3107,7 @@ async fn dispatch_request_with_identity(
         }
         // A read, for whoever may read the log, as `_acpmux/events` (`hub/queue_text.rs`).
         method::MUX_QUEUE_TEXT => Box::pin(queue_text(hub, &params)).await,
+        method::MUX_ROWS => Box::pin(rows(hub, conn, &params)).await,
         method::MUX_MAIL_SEND
         | method::MUX_MAIL_READ
         | method::MUX_MAIL_WAIT
@@ -3395,6 +3441,29 @@ mod admission_force_tests {
         assert_eq!(name(null).as_deref(), Some("top"));
         assert_eq!(name(json!({})), None);
     }
+}
+
+/// `_acpmux/rows` (`rows/serve.rs`), off the async thread: a chat's first read folds its log.
+/// With `follow`, the connection must be attached to the chat; its later row changes go to it
+/// as `_acpmux/rows_patch` (`deliver`).
+async fn rows(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Result<Value, RpcError> {
+    let s = hub.resolve(session_key(params)?)?;
+    let follow = params.get("follow").and_then(Value::as_bool) == Some(true);
+    if follow && conn.sub_opts(&s.id).is_none() {
+        return Err(RpcError::invalid_params("follow reads an attached chat: attach it first")
+            .with_data(json!({"reason": "rows.not_attached"})));
+    }
+    let (hub2, id, params) = (hub.clone(), s.id.clone(), params.clone());
+    let (reply, following) =
+        tokio::task::spawn_blocking(move || crate::rows::read(&hub2, &id, &params))
+            .await
+            .map_err(|e| RpcError::internal(format!("rows: {e}")))??;
+    if let Some(following) = following
+        && let Some(sub) = conn.subs.lock_or_recover().get_mut(&s.id)
+    {
+        sub.rows = Some(following);
+    }
+    Ok(reply)
 }
 
 /// `_acpmux/queue_text` (`hub/queue_text.rs`), out of `dispatch_request` and boxed there, so its
