@@ -1,0 +1,62 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43189764695",
+  "recorded_at": "2026-11-12T09:24:52Z",
+  "reason": "cmux-tui 956a479cd95f changes the image's cmux-tui (pinned 2b598b4ccd0f)",
+  "dry_run": false,
+  "cmux_tui": "956a479cd95f221a36617c152267ba566172f909",
+  "fixes": [
+    {
+      "sha": "956a479cd95f221a36617c152267ba566172f909",
+      "mergedAt": "2026-11-12T09:01:13Z",
+      "subject": "fix(daemon): git requests run on a bounded git lane, off the reader thread (#41304)"
+    },
+    {
+      "sha": "ced7d0211fbe4646e840ba5f230eacb879ac1dc3",
+      "mergedAt": "2026-11-12T00:57:30-08:00",
+      "subject": "test(input router): a page answers its offered keys soon, so offer mutants stay caught with Find the only page key"
+    },
+    {
+      "sha": "61913ad5dcf1fa24114e45592669183f0ac3c9db",
+      "mergedAt": "2026-11-12T00:57:30-08:00",
+      "subject": "test(browser keys): drop the unbound Shift-Cmd-E case; the fuzzer offers Find three keys in four; Before/After scenes"
+    },
+    {
+      "sha": "e2d1be8c0c91c25d17e2992c6399eaac33986e5a",
+      "mergedAt": "2026-11-12T00:57:30-08:00",
+      "subject": "test(input router): the fuzzer's page keys favor Find, the only keys a page now owns, so offer mutants stay caught"
+    },
+    {
+      "sha": "4f5751450ccd5bddec2751e70e7a937ec5180a94",
+      "mergedAt": "2026-11-12T00:57:30-08:00",
+      "subject": "fix(browser keys): cmux shortcuts run before a page unless browser focus mode is on"
+    },
+    {
+      "sha": "53ad8e8876e346b3b7f7bde582605c00610cc77f",
+      "mergedAt": "2026-11-12T00:57:30-08:00",
+      "subject": "test(browser keys): cmux shortcuts run before a Chromium page unless focus mode is on, failing first"
+    },
+    {
+      "sha": "d9a86be193712b111515be78bfb30aef47f1b4f6",
+      "mergedAt": "2026-11-12T00:57:16-08:00",
+      "subject": "Cloud: Share with Me grants chats through cmux-platform's chat-grants route (#40201)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T09:24:52Z",
+    "snapshot_id": "sh-743992f06a124045a7e5c71f43d436d6",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43189764695): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "a3112b203fe35916f40d3ec36b788767c66830e8",
+    "image": "cloud-native-auto-956a479c-43189764695-1",
+    "revision": "ci-43189764695-1",
+    "at": "2026-11-12T09:24:52Z"
+  },
+  "rolled_back": false
+}
