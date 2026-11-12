@@ -160,7 +160,6 @@
     "CmuxNextCloud": 1,
     "CmuxNextCompat": 10,
     "CmuxNextCrashReporting": 11,
-    "CmuxNextDaemon": 1,
     "CmuxNextDesign": 6,
     "CmuxNextFiles": 2,
     "CmuxNextFilesUI": 1,

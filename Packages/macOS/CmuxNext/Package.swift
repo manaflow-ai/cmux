@@ -2150,7 +2150,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextDaemon",
             dependencies: [ // sorted: scripts/cmux-next/check-package-dependency-lists.py
-                // CCmuxAppFFI: the control connection's rules (cmux-daemon-conn-core: heartbeat, request latency,
+                // CCmuxAppFFI: the control connection's rules (cmux-daemon-conn-core: heartbeat and
                 // command scope) and the launch rules (cmux-daemon-launch-core).
                 "CCmuxAppFFI",
                 "CmuxNextCompat",

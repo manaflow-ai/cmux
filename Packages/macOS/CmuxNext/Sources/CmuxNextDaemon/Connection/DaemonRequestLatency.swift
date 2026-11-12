@@ -1,4 +1,4 @@
-internal import CCmuxDaemonConnFFI
+import CmuxNextCompat
 
 /// The app's daemon-request probe: each request's time from its send to its reply (or its failure),
 /// in a fixed log-linear histogram, for the Austin's-day load scenario (scripts/cmux-next/austins-day,
@@ -13,10 +13,7 @@ internal import CCmuxDaemonConnFFI
 /// The local daemon's ``DaemonService`` owns one probe and puts it in its connections' configuration
 /// (``DaemonConnectionConfiguration/requestLatency``); each connection's transports record into it.
 /// Tests make their own.
-///
-/// The histogram is Rust's (`cmux_daemon_latency_*`, cmux-daemon-conn-core src/latency.rs).
-// crash-allow: the Rust probe is atomics only (record and snapshot are lock-free from any thread); the immutable handle is freed once, in deinit
-public final class DaemonRequestLatency: @unchecked Sendable {
+public final class DaemonRequestLatency: Sendable {
     /// How a request ended.
     public enum Outcome: Sendable {
         /// An `ok:true` reply.
@@ -27,45 +24,76 @@ public final class DaemonRequestLatency: @unchecked Sendable {
         case timedOut
     }
 
-    /// Every bucket: the bounded ones and the overflow bucket.
-    static let bucketCount = cmux_daemon_latency_bucket_count()
-
-    /// The upper bound of each bucket but the overflow one, in microseconds, rising (`latency_bounds`).
-    static let boundsMicroseconds: [UInt64] = {
-        let bounds = DaemonConnRules.call("latency_bounds")?["bounds_us"] as? [NSNumber]
-        return bounds?.map(\.uint64Value) ?? []
-    }()
-
-    private let probe: OpaquePointer?
-
-    public init() {
-        probe = cmux_daemon_latency_new()
+    /// One count per bucket (an atomic is not copyable, so each lives in its own object, made once).
+    private final class Counter: Sendable {
+        let value = Atomic<UInt64>(0)
     }
 
-    deinit {
-        cmux_daemon_latency_free(probe)
+    /// Lowest bound (the first bucket holds 0 ... 64 µs) and the powers of two above it.
+    static let firstBoundMicroseconds: UInt64 = 64
+    static let powers: UInt64 = 20
+    static let subBuckets: UInt64 = 4
+    /// Every bucket: the bounded ones and the overflow bucket.
+    static let bucketCount = 1 + Int(truncatingIfNeeded: powers * subBuckets) + 1
+
+    /// The upper bound of each bucket but the overflow one, in microseconds, rising.
+    static let boundsMicroseconds: [UInt64] = {
+        var bounds = [firstBoundMicroseconds]
+        for power in 0..<powers {
+            let base = firstBoundMicroseconds << power
+            let step = base / subBuckets
+            for sub in 1...subBuckets { bounds.append(base + step * sub) }
+        }
+        return bounds
+    }()
+
+    /// The bucket of a value: the smallest bound at or above it, or the overflow bucket.
+    static func bucket(microseconds value: UInt64) -> Int {
+        guard value > firstBoundMicroseconds else { return 0 }
+        // (64 << k, 64 << (k + 1)] holds `value`; `value - 1` puts each bound in its own bucket.
+        let below = value - 1
+        let highBit = UInt64(truncatingIfNeeded: UInt64.bitWidth - 1 - below.leadingZeroBitCount)
+        let power = highBit - UInt64(truncatingIfNeeded: firstBoundMicroseconds.trailingZeroBitCount)
+        guard power < powers else { return bucketCount - 1 }
+        let base = firstBoundMicroseconds << power
+        let sub = (below - base) / (base / subBuckets)
+        return Int(truncatingIfNeeded: 1 + power * subBuckets + sub)
+    }
+
+    private let buckets: [Counter]
+    private let errors = Atomic<UInt64>(0)
+    private let timeouts = Atomic<UInt64>(0)
+    private let maxMicroseconds = Atomic<UInt64>(0)
+
+    public init() {
+        buckets = (0..<Self.bucketCount).map { _ in Counter() }
     }
 
     /// Records one request that took `nanoseconds` from its send to its end.
     public func record(nanoseconds: UInt64, outcome: Outcome) { // perf-hot: 1us daemon-request (every app request to the daemon)
-        let code: UInt32 = switch outcome {
-        case .reply: 0
-        case .error: 1
-        case .timedOut: 2
+        let micros = nanoseconds / 1000
+        // `bucket` is below `bucketCount` by construction; `dropFirst` reads it without a trapping subscript.
+        buckets.dropFirst(Self.bucket(microseconds: micros)).first?.value.add(1, ordering: .relaxed)
+        switch outcome {
+        case .reply: break
+        case .error: errors.add(1, ordering: .relaxed)
+        case .timedOut: timeouts.add(1, ordering: .relaxed)
         }
-        cmux_daemon_latency_record(probe, nanoseconds, code)
+        var seen = maxMicroseconds.load(ordering: .relaxed)
+        while micros > seen {
+            let (exchanged, original) = maxMicroseconds.compareExchange(expected: seen, desired: micros, ordering: .relaxed)
+            if exchanged { break }
+            seen = original
+        }
     }
 
     /// The counts so far (each read is atomic; a request recorded during the read may be in some
     /// counts and not yet in others).
     public func snapshot() -> Snapshot {
-        var totals = CmuxDaemonLatencyTotals(errors: 0, timeouts: 0, max_us: 0)
-        var counts = [UInt64](repeating: 0, count: Self.bucketCount)
-        let written = counts.withUnsafeMutableBufferPointer { buffer in
-            cmux_daemon_latency_snapshot(probe, buffer.baseAddress, buffer.count, &totals)
-        }
-        return Snapshot(counts: Array(counts.prefix(written)), errors: totals.errors, timeouts: totals.timeouts,
-                        maxMicroseconds: totals.max_us)
+        Snapshot(counts: buckets.map { $0.value.load(ordering: .relaxed) },
+                 errors: errors.load(ordering: .relaxed),
+                 timeouts: timeouts.load(ordering: .relaxed),
+                 maxMicroseconds: maxMicroseconds.load(ordering: .relaxed))
     }
 
     /// A read of the probe.
@@ -80,12 +108,17 @@ public final class DaemonRequestLatency: @unchecked Sendable {
         public var boundsMicroseconds: [UInt64] { DaemonRequestLatency.boundsMicroseconds }
 
         /// The upper bound of the bucket that holds the `percent`th percentile (nearest rank, `percent`
-        /// from 1 to 100); the largest value seen when that is the overflow bucket; nil with no requests
-        /// (`latency_percentile`).
+        /// from 1 to 100); the largest value seen when that is the overflow bucket; nil with no requests.
         public func percentileMicroseconds(_ percent: UInt64) -> UInt64? {
-            let reply = DaemonConnRules.call("latency_percentile",
-                                             ["counts": counts, "max_us": maxMicroseconds, "percent": percent])
-            return (reply?["us"] as? NSNumber)?.uint64Value
+            let total = count
+            guard total > 0 else { return nil }
+            let rank = max(1, (min(percent, 100) * total + 99) / 100)
+            var seen: UInt64 = 0
+            for (bucketCount, bound) in zip(counts, boundsMicroseconds.map(Optional.some) + [nil]) {
+                seen += bucketCount
+                if seen >= rank { return bound ?? maxMicroseconds }
+            }
+            return maxMicroseconds
         }
     }
 }
