@@ -36,6 +36,10 @@ def _load_git_fixture_env():
 
 
 git_fixture_env = _load_git_fixture_env()
+# tests/process_gone.py by path, for the same reason.
+_process_gone_spec = importlib.util.spec_from_file_location("process_gone", Path(__file__).resolve().parent / "process_gone.py")
+process_gone = importlib.util.module_from_spec(_process_gone_spec)
+_process_gone_spec.loader.exec_module(process_gone)
 
 SOURCE = Path(__file__).resolve().parents[1]
 PKG = "Packages/macOS/CmuxNext"
@@ -182,6 +186,26 @@ class Fixture(unittest.TestCase):
 
 
 class RuleTests(Fixture):
+    def test_phone_width_reads_the_iphone_app_only(self):
+        tile = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileChief/Tiles.swift"
+        bad = ("import SwiftUI\nstruct Tiles: View {\n    var body: some View {\n"
+               "        LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3)) { EmptyView() }\n"
+               "        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())]) { EmptyView() }\n"
+               "        Color.clear.frame(width: 402)\n    }\n}\n")
+        good = ("import SwiftUI\nstruct Tiles: View {\n    var body: some View {\n"
+                "        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120, maximum: 160))]) { EmptyView() }\n"
+                "        // width-allow: a placeholder frame the representable resizes at layout\n"
+                "        Color.clear.frame(width: 402)\n    }\n}\n")
+        for path, text, refused in ((tile, bad, 3), (tile, good, 0),
+                                    ("Packages/iOS/CmuxTabsKit/Sources/CmuxTabsKit/Grid.swift", bad, 3),
+                                    (f"{KIT}/Tiles.swift", bad, 0)):
+            with self.subTest(path=path, refused=refused):
+                self.git("reset", "--quiet", "--hard", self.base)
+                self.write(path, text)
+                self.commit("tiles")
+                hits = [h for r, hs in self.check()[0] if r.id == "phone-width" for h in hs]
+                self.assertEqual(len(hits), refused, [h.text for h in hits])
+
     def test_raw_observation_is_allowed_in_the_tracked_wrappers_only(self):
         wrapper = "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/SingleArmedTracking.swift"
         self.git("reset", "--quiet", "--hard", self.base)
@@ -2664,7 +2688,7 @@ class HookTests(Fixture):
 
         self.addCleanup(stop)
         self.assertEqual(first.returncode, 0, first.stderr)
-        os.kill(detached, 0)  # the stand-in daemon outlived the install
+        self.assertTrue(process_gone.running(detached), "the stand-in daemon outlived the install")
         lock = os.open(hooks / "install.lock", os.O_RDONLY)
         try:
             try:

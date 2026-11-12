@@ -12,6 +12,8 @@ use std::time::Duration;
 pub(crate) mod exe_path;
 mod lock;
 #[cfg(unix)]
+mod log_cap;
+#[cfg(unix)]
 mod open_file_limit;
 #[cfg(unix)]
 use lock::live_holder_pid;
@@ -221,6 +223,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
     install_panic_log();
+    // Opt-in usage patterns (cmux-usage-patterns): counts nothing until the person turns on
+    // `diagnostics.usagePatterns`. Counts and kinds only, never prompt or tool text.
+    let _ = cmux_usage_patterns::install("acpmux");
     // Before the store, the sockets and any agent: launchd's soft limit is 256.
     #[cfg(unix)]
     open_file_limit::raise();
@@ -294,6 +299,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Record the held home before any startup write, and start its watcher immediately. The
     // watcher marks a replacement before the later startup and shutdown paths can write there.
     crate::config::hold_home();
+    // Its output file stays bounded: past the cap, this run starts a new one (`log_cap.rs`).
+    #[cfg(unix)]
+    match log_cap::rotate_at_start(&home().join("daemon.log"), log_cap::CAP) {
+        Ok(true) => {
+            tracing::info!("daemon.log was past {} MiB: moved to daemon.log.1", log_cap::CAP >> 20)
+        }
+        Ok(false) => {}
+        Err(e) => tracing::warn!("daemon.log could not be moved aside: {e:#}"),
+    }
     let startup_home_gone =
         tokio::spawn(home_watch::watch(owned_home.clone(), None, &home(), &socket_path()));
     let _startup_home_watch = AbortOnDrop(startup_home_gone.abort_handle());
@@ -535,7 +549,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             for (from, to) in
                 [(journal, "outbox.journal.clone-boot"), (path, "outbox.json.clone-boot")]
             {
-                if let Err(e) = std::fs::rename(&from, home().join(to))
+                if let Err(e) = crate::home_fs::rename(&from, home().join(to))
                     && e.kind() != std::io::ErrorKind::NotFound
                 {
                     tracing::warn!("copied machine's outbox not set aside: {e}");
@@ -659,15 +673,22 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
         None => None,
     };
-    // A re-bound socket's listener takes the old one's place (`daemon/socket_rebind.rs`).
-    #[cfg(unix)]
-    let (rebound_tx, rebound_rx) = tokio::sync::mpsc::channel(1);
-    #[cfg(unix)]
-    let unix = tokio::spawn(socket_rebind::serve(hub.clone(), unix_listener, rebound_rx));
-    #[cfg(not(unix))]
-    let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
+    // Debug builds only: `ACPMUX_TEST_DELAY_LOCAL_APP_MS` holds the daemon right before it makes
+    // this launch's LocalApp token, so a test can ask the unix socket in that window. Bounded;
+    // release builds have no seam.
+    #[cfg(debug_assertions)]
+    if let Some(ms) =
+        std::env::var("ACPMUX_TEST_DELAY_LOCAL_APP_MS").ok().and_then(|v| v.parse::<u64>().ok())
+    {
+        tokio::time::sleep(Duration::from_millis(ms.min(5_000))).await;
+    }
     // A new LocalApp token at every launch (`server/local_app.rs`), for the
     // app's bundled pane and an explicit `--allow-dev-origin` page only.
+    // Written before the unix socket serves: the app reads the WebSocket endpoint from
+    // `_acpmux/status` there and then this file, so a pane reconnecting the moment a restarted
+    // daemon answers read no token (or the previous launch's) and stayed remote-origin for its
+    // whole life (Leo, 2026-11-12: his own Claude chat refused on his own Mac). The peer token
+    // likewise, for a peer that reads it after asking this daemon.
     let local_app = if ws_listener.is_some() {
         let mut pages = vec![crate::server::AGENT_PANE_ORIGIN.to_owned()];
         // The validated `--allow-dev-origin` values (loopback http, a port).
@@ -696,6 +717,13 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     } else {
         None
     };
+    // A re-bound socket's listener takes the old one's place (`daemon/socket_rebind.rs`).
+    #[cfg(unix)]
+    let (rebound_tx, rebound_rx) = tokio::sync::mpsc::channel(1);
+    #[cfg(unix)]
+    let unix = tokio::spawn(socket_rebind::serve(hub.clone(), unix_listener, rebound_rx));
+    #[cfg(not(unix))]
+    let unix = tokio::spawn(crate::server::serve_unix(hub.clone(), unix_listener));
     let local_app_file = local_app.as_ref().map(|a| a.path().to_owned());
     let peer_file = peer.as_ref().map(|a| a.path().to_owned());
     let carrier_file = crate::server::carrier::start(&hub, &home()).await;
@@ -1052,7 +1080,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     if bound_socket.as_ref().map_or(!cfg!(unix), |s| s.lost().is_none()) {
         // The home watch runs on through the shutdown: this removal is not a loss.
         home_watch::release_socket();
-        let _ = std::fs::remove_file(socket_path());
+        let _ = crate::home_fs::remove_file(socket_path());
     }
     // How many hosted agents this shutdown kept running for the next
     // daemon; unknown (a timeout) counts as kept.
@@ -1093,9 +1121,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     }
     recheck_home();
     if !crate::config::home_lost() {
-        let _ = std::fs::remove_file(home().join("daemon.pid"));
+        let _ = crate::home_fs::remove_file(home().join("daemon.pid"));
         for file in [local_app_file, peer_file, carrier_file].into_iter().flatten() {
-            let _ = std::fs::remove_file(file);
+            let _ = crate::home_fs::remove_file(file);
         }
     }
     tracing::info!("stopped");
@@ -1106,7 +1134,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
 /// daemon bound: one replaced since is another daemon's. Off Unix there is no identity to read.
 fn remove_bound_socket(bound: Option<&home_watch::Owned>) {
     if bound.map_or(!cfg!(unix), |s| s.lost().is_none()) {
-        let _ = std::fs::remove_file(socket_path());
+        let _ = crate::home_fs::remove_file(socket_path());
     }
 }
 
@@ -1151,7 +1179,7 @@ fn narrow_to_owner(path: &std::path::Path) {
     let mode = meta.permissions().mode();
     if mode & 0o077 != 0
         && let Err(e) =
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode & 0o700))
+            crate::home_fs::set_permissions(path, std::fs::Permissions::from_mode(mode & 0o700))
     {
         tracing::warn!("could not make {} owner-only: {e}", path.display());
     }

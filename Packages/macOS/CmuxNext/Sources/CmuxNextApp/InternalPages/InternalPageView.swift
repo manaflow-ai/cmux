@@ -16,9 +16,10 @@ protocol InternalPageFocusing: NSView {
 /// that looks for the page (`content as? PageWebView`) finds it with or without
 /// a bar. The pane focuses `focusTarget` when the tab gets the keyboard; a
 /// click inside the page moves the responder within it as usual.
-final class InternalPageView: TitleRowHostView {
+final class InternalPageView: TitleRowHostView, PaneKeyResizeHeld {
     let key: String
     let page: InternalPageID
+    var holdsInKeyResize: Bool { page == .homeDock || page == .homeTab } // THE ONE STATED EXCEPTION to "pane content follows its pane in a key resize": the measured reason and the work that ends it are at `PaneKeyResizeHeld`
     let content: NSView
     /// The native bar above the content (below it, ``toolbarPosition``); it sets its own height.
     let topBar: NSView?
@@ -72,8 +73,8 @@ final class InternalPageView: TitleRowHostView {
         setAccessibilityIdentifier("cmux.page.\(page.rawValue)")
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+    override func layout() { PageWebView.clipChromiumFrame(of: content, in: self); super.layout() } // Chrome's frame line, clipped
 
     /// The view that takes the keyboard when the tab is focused: a native
     /// page's primary input (the docked Home's message box), a React page's

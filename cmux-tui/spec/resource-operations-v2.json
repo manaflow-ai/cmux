@@ -12734,6 +12734,19 @@
             "name": "decimal"
           },
           "description": "The history revision that history-changed carries."
+        },
+        "pending_kinds": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "HistoryKind"
+            },
+            "min_items": 1,
+            "max_items": 5
+          },
+          "description": "The asked kinds whose entries are not complete in this answer: the daemon's fold of the session journal did not reach the journal head inside the list's 2 s budget (a first read after a start on a large journal). entries holds what is folded so far. A caller that gets it asks again until the field is absent: each list folds for 2 s more, and the session's feed folds on between lists. history-changed of that kind says that more entries are folded, but it does not come when the rest of the journal changes no entry of that kind or when the session has no feed, so a caller must not wait for the event only. Omitted when every asked kind is complete; today only agent can be pending."
         }
       },
       "extra": false
@@ -30146,6 +30159,14 @@
             },
             "description": "Creates the rightward split as a scrolling viewport column with this fraction of the viewport width."
           },
+          "fit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Creates the split as a viewport column that shares the window: when the screen's columns fit the window, the new column takes an equal share and the others are scaled to fill the rest, so nothing scrolls sideways; on a screen that already scrolls, it opens at half the viewport width."
+          },
           "cwd": {
             "required": false,
             "type": {
@@ -30211,6 +30232,7 @@
         "constraints": [
           "ratio is finite and greater than 0 and less than 1.",
           "viewport_width requires direction right and is finite and greater than or equal to 0.1 and less than or equal to 1.",
+          "fit requires direction left or right and excludes viewport_width, ratio, row_height and around.",
           "cols and rows are paired.",
           "At most one of argv or shell is present; argv[0] is non-empty.",
           "focus defaults to false: a programmatic split never moves the user's focus unless it asks."

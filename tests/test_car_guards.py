@@ -566,5 +566,70 @@ class ToolsOutsideTheCar(unittest.TestCase):
         self.assertEqual(listed["guard:prepush"][2], "scripts/cmux-next/prepush-gate.py", "the car's own guard")
 
 
+class EntryTimeouts(unittest.TestCase):
+    """A busy runner makes a car's guards slower, never red on their own (cmux#41742's class).
+
+    Each case fakes a slow subprocess: a guard or test that sleeps past its limit, with the limits patched down to
+    seconds. A timed-out entry is retried once, alone, with a longer limit. If it times out again it fails the car
+    only when the car touches what it runs: a focused test always (the car's change selected it), a guard only
+    when the car changes the guard's folder; otherwise it warns naming the guard.
+    """
+
+    SLOW = "import time\ntime.sleep(30)\n"
+    PREPUSH = "scripts/cmux-next/prepush-gate.py"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.marker = Path(self.tmp.name) / "slow-once"
+        for patcher in (mock.patch.dict(car_guards.TIMEOUT, {"guard": 1, "python": 1}),
+                        mock.patch.object(car_guards, "RETRY_TIMEOUT", {"guard": 2, "python": 2}, create=True)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def slow_once(self) -> str:
+        return (f"from pathlib import Path\nimport time\nmarker = Path({str(self.marker)!r})\n"
+                "if not marker.exists():\n    marker.write_text('x')\n    time.sleep(30)\n")
+
+    def judge(self, base: dict[str, str], car: dict[str, str], kinds: set[str], python=()) -> dict:
+        """The verdict for a car that writes CAR over a tree of BASE, running only KINDS."""
+        root = repo(self.tmp.name, {"scripts/cmux-next/check-no-godfiles.sh": "exit 0\n", **base})
+        base_sha = git(root, "rev-parse", "HEAD")
+        write(root, car)
+        git(root, "add", "-A")
+        git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "car")
+        head = git(root, "rev-parse", "HEAD")
+        the_plan = {"files": sorted(car), "web": [], "native": [], "cargo": {"changed": False}, "swift": [],
+                    "unmapped": [], "python": [{"path": path, "lane": "linux-guard", "why": "changed"} for path in python]}
+        return car_guards.run(root, base_sha, head, "linux", the_plan, {}, kinds=kinds)
+
+    @staticmethod
+    def status(verdict: dict, name: str) -> str:
+        return {r["name"]: r["status"] for r in verdict["results"]}[name]
+
+    def test_a_guard_the_car_does_not_touch_warns_after_timing_out_twice(self):
+        verdict = self.judge({self.PREPUSH: self.SLOW}, {"README.md": "car\n"}, {"guard"})
+        self.assertEqual((verdict["status"], self.status(verdict, "guard:prepush")), ("pass", "warn"))
+        tail = next(r["tail"] for r in verdict["results"] if r["name"] == "guard:prepush")
+        self.assertIn("timed out", tail)
+        self.assertIn("does not touch scripts/cmux-next/", tail)
+
+    def test_a_timed_out_entry_is_retried_once_with_a_longer_limit(self):
+        verdict = self.judge({self.PREPUSH: self.slow_once()}, {"README.md": "car\n"}, {"guard"})
+        self.assertEqual((verdict["status"], self.status(verdict, "guard:prepush")), ("pass", "pass"))
+        self.assertTrue(self.marker.exists(), "the first run timed out")
+
+    def test_a_guard_the_car_changes_still_fails_after_timing_out_twice(self):
+        verdict = self.judge({self.PREPUSH: "import sys\nsys.exit(0)\n"}, {self.PREPUSH: self.SLOW}, {"guard"})
+        self.assertEqual((verdict["status"], self.status(verdict, "guard:prepush")), ("fail", "timeout"))
+
+    def test_a_focused_test_the_car_selected_still_fails_after_timing_out_twice(self):
+        verdict = self.judge({}, {"tests/test_slow.py": self.SLOW}, {"python"}, python=["tests/test_slow.py"])
+        self.assertEqual((verdict["status"], self.status(verdict, "python:tests/test_slow.py")), ("fail", "timeout"))
+
+    def test_a_real_failure_of_an_untouched_guard_still_fails(self):
+        verdict = self.judge({self.PREPUSH: "import sys\nsys.exit(1)\n"}, {"README.md": "car\n"}, {"guard"})
+        self.assertEqual((verdict["status"], self.status(verdict, "guard:prepush")), ("fail", "fail"))
+
 if __name__ == "__main__":
     unittest.main()
