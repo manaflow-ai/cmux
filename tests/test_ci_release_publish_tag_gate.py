@@ -124,8 +124,8 @@ def gated(expression: Any, policy: Policy) -> bool:
 RELEASE_PATH = re.compile(r"releases|/git/(tags|refs)|(^|/)tags(/|$)")
 
 
-def _options(values: str = "", flags: str = "") -> Options:
-    return Options(frozenset(values.split()), frozenset(flags.split()))
+def _options(values: str = "", flags: str = "", boolean_values: bool = False) -> Options:
+    return Options(frozenset(values.split()), frozenset(flags.split()), boolean_values)
 
 
 # Each tool's options before its subcommand (its --help): those that take a value, then those that take none. The
@@ -136,11 +136,11 @@ GH_RELEASE = _options("-R --repo", "-h --help")
 PACKAGE_MANAGERS = {
     "npm": _options("-w --workspace --registry --prefix -C --userconfig --loglevel --tag --access --otp --cache",
                     "-ws --workspaces -g --global -s --silent -q --quiet -d -dd --verbose --dry-run --provenance "
-                    "--ignore-scripts --include-workspace-root -y --yes --no-audit --no-fund -h --help"),
+                    "--ignore-scripts --include-workspace-root -y --yes --no-audit --no-fund -h --help", True),
     "pnpm": _options("-C --dir -F --filter --registry --tag --access --otp --reporter --loglevel "
                      "--workspace-concurrency",
                      "-r --recursive -w --workspace-root -s --silent --dry-run --no-git-checks --frozen-lockfile "
-                     "--provenance -h --help"),
+                     "--provenance -h --help", True),
     "yarn": _options("--cwd", "-s --silent --verbose -h --help"),
     "bun": _options("--cwd -c --config", "--silent -h --help"),
     "cargo": _options("--color --config -Z -C --explain",
@@ -150,7 +150,7 @@ PACKAGE_MANAGERS = {
 RUNS_SCRIPT = frozenset({"run", "run-script"})
 TWINE = _options(flags="--no-color -h --help --version")
 PYTHON = _options("-W -X", "-b -bb -B -d -E -h -i -I -O -OO -P -q -R -s -S -u -v -V -x")
-XCRUN = _options("--sdk --toolchain", "-v --verbose -l --log -n --no-cache -r --run -k --kill-cache")
+XCRUN = _options("--sdk --toolchain", "-v --verbose -l --log -n --no-cache -r --run -k --kill-cache -f --find")
 
 
 def subcommand(args: list[str], options: Options) -> tuple[str | None, list[str]]:
@@ -243,8 +243,9 @@ def publishing_command(words: list[str]) -> bool:
     if program == "productsign":
         return True
     if program == "xcrun":
-        if any(word in ("-f", "--find") for word in rest):
-            return False  # `xcrun --find TOOL` prints a path and runs nothing
+        index = first_operand(rest, XCRUN)
+        if index is not None and any(word in ("-f", "--find") for word in rest[:index]):
+            return False  # `xcrun --find TOOL` prints a path and runs nothing; a -f after TOOL is TOOL's own
         command, _ = subcommand(rest, XCRUN)
         return command == "notarytool" or (command is None and "notarytool" in rest)
     return False

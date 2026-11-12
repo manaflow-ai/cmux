@@ -39,6 +39,7 @@ commands, opens a heredoc or redirects. A heredoc terminator is an exact line fo
 """
 from __future__ import annotations
 
+import functools
 import re
 from typing import NamedTuple
 
@@ -267,7 +268,15 @@ def _read_expansion(text: str, in_double: bool) -> list[str] | None:
 
 def _body_subs(body: str) -> list[str] | None:
     """The scripts of the substitutions an unquoted heredoc body expands, at any depth of expansion, read by
-    shell_tree as a here-document; None if it cannot read one."""
+    shell_tree as a here-document; None if it cannot read one. Each body is read once (_read_body): _tree_subs
+    meets every arithmetic inside an outer one again in the outer body, so without it nested arithmetic is read
+    again at every level, 2^depth parses (a follow-up review of #41398)."""
+    found = _read_body(body)
+    return None if found is None else list(found)
+
+
+@functools.lru_cache(maxsize=4096)
+def _read_body(body: str) -> tuple[str, ...] | None:
     lines = body.split("\n")
     delimiter = "SHELL_INVOCATIONS_EOF"
     while delimiter in lines:
@@ -277,7 +286,8 @@ def _body_subs(body: str) -> list[str] | None:
         script = shell_tree.parse(source)
     except shell_tree.Unparsed:
         return None
-    return _tree_subs(source, [redirect.body for command in script.commands for redirect in command.redirects])
+    found = _tree_subs(source, [redirect.body for command in script.commands for redirect in command.redirects])
+    return None if found is None else tuple(found)
 
 
 def _bracket_close(text: str, index: int) -> int | None:
@@ -694,17 +704,16 @@ def _shell_script(words: list[Token], index: int) -> tuple[int | None, bool]:
                 certain = False
             i += 1
             continue
-        taken = False
-        for at, letter in enumerate(text[1:], start=1):
+        taken = 0
+        for letter in text[1:]:
             if letter in "cs":
                 return None, False  # `bash -c TEXT` runs TEXT; `bash -s` reads its script from stdin
             if letter in "oO":
                 certain = False
-                taken = at == len(text) - 1
-                break
-            if letter not in _SHELL_FLAGS:
+                taken += 1  # each o or O in a group takes the next word: `-eo pipefail`, `-oo errexit nounset`
+            elif letter not in _SHELL_FLAGS:
                 certain = False
-        i += 2 if taken else 1
+        i += 1 + taken
     if i >= len(words):
         return None, False  # no operand: the shell reads its script from stdin
     return i, certain
@@ -882,6 +891,9 @@ class Options(NamedTuple):
     `--package=X`) and those that take none. Short ones may cluster (`-vq`, `-Ro/r`)."""
     values: frozenset[str] = frozenset()
     flags: frozenset[str] = frozenset()
+    # A flag may take an explicit true or false as its next word, as npm's and pnpm's option parser (nopt) reads
+    # `--ignore-scripts true publish` (a follow-up review of #41398): that word is the flag's, never an operand.
+    boolean_values: bool = False
 
 
 def first_operand(args: list[str], options: Options) -> int | None:
@@ -898,7 +910,7 @@ def first_operand(args: list[str], options: Options) -> int | None:
         if word == "-" or not word.startswith("-"):
             return index
         if word in options.flags:
-            index += 1
+            index += 1 + _boolean_value(args, index + 1, options)
             continue
         if word in options.values:
             index += 2
@@ -916,8 +928,13 @@ def first_operand(args: list[str], options: Options) -> int | None:
             if option not in options.flags:
                 return None
         else:
-            index += 1
+            index += 1 + _boolean_value(args, index + 1, options)
     return len(args)
+
+
+def _boolean_value(args: list[str], index: int, options: Options) -> int:
+    """1 when ARGS[INDEX] is the explicit true or false a flag before it takes (Options.boolean_values), else 0."""
+    return int(options.boolean_values and index < len(args) and args[index] in ("true", "false"))
 
 
 # Past this many levels of one command running another, what it runs counts as unreadable.
@@ -950,23 +967,25 @@ def _nested(run: str, defined: set[str], depth: int, found: list[list[str]]) -> 
 
 
 def _shell_text(args: list[str]) -> str | None:
-    """The command text `bash -c TEXT` runs; None when the shell reads stdin or a script instead."""
-    index = 0
+    """The command text `bash -c TEXT` runs; None when the shell reads stdin or a script instead. bash reads all its
+    options first and the text is the first operand after them; each o or O in an option word takes the next word
+    (`-co errexit`, `-c -o errexit`, `-oc errexit`), and so do --rcfile and --init-file."""
+    index, text = 0, False
     while index < len(args):
         word = args[index]
         index += 1
-        if word.startswith("--") and word != "--":
+        if word in ("--", "-"):
+            break
+        if word.startswith("--"):
             index += 1 if word in ("--rcfile", "--init-file") else 0
             continue
         if word[:1] not in ("-", "+") or len(word) < 2:
-            return None
+            index -= 1
+            break
         letters = word[1:]
-        if word[0] == "-" and "c" in letters:
-            # bash reads its options first: the text is the first operand after them.
-            return next((later for later in args[index:] if later[:1] not in ("-", "+")), None)
-        if letters[-1:] in ("o", "O"):
-            index += 1
-    return None
+        text = text or word[0] == "-" and "c" in letters
+        index += letters.count("o") + letters.count("O")
+    return args[index] if text and index < len(args) else None
 
 
 def _word_token(text: str) -> Token:
