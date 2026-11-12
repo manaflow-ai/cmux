@@ -7,6 +7,7 @@
 // Gallery: agent-pane.one-fold-per-turn.
 import { afterEach, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
+import { backgroundTurnRowId } from "../src/agent-session/acpmux/conversation/backgroundTurns";
 import {
   NEXT_STEP,
   toggleTurnFold,
