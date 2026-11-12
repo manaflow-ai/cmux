@@ -2423,6 +2423,10 @@ mod list_web_page_tests;
 #[path = "ack_latency_bench.rs"]
 mod ack_latency_bench;
 
+#[cfg(all(test, unix))]
+#[path = "reader_bound_bench.rs"]
+mod reader_bound_bench;
+
 #[cfg(test)]
 #[path = "reply_size_tests.rs"]
 mod reply_size_tests;
