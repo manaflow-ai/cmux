@@ -668,20 +668,32 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     public func send(_ intent: AgentClientIntent) {
         guard let hub else { return }
         let session = JSONValue.string(sessionID)
+        if case .prompt(let text, let attachments, let steer, let promptID, let resend) = intent {
+            // Messages reach the Mac in the order they were sent: each waits for the one before
+            // it to be written (or held) before its own goes (an upload can take a while).
+            let sentAt = now()
+            let previous = promptChain
+            promptChain = Task { [weak self] in
+                await previous?.value
+                guard let self else { return }
+                let blocks: [JSONValue]
+                do {
+                    blocks = try await self.promptBlocks(text: text, attachments: attachments, hub: hub)
+                } catch {
+                    self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID,
+                                             reason: AcpmuxSessionSource.message(error)))
+                    return
+                }
+                await self.sendPrompt(HeldPrompt(text: text, attachments: attachments, promptID: promptID,
+                                                 steer: steer, resend: resend, blocks: blocks, at: sentAt))
+            }
+            return
+        }
         Task {
             do {
                 switch intent {
-                case .prompt(let text, let attachments, let steer, let promptID, let resend):
-                    let blocks: [JSONValue]
-                    do {
-                        blocks = try await self.promptBlocks(text: text, attachments: attachments, hub: hub)
-                    } catch {
-                        self.emit(.promptNotSent(text: text, attachments: attachments, promptID: promptID,
-                                                 reason: AcpmuxSessionSource.message(error)))
-                        return
-                    }
-                    self.sendPrompt(HeldPrompt(text: text, attachments: attachments, promptID: promptID,
-                                               steer: steer, resend: resend, blocks: blocks, at: self.now()))
+                case .prompt:
+                    break // sent above
                 case .retryFailedTurn:
                     _ = try await hub.request("_acpmux/retry", .object(["sessionId": session]))
                 case .cancel:
@@ -767,21 +779,23 @@ public final class AcpmuxSessionSource: AgentSessionSource {
     /// The clock prompts are aged on (tests inject one).
     var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
 
+    /// The last message's send, which the next one waits for (``send(_:)``).
+    private var promptChain: Task<Void, Never>?
+
     /// Sends a prompt now, or after the ones held before it (the Mac gets them in order).
-    private func sendPrompt(_ prompt: HeldPrompt) {
+    /// Returns once it is written or held; its answer is awaited apart.
+    private func sendPrompt(_ prompt: HeldPrompt) async {
         guard let hub else { return }
         if !heldPrompts.isEmpty || flushingHeld || !hub.isReady {
             hold(prompt)
             return
         }
         let params = Self.promptParams(prompt, session: sessionID)
-        Task { [weak self] in
-            do {
-                let (connection, id) = try await hub.submit("session/prompt", params)
-                await self?.awaitPromptReply(prompt, connection: connection, id: id)
-            } catch {
-                self?.promptFailed(prompt, error, written: false)
-            }
+        do {
+            let (connection, id) = try await hub.submit("session/prompt", params)
+            Task { [weak self] in await self?.awaitPromptReply(prompt, connection: connection, id: id) }
+        } catch {
+            promptFailed(prompt, error, written: false)
         }
     }
 
