@@ -258,6 +258,41 @@ fn start_launch(bundle_id: &str) -> DResult<mpsc::Receiver<LaunchResult>> {
 /// folder changes; while the first build runs, `None` (the caller refuses,
 /// fail-closed). Answers that needed LaunchServices are kept per name for
 /// ANSWER_TTL and tagged with the index generation they came from.
+/// Whether an app with this bundle id is installed (LaunchServices knows it).
+pub fn bundle_installed(bundle_id: &str) -> bool {
+    autoreleasepool(|_| {
+        let Ok(ws) = shared_workspace() else { return false };
+        let Some(id) = Cf::string(bundle_id) else { return false };
+        let id_obj: *const AnyObject = id.ptr().cast();
+        // SAFETY: -URLForApplicationWithBundleIdentifier: takes an NSString and
+        // returns nil or an NSURL.
+        let url: Option<Retained<AnyObject>> =
+            unsafe { msg_send![&*ws, URLForApplicationWithBundleIdentifier: id_obj] };
+        url.is_some()
+    })
+}
+
+/// The bundle ids `app` names for launch_app: itself when it is an installed
+/// bundle id, else the apps with that name ("Notes", "System Settings"),
+/// as the person sees them in the app folders, or as LaunchServices resolves
+/// the name. Empty when nothing matches.
+pub fn launch_targets(app: &str) -> Vec<String> {
+    let app = app.trim();
+    if app.is_empty() {
+        return Vec::new();
+    }
+    if bundle_installed(app) {
+        return vec![app.to_string()];
+    }
+    let name = app.strip_suffix(".app").unwrap_or(app);
+    match apps_named(name) {
+        Some(ids) if !ids.is_empty() => ids,
+        // The index is still being built, or knows no app of that name: ask
+        // LaunchServices directly.
+        _ => launch_services_id(name).into_iter().collect(),
+    }
+}
+
 pub fn apps_named(name: &str) -> Option<Vec<String>> {
     let key = name.trim().to_lowercase();
     if key.is_empty() {

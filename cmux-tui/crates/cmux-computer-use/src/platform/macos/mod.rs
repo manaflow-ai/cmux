@@ -417,8 +417,28 @@ impl Desktop for MacDesktop {
         actions::perform_action(self, window_id, element_id, action)
     }
 
+    fn launch_identities(&self, app_id: &str) -> DResult<Vec<String>> {
+        let ids = workspace::launch_targets(app_id);
+        if ids.is_empty() {
+            return Err(DesktopError::TargetNotFound(format!(
+                "no installed app has the bundle id or name {app_id:?}; list_apps shows the running ones"
+            )));
+        }
+        Ok(ids)
+    }
+
+    /// Starts the app `app_id` names: a bundle id, or an app's name as the
+    /// person sees it ("Notes"). A name that matches several apps is refused,
+    /// listing their bundle ids.
     fn launch_app(&self, app_id: &str) -> DResult<App> {
-        let a = workspace::launch(app_id)?;
+        let ids = self.launch_identities(app_id)?;
+        let [bundle_id] = ids.as_slice() else {
+            return Err(DesktopError::Unsupported(format!(
+                "{app_id:?} names several apps ({}); launch one by its bundle id",
+                ids.join(", ")
+            )));
+        };
+        let a = workspace::launch(bundle_id)?;
         Ok(App {
             id: a.id(),
             name: a.name,

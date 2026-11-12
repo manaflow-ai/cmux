@@ -248,7 +248,7 @@ pub static TOOLS: &[Tool] = &[
     Tool {
         name: "launch_app",
         access: Access::Act,
-        description: "Start an app by id (bundle id, executable or desktop id) without bringing it to the front where the platform allows. Returns its pid. When the task needs the app in front (shown to the person, frontmost) and the person allowed foreground input, act on one of its windows with delivery foreground, which raises it.",
+        description: "Start an app by id (bundle id, executable or desktop id; on macOS also its name, such as Notes) without bringing it to the front where the platform allows. Returns its pid. When the task needs the app in front (shown to the person, frontmost) and the person allowed foreground input, act on one of its windows with delivery foreground, which raises it.",
         schema: || obj(json!({"app_id": {"type": "string"}}), &["app_id"]),
     },
     Tool {
