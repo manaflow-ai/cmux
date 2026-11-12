@@ -636,18 +636,24 @@ export function createFollowChase(arm: FollowMotionArm): FollowChase {
       // A send's rows, or any move that raises the rows while a send's step plays, rise on the send
       // motion to that step's end (one motion with the bubble's entrance, `sendEase`).
       const sending = sent || (arrival?.sent === true && moved < 0);
+      // Joining a send's step keeps its progress: the rows' offset is rescaled to the share of the
+      // curve still to play, so the rise goes on at the bubble's pace instead of the curve's fast start.
+      const joining = timed && sending && arrival?.sent === true && arrival.at > 0;
+      const rest = joining ? 1 - arrival.ease(Math.min(1, arrival.at / arrival.duration)) : 0;
       arrival =
-        timed && sending
-          ? {
-              from: x,
-              at: 0,
-              duration: Math.max(1000 / 120, arrival?.sent ? (left ?? 0) : sendMsOf(node, scale)) / 1000,
-              ease: sendEase,
-              sent: true,
-            }
-          : timed && arrived && arrivalLook(node)
-            ? { from: x, at: 0, duration: arrivalStepMs(x, scale, left) / 1000, ease: arrivalEase, sent: false }
-            : undefined;
+        joining && rest > 1e-6
+          ? { ...arrival, from: x / rest }
+          : timed && sending
+            ? {
+                from: x,
+                at: 0,
+                duration: Math.max(1000 / 120, arrival?.sent ? (left ?? 0) : sendMsOf(node, scale)) / 1000,
+                ease: sendEase,
+                sent: true,
+              }
+            : timed && arrived && arrivalLook(node)
+              ? { from: x, at: 0, duration: arrivalStepMs(x, scale, left) / 1000, ease: arrivalEase, sent: false }
+              : undefined;
       draw();
       cancelRecheck();
       if (frame === undefined) {

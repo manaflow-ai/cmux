@@ -514,6 +514,30 @@ test("the thinking row landing during a send's rise joins it and keeps its end",
   expect(drawn()).toBe(0);
 });
 
+test("a move joining a send's rise stays on the bubble's clock: no second fast start", () => {
+  // Restarting the send curve from its steep start at the join played a second lurch while the
+  // bubble was already settling. Joined, the rest of the rise keeps the bubble's share left.
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn, pending } = fixture();
+  chase.shift(node, -60, Number.POSITIVE_INFINITY, false, false, true);
+  const joinAt = 8;
+  for (let index = 0; index < joinAt; index += 1) frame();
+  chase.shift(node, -20, 200);
+  const joined = drawn();
+  const share = (frames: number) =>
+    1 - bezierAt(MOTION_SEND_CURVE, Math.min(1, (frames * 1000) / 120 / MOTION_SEND_MS));
+  let frames = joinAt;
+  let worst = 0;
+  while (pending() > 0 && frames < 240) {
+    const at = frame();
+    frames += 1;
+    worst = Math.max(worst, Math.abs(at - (joined * share(frames)) / share(joinAt)));
+  }
+  // Restarted: 3.3 px off the bubble's pace; joined: 0.2 px.
+  expect(worst).toBeLessThanOrEqual(1);
+  expect(drawn()).toBe(0);
+});
+
 test("the reply draining while the turn's end fold plays: each frame of the two together keeps to the fold's bound", () => {
   // turn-transition-jumps `thought-text` end: the fold's first frame (11.5 px of a 43 px fold on the
   // settle) and the drain chase's (3.8 px of the reply's last line) moved the rows 15.3 px in one
