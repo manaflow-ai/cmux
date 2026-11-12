@@ -45,6 +45,11 @@ const indexOf = (row: HTMLElement) => Number(row.getAttribute("aria-posinset"));
 /// Whether `row` plays an animation of its own now (its subtree's are not its translate's).
 const animating = (row: HTMLElement) => row.getAnimations?.().some((each) => each.playState === "running") ?? false;
 
+/// PROBE (not for merge): why a ride gave way, for the test to print.
+export const why = (reason: string) => {
+  (globalThis as { __foldRideWhy?: string[] }).__foldRideWhy?.push(reason);
+};
+
 export type FoldRideOptions = {
   /// The height the transcript placed `row` at (its drawn height in the last render), if any.
   placed: (row: HTMLElement) => number | undefined;
@@ -91,17 +96,21 @@ export class FoldRide {
   /// Places the rows under the folding `targets` (rows the ResizeObserver reported) by translate.
   /// False when the transcript must render instead; the ride has then let go of every row.
   ride(targets: readonly HTMLElement[]): boolean {
-    if (targets.length === 0) return false;
+    if (targets.length === 0) return (why("no targets"), false);
     const scroller = targets[0]!.closest<HTMLElement>(".acpmux-scroll");
-    if (!scroller) return this.release();
+    if (!scroller) return this.release("no scroller");
     const view = scroller.getBoundingClientRect();
     for (const target of targets) {
-      if (!target.isConnected || !heightFoldInFlight(target)) return this.release();
-      if (this.landed.get(target) === heightFoldUntil(target)) return this.release();
+      why(
+        `numbers: target ${target.dataset.rowId} connected ${target.isConnected} folding ${heightFoldInFlight(target)} top ${Math.round(target.getBoundingClientRect().top)} viewTop ${Math.round(view.top)} placed ${this.options.placed(target)} height ${this.options.height(target)}`,
+      );
+      if (!target.isConnected || !heightFoldInFlight(target))
+        return this.release("target not connected or not folding");
+      if (this.landed.get(target) === heightFoldUntil(target)) return this.release("target landed by input");
       const placed = this.options.placed(target);
       const height = this.options.height(target);
-      if (placed === undefined || height === undefined) return this.release();
-      if (target.getBoundingClientRect().top < view.top - 0.5) return this.release();
+      if (placed === undefined || height === undefined) return this.release("target has no placed or drawn height");
+      if (target.getBoundingClientRect().top < view.top - 0.5) return this.release("target top above the view");
       this.folds.set(target, height - placed);
     }
     for (const fold of this.folds.keys()) if (!fold.isConnected) this.folds.delete(fold);
@@ -109,12 +118,12 @@ export class FoldRide {
     const total = folds.reduce((sum, fold) => sum + fold.delta, 0);
     // A close must leave the view inside the scroll range it ends with, or the offset clamps then.
     if (total < 0 && scroller.scrollTop + scroller.clientHeight > scroller.scrollHeight + total + 0.5)
-      return this.release();
+      return this.release("close ends the scroll range above the view");
     const rows = siblingRows(targets[0]!);
     const shiftOf = (index: number) => folds.reduce((sum, fold) => (fold.index < index ? sum + fold.delta : sum), 0);
     const held = this.options.held?.();
     const heldRow = held?.toggle.closest<HTMLElement>(".acpmux-row");
-    if (heldRow && Math.abs(shiftOf(indexOf(heldRow))) >= 0.01) return this.release();
+    if (heldRow && Math.abs(shiftOf(indexOf(heldRow))) >= 0.01) return this.release("held line in a moved row");
     // The last mounted row must reach past the view's end both where the transcript placed it and
     // where it rides to. Otherwise a close would show rows the virtualizer has not mounted, or the
     // transcript's end is in view, which the transcript places itself: the bottom pinned while a
@@ -123,20 +132,25 @@ export class FoldRide {
     for (const each of rows) if (!last || each.index > last.index) last = each;
     // Rows mounted outside the run (a margin drag's selection holds them) leave unmounted rows
     // between: the last of them says nothing of what a move shows.
-    if (last && last.index - Math.min(...rows.map((each) => each.index)) + 1 !== rows.length) return this.release();
-    if (!last) return this.release();
+    if (last && last.index - Math.min(...rows.map((each) => each.index)) + 1 !== rows.length)
+      return this.release("rows mounted outside the run");
+    if (!last) return this.release("no last row");
     // Its box includes the translate it wears now.
     const worn = parseFloat(last.node.style.translate.split(" ")[1] ?? "") || 0;
     const placedBottom = last.node.getBoundingClientRect().bottom - worn;
     const reach = Math.min(placedBottom, placedBottom + shiftOf(last.index));
-    if (reach < view.bottom) return this.release();
+    why(
+      `numbers: reach ${Math.round(reach)} viewBottom ${Math.round(view.bottom)} viewHeight ${Math.round(view.height)} last ${last.index} of ${last.node.getAttribute("aria-setsize")} total ${Math.round(total)} scrollTop ${Math.round(scroller.scrollTop)} client ${scroller.clientHeight} scrollHeight ${scroller.scrollHeight} rows ${rows.length}`,
+    );
+    if (reach < view.bottom) return this.release("last row does not reach the view's end");
     // The transcript's last row within a screen of the view's end: the end's room and its hold on
     // the latest row are the transcript's to place.
     if (Number(last.node.getAttribute("aria-setsize")) === last.index && reach < view.bottom + view.height)
-      return this.release();
+      return this.release("transcript end within a screen");
     // A row still playing its own animation (a live row's entry) may set its translate itself, over
     // the one the ride would write: the transcript places the rows while it plays.
-    if (rows.some(({ node, index }) => Math.abs(shiftOf(index)) >= 0.01 && animating(node))) return this.release();
+    if (rows.some(({ node, index }) => Math.abs(shiftOf(index)) >= 0.01 && animating(node)))
+      return this.release("a moved row animates");
     // A folding row rides the folds above it too (its own change is not in its shift): two folds in
     // flight at once would otherwise overlap while the upper one plays.
     for (const { node, index } of rows) {
@@ -152,7 +166,9 @@ export class FoldRide {
     for (const [node, delta] of this.folds)
       if (node.dataset.rowId !== undefined) this.shown.push({ id: node.dataset.rowId, at: indexOf(node), delta });
     // A fold above the held line in its own row moves it with no shift of its row: measured.
-    if (held && Math.abs(held.toggle.getBoundingClientRect().top - held.top) >= 0.5) return this.release();
+    if (held && Math.abs(held.toggle.getBoundingClientRect().top - held.top) >= 0.5)
+      return this.release("held line moved");
+    why("rode");
     this.watch(scroller.ownerDocument.defaultView);
     return true;
   }
@@ -207,7 +223,8 @@ export class FoldRide {
   }
 
   /// Lets every row go (no translate) and forgets the folds. Returns false, for `ride`'s callers.
-  release(): false {
+  release(reason?: string): false {
+    if (reason) why(`gave way: ${reason}`);
     if (this.moved.size) {
       this.handed = this.shown;
       this.handedOn = this.options.drawn?.();

@@ -232,7 +232,28 @@ await requireBrowserLane("chat-fold-frame-budget-browser.test.ts", async () => {
         await cdp.send("Profiler.setSamplingInterval", { interval: 100 });
         await cdp.send("Profiler.start");
       }
+      await page.evaluate(() => void ((globalThis as { __foldRideWhy?: string[] }).__foldRideWhy = []));
       costs.push(await measureToggle(page, label, clicker(page, selector, nth), () => settle(page), cdp));
+      const whys = await page.evaluate(() => (globalThis as { __foldRideWhy?: string[] }).__foldRideWhy ?? []);
+      const counts = new Map<string, number>();
+      const rowRenders = await page.evaluate(() =>
+        [...((window as unknown as { __acpmuxPerf?: { renders: Map<string, number> } }).__acpmuxPerf?.renders ?? [])]
+          .filter(([key]) => key.startsWith("row:") || key.startsWith("content:"))
+          .map(([key, count]) => `${key}=${count}`)
+          .join(" "),
+      );
+      if (label.includes("Show more")) console.log(`WHYR ${name} ${turns * 10} rows ${label}: ${rowRenders}`);
+      for (const each of whys)
+        if (!each.startsWith("numbers:") && !each.startsWith("observer:"))
+          counts.set(each, (counts.get(each) ?? 0) + 1);
+      console.log(
+        `WHY ${name} ${turns * 10} rows ${label}: ${[...counts].map(([key, count]) => `${count} x ${key}`).join("; ") || "no ride call"}`,
+      );
+      if (label.includes("Show more") || label.includes("the step") || label.includes("Ran 10"))
+        for (const each of whys
+          .filter((each) => each.startsWith("numbers:") || each.startsWith("observer:"))
+          .slice(0, 40))
+          console.log(`WHYN ${name} ${turns * 10} rows ${label}: ${each}`);
       if (profile) {
         const { profile: data } = (await cdp.send("Profiler.stop")) as unknown as {
           profile: {

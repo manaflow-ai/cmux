@@ -104,7 +104,7 @@ import {
 } from "./conversation/bareReferences";
 import { stopReadingAloud } from "./conversation/readAloud";
 import { heightFoldInFlight, heightFoldPlaying, settleFoldsIn } from "./conversation/fold";
-import { FoldRide } from "./conversation/foldRide";
+import { FoldRide, why as foldWhy } from "./conversation/foldRide";
 import { deliberateClick } from "./conversation/useAnchoredCollapse";
 import { isRegroupHold } from "./conversation/keepOpenedLineModel";
 import {
@@ -2286,6 +2286,9 @@ function TranscriptView({
             // A ride that gives way below takes its translates off now: the rows go to their places
             // before this frame paints too, not in a batch after it.
             const rode = foldRide.current!.riding;
+            foldWhy(
+              `observer: ${targets.length} targets [${targets.map((each) => each.dataset.rowId).join(",")}] changes ${changesDrawn(drawnRef.current, pendingDrawn.current)}`,
+            );
             if (!changesDrawn(drawnRef.current, pendingDrawn.current)) {
               pendingDrawn.current = new Map();
               // Back at their placed heights: a ride keeps no translate for a change undone.
@@ -2298,7 +2301,9 @@ function TranscriptView({
             else if (
               !followingRef.current && !bottomStackFold.current
                 ? foldRide.current!.ride(targets)
-                : foldRide.current!.release()
+                : foldRide.current!.release(
+                    followingRef.current ? "the view follows the end" : "a bottom stack fold plays",
+                  )
             )
               return;
             // A reader scrolled up keeps the batch only while the row that changed is out of sight:
