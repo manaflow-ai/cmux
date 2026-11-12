@@ -63,6 +63,9 @@ from typing import Any, Iterable
 
 import yaml
 
+sys.path.append(str(Path(__file__).resolve().parents[2] / "tests"))
+import workflow_jobs  # noqa: E402 - tests/workflow_jobs.py, the one reader of a job's runs-on
+
 ROOT = Path(__file__).resolve().parents[2]
 MAP_PATH = ROOT / ".github" / "runners.json"
 WORKFLOWS = ROOT / ".github" / "workflows"
@@ -377,7 +380,7 @@ def picked(job: dict[str, Any]) -> bool:
     through the matrix key it reads). Otherwise every run waits on the same label: a literal, a
     repository variable or a capability-map key."""
     strategy = job.get("strategy") if isinstance(job.get("strategy"), dict) else {}
-    return _picked_value(job.get("runs-on", ""), strategy)
+    return _picked_value(workflow_jobs.runs_on_items(job), strategy)
 
 
 class RoutingTableError(RuntimeError):
@@ -428,7 +431,7 @@ MAP_CAPABILITY = re.compile(r"outputs\.map\)\.([a-z0-9_]+)")
 
 
 def routes_to_macos(job: dict[str, Any]) -> bool:
-    runs_on = json.dumps(job.get("runs-on", ""))
+    runs_on = json.dumps(workflow_jobs.runs_on(job))
     # A job wired to the capability map names its capability key.
     capabilities = MAP_CAPABILITY.findall(runs_on)
     if capabilities and runs_on.count("${{") == 1:
@@ -449,7 +452,7 @@ def iter_jobs(workflows: Path = WORKFLOWS) -> Iterable[tuple[Job, bool]]:
             # visits in the callee's own file.
             if not isinstance(job, dict) or "uses" in job:
                 continue
-            yield Job(path.name, str(job_id), json.dumps(job.get("runs-on", "")), picked(job)), routes_to_macos(job)
+            yield Job(path.name, str(job_id), json.dumps(workflow_jobs.runs_on(job)), picked(job)), routes_to_macos(job)
 
 
 
@@ -598,8 +601,9 @@ def hosted_light_policy(map_path: Path = MAP_PATH, workflows: Path = WORKFLOWS) 
                     or name != "portable-placement"):
                 problems.append(f"portable_light_jobs[{key!r}] must be a secretless read-only placement bootstrap")
                 continue
-            route = job.get("runs-on", "")
-            expressions = EXPRESSION.findall(route) if isinstance(route, str) else []
+            items = workflow_jobs.runs_on_items(job)
+            route = items[0] if len(items) == 1 and isinstance(items[0], str) else ""
+            expressions = EXPRESSION.findall(route)
             if len(expressions) != 1:
                 problems.append(f"hosted_light_jobs[{key!r}] must use an explicit attempt-aware runner expression")
                 continue

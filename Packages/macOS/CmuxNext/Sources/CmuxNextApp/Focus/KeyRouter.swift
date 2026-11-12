@@ -337,7 +337,7 @@ final class KeyRouter: BrowserKeyRouting {
     /// Printable keys typed before a page could take them, and the page
     /// (focus, readiness id) they wait for and one delivering now.
     var typeAhead = TypeAheadQueue()
-    var typeAheadFocus: FocusState.Resolved?
+    var typeAheadFocus: TypeAheadWait?
     var deliveringTypeAhead: String?
     var typeAheadTail = TypeAheadTail<HeldTypeAheadKey>() // Return and the keys after it, waiting behind a page's queued text
     /// The New Tab action owns this buffer before a cold page has a readiness object.
@@ -393,7 +393,7 @@ final class KeyRouter: BrowserKeyRouting {
 
     /// `window`'s focus settled: a chord armed there in another focus ends.
     func focusDidSettle(_ focus: FocusState, in window: NSWindow?) {
-        typeAheadFocusDidSettle(focus.resolved)
+        typeAheadFocusDidSettle(focus.resolved, in: window)
         newTabInputCoordinator.flush(in: window)
         creationInputCoordinator.focusDidSettle(in: window)
         guard chords.isPending, let window, chords.focusDidChange(to: focus.resolved, in: ObjectIdentifier(window)) else { return }
