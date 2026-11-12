@@ -13,6 +13,10 @@ import unittest
 from pathlib import Path
 
 import yaml
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import workflow_jobs  # noqa: E402
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -28,8 +32,9 @@ class Bash32LinuxJobTests(unittest.TestCase):
     def test_job_runs_on_linux_and_keeps_its_name(self) -> None:
         bash32 = job()
         self.assertEqual(bash32["name"], "scripts/ci parse under /bin/bash 3.2")
-        self.assertIn("ubuntu", bash32["runs-on"])
-        self.assertNotIn("macos", bash32["runs-on"])
+        runs_on = workflow_jobs.single_runs_on(bash32)
+        self.assertIn("ubuntu", runs_on)
+        self.assertNotIn("macos", runs_on)
 
     def test_build_is_pinned_to_the_macos_release(self) -> None:
         text = BUILD.read_text(encoding="utf-8")

@@ -755,7 +755,27 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
         followDraggedKeyboard(true)
     }
 
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { followDraggedKeyboard(false) }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        followDraggedKeyboard(false)
+        #if DEBUG
+        if decelerate, Self.jumpsMidFling { jumpMidFling() }
+        #endif
+    }
+
+    #if DEBUG
+    /// `-cmux-mobile-jump-mid-fling` (AgentJumpDuringMomentumUITests): a fling's release taps Jump to
+    /// bottom 120 ms later, while the transcript still glides. A UI test's own tap waits for the app
+    /// to go idle, so it only lands once the fling has stopped and never sees the momentum.
+    static let jumpsMidFling = ProcessInfo.processInfo.arguments.contains("-cmux-mobile-jump-mid-fling")
+
+    private func jumpMidFling() {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(120))
+            guard let self, self.scrollView.isDecelerating else { return }
+            self.surface.scrollToBottom()
+        }
+    }
+    #endif
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let y = scrollView.contentOffset.y
@@ -792,6 +812,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     func scrollTranscript(toTop: Bool, animated: Bool) {
+        stopReaderScroll()
         endFoldHold(force: true)
         surface.following = !toTop
         view.layoutIfNeeded()
@@ -802,6 +823,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     static let findBarClearance: CGFloat = 64
 
     func scrollTranscript(toContentY y: CGFloat, animated: Bool) {
+        stopReaderScroll()
         endFoldHold(force: true)
         surface.following = false
         view.layoutIfNeeded()
@@ -849,6 +871,7 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
     }
 
     func revealFindBlock(_ findBlock: String, position: Double, animated: Bool) {
+        stopReaderScroll()
         let id = ChatTranscriptList.rowID(findBlock: findBlock)
         list.layOutNow(id)
         view.layoutIfNeeded()
@@ -890,6 +913,22 @@ final class ChatTranscriptController: UIViewController, UIScrollViewDelegate, Ch
             UIView.animate(springDuration: 0.4, bounce: 0) { self.scrollView.contentOffset = target }
         } else {
             scrollView.contentOffset = target
+        }
+    }
+
+    /// A jump ends the reader's own scroll first, before its layout pass. Writing
+    /// `contentOffset` does not stop a fling: Jump to bottom tapped while the transcript still
+    /// glided up was placed at the bottom, then the deceleration carried on from there, marked
+    /// the reader as away again and left them short of the bottom (Leo, iPhone, 2026-11-12). `setContentOffset(_:animated:)` stops the deceleration, and
+    /// cycling the pan ends a drag a second finger still holds, as the terminal's jump does.
+    private func stopReaderScroll() {
+        if scrollView.isTracking || scrollView.isDragging {
+            let pan = scrollView.panGestureRecognizer
+            pan.isEnabled = false
+            pan.isEnabled = true
+        }
+        if scrollView.isDecelerating {
+            scrollView.setContentOffset(scrollView.contentOffset, animated: false)
         }
     }
 

@@ -198,7 +198,7 @@ select_zig_for_target() {
   local candidate=""
   local canonical=""
   local arch=""
-  for candidate in "${candidates[@]}"; do
+  for candidate in ${candidates[@]+"${candidates[@]}"}; do
     [[ -x "$candidate" ]] || continue
     canonical="$(cd "$(dirname "$candidate")" && pwd)/$(basename "$candidate")"
     [[ "$seen" == *" $canonical "* ]] && continue
