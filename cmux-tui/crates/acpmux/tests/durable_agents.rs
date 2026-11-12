@@ -25,6 +25,8 @@ mod grant_cleared;
 mod idle_adopted;
 #[path = "durable_agents/late_hello_adoption.rs"]
 mod late_hello_adoption;
+#[path = "durable_agents/lost_link_turn.rs"]
+mod lost_link_turn;
 #[path = "durable_agents/queue_edit_parts.rs"]
 mod queue_edit_parts;
 #[path = "durable_agents/queue_restore.rs"]
@@ -374,11 +376,28 @@ fn make_fifo(path: &Path) {
 
 fn alive(pid: i64) -> bool {
     // SAFETY: signal 0 only checks existence.
-    unsafe { libc::kill(pid as i32, 0) == 0 }
+    let exists = unsafe { libc::kill(pid as i32, 0) == 0 };
+    exists && !ended(pid)
 }
 
-/// Whether `pid` is gone within `within` (an ended process group needs a
-/// moment to be reaped by launchd once its host exits).
+/// Whether `pid` has ended but is still in the process table: exiting (macOS `ps` state `E`) or
+/// a zombie no parent reaped yet (`Z`; `X` on Linux). A killed process whose parent is gone waits
+/// for launchd to run its exit and reap it, which takes seconds on a loaded Mac: that is the
+/// OS's reaper, not the product (the full-run failure "its MCP server outlived the hibernation").
+fn ended(pid: i64) -> bool {
+    let Ok(out) =
+        std::process::Command::new("ps").args(["-o", "stat=", "-p", &pid.to_string()]).output()
+    else {
+        return false;
+    };
+    let stat = String::from_utf8_lossy(&out.stdout);
+    let stat = stat.trim();
+    stat.starts_with('Z')
+        || stat.starts_with('X')
+        || (cfg!(target_os = "macos") && stat.contains('E'))
+}
+
+/// Whether `pid` is gone within `within`: exited, or exiting with no way back (`ended`).
 fn gone_within(pid: i64, within: Duration) -> bool {
     let deadline = Instant::now() + within;
     while alive(pid) {
@@ -986,6 +1005,20 @@ async fn backgrounds_work(daemon: &Daemon, session: &str) -> Value {
     entry["_meta"]["acpmux"]["backgroundsWork"].clone()
 }
 
+/// Waits (test polling) until the chat's `backgroundsWork` is true: a host whose kind answer
+/// came after the daemon's budget decides it when that answer comes, not at adoption.
+async fn until_backgrounds_work(daemon: &Daemon, session: &str, what: &str) {
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let now = backgrounds_work(daemon, session).await;
+        if now == true {
+            return;
+        }
+        assert!(Instant::now() < deadline, "{what}: the chat hides Ctrl-B ({now})");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 /// With the daemon down: the chat as a build that never saved its agent left it (no `agentInfo`),
 /// and the `cmux` profile now of `kind`. A `kind` other than Claude Code's, with no saved agent,
 /// leaves only the host's own answer to say the chat moves its work.
@@ -1003,6 +1036,37 @@ fn set_router_kind(daemon: &Daemon, kind: &str) {
     let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
     config["harnesses"]["cmux"]["kind"] = json!(kind);
     std::fs::write(&path, config.to_string()).unwrap();
+}
+
+/// A Claude Code host whose kind answer comes after the daemon's budget: on a loaded Mac it sits
+/// behind a replay the inbound loop did not drain in time (`ACPMUX_TEST_HOST_KIND_LATE` stands
+/// for that, with no load). The answer still decides Ctrl-B when it comes. Before, the
+/// late answer was dropped and the chat, whose profile reads as ACP, hid Ctrl-B until its next
+/// prompt (the full-run failure of the long-backlog test below on a loaded gate host).
+#[tokio::test]
+async fn a_claude_host_that_answers_its_kind_late_still_shows_ctrl_b() {
+    let mut daemon = Daemon::claude_router("kind-late", &[]);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "fg-shell"}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "the foreground shell", |e| {
+        e["msg"]["params"]["update"]["toolCallId"] == "toolu_fg"
+    });
+    daemon.sigterm();
+    drop(client);
+    forget_agent_and_set_router_kind(&daemon, &session, "acp");
+    daemon.env.push(("ACPMUX_TEST_HOST_KIND_LATE".into(), "1".into()));
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    until_backgrounds_work(&daemon, &session, "the host's late kind answer was dropped").await;
+    let mut rpc = daemon.rpc().await;
+    let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
+    assert_eq!(moved, json!({"backgrounded": true}));
 }
 
 /// A Claude Code host that streamed a long backlog while no daemon ran: the next daemon adopts it,
@@ -1035,11 +1099,9 @@ async fn a_claude_host_with_a_long_backlog_is_adopted_and_its_state_query_answer
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
     until_turn_restored(&daemon, &session).await;
-    assert_eq!(
-        backgrounds_work(&daemon, &session).await,
-        true,
-        "the adopted host's state query went unanswered: the chat hides Ctrl-B"
-    );
+    // On a loaded Mac the answer comes after the daemon's budget: it decides when it comes.
+    until_backgrounds_work(&daemon, &session, "the adopted host's state query went unanswered")
+        .await;
     let mut rpc = daemon.rpc().await;
     let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
     assert_eq!(moved, json!({"backgrounded": true}));
@@ -3201,8 +3263,18 @@ async fn a_report_of_an_agent_mdm_ended_leaves_the_next_agent_alone() {
     let later = json!({"sessionId": session,
                        "prompt": [{"type": "text", "text": "set-mode-after: 100 full-access"}]});
     rpc.call("session/prompt", later).await;
-    let first_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    // The report is in the log before the inbound loop holds it (`ACPMUX_TEST_UPDATE_DELAY_MS`).
+    daemon.wait_event(&session, "the full-access report", |e| {
+        e["dir"] == "in"
+            && e["kind"] == "current_mode_update"
+            && e["msg"]["params"]["update"]["currentModeId"] == "full-access"
+    });
+    // The agent that reported, from the log: its host record is gone once the held report ends
+    // it, 2 s after the report reached the inbound loop, which a loaded host passes before a
+    // read of the record (the full-run failure "host record: NotFound").
+    let events = daemon.events(&session);
+    let started = events.iter().rev().find(|e| e["kind"] == "host_started");
+    let first_pid = started.and_then(|e| e["msg"]["hostPid"].as_i64()).expect("host_started");
     // The next prompt ends the agent that reported full access and starts another.
     let next = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
     let answered = rpc.reply("session/prompt", next.clone()).await;
@@ -3215,7 +3287,7 @@ async fn a_report_of_an_agent_mdm_ended_leaves_the_next_agent_alone() {
     // No record: the next agent already ended.
     let record = std::fs::read(daemon.home.join("hosts").join(format!("{session}.json")));
     let record: Value = serde_json::from_slice(&record.unwrap_or_default()).unwrap_or_default();
-    let next_pid = record["harness_pid"].as_i64();
+    let next_pid = record["host_pid"].as_i64();
     assert!(next_pid.is_some(), "the ended agent's late report ended the agent after it");
     let next_pid = next_pid.unwrap();
     assert_ne!(next_pid, first_pid);

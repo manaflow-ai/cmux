@@ -11,7 +11,9 @@
 set -euo pipefail
 app="build-universal/Build/Products/Release/cmux.app"
 toolchain="$(sed -n 's/^channel = "\(.*\)"$/\1/p' cmux-tui/rust-toolchain.toml)"
-rustup toolchain install "$toolchain" --profile minimal
+# shellcheck source=scripts/lib/rust-targets.sh
+source scripts/lib/rust-targets.sh
+ensure_rust_toolchain "$toolchain" --profile minimal
 # Only the slices a variant ships: nightly-next and fast builds are arm64.
 archs="${HELPER_ARCHS}"
 RUSTUP_TOOLCHAIN="$toolchain" ./scripts/build-cmux-cua.sh \

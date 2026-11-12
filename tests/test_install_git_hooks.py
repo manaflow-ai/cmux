@@ -1052,10 +1052,6 @@ mkdir -p node_modules/.bin
         self.assertEqual(installed_driver.read_bytes(), reviewed)
         self.assertNotEqual(installed_driver.resolve(), (self.repo / "scripts" / "merge-pbxproj.py").resolve())
 
-    def commit_all(self, message):
-        self.git("add", "-A")
-        self.git("commit", "--quiet", "-m", message)
-
     def test_generated_web_bundles_keep_ours_and_sources_still_conflict(self):
         shutil.copyfile(SOURCE / ".gitattributes", self.repo / ".gitattributes")
         self.git("config", "user.name", "t")

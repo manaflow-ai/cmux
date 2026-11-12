@@ -120,6 +120,7 @@ rows=(
   "1e|web/data/cmux-shortcuts.generated.json|1|1|out"
   "1e1|web/data/next-docs/cli-reference.generated.json|1|1|none"
   "1e1|web/data/next-docs/settings-reference.generated.json|1|1|none"
+  "1e1'|web/data/next-docs/settings-reference.generated.json|1|1|none"  # without --docs-shortcuts
   "1e2|cmux-tui/crates/cmux-app-host/generated/scopes.json|1|1|out"
   "1e2|Packages/macOS/CmuxNext/Sources/CmuxNextApps/Resources/AppPlatform/scopes.json|1|1|none"
   "1e3|schemas/defaults/cmux-next.json|1|-|out"                   # bot-only: apply drops it
