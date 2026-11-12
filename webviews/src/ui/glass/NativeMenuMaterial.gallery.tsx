@@ -21,13 +21,17 @@ type Scheme = "dark" | "light";
 type Look = "system" | "clear" | "veil" | "dense";
 type Props = { look: Look; scheme: Scheme; submenu?: boolean };
 
-const INK: Record<Scheme, { text: string; secondary: string; tertiary: string; surface: string; glass: string }> = {
+const INK: Record<
+  Scheme,
+  { text: string; secondary: string; tertiary: string; surface: string; glass: string; highlight: string }
+> = {
   dark: {
     text: "rgb(236, 236, 240)",
     secondary: "rgba(236, 236, 240, 0.72)",
     tertiary: "rgba(236, 236, 240, 0.5)",
     surface: "rgb(30, 31, 36)",
     glass: "rgba(30, 31, 36, 0.5)",
+    highlight: "rgba(255, 255, 255, 0.1)",
   },
   light: {
     text: "rgb(28, 28, 32)",
@@ -35,10 +39,17 @@ const INK: Record<Scheme, { text: string; secondary: string; tertiary: string; s
     tertiary: "rgba(28, 28, 32, 0.45)",
     surface: "rgb(250, 250, 252)",
     glass: "rgba(250, 250, 252, 0.38)",
+    highlight: "rgba(0, 0, 0, 0.07)",
   },
 };
 /** AppKit's menu material as the stand-in draws it: brighter, more saturated, nearly solid. */
 const SYSTEM: Record<Scheme, string> = { dark: "rgba(44, 44, 48, 0.86)", light: "rgba(236, 236, 238, 0.86)" };
+/** AppKit's selected-row blue in that stand-in. */
+const SYSTEM_SELECTION = "rgb(10, 100, 220)";
+/** The sidebar avatar the account menu opens from. */
+const AVATAR = { left: 16, bottom: 16, background: "rgb(120, 90, 200)" };
+/** The caption over the web menu, beside the native one. */
+const WEB_CAPTION = { left: 560, top: 70 };
 const VEIL: Record<Exclude<Look, "system">, number> = { clear: 0, veil: 40, dense: 86 };
 
 type Row = { title: string; subtitle?: string; icon?: string; shortcut?: string; chevron?: boolean; check?: boolean };
@@ -177,15 +188,8 @@ function Menu({
               style={{
                 position: "relative",
                 height: line.subtitle && !system ? 40 : row,
-                borderRadius: system ? 4 : 5,
-                background:
-                  line.title === highlighted
-                    ? system
-                      ? "rgb(10, 100, 220)"
-                      : scheme === "dark"
-                        ? "rgba(255,255,255,0.1)"
-                        : "rgba(0,0,0,0.07)"
-                    : undefined,
+                borderRadius: system ? 4 : "var(--cmux-menu-highlight-radius)",
+                background: line.title === highlighted ? (system ? SYSTEM_SELECTION : ink.highlight) : undefined,
                 color: line.title === highlighted && system ? "white" : ink.text,
                 fontSize: system ? 13 : "var(--text-body)",
               }}
@@ -199,7 +203,7 @@ function Menu({
                     width: GRID.icon,
                     transform: "translateY(-50%)",
                     textAlign: "center",
-                    fontSize: 12,
+                    fontSize: "var(--text-caption)",
                   }}
                 >
                   {line.icon}
@@ -258,16 +262,14 @@ function NativeMenuMaterialGallery({ look, scheme, submenu }: Props) {
         aria-hidden="true"
         style={{
           position: "absolute",
-          left: 16,
-          bottom: 14,
+          ...AVATAR,
           width: 24,
           height: 24,
           borderRadius: 12,
-          background: "rgb(120, 90, 200)",
           color: "white",
           display: "grid",
           placeItems: "center",
-          fontSize: 12,
+          fontSize: "var(--text-caption)",
         }}
       >
         L
@@ -282,7 +284,7 @@ function NativeMenuMaterialGallery({ look, scheme, submenu }: Props) {
         highlighted={submenu ? "Help" : "Settings…"}
       />
       {submenu ? <Menu lines={HELP} left={276} top={260} width={230} look={look} scheme={scheme} /> : null}
-      <div style={{ position: "absolute", left: 560, top: 70, color: ink.secondary, fontSize: "var(--text-caption)" }}>
+      <div style={{ position: "absolute", ...WEB_CAPTION, color: ink.secondary, fontSize: "var(--text-caption)" }}>
         Web menu, same material
       </div>
       <Menu

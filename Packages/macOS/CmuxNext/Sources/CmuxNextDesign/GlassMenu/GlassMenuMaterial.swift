@@ -14,7 +14,8 @@ import CmuxNextDesignTokens
 /// The numbers are schemas/design-scale/design-scale.json's: the menu level's `veil`, the `popup`
 /// named radius and the `row` control. webviews/test/floating-material-sync.test.ts fails when one
 /// here differs from the JSON, so the page and the App cannot drift.
-public nonisolated enum GlassMenuMaterial {
+public nonisolated struct GlassMenuMaterial {
+    public nonisolated init() {}
     /// The theme surface laid on the glass, percent (design-scale.json glass `menu` `veil`).
     public static let veilPercent: Double = 40
     /// The one popup radius when the person set no corner radius of their own (design-scale.json
