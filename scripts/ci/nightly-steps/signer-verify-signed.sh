@@ -81,7 +81,7 @@ run_checks() {
   step "Run bundled Ghostty theme picker helper regression" theme_picker_helper
   step "Verify signed app SSH daemon contract" ssh_daemon_contract
   if [[ "${#failed[@]}" -gt 0 ]]; then
-    printf 'failed: %s\n' "${failed[@]}"
+    printf 'failed: %s\n' ${failed[@]+"${failed[@]}"}
     return 1
   fi
 }

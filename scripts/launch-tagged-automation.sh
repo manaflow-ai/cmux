@@ -165,7 +165,7 @@ OPEN_ENV=(
 )
 
 if (( EXTRA_ENV_COUNT > 0 )); then
-  for kv in "${EXTRA_ENV[@]}"; do
+  for kv in ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}; do
     OPEN_ENV+=("${kv}")
   done
 fi
@@ -197,7 +197,7 @@ if [[ -n "$SHELL_LOG" ]]; then
 fi
 if (( EXTRA_ENV_COUNT > 0 )); then
   echo "extra_env:"
-  for kv in "${EXTRA_ENV[@]}"; do
+  for kv in ${EXTRA_ENV[@]+"${EXTRA_ENV[@]}"}; do
     echo "  $kv"
   done
 fi

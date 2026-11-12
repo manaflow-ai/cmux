@@ -7,4 +7,4 @@ feeds=()
 for appcast in appcast.xml appcast-arm64.xml appcast-x86_64.xml; do
   feeds+=(--feed "${NIGHTLY_NEXT_FEED_BASE}/${appcast}" --feed "https://files.cmux.com/nightly/${appcast}")
 done
-python3 scripts/ci/nightly_version.py check-build --build "$NIGHTLY_BUILD" "${feeds[@]}"
+python3 scripts/ci/nightly_version.py check-build --build "$NIGHTLY_BUILD" ${feeds[@]+"${feeds[@]}"}

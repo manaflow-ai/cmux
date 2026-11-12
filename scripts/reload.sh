@@ -1063,7 +1063,7 @@ print_tag_cleanup_commands() {
   local -a roots=()
   [[ -z "$derived" || "$derived" == "$link" || "${derived%/}" == "$own" ]] || roots+=("${derived%/}")
   roots+=("$own")
-  for root in "${roots[@]}"; do
+  for root in ${roots[@]+"${roots[@]}"}; do
     for config in Debug Release; do
       bin="${root}/Build/Products/${config}/cmux DEV ${tag}.app/Contents/Resources/bin/cmux-tui"
       printf '  [ -x %q ] && %q --session %q server stop\n' "$bin" "$bin" "cmux-app-${tag}"
@@ -1120,11 +1120,11 @@ print_tag_cleanup_reminder() {
     echo "  stale cleanup: not needed"
   else
     echo "  stale tags:"
-    for tag in "${stale_tags[@]}"; do
+    for tag in ${stale_tags[@]+"${stale_tags[@]}"}; do
       echo "    - ${tag}"
     done
     echo "Cleanup stale tags only:"
-    for tag in "${stale_tags[@]}"; do
+    for tag in ${stale_tags[@]+"${stale_tags[@]}"}; do
       print_tag_cleanup_commands "$tag"
     done
   fi
@@ -2584,9 +2584,9 @@ if [[ "$LAUNCH" -eq 1 ]]; then
     fi
   fi
 
-  if [[ "${#LAUNCH_CMD[@]}" -gt 0 ]] && ! "${LAUNCH_CMD[@]}"; then
+  if [[ "${#LAUNCH_CMD[@]}" -gt 0 ]] && ! ${LAUNCH_CMD[@]+"${LAUNCH_CMD[@]}"}; then
     echo "warning: open -g failed; retrying launch with open -n -g" >&2
-    "${LAUNCH_RETRY_CMD[@]}"
+    ${LAUNCH_RETRY_CMD[@]+"${LAUNCH_RETRY_CMD[@]}"}
   fi
 
   # Safety: ensure only one instance is running.

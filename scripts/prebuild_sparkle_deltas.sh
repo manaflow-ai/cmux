@@ -168,7 +168,7 @@ while IFS= read -r entry; do
   if [[ "${#pids[@]}" -ge "$jobs" ]]; then
     wait_started
   fi
-done < <(printf '%s\n' "${candidates[@]}" | sort -rn | awk '!seen[$1]++' | head -n "$MAX_DELTAS")
+done < <(printf '%s\n' ${candidates[@]+"${candidates[@]}"} | sort -rn | awk '!seen[$1]++' | head -n "$MAX_DELTAS")
 wait_started
 log "built ${built} delta(s) in $(( $(date +%s) - started ))s"
 exit 0
