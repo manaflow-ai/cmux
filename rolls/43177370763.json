@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43177370763",
+  "recorded_at": "2026-11-12T07:51:03Z",
+  "reason": "cmux-tui c3fda5942cd5 changes the image's cmux-tui (pinned 7a9e55a1894b)",
+  "dry_run": false,
+  "cmux_tui": "c3fda5942cd5d4cc2c83f28c4979d10fbc978dba",
+  "fixes": [
+    {
+      "sha": "c3fda5942cd5d4cc2c83f28c4979d10fbc978dba",
+      "mergedAt": "2026-11-12T01:28:40-06:00",
+      "subject": "cmux-tui tests: the rollback matrix takes each row's case by value"
+    },
+    {
+      "sha": "11ebc990e64566355d19037e01425d52132c0a2c",
+      "mergedAt": "2026-11-12T01:28:40-06:00",
+      "subject": "cmux-tui tests: the rollback matrix's rows are a named struct"
+    },
+    {
+      "sha": "874343973558ed7b9696153473df58a73236d780",
+      "mergedAt": "2026-11-12T01:28:40-06:00",
+      "subject": "cmux-tui tests: the rollback matrix also checks a terminal with modes, a title and a scroll region"
+    },
+    {
+      "sha": "09a7bbc8531c7560d7fd894a0d6d17f025d29980",
+      "mergedAt": "2026-11-12T01:28:39-06:00",
+      "subject": "cmux-tui-core: a quit stores a terminal on the alternate screen in a snapshot"
+    },
+    {
+      "sha": "6a0299f8468da2c1ed9f3400eedc0c810b859701",
+      "mergedAt": "2026-11-12T01:28:39-06:00",
+      "subject": "cmux-tui tests: a quit stores a terminal on the alternate screen in a snapshot"
+    },
+    {
+      "sha": "60290f55f350e2991b207ab4156f31adaa3b9e2e",
+      "mergedAt": "2026-11-12T01:28:39-06:00",
+      "subject": "cmux-tui tests: a quit's stored screens restore in older and newer builds"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T07:51:03Z",
+    "snapshot_id": "sh-92162d33b2614715ab816a54543375bb",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43177370763): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "1febbe4d1092c986332d57c555e91de8ee35ebb4",
+    "image": "cloud-native-auto-c3fda594-43177370763-1",
+    "revision": "ci-43177370763-1",
+    "at": "2026-11-12T07:51:03Z"
+  },
+  "rolled_back": false
+}
