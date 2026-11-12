@@ -25,7 +25,6 @@ const UPDATE: UpdateOffer = {
   version: "2.1.300",
   latest: "2.1.301",
   update: () => undefined,
-  updateWith: () => undefined,
   skip: () => undefined,
 };
 

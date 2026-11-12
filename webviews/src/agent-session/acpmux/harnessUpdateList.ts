@@ -21,7 +21,7 @@ export type HarnessUpdateRow = {
   error?: string;
   update(): void;
   /// Starts it on its answer from Update all's one `harness.update {ids}` call.
-  updateWith(reply: Promise<unknown>): void;
+  updateWith?(reply: Promise<unknown>): void;
   /// Skip This Version: the chat's own agent only, as before.
   skip?(): void;
 };
@@ -117,7 +117,7 @@ export function useHarnessUpdateList({
         version: offer.version,
         latest: offer.latest,
         update: offer.update,
-        updateWith: offer.updateWith,
+        ...(offer.updateWith ? { updateWith: offer.updateWith } : {}),
         skip: offer.skip,
       });
     for (const health of outdatedHarnesses(rows, skipped(), own ?? offer?.harness)) {
@@ -143,10 +143,14 @@ export function useHarnessUpdateList({
   return useMemo(() => {
     if (list.length === 0) return undefined;
     const updateAll = () => {
-      const due = list.filter((row) => row.phase !== "updating");
-      if (due.length === 0) return;
-      const batch = native("harness.update", { ids: due.map((row) => row.harness) });
-      for (const row of due) row.updateWith(answerFor(batch, row.harness));
+      // An own offer that cannot take Update all's answer (one with no updateWith) asks for itself.
+      const alone = list.filter((row) => row.phase !== "updating" && !row.updateWith);
+      const due = list.filter((row) => row.phase !== "updating" && row.updateWith);
+      if (due.length > 0) {
+        const batch = native("harness.update", { ids: due.map((row) => row.harness) });
+        for (const row of due) row.updateWith?.(answerFor(batch, row.harness));
+      }
+      for (const row of alone) row.update();
     };
     return { rows: list, updateAll };
   }, [list, native]);
