@@ -51,12 +51,22 @@ struct TerminalComposer: View {
             }
         }
         .padding(.horizontal, TerminalDockMetrics.horizontalInset)
+        // Always its own height, never the hosting view's current one: offered
+        // the old, shorter height, the field's min-height frame took it and
+        // the grown draft and send circle ran out below the rounded field
+        // (user report 2026-11-12), and since the row's height then never
+        // changed, nothing asked the screen to grow it.
+        .fixedSize(horizontal: false, vertical: true)
         // V6-1: a draft that shrinks drew a shorter row while the hosting view
         // kept the taller height. The row's own height tells the screen to
         // measure the composer again (classic: the band reflows over 0.25 s).
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
             model.controller?.composerCardHeightChanged(height)
         }
+        // Until the screen has grown the hosting view, the row keeps its
+        // bottom edge and overflows upward: it grows up from the keyboard,
+        // never down past it.
+        .frame(maxHeight: .infinity, alignment: .bottom)
         .animation(.smooth(duration: 0.3).unlessReduceMotion, value: model.attachments.count)
         .onChange(of: model.composerText) { _, _ in model.composerEdited() }
         .photosPicker(isPresented: $model.showPhotoPicker, selection: $photoItems, maxSelectionCount: 6,
@@ -150,6 +160,8 @@ struct TerminalComposer: View {
         .padding(.trailing, TerminalDockMetrics.fieldPadding)
         .padding(.vertical, TerminalDockMetrics.fieldPadding)
         .frame(minHeight: TerminalDockMetrics.control, alignment: .top)
+        // The rounded glass always wraps the whole field (see `body`).
+        .fixedSize(horizontal: false, vertical: true)
         .glassSurface(in: .rect(cornerRadius: TerminalDockMetrics.fieldCornerRadius, style: .continuous))
     }
 
