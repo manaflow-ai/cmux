@@ -40,3 +40,4 @@ bcdd1aacb203ac7ea9cbc2ecbd82b6bf552b65d99d0a2341609d5c4f281be0a4 glaeda 5ba90d7a
 c3efaff090a931a4af225e06e8a2b904c4b87aacbfaa72f8dab01c099b1cb652 glaeda e0be0001: glaeda-disk: a run the floor needs waits for evict.lock instead of skipping (#1902)
 2596da271520ce0a1c1f7ecd4d10ec1e5b990dfcb5e0dc2f6464b246597122e0 glaeda a8295914: runner hook: under the admission floor a job is admitted with a warning, never refused (#1903)
 4d779c79d723909233b0e39b6fd0bbaf22126008fce1a9aef83f4d0557d71eed glaeda 29b65e53: runner hook: the help and docstring say a disk floor warns (#1903 F1) (#1905)
+1ca6209d914cd67efd6478ce1c0c3becd707696c6c360e2b14241b80740232a4 glaeda 78f20d69: runner gate: hold the listener off while the mini is off the tailnet (#1952)
