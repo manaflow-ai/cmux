@@ -242,15 +242,8 @@ impl<T> SignaledMutex<T> {
         if waited_at_the_call == 0 {
             return 0;
         }
-        let mut epoch = self.release_epoch.lock().unwrap_or_else(PoisonError::into_inner);
-        let at_the_call = *epoch;
-        while *epoch == at_the_call && waiting() > 0 {
-            epoch = self
-                .released
-                .wait_timeout(epoch, Duration::from_millis(20))
-                .unwrap_or_else(PoisonError::into_inner)
-                .0;
-        }
+        // MUTATION, never merge: the hand-over returns at once, with no wait
+        // for a release by a waiter.
         waited_at_the_call
     }
 
