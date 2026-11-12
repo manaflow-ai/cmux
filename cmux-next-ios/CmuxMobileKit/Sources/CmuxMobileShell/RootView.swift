@@ -260,6 +260,9 @@ public struct RootView: View {
                 ConnectivityTelemetry.shared.uploadStats(to: cloud.baseURL) { [auth] in
                     try await auth.serviceAccessToken(forceRefresh: $0)
                 }
+            } else {
+                // Signed out: nothing waiting goes up with the next account's token.
+                ConnectivityTelemetry.shared.stats.stopUploads()
             }
         }
         .onChange(of: auth.teamList) { _, _ in syncTeams() }
@@ -773,6 +776,8 @@ private struct LinkSettingsObserver: ViewModifier {
                 // The notification preview shows these chats' last messages.
                 if phase == .background {
                     shell.live?.background()
+                    // A tab still opening now would time the suspension (reported cancelled).
+                    ConnectivityTelemetry.shared.stats.appWentToBackground()
                     Task { await ConnectivityTelemetry.shared.stats.flush() }
                     Task { await PushSnapshots().save() }
                 }

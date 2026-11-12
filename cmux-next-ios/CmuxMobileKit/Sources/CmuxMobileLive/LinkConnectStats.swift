@@ -39,10 +39,15 @@ struct LinkConnectStats {
     private var down: (at: ContinuousClock.Instant, cause: String)?
     private var connectedSince: ContinuousClock.Instant?
     private var connectedOnce = false
+    /// Between ``backgrounded(in:at:date:)`` and the next `.resume` or `.foreground`: iOS may
+    /// suspend the app, so nothing started or ended then is timed (it would hold the suspension).
+    private var isBackgrounded = false
 
-    /// The trigger a phase change caused by `event` gets.
-    static func trigger(_ event: LinkMachine.Event, connectedOnce: Bool) -> Trigger {
+    /// The trigger a phase change from `old` caused by `event` gets.
+    static func trigger(_ event: LinkMachine.Event, from old: LinkMachine.Phase, connectedOnce: Bool) -> Trigger {
         switch event {
+        // Presence says the Mac is back (the machine was waiting for it).
+        case .target where old == .macOffline: .macOnline
         case .target: connectedOnce ? .pick : .launch
         case .foreground, .resume: .foreground
         case .networkChanged: .network
@@ -55,18 +60,22 @@ struct LinkConnectStats {
 
     /// Why a connection that was up ended, as a fixed word.
     static func endCause(_ event: LinkMachine.Event, to new: LinkMachine.Phase) -> String {
+        // A connected link to the same Mac only probes on a presence change, so a target
+        // event that ends it picked another Mac (or none), even when that Mac is offline.
+        switch event {
+        case .target(.none): return "closed"
+        case .target: return "target_changed"
+        default: break
+        }
         if new == .macOffline { return "mac_offline" }
         if new == .signedOut { return "signed_out" }
         switch event {
-        case .linkDropped: "dropped"
-        case .probeFailed: "probe_failed"
-        case .background: "background"
-        case .resume, .foreground: "resume"
-        case .networkChanged: "network_changed"
-        case .target(.none): "closed"
-        case .target: "target_changed"
-        case .transport, .relayOnly, .blockUDP: "setting"
-        default: "other"
+        case .linkDropped: return "dropped"
+        case .probeFailed: return "probe_failed"
+        case .resume, .foreground: return "resume"
+        case .networkChanged: return "network_changed"
+        case .transport, .relayOnly, .blockUDP: return "setting"
+        default: return "other"
         }
     }
 
@@ -83,31 +92,42 @@ struct LinkConnectStats {
     /// The stats one phase change ends, at `now`.
     mutating func change(from old: LinkMachine.Phase, to new: LinkMachine.Phase, by event: LinkMachine.Event,
                          at now: ContinuousClock.Instant, date: Date = Date()) -> [ConnectivityStat] {
+        // The resume's redial may keep the phase (connecting(1) again): it still starts a connect.
+        let resumed = isBackgrounded && (event == .resume || event == .foreground)
+        if resumed { isBackgrounded = false }
+        // Nothing moved (a stale generation's event, a probe, a background): nothing to time.
+        guard old != new || resumed, !isBackgrounded else { return [] }
         var stats: [ConnectivityStat] = []
-        // A connection ended: its life, and the outage that starts now.
-        if case .connected(let transport, let path, _) = old, !new.isConnected {
+        // A connection ended: its life, and the outage that starts now. One that was up
+        // across a background already ended there (``backgrounded(in:at:date:)``).
+        if case .connected(let transport, let path, _) = old, !new.isConnected, let since = connectedSince {
             let cause = Self.endCause(event, to: new)
             var fields: [String: ConnectivityEvent.Value] = [
                 "cause": .code(cause), "transport": .code(transport.rawValue), "path": .code(Self.code(path)),
             ]
             if case .linkDropped(_, let reason) = event { fields["reason"] = .text(reason) }
             if case .probeFailed(_, let reason) = event { fields["reason"] = .text(reason) }
-            let lived = connectedSince.map { ConnectivityStopwatch(start: $0).elapsedMilliseconds(at: now) }
-            stats.append(ConnectivityStat(.sessionEnd, outcome: .success, ms: lived, fields: fields, date: date))
+            stats.append(ConnectivityStat(.sessionEnd, outcome: .success,
+                                          ms: ConnectivityStopwatch(start: since).elapsedMilliseconds(at: now), fields: fields, date: date))
             connectedSince = nil
-            // Leaving on purpose (background, a closed or changed target) is no outage.
+            // Leaving on purpose (a closed or changed target, a setting) is no outage.
             if ["dropped", "probe_failed", "network_changed", "resume", "mac_offline"].contains(cause) { down = (now, cause) }
         }
         switch new {
         case .connecting(_, let number):
-            if attempt == nil {
-                attempt = Attempt(started: now, trigger: Self.trigger(event, connectedOnce: connectedOnce))
+            var next = attempt ?? Attempt(started: now, trigger: Self.trigger(event, from: old, connectedOnce: connectedOnce))
+            next.attempts = max(next.attempts, number)
+            // Every failed dial counts, the silent first retry too.
+            if case .dialFailed(_, let reason) = event {
+                next.failures += 1
+                next.lastFailure = reason
             }
-            attempt?.attempts = max(attempt?.attempts ?? 1, number)
+            attempt = next
         case .waiting(_, _, let reason, _):
-            if attempt == nil { attempt = Attempt(started: now, trigger: Self.trigger(event, connectedOnce: connectedOnce)) }
-            attempt?.failures += 1
-            attempt?.lastFailure = reason
+            var next = attempt ?? Attempt(started: now, trigger: Self.trigger(event, from: old, connectedOnce: connectedOnce))
+            if case .dialFailed = event { next.failures += 1 }
+            next.lastFailure = reason
+            attempt = next
         case .connected(let transport, let path, let rtt):
             guard !old.isConnected else { break }
             var fields: [String: ConnectivityEvent.Value] = ["transport": .code(transport.rawValue), "path": .code(Self.code(path))]
@@ -161,16 +181,39 @@ struct LinkConnectStats {
         return stats
     }
 
-    /// The app went to the background with a connect in flight: that attempt ends, cancelled.
-    mutating func backgrounded(at now: ContinuousClock.Instant, date: Date = Date()) -> [ConnectivityStat] {
-        guard let attempt else { return [] }
-        self.attempt = nil
-        return [ConnectivityStat(.macConnect, outcome: .cancelled,
-                                 ms: ConnectivityStopwatch(start: attempt.started).elapsedMilliseconds(at: now),
-                                 fields: ["trigger": .code(attempt.trigger.rawValue), "attempts": .number(Double(attempt.attempts)),
-                                          "failures": .number(Double(attempt.failures)), "cause": .code("background"),
-                                          "first_of_launch": .flag(!connectedOnce)],
-                                 date: date)]
+    /// The app went to the background in `phase`. iOS may suspend it, so what is open ends
+    /// here: a connect in flight (cancelled), the connection's session (cause `background`) and
+    /// an outage (its reconnect, cancelled). Until the app resumes nothing is timed; the resume's
+    /// redial is a new connect with trigger `foreground`.
+    mutating func backgrounded(in phase: LinkMachine.Phase, at now: ContinuousClock.Instant, date: Date = Date()) -> [ConnectivityStat] {
+        guard !isBackgrounded else { return [] }
+        isBackgrounded = true
+        var stats: [ConnectivityStat] = []
+        if let attempt {
+            var fields: [String: ConnectivityEvent.Value] = [
+                "trigger": .code(attempt.trigger.rawValue), "attempts": .number(Double(attempt.attempts)),
+                "failures": .number(Double(attempt.failures)), "cause": .code("background"),
+                "first_of_launch": .flag(!connectedOnce),
+            ]
+            if let failure = attempt.lastFailure { fields["last_failure"] = .text(failure) }
+            stats.append(ConnectivityStat(.macConnect, outcome: .cancelled,
+                                          ms: ConnectivityStopwatch(start: attempt.started).elapsedMilliseconds(at: now),
+                                          fields: fields, date: date))
+        }
+        if case .connected(let transport, let path, _) = phase, let since = connectedSince {
+            stats.append(ConnectivityStat(.sessionEnd, outcome: .success, ms: ConnectivityStopwatch(start: since).elapsedMilliseconds(at: now),
+                                          fields: ["cause": .code("background"), "transport": .code(transport.rawValue),
+                                                   "path": .code(Self.code(path))],
+                                          date: date))
+        }
+        if let down {
+            stats.append(ConnectivityStat(.reconnect, outcome: .cancelled, ms: ConnectivityStopwatch(start: down.at).elapsedMilliseconds(at: now),
+                                          fields: ["cause": .code(down.cause), "ended_by": .code("background")], date: date))
+        }
+        attempt = nil
+        connectedSince = nil
+        down = nil
+        return stats
     }
 
     var hasConnected: Bool { connectedOnce }

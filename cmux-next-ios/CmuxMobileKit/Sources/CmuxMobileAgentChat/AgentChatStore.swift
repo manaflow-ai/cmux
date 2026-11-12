@@ -324,7 +324,8 @@ public final class AgentChatStore {
         self.source = source
         self.summary = source.summary
         self.isLoadingHistory = source.loadsHistory
-        // The chat's open time (tab_open): until the Mac's history has been read.
+        // The chat's open time (tab_open): until the Mac's history has been read. `cached`
+        // stays false: the store cannot tell a kept copy's turns from the replay's.
         if source.loadsHistory { openTimer = ConnectivityTabTimer(kind: "agent", cached: false) }
         let stream = source.events()
         task = Task { [weak self] in
@@ -1028,7 +1029,6 @@ public final class AgentChatStore {
         case .historyLoading(let loading):
             if isLoadingHistory != loading { isLoadingHistory = loading }
             if !loading, let openTimer {
-                // Turns on screen before the history arrived came from the phone's kept copy.
                 openTimer.finish(fields: ["turns": .number(Double(turns.count))])
                 self.openTimer = nil
             }

@@ -172,7 +172,7 @@ public final class LinkController {
         let effects = machine.handle(event)
         let now = ContinuousClock.now
         for stat in connectStats.change(from: before, to: machine.phase, by: event, at: now) { events.stat(stat) }
-        if event == .background { for stat in connectStats.backgrounded(at: now) { events.stat(stat) } }
+        if event == .background { for stat in connectStats.backgrounded(in: machine.phase, at: now) { events.stat(stat) } }
         quickProbe = (event == .foreground || event == .resume) && effects.contains { if case .probe = $0 { true } else { false } }
         if phase != machine.phase {
             log.info("link \(String(describing: self.machine.phase), privacy: .public)")

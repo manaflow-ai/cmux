@@ -109,19 +109,30 @@ public struct ConnectivityTabTimer: Sendable {
     public let kind: String
     public let cached: Bool
     public let watch: ConnectivityStopwatch
+    /// ``ConnectivityStats/backgrounds`` at the start: a background before the finish makes it
+    /// cancelled (the time would hold the suspension).
+    public let backgrounds: Int
 
-    public init(kind: String, cached: Bool, start: ContinuousClock.Instant = ContinuousClock.now) {
+    public init(kind: String, cached: Bool, start: ContinuousClock.Instant = ContinuousClock.now,
+                telemetry: ConnectivityTelemetry = .shared) {
         self.kind = kind
         self.cached = cached
         watch = ConnectivityStopwatch(start: start)
+        backgrounds = telemetry.stats.backgrounds
     }
 
-    /// Records the stat. Callers keep the timer optional and nil it after finishing.
-    public func finish(_ outcome: ConnectivityStat.Outcome = .success, fields: [String: ConnectivityEvent.Value] = [:],
-                       telemetry: ConnectivityTelemetry = .shared) {
+    /// Records the stat. Callers keep the timer optional and nil it after finishing. `cached`
+    /// overrides the start's when only the finish knows whether a kept copy showed first.
+    public func finish(_ outcome: ConnectivityStat.Outcome = .success, cached: Bool? = nil,
+                       fields: [String: ConnectivityEvent.Value] = [:], telemetry: ConnectivityTelemetry = .shared) {
         var all = fields
         all["kind"] = .code(kind)
-        all["cached"] = .flag(cached)
+        all["cached"] = .flag(cached ?? self.cached)
+        var outcome = outcome
+        if telemetry.stats.backgrounds != backgrounds {
+            outcome = .cancelled
+            all["cause"] = .code("background")
+        }
         telemetry.stat(ConnectivityStat(.tabOpen, outcome: outcome, ms: watch.elapsedMilliseconds, fields: all))
     }
 }
