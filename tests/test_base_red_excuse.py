@@ -12332,7 +12332,8 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
     both (the trimmed logs below keep every header, with each failure line and stamp as served). The fixtures are
     those jobs' steps and logs, trimmed to the step headers, groups and failure lines, and each workflow job's steps."""
 
-    PATHS = {"cmux-41001": ".github/workflows/cmux-next.yml", "hq-9191": ".github/workflows/skills-tests.yml"}
+    PATHS = {"cmux-41001": ".github/workflows/cmux-next.yml", "hq-9191": ".github/workflows/skills-tests.yml",
+             "cmux-41790-checks": ".github/workflows/cmux-next.yml"}
     FLAKE = ("✘ Test aOneWorkspaceSnapshotCostsTheMainThreadTheSameAt3000WorkspacesAsAt100() failed after 213.793 "
              "seconds with 1 issue.")
     # The last live-daemon failure line of cmux#41001's head, after which a test adds a line in the same step.
@@ -12458,6 +12459,81 @@ class WorkflowHeadersPlaceRealLogs(unittest.TestCase):
         self.not_job_error()
         with self.assertRaisesRegex(excuse.Refused, "more on this head: FAIL: plist label"):
             self.judge(self.github("hq-9191", added, self.fixture("hq-9191", "base")))
+
+    # cmux#41790's "cmux-next checks" (head: run 43192236591, job 131108244808 at f2f5e3a9; base: feat-cmux-next run
+    # 43196103785, job 131107474882 at 38651ff1), both on Blacksmith runners whose "Set up runner" and "Complete
+    # runner" job hooks each print RUNNER_HOOK_NOTICE before their `Run '/...sh'` header. The base's notice is stamped
+    # 10:04:42.0000405 after its checkout post step ended at 10:04:41, so _aligned_starts found no fit and every PR's
+    # red of that job was refused with "does not map one to one onto its steps". Trimmed to each step's header, its
+    # first and last stamped line, every `##[error]` line and the notices, as served.
+    CHECKS = "cmux-41790-checks"
+    CHECKS_FAILED = {"Scrollbars thin, one style": "errored",
+                     "Script tests (pin-cmux-tui, embed-cef, ensure-cef store)": "errored",
+                     "Fail on any red check": "failed"}
+    COMPLETED_NOTICE = "A job completed hook has been configured by the self-hosted runner administrator"
+
+    def checks_view(self, side, log=None):
+        github = self.github(self.CHECKS, self.fixture(self.CHECKS, "head"), self.fixture(self.CHECKS, "base"))
+        job = copy.deepcopy(github.jobs[1 if side == "head" else 2])
+        names = excuse.workflow_step_names(REPO, job, self.PATHS[self.CHECKS], github, {})
+        self.assertIsNotNone(getattr(names, "headers", None))
+        return excuse.failed_view(job, github.logs[1 if side == "head" else 2] if log is None else log,
+                                  step_names=names, base=side == "base")
+
+    def test_cmux_41790_a_runner_hook_notice_past_the_post_step_still_places_the_checks_log(self):
+        # The head keeps every red section; the base keeps its failed rollup and the one check that rollup names red
+        # (rollup_vouched), never the warn-only scrollbar guard's ERRORED section.
+        for side, sections in (("head", self.CHECKS_FAILED),
+                               ("base", {name: status for name, status in self.CHECKS_FAILED.items()
+                                         if name != "Scrollbars thin, one style"})):
+            with self.subTest(side=side):
+                view = self.checks_view(side)
+                self.assertIsNot(view, excuse.UNPLACED)
+                self.assertEqual({str(view.steps[k]["name"]): status for k, status, _ in view.sections}, sections)
+
+    def test_cmux_41790_a_base_check_its_rollup_does_not_name_is_no_evidence(self):
+        # The same base log with its rollup's list taken away (no `red check:` line, so rollup_log_reds parses none):
+        # the continue-on-error check's ERRORED section is shown, never evidence, as before.
+        _, base_log = self.fixture(self.CHECKS, "base")
+        red = "##[error]red check: Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"
+        self.assertIn(red, base_log)
+        view = self.checks_view("base", base_log.replace(red, "red check list withheld"))
+        self.assertIsNot(view, excuse.UNPLACED)
+        self.assertEqual({str(view.steps[k]["name"]) for k, _, _ in view.sections}, {"Fail on any red check"})
+
+    def test_cmux_41790_only_the_runners_own_notice_is_untimed(self):
+        # The same line with any other text, at the same stamp past the post step's end, still places nothing: the
+        # untimed line is the runner's fixed notice alone, never a step's output out of its times.
+        _, base_log = self.fixture(self.CHECKS, "base")
+        self.assertIn(self.COMPLETED_NOTICE, base_log)
+        for other in ("A job completed hook has been configured", "ok", "##[error]red check: Type scale"):
+            with self.subTest(other=other):
+                self.assertIs(self.checks_view("base", base_log.replace(self.COMPLETED_NOTICE, other)),
+                              excuse.UNPLACED)
+
+    def test_cmux_41790_the_bases_red_check_is_excused(self):
+        said = self.judge(self.github(self.CHECKS, self.fixture(self.CHECKS, "head"),
+                                      self.fixture(self.CHECKS, "base")))
+        self.assertIn("excused 'cmux-next checks (god files, concurrency, crash safety, l10n)'", said)
+        self.assertNotIn("does not map one to one", said)
+
+    def test_cmux_41790_a_red_check_the_head_adds_is_refused(self):
+        head_job, head_log = self.fixture(self.CHECKS, "head")
+        added = self.after(head_log, "##[error]red check: Script tests (pin-cmux-tui, embed-cef, ensure-cef store)",
+                           "##[error]red check: Type scale")
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github(self.CHECKS, (head_job, added), self.fixture(self.CHECKS, "base")))
+        self.assertIn("Type scale", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
+
+    def test_cmux_41790_an_error_the_head_adds_in_the_rolled_up_check_is_refused(self):
+        head_job, head_log = self.fixture(self.CHECKS, "head")
+        added = self.after(head_log, "##[error]bash scripts/cmux-next/tests/generated-ownership.test.sh",
+                           "##[error]bash scripts/cmux-next/tests/pin-cmux-tui.test.sh")
+        with self.assertRaises(excuse.Refused) as said:
+            self.judge(self.github(self.CHECKS, (head_job, added), self.fixture(self.CHECKS, "base")))
+        self.assertIn("pin-cmux-tui.test.sh", str(said.exception))
+        self.assertNotIn("does not map one to one", str(said.exception))
 
 
 def one_step_flood(headers, steps):
@@ -13490,6 +13566,93 @@ class ReplacedWaitingBaseRed(unittest.TestCase):
                 self.assertEqual(found, [(20, crash), (19, "success")])
                 if conclusion != "cancelled" or crash != "failure":
                     self.assertFalse(any(route.endswith("/annotations") for route in routes))
+
+
+
+class HeadCheckNamedAnotherWay(unittest.TestCase):
+    """A red check the caller names another way than its check run is still at the exact head (2026-11-12, cmux#38644
+    at 8e957427): coord-deputy-2, "base_red_excuse says 'Web tests (2/4)' 'has not run on exact head', but it did: job
+    131026209923". Its check run and job are 'web / Web tests (2/4)', the caller job's prefix on a called workflow's
+    job, and head_jobs looked the name up only as written. The fixtures are that job and check run as GitHub served
+    them (runner fields scrubbed). Every other spelling of one check at one head is matched too: the checks page's
+    '<workflow> / <check>' form, a short or upper-case head sha; a name two check runs answer to stays refused."""
+
+    FIXTURES = ROOT / "tests/fixtures/base_red_excuse_head_match"
+    SHA = "8e9574276379d4faeaa11c5c6bbc2ce228d32e90"
+
+    class Fake:
+        def __init__(self, checks, jobs, statuses=()):
+            self.checks, self.jobs, self.statuses, self.routes = checks, jobs, list(statuses), []
+
+        def json(self, route, *, paginate=False):
+            self.routes.append(route)
+            sha = HeadCheckNamedAnotherWay.SHA
+            if route.endswith("/check-runs?filter=all&per_page=100"):
+                # GitHub answers a short or upper-case sha of the head as the head, as it does here.
+                asked = route.split("/commits/", 1)[1].split("/", 1)[0]
+                assert len(asked) >= 7 and sha.startswith(asked.lower()), route
+                return [{"check_runs": copy.deepcopy(self.checks)}]
+            if "/actions/jobs/" in route:
+                return copy.deepcopy(self.jobs[int(route.rsplit("/", 1)[1])])
+            if route.endswith("/status?per_page=100"):
+                return {"statuses": copy.deepcopy(self.statuses)}
+            if "/actions/runs?head_sha=" in route:
+                return {"workflow_runs": []}
+            if "/commits/" in route and sha.startswith(route.rsplit("/", 1)[1].lower()):
+                return {"sha": sha}
+            raise AssertionError(route)
+
+    def setUp(self):
+        self.job = json.loads((self.FIXTURES / "cmux-38644-web-tests-2-4-job-131026209923.json").read_text())
+        self.check = json.loads((self.FIXTURES / "cmux-38644-web-tests-2-4-check-run-131026209923.json").read_text())
+
+    def found(self, name, sha=None, checks=None, statuses=()):
+        gh = self.Fake(checks or [self.check], {self.job["id"]: self.job}, statuses)
+        audit: list[str] = []
+        jobs = excuse.head_jobs(REPO, sha or self.SHA, [], [name], gh, excused=audit)
+        return jobs, audit
+
+    def test_the_fixture_is_the_called_workflows_job_at_the_head(self):
+        self.assertEqual((self.job["name"], self.check["name"]), ("web / Web tests (2/4)",) * 2)
+        self.assertEqual((self.job["head_sha"], self.check["head_sha"], self.job["run_attempt"]), (self.SHA, self.SHA, 1))
+
+    def test_cmux_38644_the_shard_named_without_its_caller_is_its_job(self):
+        jobs, audit = self.found("Web tests (2/4)")
+        self.assertEqual([job["id"] for job in jobs], [131026209923])
+        self.assertTrue(any("'Web tests (2/4)'" in line and "'web / Web tests (2/4)'" in line for line in audit), audit)
+
+    def test_the_checks_page_name_with_its_workflow_is_its_job(self):
+        jobs, _ = self.found("CI / web / Web tests (2/4)")
+        self.assertEqual([job["id"] for job in jobs], [131026209923])
+
+    def test_its_own_name_is_still_its_job(self):
+        jobs, audit = self.found("web / Web tests (2/4)")
+        self.assertEqual(([job["id"] for job in jobs], audit), ([131026209923], []))
+
+    def test_a_short_or_upper_case_head_sha_is_the_exact_head(self):
+        for sha in (self.SHA[:8], self.SHA[:12], self.SHA.upper()):
+            with self.subTest(sha=sha):
+                jobs, _ = self.found("web / Web tests (2/4)", sha=sha)
+                self.assertEqual([job["id"] for job in jobs], [131026209923])
+
+    def test_a_name_two_check_runs_answer_to_is_refused_naming_both(self):
+        other = dict(self.check, id=131026209999, name="mobile / Web tests (2/4)",
+                     details_url=self.check["details_url"].replace("131026209923", "131026209999"))
+        with self.assertRaisesRegex(excuse.Refused, r"2 check runs.*mobile / Web tests \(2/4\).*web / Web tests"):
+            self.found("Web tests (2/4)", checks=[self.check, other])
+
+    def test_another_shard_or_a_partial_name_has_not_run(self):
+        for name in ("Web tests (3/4)", "tests (2/4)", "eb / Web tests (2/4)", "Web tests"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(excuse.Refused, "has not run on exact head"):
+                    self.found(name)
+
+    def test_a_status_of_the_name_as_written_wins_over_a_check_run_of_another_spelling(self):
+        status = {"context": "Web tests (2/4)", "state": "failure", "description": "x",
+                  "target_url": "https://example.invalid/status"}
+        # A status no Actions job gave, with no base to compare: refused as the status, never judged as the check run.
+        with self.assertRaisesRegex(excuse.Refused, "a status"):
+            self.found("Web tests (2/4)", statuses=[status])
 
 
 if __name__ == "__main__":

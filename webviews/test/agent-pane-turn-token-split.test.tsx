@@ -136,5 +136,9 @@ test("a steered turn keeps its tokens on the original prompt's fold", () => {
       takeaway("done"),
       ended(),
     ]),
-  ).toEqual([["worked-u", SPLIT]]);
+    // Split in order at the steer (turn-fold-in-order.test.ts), the fold after it carries none.
+  ).toEqual([
+    ["worked-u", SPLIT],
+    ["worked-s", undefined],
+  ]);
 });

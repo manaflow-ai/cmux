@@ -737,8 +737,8 @@ await requireBrowserLane("subagent-tray-columns.test.ts", async () => {
             // A long state word stays in its fixed track, cut before Stop.
             const long = await page.evaluate(() => {
               const state = document.querySelector<HTMLElement>(".acpmux-running-tray .acpmux-summary-agent__state");
-              if (!state) throw new Error("the failed line says Failed");
-              state.textContent = "A very long localized failure state that must stay in its track";
+              if (!state) throw new Error("the stopped line says Cancelled");
+              state.textContent = "A very long localized stopped state that must stay in its track";
               const row = state.closest(".acpmux-agent-line")!;
               const style = getComputedStyle(state);
               return {

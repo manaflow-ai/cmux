@@ -165,6 +165,7 @@ impl Mux {
         );
         let RestoredResourceState { mut state, next_id, contents } =
             restore_resource_state(snapshot, topology)?;
+        let route_generations = state.surfaces.generations().clone();
         let RestoredPublicProjections {
             default_colors,
             has_terminal_defaults,
@@ -225,6 +226,7 @@ impl Mux {
             registry_identity,
             resource_projection_stats,
             started_at: Instant::now(),
+            route_generations,
             state: signaled_mutex::StateMutex::new(state, lane_on),
             subscribers: MuxEventBroadcaster::default(),
             config_reload: Mutex::new(ConfigReloadState::default()),
