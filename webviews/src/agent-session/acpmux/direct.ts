@@ -14443,7 +14443,7 @@ export class AcpmuxDirectClient {
     // 2026-11-03: a reply starting mid-sentence under its prompt, and nothing above).
     const cutOpener = this.turnOpener && this.turnOpener.seq < this.firstSeq ? this.turnOpener.seq : undefined;
     let completed = false;
-    const minPages = fill ? 1 : OLDER_MIN_PAGES_PER_ASK;
+    const minPages = fill ? 1 : read.length > 0 ? 0 : OLDER_MIN_PAGES_PER_ASK;
     const stale = () =>
       !this.canPageOlder(pagingEpoch) ||
       generation !== this.selectionGeneration ||
@@ -14467,7 +14467,6 @@ export class AcpmuxDirectClient {
     // a long turn the open landed in is that turn's. Read on until a turn older than the first row
     // starts, at most OLDER_PAGES_PER_ASK pages; a capped read still moves `historyFrom`, which
     // makes the transcript ask again.
-    const minPages = read.length > 0 ? 0 : OLDER_MIN_PAGES_PER_ASK;
     for (
       let pages = 0;
       more && pages < OLDER_PAGES_PER_ASK && (!foundThrough || (!completed && (pages < minPages || !found)));
