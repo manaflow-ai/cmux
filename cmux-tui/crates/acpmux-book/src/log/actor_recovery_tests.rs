@@ -96,7 +96,7 @@ fn queue_allowance_cannot_pay_for_open_bodies() -> Result {
     assert_eq!(recovered.state, whole);
     state.clear();
     state.push(section::OPEN_ROWS, &vec![b'x'; MAX_CHECKPOINT_STATE - 77]);
-    state.push(section::PROMPT_QUEUE, &vec![0; 32]);
+    state.push(section::PROMPT_QUEUE, &[0; 32]);
     assert!(matches!(
         log.write_checkpoint(state.as_bytes(), &[]),
         Err(Error::CheckpointTooLarge { .. })

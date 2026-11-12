@@ -115,3 +115,54 @@ fn short_checkpoint_field_is_damage_and_stops_the_store() -> TestResult {
     assert!(matches!(blobs.sync([]), Err(Error::Stopped)));
     Ok(())
 }
+
+#[test]
+fn large_field_replacement_replays_from_each_interrupted_step() -> TestResult {
+    let first = format!("\"{}\"", "a".repeat(32 * 1024));
+    let second = format!("\"{}\"", "b".repeat(64 * 1024));
+    for step in 0..4 {
+        let home = tempfile::tempdir()?;
+        let mut blobs = Blobs::open(home.path())?;
+        let mut body = Body::new(1)?;
+        blobs.set(&mut body, "content", &first, false)?;
+        blobs.set(&mut body, "text", "\"start\"", true)?;
+        blobs.sync([&body])?;
+        let checkpoint = body.clone();
+        let old = bytes(&blobs, &checkpoint)?;
+        if step >= 1 {
+            blobs.set(&mut body, "content", &second, false)?;
+        }
+        if step >= 2 {
+            blobs.set(&mut body, "text", "\"end\"", true)?;
+        }
+        if step >= 3 {
+            blobs.settle(&body)?;
+        }
+        drop(blobs);
+        let mut blobs = Blobs::open(home.path())?;
+        blobs.recover(std::slice::from_ref(&checkpoint), 1)?;
+        assert_eq!(bytes(&blobs, &checkpoint)?, old);
+        body = checkpoint;
+        blobs.set(&mut body, "content", &second, false)?;
+        blobs.set(&mut body, "text", "\"end\"", true)?;
+        assert!(blobs.settle(&body)?.is_none());
+        assert_eq!(
+            fs::read(home.path().join("blobs/1"))?,
+            format!("{{\"content\":{second},\"text\":\"startend\"}}").as_bytes()
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn missing_named_field_is_damage_and_size_arithmetic_is_bounded() -> TestResult {
+    let home = tempfile::tempdir()?;
+    let mut blobs = Blobs::open(home.path())?;
+    let mut body = Body::new(1)?;
+    body.spilled = true;
+    body.generation = 1;
+    body.fields.insert("text".into(), Value::File(FieldFile { generation: 1, len: u64::MAX }));
+    assert_eq!(body.len(), u64::MAX);
+    assert!(matches!(blobs.recover(&[body], 1), Err(Error::Corrupt(_))));
+    Ok(())
+}

@@ -41,18 +41,17 @@ impl Body {
     }
 
     pub fn len(&self) -> u64 {
-        2 + self
-            .fields
+        self.fields
             .iter()
             .map(|(key, value)| {
                 let len = match value {
                     Value::Inline(bytes) => bytes.len() as u64,
                     Value::File(f) => f.len,
                 };
-                key.len() as u64 + 3 + len + if key == "text" { 2 } else { 0 }
+                len.saturating_add(key.len() as u64 + 3 + if key == "text" { 2 } else { 0 })
             })
-            .sum::<u64>()
-            + self.fields.len().saturating_sub(1) as u64
+            .fold(2u64, u64::saturating_add)
+            .saturating_add(self.fields.len().saturating_sub(1) as u64)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -189,7 +188,7 @@ impl Blobs {
                 Value::Inline(bytes) => out.write_all(bytes)?,
                 Value::File(field) => {
                     let path = self.open.join(field_name(body.row, key, field.generation));
-                    let mut file = File::open(path)?.take(field.len);
+                    let mut file = File::open(path).map_err(named_file_error)?.take(field.len);
                     let mut scratch = [0; 4096];
                     let mut copied = 0u64;
                     loop {
@@ -276,7 +275,10 @@ impl Blobs {
                 }
                 if let Value::File(field) = value {
                     let name = field_name(body.row, key, field.generation);
-                    let file = OpenOptions::new().write(true).open(self.open.join(&name))?;
+                    let file = OpenOptions::new()
+                        .write(true)
+                        .open(self.open.join(&name))
+                        .map_err(named_file_error)?;
                     let actual = file.metadata()?.len();
                     if actual < field.len || (key != "text" && actual != field.len) {
                         return Err(Error::Corrupt("checkpoint body field length"));
@@ -330,6 +332,14 @@ fn remove_if_present(path: &Path) -> Result<(), Error> {
         Ok(()) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e.into()),
+    }
+}
+
+fn named_file_error(error: std::io::Error) -> Error {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        Error::Corrupt("checkpoint body field is missing")
+    } else {
+        Error::Io(error)
     }
 }
 

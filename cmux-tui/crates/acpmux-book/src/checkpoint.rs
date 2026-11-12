@@ -74,7 +74,7 @@ impl Checkpoint {
         self.validate()?;
         // 68-byte log envelope, row ids, two five-byte section envelopes.
         let cap = MAX_CHECKPOINT_STATE
-            .checked_sub(78 + log_open_rows.saturating_mul(8))
+            .checked_sub(78usize.saturating_add(log_open_rows.saturating_mul(8)))
             .ok_or(Error::CheckpointTooLarge { bytes: usize::MAX })?;
         let mut e = Encoder { bytes: Vec::new(), cap };
         e.u32(VERSION)?;
@@ -217,7 +217,7 @@ impl Checkpoint {
         }
         result.validate()?;
         // This includes the log's minimum row-id overhead; log::decode checks the exact count.
-        result.encode(result.open.len())?;
+        result.encode(result.open.len()).map_err(|_| bad())?;
         Ok(result)
     }
 
