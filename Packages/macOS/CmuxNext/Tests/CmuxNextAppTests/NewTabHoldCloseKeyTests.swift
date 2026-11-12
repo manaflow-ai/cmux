@@ -4,6 +4,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import CmuxNextFocus
+import CmuxNextFocusUI
 import Foundation
 import Testing
 
@@ -198,7 +199,7 @@ struct NewTabHoldCloseKeyTests {
             Self.expectNoKeyReachedTheOldView(held, "the hold's limit")
             // The count of the dropped keys is in the hold's log with the end's reason; the keys are not.
             #expect(held.input.log.contains { $0.hasPrefix("dropped 3 keys (limit)") }, "the hold's log does not count the dropped keys: \(held.input.log)")
-            #expect(!held.input.log.contains { $0.contains("ls") }, "the hold's log has the text of the keys: \(held.input.log)")
+            #expect(!held.input.log.contains { $0.hasPrefix("dropped") && $0.contains("ls") }, "the hold's log has the text of the dropped keys: \(held.input.log)")
             // The hold is over: the next key is the window's again.
             let next = try Self.keyDown("x", keyCode: 7, in: held.window)
             #expect(!held.input.capture(next, in: held.window), "a key typed after the limit was held: \(held.input.log)")
@@ -266,5 +267,34 @@ struct NewTabHoldCloseKeyTests {
             #expect(page.typed == "ls\r", "the keys typed ahead of Cmd-V did not go on in order: \"\(page.typed)\" (hold log \(held.input.log))")
             Self.expectNoKeyReachedTheOldView(held, "a chord")
         }
+    }
+
+    /// One field editor serves every text field of a window. A hold that opened while field A had the keyboard
+    /// drops a held key that A would get, and gives on a key for field B, which took the keyboard after the
+    /// opening through the same editor. (A test of the rule's own type: it has no form on a tree before the rule.)
+    @Test func aFieldThatTookTheKeyboardAfterTheOpeningIsNotTheFieldThatHadItThroughTheSameFieldEditor() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: 200, y: 200, width: 300, height: 120), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let first = NSTextField(frame: CGRect(x: 10, y: 60, width: 200, height: 24))
+        let second = NSTextField(frame: CGRect(x: 10, y: 20, width: 200, height: 24))
+        let content = try #require(window.contentView)
+        content.addSubview(first)
+        content.addSubview(second)
+        try #require(window.makeFirstResponder(first), "the first field did not take the keyboard")
+        let editor = try #require(window.firstResponder as? NSTextView, "the first field has no field editor: \(String(describing: window.firstResponder))")
+        try #require(editor.isFieldEditor && editor.delegate === first, "the window's first responder is not the first field's editor")
+
+        let keyboard = NewTabHoldKeyboard(in: window)
+        #expect(!keyboard.drops(keyFor: window.firstResponder), "a hold that has not ended dropped a key")
+        keyboard.endedUnready = true
+        #expect(keyboard.drops(keyFor: window.firstResponder), "a key for the field that had the keyboard at the opening was not dropped")
+
+        try #require(window.makeFirstResponder(second), "the second field did not take the keyboard")
+        let later = try #require(window.firstResponder as? NSTextView, "the second field has no field editor")
+        try #require(later === editor && later.delegate === second, "the second field does not use the same field editor: this run proves nothing")
+        #expect(!keyboard.drops(keyFor: window.firstResponder), "a key for a field that took the keyboard after the opening was dropped")
+        #expect(keyboard.dropped == 1, "the count of the dropped keys is \(keyboard.dropped), not 1")
     }
 }
