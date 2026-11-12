@@ -959,15 +959,20 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
             continue
         label = step.get("name") or step.get("id") or step.get("uses") or "<step>"
         condition = str(step.get("if", ""))
+        # A keychain is deleted only by a delete bash surely runs (must_run()); a line that names one behind `&&`, in
+        # an if branch or in an echo deletes nothing (#40784 F1 sweep). Creating stays read off any mention: it
+        # opens the window, which only makes the guard stricter.
+        deletes = any(DELETE.search(" ".join(words)) for words in must_run(str(step.get("run", ""))))
         for command in commands(str(step.get("run", ""))):
             if CREATE.search(command):
                 open_window = label
                 created = True
                 continue
             if DELETE.search(command):
-                open_window = ""
-                if "always()" in condition:
-                    cleaned_up = True
+                if deletes:
+                    open_window = ""
+                    if "always()" in condition:
+                        cleaned_up = True
                 continue
             smokes = SMOKING_SCRIPTS.search(command) and not deferred_step(step)
             if open_window and (smokes or any(pattern.search(command) for pattern in BUNDLE_CODE)):

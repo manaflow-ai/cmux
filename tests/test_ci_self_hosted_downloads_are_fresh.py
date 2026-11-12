@@ -42,7 +42,10 @@ FRESH_PATH = re.compile(r"^\$\{\{\s*(runner\.temp|steps\.[A-Za-z0-9_-]+\.outputs
 
 
 def on_self_hosted_selector(job: Mapping[str, Any]) -> bool:
-    return bool(SELF_HOSTED.search(workflow_jobs.runs_on(job)))
+    """Whether any matrix cell of the job's runs-on (workflow_jobs.runs_on_cells) names a self-hosted selector. A
+    matrix nothing resolves counts as self-hosted (#40784 F2: `${{ matrix.runner }}` named no selector)."""
+    cells = workflow_jobs.runs_on_cells(job)
+    return cells is None or any(SELF_HOSTED.search(cell) for cell in cells)
 
 
 WORKSPACE_PREFIX = re.compile(r"^\$\{\{\s*github\.workspace\s*\}\}(/|$)")
