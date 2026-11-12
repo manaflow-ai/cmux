@@ -12734,6 +12734,19 @@
             "name": "decimal"
           },
           "description": "The history revision that history-changed carries."
+        },
+        "pending_kinds": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "HistoryKind"
+            },
+            "min_items": 1,
+            "max_items": 5
+          },
+          "description": "The asked kinds whose entries are not complete in this answer: the daemon's fold of the session journal did not reach the journal head inside the list's 2 s budget (a first read after a start on a large journal). entries holds what is folded so far. A caller that gets it asks again, or waits for history-changed of that kind. Omitted when every asked kind is complete; today only agent can be pending."
         }
       },
       "extra": false
