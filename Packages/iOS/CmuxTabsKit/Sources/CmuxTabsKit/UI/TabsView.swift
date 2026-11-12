@@ -223,6 +223,10 @@ struct TabsScreen<Source: TabsDataSource>: View {
                     .accessibilityHidden(!chrome.menuOpen)
             }
 
+            #if DEBUG
+            TabsGestureProbeElement()
+            #endif
+
             if let notice = source.notice {
                 Text(notice)
                     .font(.system(size: 14, weight: .medium))
@@ -388,6 +392,9 @@ struct TabsScreen<Source: TabsDataSource>: View {
         let g = settled ? (rect: fullRect, radius: chrome.swiping ? theme.metrics.screenRadius : 0)
             : phase == .overview ? (rect: activeCardContentRect.offsetBy(dx: activeID.map { cardSwipes.offset($0) } ?? 0, dy: 0),
                                     radius: overviewLayout.cardRadius) : zoomGeometry()
+        #if DEBUG
+        let _ = TabsGestureProbe.drew(g.rect)
+        #endif
         let asCard = phase == .overview && staticCardID != nil && staticCardID == activeID
         let scale = size.width > 0 ? max(0.01, g.rect.width / size.width) : 1
         // The card's content anchor, moving with the zoom's scale.

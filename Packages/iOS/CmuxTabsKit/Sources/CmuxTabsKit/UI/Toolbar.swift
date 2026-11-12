@@ -438,6 +438,9 @@ struct TabsToolbar: View {
                 swipeMoved = true
                 let axis = swipeAxis ?? BarSwipe.axis(v.translation)
                 if swipeAxis == nil { swipeAxis = axis }
+                #if DEBUG
+                if axis == .up { TabsGestureProbe.finger(v.location, page: CGRect(origin: .zero, size: size)) }
+                #endif
                 switch axis {
                 case .horizontal: onSwipeChanged(v.translation.width)
                 case .up: onSwipeUpChanged(-v.translation.height, -v.velocity.height)
@@ -447,6 +450,9 @@ struct TabsToolbar: View {
             .onEnded { v in
                 let axis = swipeAxis
                 swipeAxis = nil
+                #if DEBUG
+                if axis == .up { TabsGestureProbe.lifted() }
+                #endif
                 // After the button under the finger saw this touch-up.
                 Task { @MainActor in swipeMoved = false }
                 switch axis {
