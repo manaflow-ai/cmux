@@ -13,8 +13,10 @@ export const TRANSCRIPT_TURN_GAP = gridLength("gap-turn");
 export const TRANSCRIPT_COMPOSER_GAP = gridLength("gap-composer");
 /// A run of one-line rows and the prose over or under it (design/transcript-spacing.md, "The table":
 /// chatgpt.com 16 box to box, ChatGPT and Claude Code desktop ~40 centre to centre). Leo, 2026-11-02:
-/// "now there's sometimes too much spacing between tool calls".
-export const TRANSCRIPT_RUN_GAP = gridLength("gap-run");
+/// "now there's sometimes too much spacing between tool calls". Lucas, 2026-11-11: still "too much
+/// vertical spacing between white text and commands/tool calls ... reduce it ever so slightly, both up
+/// and down": the inner gap (12), not the grid's run gap (16), which other surfaces keep.
+export const TRANSCRIPT_RUN_GAP = gridLength("gap-inner");
 /// A reply footer (design/transcript-spacing.md "Reply footer"; Leo, 2026-11-02: "didn't i always
 /// say we can do it like chatgpt"): ChatGPT's 32 button around a 20 glyph, 8 under the reply's last
 /// line, then the block gap to whatever comes next.

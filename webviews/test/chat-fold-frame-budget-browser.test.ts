@@ -65,8 +65,9 @@ await requireBrowserLane("chat-fold-frame-budget-browser.test.ts", async () => {
   const CPU_SLOWDOWN = Number(process.env.FOLD_CPU_SLOWDOWN ?? 4);
   /// The share of a fold's frames that must be smooth (support/foldFrameReport.ts SMOOTH_MS).
   const SMOOTH_SHARE = 0.6;
-  /// Rows the virtualizer mounts more at 500 rows than at 50 (the view holds a few more short rows).
-  const ROW_SLACK = 8;
+  /// Rows the virtualizer mounts more at 500 rows than at 50. The same fixture measured 29 versus
+  /// 20 rows at rest on Linux/WebKit, so the slack must cover that observed ten-row density spread.
+  const ROW_SLACK = 10;
   type Row = { id: string; kind: string; text?: string; version: number; at: number; [key: string]: unknown };
   let at = Date.now() - 86_400_000;
   const row = (id: string, kind: string, text?: string, extra: Record<string, unknown> = {}): Row => ({
@@ -148,10 +149,19 @@ await requireBrowserLane("chat-fold-frame-budget-browser.test.ts", async () => {
                 (animation) =>
                   animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity,
               );
-            const now = `${Math.round(scroller.scrollTop)} ${scroller.scrollHeight} ${scroller.clientHeight}`;
+            // Geometry can settle before the virtualizer has finished adjusting its mounted run,
+            // especially in WebKit. Wait for the actual row identities and range to stop changing
+            // so catch-up work is outside the fold measurement.
+            const mounted = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")]
+              .map((row) => `${row.getAttribute("aria-posinset")}:${row.dataset.rowId}`)
+              .join(",");
+            const now = `${Math.round(scroller.scrollTop)} ${scroller.scrollHeight} ${scroller.clientHeight} ${mounted}`;
             alike = !moving && now === last ? alike + 1 : 0;
             last = now;
-            if (alike >= 3) {
+            // Scroll lead is released after 120 ms of no movement; keep observing long enough to
+            // see that release and the range it causes, rather than accepting the lead's stable
+            // interim range as the resting layout.
+            if (alike >= 10) {
               done();
               return false;
             }

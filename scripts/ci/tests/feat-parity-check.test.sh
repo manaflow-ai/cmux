@@ -3,9 +3,11 @@
 # (rust-workspaces roots, the Rust SDK and its MSRV, the CEF shim C++ tests, web/), as fleet steps.
 # Stub cargo, rustup and bun record what runs; rust-workspaces.py is the real one on a scratch repo.
 set -euo pipefail
+# shellcheck source=scripts/cmux-next/tests/lib/git-fixture.sh
+source "$(dirname "${BASH_SOURCE[0]}")/../../cmux-next/tests/lib/git-fixture.sh"  # drops inherited GIT_DIR/GIT_CONFIG redirects; turns off background maintenance
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 SCRIPT="$ROOT/scripts/ci/feat-parity-check.sh"
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+TMP=$(mktemp -d); git_fixture_trap_exit 'rm -rf "$TMP"'
 fail() { echo "FAIL: $*"; exit 1; }
 python3 -c 'import tomllib' 2>/dev/null || { echo "SKIP: python3 has no tomllib"; exit 0; }
 mkdir -p "$TMP/bin"

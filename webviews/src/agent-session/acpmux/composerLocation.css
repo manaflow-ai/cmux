@@ -1480,6 +1480,11 @@
   --acpmux-permission-pill-height: var(--acpmux-composer-control);
   --acpmux-permission-pill-inset: calc(8px * var(--acpmux-density));
   --acpmux-composer-inset: var(--grid-composer-inset);
+  /* The chips' names for the composer's one glyph and chevron (Lawrence 2026-11-09: "all font sizes and
+     icons sizes here need to be more consistent"): every chip around the box draws its leading glyph and
+     chevron at these. test/newtab-chip-scale.test.ts measures it. */
+  --acpmux-chip-glyph: var(--acpmux-composer-glyph);
+  --acpmux-chip-chevron: var(--acpmux-composer-chevron);
   /* The room over and under a one-line prompt's controls: more than the side inset, so the text
      never sits on the box's bottom edge (Leo 2026-11-01: "this is all still not aligned there's not
      enough of a space at the bottom"). The top and the bottom are always equal. */

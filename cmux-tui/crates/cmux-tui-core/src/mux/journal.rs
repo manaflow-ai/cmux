@@ -256,7 +256,14 @@ impl Mux {
                 _ => (ok, failed),
             });
         self.registry_connection.write_path_stats().writer_batch_committed(committed, failed);
-        self.publish_journal_event();
+        // A batch of retry-row clears only (`AgentHookCleared`) wrote no journal row and changed no
+        // resource: publishing it woke every session stream and journal waiter for nothing, twice
+        // per projected hook. The delete published nothing when the request committed it itself.
+        if events.iter().any(|event| {
+            !matches!(event, crate::journal_ingress::JournalIngressEvent::AgentHookCleared { .. })
+        }) {
+            self.publish_journal_event();
+        }
         Ok(commits)
     }
 

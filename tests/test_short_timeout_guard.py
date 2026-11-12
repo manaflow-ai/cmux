@@ -54,6 +54,22 @@ class ShortTimeoutGuardTests(unittest.TestCase):
             [("swift-duration", 2)],
         )
 
+    def test_a_rust_pace_constant_beside_a_timeout_is_no_timeout(self) -> None:
+        # A backoff step, a retry wait, a poll interval or a progress note is judged by its own name, not by the
+        # TIMEOUT constant declared next to it; a pace name that also says TIMEOUT, BUDGET or DEADLINE still counts.
+        rust = (
+            "const LONG_WAIT: Duration = SCREENSHOT_TIMEOUT;\n"
+            "const FIRST_NOTE_AFTER: Duration = Duration::from_secs(2);\n"
+            "const RECONNECT_MAX_WAIT: Duration = Duration::from_secs(2);\n"
+            "const POLL: Duration = Duration::from_secs(3);\n"
+            "const RETRY_STOP_BUDGET: Duration = Duration::from_secs(1);\n"
+            "const ANSWER_WAIT: Duration = Duration::from_secs(2);\n"
+        )
+        self.assertEqual(
+            [hit["line"] for hit in guard.scan_source(rust, "cmux-tui/crates/acpmux/src/hub/start.rs")],
+            [5, 6],
+        )
+
     def test_other_language_patterns_and_test_module_exclusion(self) -> None:
         swift = "request.timeoutInterval = 2\nsetsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &value)\n"
         self.assertEqual(
