@@ -25,7 +25,13 @@ const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRo
 });
 const ran = (id: string) =>
   row(id, "activity", {
-    items: [{ kind: "tool", text: "", tool: { id, title: id, kind: "execute", status: "completed" } }],
+    items: [
+      {
+        kind: "tool",
+        text: "",
+        tool: { id, title: id, kind: "execute", status: "completed" },
+      },
+    ],
   });
 const say = (id: string, text: string) => row(id, "assistant", { text });
 /// A user-facing answer with a list, as in Leo's screenshot (synthetic text).
@@ -66,23 +72,16 @@ test("the one fold opens every intermediate answer and command in order", () => 
     "user:u",
     "worked:worked-u",
     "activity:ran-1",
-    "activity:ran-2",
-    "activity:ran-3",
-    "activity:ran-4",
     "assistant:first",
     "activity:ran-5",
-    "activity:ran-6",
     "assistant:second",
     "turnSummary:end",
   ]);
-  expect(drawn(leosTurn(), new Set(["worked-u"])).slice(1, 7)).toEqual([
-    "worked:worked-u",
-    "activity:ran-1",
-    "activity:ran-2",
-    "activity:ran-3",
-    "activity:ran-4",
-    "assistant:first",
-  ]);
+  // Runs with nothing drawn between them are one line, holding every call in order (Leo, 2026-11-12,
+  // ask-bc2af01f6e: "how come these aren't folded?"; transcript-run-seams.test.ts).
+  const open = turnView(rows, new Set(["worked-u"]), {});
+  expect(open.find((shaped) => shaped.id === "ran-1")?.joined).toEqual(["ran-1", "ran-2", "ran-3", "ran-4"]);
+  expect(open.find((shaped) => shaped.id === "ran-5")?.joined).toEqual(["ran-5", "ran-6"]);
 });
 
 test("Find opens the fold that holds the row", () => {
@@ -128,7 +127,13 @@ test("completed compactions and subagent reports fold, while a refusal stays ava
   const rows = [
     row("u", "user"),
     ran("read"),
-    row("compacted", "compaction", { compaction: { state: "completed", preTokens: 123_000, postTokens: 13_000 } }),
+    row("compacted", "compaction", {
+      compaction: {
+        state: "completed",
+        preTokens: 123_000,
+        postTokens: 13_000,
+      },
+    }),
     row("cef-done", "subagentDone", { text: "CEF audit" }),
     row("refused", "notice", { text: "The prompt was refused" }),
     answer("final"),
