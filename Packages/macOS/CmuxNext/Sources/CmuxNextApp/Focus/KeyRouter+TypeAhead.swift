@@ -61,8 +61,7 @@ extension KeyRouter {
         let (controller, kind) = focus(for: window)
         guard let controller, kind == .content else { return false }
         let focus = controller.focus.state
-        guard focus.resolved.mayQueueTyping, let pane = focus.resolved.pane,
-              let readiness = controller.content?.paneController(key: pane)?.currentContent?.inputReadiness else { return false }
+        guard focus.resolved.mayQueueTyping, let pane = focus.resolved.pane, let readiness = controller.content?.paneController(key: pane)?.currentContent?.inputReadiness else { return false }
         let surface = String(describing: ObjectIdentifier(readiness))
         let waiting = typeAhead.pending(for: surface) || deliveringTypeAhead == surface || typeAheadTail.holds(surface)
         let otherPage = keyInOtherPage(window, controller: controller)
@@ -71,7 +70,7 @@ extension KeyRouter {
         if !otherPage, typeAheadTail.takes(keyCode: event.keyCode, chord: Self.isChord(event.modifierFlags), surface: surface, behindText: waiting) {
             decided.add(event)
             typeAheadTail.hold(HeldTypeAheadKey(event: event, window: window), surface: surface, delivering: deliveringTypeAhead == surface)
-            if typeAheadFocus == nil { typeAheadFocus = focus.resolved }
+            if typeAheadFocus == nil { typeAheadFocus = TypeAheadWait(focus: focus.resolved, page: surface) }
             readiness.whenReady { [weak self, weak readiness] in readiness.map { self?.flushTypeAhead(surface, into: $0) } }
             return true
         }
@@ -90,7 +89,7 @@ extension KeyRouter {
         }
         decided.add(event)
         typeAhead.append(event.characters ?? "", surface: surface, now: .now)
-        typeAheadFocus = focus.resolved
+        typeAheadFocus = TypeAheadWait(focus: focus.resolved, page: surface)
         readiness.whenReady { [weak self, weak readiness] in readiness.map { self?.flushTypeAhead(surface, into: $0) } }
         return true
     }
@@ -160,9 +159,10 @@ extension KeyRouter {
         typeAheadFocus = nil
     }
 
-    /// Focus moved off the page the keys wait for: they are dropped.
-    func typeAheadFocusDidSettle(_ resolved: FocusState.Resolved) {
-        guard let waiting = typeAheadFocus, waiting != resolved else { return }
+    /// Focus moved off the page the keys wait for: they are dropped. The page under its store id is the same page.
+    func typeAheadFocusDidSettle(_ resolved: FocusState.Resolved, in window: NSWindow?) {
+        let page = resolved.pane.flatMap { pane in window.flatMap { focus(for: $0).0?.content?.paneController(key: pane)?.currentContent?.inputReadiness } }
+        guard let waiting = typeAheadFocus, !waiting.survives(resolved, page: page.map { String(describing: ObjectIdentifier($0)) }) else { return }
         dropTypeAhead()
     }
 }
