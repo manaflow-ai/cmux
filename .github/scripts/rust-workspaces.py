@@ -164,7 +164,7 @@ class Tree:
         found = set()
         for directory in directories:
             for source in self.sources:
-                if not under(source, directory) or not (self.repo / source).is_file():
+                if not self.owns(directory, source) or not (self.repo / source).is_file():
                     continue
                 text = (self.repo / source).read_text(encoding="utf-8", errors="replace")
                 # A concat! prefix may stop inside a file name: watch its directory.
@@ -181,6 +181,16 @@ class Tree:
                     if not path.startswith("..") and not any(under(path, d) for d in directories):
                         found.add(path)
         return found
+
+    def owns(self, directory: str, path: str) -> bool:
+        """`path` is in `directory`'s tree with no other workspace root in between: a Cargo.toml below it with a
+        [workspace] of its own, or in a workspace's `exclude`, starts another workspace with its own lock, and a
+        change there is that one's (the cmux#41742 review's F1 class)."""
+        if not under(path, directory):
+            return False
+        if not hasattr(self, "_roots"):
+            self._roots = self.roots()
+        return not any(root != directory and under(root, directory) and under(path, root) for root in self._roots)
 
     def uses_package(self, directories: set[str], name: str) -> bool:
         return any(self.manifests.get(d, {}).get("package", {}).get("name") == name for d in directories)
@@ -249,7 +259,7 @@ def plan(repo: Path, base: str) -> list[dict]:
             # A dependency outside the workspace may inherit from its own workspace's manifest.
             watched = reach | {f"{above}/Cargo.toml" for above in map(tree.workspace_above, reach) if above}
             watched |= tree.read_paths(reach) | set(entry.get("inputs", []))
-            if not any(under(path, directory) for path in paths for directory in watched):
+            if not any(tree.owns(directory, path) for path in paths for directory in watched):
                 continue
         jobs.append({
             "root": root,

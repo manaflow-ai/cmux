@@ -155,3 +155,45 @@ def terminate_pid(
             if finished:
                 break
             time.sleep(min(0.05, max(0, deadline - time.monotonic())))
+
+
+def run_bounded(
+    command: list[str],
+    *,
+    timeout: float,
+    capture_output: bool = False,
+    input: Optional[str | bytes] = None,
+    check: bool = False,
+    **popen: object,
+) -> subprocess.CompletedProcess:
+    """subprocess.run's shape and answers, but a timeout stops the command's whole tree.
+
+    subprocess.run kills only the process it started: a `git submodule update` that timed out left its `git clone`
+    and transport running, and the retry over the same checkout failed at once (cmux#41752 review F1). Here the
+    command runs in its own session, and on a timeout terminate() stops its process group and every descendant
+    and reaps the command before TimeoutExpired is raised (with the output read so far)."""
+    if capture_output:
+        popen.setdefault("stdout", subprocess.PIPE)
+        popen.setdefault("stderr", subprocess.PIPE)
+    if input is not None:
+        popen["stdin"] = subprocess.PIPE
+    process = subprocess.Popen(command, start_new_session=True, **popen)
+    try:
+        out, err = process.communicate(input=input, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        terminate(process)
+        try:
+            out, err = process.communicate(timeout=TERM_GRACE_SECONDS)
+        except (subprocess.TimeoutExpired, ValueError):
+            out, err = None, None
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
+        raise subprocess.TimeoutExpired(command, timeout, output=out, stderr=err) from None
+    except BaseException:
+        terminate(process)
+        raise
+    done = subprocess.CompletedProcess(command, process.returncode, out, err)
+    if check:
+        done.check_returncode()
+    return done
