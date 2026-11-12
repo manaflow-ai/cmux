@@ -62,9 +62,9 @@ pub(super) fn marker(old: &str) -> String {
 /// The old subagent id a prompt's [`marker`] names: the last one, since a resumed run's brief
 /// already carries the marker of the run it resumed.
 fn marked(prompt: &str) -> Option<&str> {
-    let at = prompt.rfind("[acpmux-resume:")? + "[acpmux-resume:".len();
-    let end = prompt[at..].find(']')?;
-    Some(&prompt[at..at + end]).filter(|id| !id.is_empty())
+    let (_, rest) = prompt.rsplit_once("[acpmux-resume:")?;
+    let (id, _) = rest.split_once(']')?;
+    Some(id).filter(|id| !id.is_empty())
 }
 
 /// What acpmux recorded of one top-level subagent: its brief, and how it stands.
@@ -137,17 +137,19 @@ impl Resumes {
     fn apply(&self, session: &str, id: &str, e: &Value) -> (Option<Brief>, Brief) {
         let mut all = self.lock();
         let subs = all.entry(session.to_owned()).or_default();
-        let at = subs.iter().position(|(i, _)| i == id);
-        let before = at.map(|at| subs[at].1.clone());
-        let at = at.unwrap_or_else(|| {
+        let before = subs.iter().find(|(i, _)| i == id).map(|(_, b)| b.clone());
+        if before.is_none() {
             if subs.len() >= MAX_BRIEFS {
                 subs.remove(0);
             }
             subs.push((id.to_owned(), Brief::default()));
-            subs.len() - 1
-        });
-        subs[at].1.apply(e);
-        (before, subs[at].1.clone())
+        }
+        let mut now = Brief::default();
+        if let Some((_, brief)) = subs.iter_mut().find(|(i, _)| i == id) {
+            brief.apply(e);
+            now = brief.clone();
+        }
+        (before, now)
     }
 
     fn forget(&self, session: &str) {
