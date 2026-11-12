@@ -152,6 +152,9 @@ FIXTURES = [
     ("a conditional expression's operators split no command", "[[ -n x && ( gh || b ) ]]\na", {"a"}, None),
     ("a coprocess runs its command", "coproc a\nwait", {"a"}, set()),
     ("a coprocess after time runs its command (dep-fleet-6 F4)", "time coproc a; wait", {"a"}, set()),
+    ("env treats coproc as a program name (dep-fleet-6 F1)", "env coproc a", set(), set()),
+    ("time env treats coproc as a program name (dep-fleet-6 F1)", "time env coproc a", set(), set()),
+    ("an assignment makes coproc a program name (dep-fleet-6 F1)", "X=1 coproc a", set(), set()),
     ("a brace expansion in the program word", "{a,b}", {"a"}, set()),
 ]
 
