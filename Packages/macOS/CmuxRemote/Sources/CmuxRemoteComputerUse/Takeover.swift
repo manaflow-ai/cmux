@@ -3,6 +3,7 @@
 // (kiruna-labs/petal @ 7ac436a, Apache-2.0, Copyright Kiruna Labs), ported
 // to Swift (first for the Computer Use helper v2, #36080), now the Computer Use
 // worker's `wait_idle` for libcmux_computer_use.
+import Carbon
 import Foundation
 import os
 
@@ -68,7 +69,9 @@ enum TapEventType {
     /// Without Input Monitoring: everything but keys, so creating the tap
     /// never asks for that grant. Clicks, drags and scrolls still take over.
     static var pointerOnlyMask: UInt64 {
-        mask & ~(1 << UInt64(keyDown)) & ~(1 << UInt64(flagsChanged))
+        // No keyboard type at all: listening to one is what asks for Input
+        // Monitoring (and system-defined events carry media and dictation keys).
+        mask & ~(1 << UInt64(keyDown)) & ~(1 << UInt64(flagsChanged)) & ~(1 << UInt64(systemDefined))
     }
 }
 
@@ -158,6 +161,8 @@ final class TakeoverGate: Sendable {
     }
 
     let rule: TakeoverRule
+    /// Reads Secure Event Input now (IsSecureEventInputEnabled; tests pass a fake).
+    private let secureInputNow: @Sendable () -> Bool
     private let state = OSAllocatedUnfairLock(initialState: State())
     private let now: Clock
     private let sleep: Sleeper
@@ -166,8 +171,10 @@ final class TakeoverGate: Sendable {
     /// `starter` (re)starts the detector; `waitIdle` calls it, so a grant
     /// given after launch brings the detector up on the next acting call.
     init(rule: TakeoverRule = TakeoverRule(), now: @escaping Clock = TakeoverGate.uptimeNanos,
-         sleep: @escaping Sleeper = TakeoverGate.timedWait, starter: (@Sendable () -> Void)? = nil) {
+         sleep: @escaping Sleeper = TakeoverGate.timedWait, starter: (@Sendable () -> Void)? = nil,
+         secureInputNow: @escaping @Sendable () -> Bool = { IsSecureEventInputEnabled() }) {
         self.rule = rule
+        self.secureInputNow = secureInputNow
         self.now = now
         self.sleep = sleep
         self.starter = starter
@@ -208,8 +215,17 @@ final class TakeoverGate: Sendable {
 
     /// The key-blind epoch while personEventCount() covers keys, else nil.
     /// Two equal readings mean the person's keys were counted all along.
+    /// Secure Event Input is read here too, not only on the tap's wake, so
+    /// the 0.25 s after it turns on never reads as covered.
     func keyBlindEpoch() -> UInt64? {
-        state.withLock { ($0.healthy && $0.seesKeys && !$0.secureInput) ? $0.keyBlindEpoch : nil }
+        let secure = secureInputNow()
+        return state.withLock { state in
+            if secure {
+                state.keyBlindEpoch &+= 1
+                state.secureInput = true
+            }
+            return (state.healthy && state.seesKeys && !state.secureInput) ? state.keyBlindEpoch : nil
+        }
     }
 
     /// The tap's reading of Secure Event Input, on each wake. While it is on

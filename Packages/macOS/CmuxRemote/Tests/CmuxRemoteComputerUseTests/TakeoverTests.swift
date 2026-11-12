@@ -13,6 +13,8 @@ private final class FakeClock: Sendable {
 
     var now: UInt64 { nanos.withLock { $0 } }
     func advance(_ duration: Duration) { nanos.withLock { $0 += UInt64(duration.totalNanos) } }
+    /// What the gate reads as Secure Event Input right now.
+    let secure = OSAllocatedUnfairLock(initialState: false)
 
     func gate(_ rule: TakeoverRule = TakeoverRule(), starter: (@Sendable () -> Void)? = nil) -> TakeoverGate {
         TakeoverGate(rule: rule, now: { self.now }, sleep: { duration in
@@ -20,7 +22,7 @@ private final class FakeClock: Sendable {
             self.advance(duration)
             let next = self.duringSleep.withLock { $0.isEmpty ? nil : $0.removeFirst() }
             next?()
-        }, starter: starter)
+        }, starter: starter, secureInputNow: { self.secure.withLock { $0 } })
     }
 }
 
@@ -165,6 +167,13 @@ private final class FakeClock: Sendable {
         gate.noteSecureInput(false)
         #expect(gate.personEventsCoverKeys())
         #expect(gate.keyBlindEpoch() != epoch, "a reading from before it never equals one after")
+        // Turned on between two wakes: the read itself sees it.
+        let lastEpoch = gate.keyBlindEpoch()
+        clock.secure.withLock { $0 = true }
+        #expect(gate.keyBlindEpoch() == nil, "Secure Event Input read at read time")
+        clock.secure.withLock { $0 = false }
+        gate.noteSecureInput(false)
+        #expect(gate.keyBlindEpoch() != lastEpoch)
     }
 
     @Test func ourOwnInputNeverTakesOver() {
