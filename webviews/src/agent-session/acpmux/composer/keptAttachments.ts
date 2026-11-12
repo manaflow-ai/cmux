@@ -42,9 +42,19 @@ const handoffs = new Map<string, Promise<void>>();
 /// chat (attachmentIntake.ts `elsewhere`). A batch's chips are ready at their own times, so one
 /// chat's handoffs go one after another: each reads what the last wrote, never over it.
 export function keepElsewhere(store: KeptAttachments, chat: string, chips: ComposerAttachment[]): Promise<void> {
+  // A read the host does not answer is asked again: written over an unread list, the chat's other
+  // kept chips would go. A host that never answers keeps at least these.
+  const readKept = async (tries = 0): Promise<ComposerAttachment[]> => {
+    try {
+      return await store.read(chat);
+    } catch {
+      if (tries + 1 >= KEPT_READ_TRIES) return [];
+      await new Promise((resolve) => setTimeout(resolve, KEPT_READ_RETRY_MS * 2 ** tries));
+      return readKept(tries + 1);
+    }
+  };
   const next = (handoffs.get(chat) ?? Promise.resolve())
-    .then(() => store.read(chat))
-    .catch(() => [])
+    .then(() => readKept())
     .then((kept) => store.write(chat, appendAttachments(kept, chips)))
     .then(
       () => undefined,

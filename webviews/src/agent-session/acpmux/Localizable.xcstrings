@@ -70982,6 +70982,138 @@
         }
       }
     },
+    "composer.attachmentsUnread": {
+      "comment": "Agent pane composer note: a send found places in the prompt for attachments the composer no longer holds, and the host did not answer when asked for its kept copy; the prompt stays unsent with its places",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّرت قراءة مرفقات هذه الرسالة بعد. تبقى هنا؛ أرسلها مرة أخرى بعد قليل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prilozi ove poruke još se ne mogu pročitati. Ostaje ovdje; pošalji je ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vedhæftningerne i denne besked kunne ikke læses endnu. Den bliver her; send den igen om lidt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Anhänge dieser Nachricht konnten noch nicht gelesen werden. Sie bleibt hier; sende sie gleich noch einmal."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This message's attachments could not be read yet. It stays here; send it again in a moment."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no se pudieron leer los adjuntos de este mensaje. Se queda aquí; envíalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les pièces jointes de ce message n’ont pas encore pu être lues. Il reste ici ; renvoie-le dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non è stato ancora possibile leggere gli allegati di questo messaggio. Resta qui; invialo di nuovo tra poco."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このメッセージの添付ファイルをまだ読み込めませんでした。ここに残しておくので、少ししてからもう一度送信してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនទាន់អាចអានឯកសារភ្ជាប់នៃសារនេះបានទេ។ វានៅទីនេះ សូមផ្ញើម្តងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 메시지의 첨부 파일을 아직 읽지 못했습니다. 여기에 남아 있으니 잠시 후 다시 보내세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vedleggene i denne meldingen kunne ikke leses ennå. Den blir her; send den igjen om litt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie udało się jeszcze odczytać załączników tej wiadomości. Zostaje tutaj; wyślij ją ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda não foi possível ler os anexos desta mensagem. Ela fica aqui; envie de novo daqui a pouco."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вложения этого сообщения пока не удалось прочитать. Оно остаётся здесь; отправь его снова чуть позже."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังอ่านไฟล์แนบของข้อความนี้ไม่ได้ ข้อความยังอยู่ที่นี่ ส่งอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu mesajın ekleri henüz okunamadı. Burada kalıyor; birazdan yeniden gönder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вкладення цього повідомлення поки не вдалося прочитати. Воно лишається тут; надішли його знову трохи згодом."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa đọc được tệp đính kèm của tin nhắn này. Tin nhắn vẫn ở đây; hãy gửi lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂时无法读取此消息的附件。消息会留在这里，请稍后再发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暫時無法讀取此訊息的附件。訊息會留在這裡，請稍後再傳送。"
+          }
+        }
+      }
+    },
     "composer.attachments": {
       "comment": "Agent pane",
       "extractionState": "manual",

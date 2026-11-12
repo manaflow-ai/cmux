@@ -279,3 +279,66 @@ test("a send whose places have no chips anywhere never sends the bare ids", asyn
   expectNoBareIds(sent[0]!);
   expect(sent[0]!.text.trim()).toBe("hello");
 });
+
+test("a send while the host does not answer keeps the places and the prompt, and goes once it does", async () => {
+  const store = new Host();
+  store.chats.set("chat-a", ids.map(image));
+  store.failing = true;
+  const sent: Sent[] = [];
+  const page = await render("chat-a", store, sent);
+  for (let i = 0; i < 20; i++) await settle(1000);
+  act(() => page.current!.restore(`${ids.map(inlineToken).join("")}hello`, []));
+  act(() => {
+    page.current!.send();
+  });
+  for (let i = 0; i < 20; i++) await settle(1000);
+  expect(sent).toHaveLength(0);
+  // The places are still there: nothing was taken out for a read that failed.
+  expect(inlineTokenIds(page.current!.draft().text)).toEqual(ids);
+  store.failing = false;
+  act(() => {
+    page.current!.send();
+  });
+  for (let i = 0; i < 4; i++) await settle(1000);
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.attachments.map((chip) => chip.id)).toEqual(ids);
+  expectNoBareIds(sent[0]!);
+});
+
+test("two Enters while the chips come back send once, with the images", async () => {
+  const store = new Host();
+  store.chats.set("chat-a", ids.map(image));
+  store.failing = true;
+  const sent: Sent[] = [];
+  const page = await render("chat-a", store, sent);
+  for (let i = 0; i < 20; i++) await settle(1000);
+  store.failing = false;
+  act(() => page.current!.restore(`${ids.map(inlineToken).join("")}hello`, []));
+  act(() => {
+    page.current!.send();
+    page.current!.send();
+  });
+  for (let i = 0; i < 4; i++) await settle(1000);
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.attachments.map((chip) => chip.id)).toEqual(ids);
+  expectNoBareIds(sent[0]!);
+});
+
+test("chips coming back for one chat never land in, or send with, the chat shown after it", async () => {
+  const store = new Host();
+  store.chats.set("chat-a", ids.map(image));
+  store.failing = true;
+  const sent: Sent[] = [];
+  const page = await render("chat-a", store, sent);
+  for (let i = 0; i < 20; i++) await settle(1000);
+  act(() => page.current!.restore(`${ids.map(inlineToken).join("")}from a`, []));
+  act(() => {
+    page.current!.send();
+  });
+  // Another chat shows while chat A's read is still out; then the host answers.
+  const other = await render("chat-b", store, sent);
+  store.failing = false;
+  for (let i = 0; i < 20; i++) await settle(1000);
+  expect(shown(other)).toEqual([]);
+  expect(sent).toHaveLength(0);
+});
