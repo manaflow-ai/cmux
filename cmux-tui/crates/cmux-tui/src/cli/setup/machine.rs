@@ -231,8 +231,8 @@ pub(super) fn status() -> Result<Value, Refusal> {
         .iter()
         .map(|peer| {
             let mut row = summary(peer);
-            let healthy = peer.get_bool("connected") == Some(true)
-                && !peer.get_bool("outdated") == Some(true);
+            let healthy =
+                peer.get_bool("connected") == Some(true) && peer.get_bool("outdated") != Some(true);
             row.set(
                 "fix",
                 match (healthy, destination(peer), peer.get("name").and_then(Value::as_str)) {

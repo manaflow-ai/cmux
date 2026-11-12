@@ -275,7 +275,7 @@ pub(super) fn pick<'a>(
                     messages.pulled.replace("{build}", number).replace("{reason}", &reason),
                 ));
             }
-            if !build.get_bool("switchable") == Some(true) {
+            if build.get_bool("switchable") != Some(true) {
                 return Err(("nightly.cannot_switch", messages.cannot_switch.to_owned()));
             }
             Ok(build)
