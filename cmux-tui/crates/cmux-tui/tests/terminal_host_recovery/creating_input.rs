@@ -253,6 +253,42 @@ fn a_creation_that_outlives_the_expiry_gives_the_input_back() {
     assert!(!screen.contains("EXPIRED-INPUT"), "expired input was written: {screen}");
 }
 
+/// A creation slower than the input expiry (a host start under load, or a split that waits for
+/// the earlier creates of its connection) still commits, so the keys typed into it must reach
+/// it. Given back at the expiry instead, they reached no one: no client of ours takes the
+/// notice, and the app types it into whatever terminal has focus. The queue now waits for the
+/// creation's end; the backstop only bounds a creation that never ends.
+#[test]
+fn a_creation_slower_than_the_input_expiry_writes_its_queued_input() {
+    let mut harness = RecoveryHarness::start_unstarted("creating-input-slow");
+    harness.host_ready_delay_ms = Some(3_000);
+    // 300 ms stands in for the 10 s expiry: the creation takes ten times as long.
+    harness.extra_env.push(("CMUX_TUI_TEST_CREATING_INPUT_EXPIRY_MS".into(), "300".into()));
+    harness.restart();
+    let pane = first_pane(&harness, "creating-slow");
+    let terminal_id = creating_terminal(10);
+    let split = spawn_request(
+        &harness.socket,
+        serde_json::json!({"id": 10, "cmd": "split", "pane": pane, "dir": "right", "terminal_id": terminal_id}),
+    );
+    let mut sender = Connection::open(&harness.socket);
+    queue(&mut sender, 20, &terminal_id, "TYPED-IN-A-SLOW-CREATION");
+    let created = split.recv_timeout(test_timeout(Duration::from_secs(20))).unwrap();
+    assert_eq!(created["ok"], true, "{created}");
+    let surface = created["data"]["surface"].as_u64().unwrap();
+    let screen = wait_for_screen(&harness.socket, surface, "TYPED-IN-A-SLOW-CREATION");
+    assert!(
+        screen.contains("TYPED-IN-A-SLOW-CREATION"),
+        "input typed while the terminal was created never reached it: {screen:?}; notices: {:?}",
+        sender.notices
+    );
+    assert!(
+        sender.notices.iter().all(|n| n["event"] != "terminal-input-unclaimed"),
+        "the input was given back: {:?}",
+        sender.notices
+    );
+}
+
 #[test]
 fn more_than_64_kib_for_a_creating_terminal_is_refused() {
     let harness = RecoveryHarness::start_with_host_ready_delay("creating-input-overflow", 2_000);
