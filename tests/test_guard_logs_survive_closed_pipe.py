@@ -382,12 +382,12 @@ class ScanLogThenKill(unittest.TestCase):
             kill -TERM "$pid"
             left="$(for p in $pids; do kill -0 "$p" && echo "$p"; done)"
             kill -9 $left
-            printf "a crash, kill or truncation of %s" "$x"
             if [[ -n "$y" ]]; then
               echo "warning: y"
             fi
             kill "$tunnel"
             echo "machine $run"
+            printf "a crash, kill or truncation of %s" "$x"
             cleanup() {
               kill "$pid"
             }
