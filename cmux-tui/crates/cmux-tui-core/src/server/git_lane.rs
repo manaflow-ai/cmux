@@ -38,7 +38,10 @@
 //!   connection's reply queue ([`SHARED_REPLY_WAIT`] at most for all the
 //!   copies of a run), because the copies of a large reply at one time are
 //!   above that queue's bound and the daemon closes a connection above it.
-//!   Before the lane, a git run was between two replies. A read with other params is a
+//!   Before the lane, a git run was between two replies. That wait holds
+//!   no place: the run ended, so its place goes to the next request before
+//!   the first copy waits ([`Class::Copies`]), and a connection that reads
+//!   slowly holds back only the next shared run of its own. A read with other params is a
 //!   different question and is never cancelled: the wire does not say who
 //!   asks, and its caller waits for an answer.
 //! - **A mutation keeps its connection's order.** It starts when every
@@ -103,10 +106,10 @@ const QUEUED_PER_CLIENT: usize = 512;
 const SHARED_READS: usize = 64;
 
 /// The longest the copies of one shared reply wait, all together, for room
-/// in their connection's reply queue. The run keeps its place for that
-/// time, so it is short. A client that takes none of its replies for this
-/// long has a full queue, and the daemon closes it as it closes any
-/// connection whose queue is full.
+/// in their connection's reply queue. The wait holds no place of the lane
+/// ([`Class::Copies`]); it holds the reply, so it has an end. A client whose
+/// queue has no room for this long gets no error reply: the daemon closes
+/// its connection, as it closes any connection whose queue is full.
 const SHARED_REPLY_WAIT: Duration = Duration::from_secs(10);
 
 /// What a git request is to the order rules.
@@ -122,6 +125,10 @@ enum Class {
     LongRead,
     /// A request that changes the repository or the daemon's git records.
     Mutation,
+    /// A read that ended: the copies of its reply wait for room in their
+    /// connection's reply queue. It holds no place. No request has this
+    /// class when it waits ([`Schedule::copies`]).
+    Copies,
 }
 
 impl Class {
@@ -154,6 +161,8 @@ impl Class {
 struct Entry<J> {
     client: u64,
     class: Class,
+    /// A later equal read joined it: its run has copies to send.
+    shared: bool,
     job: J,
 }
 
@@ -198,6 +207,7 @@ impl<J> Schedule<J> {
                 return None;
             }
             if equal(&entry.job) {
+                entry.shared = true;
                 return Some(&mut entry.job);
             }
         }
@@ -205,18 +215,20 @@ impl<J> Schedule<J> {
     }
 
     fn push(&mut self, client: u64, class: Class, job: J) {
-        self.queue.push_back(Entry { client, class, job });
+        self.queue.push_back(Entry { client, class, shared: false, job });
     }
 
     /// The first request that may start now, taken from the queue and
     /// counted as running. A mutation may start when nothing of its
     /// connection runs or waits before it; a read, when no mutation of its
     /// connection runs or waits before it. A long read also needs one of
-    /// the places long reads may take.
+    /// the places long reads may take. A read that equal reads joined does
+    /// not start while copies of its connection wait: a connection holds
+    /// the reply of one shared run at a time (and of those that ran with it).
     fn start_next(&mut self) -> Option<(u64, J)> {
         let count = |class: Class| self.running.iter().filter(|run| run.class == class).count();
         let (mutations, long_reads) = (count(Class::Mutation), count(Class::LongRead));
-        let reads = self.running.len().saturating_sub(mutations);
+        let reads = self.running.len().saturating_sub(mutations + count(Class::Copies));
         if reads >= MAX_READ_RUNS && mutations >= MAX_MUTATION_RUNS {
             return None;
         }
@@ -227,16 +239,19 @@ impl<J> Schedule<J> {
         let mut found = None;
         for (index, entry) in self.queue.iter().enumerate() {
             let client = entry.client;
-            let mut of_client = self.running.iter().filter(|running| running.client == client);
+            // Whether a run of this connection is one that `wanted` accepts.
+            let of_client = |wanted: fn(Class) -> bool| {
+                let mut runs = self.running.iter().filter(|running| running.client == client);
+                runs.any(|running| wanted(running.class))
+            };
             let may_start = if entry.class.is_mutation() {
-                mutations < MAX_MUTATION_RUNS
-                    && !waiting.contains(&client)
-                    && of_client.next().is_none()
+                mutations < MAX_MUTATION_RUNS && !waiting.contains(&client) && !of_client(|_| true)
             } else {
                 reads < MAX_READ_RUNS
                     && (entry.class == Class::ShortRead || long_reads < MAX_LONG_READ_RUNS)
                     && !barred.contains(&client)
-                    && !of_client.any(|running| running.class.is_mutation())
+                    && !of_client(Class::is_mutation)
+                    && !(entry.shared && of_client(|class| class == Class::Copies))
             };
             if may_start {
                 found = Some(index);
@@ -258,6 +273,15 @@ impl<J> Schedule<J> {
 
     fn finish(&mut self, run: u64) {
         self.running.retain(|running| running.run != run);
+    }
+
+    /// The read `run` ended and the copies of its reply wait for room: it
+    /// gives its place back, and its connection stays busy until
+    /// [`Schedule::finish`].
+    fn copies(&mut self, run: u64) {
+        for running in self.running.iter_mut().filter(|running| running.run == run) {
+            running.class = Class::Copies;
+        }
     }
 
     /// Takes the reads of `client` that wait. Its mutations stay: the
@@ -317,7 +341,8 @@ impl Job {
             })
     }
 
-    fn run(self, mux: &Arc<Mux>) {
+    fn run(self, place: &Place) {
+        let mux = &place.mux;
         let Self { client, writer, request, mut first, joined } = self;
         let operation = request.envelope.operation;
         // A read whose connection closed has no reader. A mutation is work
@@ -341,6 +366,11 @@ impl Job {
         let room_by = Instant::now() + SHARED_REPLY_WAIT;
         for (index, waiter) in std::iter::once(first).chain(joined).enumerate() {
             left -= 1;
+            if index == 1 {
+                // The run is over and its first reply went. The copies can
+                // wait for room, so the place goes to the next request first.
+                place.copies();
+            }
             let _scope = match scope.take() {
                 Some(scope) => scope,
                 None => request_log::resume(waiter.slow_log),
@@ -443,6 +473,16 @@ struct Place {
     run: u64,
 }
 
+impl Place {
+    /// Gives the place back while this thread still sends the copies of the
+    /// run's reply. The connection stays busy until the drop.
+    fn copies(&self) {
+        let lane = &self.mux.control_clients.git_lane;
+        lane.schedule.lock().recover_poison().copies(self.run);
+        lane.start_ready(&self.mux);
+    }
+}
+
 impl Drop for Place {
     fn drop(&mut self) {
         let lane = &self.mux.control_clients.git_lane;
@@ -479,7 +519,7 @@ impl GitLane {
                 let place = Place { mux: worker_mux, run };
                 let job = worker_slot.lock().recover_poison().take();
                 if let Some(job) = job {
-                    job.run(&place.mux);
+                    job.run(&place);
                 }
             });
             if let Err(error) = spawned {
@@ -679,6 +719,47 @@ mod tests {
         schedule.push(9, Class::LongRead, "diff");
         assert_eq!(started(&mut schedule).len(), MAX_READ_RUNS);
         assert_eq!(schedule.queue.len(), 2);
+    }
+
+    #[test]
+    fn copies_that_wait_hold_no_place_and_bar_only_the_shared_reads_of_their_connection() {
+        let mut schedule = Schedule::default();
+        let mut runs = Vec::new();
+        let mut start = |schedule: &mut Schedule<&'static str>| {
+            let started: Vec<_> = std::iter::from_fn(|| schedule.start_next()).collect();
+            runs.extend(started.iter().copied());
+            started.into_iter().map(|(_, job)| job).collect::<Vec<_>>()
+        };
+        schedule.push(1, Class::LongRead, "equal diffs");
+        assert!(schedule.waiting_read(1, |job| *job == "equal diffs").is_some(), "one joins");
+        schedule.push(1, Class::LongRead, "diff a");
+        schedule.push(1, Class::LongRead, "diff b");
+        schedule.push(2, Class::LongRead, "diff of 2");
+        assert_eq!(start(&mut schedule), ["equal diffs", "diff a", "diff b"]);
+
+        // The run of the equal diffs ended; its copies wait for room.
+        schedule.copies(0);
+        assert_eq!(start(&mut schedule), ["diff of 2"], "the place of the run is free");
+        assert!(schedule.busy(1), "the connection has copies to get");
+
+        schedule.push(1, Class::LongRead, "equal diffs again");
+        assert!(schedule.waiting_read(1, |job| *job == "equal diffs again").is_some());
+        schedule.push(1, Class::ShortRead, "status");
+        schedule.push(1, Class::Mutation, "commit");
+        assert_eq!(start(&mut schedule), ["status"], "a read nobody joined starts");
+        for run in [1, 2, 3, 4] {
+            schedule.finish(run);
+        }
+        assert!(
+            start(&mut schedule).is_empty(),
+            "a shared read and a mutation wait for the copies"
+        );
+
+        schedule.finish(0);
+        assert_eq!(start(&mut schedule), ["equal diffs again"]);
+        schedule.finish(5);
+        assert_eq!(start(&mut schedule), ["commit"]);
+        assert_eq!(runs.len(), 7);
     }
 
     #[test]
