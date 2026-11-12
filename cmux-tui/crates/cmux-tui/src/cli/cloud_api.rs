@@ -12,8 +12,9 @@
 //!  "args": {…}}
 //! ```
 //!
-//! `owner.acpmux_keyed_start` sends the person key after that object: the JSON, one `\n`, then
-//! exactly `args.key_length` bytes.
+//! A person key (`owner.acpmux_keyed_start`'s tail after that object: the JSON, one `\n`, then
+//! `args.key_length` bytes) is refused before the daemon is reached: the person key never goes
+//! through the daemon (the app streams it to the API Worker itself).
 //!
 //! Answer: one JSON line on stdout, `{"ok": true, "body": B}` or `{"ok": false, "error": E}`
 //! (`cmux_cloud_api::answer_line`). Exit 0 for `ok`, 1 for a refusal or a daemon that could not
@@ -23,7 +24,6 @@ use std::io::{BufReader, Read as _, Write as _};
 use std::path::Path;
 use std::time::Duration;
 
-use base64::Engine as _;
 use cmux_cloud_api::{Failure, Request, answer_line, parse, scrub};
 use cmux_tui_core::resource::ResourceOperation;
 use serde_json::{Map, Value, json};
@@ -72,7 +72,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
 
 /// The operation's params for `request`: the route, then the call's fields (module docs of
 /// cmux-tui-core `server/cloud_api.rs`).
-pub(super) fn params(request: &Request, key: &[u8], session: Option<&str>) -> Map<String, Value> {
+pub(super) fn params(request: &Request, session: Option<&str>) -> Map<String, Value> {
     let mut params = Map::new();
     params.insert("machine".into(), json!("current"));
     params.insert("session".into(), json!(session.unwrap_or("current")));
@@ -89,10 +89,6 @@ pub(super) fn params(request: &Request, key: &[u8], session: Option<&str>) -> Ma
         if let Some(value) = value {
             params.insert(name.to_owned(), json!(value));
         }
-    }
-    if !key.is_empty() {
-        let encoded = Zeroizing::new(base64::engine::general_purpose::STANDARD.encode(key));
-        params.insert("key_base64".into(), json!(encoded.as_str()));
     }
     params
 }
@@ -117,6 +113,10 @@ pub(super) fn call_socket(
     request: &Request,
     key: &[u8],
 ) -> Result<Value, Failure> {
+    // The person key never goes through the daemon (the daemon refuses `key_base64` too).
+    if !key.is_empty() {
+        return Err(Failure::Transport("the person key never goes through the cmux daemon".into()));
+    }
     let wire = format!("cloud.{}", request.call);
     let operation: ResourceOperation = serde_json::from_value(json!(wire))
         .map_err(|_| Failure::Transport(format!("no cloud api call {:?}", request.call)))?;
@@ -138,7 +138,7 @@ pub(super) fn call_socket(
     let answer = super::resolve::call_as(
         &mut reader,
         operation,
-        params(request, key, session),
+        params(request, session),
         idempotency_key.as_deref(),
         credential.as_deref(),
     );

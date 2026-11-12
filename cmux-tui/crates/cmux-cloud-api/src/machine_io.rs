@@ -98,12 +98,26 @@ pub struct Request {
     /// and answers code `too_large` (the daemon's `cloud.machine.io` sets it; the CLI does not).
     #[serde(default)]
     pub max_bytes: Option<u64>,
+    /// The written bytes when the caller handed a file ([`crate::local_file`]), never on the wire.
+    #[serde(skip)]
+    pub data_bytes: Option<Vec<u8>>,
 }
 
 impl Request {
-    /// The written bytes: strict standard base64, else none.
-    pub fn data(&self) -> Option<Vec<u8>> {
-        BASE64.decode(self.data_base64.as_deref()?).ok()
+    /// The written bytes: a handed file's, else strict standard base64, else none.
+    pub fn data(&self) -> Option<std::borrow::Cow<'_, [u8]>> {
+        if let Some(bytes) = &self.data_bytes {
+            return Some(std::borrow::Cow::Borrowed(bytes));
+        }
+        BASE64.decode(self.data_base64.as_deref()?).ok().map(std::borrow::Cow::Owned)
+    }
+
+    /// The written bytes as the proxy's `dataBase64`.
+    pub fn data_text(&self) -> String {
+        match (&self.data_bytes, &self.data_base64) {
+            (Some(bytes), _) => BASE64.encode(bytes),
+            (None, text) => text.clone().unwrap_or_default(),
+        }
     }
 
     /// The exec's deadline as the cmux API sets it: 30 s when absent or not positive, at most five minutes.

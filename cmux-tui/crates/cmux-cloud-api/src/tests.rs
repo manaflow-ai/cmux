@@ -1114,17 +1114,17 @@ fn a_machine_io_answer_reads_as_its_routes() {
     let path = "/v1/cloud/machines/vm_x/fs/stat";
     let ok_line =
         json!({ "route": "direct", "status": 200, "code": null, "body": { "kind": "file" } });
-    assert_eq!(machine::read(&ok_line, path).unwrap(), json!({ "kind": "file" }));
+    assert_eq!(machine::read(&ok_line, path, 1).unwrap(), json!({ "kind": "file" }));
     let refused = json!({ "route": "proxy", "status": 404, "code": "vm_file_not_found",
                           "body": { "ok": false, "error": { "code": "vm_file_not_found", "message": "no such file: /a" } } });
     assert_eq!(
-        machine::read(&refused, path).unwrap_err(),
+        machine::read(&refused, path, 1).unwrap_err(),
         Failure::http(404, Some("vm_file_not_found".into()), Some("no such file: /a".into()))
     );
     let late = json!({ "route": "proxy", "status": 0, "code": "timed_out", "body": null });
-    assert_eq!(machine::read(&late, path).unwrap_err(), Failure::TimedOut(path.into()));
+    assert_eq!(machine::read(&late, path, 1).unwrap_err(), Failure::TimedOut(path.into()));
     let gone = json!({ "route": "proxy", "status": 0, "code": "transport", "body": null });
-    assert_eq!(machine::read(&gone, path).unwrap_err(), Failure::Transport("transport".into()));
+    assert_eq!(machine::read(&gone, path, 1).unwrap_err(), Failure::Transport("transport".into()));
 }
 
 #[test]
@@ -1136,6 +1136,196 @@ fn a_worker_machine_call_needs_a_bare_secure_origin() {
         json!({ "op": "stat", "machine": VM, "path": "/a" }),
     );
     assert!(matches!(go(&call), Err(Failure::Transport(_))));
+}
+
+// MARK: the path form of a file read and write (local_file)
+
+/// A transfer folder (0700) in a fresh temp dir, and the dir that holds it.
+fn transfer() -> (tempfile::TempDir, std::path::PathBuf) {
+    use std::os::unix::fs::DirBuilderExt;
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join(local_file::FOLDER);
+    std::fs::DirBuilder::new().mode(0o700).create(&dir).unwrap();
+    (root, dir)
+}
+
+/// A private (0600) file at `path` holding `data`.
+fn private_file(path: &std::path::Path, data: &[u8]) {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file =
+        std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path).unwrap();
+    file.write_all(data).unwrap();
+}
+
+fn go_in(request: &Request, dir: Option<&std::path::Path>) -> Result<Value, Failure> {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    runtime.block_on(machine::worker_in(request, dir))
+}
+
+fn file_call(origin: &str, op: &str, local: &std::path::Path) -> Request {
+    request(
+        origin,
+        Auth::Worker,
+        "machine.io",
+        json!({ "op": op, "machine": "m1", "path": "/home/cmux/big.bin",
+                "local_path": local.display().to_string() }),
+    )
+}
+
+/// Five MiB and change: past the SDK's 4 MiB request, as base64 past it by far.
+fn big() -> Vec<u8> {
+    (0..5 * 1024 * 1024 + 17).map(|i: usize| (i * 31 % 251) as u8).collect()
+}
+
+#[test]
+fn a_write_over_4_mib_reads_the_handed_file_and_sends_its_bytes() {
+    use base64::Engine as _;
+    let (origin, seen) = fake(|_| ok(r#"{"ok":true}"#));
+    let (_root, dir) = transfer();
+    let data = big();
+    let source = dir.join("upload-1");
+    private_file(&source, &data);
+    go_in(&file_call(&origin, "write", &source), Some(&dir)).unwrap();
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.len(), 1);
+    assert_eq!(seen[0].target(), "POST /v1/cloud/machines/m1/fs/write");
+    let body = seen[0].json();
+    assert_eq!(body["path"], "/home/cmux/big.bin");
+    let sent = base64::engine::general_purpose::STANDARD
+        .decode(body["dataBase64"].as_str().unwrap())
+        .unwrap();
+    assert!(sent == data, "the handed file's bytes, whole");
+    assert!(source.exists(), "the caller removes its own file");
+}
+
+#[test]
+fn a_read_over_4_mib_lands_in_a_new_private_file_and_not_in_the_answer() {
+    use base64::Engine as _;
+    use std::os::unix::fs::MetadataExt;
+    let data = big();
+    let encoded = base64::engine::general_purpose::STANDARD.encode(&data);
+    let size = data.len();
+    let (origin, _seen) = fake(move |_| {
+        ok(&json!({ "path": "/home/cmux/big.bin", "size": size, "dataBase64": encoded })
+            .to_string())
+    });
+    let (_root, dir) = transfer();
+    let destination = dir.join("download-1");
+    let body = go_in(&file_call(&origin, "read", &destination), Some(&dir)).unwrap();
+    assert_eq!(body["size"], size);
+    assert!(body.get("dataBase64").is_none(), "the bytes are in the file only: {body}");
+    assert!(std::fs::read(&destination).unwrap() == data);
+    assert_eq!(std::fs::metadata(&destination).unwrap().mode() & 0o777, 0o600);
+}
+
+#[test]
+fn a_failed_read_leaves_no_destination_and_never_touches_an_existing_file() {
+    let (origin, _seen) = fake(|_| {
+        Some((404, r#"{"ok":false,"error":{"code":"vm_file_not_found","message":"no"}}"#.into()))
+    });
+    let (_root, dir) = transfer();
+    let destination = dir.join("download-2");
+    assert!(go_in(&file_call(&origin, "read", &destination), Some(&dir)).is_err());
+    assert!(!destination.exists(), "a failed read removes the file it made");
+
+    let existing = dir.join("download-3");
+    private_file(&existing, b"keep");
+    assert!(go_in(&file_call(&origin, "read", &existing), Some(&dir)).is_err());
+    assert_eq!(std::fs::read(&existing).unwrap(), b"keep");
+}
+
+#[test]
+fn a_read_past_the_proxys_limit_says_so_and_leaves_no_destination() {
+    let big =
+        format!(r#"{{"path":"/a","size":1,"dataBase64":"{}"}}"#, "A".repeat(MAX_ANSWER_BYTES));
+    let (origin, _seen) = fake(move |_| ok(&big));
+    let (_root, dir) = transfer();
+    let destination = dir.join("download-big");
+    let failure = go_in(&file_call(&origin, "read", &destination), Some(&dir)).unwrap_err();
+    let limit = MAX_ANSWER_BYTES.to_string();
+    assert!(
+        matches!(&failure, Failure::Transport(m) if m.contains("larger than") && m.contains(&limit)),
+        "{failure:?}"
+    );
+    assert!(!destination.exists());
+}
+
+#[test]
+fn a_path_outside_the_transfer_folder_or_not_a_private_file_is_refused_before_any_request() {
+    use std::os::unix::fs::PermissionsExt;
+    let (origin, seen) = fake(|_| ok(r#"{"ok":true}"#));
+    let (root, dir) = transfer();
+    let outside = root.path().join("secret");
+    private_file(&outside, b"not for the call");
+    let nested = dir.join("sub");
+    std::fs::create_dir(&nested).unwrap();
+    private_file(&nested.join("f"), b"x");
+    let open = dir.join("open");
+    private_file(&open, b"x");
+    std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let linked = dir.join("linked");
+    private_file(&linked, b"x");
+    std::fs::hard_link(&linked, root.path().join("second-link")).unwrap();
+    let fifo = dir.join("fifo");
+    assert!(std::process::Command::new("mkfifo").arg(&fifo).status().unwrap().success());
+    let refused = |op: &str, path: std::path::PathBuf, folder: Option<&std::path::Path>| {
+        let failure = go_in(&file_call(&origin, op, &path), folder).unwrap_err();
+        assert!(
+            matches!(&failure, Failure::Transport(m) if m.starts_with("local_path: ")),
+            "{op} {}: {failure:?}",
+            path.display()
+        );
+    };
+    refused("write", outside.clone(), Some(&dir));
+    refused("write", dir.join("..").join("secret"), Some(&dir));
+    refused("write", nested.join("f"), Some(&dir));
+    refused("write", nested, Some(&dir));
+    refused("write", open, Some(&dir));
+    refused("write", linked, Some(&dir));
+    refused("write", fifo, Some(&dir));
+    refused("write", dir.join("missing"), Some(&dir));
+    refused("read", root.path().join("new"), Some(&dir));
+    refused("read", dir.join("..").join("new"), Some(&dir));
+    refused("stat", dir.join("x"), Some(&dir));
+    refused("exec", dir.join("x"), Some(&dir));
+    refused("write", outside, None);
+    // A folder open to others is no private folder.
+    std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let ok_file = dir.join("fine");
+    private_file(&ok_file, b"x");
+    refused("write", ok_file, Some(&dir));
+    assert!(!root.path().join("new").exists());
+    assert!(seen.lock().unwrap().is_empty(), "nothing reached the API");
+}
+
+#[test]
+fn a_symlink_is_refused_as_a_source_a_destination_or_the_folder() {
+    let (origin, seen) = fake(|_| ok(r#"{"ok":true}"#));
+    let (root, dir) = transfer();
+    let target = root.path().join("target");
+    private_file(&target, b"the user's own file");
+    let source = dir.join("upload-link");
+    std::os::unix::fs::symlink(&target, &source).unwrap();
+    assert!(go_in(&file_call(&origin, "write", &source), Some(&dir)).is_err());
+    let destination = dir.join("download-link");
+    std::os::unix::fs::symlink(&target, &destination).unwrap();
+    assert!(go_in(&file_call(&origin, "read", &destination), Some(&dir)).is_err());
+    assert_eq!(std::fs::read(&target).unwrap(), b"the user's own file");
+    assert!(std::fs::symlink_metadata(&destination).unwrap().file_type().is_symlink());
+    // The folder itself a symlink to a private folder.
+    let real = root.path().join("real");
+    std::fs::create_dir(&real).unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
+    private_file(&real.join("f"), b"x");
+    let folder_link = root.path().join("folder-link");
+    std::os::unix::fs::symlink(&real, &folder_link).unwrap();
+    assert!(
+        go_in(&file_call(&origin, "write", &folder_link.join("f")), Some(&folder_link)).is_err()
+    );
+    assert!(seen.lock().unwrap().is_empty(), "nothing reached the API");
 }
 
 // MARK: previews (CloudPreviewShareLinkTests, CloudLivePreviewTests)
@@ -1421,6 +1611,72 @@ fn a_preview_refusal_is_read_within_the_calls_one_deadline() {
         .unwrap_err();
         assert_eq!(failure, Failure::http(500, None, None));
     });
+}
+
+/// Review of #40104 at bac760b8 (F1): a preview or publication call keeps its caller's deadline
+/// ([`perform_by`]). With less than the second a request needs left, none is sent; a publication
+/// call whose first request used up its time never sends its second. A fake clock (each request
+/// the fake answers moves it on by `step`), synthetic deadlines and edges; no test waits.
+#[test]
+fn preview_and_publication_calls_end_by_the_callers_deadline() {
+    use std::time::Instant;
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    // Through perform_by itself: 999 ms is less than a request's second, so nothing is sent.
+    const CATALOG: &str =
+        r#"{"machine":"vm_abc","listening":[3000],"previews":[],"unavailable":[]}"#;
+    let (origin, seen) = fake(|_| ok(CATALOG));
+    let refresh =
+        request(&origin, Auth::Worker, "previews.refresh", json!({ "machine": "vm_abc" }));
+    let by = Instant::now() + Duration::from_millis(999);
+    let answer = runtime.block_on(perform_by(&refresh, Zeroizing::new(Vec::new()), by));
+    assert!(matches!(answer, Err(Failure::TimedOut(_))), "{answer:?}");
+    assert!(seen.lock().unwrap().is_empty(), "no request past the deadline");
+
+    for round in 0..3 {
+        // (call, args, time left, each request's time, requests sent, answered)
+        let keys = json!({ "publication": "p3000-abc.preview.test" });
+        let cases = [
+            ("previews.refresh", json!({ "machine": "vm_abc" }), 1_000, 0, 1, true),
+            ("previews.refresh", json!({ "machine": "vm_abc" }), 999, 0, 0, false),
+            ("vm.publication_api_keys", keys.clone(), 30_000, 10_000, 2, true),
+            // The list takes 10 s of 10.5: the keys request is never sent.
+            ("vm.publication_api_keys", keys.clone(), 10_500, 10_000, 1, false),
+            // Exactly the second the keys request needs is left.
+            ("vm.publication_api_keys", keys, 11_000, 10_000, 2, true),
+        ];
+        for (call, args, left_ms, step_ms, sent, answered) in cases {
+            let start = Instant::now();
+            let clock = Arc::new(Mutex::new(start));
+            let tick = Arc::clone(&clock);
+            let (origin, seen) = fake(move |s| {
+                *tick.lock().unwrap() += Duration::from_millis(step_ms);
+                if s.line.starts_with("GET /v1/cloud/previews ") {
+                    ok(&format!(r#"{{"previews":[{PUBLICATION}]}}"#))
+                } else if s.line.starts_with("GET") {
+                    ok(&format!(r#"{{"apiKeys":[{KEY}]}}"#))
+                } else {
+                    ok(CATALOG)
+                }
+            });
+            let now = Arc::clone(&clock);
+            let deadline = Deadline {
+                by: start + Duration::from_millis(left_ms),
+                now: Arc::new(move || *now.lock().unwrap()),
+            };
+            let call_request = request(&origin, Auth::Worker, call, args);
+            let answer = runtime.block_on(perform_until(
+                &call_request,
+                Zeroizing::new(Vec::new()),
+                deadline,
+            ));
+            let case = format!("round {round}, {call}, {left_ms} ms left: {answer:?}");
+            assert_eq!(seen.lock().unwrap().len(), sent, "{case}");
+            assert_eq!(answer.is_ok(), answered, "{case}");
+            if !answered {
+                assert!(matches!(answer, Err(Failure::TimedOut(_))), "{case}");
+            }
+        }
+    }
 }
 
 // MARK: turn checkpoints ("back to before this turn")

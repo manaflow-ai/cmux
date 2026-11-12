@@ -1,203 +1,69 @@
 import CmuxNextActions
 import CmuxNextAgentPane
 @testable import CmuxNextApp
-import CmuxNextCloud
+@testable import CmuxNextCloud
 import CmuxNextControl
 import Foundation
 import Testing
 
-/// `cmux run --sandboxed` (hq#3367) goes through these: the create sends the
-/// Run API's required Idempotency-Key, and every call answers the raw JSON.
-@Suite(.serialized)
+/// `cmux run --sandboxed` (hq#3367) goes through these: each is the daemon's `cloud.runs.*`
+/// (cmux-cloud-api `runs.rs` sends the Run API's Idempotency-Key, retries a lost create once under
+/// it and caps each wait), and every call answers the raw JSON.
 struct CloudAPIClientRunTests {
-    nonisolated final class RunAPI: URLProtocol {
-        nonisolated(unsafe) static var seen: [(method: String, path: String, key: String?)] = []
+    private static let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
+                                                                  process: [:], isDebugBuild: true)
 
-        override class func canInit(with _: URLRequest) -> Bool { true }
-        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-        override func startLoading() {
-            guard let url = request.url else { return }
-            let path = url.path + (url.query.map { "?" + $0 } ?? "")
-            Self.seen.append((request.httpMethod ?? "", path, request.value(forHTTPHeaderField: "Idempotency-Key")))
-            let body = path.hasSuffix("/wait?timeoutMs=10000")
-                ? #"{"run":{"id":"run-1","status":"succeeded"},"receipt":{"schema":"cmux.run.receipt/v1"}}"#
-                : #"{"id":"run-1","status":"queued"}"#
-            guard let response = HTTPURLResponse(url: url, statusCode: path == "/api/runs" ? 202 : 200, httpVersion: nil,
-                                                 headerFields: ["Content-Type": "application/json"]) else { return }
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data(body.utf8))
-            client?.urlProtocolDidFinishLoading(self)
+    private func fake() -> CloudDaemonFake {
+        CloudDaemonFake { operation, _ in
+            switch operation {
+            case "cloud.runs.wait": CloudDaemonFake.read(#"{"run":{"id":"run-1","status":"succeeded"},"receipt":{"schema":"cmux.run.receipt/v1"}}"#)
+            default: CloudDaemonFake.value(#"{"id":"run-1","status":"queued"}"#)
+            }
         }
-
-        override func stopLoading() {}
     }
 
-    private func api() -> CloudAPIClient {
-        let configuration = CloudConfiguration.resolve(
-            bundleID: nil,
-            bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
-            process: [:],
-            isDebugBuild: true
-        )
-        let sessionConfiguration = URLSessionConfiguration.ephemeral
-        sessionConfiguration.protocolClasses = [RunAPI.self]
-        return CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" },
-                              session: URLSession(configuration: sessionConfiguration))
+    private func api(_ fake: CloudDaemonFake, tokens: @escaping CloudAPIClient.Tokens = { ("access", "refresh") }) -> CloudAPIClient {
+        CloudAPIClient(configuration: Self.configuration, tokens: tokens, teamID: { "team-1" }, daemon: fake.daemon)
     }
 
     @Test func createSendsTheKeyAndWaitIsCappedAtTheServerBound() async throws {
-        RunAPI.seen = []
-        let api = api()
+        let fake = fake()
+        let api = api(fake)
         let created = try JSONSerialization.jsonObject(with: try await api.createSandboxRun(task: "hi", agent: "claude",
                                                                                             idempotencyKey: "key-1")) as? [String: Any]
         #expect(created?["id"] as? String == "run-1")
         let waited = try JSONSerialization.jsonObject(with: try await api.waitRun("run-1", timeoutMs: 60_000)) as? [String: Any]
         #expect((waited?["receipt"] as? [String: Any])?["schema"] as? String == "cmux.run.receipt/v1")
-        #expect(RunAPI.seen.map(\.method) == ["POST", "GET"])
-        #expect(RunAPI.seen.map(\.path) == ["/api/runs", "/api/runs/run-1/wait?timeoutMs=10000"])
-        #expect(RunAPI.seen.first?.key == "key-1")
-    }
-
-    /// The composer's Sandboxed send: running answers until the receipt, then the snapshot.
-    nonisolated final class SandboxAPI: URLProtocol {
-        nonisolated(unsafe) static var waits = 0
-        nonisolated(unsafe) static var finishAfter = 2
-        /// Creates whose answer is lost (the connection drops), and every create's key.
-        nonisolated(unsafe) static var dropCreates = 0
-        /// A wait that answers 200 with something that is no Run snapshot.
-        nonisolated(unsafe) static var malformedWait = false
-        nonisolated(unsafe) static var createKeys: [String?] = []
-        /// Every create's bearer token.
-        nonisolated(unsafe) static var createTokens: [String?] = []
-
-        override class func canInit(with _: URLRequest) -> Bool { true }
-        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-        override func startLoading() {
-            guard let url = request.url else { return }
-            var body = #"{"id":"run-9","status":"queued"}"#
-            if url.path == "/api/runs" {
-                Self.createKeys.append(request.value(forHTTPHeaderField: "Idempotency-Key"))
-                Self.createTokens.append(request.value(forHTTPHeaderField: "Authorization"))
-                if Self.dropCreates > 0 {
-                    Self.dropCreates -= 1
-                    client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
-                    return
-                }
-            }
-            if url.path.hasSuffix("/wait") {
-                Self.waits += 1
-                body = Self.malformedWait ? #"{"error":"internal"}"# : Self.waits > Self.finishAfter
-                    ? #"{"run":{"id":"run-9","status":"succeeded"},"receipt":{"status":"succeeded","reply":"done"}}"#
-                    : #"{"run":{"id":"run-9","status":"running"},"receipt":null}"#
-            }
-            guard let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil,
-                                                 headerFields: ["Content-Type": "application/json"]) else { return }
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: Data(body.utf8))
-            client?.urlProtocolDidFinishLoading(self)
+        #expect(fake.sent.map(\.operation) == ["cloud.runs.create", "cloud.runs.wait"])
+        #expect(fake.sent.first?.args["idempotencyKey"] as? String == "key-1" && fake.sent.first?.args["agent"] as? String == "claude")
+        #expect(fake.sent.last?.args["timeoutMs"] as? Int == 10_000)
+        for sent in fake.sent {
+            #expect(sent.params["auth"] as? String == "stack" && sent.params["refresh_token"] as? String == "refresh")
+            #expect(sent.params["team"] as? String == "team-1")
         }
-
-        override func stopLoading() {}
     }
 
-    private func sandboxAPI(tokens: @escaping CloudAPIClient.Tokens = { ("access", "refresh") }) -> CloudAPIClient {
-        let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
-                                                       process: [:], isDebugBuild: true)
-        let sessionConfiguration = URLSessionConfiguration.ephemeral
-        sessionConfiguration.protocolClasses = [SandboxAPI.self]
-        return CloudAPIClient(configuration: configuration, tokens: tokens, teamID: { nil },
-                              session: URLSession(configuration: sessionConfiguration))
-    }
-
-    @Test func runSandboxWaitsUntilTheReceiptThenAnswersTheSnapshot() async throws {
-        SandboxAPI.waits = 0
-        SandboxAPI.finishAfter = 2
-        SandboxAPI.dropCreates = 0
-        let snapshot = try await sandboxAPI().runSandbox(task: "hi", timeoutMs: 60_000)
-        #expect((snapshot["receipt"] as? [String: Any])?["reply"] as? String == "done")
-        #expect(SandboxAPI.waits == 3)
-    }
-
-    @Test func aCreateWhoseAnswerWasLostIsSentOnceMoreUnderTheSameKey() async throws {
-        SandboxAPI.waits = 0
-        SandboxAPI.finishAfter = 0
-        SandboxAPI.dropCreates = 1
-        SandboxAPI.createKeys = []
-        let snapshot = try await sandboxAPI().runSandbox(task: "hi", timeoutMs: 60_000, idempotencyKey: "send-1")
-        #expect((snapshot["receipt"] as? [String: Any])?["reply"] as? String == "done")
-        #expect(SandboxAPI.createKeys == ["send-1", "send-1"])
-    }
-
-    @Test func aRetryThatFailsAfterAnUncertainCreateStaysUncertain() async throws {
-        SandboxAPI.waits = 0
-        SandboxAPI.finishAfter = 0
-        SandboxAPI.dropCreates = 2
-        SandboxAPI.createKeys = []
-        await #expect(throws: CloudAPIError.timedOut("/api/runs")) {
-            _ = try await sandboxAPI().runSandbox(task: "hi", timeoutMs: 60_000, idempotencyKey: "send-2")
+    /// The composer's Sandboxed send: the daemon's start (its create and the create's one retry), then the follower's wait.
+    @Test func runSandboxStartsThenFollowsTheRun() async throws {
+        let fake = fake()
+        let snapshot = try await api(fake).runSandbox(task: "hi", idempotencyKey: "key-9") { id in
+            #expect(id == "run-1")
+            return Data(#"{"run":{"id":"run-1"},"receipt":{}}"#.utf8)
         }
-        #expect(SandboxAPI.createKeys == ["send-2", "send-2"])
-    }
-
-    @Test func theRetryGoesWithTheFirstCreatesCredentials() async throws {
-        // The server scopes the key per account: had another account signed in between the two
-        // creates, its credentials would start a second Run. Each read of the tokens here is a new
-        // account; both creates still carry the first.
-        nonisolated final class Accounts: @unchecked Sendable { nonisolated(unsafe) var reads = 0 }
-        let accounts = Accounts()
-        SandboxAPI.waits = 0
-        SandboxAPI.finishAfter = 0
-        SandboxAPI.dropCreates = 1
-        SandboxAPI.createKeys = []
-        SandboxAPI.createTokens = []
-        let api = sandboxAPI(tokens: {
-            accounts.reads += 1
-            return ("account-\(accounts.reads)", "refresh")
-        })
-        _ = try await api.runSandbox(task: "hi", timeoutMs: 60_000, idempotencyKey: "send-3")
-        #expect(SandboxAPI.createKeys == ["send-3", "send-3"])
-        #expect(SandboxAPI.createTokens == ["Bearer account-1", "Bearer account-1"])
-    }
-
-    @Test func aWaitAnswerThatIsNoSnapshotEndsAtOnce() async throws {
-        SandboxAPI.waits = 0
-        SandboxAPI.finishAfter = .max
-        SandboxAPI.dropCreates = 0
-        SandboxAPI.malformedWait = true
-        defer { SandboxAPI.malformedWait = false }
-        await #expect(throws: CloudAPIError.timedOut("/api/runs/run-9")) {
-            _ = try await sandboxAPI().runSandbox(task: "hi", timeoutMs: 60_000)
-        }
-        #expect(SandboxAPI.waits == 1)
-    }
-
-    @Test func runSandboxStopsAtTheDeadline() async throws {
-        SandboxAPI.waits = 0
-        SandboxAPI.finishAfter = .max
-        SandboxAPI.dropCreates = 0
-        // The clock jumps past the deadline after the first wait: the loop stops instead of polling on.
-        let start = ContinuousClock.now
-        let calls = LockedCounter()
-        await #expect(throws: CloudAPIError.timedOut("/api/runs/run-9")) {
-            _ = try await sandboxAPI().runSandbox(task: "hi", timeoutMs: 30_000, teardown: .zero,
-                                                  now: { calls.next() > 2 ? start + .seconds(3600) : start })
-        }
-        #expect(SandboxAPI.waits == 1)
+        #expect(snapshot["receipt"] is [String: Any])
+        #expect(fake.sent.map(\.operation) == ["cloud.runs.start"])
+        #expect(fake.sent.first?.args["idempotencyKey"] as? String == "key-9" && fake.sent.first?.args["timeoutMs"] as? Int == 600_000)
     }
 
     @Test func aSignInThatNeverAnswersStillEndsAtTheBound() async throws {
-        let configuration = CloudConfiguration.resolve(bundleID: nil, bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
-                                                       process: [:], isDebugBuild: true)
         // The token read ignores cancellation and never returns.
-        let api = CloudAPIClient(configuration: configuration, tokens: {
+        let api = api(fake(), tokens: {
             await withCheckedContinuation { (_: CheckedContinuation<Void, Never>) in }
             return ("access", "refresh")
-        }, teamID: { nil })
+        })
         let start = ContinuousClock.now
         await #expect(throws: CloudAPIError.timedOut("/api/runs")) {
-            _ = try await api.runSandbox(task: "hi", timeoutMs: 50, teardown: .zero, callsMargin: .milliseconds(50))
+            _ = try await api.runSandbox(task: "hi", timeoutMs: 50, teardown: .zero, callsMargin: .milliseconds(50)) { _ in Data() }
         }
         #expect(ContinuousClock.now - start < .seconds(5))
     }
@@ -236,20 +102,14 @@ struct CloudAPIClientRunTests {
     }
 
     @Test func aCancelledCallerStartsNoRun() async throws {
-        SandboxAPI.createKeys = []
-        let api = sandboxAPI()
+        let fake = fake()
+        let api = api(fake)
         let call = Task {
             withUnsafeCurrentTask { $0?.cancel() }
-            _ = try await api.runSandbox(task: "hi", timeoutMs: 60_000, idempotencyKey: "cancelled")
+            _ = try await api.runSandbox(task: "hi", timeoutMs: 60_000, idempotencyKey: "cancelled") { _ in Data() }
         }
         await #expect(throws: CancellationError.self) { try await call.value }
-        #expect(SandboxAPI.createKeys.isEmpty)
-    }
-
-    nonisolated final class LockedCounter: @unchecked Sendable {
-        private let lock = NSLock()
-        private var count = 0
-        func next() -> Int { lock.withLock { count += 1; return count } }
+        #expect(fake.sent.isEmpty)
     }
 }
 

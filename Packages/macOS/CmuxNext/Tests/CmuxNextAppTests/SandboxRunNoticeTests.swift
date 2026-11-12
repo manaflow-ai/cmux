@@ -134,6 +134,18 @@ struct SandboxRunNoticeTests {
         #expect(ends.all.map(\.outcome) == [.succeeded])
     }
 
+    /// A new Run while 16 hand-off waits hold the daemon's long-poll slots: its waits are refused
+    /// `busy` until a slot frees, and its send still gets the Run's end, not `timedOut`.
+    @Test func aWaitTheBusyDaemonRefusesIsAskedAgainAndNeverAnswersTheSend() async throws {
+        let server = Server()
+        await server.script("r1", [.failure(CloudDaemon.busy), .failure(CloudDaemon.busy), .success(Self.succeeded)])
+        let (follower, ends) = follower(server, defaults: try defaults())
+        let data = try await follower.follow(record())
+        #expect(String(decoding: data, as: UTF8.self) == Self.succeeded)
+        #expect(ends.all.map(\.outcome) == [.succeeded])
+        #expect(await server.calls.count == 3)
+    }
+
     @Test func aSignOutStopsEveryFollowAndAnotherAccountDropsTheOthersRuns() async throws {
         let server = Server()
         await server.script("r1", [.success(Self.running)])

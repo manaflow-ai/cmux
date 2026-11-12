@@ -5,22 +5,13 @@ import Foundation
 import Testing
 
 /// A Cloud failure reads as what failed and the next step, never a Swift
-/// dump. The `/api/vm` error body's `action` ("Run `…`") and `traceId`
-/// (`web/services/vms/routeHelpers.ts` `vmErrorResponse`) reach the person;
-/// before, `CloudAPIError.from` kept only the message.
+/// dump. The error body's `action` ("Run `…`") and `traceId` (read by
+/// cmux-cloud-machine `error.rs`, with its tests) reach the person.
 @MainActor
 struct CloudErrorTextTests {
-    static func body(_ object: [String: Any]) -> Data {
-        (try? JSONSerialization.data(withJSONObject: object)) ?? Data()
-    }
-
     @Test func theServerActionAndTraceIDFollowTheMessage() {
-        let error = CloudAPIError.from(status: 409, data: Self.body([
-            "error": "vm_resize_in_progress", "message": "raw", "action": "Wait for the current resize to finish, then retry.",
-            "traceId": "abc123", "ui": ["message": "Cloud VM vm-1 is already resizing.", "traceId": "abc123"],
-        ]), headerCode: nil)
-        #expect(error == .http(status: 409, code: "vm_resize_in_progress", message: "Cloud VM vm-1 is already resizing.",
-                               action: "Wait for the current resize to finish, then retry.", traceId: "abc123"))
+        let error = CloudAPIError.http(status: 409, code: "vm_resize_in_progress", message: "Cloud VM vm-1 is already resizing.",
+                                       action: "Wait for the current resize to finish, then retry.", traceId: "abc123")
         #expect(error.description == "Cloud VM vm-1 is already resizing. Wait for the current resize to finish, then retry. (trace abc123)")
         #expect(CloudStrings.errorText(error)
             == "Cloud VM vm-1 is already resizing. Wait for the current resize to finish, then retry. \(CloudStrings.trace("abc123"))")
@@ -39,8 +30,7 @@ struct CloudErrorTextTests {
         ("vm_attach_transport_unsupported", "Request the attach endpoint with transport \"cmux-remote\" (supported: cmux-remote), or update cmux."),
     ])
     func anActionForAnAPICallerIsNotShown(code: String, action: String) {
-        let error = CloudAPIError.from(status: 409, data: Self.body(["error": code, "message": "It failed.", "action": action, "traceId": "t-1"]),
-                                       headerCode: code)
+        let error = CloudAPIError.http(status: 409, code: code, message: "It failed.", action: action, traceId: "t-1")
         #expect(error.description == "It failed. \(action) (trace t-1)")
         #expect(CloudStrings.errorText(error) == "It failed. \(CloudStrings.trace("t-1"))")
     }
@@ -59,16 +49,13 @@ struct CloudErrorTextTests {
     }
 
     @Test func aBodyWithoutActionOrTraceReadsAsBefore() {
-        let error = CloudAPIError.from(status: 409, data: Self.body(["error": "busy", "message": "Resize in progress.", "action": "  "]),
-                                       headerCode: "vm_resize_in_progress")
-        #expect(error == .http(status: 409, code: "vm_resize_in_progress", message: "Resize in progress."))
+        let error = CloudAPIError.http(status: 409, code: "vm_resize_in_progress", message: "Resize in progress.")
         #expect(error.description == "Resize in progress.")
-        #expect(CloudAPIError.from(status: 502, data: Data("<html>".utf8), headerCode: nil).description == "HTTP 502")
+        #expect(CloudAPIError.http(status: 502, code: nil, message: nil).description == "HTTP 502")
     }
 
-    @Test func theUITraceIDIsKeptWhenTheTopLevelOneIsMissing() {
-        let error = CloudAPIError.from(status: 500, data: Self.body(["error": "internal", "ui": ["message": "Try again.", "traceId": "t-9"]]),
-                                       headerCode: nil)
+    @Test func theTraceIDFollowsInTheCallersWords() {
+        let error = CloudAPIError.http(status: 500, code: "internal", message: "Try again.", traceId: "t-9")
         #expect(error.text(trace: { "[\($0)]" }) == "Try again. [t-9]")
     }
 
