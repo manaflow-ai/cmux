@@ -165,6 +165,18 @@ fn awaiting_family_repin(rust: &mut Value, swift: &Value) {
                 list.retain(|m| !m.as_str().is_some_and(|m| ids.contains(&m)));
             }
         }
+        // A member's row derives its family and its tier (a family member is niche) from the
+        // list: those two take the dump's values, every other field is still compared.
+        let dump = |id: &str| {
+            swift["actions"].as_array().into_iter().flatten().find(|a| a["id"] == id).cloned()
+        };
+        let actions = rust["actions"].as_array_mut().into_iter().flatten();
+        for action in actions.filter(|a| a["id"].as_str().is_some_and(|id| ids.contains(&id))) {
+            let Some(dumped) = action["id"].as_str().and_then(dump) else { continue };
+            for field in ["palette_family", "palette_tier"] {
+                action["computed"][field] = dumped["computed"][field].clone();
+            }
+        }
     }
 }
 
