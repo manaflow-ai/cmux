@@ -127,7 +127,7 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         }
         #endif
         attach(app, "08-options-menu")
-        app.buttons["Refresh Screen"].firstMatch.tap()
+        app.buttons["Escape"].firstMatch.tap()
 
         // The menu toggle tucks it away too.
         options.tap()
