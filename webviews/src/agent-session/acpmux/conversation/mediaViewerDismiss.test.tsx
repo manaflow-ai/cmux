@@ -157,7 +157,9 @@ test("a pan that starts on the image and ends beside it does not close the image
   const view = document.defaultView!;
   const stage = document.querySelector(".acpmux-image-viewer-stage")!;
   act(() => {
-    document.querySelector(".acpmux-image-viewer-image")!.dispatchEvent(new view.MouseEvent("mousedown", { bubbles: true, detail: 1, button: 0 }));
+    document
+      .querySelector(".acpmux-image-viewer-image")!
+      .dispatchEvent(new view.MouseEvent("mousedown", { bubbles: true, detail: 1, button: 0 }));
     stage.dispatchEvent(new view.MouseEvent("click", { bubbles: true, detail: 1, button: 0 }));
   });
   expect(closed).toBe(0);
