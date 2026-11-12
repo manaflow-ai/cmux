@@ -15,10 +15,11 @@
 //!   included), in bytes the process reads (`/proc/self/io` `rchar`) and milliseconds, then what
 //!   its background work reads until the process goes quiet;
 //! - open: `_acpmux/attach` of the chat as the app opens it, in bytes read and reply bytes;
-//! - stream: 6,000 agent text deltas through `Hub::append`, in bytes read and written per
+//! - stream: 20,000 agent text deltas through `Hub::append`, in bytes read and written per
 //!   delta, with [`WATCHERS`] attached connections whose queues are a daemon's: every reader
-//!   receives every delta, and the one that never reads holds at most its queue and is told it
-//!   lagged (`_acpmux/lagged`), so it reads again instead of the hub holding a delta for it.
+//!   receives every delta, and the one that never reads holds at most its queue and the hub's
+//!   event ring and is told it lagged (`_acpmux/lagged`), so it reads again instead of the hub
+//!   holding every delta for it.
 //!
 //! The god size is 48 MB by default, a run of seconds; the GB run, for numbers:
 //! `ACPMUX_STRESS_GOD_MB=1024 cargo test -p acpmux --lib stress::god_chat -- --ignored --nocapture`.
@@ -37,8 +38,9 @@ const SMALL_BYTES: u64 = 1 << 20;
 const GOD: &str = "god";
 /// Attached connections while the chat streams; the first never reads its output.
 const WATCHERS: usize = 32;
-/// Deltas streamed per run: more than a connection's queue holds ([`OUTPUT`]).
-const DELTAS: u64 = 6_000;
+/// Deltas streamed per run: more than a connection's queue ([`OUTPUT`]) and the hub's event ring
+/// ([`EVENT_RING`]) behind it hold together, so a reader that stops must miss some.
+const DELTAS: u64 = 20_000;
 
 /// The god chat's log size: `ACPMUX_STRESS_GOD_MB` (default 48) MB.
 fn god_bytes() -> u64 {
@@ -170,6 +172,8 @@ fn fill(bytes: u64) -> (tempfile::TempDir, u64, u64) {
 
 /// A connection's queues as a daemon's WebSocket has them (`server/mod.rs`): 256 in, 4096 out.
 const OUTPUT: usize = 4096;
+/// The hub's event ring every connection reads from (`list_guard::Events::new` in `Hub::build`).
+const EVENT_RING: usize = 8192;
 
 async fn connect(
     hub: &Arc<Hub>,
@@ -338,13 +342,18 @@ fn costs(bytes: u64) -> Costs {
                 i + 2
             );
         }
-        // The stalled watcher holds at most its queue, and is told it lagged so it reads again.
+        // The stalled watcher holds at most its queue and the ring behind it (draining the queue
+        // lets its forwarder refill it from the ring), and is told it lagged so it reads again.
         let (mut held, mut told) = (0, false);
         while let Ok(line) = stalled_rx.try_recv() {
             held += 1;
             told |= line.contains("_acpmux/lagged");
         }
-        assert!(held <= OUTPUT, "a stalled watcher held {held} lines, past its {OUTPUT}");
+        eprintln!("STRESS god chat stalled watcher: {held} lines held of {DELTAS} deltas");
+        assert!(
+            held <= OUTPUT + EVENT_RING,
+            "a stalled watcher held {held} lines, past its queue of {OUTPUT} and the ring of {EVENT_RING}"
+        );
         assert!(told, "a stalled watcher that missed deltas was not told it lagged");
         drop((stalled_tx, stalled_rx));
         drop(session);
