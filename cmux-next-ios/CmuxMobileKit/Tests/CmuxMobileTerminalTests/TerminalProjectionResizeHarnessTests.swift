@@ -58,7 +58,8 @@ import Testing
         let mac = MacPaneMockSession(columns: 120, rows: 40)
         let session = TerminalSessionChoice.session(live: mac, mockDataEnabled: false, macName: "Mac", programName: "zsh")
         let page = Page()
-        var claim = Debounce(delay: Debounce.defaultDelay, backgroundDelay: Debounce.defaultBackgroundDelay)
+        // The production delays (whatever the background grace is, or none).
+        var claim = Debounce()
         var now = ContinuousClock.now
         var steps: [Step] = []
         var last = (resizes: 0, wide: 0, resets: 0)
