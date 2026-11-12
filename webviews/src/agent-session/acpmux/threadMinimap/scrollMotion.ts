@@ -6,7 +6,6 @@ import { bezierAt, type CubicBezier } from "../../../ui/cubicBezier";
 import { HIGHLIGHT_EASING, HIGHLIGHT_MS } from "./model";
 import { railOwnsWheel } from "./railWheel";
 import { userScrollIntent } from "../conversation/userScroll";
-import { isWheelNotch } from "../wheelGlide";
 
 const running = new WeakMap<HTMLElement, () => void>();
 
@@ -48,23 +47,28 @@ export function reducedMotion(): boolean {
 /// ended Jump to latest as the reader's input, let go of the latest row, and the browser glided on
 /// from where the jump put the view. Momentum is a stream of wheel events a frame or so apart that
 /// keep their direction and decay; the reader's next gesture comes after a pause, turns round or
-/// grows. Only the stream under way as the scroll from code started is held: no listener sees it (a
+/// grows. The pause is read from the events' own times (WebKit stamps a wheel with the platform
+/// event's time), so a frame the page spent rendering the jump is no pause. Only the stream under way as the scroll from code started is held: no listener sees it (a
 /// window capture listener installed first stops it), and the view is put back where that scroll
 /// put it. Its events stay uncancelable (WebKit latches a gesture's first event's handling), so the
 /// pin, not preventDefault, is what keeps the view still. Passive throughout: no wheel waits on the page.
 export const MOMENTUM_GAP_MS = 80;
+/// How long after the last wheel arrived a scroll from code still counts as inside its stream: the
+/// arrival clock, which a busy page stretches, so looser than the stream's own gap.
+const MOMENTUM_ARRIVAL_MS = 250;
 /// The longest a fling's momentum is held, however it decays.
 const MOMENTUM_MAX_MS = 4000;
 type MomentumState = {
-  /// The last wheel over the scroller, and its vertical delta (its direction and size).
+  /// The last wheel over the scroller: when it arrived, its own time, and its vertical delta.
   at: number;
+  stamp: number;
   deltaY: number;
   hold?: { target: () => number; since: number; echo: boolean };
 };
 const momentum = new WeakMap<HTMLElement, MomentumState>();
 
-function continuesMomentum(event: WheelEvent, last: MomentumState, now: number): boolean {
-  if (now - last.at > MOMENTUM_GAP_MS || event.ctrlKey || isWheelNotch(event)) return false;
+function continuesMomentum(event: WheelEvent, last: MomentumState): boolean {
+  if (event.timeStamp - last.stamp > MOMENTUM_GAP_MS || event.ctrlKey || event.deltaMode !== 0) return false;
   if (!event.deltaY) return true;
   return (
     Math.sign(event.deltaY) === Math.sign(last.deltaY) && Math.abs(event.deltaY) <= Math.abs(last.deltaY) * 1.25 + 1
@@ -75,7 +79,7 @@ function continuesMomentum(event: WheelEvent, last: MomentumState, now: number):
 function heldMomentum(state: MomentumState | undefined, now = performance.now()) {
   const hold = state?.hold;
   if (!state || !hold) return undefined;
-  if (now - state.at > MOMENTUM_GAP_MS || now - hold.since > MOMENTUM_MAX_MS) {
+  if (now - state.at > MOMENTUM_ARRIVAL_MS || now - hold.since > MOMENTUM_MAX_MS) {
     state.hold = undefined;
     return undefined;
   }
@@ -85,23 +89,18 @@ function heldMomentum(state: MomentumState | undefined, now = performance.now())
 /// Watches the wheel over `node` so a scroll from code can hold the momentum under way
 /// (`holdMomentum`). Install before any other wheel listener on the page's window.
 export function installMomentumHold(node: HTMLElement): () => void {
-  const state: MomentumState = { at: -Infinity, deltaY: 0 };
+  const state: MomentumState = { at: -Infinity, stamp: -Infinity, deltaY: 0 };
   momentum.set(node, state);
   const page = node.ownerDocument.defaultView ?? window;
   const wheel = (event: WheelEvent) => {
     if (!node.contains(event.target as Node | null)) return;
     const now = performance.now();
-    if (heldMomentum(state, now)) {
-      if (continuesMomentum(event, state, now)) {
-        event.stopImmediatePropagation();
-        state.at = now;
-        if (event.deltaY) state.deltaY = event.deltaY;
-        return;
-      }
-      state.hold = undefined;
-    }
+    const held = heldMomentum(state, now) && continuesMomentum(event, state);
+    if (!held) state.hold = undefined;
+    else event.stopImmediatePropagation();
     state.at = now;
-    state.deltaY = event.deltaY;
+    state.stamp = event.timeStamp;
+    if (event.deltaY || !held) state.deltaY = event.deltaY;
   };
   // Any other input is the reader's own: the view is theirs again.
   const release = () => {
@@ -139,7 +138,7 @@ export function installMomentumHold(node: HTMLElement): () => void {
 export function holdMomentum(node: HTMLElement, target: () => number): void {
   const state = momentum.get(node);
   const now = performance.now();
-  if (!state || now - state.at > MOMENTUM_GAP_MS || !state.deltaY) return;
+  if (!state || now - state.at > MOMENTUM_ARRIVAL_MS || !state.deltaY) return;
   state.hold = { target, since: now, echo: false };
 }
 

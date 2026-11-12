@@ -65,12 +65,18 @@ const turns = Array.from({ length: 30 }, (_, index) => [
 ]).flat();
 const nextFrame = () => new Promise<void>((resolve) => dom.window.requestAnimationFrame(() => resolve()));
 
+/// The wheel's own clock, as the platform stamps its events: a frame apart, however long the page
+/// took to handle the last one (a slow runner's render is no pause in the fling).
+let stamp = 0;
 /// One frame of a trackpad scroll: the wheel event over a row, then the browser's own move of the
 /// offset by its delta and the scroll event it fires.
 const wheelFrame = async (scroller: HTMLElement, deltaY: number) => {
   await act(async () => {
     const over = scroller.querySelector(".acpmux-row") ?? scroller;
-    over.dispatchEvent(new dom.window.WheelEvent("wheel", { deltaY, bubbles: true, cancelable: false }));
+    const event = new dom.window.WheelEvent("wheel", { deltaY, bubbles: true, cancelable: false });
+    stamp += 16;
+    Object.defineProperty(event, "timeStamp", { value: stamp });
+    over.dispatchEvent(event);
     scroller.scrollTop += deltaY;
     scroller.dispatchEvent(new dom.window.Event("scroll"));
     await nextFrame();
@@ -120,15 +126,9 @@ for (const motion of ["off", "on"] as const) {
       expect(button().dataset.shown).toBeUndefined();
 
       // The reader's next gesture, after a pause, is theirs: it scrolls up and lets go of the latest row.
-      // The pause is the clock moving on 150 ms (past MOMENTUM_GAP_MS), not a wait.
-      const realNow = performance.now;
-      const later = realNow.call(performance) + 150;
-      performance.now = () => Math.max(later, realNow.call(performance));
-      try {
-        for (const delta of [-4, -12, -30]) await wheelFrame(scroller, delta);
-      } finally {
-        performance.now = realNow;
-      }
+      // The pause is on the wheel's clock: 150 ms with no event, past MOMENTUM_GAP_MS.
+      stamp += 150;
+      for (const delta of [-4, -12, -30]) await wheelFrame(scroller, delta);
       expect(scroller.scrollTop).toBe(latest - 46);
       expect(following.at(-1)).toBe(false);
     } finally {
