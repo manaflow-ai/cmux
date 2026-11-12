@@ -476,7 +476,7 @@ def main():
                      *(["--target-hz", str(opts.scroll_target_hz)] if opts.scroll_target_hz is not None else []),
                      *([] if opts.profile else ["--no-trace"]), "--out", o("sidebar")], os.path.join("sidebar", "results.json"),
                     lambda r: rows_sidebar(r, opts.sidebar_size)),
-        "home": ([py, S("home-perf.py"), "--tag", opts.tag, "--out", o("home.json")], "home.json", rows_home),
+        "home": ([py, S("home-perf.py"), *common, "--out", o("home.json")], "home.json", rows_home),
         "acp": ([py, S("agent-engine-bench.py"), *common, "--modes", "own,chromium", "--chats", "2", "--flings", "1",
                  "--rows", str(opts.acp_rows), "--fling-seconds", str(opts.acp_fling_seconds),
                  *(["--target-hz", str(opts.scroll_target_hz)] if opts.scroll_target_hz is not None else []),

@@ -193,7 +193,7 @@ def check(candidate, root, mode, dirs):
 def find(name, search_path, dirs):
     for entry in search_path.split(":"):
         if not entry.startswith("/"):
-            if os.path.isfile(os.path.join(entry, name)):
+            if os.path.isfile(os.path.join(entry, name)) and os.access(os.path.join(entry, name), os.X_OK):
                 label = entry or "(empty: the current directory)"
                 say(f"PATH entry {label} is relative; not running {name} from it.")
             continue
@@ -243,20 +243,26 @@ def child_path(search_path, dirs, found):
     except OSError as error:
         say(f"could not make the stubs in {shims}: {error}; not committing.")
         sys.exit(1)
+    # Every executable file on PATH, whatever its name (.hidden-tool too):
+    # whether a name runs is up to the file, so that alone decides.
     names = set()
     for entry in search_path.split(":"):
         if entry.startswith("/"):
             try:
-                names.update(os.listdir(entry))
+                listed = os.listdir(entry)
             except OSError:
-                pass
+                continue
+            for name in listed:
+                path = os.path.join(entry, name)
+                if name not in (".", "..") and os.path.isfile(path) and os.access(path, os.X_OK):
+                    names.add(name)
     # One stub per name as a case- and normalization-insensitive volume (the
     # macOS default for the temporary directory) sees it: Probe and probe, or
     # the same name in two PATH directories, are one file there. A listed name
     # comes first, so NODE on PATH never takes the stub of a listed node.
     taken = set()
     for name in sorted(set(CHILD_TOOLS).difference(linked)) + sorted(names.difference(CHILD_TOOLS)):
-        if name.startswith(".") or "/" in name or folded(name) in taken:
+        if "/" in name or folded(name) in taken:
             continue
         taken.add(folded(name))
         link(stubs["unresolved" if name in CHILD_TOOLS else "not-listed"], shims, os.path.join(NOT_LISTED, name))

@@ -47,23 +47,7 @@ export function ChoiceOrUrlEditor({ row, value, disabled, labelId }: EditorProps
   };
   return (
     <span className="choice-or-url">
-      <Select
-        value={showAddress ? address : String(value ?? "")}
-        disabled={disabled}
-        labelId={labelId}
-        onChange={(next) => {
-          setAddressPicked(next === address);
-          setProblem(null);
-          if (next !== address) void store.set(row.key, next);
-        }}
-      >
-        {(row.choices ?? []).map((choice) => (
-          <option key={choice.value} value={choice.value}>
-            {text(choice.title)}
-          </option>
-        ))}
-        <option value={address}>{t("settingsPage.selfHostedServer")}</option>
-      </Select>
+      {/* The address field opens left of the menu, so the menu the person just used stays in place. */}
       {showAddress && (
         // A form, so Return in the address field commits it (implicit submission), as a blur does.
         <form
@@ -100,6 +84,23 @@ export function ChoiceOrUrlEditor({ row, value, disabled, labelId }: EditorProps
           )}
         </form>
       )}
+      <Select
+        value={showAddress ? address : String(value ?? "")}
+        disabled={disabled}
+        labelId={labelId}
+        onChange={(next) => {
+          setAddressPicked(next === address);
+          setProblem(null);
+          if (next !== address) void store.set(row.key, next);
+        }}
+      >
+        {(row.choices ?? []).map((choice) => (
+          <option key={choice.value} value={choice.value}>
+            {text(choice.title)}
+          </option>
+        ))}
+        <option value={address}>{t("settingsPage.selfHostedServer")}</option>
+      </Select>
     </span>
   );
 }

@@ -463,25 +463,72 @@ class GitHub(_evidence.GitHub):
     def blob(self, repo: str, ref: str, path: str) -> str:
         """PATH's text in REPO at REF over GraphQL (`object(expression: "REF:PATH")`), never the contents API: an
         agent host's gh shim refuses `gh api repos/O/R/contents/...` as a source read that spends the shared REST
-        quota (source_text). Refused when the object is missing, not a file, or binary."""
-        return self.blob_text(repo, ref, path, self.named_object(repo, f"{ref}:{path}"))
+        quota (source_text). The same query reads the mode of PATH's entry in its parent tree: a symlink's blob is the
+        name of its target, never the target's text, so a symlink is followed inside the repository (symlinked_path)
+        and read again. Refused when the object is missing, not a file, binary, or a symlink out of the repository."""
+        return self.followed(repo, ref, path, *self.entry(repo, ref, path))
 
     def blob_if_present(self, repo: str, ref: str, path: str) -> str | None:
-        """blob, or None only when GitHub answers that REF resolves in REPO and REF:PATH names nothing there. Every
-        other answer (a failed request, a ref GitHub does not resolve, a binary or truncated file) is Refused, never
-        taken for an absent file."""
-        found = self.named_object(repo, f"{ref}:{path}")
-        if found is None:
+        """blob, or None only when GitHub answers that REF resolves in REPO and REF:PATH names nothing there (no object
+        and no entry in its parent tree). Every other answer (a failed request, a ref GitHub does not resolve, a binary
+        or truncated file, a symlink out of the repository) is Refused, never taken for an absent file."""
+        found, mode = self.entry(repo, ref, path)
+        if found is None and mode is None:
             if self.named_object(repo, ref) is None:
                 raise Refused(f"{repo}@{ref}: GitHub resolves no such ref, so {path} is unread, not absent")
             return None
-        return self.blob_text(repo, ref, path, found)
+        return self.followed(repo, ref, path, found, mode)
 
-    def named_object(self, repo: str, expression: str) -> dict | None:
-        """The object EXPRESSION names in REPO (BLOB_QUERY: a blob's fields, {} for a commit or tree), or None when
-        it names none. Refused when GitHub does not serve REPO or answers with errors."""
+    def entry(self, repo: str, ref: str, path: str) -> tuple[dict | None, int | None]:
+        """The object REF:PATH names in REPO (a blob's fields, {} for a commit or tree, None for none) and the mode of
+        PATH's entry in its parent tree (None when that tree lists no such entry), both from one BLOB_QUERY. Refused
+        when GitHub does not serve REPO or answers with errors."""
         owner, _, name = repo.partition("/")
         found = json.loads(self.run(["api", "graphql", "-f", f"query={BLOB_QUERY}", "-f", f"owner={owner}",
+                                     "-f", f"name={name}", "-f", f"expression={ref}:{path}",
+                                     "-f", f"parent={ref}:{path.rpartition('/')[0]}"]))
+        repository = (found.get("data") or {}).get("repository") if isinstance(found, dict) else None
+        if not isinstance(repository, dict) or found.get("errors"):
+            raise Refused(f"{repo}: GitHub did not serve {ref}:{path}")
+        blob = repository.get("object")
+        parent = repository.get("parent")
+        entries = parent.get("entries") if isinstance(parent, dict) else None
+        base = path.rpartition("/")[2]
+        mode = next((entry.get("mode") for entry in entries or () if isinstance(entry, dict)
+                     and entry.get("name") == base), None)
+        return (blob if isinstance(blob, dict) else None), mode
+
+    def followed(self, repo: str, ref: str, path: str, blob: dict | None, mode: int | None) -> str:
+        """The text of PATH's blob, BLOB and MODE as entry read them: a symlink is followed inside the repository
+        (symlinked_path), up to SYMLINK_HOPS links, and its target read again."""
+        hops = 0
+        while True:
+            if isinstance(blob, dict) and blob.get("isBinary") and mode != GIT_SYMLINK_MODE:
+                raise Refused(f"{repo}@{ref}: {path} is not a text file GitHub served (binary)")
+            if not isinstance(blob, dict) or not isinstance(blob.get("text"), str):
+                why = "a symlink with no target" if mode == GIT_SYMLINK_MODE else "missing, or not a file"
+                raise Refused(f"{repo}@{ref}: {path} is not a text file GitHub served ({why})")
+            if mode is None:
+                # No entry for PATH in its parent tree (no parent read, or PATH runs through a symlinked directory):
+                # a symlink's blob would read as its target's name, so nothing is taken from it.
+                raise Refused(f"{repo}@{ref}: {path} has no entry GitHub served in its parent tree (a path through "
+                              "a symlinked directory is not followed)")
+            if mode == GIT_SYMLINK_MODE:
+                hops += 1
+                if hops > SYMLINK_HOPS:
+                    raise Refused(f"{repo}@{ref}: {path} is a symlink loop (over {SYMLINK_HOPS} hops)")
+                path = symlinked_path(repo, ref, path, blob["text"])
+                blob, mode = self.entry(repo, ref, path)
+                continue
+            if blob.get("isTruncated"):
+                raise Refused(f"{repo}@{ref}: {path} was served truncated")
+            return blob["text"]
+
+    def named_object(self, repo: str, expression: str) -> dict | None:
+        """The object EXPRESSION names in REPO (OBJECT_QUERY: a blob's fields, {} for a commit or tree), or None when
+        it names none. Refused when GitHub does not serve REPO or answers with errors."""
+        owner, _, name = repo.partition("/")
+        found = json.loads(self.run(["api", "graphql", "-f", f"query={OBJECT_QUERY}", "-f", f"owner={owner}",
                                      "-f", f"name={name}", "-f", f"expression={expression}"]))
         repository = (found.get("data") or {}).get("repository") if isinstance(found, dict) else None
         if not isinstance(repository, dict) or found.get("errors"):
@@ -489,17 +536,27 @@ class GitHub(_evidence.GitHub):
         named = repository.get("object")
         return named if isinstance(named, dict) else None
 
-    @staticmethod
-    def blob_text(repo: str, ref: str, path: str, blob: dict | None) -> str:
-        if not isinstance(blob, dict) or blob.get("isBinary") or not isinstance(blob.get("text"), str):
-            raise Refused(f"{repo}@{ref}: {path} is not a text file GitHub served")
-        if blob.get("isTruncated"):
-            raise Refused(f"{repo}@{ref}: {path} was served truncated")
-        return blob["text"]
+
+BLOB_QUERY = ("query($owner: String!, $name: String!, $expression: String!, $parent: String!) { repository(owner: "
+              "$owner, name: $name) { object(expression: $expression) { ... on Blob { text isBinary isTruncated } } "
+              "parent: object(expression: $parent) { ... on Tree { entries { name mode } } } } }")
+OBJECT_QUERY = ("query($owner: String!, $name: String!, $expression: String!) { repository(owner: $owner, name: $name) "
+                "{ object(expression: $expression) { ... on Blob { text isBinary isTruncated } } } }")
+# A tree entry's mode for a symlink (0o120000; GraphQL's TreeEntry.mode is the integer), and how many links one read
+# follows before it is refused as a loop.
+GIT_SYMLINK_MODE = 0o120000
+SYMLINK_HOPS = 40
 
 
-BLOB_QUERY = ("query($owner: String!, $name: String!, $expression: String!) { repository(owner: $owner, name: $name) "
-              "{ object(expression: $expression) { ... on Blob { text isBinary isTruncated } } } }")
+def symlinked_path(repo: str, ref: str, link: str, target: str) -> str:
+    """The repository path the symlink LINK (whose blob is TARGET) names; Refused when it leaves the repository."""
+    import posixpath
+    joined = posixpath.normpath(posixpath.join(posixpath.dirname(link), target))
+    if target.startswith("/") or joined in ("..", ".") or joined.startswith("../"):
+        raise Refused(f"{repo}@{ref}: {link} is a symlink to {target}, outside the repository")
+    return joined
+
+
 # Where git_text keeps its shallow, blob-less fetches of other repos (one bare repo each). Override for tests or a
 # host whose cache lives elsewhere.
 SOURCE_CACHE_ENV = "BASE_RED_EXCUSE_SOURCE_CACHE"
@@ -604,14 +661,23 @@ def git_text(repo: str, ref: str, path: str, *, missing=None):
         git = git_cache(repo)
         if git is None:
             return None
-        shown = git("show", f"{commit}:{path}")
-        if shown.returncode:
-            if missing is not None:
-                listed = git("ls-tree", "--name-only", commit, "--", path)
-                if listed.returncode == 0 and not listed.stdout.strip():
-                    return missing
-            return None
-        return shown.stdout.decode()
+        # A symlink's blob is its target's name: follow it inside the repository (symlinked_path), by the entry's
+        # mode in its parent tree, which the blob-less fetch holds.
+        for hop in range(SYMLINK_HOPS + 1):
+            listed = git("ls-tree", "-z", commit, "--", path)
+            if listed.returncode:
+                return None
+            if not listed.stdout.strip(b"\0"):
+                # REF's tree has no PATH: a definite absence for the path asked for, never for a link's target.
+                return missing if missing is not None and hop == 0 else None
+            mode = listed.stdout.split(b" ", 1)[0]
+            shown = git("show", f"{commit}:{path}")
+            if shown.returncode:
+                return None
+            if mode != b"120000":
+                return shown.stdout.decode()
+            path = symlinked_path(repo, ref, path, shown.stdout.decode())
+        raise Refused(f"{repo}@{ref}: {path} is a symlink loop (over {SYMLINK_HOPS} hops)")
     except (OSError, subprocess.SubprocessError, UnicodeDecodeError):
         return None
 

@@ -118,6 +118,7 @@ enum DebugInstantCreateBench {
                 return opensRight ? Probe.anyPagePainted(controller, services, besides: shownBrowsers) : Probe(controller).pagePainted(services)
             },
                                    start: start, window: 0, deadline: diff ? 20_000 : 5_000)
+        let ready = visible == nil || (command != .newWorkspace && command != .newTab) ? nil : await frames.settled(until: { Probe(controller).newTabReady(services) }, start: start, window: 0, deadline: 5_000)
         let confirmed = visible == nil ? nil
             : await frames.settled(until: { Probe(controller).confirmed(command) }, start: start, window: 0, deadline: 5_000)
         let spans = BenchSpans.end()
@@ -130,7 +131,7 @@ enum DebugInstantCreateBench {
             "visible_ms": visible.map { .number($0) } ?? .null,
             "confirmed_ms": confirmed.map { .number($0) } ?? .null,
             "committed_ms": committed.map { .number($0) } ?? .null, "key_changes": .number(Double(spans.count(where: { $0.name.hasPrefix("key.") }))), "spans_full": .bool(spans.count >= BenchSpans.capacity),
-            "page_ms": page.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null, "github": .array(githubShown.withLock { $0 }.map(JSON.string)), "diff": diffShown.withLock { $0 } ?? .null,
+            "page_ms": page.map { .number($0) } ?? .null, "ready_ms": ready.map { .number($0) } ?? .null, "chrome_ms": chrome.map { .number($0) } ?? .null, "github": .array(githubShown.withLock { $0 }.map(JSON.string)), "diff": diffShown.withLock { $0 } ?? .null,
             "engine": .string(Probe(controller).browser.map { $0.tab.engineKind == .cef ? "cef" : "webkit" } ?? "none"),
             "spare_window": .string(services.cache.cef.spareWindowState),
             "frames_to_visible": visible.map { .number(($0 / refresh).rounded(.up)) } ?? .null,
@@ -166,9 +167,7 @@ enum DebugInstantCreateBench {
 
         /// The browser tabs the window's panes show.
         static func browserTabs(_ controller: WindowController) -> Set<String> {
-            Set(controller.content?.panes.values.compactMap { pane in
-                if case .browser(let entry) = pane.currentContent { entry.tab.id.rawValue } else { nil }
-            } ?? [])
+            Set(controller.content?.panes.values.compactMap { if case .browser(let entry) = $0.currentContent { entry.tab.id.rawValue } else { nil } } ?? [])
         }
 
         /// Whether a pane of the window shows a browser, other than `besides`, whose page painted (``pagePainted(_:)``).
@@ -187,6 +186,7 @@ enum DebugInstantCreateBench {
             if case .finished = browser.tab.state.phase { return true }
             return services.cache.cef.benchMarks.firstPaints[browser.tab.id.rawValue] != nil
         }
+        @MainActor func newTabReady(_ services: AppServices) -> Bool { tab.map { selected == $0 && (LocalPageTab.page(of: $0) == .nativeNewTab || services.agentTabs.existingView($0)?.isShownReady == true) } ?? false }
 
         func changed(_ command: Command, _ now: Probe) -> Bool {
             switch command {
