@@ -32,8 +32,9 @@ Arms, each on its own APFS clone of the generated state, with real owner process
          identify request each 0.5 s and a rename-workspace request each second.
   in-place-kept  the delete in place of each day: a RELEASE owner on a clone of the state
          AFTER the swap, with the kept file of that swap beside it (no rebuild for 7 days and 3
-         starts), after synth_registry appended --second-records sealed records. The same row
-         as the in-place arm, on the small file.
+         starts), after synth_registry appended --kept-records sealed records. The row: the
+         registry lock by site, each pass that deleted (seconds, segments), and the request
+         times in two groups: while a pass deleted, and with no pass.
   old    each older owner binary (--old-bin, a list) on its own clone of the migrated state:
          does it open it, what does it serve, what do the counts say after it stayed up
          --old-dwell seconds (a roster rebuild of another reducer version saves in that time),
@@ -336,6 +337,105 @@ class Sampler(threading.Thread):
                 "cpu_s": round(cpu, 2),
                 "cpu_share_of_one_core": round(cpu / wall, 3) if wall > 0 else None,
                 "identify_ms": identify, "rename_workspace_ms": rename}
+
+
+class SegmentWatch(threading.Thread):
+    """Each `period` seconds: the count of sealed segments in the registry file and the end of
+    the oldest one, by a read-only connection of this script (no request to the owner). An
+    oldest end that moves is a delete in place."""
+
+    def __init__(self, registry, period=0.1):
+        super().__init__(daemon=True)
+        self.registry, self.period, self.rows, self.done = registry, period, [], threading.Event()
+
+    def run(self):
+        try:
+            connection = sqlite3.connect(Path(self.registry).as_uri() + "?mode=ro", uri=True,
+                                         timeout=5, check_same_thread=False)
+        except sqlite3.Error:
+            return
+        while not self.done.wait(self.period):
+            try:
+                count, oldest = connection.execute(
+                    "SELECT COUNT(*), MIN(end_sequence) FROM journal_segments").fetchone()
+            except sqlite3.Error:
+                continue
+            self.rows.append((time.monotonic(), count, oldest))
+        connection.close()
+
+    def stop(self):
+        self.done.set()
+        self.join(timeout=30)
+
+    def last_delete(self):
+        """The time of the last read that saw a delete (None: no delete so far)."""
+        rows = list(self.rows)
+        seen = [now[0] for before, now in zip(rows, rows[1:]) if now[2] != before[2]]
+        return seen[-1] if seen else None
+
+    def passes(self, gap=5.0):
+        """Each retention pass that deleted: [start, end, segments]. A pass is a run of reads
+        that saw a delete, with less than `gap` seconds between two of them; it starts at the
+        read before the first one."""
+        rows, found = list(self.rows), []
+        for before, now in zip(rows, rows[1:]):
+            if now[2] == before[2]:
+                continue
+            if found and before[0] - found[-1][1] < gap:
+                found[-1][1], found[-1][3] = now[0], now[1]
+            else:
+                found.append([before[0], now[0], before[1], now[1]])
+        return [[start, end, first - last] for start, end, first, last in found]
+
+
+class PassProbe(threading.Thread):
+    """While an owner runs, back to back with `gap` seconds between two rounds: one identify
+    request and one rename-workspace request (a request that commits to the registry), each
+    with its start time. It is what a request of the person waits; a person sends far fewer."""
+
+    def __init__(self, owner, gap=0.05):
+        super().__init__(daemon=True)
+        self.owner, self.gap, self.rows, self.done = owner, gap, [], threading.Event()
+        self.workspace = first_workspace(owner)
+
+    def run(self):
+        count = 0
+        while not self.done.wait(self.gap):
+            started = time.monotonic()
+            _, ms = request_line(self.owner, {"id": 1, "cmd": "identify"}, 30)
+            self.rows.append(("identify_ms", started, ms))
+            if self.workspace is None:
+                continue
+            count += 1
+            request = {"id": 4, "cmd": "rename-workspace", "workspace": self.workspace,
+                       "name": f"rmp-{count % 2}"}
+            started = time.monotonic()
+            reply, ms = request_line(self.owner, request, 60)
+            answered = reply is not None and reply.get("ok") is True
+            self.rows.append(("rename_workspace_ms", started, ms if answered else None))
+
+    def stop(self):
+        self.done.set()
+        self.join(timeout=90)
+
+    def split(self, passes, margin):
+        """The request times in two groups: a request that ran while a pass deleted (its time
+        from start to answer meets a pass, each pass wider by `margin` seconds on both sides),
+        and each other request. A request with no answer is counted, not timed."""
+        groups = {"during_a_pass": {}, "with_no_pass": {}}
+        for kind, started, ms in list(self.rows):
+            ended = started + (ms or 0) / 1000
+            met = any(started <= end + margin and ended >= start - margin
+                      for start, end, _ in passes)
+            group = groups["during_a_pass" if met else "with_no_pass"]
+            times, missing = group.setdefault(kind, ([], [0]))
+            if ms is None:
+                missing[0] += 1
+            else:
+                times.append(ms)
+        return {name: {kind: {**spread(times), "no_answer_or_refused": missing[0]}
+                       for kind, (times, missing) in group.items()}
+                for name, group in groups.items()}
 
 
 # history_ops.rs MAX_LIST: the most rows one history.entries.list request returns.
@@ -805,6 +905,8 @@ def space_arm(args, state, before, report):
 IN_PLACE_KEYS = ("registry_bytes", "wal_bytes", "records", "segments", "pruned_ranges",
                  "retention_floor", "journal_head", "history_cursor", "roster_cursor")
 NO_REBUILD = "output cleanup: no rebuild in this start"
+# The in-place-kept arm ends when no read saw a delete for this long (a pass each 30 s).
+KEPT_QUIET_SECONDS = 75
 # A failure by TIME, not a loss: no retention pass deleted in the dwell (a slow fold, floor 0).
 NO_DELETE_IN_DWELL = "no segment was deleted in place in the dwell"
 
@@ -868,22 +970,27 @@ def in_place_kept_arm(args, state, before, report):
     days and 3 full starts). synth_registry --advance-checkpoints appends --second-records
     records, moves the checkpoints to the head, seals every record and back-dates the segments
     (what days of use do); nothing else is of this script. A RELEASE owner then deletes 8
-    sealed segments in each retention pass (30 s apart) for --in-place-dwell seconds, with the
-    same sampler as the in-place arm. The numbers: the registry lock by site and the request
-    times. Its answer to `served` is under another key: the generator added records, so no
-    verdict rule compares it with start 1."""
+    sealed segments in each retention pass (30 s apart), until 75 s pass with no delete or
+    --kept-dwell seconds are over. The numbers: the registry lock by site; how many passes
+    deleted, with the seconds and the segments of each; and the times of identify and
+    rename-workspace requests that a probe sends back to back, in two groups: a request that
+    ran while a pass deleted, and each other request (the same owner, the same file). Its
+    answer to `served` is under another key: the generator added records, so no verdict rule
+    compares it with start 1."""
     start = counts(args, state)
-    step = {"arm": "in-place-kept", "dwell_s": args.in_place_dwell,
-            "kept_name_bytes": start.get("kept_bytes"),
+    step = {"arm": "in-place-kept", "kept_name_bytes": start.get("kept_bytes"),
             "first_name_bytes": start.get("backup_bytes")}
     if not (start.get("kept_bytes") or start.get("backup_bytes")):
         step["error"] = "no file of the swap is held: this state is not the one after a swap"
         say("RMP", step)
         report["steps"].append(step)
         return
+    records = args.kept_records or args.second_records
+    dwell = args.kept_dwell or args.in_place_dwell
+    step.update(dwell_s=dwell, appended_records=records)
     out = subprocess.run(
         [args.synth, "--advance-checkpoints", "16", "--append-records",
-         str(args.second_records), "--out", str(state), "--session", args.session,
+         str(records), "--out", str(state), "--session", args.session,
          "--seal-age-minutes", str(args.seal_age_minutes), "--quiet"],
         stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=3600, check=False)
     if out.returncode != 0:
@@ -904,13 +1011,33 @@ def in_place_kept_arm(args, state, before, report):
         say("RMP", step)
         report["steps"].append(step)
         return
-    sampler = Sampler(owner, write_every=2)
-    sampler.start()
-    deadline = time.monotonic() + args.in_place_dwell
+    # Memory and CPU by the sampler (it sends no rename here); the request times by the probe.
+    sampler, probe = Sampler(owner, write_every=0), PassProbe(owner)
+    watch = SegmentWatch(registry_of(state))
+    for thread in (watch, sampler, probe):
+        thread.start()
+    began = time.monotonic()
+    deadline = began + dwell
+    step["ended_by"] = "the dwell"
     while time.monotonic() < deadline and owner.child.poll() is None:
         time.sleep(1)
-    sampler.stop()
+        last = watch.last_delete()
+        # 2 passes with no delete (they are 30 s apart): no segment is left at the floor.
+        if last is not None and time.monotonic() - last > KEPT_QUIET_SECONDS:
+            step["ended_by"] = f"no delete for {KEPT_QUIET_SECONDS} s"
+            break
+    for thread in (probe, sampler, watch):
+        thread.stop()
+    passes = watch.passes()
     step["samples"] = sampler.phase(ready, owner.elapsed())
+    step["ran_s"] = round(time.monotonic() - began, 1)
+    step["passes"] = len(passes)
+    step["pass_rows_first_40"] = [
+        {"at_s": round(start - began, 1), "seconds": round(end - start, 2), "segments": segments}
+        for start, end, segments in passes[:40]]
+    step["watch_period_s"] = watch.period
+    step["probe_requests"] = len(probe.rows)
+    step["requests"] = probe.split(passes, watch.period)
     step["locks"] = lock_sites(owner)
     step["no_rebuild_line"] = NO_REBUILD in owner.log_text()
     step["kept_served"] = served(owner)
@@ -1203,7 +1330,10 @@ def table(report):
                                "bases_after", "error", "dwell_s", "locks", "samples",
                                "locks_debug_build", "no_rebuild_line", "segments_deleted",
                                "kept_name_bytes", "base_served", "base_error",
-                               "kept_served", "first_name_bytes", "load_1m")}
+                               "kept_served", "first_name_bytes", "load_1m",
+                               "appended_records", "ended_by", "ran_s", "passes",
+                               "pass_rows_first_40", "watch_period_s", "probe_requests",
+                               "requests")}
             if name == "second-swap":
                 keep["build"] = {key: step.get("build", {}).get(key) for key in
                                  ("ready_s", "staging_started_s", "built_s", "cleanup_lines",
@@ -1238,6 +1368,10 @@ def main():
     parser.add_argument("--space-dwell", type=float, default=0)
     # Seconds the in-place arm's owner runs after it is ready (a retention pass each 30 s).
     parser.add_argument("--in-place-dwell", type=float, default=150)
+    # The in-place-kept arm: its longest run in seconds and the records the generator appends
+    # first (0: --in-place-dwell and --second-records).
+    parser.add_argument("--kept-dwell", type=float, default=0)
+    parser.add_argument("--kept-records", type=int, default=0)
     parser.add_argument("--ready-timeout", type=float, default=3600)
     parser.add_argument("--build-timeout", type=float, default=7200)
     args = parser.parse_args()

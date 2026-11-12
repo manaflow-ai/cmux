@@ -5,7 +5,7 @@
 #     [young_segments=N]
 #     [arms=control,main,kill-stage,kill-swap,kill-renamed,space,in-place,in-place-kept,second-swap,
 #      old,old-raised]
-#     [space_dwell=0] [in_place_dwell=150]
+#     [space_dwell=0] [in_place_dwell=150] [kept_dwell=N] [kept_records=N]
 #     [debug=1] [old_bin=label=/abs/older/cmux-tui[,label=/abs/other/cmux-tui]] [old_dwell=45]
 #     [ready_timeout=3600] [build_timeout=7200]
 #     [state=/abs/path/of/a/generated/state/dir]
@@ -28,9 +28,11 @@
 # seconds; the row is the registry lock by site (server-stats `locks`) and the request times.
 # space_dwell= keeps the debug owner of the space arm that long after the refusal: the same
 # deletes through the product's own no-space path, with a debug build's times.
-# The in-place-kept arm: the same row on the SMALL file after the swap, with the kept file of
-# that swap held (what a person gets each day: no rebuild for 7 days and 3 starts) and
-# second_records= sealed records appended by the generator.
+# The in-place-kept arm: the delete in place on the SMALL file after the swap, with the kept
+# file of that swap held (what a person gets each day: no rebuild for 7 days and 3 starts) and
+# kept_records= sealed records appended by the generator (default second_records=). It runs
+# until 75 s pass with no delete, or kept_dwell= seconds (default in_place_dwell=). The row
+# has each pass that deleted and the request times while a pass deleted and with no pass.
 # base_bin= adds the base-sample arm: that build owns a clone from before start 1 for
 # in_place_dwell= seconds with the same sampler, so the lock and request times of the in-place
 # arm have a row that shows what the size of the file and the host cost with no delete.
@@ -51,7 +53,7 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 session=rmp
 size_gb=1 workspaces=826 seal_age_minutes=120 young_segments= debug=1 old_bin= state=
 arms=control,main,kill-stage,kill-swap,kill-renamed,space,in-place,in-place-kept,second-swap,old,old-raised
-old_dwell=45 space_dwell=0 in_place_dwell=150
+old_dwell=45 space_dwell=0 in_place_dwell=150 kept_dwell=0 kept_records=0
 ready_timeout=3600 build_timeout=7200
 records= sparse_head= sparse_records= rested_agents= live_rows= bin= synth= debug_bin=
 base_bin=
@@ -68,6 +70,8 @@ for kv in "$@"; do
     old_dwell=*) old_dwell="${kv#*=}" ;;
     space_dwell=*) space_dwell="${kv#*=}" ;;
     in_place_dwell=*) in_place_dwell="${kv#*=}" ;;
+    kept_dwell=*) kept_dwell="${kv#*=}" ;;
+    kept_records=*) kept_records="${kv#*=}" ;;
     ready_timeout=*) ready_timeout="${kv#*=}" ;;
     build_timeout=*) build_timeout="${kv#*=}" ;;
     state=*) state="${kv#*=}" ;;
@@ -166,4 +170,5 @@ python3 "$root/scripts/measure/registry-migration-proof.py" \
   --seal-age-minutes "$seal_age_minutes" --second-records "$second_records" \
   --second-build-timeout "$second_build_timeout" \
   --space-dwell "$space_dwell" --in-place-dwell "$in_place_dwell" \
+  --kept-dwell "$kept_dwell" --kept-records "$kept_records" \
   --report "$out/report.json"
