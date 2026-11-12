@@ -16,18 +16,32 @@ private let log = Logger(subsystem: "dev.cmux.mobile", category: "acpmux")
 @MainActor
 @Observable
 public final class AcpmuxHub {
-    public private(set) var sessions: [String: AcpmuxSession] = [:]
+    /// Every chat the watch reported, newest page first (`AcpmuxHub+SessionPages.swift`): ready
+    /// with the first page, the rest read after it.
+    public internal(set) var sessions: [String: AcpmuxSession] = [:]
     public private(set) var isReady = false
     /// A failure binding the channel (shown in diagnostics).
     public private(set) var lastError: String?
     /// The link the channel rides on (artifact previews open `file` channels on it).
     @ObservationIgnored public var macLink: (any MacLink)?
 
-    @ObservationIgnored private var connection: AcpmuxConnection?
+    @ObservationIgnored var connection: AcpmuxConnection?
     /// Callers of `waitUntilReady` (a Feed answer whose Mac's link is opening).
     @ObservationIgnored private var readyWaiters: [UUID: CheckedContinuation<Bool, Never>] = [:]
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
     @ObservationIgnored private var sources: [String: WeakSource] = [:]
+    /// The read of the list's later pages on the current connection (`AcpmuxHub+SessionPages.swift`).
+    @ObservationIgnored var restOfList: Task<Void, Never>?
+    /// Chats a `session_changed` told since this connection's watch began: newer than any page row.
+    @ObservationIgnored var toldSinceWatch: Set<String> = []
+    /// Chats purged since this connection's watch began: a later page must not bring them back.
+    @ObservationIgnored var purgedSinceWatch: Set<String> = []
+    /// acpmux dropped notices since this connection's watch began (`_acpmux/lagged` with
+    /// `dropped`): a chat's notice may be lost, so the rest's end lets no chat go on its account.
+    @ObservationIgnored var droppedSinceWatch = false
+    /// Every chat of the Mac is in `sessions` (the whole list was read on this connection). A
+    /// chat not in `sessions` before then may be one of the older ones still being read.
+    public internal(set) var listWhole = false
     /// Where each chat keeps its newest records on this phone (nil: none kept, as in tests and
     /// Cloud chats). Set by the live coordinator before any chat opens.
     @ObservationIgnored public var transcriptCache: AgentTranscriptCache?
@@ -99,6 +113,12 @@ public final class AcpmuxHub {
     /// Binds a new `acpmux` channel (nil unbinds after a link drop).
     public func bind(_ channel: (any LinkChannel)?, requestTimeout: Duration = .seconds(20)) async {
         pumpTask?.cancel()
+        restOfList?.cancel()
+        restOfList = nil
+        toldSinceWatch = []
+        purgedSinceWatch = []
+        droppedSinceWatch = false
+        listWhole = false
         if let old = connection { Task { await old.close() } }
         connection = nil
         isReady = false
@@ -134,13 +154,12 @@ public final class AcpmuxHub {
             personInstance = initialized["_meta"]?["acpmux"]?["personInstance"]?.stringValue
             fullAccess = initialized["_meta"]?["acpmux"]?["fullAccess"] == .bool(true)
             capabilities = Set((initialized["_meta"]?["acpmux"]?["capabilities"]?.arrayValue ?? []).compactMap(\.stringValue))
-            let watched = try await connection.wholeList("_acpmux/watch", ["enabled": .bool(true)], timeout: requestTimeout)
+            // The newest page only (CMUX-563): a Mac with hundreds of chats sent its whole list
+            // (megabytes) before the phone was ready. The rest is read after ready, below.
+            let first = try await Self.firstPage(connection, timeout: requestTimeout)
             guard !(await connection.isClosed), self.connection === connection else { return }
-            var next: [String: AcpmuxSession] = [:]
-            for value in watched {
-                if let session = AcpmuxSession(value) { next[session.id] = session }
-            }
-            sessions = next
+            let firstIDs = applyFirstPage(first.rows, whole: first.cursor == nil)
+            let next = sessions
             isReady = true
             lastError = nil
             let waiters = readyWaiters
@@ -154,7 +173,14 @@ public final class AcpmuxHub {
             ], detail: capabilities.sorted().joined(separator: ","))
             for entry in sources.values { entry.source?.linkUp() }
             onWatchEvent?(.sessionsLoaded(Array(next.values)))
-            await seedPending(connection, requestTimeout: requestTimeout)
+            if let cursor = first.cursor {
+                restOfList = Task { [weak self] in
+                    await self?.readRest(after: cursor, on: connection, firstPage: firstIDs, timeout: requestTimeout)
+                }
+            }
+            // With a cursor, only the page's chats: older rows kept from the last connection carry
+            // a stale `lastSeq`; the rest seeds the others once read.
+            await seedPending(connection, requestTimeout: requestTimeout, among: first.cursor == nil ? nil : firstIDs)
             try Task.checkCancellation()
         } catch {
             guard self.connection === connection else { return }
@@ -178,8 +204,9 @@ public final class AcpmuxHub {
     /// Asks that were already open before this connection watched: acpmux
     /// notifies `permission_pending` only for new ones, so read each waiting
     /// session's permission records and report those with no decision.
-    private func seedPending(_ connection: AcpmuxConnection, requestTimeout: Duration) async {
-        for session in sessions.values where session.pendingPermissions > 0 {
+    /// `among`: only those chats (nil: every chat).
+    func seedPending(_ connection: AcpmuxConnection, requestTimeout: Duration, among: Set<String>? = nil) async {
+        for session in sessions.values where session.pendingPermissions > 0 && among.map({ $0.contains(session.id) }) != false {
             guard !Task.isCancelled, self.connection === connection else { return }
             guard let page = try? await connection.request("_acpmux/events", .object([
                 "sessionId": .string(session.id),
@@ -417,15 +444,20 @@ public final class AcpmuxHub {
         case "_acpmux/session_changed":
             guard let value = params["session"], let session = AcpmuxSession(value) else { return }
             sessions[session.id] = session
+            toldSinceWatch.insert(session.id)
             let kind = params["recordKind"]?.stringValue ?? params["kind"]?.stringValue ?? ""
             let seq = Int(params["seq"]?.numberValue ?? 0)
             onWatchEvent?(.sessionChanged(session, recordKind: kind, seq: seq))
             if params["kind"]?.stringValue == "permission_resolved" { onWatchEvent?(.permissionResolved(sessionID: session.id)) }
-            if params["kind"]?.stringValue == "purged" { sessions[session.id] = nil }
+            if params["kind"]?.stringValue == "purged" {
+                sessions[session.id] = nil
+                purgedSinceWatch.insert(session.id)
+            }
         case "_acpmux/permission_pending":
             guard let sessionID, let permissionID = params["permissionId"]?.stringValue, let request = params["request"] else { return }
             onWatchEvent?(.permissionPending(sessionID: sessionID, permissionID: permissionID, request: request))
         case "_acpmux/lagged":
+            if (params["dropped"]?.numberValue ?? 0) > 0 { droppedSinceWatch = true }
             // A list reply that went out after a `session_changed` (acpmux `send_serialized`,
             // `list_changed`) dropped nothing: that notice came before it and is applied above,
             // so nothing is read again, neither the list nor an open chat's history. Asking

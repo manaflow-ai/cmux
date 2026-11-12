@@ -8,11 +8,18 @@ The source snippets live in tests/fixtures/lint_connection_lifetimes/cases.txt, 
 import contextlib
 import importlib.util
 import io
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+
+# tests/git_fixture_env.py, loaded by path: `python3 -I` puts no script folder on sys.path.
+_git_fixture_spec = importlib.util.spec_from_file_location(
+    "git_fixture_env", os.path.join(os.path.dirname(os.path.abspath(__file__)), "git_fixture_env.py"))
+git_fixture_env = importlib.util.module_from_spec(_git_fixture_spec)
+_git_fixture_spec.loader.exec_module(git_fixture_env)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 LINTER = REPO_ROOT / "scripts" / "lint-connection-lifetimes.py"
@@ -119,7 +126,7 @@ class BaselineTests(unittest.TestCase):
             src = root / RS
             src.parent.mkdir(parents=True)
             src.write_text(CASE["baseline_one"]["text"], encoding="utf-8")
-            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            git_fixture_env.init_repo(root)
             subprocess.run(["git", "-C", str(root), "add", "."], check=True)
             baseline = root / "baseline.txt"
             baseline.write_text(lint.BASELINE_HEADER, encoding="utf-8")
@@ -148,10 +155,10 @@ class BaselineTests(unittest.TestCase):
 
 class GuardRunnerTests(unittest.TestCase):
     def test_a_passing_steps_warnings_are_forwarded(self):
-        spec = importlib.util.spec_from_file_location("run_ci_guards", REPO_ROOT / "scripts" / "ci" / "run_ci_guards.py")
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[spec.name] = module
-        spec.loader.exec_module(module)
+        # Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+        if str(REPO_ROOT / "scripts" / "ci") not in sys.path:
+            sys.path.insert(0, str(REPO_ROOT / "scripts" / "ci"))
+        module = importlib.import_module("run_ci_guards")
         output = "noise\n::warning file=a.rs,line=3,title=t::m\n::notice file=b.rs,title=t::n\n::error::x\n"
         self.assertEqual(
             module.passed_step_annotations(output),

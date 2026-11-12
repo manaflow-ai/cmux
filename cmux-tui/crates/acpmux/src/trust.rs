@@ -567,7 +567,7 @@ pub fn set(paths: &Paths, cwd: &str, level: &str) -> Result<Value, Failure> {
         record.insert(cwd.clone(), level.as_str().to_owned());
     }
     if let Some(parent) = paths.record.parent() {
-        std::fs::create_dir_all(parent)
+        crate::home_fs::create_dirs(parent)
             .map_err(|e| Failure::Record(format!("trust record: {e}")))?;
     }
     let bytes = serde_json::to_vec_pretty(&record).map_err(|e| Failure::Record(e.to_string()))?;
