@@ -105,8 +105,8 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
   ];
   /// Long call outputs: a 24-line box of whole lines and the lane under them.
   const cutCalls: Block[] = [outputCut];
-  /// Wrapped diffs, cut and whole.
-  const wrapped: Block[] = [diff("edit-long-line-prose", true), diff("edit-preview-open", false)];
+  /// Wrapped diffs past the 24-line box (no gallery state draws a long wrapped diff whole any more).
+  const wrapped: Block[] = [diff("edit-long-line-prose", true), diff("edit-preview-open", true)];
 
   const webviews = path.resolve(import.meta.dir, "..");
   const { createServer } = await import("vite");
@@ -520,7 +520,9 @@ await requireBrowserLane("transcript-block-sideways-scrollbar.test.ts", async ()
             expect(fits.sideways).toBe(false);
             for (const shown of [past, fits]) {
               expect({ box: shown.box, scrolls: shown.scrolls }).toEqual({ box: true, scrolls: true });
-              expect(Math.abs(shown.shown - shown.lines)).toBeLessThanOrEqual(1);
+              // 24 whole lines, plus at most the thin scroller's lane the box adds under them.
+              expect(shown.shown).toBeGreaterThanOrEqual(shown.lines - 1);
+              expect(shown.shown).toBeLessThanOrEqual(shown.lines + THIN);
               expect(shown.lane).toBeGreaterThan(0);
             }
           } finally {
