@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43259097518",
+  "recorded_at": "2026-11-12T16:40:30Z",
+  "reason": "cmux-tui 07cda7a13230 changes the image's cmux-tui (pinned 7069fa0984ec)",
+  "dry_run": false,
+  "cmux_tui": "07cda7a13230af0a2e259836095d460aacd79797",
+  "fixes": [
+    {
+      "sha": "07cda7a13230af0a2e259836095d460aacd79797",
+      "mergedAt": "2026-11-12T10:01:48-06:00",
+      "subject": "cmux-usage-patterns: a stop's last write runs on the writer thread, waited for at most 250 ms"
+    },
+    {
+      "sha": "f67fd5310b504d9b24bb8c0ab8ebad404f59b215",
+      "mergedAt": "2026-11-12T10:01:47-06:00",
+      "subject": "cmux-usage-patterns tests: a stop waits on a disk that does not answer at most its bound"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T16:40:30Z",
+    "snapshot_id": "sh-f591177568b947fd989f060f3f1509df",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43259097518): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "071155aa084efe14cc78d5a59d706ec794ab5288",
+    "image": "cloud-native-auto-07cda7a1-43259097518-1",
+    "revision": "ci-43259097518-1",
+    "at": "2026-11-12T16:40:30Z"
+  },
+  "rolled_back": false
+}
