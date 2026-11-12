@@ -1009,13 +1009,23 @@ fn only_escape_and_bare_arrows_reach_an_open_menu() {
 }
 
 #[test]
-fn a_menu_inside_any_element_is_walked_as_a_menu() {
-    use roles::{ChildWalk, child_walk};
-    assert_eq!(child_walk::<()>(Ok(sys::Cf::string("AXMenu"))), ChildWalk::Menu);
-    assert_eq!(child_walk::<()>(Ok(sys::Cf::string("AXButton"))), ChildWalk::Plain);
-    assert_eq!(child_walk::<()>(Ok(None)), ChildWalk::Plain);
-    // A role that cannot be read is checked like a menu.
-    assert_eq!(child_walk::<()>(Err(())), ChildWalk::Menu);
+fn a_walk_knows_where_it_is_in_menus_without_reading_more() {
+    use ax::MenuPlace;
+    // A window's pop-up button: not in a menu.
+    assert_eq!(MenuPlace::below(None, Some("AXPopUpButton"), Some("")), None);
+    // Its menu: the items are at depth 1, under no item.
+    let menu = MenuPlace::below(None, Some("AXMenu"), None).unwrap();
+    assert_eq!(menu, MenuPlace { in_menu: true, depth: 1, path: Some(vec![]) });
+    // An item's submenu: depth 2, under that item.
+    let item = MenuPlace::below(Some(&menu), Some("AXMenuItem"), Some("Services")).unwrap();
+    assert!(!item.in_menu);
+    let sub = MenuPlace::below(Some(&item), Some("AXMenu"), None).unwrap();
+    assert_eq!(sub, MenuPlace { in_menu: true, depth: 2, path: Some(vec!["Services".into()]) });
+    // A title that could not be read leaves the path unknown (fail closed).
+    let unknown = MenuPlace::below(Some(&menu), Some("AXMenuItem"), None).unwrap();
+    assert_eq!(MenuPlace::below(Some(&unknown), Some("AXMenu"), None).unwrap().path, None);
+    // A role that could not be read is walked as a menu (its items checked).
+    assert!(MenuPlace::below(None, None, None).unwrap().in_menu);
 }
 
 #[test]
@@ -1052,4 +1062,50 @@ fn the_keyboard_handoff_arms_only_on_tested_macos_majors() {
     assert!(!key_focus::tested_os("27.0"));
     assert!(!key_focus::tested_os("11.7"));
     assert!(!key_focus::tested_os(""));
+}
+
+#[test]
+fn a_pop_up_s_items_need_no_sibling_titles() {
+    // A pop-up's items (depth 1) are checked from what the walk read: the
+    // menu's titles are read (once per menu) only for a launch list at
+    // depth 2 and more while something is denied, never per item.
+    let d = MacDesktop::new(None);
+    assert!(!d.opened_needs_siblings(1));
+    assert!(!d.opened_needs_siblings(2), "nothing is denied without a guard");
+    let config = crate::policy::PolicyConfig {
+        denied_apps: vec!["com.apple.Terminal".into()],
+        ..Default::default()
+    };
+    d.set_menu_guard(Arc::new(PolicyGuard(config)));
+    assert!(!d.opened_needs_siblings(1));
+    assert!(d.opened_needs_siblings(2));
+    // While the app names load, items fail closed; wait for the index.
+    let start = std::time::Instant::now();
+    while !workspace::app_names_ready() && start.elapsed() < std::time::Duration::from_secs(60) {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    assert!(workspace::app_names_ready());
+    // 500 font names at depth 1: each is decided with no sibling list.
+    let names: Vec<String> = (0..500).map(|i| format!("Font Family {i}")).collect();
+    let hidden = names
+        .iter()
+        .filter(|n| {
+            d.opened_item_known(&ax::OpenedItem {
+                title: n,
+                title_failed: false,
+                depth: 1,
+                path: Some(&[]),
+                siblings: &[],
+            })
+        })
+        .count();
+    assert_eq!(hidden, 0);
+    // An unreadable title fails closed while something is denied.
+    assert!(d.opened_item_known(&ax::OpenedItem {
+        title: "",
+        title_failed: true,
+        depth: 1,
+        path: Some(&[]),
+        siblings: &[],
+    }));
 }

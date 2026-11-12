@@ -86,47 +86,70 @@ impl MacDesktop {
         self.guard().is_some_and(|g| g.denies_any())
     }
 
-    /// Whether an item of a menu this desktop opened (a pop-up, a context
-    /// menu) is hidden and refused: the menu bar's rule, plus any run of
-    /// words in its title or in the items above it that names a denied or
-    /// protected app ("New Terminal at Folder", "Terminal > New Window").
-    /// A title that cannot be read is blocked while something is denied.
+    /// Whether one element of an opened menu (a pop-up, a context menu) is
+    /// hidden and refused, reading what it needs from AX (one element: a
+    /// press or a click; a walk over many uses [`Self::opened_item_known`]).
     fn opened_item_blocked(&self, item: &Ax) -> bool {
+        let Some(guard) = self.guard() else { return false };
         let title = match item.attr("AXTitle") {
             Ok(v) => v.and_then(|v| v.as_string()).unwrap_or_default(),
-            Err(_) => return self.denies_any(),
+            Err(_) => return guard.denies_any(),
         };
-        self.opened_item_blocked_titled(item, &title)
-    }
-
-    fn opened_item_blocked_titled(&self, item: &Ax, title: &str) -> bool {
-        if self.menu_item_blocked_titled(item, title) {
+        if self.menu_item_blocked_titled(item, &title) {
             return true;
         }
-        let Some(guard) = self.guard() else { return false };
         let path = menus::item_path_checked(item);
-        // Under Services, Quick Actions, Share, Open With or Recent Items (or
-        // a title above that cannot be read), while anything is denied, only
-        // an item that names an allowed installed app may run: the rest
-        // ("Services Settings…", "Make Sticky", "Customize…") can open or
-        // hand data to any app.
-        if guard.denies_any()
-            && roles::in_opened_launch_list(path.as_deref(), workspace::launch_submenu_titles())
-        {
-            let name = roles::menu_app_name(title).0;
-            let ids = workspace::apps_named_indexed(name).unwrap_or_default();
-            if ids.is_empty() || ids.iter().any(|id| guard.app_blocked(id, name)) {
-                return true;
-            }
+        opened_rules(&*guard, &title, path.as_deref())
+    }
+
+    /// Whether a menu item a walk or a menu listing reached is hidden and
+    /// refused, from what was already read: no AX reads of its own (a font
+    /// pop-up holds thousands of items). App names come from the built
+    /// index only.
+    fn opened_item_known(&self, it: &ax::OpenedItem) -> bool {
+        let Some(guard) = self.guard() else { return false };
+        if it.title_failed {
+            return guard.denies_any();
         }
-        std::iter::once(title.to_string()).chain(path.unwrap_or_default()).any(|t| {
-            crate::menus::title_names_blocked_app(&*guard, &t, &workspace::apps_named_indexed)
-        })
+        let ctx = roles::MenuItemContext {
+            title: it.title,
+            top_index: None,
+            depth: it.depth,
+            siblings: it.siblings,
+        };
+        roles::menu_item_blocked(&*guard, &ctx, &workspace::apps_named_indexed)
+            || opened_rules(&*guard, it.title, it.path)
+    }
+
+    /// Whether items at this menu depth need their menu's titles: only a
+    /// launch list (depth 2 and more) while anything is denied reads them.
+    fn opened_needs_siblings(&self, depth: usize) -> bool {
+        depth >= 2 && self.denies_any()
     }
 
     fn menu_policy(&self) -> crate::menus::MenuPolicy {
         self.menu_policy.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
+}
+
+/// The opened-menu rules past the menu bar's: under Services, Quick
+/// Actions, Share, Open With or Recent Items (or a title above that cannot
+/// be read), while anything is denied, only an item that names an allowed
+/// installed app may run ("Services Settings…", "Make Sticky", "Customize…"
+/// can open or hand data to any app); and any run of words in its title or
+/// in the items above that names a denied or protected app blocks it.
+fn opened_rules(guard: &dyn MenuGuard, title: &str, path: Option<&[String]>) -> bool {
+    if guard.denies_any() && roles::in_opened_launch_list(path, workspace::launch_submenu_titles())
+    {
+        let name = roles::menu_app_name(title).0;
+        let ids = workspace::apps_named_indexed(name).unwrap_or_default();
+        if ids.is_empty() || ids.iter().any(|id| guard.app_blocked(id, name)) {
+            return true;
+        }
+    }
+    std::iter::once(title)
+        .chain(path.unwrap_or_default().iter().map(String::as_str))
+        .any(|t| crate::menus::title_names_blocked_app(guard, t, &workspace::apps_named_indexed))
 }
 
 /// A resolved window: the window server's entry and its app's identity.
@@ -412,8 +435,11 @@ impl Desktop for MacDesktop {
                 .is_some_and(|g| roles::menu_item_blocked(&**g, ctx, &workspace::apps_named))
         };
         let extra = self.opened_menu_for(&t.id()).into_iter().collect();
-        self.elements
-            .tree(&t.id(), window, extra, options, &blocked, &|item| self.opened_item_blocked(item))
+        let filter = ax::MenuFilter {
+            blocked: &|_: &Ax, it: &ax::OpenedItem| self.opened_item_known(it),
+            needs_siblings: &|depth| self.opened_needs_siblings(depth),
+        };
+        self.elements.tree(&t.id(), window, extra, options, &blocked, &filter)
     }
 
     fn set_menu_guard(&self, guard: Arc<dyn MenuGuard>) {

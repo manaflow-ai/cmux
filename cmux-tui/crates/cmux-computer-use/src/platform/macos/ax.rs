@@ -349,7 +349,10 @@ struct Walk {
 }
 
 impl Walk {
-    fn read(&self, ax: &Ax) -> Result<Vec<Option<Cf>>, AXError> {
+    /// One element's attributes (NODE_ATTRS order, None for a missing or
+    /// unreadable one), and which slots failed with an error other than "no
+    /// value" or "unsupported" (a value that exists but could not be read).
+    fn read_checked(&self, ax: &Ax) -> Result<(Vec<Option<Cf>>, Vec<bool>), AXError> {
         let mut out: CFTypeRef = std::ptr::null();
         // SAFETY: ax and the attribute array are live; out receives a +1 CFArray.
         let err = unsafe {
@@ -359,15 +362,27 @@ impl Walk {
             return Err(err);
         }
         let values = Cf::created(out).map(|a| a.items()).unwrap_or_default();
+        let mut failed: Vec<bool> = values.iter().map(failed_read).collect();
         let mut slots: Vec<Option<Cf>> =
             values.into_iter().map(|v| (!is_error_value(&v)).then_some(v)).collect();
         slots.resize_with(NODE_ATTRS.len(), || None);
-        Ok(slots)
+        failed.resize(NODE_ATTRS.len(), false);
+        Ok((slots, failed))
     }
 
     /// One element's own fields (no children) and its AXChildren value.
     fn describe(&self, ax: &Ax, index: usize) -> Result<(Element, Option<Cf>), AXError> {
-        let mut v = self.read(ax)?;
+        self.describe_raw(ax, index).map(|(e, c, _)| (e, c))
+    }
+
+    /// [`Walk::describe`], with the raw role and title as read (for the deny
+    /// list in menus, with no second read).
+    fn describe_raw(
+        &self,
+        ax: &Ax,
+        index: usize,
+    ) -> Result<(Element, Option<Cf>, RawNode), AXError> {
+        let (mut v, failed) = self.read_checked(ax)?;
         let text = |slot: &Option<Cf>| slot.as_ref().and_then(Cf::as_string).unwrap_or_default();
         let role = text(&v[0]);
         let subrole = v[1].as_ref().and_then(Cf::as_string);
@@ -408,7 +423,11 @@ impl Walk {
             disabled: v[8].as_ref().and_then(Cf::as_bool).is_some_and(|enabled| !enabled),
             children: Vec::new(),
         };
-        Ok((element, v[9].take()))
+        let raw = RawNode {
+            role: if failed[0] { None } else { Some(role) },
+            title: if failed[2] { None } else { Some(text(&v[2])) },
+        };
+        Ok((element, v[9].take(), raw))
     }
 
     /// The menu bar, breadth-first (every top menu's items before any
@@ -507,89 +526,158 @@ impl Walk {
         described.pop().ok_or(AX_INVALID_ELEMENT)
     }
 
-    /// One element and its subtree. A menu inside it (an open pop-up's, or
-    /// one a closed pop-up lists) is walked by [`Walk::menu_node`], so the
-    /// items `menu_blocked` hides never show, whichever way the menu is reached.
+    /// One element and its subtree, or None when it is a menu item `f` hides.
+    /// Inside a menu (an open pop-up's, one a closed pop-up lists, or one this
+    /// desktop opened) every item is held to the deny list from what this
+    /// walk already read: its own role and title, how many menus enclose it,
+    /// the titles above it, and (only when `f` needs them) its menu's titles.
     fn node(
         &mut self,
         ax: Ax,
         depth: usize,
-        menu_blocked: &dyn Fn(&Ax) -> bool,
-    ) -> Result<Element, AXError> {
+        f: &MenuFilter<'_>,
+        place: Option<&MenuPlace>,
+        siblings: &[String],
+    ) -> Result<Option<Element>, AXError> {
         let index = self.elements.len();
         self.elements.push(ax.clone());
-        let (mut element, children) = self.describe(&ax, index)?;
+        let (mut element, children, raw) = self.describe_raw(&ax, index)?;
+        let role = raw.role.as_deref();
+        // An item of a menu, or a child of a menu whose role cannot be read.
+        if let Some(place) = place
+            && place.in_menu
+            && (role == Some("AXMenuItem") || role.is_none())
+        {
+            let item = OpenedItem {
+                title: raw.title.as_deref().unwrap_or(""),
+                title_failed: raw.title.is_none(),
+                depth: place.depth,
+                path: place.path.as_deref(),
+                siblings,
+            };
+            if (f.blocked)(&ax, &item) {
+                self.elements.truncate(index);
+                return Ok(None);
+            }
+        }
         let children: Vec<Ax> = children
             .map(|c| c.items().into_iter().filter_map(Ax::from_cf).collect())
             .unwrap_or_default();
         if children.is_empty() {
-            return Ok(element);
+            return Ok(Some(element));
         }
         if depth + 1 >= self.options.max_depth {
             self.truncated = true;
-            return Ok(element);
+            return Ok(Some(element));
         }
+        // Where this node's children are: a menu (an unreadable role counts
+        // as one: its items are checked), an item's submenu, or as before.
+        let next = MenuPlace::below(place, role, raw.title.as_deref());
+        let menu_titles: Vec<String> = match &next {
+            Some(n) if n.in_menu && (f.needs_siblings)(n.depth) => {
+                children.iter().map(|c| c.string("AXTitle").unwrap_or_default()).collect()
+            }
+            _ => Vec::new(),
+        };
         for child in children {
             if self.elements.len() >= self.options.max_nodes {
                 self.truncated = true;
                 break;
             }
-            let walked = match roles::child_walk(child.attr("AXRole")) {
-                roles::ChildWalk::Menu => self.menu_node(child, depth + 1, menu_blocked),
-                roles::ChildWalk::Plain => self.node(child, depth + 1, menu_blocked),
-            };
-            match walked {
-                Ok(e) => element.children.push(e),
+            match self.node(child, depth + 1, f, next.as_ref(), &menu_titles) {
+                Ok(Some(e)) => element.children.push(e),
+                Ok(None) => {}
                 // A child that vanished mid-walk is skipped; the rest stands.
                 Err(AX_INVALID_ELEMENT) => {}
                 Err(e) => return Err(e),
             }
         }
-        Ok(element)
+        Ok(Some(element))
     }
+}
 
-    /// [`Walk::node`] for a menu this desktop opened: a menu item `blocked`
-    /// says reaches a denied app is left out, with its submenu.
-    fn menu_node(
-        &mut self,
-        ax: Ax,
-        depth: usize,
-        blocked: &dyn Fn(&Ax) -> bool,
-    ) -> Result<Element, AXError> {
-        let index = self.elements.len();
-        self.elements.push(ax.clone());
-        let (mut element, children) = self.describe(&ax, index)?;
-        let children: Vec<Ax> = children
-            .map(|c| c.items().into_iter().filter_map(Ax::from_cf).collect())
-            .unwrap_or_default();
-        if children.is_empty() {
-            return Ok(element);
-        }
-        if depth + 1 >= self.options.max_depth {
-            self.truncated = true;
-            return Ok(element);
-        }
-        for child in children {
-            if self.elements.len() >= self.options.max_nodes {
-                self.truncated = true;
-                break;
-            }
-            // A role that cannot be read is checked like an item (fails closed).
-            let item = match child.attr("AXRole") {
-                Ok(role) => role.and_then(|r| r.as_string()).as_deref() == Some("AXMenuItem"),
-                Err(_) => true,
-            };
-            if item && blocked(&child) {
-                continue;
-            }
-            match self.menu_node(child, depth + 1, blocked) {
-                Ok(e) => element.children.push(e),
-                Err(AX_INVALID_ELEMENT) => {}
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(element)
+/// An element's role and title as one read returned them: None when the
+/// value exists but could not be read.
+struct RawNode {
+    role: Option<String>,
+    title: Option<String>,
+}
+
+/// Whether an attribute value is an error other than "no value" or
+/// "unsupported" (the attribute is there, and reading it failed).
+fn failed_read(v: &Cf) -> bool {
+    if !is_error_value(v) {
+        return false;
     }
+    let mut code: AXError = 0;
+    // SAFETY: an AXValue of the error type holds an AXError.
+    let ok =
+        unsafe { AXValueGetValue(v.ptr(), AX_VALUE_ERROR, (&mut code as *mut AXError).cast()) };
+    ok == 0 || !matches!(code, AX_NO_VALUE | AX_ATTRIBUTE_UNSUPPORTED)
+}
+
+/// Where a walk is relative to menus: whether the next elements are a
+/// menu's children, how many menus enclose them, and the titles of the
+/// items above (None when one could not be read).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MenuPlace {
+    pub in_menu: bool,
+    pub depth: usize,
+    pub path: Option<Vec<String>>,
+}
+
+impl MenuPlace {
+    /// The place of the children of an element with `role` and `title`
+    /// that sits at `place`.
+    pub fn below(
+        place: Option<&MenuPlace>,
+        role: Option<&str>,
+        title: Option<&str>,
+    ) -> Option<Self> {
+        match role {
+            Some("AXMenu") | None => {
+                let mut p = place
+                    .cloned()
+                    .unwrap_or(MenuPlace { path: Some(vec![]), ..Default::default() });
+                p.in_menu = true;
+                p.depth += 1;
+                Some(p)
+            }
+            Some("AXMenuItem") => place.map(|p| MenuPlace {
+                in_menu: false,
+                depth: p.depth,
+                path: match (&p.path, title) {
+                    (Some(path), Some(t)) => {
+                        Some(path.iter().cloned().chain([t.to_string()]).collect())
+                    }
+                    _ => None,
+                },
+            }),
+            _ => place.map(|p| MenuPlace { in_menu: false, ..p.clone() }),
+        }
+    }
+}
+
+/// A menu item a walk reached, as it read it.
+pub struct OpenedItem<'a> {
+    pub title: &'a str,
+    /// The title could not be read.
+    pub title_failed: bool,
+    /// How many menus enclose it.
+    pub depth: usize,
+    /// The titles of the items above it, outermost first (None: one could
+    /// not be read).
+    pub path: Option<&'a [String]>,
+    /// Its menu's item titles, when [`MenuFilter::needs_siblings`] asked.
+    pub siblings: &'a [String],
+}
+
+/// How a walk holds menu items to the deny list.
+pub struct MenuFilter<'a> {
+    pub blocked: &'a dyn Fn(&Ax, &OpenedItem) -> bool,
+    /// Whether items at this menu depth need their menu's titles (read once
+    /// per menu, only then).
+    pub needs_siblings: &'a dyn Fn(usize) -> bool,
 }
 
 /// The menu bar's own node budget in a tree, and its depth: bar, top menu,
@@ -667,7 +755,7 @@ impl ElementCache {
     /// the person's screen. `blocked` hides items that would reach a denied app.
     /// `extra` elements outside the window that belong to it (a menu this
     /// desktop opened for it) are walked as more children of the root, once;
-    /// their menu items `extra_blocked` says reach a denied app are left out.
+    /// their menu items `menu_filter` says reach a denied app are left out.
     pub fn tree(
         &self,
         window_id: &str,
@@ -675,7 +763,7 @@ impl ElementCache {
         extra: Vec<Ax>,
         options: TreeOptions,
         blocked: &dyn Fn(&roles::MenuItemContext) -> bool,
-        extra_blocked: &dyn Fn(&Ax) -> bool,
+        menu_filter: &MenuFilter<'_>,
     ) -> DResult<UiTree> {
         let names: Vec<Cf> = NODE_ATTRS.iter().filter_map(|n| Cf::string(n)).collect();
         let ptrs: Vec<CFTypeRef> = names.iter().map(Cf::ptr).collect();
@@ -703,8 +791,9 @@ impl ElementCache {
             truncated: false,
         };
         let mut root = walk
-            .node(window, 0, extra_blocked)
-            .map_err(|e| ax_error(e, &format!("window {window_id}")))?;
+            .node(window, 0, menu_filter, None, &[])
+            .map_err(|e| ax_error(e, &format!("window {window_id}")))?
+            .ok_or_else(|| DesktopError::Failed(format!("window {window_id} could not be read")))?;
         for more in extra {
             if walk.elements.iter().any(|seen| seen.same(&more)) {
                 continue;
@@ -713,7 +802,7 @@ impl ElementCache {
                 walk.truncated = true;
                 break;
             }
-            if let Ok(node) = walk.menu_node(more, 1, extra_blocked) {
+            if let Ok(Some(node)) = walk.node(more, 1, menu_filter, None, &[]) {
                 root.children.push(node);
             }
         }

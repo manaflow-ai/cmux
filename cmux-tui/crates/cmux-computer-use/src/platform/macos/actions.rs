@@ -302,8 +302,12 @@ fn click_point(
     let at = d.point_in(t, point)?;
     // A click on a menu left open presses the item under it in either
     // delivery: a hidden item there is refused.
-    if spec.delivery != Delivery::Background && d.menu_open_in(t.window.pid) {
-        d.refuse_denied_at(t, at)?;
+    if spec.delivery != Delivery::Background {
+        if d.menu_open_in(t.window.pid) {
+            d.refuse_denied_at(t, at)?;
+        } else {
+            d.close_other_menus(t);
+        }
     }
     if spec.delivery == Delivery::Background
         && let Some(el) = d.menu_at(t, at)?
@@ -346,6 +350,9 @@ pub(super) fn click(
         if d.menu_gate(&el)?.is_some() {
             return d.open_menu_of(&t, &el, element_id);
         }
+    } else {
+        d.refuse_denied_item(&el)?;
+        d.close_other_menus(&t);
     }
     d.check_menu_item(&t, &el)?;
     let semantic =
@@ -503,8 +510,10 @@ pub(super) fn press_keys(
     if d.menu_open_in(t.window.pid) {
         match roles::key_with_open_menu(combo) {
             roles::OpenMenuKey::Close => {
-                d.close_opened();
-                return Ok(ActionOutcome::confirmed("ax_cancel_menu"));
+                if d.close_opened() {
+                    return Ok(ActionOutcome::confirmed("ax_cancel_menu"));
+                }
+                return Err(DesktopError::Failed(menus::MENU_DID_NOT_CLOSE.into()));
             }
             roles::OpenMenuKey::Post => {}
             roles::OpenMenuKey::Refuse => {
@@ -587,8 +596,10 @@ pub(super) fn press_keys(
         }
     }
     // Space, Return and the arrows open a focused pop-up's menu.
+    // (Not while that menu is open: its arrows only move the highlight.)
     if delivery == Delivery::Background
         && roles::key_opens_menu(&combo.key)
+        && !d.menu_open_in(t.window.pid)
         && let Some(focused) = d.focused_in(&t)
     {
         d.refuse_menu_keys(&focused)?;
@@ -636,6 +647,9 @@ pub(super) fn drag(
     }
     let from = d.point_in(&t, from)?;
     let to = d.point_in(&t, to)?;
+    if delivery != Delivery::Background {
+        d.close_other_menus(&t);
+    }
     let route = d.pointer_route(&t, delivery)?;
     input::drag(route, from, to, button)?;
     Ok(ActionOutcome::delivered(route.name()).at(to))

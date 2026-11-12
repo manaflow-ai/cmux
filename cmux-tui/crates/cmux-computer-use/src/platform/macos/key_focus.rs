@@ -156,6 +156,8 @@ struct State {
     armed_until: Option<Instant>,
     /// The app whose menu the armed call opens.
     target: i32,
+    /// The menu windows (layer 101) on screen when the call armed.
+    menus_before: Vec<u32>,
     lookup_until: Option<Instant>,
     released: u64,
     missed: u64,
@@ -199,9 +201,27 @@ pub(super) fn classify(
     }
 }
 
-/// Whether `pid` may own the menu of a call on `target` (see [`classify`]).
-fn may_own_menu(pid: i32, target: i32) -> bool {
-    pid == target || super::workspace::app_for_pid(pid).is_none_or(|a| !a.is_regular())
+/// The window layer of pop-up and context menus (`NSPopUpMenuWindowLevel`).
+const MENU_LAYER: i64 = 101;
+
+/// Whether `pid` may own the menu of a call on `target` (see [`classify`]):
+/// the target itself, or a helper process (not a regular app: a System
+/// Settings pane's extension) that shows a menu window it did not show
+/// when the call armed. A launcher panel (Spotlight, Alfred, Raycast: also
+/// not regular apps) shows no new menu-layer window, so the person's
+/// notice passes and their keyboard stays where they put it.
+fn may_own_menu(pid: i32, target: i32, before: &[u32]) -> bool {
+    pid == target
+        || (super::workspace::app_for_pid(pid).is_none_or(|a| !a.is_regular())
+            && super::cgwindows::on_screen()
+                .iter()
+                .any(|w| new_menu_window(w.pid, w.layer, w.id, pid, before)))
+}
+
+/// Whether a window (owner, layer, id) is a menu window `pid` shows that
+/// was not there when the call armed. Pure, for tests.
+pub(super) fn new_menu_window(owner: i32, layer: i64, id: u32, pid: i32, before: &[u32]) -> bool {
+    owner == pid && layer == MENU_LAYER && !before.contains(&id)
 }
 
 /// Whether the menu's tap drops one event: this process's own theft notice
@@ -238,11 +258,12 @@ extern "C" fn front_tap(
     event: *mut c_void,
     _info: *mut c_void,
 ) -> *mut c_void {
-    let (front, armed, port, target) = {
+    let (front, armed, port, target, before) = {
         let st = state();
         let armed = st.armed_until.is_some_and(|t| Instant::now() < t);
         let front = st.front.as_ref();
-        (front.map_or(0, |f| f.0), armed, front.map(|f| f.1.port), st.target)
+        let before = if armed { st.menus_before.clone() } else { Vec::new() };
+        (front.map_or(0, |f| f.0), armed, front.map(|f| f.1.port), st.target, before)
     };
     if reenable(event_type, port) || event.is_null() {
         return event;
@@ -254,7 +275,7 @@ extern "C" fn front_tap(
             CGEventGetIntegerValueField(event, FIELD_THIEF_PID),
         )
     };
-    let owner = |pid| may_own_menu(pid, target);
+    let owner = |pid| may_own_menu(pid, target, &before);
     match classify(event_type, subtype, thief, front, std::process::id() as i32, armed, owner) {
         Notice::Pass => event,
         Notice::ReleaseAndDrop(thief) => {
@@ -307,7 +328,7 @@ extern "C" fn menu_tap(
 fn release_theft(thief: i32, front: i32) {
     let start = Instant::now();
     let menu_shows =
-        || super::cgwindows::on_screen().iter().any(|w| w.pid == thief && w.layer >= 101);
+        || super::cgwindows::on_screen().iter().any(|w| w.pid == thief && w.layer == MENU_LAYER);
     while start.elapsed() < MENU_WAIT && !menu_shows() {
         std::thread::sleep(Duration::from_millis(2));
     }
@@ -431,9 +452,15 @@ pub(super) fn arm(front_pid: i32, target_pid: i32) -> bool {
             stop_tap(old);
         }
     }
+    let before: Vec<u32> = super::cgwindows::on_screen()
+        .into_iter()
+        .filter(|w| w.layer == MENU_LAYER)
+        .map(|w| w.id)
+        .collect();
     let mut st = state();
     st.armed_until = Some(Instant::now() + ARMED_FOR);
     st.target = target_pid;
+    st.menus_before = before;
     true
 }
 

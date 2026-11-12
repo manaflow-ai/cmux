@@ -321,9 +321,6 @@ pub fn launch_submenu_titles() -> &'static [String] {
         for (table, key) in ENTRIES {
             let path = format!("{RESOURCES}/{table}.loctable");
             let Some(plist) = std::fs::read(&path).ok().and_then(|b| Cf::property_list(&b)) else {
-                // No table (an older layout): the key, which is AppKit's
-                // English title for all but Quick Actions.
-                add((*key).to_string());
                 continue;
             };
             for language in plist.dict_values() {
@@ -331,6 +328,11 @@ pub fn launch_submenu_titles() -> &'static [String] {
                     add(title);
                 }
             }
+        }
+        // English too, always: an app that ships no other language shows
+        // these, and an older AppKit may keep no tables.
+        for english in ["Services", "Open With", "Share", "Recent Items", "Quick Actions"] {
+            add(english.to_string());
         }
         out
     })

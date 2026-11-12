@@ -29,7 +29,7 @@ use std::time::{Duration, Instant};
 
 use super::ax::{Ax, ax_error};
 use super::input::{self, Route};
-use super::sys::AX_CANNOT_COMPLETE;
+use super::sys::{AX_CANNOT_COMPLETE, AXError};
 use super::{MacDesktop, Target, cgwindows, key_focus, roles, workspace};
 use crate::desktop::*;
 use crate::menus::{self, MenuItemInfo, MenuReport};
@@ -98,7 +98,10 @@ pub(super) struct Opened {
     /// Its app: keys posted to this process reach the menu while it shows,
     /// whichever of the app's windows they are aimed at.
     pub pid: i32,
-    pub menu: Ax,
+    /// Its element: None for a menu that showed but could not be read (it
+    /// is still recorded, so keys, typing and drags into it are refused and
+    /// the next call closes it).
+    pub menu: Option<Ax>,
     pub windows: Vec<u32>,
     /// Where an Escape goes if `AXCancel` does not close it.
     pub escape_to: Route,
@@ -134,6 +137,12 @@ fn escape_while_showing(escape_to: Route, windows: &[u32]) {
     }
     let _ = input::key(escape_to, ESCAPE, 0, None);
     wait_for(CANCEL_WAIT, || !showing(windows));
+}
+
+/// Whether a menu window of `owner` may be the one a call on `target`
+/// opened: the target's own, or a helper process's (not a regular app).
+fn may_be_targets_menu(owner: i32, target: i32) -> bool {
+    owner == target || workspace::app_for_pid(owner).is_none_or(|a| !a.is_regular())
 }
 
 /// Whether any of `windows` still shows.
@@ -200,30 +209,54 @@ pub(super) struct Item {
     pub denied: bool,
 }
 
+/// A text attribute as read: Err when it exists but could not be read.
+type ReadText = Result<Option<String>, AXError>;
+
 /// The titled items of `menu` (separators left out), each held to the deny
-/// list through the desktop's menu guard.
+/// list through the desktop's menu guard. The menu's place (its depth and
+/// the items above it) is read once, and each item's role and title once:
+/// a font pop-up's thousands of items cost one pass.
 pub(super) fn items(d: &MacDesktop, menu: &Ax) -> Vec<Item> {
-    menu.elements("AXChildren")
+    let text = |n: &Ax, a: &str| n.attr(a).map(|v| v.and_then(|v| v.as_string()));
+    let read: Vec<(Ax, ReadText, ReadText)> = menu
+        .elements("AXChildren")
         .into_iter()
-        .filter(|i| i.string("AXRole").as_deref() == Some("AXMenuItem"))
-        .filter_map(|el| {
-            let title = match el.attr("AXTitle") {
-                Ok(v) => v.and_then(|v| v.as_string()).unwrap_or_default(),
-                // An item whose title cannot be read is listed as blocked
-                // while something is denied, so it is never pressed.
-                Err(_) => {
-                    let denied = d.denies_any();
-                    return denied.then(|| Item {
-                        el,
-                        info: MenuItemInfo::default(),
-                        denied: true,
-                    });
-                }
+        .map(|el| {
+            let role = text(&el, "AXRole");
+            let title = text(&el, "AXTitle");
+            (el, role, title)
+        })
+        .filter(|(_, role, _)| match role {
+            Ok(r) => r.as_deref() == Some("AXMenuItem"),
+            // A role that cannot be read is checked like an item.
+            Err(_) => true,
+        })
+        .collect();
+    let (depth, path) = menu_place(menu);
+    let siblings: Vec<String> = if d.opened_needs_siblings(depth) {
+        read.iter().map(|(_, _, t)| t.clone().ok().flatten().unwrap_or_default()).collect()
+    } else {
+        Vec::new()
+    };
+    read.into_iter()
+        .filter_map(|(el, _, title)| {
+            let (title, title_failed) = match title {
+                Ok(t) => (t.unwrap_or_default(), false),
+                Err(_) => (String::new(), true),
             };
-            if title.trim().is_empty() {
+            let it = super::ax::OpenedItem {
+                title: &title,
+                title_failed,
+                depth,
+                path: path.as_deref(),
+                siblings: &siblings,
+            };
+            let denied = d.opened_item_known(&it);
+            // An untitled item is a separator, unless its title could not be
+            // read: then it is listed only to be counted as hidden.
+            if title.trim().is_empty() && !(title_failed && denied) {
                 return None;
             }
-            let denied = d.opened_item_blocked_titled(&el, &title);
             let info = MenuItemInfo {
                 disabled: el.bool("AXEnabled") == Some(false),
                 checked: el.string("AXMenuItemMarkChar").is_some_and(|m| !m.trim().is_empty()),
@@ -233,6 +266,41 @@ pub(super) fn items(d: &MacDesktop, menu: &Ax) -> Vec<Item> {
             Some(Item { el, info, denied })
         })
         .collect()
+}
+
+/// How many menus enclose `menu`'s items (it and the menus above it), and
+/// the titles of the items above it (None when one cannot be read).
+fn menu_place(menu: &Ax) -> (usize, Option<Vec<String>>) {
+    let text = |n: &Ax, a: &str| n.attr(a).map(|v| v.and_then(|v| v.as_string()));
+    let mut depth = 1;
+    let mut path = Some(Vec::new());
+    let mut current = menu.attr("AXParent").ok().flatten().and_then(Ax::from_cf);
+    for _ in 0..16 {
+        let Some(node) = current else { break };
+        match text(&node, "AXRole") {
+            Ok(r) => match r.as_deref() {
+                Some("AXMenu") => depth += 1,
+                Some("AXMenuItem") | Some("AXMenuBarItem") => match text(&node, "AXTitle") {
+                    Ok(t) => {
+                        if let Some(p) = path.as_mut() {
+                            p.push(t.unwrap_or_default());
+                        }
+                    }
+                    Err(_) => path = None,
+                },
+                _ => break,
+            },
+            Err(_) => {
+                path = None;
+                break;
+            }
+        }
+        current = node.attr("AXParent").ok().flatten().and_then(Ax::from_cf);
+    }
+    if let Some(p) = path.as_mut() {
+        p.reverse();
+    }
+    (depth, path)
 }
 
 /// The titles of the menu items and menu bar items above `el` (outermost
@@ -290,7 +358,7 @@ impl MacDesktop {
             *opened = None;
             return None;
         }
-        Some(o.menu.clone())
+        o.menu.clone()
     }
 
     /// Whether a menu this desktop left open for an app of `pid` still shows.
@@ -322,10 +390,16 @@ impl MacDesktop {
                 failed = Some(e);
                 return true;
             }
-            let new: Vec<cgwindows::CgWindow> =
-                menu_windows().into_iter().filter(|w| !before.contains(&w.id)).collect();
+            // Only the target's menus, or a helper process's (a System
+            // Settings pane draws its menus in an extension): a menu the
+            // person opens in their own app meanwhile is never taken as
+            // this call's.
+            let new: Vec<cgwindows::CgWindow> = menu_windows()
+                .into_iter()
+                .filter(|w| !before.contains(&w.id) && may_be_targets_menu(w.pid, t.window.pid))
+                .collect();
             if !new.is_empty() {
-                unread = new.iter().filter(|w| w.pid == t.window.pid).map(|w| w.id).collect();
+                unread = new.iter().map(|w| w.id).collect();
                 let menu = find().or_else(|| new.iter().find_map(menu_in_window));
                 found = menu.map(|m| (m, new.iter().map(|w| w.id).collect()));
             }
@@ -340,7 +414,21 @@ impl MacDesktop {
         // A menu window of the app showed, but no menu element in time: it
         // is closed, never left open unrecorded (it could hold the keyboard).
         if !unread.is_empty() {
-            escape_while_showing(Route::Pid { pid: t.window.pid, window: t.window.id }, &unread);
+            let escape_to = Route::Pid { pid: t.window.pid, window: t.window.id };
+            escape_while_showing(escape_to, &unread);
+            // Some menus ignore a posted Escape (Finder's context menu): one
+            // still on screen is recorded, so keys, typing and drags into
+            // it stay refused and the next call closes it.
+            if showing(&unread) {
+                *self.opened.lock().unwrap_or_else(|e| e.into_inner()) = Some(Opened {
+                    window_id: t.id(),
+                    pid: t.window.pid,
+                    menu: None,
+                    windows: unread,
+                    escape_to,
+                });
+                return Err(DesktopError::Failed(menus::MENU_UNREAD_OPEN.into()));
+            }
             return Err(DesktopError::Failed(menus::MENU_UNREAD.into()));
         }
         Err(DesktopError::Failed(MENU_DID_NOT_OPEN.into()))
@@ -386,15 +474,38 @@ impl MacDesktop {
     /// Closes the menu a call left open, in any window, while it shows: a
     /// new menu never opens over it, and Escape for its window closes it
     /// (an Escape posted to the app does not reach every menu: Finder's
-    /// context menu stays open). True when there was one to close.
+    /// context menu stays open). True when one was open and is closed now;
+    /// one that is still on screen stays recorded (keys, typing and drags
+    /// into it stay refused).
     pub(super) fn close_opened(&self) -> bool {
         let opened = self.opened.lock().unwrap_or_else(|e| e.into_inner()).take();
         match opened {
             Some(o) if showing(&o.windows) => {
-                cancel(&o.menu, &o.windows, o.escape_to);
+                match &o.menu {
+                    Some(menu) => cancel(menu, &o.windows, o.escape_to),
+                    None => escape_while_showing(o.escape_to, &o.windows),
+                }
+                if showing(&o.windows) {
+                    let mut slot = self.opened.lock().unwrap_or_else(|e| e.into_inner());
+                    if slot.is_none() {
+                        *slot = Some(o);
+                    }
+                    return false;
+                }
                 true
             }
             _ => false,
+        }
+    }
+
+    /// Before a foreground pointer action on `t`: a menu left open in
+    /// another app (or another window) is closed, so the click or drag
+    /// cannot land on one of its items, a hidden one too. A menu of `t`'s
+    /// own app stays (its visible items may be clicked; hidden ones are
+    /// refused by the caller's hit test).
+    pub(super) fn close_other_menus(&self, t: &Target) {
+        if !self.menu_open_in(t.window.pid) {
+            self.close_opened();
         }
     }
 
@@ -404,7 +515,7 @@ impl MacDesktop {
         *self.opened.lock().unwrap_or_else(|e| e.into_inner()) = Some(Opened {
             window_id: t.id(),
             pid: t.window.pid,
-            menu,
+            menu: Some(menu),
             windows,
             escape_to: Route::Pid { pid: t.window.pid, window: t.window.id },
         });

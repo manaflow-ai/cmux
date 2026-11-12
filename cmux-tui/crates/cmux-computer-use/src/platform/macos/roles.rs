@@ -358,29 +358,6 @@ pub fn key_with_open_menu(combo: &crate::keys::KeyCombo) -> OpenMenuKey {
     }
 }
 
-/// How a tree walk takes a child element.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ChildWalk {
-    /// A menu: its items are held to the deny list (hidden when blocked).
-    Menu,
-    Plain,
-}
-
-/// A child whose role is `AXMenu`, or whose role cannot be read, is walked
-/// as a menu (fail closed: its items are checked).
-pub fn child_walk<E>(role: Result<Option<super::sys::Cf>, E>) -> ChildWalk {
-    match role {
-        Ok(r) => {
-            if r.and_then(|r| r.as_string()).as_deref() == Some("AXMenu") {
-                ChildWalk::Menu
-            } else {
-                ChildWalk::Plain
-            }
-        }
-        Err(_) => ChildWalk::Menu,
-    }
-}
-
 /// A submenu title as [`super::workspace::launch_submenu_titles`] keeps it:
 /// trimmed, lower case, no trailing ellipsis, no-break spaces as spaces.
 pub fn submenu_title_key(title: &str) -> String {
