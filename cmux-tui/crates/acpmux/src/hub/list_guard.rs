@@ -1708,7 +1708,7 @@ mod tests {
             snapshot.page(None, &json!({"cursor": format!("s:page-{page}")}), 1024).unwrap();
         }
         let builds = guard.builds_for_tests() - before;
-        assert!(builds <= PAGES / 3 + 3, "{builds} builds for {PAGES} follow-up pages");
+        assert!(builds <= (PAGES / 3 + 3) as u64, "{builds} builds for {PAGES} follow-up pages");
     }
 }
 
