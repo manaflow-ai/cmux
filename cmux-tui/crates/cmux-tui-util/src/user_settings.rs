@@ -236,9 +236,10 @@ pub fn ultra_mode() -> bool {
 /// their tools; this is about the person's agents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AgentsCmuxMcp {
-    /// Not answered yet (no value, `"ask"`, or anything else): cmux does what
-    /// it did before the question existed. The shims pass the server, and
-    /// `cmux setup mcp` writes only once `mcp.enabled` is on.
+    /// Not answered yet (no value, `"ask"`, or anything else): cmux gives the
+    /// person's agents nothing until they answer. The shims pass no server and
+    /// `cmux setup mcp` writes only once `mcp.enabled` is on. The app asks at
+    /// launch (the cmux Tools step), so this lasts until the person answers.
     #[default]
     Ask,
     /// The person said yes: the shims pass the server, `cmux setup mcp`
@@ -257,7 +258,7 @@ impl AgentsCmuxMcp {
     /// The value in the settings text, flat (`"agents.cmuxMcp"`) or nested
     /// (`{"agents": {"cmuxMcp": …}}`), as the app's settings owner writes
     /// either. A file that does not parse is `Ask`: the person's answer is
-    /// unknown, so cmux keeps its old behavior.
+    /// unknown, so nothing is added.
     pub fn from_config_text(text: &str) -> Self {
         let Ok(document) = serde_json::from_str::<Value>(&strip_jsonc(text)) else {
             return Self::Ask;
@@ -282,9 +283,10 @@ impl AgentsCmuxMcp {
     }
 
     /// Whether the shims pass the cmux server to an agent launched in a cmux
-    /// terminal: yes unless the person said no.
+    /// terminal: only once the person said yes (Aziz, 2026-11-11: cmux's MCP
+    /// is not given to the person's coding agents until they approve it).
     pub fn injects(self) -> bool {
-        self != Self::Off
+        self == Self::On
     }
 
     /// The settings value (`ask`, `on`, `off`).
@@ -414,7 +416,7 @@ mod tests {
             Choice::Off
         );
         assert_eq!(Choice::from_config_text(r#"{"agents": {"cmuxMcp": true}}"#), Choice::Ask);
-        assert_eq!(Choice::from_config_text("{not json"), Choice::Ask, "unknown keeps the old way");
+        assert_eq!(Choice::from_config_text("{not json"), Choice::Ask, "unknown is no answer yet");
         assert!(!Choice::Ask.injects() && Choice::On.injects() && !Choice::Off.injects(), "nothing until the person says yes");
         assert_eq!(
             Choice::from_config_file(std::path::Path::new("/nonexistent/cmux-next.json")),
