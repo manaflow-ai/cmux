@@ -190,7 +190,7 @@ fn appearance_theme_resolves_both_appearances() {
     // A theme edit of the app (`appearance.themeEdits`) is applied.
     rig.set(
         "appearance.themeEdits",
-        json!({"TestDark": {"background": "#202020", "accent": "#00ff00"}}),
+        json!({"TestDark/background": "#202020", "TestDark/accent": "#00ff00"}),
     );
     let input = rig.snapshot()["theme"]["dark"]["input"].clone();
     assert_eq!(input["background"], "#202020");

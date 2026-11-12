@@ -309,15 +309,25 @@ pub(crate) fn theme_input_json(input: &ThemeInput) -> Value {
     Value::Object(object)
 }
 
-/// The app's per-theme edits (`appearance.themeEdits`, Swift `ThemeEdits`)
-/// and highlight (`appearance.highlightColor`) over a loaded theme.
-fn apply_edits(input: &mut ThemeInput, edits: Option<&Value>, highlight: Option<&str>) {
+/// The app's edits of theme `name` (`appearance.themeEdits`, keyed
+/// `"<theme>/<token>"` as Swift `ThemeEditsSetting` reads them) and its
+/// highlight (`appearance.highlightColor`) over a loaded theme.
+fn apply_edits(
+    input: &mut ThemeInput,
+    name: Option<&str>,
+    edits: Option<&Value>,
+    highlight: Option<&str>,
+) {
     let color = |text: &str| {
         (text.len() == 7 && text.starts_with('#')).then(|| parse_color(text)).flatten()
     };
-    for (token, value) in edits.and_then(Value::as_object).into_iter().flatten() {
+    for (key, value) in edits.and_then(Value::as_object).into_iter().flatten() {
+        let Some((theme, token)) = key.rsplit_once('/') else { continue };
+        if Some(theme) != name {
+            continue;
+        }
         let Some(rgb) = value.as_str().and_then(color) else { continue };
-        match token.as_str() {
+        match token {
             "background" => input.background = rgb,
             "foreground" => input.foreground = rgb,
             "cursor" => input.cursor = Some(rgb),
@@ -354,8 +364,12 @@ fn resolve_theme(base: Env, inputs: &SettingsInputs) -> ThemeSnapshot {
     let follows_system = dark.theme != light.theme || dark.theme_file != light.theme_file;
     let side = |loaded: &Loaded| {
         let mut input = loaded.input;
-        let edits = loaded.theme.as_deref().and_then(|name| inputs.edits.as_ref()?.get(name));
-        apply_edits(&mut input, edits, inputs.highlight.as_deref());
+        apply_edits(
+            &mut input,
+            loaded.theme.as_deref(),
+            inputs.edits.as_ref(),
+            inputs.highlight.as_deref(),
+        );
         json!({"name": loaded.theme, "input": theme_input_json(&input)})
     };
     let json = json!({
@@ -559,13 +573,22 @@ mod tests {
         assert!(value.get("cursor").is_none());
         assert!(value.get("accent_color").is_none());
         assert!(value.get("accent").is_none());
-        let edits = json!({"cursor": "#ff0000", "3": "#00ff00", "accent": "#0000ff", "bogus": "x"});
-        apply_edits(&mut input, Some(&edits), Some("#123456"));
+        let edits = json!({
+            "Nord/cursor": "#ff0000",
+            "Nord/3": "#00ff00",
+            "Nord/accent": "#0000ff",
+            "Nord/bogus": "#ffffff",
+            "Nord/background": "nope",
+            "Other/foreground": "#ffffff",
+        });
+        apply_edits(&mut input, Some("Nord"), Some(&edits), Some("#123456"));
         let value = theme_input_json(&input);
         assert_eq!(value["cursor"], "#FF0000");
         assert_eq!(value["palette"][3], "#00FF00");
         assert_eq!(value["accent_color"], "#0000FF");
         assert_eq!(value["selection_background"], "#123456");
+        assert_eq!(value["background"], "#282C34");
+        assert_eq!(value["foreground"], "#FFFFFF");
     }
 
     #[test]

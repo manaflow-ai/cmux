@@ -1618,8 +1618,9 @@ itself (`cmux-theme-tokens` over the FFI), so nothing here is needed to draw.
   selection_foreground?, cursor?, background_opacity, background_blur,
   accent_color?}` (colours uppercase `#RRGGBB`, optional ones omitted when
   unset; `accent` is not in it, it is `appearance.accent` below). The app's
-  per-theme edits (`appearance.themeEdits` for that theme's `name`:
-  background, foreground, cursor, selection, `0`...`15`, accent) and its
+  per-theme edits (the `appearance.themeEdits` entries `"<name>/<token>"`
+  of that theme: background, foreground, cursor, selection, `0`...`15`,
+  accent) and its
   `appearance.highlightColor` (the selection) are applied to it, as the Mac's
   terminal draws them; `name` is `null` without a theme. An unset setting is
   `null` and the phone uses its default; values are the settings file's own,
