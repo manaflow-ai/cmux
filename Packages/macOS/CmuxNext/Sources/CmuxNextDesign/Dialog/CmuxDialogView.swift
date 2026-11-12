@@ -216,6 +216,11 @@ public final class CmuxDialogView: NSView, CmuxDialogRendering {
             for view in fieldViews(field, width: contentWidth) { body.addArrangedSubview(view) }
         }
         chainKeyViews()
+        // A horizontal stack aligned to the top keeps its top inset but not its bottom one: hold each arranged
+        // view above it, or the buttons sit on the card's bottom edge.
+        for view in outer.arrangedSubviews {
+            view.bottomAnchor.constraint(lessThanOrEqualTo: outer.bottomAnchor, constant: -padding).isActive = true
+        }
 
         let content = NSView()
         content.addSubview(outer)
