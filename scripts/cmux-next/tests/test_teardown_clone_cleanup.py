@@ -13,7 +13,7 @@ REPO = os.path.abspath(os.path.join(HERE, "..", "..", ".."))
 
 
 def load(name, path):
-    # Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+    # Imported by name, never loaded by path: one module object per file (the script module load check).
     assert os.path.splitext(os.path.basename(path))[0] == name, (name, path)
     folder = os.path.dirname(path)
     if folder not in sys.path:

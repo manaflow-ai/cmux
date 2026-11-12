@@ -34,8 +34,9 @@ ROOT = Path(__file__).resolve().parents[1]
 LOADERS = {"spec_from_file_location", "SourceFileLoader", "load_source", "run_path", "run_module"}
 IDENTIFIER = re.compile(r"[A-Za-z_]\w*")
 
-# Loaded by path in every test file on purpose and never registered: `python3 -I` puts no folder on sys.path.
-PRIVATE_COPIES = {"git_fixture_env"}
+# Test helpers loaded by path in each test file on purpose and never registered: `python3 -I` puts no folder on
+# sys.path (tests/git_fixture_env.py, tests/process_gone.py, tests/guard_child_env.py).
+PRIVATE_COPIES = {"git_fixture_env", "process_gone", "guard_child_env"}
 
 # Path loads this check found when it was widened to scripts' imports and to files more than one test loads, left
 # to convert (the nine that made a second object at runtime are converted). Shrink-only: an entry that is no longer
