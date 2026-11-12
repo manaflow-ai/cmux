@@ -107,17 +107,26 @@ struct DemoDriver {
             await pause(1.0)
             if let ws = shell.store.workspace(id: "ws-cmux") { shell.workspacesPath = [ws] }
         case "ws-terminal-composer":
-            // The zsh tab with a three-line draft and three attachments, for
-            // gallery captures of the composer's layouts
-            // (`CmuxMobileTerminalComposerLayout`).
+            // The zsh tab with a draft in the composer, for gallery captures
+            // of its states: CMUX_MOBILE_DEMO_COMPOSER=short (one line),
+            // long (nine lines: the field at its maximum, scrolled to the
+            // caret), or attachments (three lines with two photos and a
+            // file in the tray, the default).
             shell.store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
             shell.tab = .workspaces
             await pause(0.6)
             guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
             shell.workspacesPath = [ws]
-            await pause(1.2)
+            await pause(1.0)
             guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
-            model.demoFillComposer("Can you check why the build fails on the\nsecond step? The log is attached, and the\nscreenshots show the error dialog.")
+            switch ProcessInfo.processInfo.environment["CMUX_MOBILE_DEMO_COMPOSER"] {
+            case "short":
+                model.demoFillComposer("Run the tests again please", attachments: false)
+            case "long":
+                model.demoFillComposer((1...9).map { "Line \($0) of a longer message for the agent" }.joined(separator: "\n"), attachments: false)
+            default:
+                model.demoFillComposer("Can you check why the build fails on the\nsecond step? The log is attached, and the\nscreenshots show the error dialog.", attachments: true)
+            }
         case "ws-terminal-kbd-toggles": await workspaceTerminalKeyboardToggles()
         case "ws-terminal-armed":
             // The zsh tab with a draft in the composer and Control armed: the

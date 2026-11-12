@@ -552,10 +552,11 @@ public final class TerminalModel {
     // MARK: Key bar
 
     #if DEBUG
-    /// Demo drivers (`ws-terminal-composer`): a draft with two photos and a
-    /// file attached, for gallery captures of the composer's layouts.
-    public func demoFillComposer(_ text: String) {
+    /// Demo drivers (`ws-terminal-composer`): a draft, with two photos and a
+    /// file attached when asked, for gallery captures of the composer.
+    public func demoFillComposer(_ text: String, attachments withAttachments: Bool) {
         composerText = text
+        guard withAttachments else { return }
         let colors: [UIColor] = [.systemOrange, .systemTeal]
         for (index, color) in colors.enumerated() {
             let image = UIGraphicsImageRenderer(size: CGSize(width: 168, height: 168)).image { context in
