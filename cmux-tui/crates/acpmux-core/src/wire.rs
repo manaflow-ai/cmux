@@ -5,7 +5,7 @@
 //! list or chat payload: later stream implementations fill one frame at a
 //! time.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::fmt;
 
 /// The inclusive encoded-frame limit from the v2 protocol.
@@ -65,13 +65,47 @@ pub enum AnchorSide {
 
 /// A row anchor. `End` opens at the newest rows; an id anchor restores a
 /// person's previous viewport.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "kind")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Anchor {
-    #[serde(rename = "end")]
     End,
-    #[serde(rename = "row")]
     Row { row_id: u64, side: AnchorSide },
+}
+
+impl Serialize for Anchor {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::End => serializer.serialize_str("end"),
+            Self::Row { row_id, side } => {
+                #[derive(Serialize)]
+                #[serde(rename_all = "camelCase")]
+                struct RowAnchor {
+                    row_id: u64,
+                    side: AnchorSide,
+                }
+                RowAnchor { row_id: *row_id, side: *side }.serialize(serializer)
+            }
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for Anchor {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct RowAnchor {
+            row_id: u64,
+            side: AnchorSide,
+        }
+
+        let value = serde_json::Value::deserialize(deserializer)?;
+        match value {
+            serde_json::Value::String(value) if value == "end" => Ok(Self::End),
+            serde_json::Value::Object(_) => RowAnchor::deserialize(value)
+                .map(|row| Self::Row { row_id: row.row_id, side: row.side })
+                .map_err(D::Error::custom),
+            other => Err(D::Error::custom(format!("invalid anchor {other}"))),
+        }
+    }
 }
 
 /// The shared subscription request. A subscription may resume from a cursor or
@@ -357,6 +391,17 @@ mod tests {
         let sub = Sub::new("s1", "list").from_cursor(42);
         let text = serde_json::to_string(&sub).unwrap();
         assert_eq!(text, r#"{"sid":"s1","stream":"list","cursor":42,"window":100}"#);
+        let anchored = Sub::new("s1", "list").around(Anchor::End, 100);
+        assert_eq!(
+            serde_json::to_value(anchored).unwrap().get("anchor"),
+            Some(&serde_json::json!("end"))
+        );
+        let anchored = Sub::new("s1", "list")
+            .around(Anchor::Row { row_id: 11, side: AnchorSide::Around }, 100);
+        assert_eq!(
+            serde_json::to_value(anchored).unwrap().get("anchor"),
+            Some(&serde_json::json!({"rowId": 11, "side": "around"}))
+        );
         let page = Page::new("s1", "list", PageSide::After, 11);
         assert_eq!(serde_json::to_value(&page).unwrap().get("after"), Some(&serde_json::json!(11)));
         assert_eq!(
