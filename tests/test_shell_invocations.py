@@ -121,6 +121,38 @@ FIXTURES = [
     ("a substitution in an arithmetic expansion", "echo $(( $(a) + 1 )) >/dev/null", {"a"}, set()),
     ("a substitution in a heredoc body's arithmetic expansion", "cat <<EOF >/dev/null\n$(( $(a) + 1 ))\nEOF",
      {"a"}, set()),
+    # The parser reads what bash reads (#41768 review: a `case` pattern credited as a command, `X+=x cmd` unseen). Each
+    # row is a place the two disagreed: a word bash takes as an assignment, a pattern, an arithmetic or conditional
+    # expression, or an expansion of the program word.
+    ("an append assignment before a command (#41768 F2)", "X+=x gh release create v1", {"gh"}, None),
+    ("a subscripted assignment before a command", "X[0]=v gh", {"gh"}, None),
+    ("a subscripted append assignment before a command", "X[i]+=v gh", {"gh"}, None),
+    ("a quoted subscript in an assignment before a command", 'X["k y"]=v gh', {"gh"}, None),
+    ("a quoted equals in a subscripted assignment is not an assignment (dep-fleet-6 F1)", 'X[0]"=v" gh', set(), None),
+    ("a quoted assignment is the program, not an assignment", '"X=1" gh', set(), None),
+    ("an escaped = is the program, not an assignment", "X\\=1 gh", set(), None),
+    ("a keyword after an assignment is the program", "X=1 if gh", set(), None),
+    ("a ! after an assignment is the program", "X=1 ! gh", set(), None),
+    ("a case pattern after ;& is no command (#41768 F1)", "case x in x) a ;& gh) b ;; esac", {"a", "b"}, None),
+    ("a case pattern list is no command", "case x in x|gh) a ;; esac", {"a"}, None),
+    ("a case pattern after a leading paren is no command", "case gh in (gh) a ;; esac", {"a"}, None),
+    ("a case pattern after ;;& is no command", "case x in x) a ;;& x|gh) b ;; esac", {"a", "b"}, None),
+    ("a later matching case clause is not reached (dep-fleet-6 F2)", "case x in x) a ;; x) b ;; esac", {"a"}, None),
+    ("a case in a skipped branch does not clear control flow (dep-fleet-6 F3)",
+     "if false; then case x in x) a ;; esac; fi", set(), set()),
+    ("a conditional in a skipped branch does not clear control flow (dep-fleet-6 F3)",
+     "if false; then [[ -n x ]]; a; fi", set(), set()),
+    ("a case over lines", "case x\nin\n  x|gh)\n    a\n    ;;\nesac", {"a"}, None),
+    ("a nested case", "case x in x) case y in y|gh) a ;; esac ;& c) b ;; esac", {"a", "b"}, None),
+    ("a case pattern's paren does not close a substitution", "x=$(case x in y) echo ;; gh) a ;; esac)\nb",
+     {"b"}, None),
+    ("an arithmetic command names no command", "(( gh = 1 ))\na", {"a"}, None),
+    ("a shift in an arithmetic command opens no heredoc", "(( 1 << 2 ))\na", {"a"}, None),
+    ("an arithmetic for loop header names no command", "for (( gh=0; gh<1; gh++ )); do a; done", {"a"}, None),
+    ("a conditional expression's operators split no command", "[[ -n x && ( gh || b ) ]]\na", {"a"}, None),
+    ("a coprocess runs its command", "coproc a\nwait", {"a"}, set()),
+    ("a coprocess after time runs its command (dep-fleet-6 F4)", "time coproc a; wait", {"a"}, set()),
+    ("a brace expansion in the program word", "{a,b}", {"a"}, set()),
 ]
 
 
@@ -184,6 +216,12 @@ SCRIPT_FIXTURES = [
     ("exec -c ./sign.sh", True, True),
     ("FLAGS=-n\nbash $FLAGS ./sign.sh", False, False),
     ("FLAGS=-e\nbash $FLAGS ./sign.sh", True, False),
+    # Assignments the way each reader takes them (#41768 F2): env takes any word with `=`, `time` takes bash's.
+    ("env X+=1 ./sign.sh", True, True),
+    ("env 'A B=1' ./sign.sh", True, True),
+    ("env Y[0]=2 ./sign.sh", True, False),
+    ("time X+=1 ./sign.sh 2>/dev/null", True, True),
+    ("./sig*.sh", True, False),
 ]
 
 

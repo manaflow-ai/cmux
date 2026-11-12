@@ -6,7 +6,8 @@ import UIKit
 /// The composer's text field: a UITextView, so the screen controls what a
 /// SwiftUI TextField does not expose: the dark keyboard (iOS 27 no longer
 /// derives it from the field's trait), terminal-safe text traits, and growth
-/// from 1 to 14 lines before it scrolls (classic cmux iOS).
+/// upward from 1 to `maxLines` lines before it scrolls inside
+/// (`ComposerFieldHeight`, shared with the agent chat composer).
 ///
 /// Return starts a new line from either keyboard and only the send button
 /// sends (classic cmux iOS, `ComposerReturnStyle.message`); the key row's ⏎
@@ -31,7 +32,7 @@ struct ComposerTextView: UIViewRepresentable {
     /// Command-V): it becomes an attachment. Nil: the composer takes none.
     var onPasteAttachments: (() -> Void)?
 
-    static let maxLines = 14
+    static let maxLines = ComposerFieldHeight.defaultMaxLines
     /// Read so a live text size change updates the view (Codex QA F10): the
     /// insets follow the new line height and SwiftUI measures it again.
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -50,7 +51,6 @@ struct ComposerTextView: UIViewRepresentable {
         let inset = TerminalDockMetrics.textInset
         view.textContainerInset = UIEdgeInsets(top: inset, left: 0, bottom: inset, right: 0)
         view.textContainer.lineFragmentPadding = 0
-        view.isScrollEnabled = false
         view.keyboardAppearance = .dark
         view.autocorrectionType = .no
         view.autocapitalizationType = .none
@@ -97,15 +97,10 @@ struct ComposerTextView: UIViewRepresentable {
         }
     }
 
+    /// Grows a line at a time up to `maxLines`, then scrolls inside
+    /// (`ComposerFieldHeight`); measuring changes nothing on the view.
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: ComposerUITextView, context: Context) -> CGSize? {
-        let width = proposal.width ?? 240
-        let font = uiView.font ?? .preferredFont(forTextStyle: .body)
-        let insets = uiView.textContainerInset.top + uiView.textContainerInset.bottom
-        let maxHeight = ceil(font.lineHeight * CGFloat(uiView.returnPolicy.maxLines) + insets)
-        let fitting = uiView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
-        let scrolls = fitting > maxHeight
-        if uiView.isScrollEnabled != scrolls { uiView.isScrollEnabled = scrolls }
-        return CGSize(width: width, height: min(fitting, maxHeight))
+        uiView.fittingSize(proposedWidth: proposal.width)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
@@ -130,6 +125,7 @@ struct ComposerTextView: UIViewRepresentable {
             parent.text = textView.text
             (textView as? ComposerUITextView)?.updatePlaceholder()
             textView.invalidateIntrinsicContentSize()
+            (textView as? ComposerUITextView)?.followCaret()
         }
 
         func textViewDidBeginEditing(_ textView: UITextView) { parent.onFocusChange(true) }
