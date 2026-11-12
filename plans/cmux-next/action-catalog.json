@@ -73120,7 +73120,7 @@
       "targets" : [
         "pane"
       ],
-      "title" : "Copy acpmux Session File",
+      "title" : "Copy cmux Session File",
       "waitsForKeyedCreate" : false,
       "waitsForPerson" : false,
       "waitsForResult" : false
