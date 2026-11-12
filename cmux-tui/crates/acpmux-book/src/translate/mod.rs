@@ -631,7 +631,7 @@ impl State {
                 && stream.block.line_bytes().saturating_add(ch.len_utf8() as u64) > 16 * 1024
             {
                 if start < offset {
-                    out.text(stream.row.id, &text[start..offset], start);
+                    self.emit_text_slice(out, stream.row.id, text, start, offset);
                 }
                 start = offset;
                 self.continue_text(&mut stream, true, true, out)?;
@@ -644,7 +644,7 @@ impl State {
                 && boundary == blocks::Event::BeforeLine
             {
                 if start < offset {
-                    out.text(stream.row.id, &text[start..offset], start);
+                    self.emit_text_slice(out, stream.row.id, text, start, offset);
                 }
                 start = offset;
                 self.continue_text(&mut stream, false, true, out)?;
@@ -660,7 +660,7 @@ impl State {
                     || stream.block.line_bytes() >= 16 * 1024);
             // Each inline body operation is bounded even when a newer row prevents cutting.
             if cut || end.saturating_sub(start) >= 16 * 1024 - 4 {
-                out.text(stream.row.id, &text[start..end], start);
+                self.emit_text_slice(out, stream.row.id, text, start, end);
                 start = end;
             }
             if cut {
@@ -674,7 +674,7 @@ impl State {
             }
         }
         if start < text.len() {
-            out.text(stream.row.id, &text[start..], start);
+            self.emit_text_slice(out, stream.row.id, text, start, text.len());
         }
         if thinking {
             self.thought = Some(stream);
@@ -682,6 +682,23 @@ impl State {
             self.reply = Some(stream);
         };
         Ok(())
+    }
+    fn emit_text_slice(
+        &mut self,
+        out: &mut input::Output<'_>,
+        id: u64,
+        text: &str,
+        start: usize,
+        end: usize,
+    ) {
+        let piece = match text.get(start..end) {
+            Some(piece) => piece,
+            None => {
+                self.line_errors = self.line_errors.saturating_add(1);
+                ""
+            }
+        };
+        out.text(id, piece, start);
     }
     fn continue_text(
         &mut self,
