@@ -236,6 +236,15 @@ impl Hub {
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner)
                             .leave_out_repeats(&kind, &mut line);
+                        // Its answer to `initialize` repeats the lists the start before logged
+                        // (`update_repeats.rs`).
+                        let answer_sections = (method == RAW_CONTROL_RESPONSE).then(|| {
+                            tap_session
+                                .update_repeats
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .leave_out_repeats(&kind, &mut line)
+                        });
                         let retry = (!muted && method == "claude.system.api_retry")
                             .then(|| super::turn_retry::claude_retry(&line));
                         let logged =
@@ -248,6 +257,13 @@ impl Hub {
                                 .lock()
                                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                                 .note_logged(init_sections);
+                            if let Some(sections) = answer_sections {
+                                tap_session
+                                    .update_repeats
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                    .note_logged(sections);
+                            }
                         }
                         // The model request failed and Claude Code tries again (`turn_retry.rs`).
                         if let Some(retry) = retry {
@@ -280,6 +296,8 @@ impl Hub {
                 {
                     let mut line = params.clone().unwrap_or(Value::Null);
                     crate::model_copies::scrub_logged(&mut line);
+                    // A prompt's long text is in its `user_message` already (`logged_bodies.rs`).
+                    crate::claude_stdio::leave_out_prompt_bodies("claude.stdin", &mut line);
                     return tap_hub
                         .append_logged(&tap_session, "out", "claude.stdin", line, host_seq)
                         .1;
@@ -293,6 +311,11 @@ impl Hub {
             let mut value = msg.to_value();
             // Less the model-sized image copies acpmux wrote to the agent, and any echo of them.
             crate::model_copies::scrub_logged(&mut value);
+            // The prompt acpmux sends an agent: its long text is in its `user_message` already
+            // (`logged_bodies.rs`).
+            if d == "out" {
+                crate::claude_stdio::leave_out_prompt_bodies(&kind, &mut value);
+            }
             // The agent's own display line on its ask is neither logged nor shown
             // (`permissions/display.rs`): only acpmux writes the line a person reads.
             if d == "in"
@@ -419,6 +442,16 @@ impl Hub {
                     return true;
                 }
                 Some(repeats)
+            } else if d == "in" && kind == "response" {
+                // The `initialize` response repeats the commands the start before logged; a
+                // response is always logged (`hosts.rs` pairs a prompt with its response).
+                Some(
+                    tap_session
+                        .update_repeats
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .leave_out_repeats(&kind, &mut value),
+                )
             } else {
                 None
             };

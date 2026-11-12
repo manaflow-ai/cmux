@@ -364,6 +364,33 @@ extension PageWebView {
         return await send("mouseReleased", to, buttons: 0)
     }
 
+    /// A trusted Cmd-V on a Chromium page through DevTools, with Chromium's own Paste command: the
+    /// page reads the system pasteboard as a person's Cmd-V does (Blink's paste, the browser's
+    /// clipboard read), in a window that is never key. As a person's Cmd-V into a cmux page does,
+    /// a picture the pasteboard holds as TIFF only first gets its PNG (``PastedImagePNGHold``):
+    /// `png_ms` is how long that took. The host's paste record runs next (``chromiumPasted()``).
+    public func debugPaste() async -> JSONValue {
+        guard let page = chromiumSession?.page else { return ["error": "not a Chromium page"] }
+        chromiumUserInput(at: ProcessInfo.processInfo.systemUptime)
+        let started = ProcessInfo.processInfo.systemUptime
+        var result: [String: JSONValue] = [:]
+        let added: Bool? = await withCheckedContinuation { done in
+            if !PastedImagePNGHold().hold(resume: { done.resume(returning: $0) }) { done.resume(returning: nil) }
+        }
+        if let added {
+            result["png_added"] = .bool(added)
+            result["png_ms"] = .number(((ProcessInfo.processInfo.systemUptime - started) * 1000).rounded())
+        }
+        chromiumPasted()
+        let key: [String: any Sendable] = ["key": "v", "code": "KeyV", "windowsVirtualKeyCode": 86,
+                                           "nativeVirtualKeyCode": 9, "modifiers": 4]
+        guard (try? await page.devTools("Input.dispatchKeyEvent", params: key.merging(["type": "rawKeyDown", "commands": ["paste"]]) { $1 })) != nil,
+              (try? await page.devTools("Input.dispatchKeyEvent", params: key.merging(["type": "keyUp"]) { $1 })) != nil
+        else { return ["error": "the paste did not reach the page"] }
+        result["pasted"] = .bool(true)
+        return .object(result)
+    }
+
     /// Every element matching `selector` in document order: its `data-*` attributes, classes and
     /// first 120 characters of text (a list's order and row state as the page draws it).
     public func debugQuery(_ selector: String) async -> JSONValue {

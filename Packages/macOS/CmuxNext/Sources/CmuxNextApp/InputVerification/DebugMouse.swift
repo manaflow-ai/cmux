@@ -34,7 +34,7 @@ import CmuxNextSettings
 /// `hover: false` leaves the synthesized pointer as it is, so a perf
 /// gesture measures the scroll, not a hover recompute per event (set the
 /// pointer once with the gesture's first event). `target: "page"`
-/// clicks Chromium's page view instead (`DebugMouse+Page`).
+/// clicks Chromium's page view instead (`DebugMouse+Page`); `target: "chief-launcher"` posts to the floating Chief's own window.
 enum DebugMouse {
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
         if params["target"]?.stringValue == "page" {
@@ -43,7 +43,7 @@ enum DebugMouse {
         if params["target"]?.stringValue == "hover-card" { return hoverCard(params, services: services) }
         let windowID = params["window"]?.stringValue
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
-              let window = controller.window else { return .object(["error": .string("no window")]) }
+              let window = params["target"]?.stringValue == "chief-launcher" ? controller.chiefPanelView?.launcher : controller.window else { return .object(["error": .string("no window")]) }
         guard let point = point(params, controller: controller, window: window) else {
             return .object(["error": .string("pass x and y, a pane shown in the window, or a workspace row in its sidebar")])
         }

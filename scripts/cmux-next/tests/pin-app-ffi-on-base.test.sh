@@ -17,7 +17,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/lib/git-fixture.sh"  # turns off git's ba
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 tmp="$(mktemp -d)"
-trap 'rm -rf "$tmp"' EXIT
+git_fixture_trap_exit 'rm -rf "$tmp"'
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
 export GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -70,20 +70,23 @@ int cmux_one(int a);
 #endif
 EOF
 echo v1 > "$seed/cmux-tui/crates/cmux-app-ffi/src/lib.rs"
-pin_manifest() { # pin_manifest SHA
-  cat > "$seed/Packages/macOS/CmuxNext/Package.swift" <<EOF
-let appFFI: Target = .binaryTarget(
-    name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-$1/CCmuxAppFFI.xcframework.zip",
-    checksum: "$checksum"
-)
-EOF
+pin_manifest() { # pin_manifest SHA CHECKSUM: app-ffi-pin.json, and Package.swift holding its loader block
+  python3 -I - "$seed/scripts/ci/app_ffi_pin.py" "$seed/Packages/macOS/CmuxNext" "$1" "$2" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("app_ffi_pin", sys.argv[1])
+pin = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(pin)
+package, sha, checksum = sys.argv[2:5]
+open(f"{package}/Package.swift", "w").write("import Foundation\nimport PackageDescription\n\n" + pin.loader(checksum))
+open(f"{package}/app-ffi-pin.json", "w").write(pin.render(sha, checksum))
+PY
 }
 git -C "$seed" init -q -b feat-cmux-next
 git -C "$seed" add -A
 git -C "$seed" commit -qm sources
 first="$(git -C "$seed" rev-parse HEAD)"
-pin_manifest "$first"
+# The seed pin's checksum differs from the releases' (the fake SHA256SUMS), so the first re-pin moves both files.
+pin_manifest "$first" "$(printf 'b%.0s' {1..64})"
 git -C "$seed" add -A
 git -C "$seed" commit -qm pin
 git_fixture_clone --bare "$seed" "$tmp/remote.git"
@@ -105,7 +108,7 @@ run_pin() { # run_pin SHA: prints the result
     || { cat "$tmp/log" >&2; fail "pin-app-ffi-on-base.sh $1 failed"; }
   sed -n 's/^result=//p' "$output"
 }
-pinned_at() { git -C "$tmp/remote.git" show "refs/heads/feat-cmux-next:Packages/macOS/CmuxNext/Package.swift" | grep -oE 'cmux-app-ffi-[0-9a-f]{40}' | head -n 1; }
+pinned_at() { git -C "$tmp/remote.git" show "refs/heads/feat-cmux-next:Packages/macOS/CmuxNext/app-ffi-pin.json" | grep -oE 'cmux-app-ffi-[0-9a-f]{40}' | head -n 1; }
 
 # An additive FFI change (a new function), then an unrelated commit on top.
 sed -i.bak 's/^int cmux_one(int a);$/int cmux_one(int a);\nint cmux_two(void);/' "$work/$header" && rm -f "$work/$header.bak"
@@ -135,8 +138,11 @@ grep -q "moved (attempt 1)" "$tmp/log" || fail "no retry after the refused push:
 [[ "$(pinned_at)" == "cmux-app-ffi-$release" ]] || fail "the remote pins $(pinned_at), not $release"
 [[ "$(git -C "$tmp/remote.git" log -1 --format=%s feat-cmux-next)" == "chore(next): pin CCmuxAppFFI to cmux-app-ffi-$release" ]] \
   || fail "unexpected pin commit: $(git -C "$tmp/remote.git" log -1 --format=%s feat-cmux-next)"
-[[ "$(git -C "$tmp/remote.git" diff --name-only feat-cmux-next~1 feat-cmux-next)" == Packages/macOS/CmuxNext/Package.swift ]] \
-  || fail "the pin commit changes more than Package.swift"
+# The pin file and the checksum line of Package.swift's loader block (scripts/ci/app_ffi_pin.py rewrite), nothing else.
+[[ "$(git -C "$tmp/remote.git" diff --name-only feat-cmux-next~1 feat-cmux-next | tr '\n' ' ')" == "Packages/macOS/CmuxNext/Package.swift Packages/macOS/CmuxNext/app-ffi-pin.json " ]] \
+  || fail "the pin commit changes more than the pin file and Package.swift"
+[[ "$(git -C "$tmp/remote.git" diff --numstat feat-cmux-next~1 feat-cmux-next -- Packages/macOS/CmuxNext/Package.swift | cut -f1,2)" == "$(printf '1\t1')" ]] \
+  || fail "the pin commit changes more than Package.swift's checksum line"
 git -C "$work" pull -q --ff-only origin feat-cmux-next
 out="$(cd "$work" && bash scripts/cmux-next/check-app-ffi-pin.sh --verify-release 2>&1)" || fail "the pin check fails on the pinned tip: $out"
 

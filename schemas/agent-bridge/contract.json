@@ -90,6 +90,7 @@
     "cloudMachine.resume": "cloudMachine.resume",
     "composer.capture": "composer.capture",
     "composer.copy": "composer.copy",
+    "diag.flicker": "diag.flicker",
     "dictation.audio": "dictation.audio",
     "dictation.cancel": "dictation.cancel",
     "dictation.handoff": "dictation.handoff",

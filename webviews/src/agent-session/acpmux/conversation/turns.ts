@@ -40,6 +40,7 @@ import { acpmuxSendCalls } from "./acpmuxSends";
 import { subsessionCall } from "./subsessionCalls";
 import { experimentArm } from "../../../experiments/experiment";
 import { finishedTaskLook } from "./taskLine.experiment";
+import { liveTurnWork } from "./liveTurnWork.experiment";
 import { turnFoldReplies } from "./turnFoldReplies.experiment";
 import { turnFoldSteered } from "./turnFoldSteered.experiment";
 import { workedForMessages } from "./workedForMessages.experiment";
@@ -1897,7 +1898,10 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
 const staysOut = (row: AcpmuxRow) =>
   isSubagentGroup(row) ||
   (row.kind === "plan" && row.plan !== undefined) ||
-  row.kind === "backgroundTask" ||
+  // A background command that finished or was stopped is the turn's work, and folds with it as its
+  // call does (Leo, 2026-11-11: "Background command completed. Do those not count as the f-ing
+  // works for?"). One that failed stays in sight, as it does in a run of them (backgroundRuns.ts).
+  (row.kind === "backgroundTask" && row.backgroundTask?.state === "failed") ||
   // An error or a refusal the pane noted, and an ask still waiting on the person.
   row.kind === "notice" ||
   row.kind === "permission" ||
@@ -2170,12 +2174,13 @@ function shapeLiveTurn(
   // The Codex-style live line names the call in flight; a command still running in an earlier run
   // (a parallel `cp` while the agent messages others) leaves its run for the line too.
   const named = last ? lineCall(drawn, last) : undefined;
-  // While the turn streams nothing folds or regroups: each run keeps its calls in sight and a short
-  // note between two runs stays its own row, so no row leaves while the turn is live. The turn's end
-  // shapes it once, as its family's finished turn (turnEndFold.ts plays that), as Leo asked (2026-11-08:
-  // "while you're working on stuff, you expose it. You show it ... and you only do the overarching
-  // fold at the very end").
-  const rows = codexRuns(drawn, named?.tool.id);
+  // While the turn streams nothing folds or regroups. By default (liveTurnWork.experiment.ts `line`)
+  // its finished runs draw no row at all, as chatgpt.com draws a running turn: the replies stay in
+  // sight and the one live line below says what it does now, replacing itself at each step. Its
+  // `runs` arm keeps each run's calls in sight until the turn's end shapes it once, as its family's
+  // finished turn (turnEndFold.ts plays that; Leo, 2026-11-08: "while you're working on stuff, you
+  // expose it ... and you only do the overarching fold at the very end").
+  const rows = codexRuns(drawn, named?.tool.id, experimentArm(liveTurnWork) === "line");
   // The status ticks on this computer's clock, from the live turn's start moved onto it. A resumed
   // turn can still open with an older prompt, so the prompt's time (`user.at`) is only the fallback.
   const start = turnStartedAtMs ?? user.at;
@@ -2508,10 +2513,16 @@ const OPEN_RUN_STATES = 2;
 /// `doing`, "Thinking") and each step replaces it in place. A call still running in an earlier run
 /// (a background shell) stays in its run, except the command the live line names (`named`,
 /// `lineCall`), which reads once, on the line. Each derived row's version moves with its drawn state.
-function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
+/// With `lineOnly` a finished run of the stretch still running draws no row: the live line is its
+/// work (liveTurnWork). A stretch that already ended with its summary keeps its runs, as it draws
+/// once the chat stops working, so that end moves nothing (liveLineTakesFooterSlot.test.ts).
+function codexRuns(rows: AcpmuxRow[], named?: string, lineOnly = false): AcpmuxRow[] {
   // A started chats' card after the run is not a step: the run before it is still in flight.
   let latest = rows.length - 1;
   while (latest > 0 && rows[latest]!.kind === STARTED_SESSIONS) latest -= 1;
+  let ended = -1;
+  if (lineOnly)
+    for (let at = rows.length - 1; at >= 0 && ended < 0; at -= 1) if (rows[at]!.kind === "turnSummary") ended = at;
   return rows.flatMap((row, index) => {
     if (row.kind !== "activity") return [row];
     // A run that edited is shaped as the others; the turn's edited-files card lists its edits when
@@ -2522,6 +2533,7 @@ function codexRuns(rows: AcpmuxRow[], named?: string): AcpmuxRow[] {
       (row.items ?? []).some((item) => awaitsPermission(item.tool) || (keepsOwnRow(item.tool) && isRunning(item.tool!)))
     )
       return [{ ...row, foldRun: false, version: row.version * RUN_STATES }];
+    if (lineOnly && index > ended) return [];
     // An earlier run draws no call that has nothing to show yet; its row comes with its input.
     if (index !== latest)
       return withoutDrafts(row).flatMap((kept) => {
