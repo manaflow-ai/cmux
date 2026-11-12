@@ -76,6 +76,14 @@ import Testing
         #expect(try BillingCheckoutRequest(plan: "pro", team: nil).body["cmux_scheme"] == nil)
     }
 
+    /// The Cloud plan picker's Annual (cmux#38299) bills Pro and Max yearly; Team and Plus have no yearly price.
+    @Test func annualCheckoutAsksForTheYearlyPriceOnlyWherePlansSellOne() throws {
+        #expect(try BillingCheckoutRequest(plan: "pro", team: nil, yearly: true).body["interval"] as? String == "year")
+        #expect(try BillingCheckoutRequest(plan: "max", team: nil, yearly: true).body["interval"] as? String == "year")
+        #expect(try BillingCheckoutRequest(plan: "team", team: "t_1", yearly: true).body["interval"] == nil)
+        #expect(try BillingCheckoutRequest(plan: "pro", team: nil).body["interval"] == nil)
+    }
+
     // MARK: Onboarding
 
     @Test func thePlanTurningPaidAfterAnUpgradeWelcomesOnce() {

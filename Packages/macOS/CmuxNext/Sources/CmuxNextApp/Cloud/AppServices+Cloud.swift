@@ -70,8 +70,17 @@ extension AppServices {
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
         cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil }, stopAsking: self?.settings?.stopAskingCloudAgents) }
         cloud.agentsAskFirst = { [weak self] in self?.settings.map { !$0.cloudAgentsSkipAsking } ?? false }
-        // The cap card's Upgrade takes the one paid-plan path (PaidPlanUpgrade): Checkout that returns here, else pricing.
-        cloud.chooseAtCap = { [weak self] in await CloudMachineCapCard.choose($0, in: self?.windows.active?.window, freePlanDetail: CloudStrings.upgradeDetail(.freePlan), openPricing: { [weak self] in Task { await self?.paidPlanUpgrade().start(source: .cloudCreate) } }) }
+        // A free plan's create shows the plan picker (cmux#38299), whose Run on This Mac keeps local use free; a full paid
+        // plan, the cap card. Either Upgrade takes the one paid-plan path (PaidPlanUpgrade): Checkout that returns here, else pricing.
+        cloud.chooseAtCap = { [weak self] cap in
+            guard let self else { return nil }
+            guard cap.freePlan else { return await CloudMachineCapCard.choose(cap, in: windows.active?.window, openPricing: { [weak self] in Task { await self?.paidPlanUpgrade().start(source: .cloudCreate) } }) }
+            switch await cloudPlanPicked(CloudPlanPicker(offersRunHere: true), source: .cloudCreate) {
+            case .runHere?: return .runHere
+            case .plan?: return .upgrade
+            case nil: return nil
+            }
+        }
         cloud.madeRoom = { [weak self] in if let self { CloudMove.toast(self, "cloud-made-room", CloudMachineCapCard.madeRoom($0), duration: .seconds(6)) } }
         cloud.planObserved = { [weak self] in self?.paidPlanObserved($0) }
         cloud.start()

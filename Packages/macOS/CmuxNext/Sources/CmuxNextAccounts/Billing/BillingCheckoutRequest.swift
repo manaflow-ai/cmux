@@ -17,20 +17,24 @@ package nonisolated struct BillingCheckoutRequest: Sendable {
     package let team: String?
     /// The callback scheme cmux.com sends the person back to (`cmux_scheme`); nil keeps its default.
     package let scheme: String?
+    /// Billed yearly: only Pro and Max sell a yearly price, so any other plan stays monthly.
+    package let yearly: Bool
 
-    package init(plan: String, team: String?, scheme: String? = nil) throws {
+    package init(plan: String, team: String?, scheme: String? = nil, yearly: Bool = false) throws {
         guard ["go", "pro", "max", "team"].contains(plan) else { throw Invalid(description: BillingStrings.badPlan) }
         let team = team?.trimmingCharacters(in: .whitespacesAndNewlines)
         if plan == "team", team?.isEmpty ?? true { throw Invalid(description: BillingStrings.teamRequired) }
         self.plan = plan
         self.team = plan == "team" ? team : nil
         self.scheme = scheme.flatMap { $0.isEmpty ? nil : $0 }
+        self.yearly = yearly && (plan == "pro" || plan == "max")
     }
 
     package var body: [String: any Sendable] {
         var body: [String: any Sendable] = ["plan": plan]
         if let team { body["teamId"] = team }
         if let scheme { body["cmux_scheme"] = scheme }
+        if yearly { body["interval"] = "year" }
         return body
     }
 }

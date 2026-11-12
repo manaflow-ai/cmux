@@ -218,6 +218,23 @@ describe("billing checkout route", () => {
     expect(getUser).toHaveBeenCalledWith(SIGNED_IN_USER_ID);
     expect(createdStripeSessions[0]).toMatchObject({ client_reference_id: SIGNED_IN_USER_ID, metadata: expect.objectContaining({ cmuxSource: "cli_billing_checkout", cmuxClient: "cli", plan: "max" }) });
   });
+
+  // The app's Cloud plan picker sends Annual as `interval: "year"` (cmux#38299); only Pro and Max sell a yearly price.
+  test.each([
+    ["pro", "year", "price_year"],
+    ["max", "year", "price_max_year"],
+    ["pro", "month", "price_month"],
+    ["max", "forever", "price_max_month"],
+  ])("app checkout of %s with interval %s bills %s", async (plan, interval, price) => {
+    stripeConfigured = true;
+    userResponses = [{ ...signedInUser, clientReadOnlyMetadata: {} }];
+    const response = await POST(new NextRequest("https://cmux.test/api/billing/checkout", {
+      method: "POST", headers: { authorization: "Bearer app-access", "x-stack-refresh-token": "app-refresh", "content-type": "application/json" },
+      body: JSON.stringify({ plan, interval }),
+    }));
+    expect(response.status).toBe(200);
+    expect(createdStripeSessions[0]).toMatchObject({ line_items: [{ price, quantity: 1 }] });
+  });
   beforeEach(() => {
     getUser.mockClear();
     signedInUser.update.mockClear();

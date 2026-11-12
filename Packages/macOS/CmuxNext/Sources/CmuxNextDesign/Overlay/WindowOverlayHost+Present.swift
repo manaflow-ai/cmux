@@ -258,11 +258,18 @@ extension WindowOverlayHost {
         }, completion: { finished.done() })
     }
 
+    /// The area window-layer overlays are laid out in: the overlay panel's container (the whole window frame, title
+    /// bar included), else the window's content view before the panel has a size. A page that fills the window
+    /// takes this size.
+    public var overlayBounds: NSRect {
+        panel.overlayContainer.bounds.isEmpty ? (window?.contentView?.bounds ?? .zero) : panel.overlayContainer.bounds
+    }
+
     /// Places `handle` in panel coordinates, which are the window's own.
     func layout(_ handle: OverlayHandle) {
         cachedRegions = nil
         if isAppHost { return layoutAppPanel() }
-        let bounds = panel.overlayContainer.bounds.isEmpty ? (window?.contentView?.bounds ?? .zero) : panel.overlayContainer.bounds
+        let bounds = overlayBounds
         guard case .pane(let clip) = handle.options.effectiveLayer, let clipView = handle.clipView else {
             handle.content.setFrameOrigin(Self.origin(for: handle.content.frame.size, options: handle.options, in: bounds))
             return updateMouseRouting()
@@ -296,8 +303,12 @@ extension WindowOverlayHost {
             let below = anchor.minY - 4 - size.height
             origin = NSPoint(x: anchor.minX, y: below >= bounds.minY + inset ? below : anchor.maxY + 4)
         }
-        origin.x = min(max(origin.x, bounds.minX + inset), max(bounds.minX + inset, bounds.maxX - size.width - inset))
-        origin.y = min(max(origin.y, bounds.minY + inset), max(bounds.minY + inset, bounds.maxY - size.height - inset))
+        // Keep `inset` from the edges; content too big for that (a page that fills the window) centers instead,
+        // so it neither shifts by the inset nor overflows the far edge.
+        origin.x = size.width > bounds.width - 2 * inset ? bounds.midX - size.width / 2
+            : min(max(origin.x, bounds.minX + inset), bounds.maxX - size.width - inset)
+        origin.y = size.height > bounds.height - 2 * inset ? bounds.midY - size.height / 2
+            : min(max(origin.y, bounds.minY + inset), bounds.maxY - size.height - inset)
         return origin
     }
 

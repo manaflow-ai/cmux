@@ -1,0 +1,115 @@
+import AppKit
+import CmuxNextCloudUI
+import CmuxNextDesign
+import Foundation
+import Testing
+
+/// The Cloud plan picker (cmux#38299): Monthly first, Annual bills Pro and Max yearly at their saving while Team
+/// stays monthly, each card says what is due today, and the picker shown over a window answers the person's pick
+/// once (a plan, Run on This Mac, or nil for Not Now, Escape or the window closing).
+@MainActor @Suite(.serialized) struct CloudPlanPickerTests {
+    private func plan(_ id: CloudPlanPicker.PlanID) throws -> CloudPlanPicker.Plan { try #require(CloudPlanPicker.plans.first { $0.id == id }) }
+
+    @Test func monthlyIsTheDefaultAndShowsPricesAndDueToday() throws {
+        let picker = CloudPlanPicker(), max = try plan(.max)
+        #expect(picker.interval == .month)
+        #expect(CloudPlanPicker.plans.map(\.id) == [.pro, .max, .team])
+        #expect(CloudPlanPicker.plans.map { picker.monthlyPrice($0) } == [50, 200, 60])
+        #expect(CloudPlanPicker.plans.map { picker.dueToday($0) } == [50, 200, 60])
+        #expect(picker.choice(max) == .plan(.max, .month))
+    }
+
+    @Test func annualBillsProAndMaxYearlyAndKeepsTeamMonthly() throws {
+        let picker = CloudPlanPicker(interval: .year), pro = try plan(.pro), max = try plan(.max), team = try plan(.team)
+        #expect(picker.monthlyPrice(pro) == 40 && picker.dueToday(pro) == 480)
+        #expect(picker.monthlyPrice(max) == 160 && picker.dueToday(max) == 1_920)
+        #expect(picker.monthlyPrice(team) == 60 && picker.dueToday(team) == 60)
+        #expect(picker.choice(pro) == .plan(.pro, .year))
+        #expect(picker.choice(team) == .plan(.team, .month), "Team is sold monthly only")
+        #expect(CloudPlanPicker.annualSaving(pro) == 20 && CloudPlanPicker.annualSaving(team) == nil)
+        #expect(CloudPlanPicker.bestAnnualSaving == 20)
+    }
+
+    @Test func theRefusalsPlanIsRecommended() {
+        #expect(CloudPlanPicker.recommended(for: "max") == .max)
+        #expect(CloudPlanPicker.recommended(for: "pro") == .pro)
+        #expect(CloudPlanPicker.recommended(for: nil) == .pro)
+        #expect(CloudPlanPicker().shownPlans.map(\.id) == [.pro, .max, .team])
+        // A refusal that needs Max comes from an account that already pays: it is offered Max only, not Pro again.
+        #expect(CloudPlanPicker(recommended: .max).shownPlans.map(\.id) == [.max])
+    }
+
+    @Test func pricesAreWholeDollars() {
+        #expect(CloudPlanPicker.price(1_920, locale: Locale(identifier: "en_US")) == "$1,920")
+    }
+
+    private func window() -> NSWindow {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1100, height: 760), styleMask: [.titled, .resizable], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        return window
+    }
+
+    /// Waits for the presenter to put its view on the window (it presents in the call's first turn).
+    private func shown(in window: NSWindow) async -> CloudPlanPickerHostingView? {
+        for _ in 0..<100 {
+            if let view = CloudPlanPickerPresenter().shown(in: window) { return view }
+            await Task.yield()
+        }
+        return nil
+    }
+
+    @Test func thePickerFillsTheWindowAndAnswersThePickedPlanOnce() async throws {
+        let window = window()
+        defer { window.close() }
+        let answer = Task { await CloudPlanPickerPresenter().choose(CloudPlanPicker(interval: .year, offersRunHere: true), in: window) }
+        let view = try #require(await shown(in: window))
+        #expect(view.frame == WindowOverlayHost.existingHost(for: window)?.overlayBounds, "the picker fills the window, edge to edge")
+        #expect(view.accessibilityRole() == .group && view.isAccessibilityModal())
+        view.choose(.plan(.max, .year))
+        view.notNow()
+        #expect(await answer.value == .plan(.max, .year), "the first pick is the answer")
+        #expect(await CloudPlanPickerPresenter().choose(CloudPlanPicker(), in: nil) == nil, "no window: no picker")
+    }
+
+    @Test func notNowAndEscapeAnswerNothing() async throws {
+        let window = window()
+        defer { window.close() }
+        let dismissed = Task { await CloudPlanPickerPresenter().choose(CloudPlanPicker(), in: window) }
+        try #require(await shown(in: window)).notNow()
+        #expect(await dismissed.value == nil)
+
+        let escaped = Task { await CloudPlanPickerPresenter().choose(CloudPlanPicker(), in: window) }
+        try #require(await shown(in: window)).cancelOperation(nil)
+        #expect(await escaped.value == nil)
+    }
+
+    /// The page is AppKit (no SwiftUI hosting view), and the toggle draws the cards' prices again.
+    @Test func theToggleRedrawsTheCardsInAppKit() async throws {
+        let window = window()
+        defer { window.close() }
+        let answer = Task { await CloudPlanPickerPresenter().choose(CloudPlanPicker(), in: window) }
+        let view = try #require(await shown(in: window))
+        var views = view.subviews
+        while let next = views.popLast() {
+            #expect(!String(describing: type(of: next)).contains("NSHosting"), "no SwiftUI bridge: \(type(of: next))")
+            views.append(contentsOf: next.subviews)
+        }
+        #expect(view.shownCards.map(\.first) == ["Pro", "Max", "Team"])
+        #expect(view.shownCards[0].contains(CloudPlanPicker.price(50)) && view.shownCards[0].contains { $0.contains(CloudPlanPicker.price(50)) && $0 != CloudPlanPicker.price(50) })
+        view.show(.year)
+        #expect(view.shownCards[0].contains(CloudPlanPicker.price(40)) && view.shownCards[0].contains { $0.contains(CloudPlanPicker.price(480)) })
+        #expect(view.shownCards[2].contains(CloudPlanPicker.price(60)), "Team stays monthly")
+        view.show(.month)
+        #expect(view.shownCards[1].contains(CloudPlanPicker.price(200)))
+        view.notNow()
+        #expect(await answer.value == nil)
+    }
+
+    @Test func runOnThisMacIsTheFreeWayOut() async throws {
+        let window = window()
+        defer { window.close() }
+        let answer = Task { await CloudPlanPickerPresenter().choose(CloudPlanPicker(offersRunHere: true), in: window) }
+        try #require(await shown(in: window)).choose(.runHere)
+        #expect(await answer.value == .runHere)
+    }
+}
