@@ -163,7 +163,12 @@ def stop_load(procs, scratch):
         try:
             proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
+            pass
+        # Whether or not the leader exited: a child that ignores SIGTERM would outlive it (cmux#41767 review F1).
+        try:
             os.killpg(proc.pid, signal.SIGKILL)
+        except OSError:
+            pass
     for name in os.listdir(scratch):
         if name.startswith("w"):
             try:

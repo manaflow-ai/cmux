@@ -42,7 +42,14 @@ import {
 import { lacksImageBytes, ownQueue, queuedAttachments, queuedMessageRows } from "./conversation/queuedMessages";
 import { pendingMessagesRow, searchablePendingRows, withWaitingRows } from "./conversation/pendingMessages";
 import { type HeldAnswer, type QueuedMessageActionsValue } from "./conversation/QueuedMessageCard";
-import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
+import {
+  AcpmuxDirectClient,
+  type AcpmuxHostConfig,
+  harnessBlock,
+  type HarnessBlock,
+  isTrustRefusal,
+  type CarriedChat,
+} from "./direct";
 import { readHostTail } from "./tailCache";
 import { failedRowOf, failedRowTrustRetry } from "./failedRowTrustRetry";
 import {
@@ -90,7 +97,6 @@ import {
   carriedAnchor,
   keepAdoptedTail,
   useSessionAdoption,
-  useNewTabWeather,
   type SessionAdoption,
   withHandshakeNewTab,
 } from "./newtab/adoption";
@@ -111,7 +117,6 @@ import { TaskGoalStrip } from "./TaskGoalStrip";
 import { goalHatPlace } from "./goalHat.experiment";
 import { PageDots } from "./newtab/PageDots";
 import { useSessionCommands } from "./newtab/useSessionCommands";
-import { editNewTabWidgets, shownPageWidgets, withWidgetEdit } from "./newtab/pageWidgets";
 import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { holdNewTabAttachments } from "./newtab/remoteAttachmentDraft";
@@ -250,7 +255,7 @@ import { movedOn, sentIn as sentInHeld, useTrustHeldPrompts, whereHeldGoes, type
 import { routeCurrentTrustRefusal, routeOwnedTrustRefusal, type TrustRefusalOwner } from "./trustRefusalRoute";
 import { heldPrompts, type SendGesture } from "./heldPrompt";
 import { bindsHeldSendNow } from "./heldSendBinding";
-import { StartingSends, startingQueueEntry, type StartingSend } from "./startingSends";
+import { StartingSends, type StartingSend, startingQueueEntry } from "./startingSends";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
@@ -306,6 +311,7 @@ import {
   trayItems,
   useSubagentTray,
   withSubagentLines,
+  endedInFailure,
 } from "./subagents/runningTray";
 import { lingeringTrayItems, trayItemEnd, useTrayLinger } from "./subagents/trayLinger";
 import { useSubagentTrayPlacement } from "./subagents/subagentTrayPlacement";
@@ -431,8 +437,11 @@ import {
   withEarlierPlan,
   samePlanEntries as sameEntries,
   waitingAsks,
+  closeTurnRuns,
+  turnInsideIds,
 } from "./conversation/turns";
 import { PendingAsks } from "./conversation/PendingAsks";
+import { forgetInsideTurn } from "./conversation/transcriptDisclosureModel";
 import {
   answerState,
   bottomAsks,
@@ -520,6 +529,8 @@ import type { LocalCommand } from "./localCommands";
 import {
   cloudPageRefusal,
   cloudRunsHere,
+  cloudSendAfterCheck,
+  heldPromptShown,
   composerAgentLocal,
   cloudFolderGrants,
   cloudStartFolder,
@@ -604,6 +615,7 @@ import {
   oneKeyPerMessageRun,
   withHeldFolds,
   withoutHeldCalls,
+  lastTurnWorkedKeys,
   rowsToHold,
   withoutHeldRows,
 } from "./conversation/turnEndHold";
@@ -662,10 +674,10 @@ import { WorktreeFailure } from "./startFolder";
 import {
   type FolderAsk,
   confirmFolder,
-  newChatFolder,
   newChatInWorktree,
   newWorktree,
   pickFolder,
+  newChatFolder,
 } from "./startFolderModel";
 import { useSyncedRef } from "../../diff-viewer/useSyncedRef";
 import { WorktreeSetupNotice, useWorktreeSetupStart } from "./worktreeSetup";
@@ -722,8 +734,8 @@ import { contextAttachment, floatingStatus, type QuickFloating } from "./floatin
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
 import { FailedSendsContext, type FailedSends } from "./conversation/promptDeliveryModel";
-import { type FailedRun, failedRuns, failedSendText, heldSendNotice } from "./sendFailure";
-import { clientWaiter, keepLostPrompt, lostPrompt, resentAfterLoss } from "./lostPrompt";
+import { failedRuns, failedSendText, type FailedRun, heldSendNotice } from "./sendFailure";
+import { clientWaiter, lostPrompt, resentAfterLoss, keepLostPrompt } from "./lostPrompt";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { readSteerLog, recordSteer, type SteerAct } from "./steerQueue/log";
@@ -767,6 +779,7 @@ import { CloudChatHint } from "./CloudChatHint";
 import { cloudChatHintDue, cloudChatHintShown, useCloudChatHint, useCloudChatHintClaim } from "./cloudChatHintModel";
 import { withCloudMachineSummary } from "./cloudSummary";
 import { callNative } from "./callNative";
+import { nativeUnsentPrompts } from "./unsentPrompts";
 import { awaitsProjectPreview, takeProjectPreview } from "./newtab/newProject";
 import { showsChatSnapshot, swapChatSnapshot, watchChatSnapshot } from "./chatSnapshot/live";
 import { flushHeldModePick, holdModePick } from "./heldModePick";
@@ -791,6 +804,7 @@ import { PRESET_APPROVAL } from "./conversation/presetApproval";
 import { type ScrollAnchor, VirtualTranscript } from "./VirtualTranscript";
 import { NO_ROWS, rowKind } from "./virtualTranscriptModel";
 import { turnEndedBetween, saveSnapshot, emptySnapshot, cachedSnapshot } from "./snapshotCache";
+import { newestTurnSummary, useFinishMoments } from "./finish/useFinishMoments";
 import { applyPaneTheme, applyPaneThemeCSS } from "./paneTheme";
 import { dismissFocusRing } from "../../ui/focusModality";
 export { VirtualTranscript } from "./VirtualTranscript";
@@ -3390,6 +3404,32 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     heldFolds.current = { session: heldFolds.current.session, keys: new Set() };
     for (const key of keys) openFold(key);
   });
+  // A turn's "Worked for" is always closed when the turn ends, whatever opened it (Lucas, 2026-11-11:
+  // "the Worked for should ALWAYS collapse when the turn has ended"): on the shown chat's step from
+  // working to idle, its last turn's keys leave the open folds. The reader can open it again after.
+  // Adjusted in render, as a chat switch is above: no extra frame. The lines the reader opened in it
+  // are forgotten in a layout effect, before the frame paints (`closedTurn`).
+  const [closedTurn, setClosedTurn] = useState<{ session?: string; key: string; rows: readonly AcpmuxRow[] }>();
+  useLayoutEffect(() => {
+    if (!closedTurn) return;
+    // Every key names the same turn (its prompt's and each steer's): resolved once, by its last key.
+    const edits = new Set<string>();
+    forgetInsideTurn(closedTurn.session, turnInsideIds(closedTurn.rows, closedTurn.key, edits), edits);
+  }, [closedTurn]);
+  const [workingSeen, setWorkingSeen] = useState<{ session?: string; working: boolean }>({ working: false });
+  if (workingSeen.session !== shownSessionId || workingSeen.working !== snapshot.isWorking) {
+    const ended = workingSeen.session === shownSessionId && workingSeen.working && !snapshot.isWorking;
+    setWorkingSeen({ session: shownSessionId, working: snapshot.isWorking });
+    const keys = ended ? lastTurnWorkedKeys(snapshot.rows) : [];
+    // What the reader opened while it ran closes with it, once this render is done (the store tells
+    // the rows, which may not update while the pane draws).
+    if (keys.length) setClosedTurn({ session: shownSessionId, key: keys.at(-1)!, rows: snapshot.rows });
+    if (keys.some((key) => expanded.has(key))) {
+      const next = new Set(expanded);
+      for (const key of keys) next.delete(key);
+      setExpanded(next);
+    }
+  }
   const [inspectorOpen, setInspectorOpen] = useState(false);
   // Jump to latest shows over the stage's foot (VirtualTranscript): the bottom toast deck stands above
   // it while it does (toastLayer.css), so a toast never covers the button or takes its clicks. Written
@@ -4215,6 +4255,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // recorded on its summary, diffed on the session host.
   const turnRowsRef = useRef(snapshot.rows);
   turnRowsRef.current = snapshot.rows;
+  const shownSessionRef = useRef(shownSessionId);
+  useLayoutEffect(() => {
+    shownSessionRef.current = shownSessionId;
+  }, [shownSessionId]);
   // The image viewer holds the chat's images from when it opened; another chat closes it.
   const [imageView, setImageView] = useState<{ images: ChatImage[]; index: number } | undefined>();
   const openImage = useCallback(
@@ -4401,7 +4445,6 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const [newTabStartPage, setNewTabStartPage] = useState<number>();
   const newTabRetainsDraft = useRef(false);
   useNewTabPlaces(setNewTab);
-  useNewTabWeather(setNewTab);
   // Whether the page knows it is a New Tab page or a chat: the host's context came with the
   // document (WebKit), or its `newTab.context` answer did, either way. A Chromium page gets none
   // with the document, and its window shows over the pane before the host's alpha can hide it:
@@ -4764,15 +4807,59 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   /// The plan card's Switch to <team>: the next Cloud send carries the team, and the host switches to it
   /// (the team picker's switch) before it starts, under the same click.
   const [cloudSwitchTeam] = useState(() => cloudStartTeam());
+  /// The Cloud send that waits on the tab's check (cloudRun.ts cloudSendAfterCheck), while it waits.
+  const [cloudAfterCheck] = useState(() => cloudSendAfterCheck());
+  /// The held send's state on the page: waiting on the check, or the refusal it came back with
+  /// (and the prompt, for its New Cloud chat action).
+  const [cloudHeld, setCloudHeld] = useState<"checking" | { refusal: string; prompt: string; cwd?: string }>();
+  const cloudWaitsForCheck = cloudHeld === "checking";
+  /// The held send came from the New Tab page: the page locks while it waits, as during a start,
+  /// so the send that goes is what the page shows. A check that fails (Check again) drops a page's
+  /// held send and unlocks the page, its prompt still in it.
+  const cloudHeldOnPage = useRef(false);
+  const cloudPageHeld = cloudWaitsForCheck && cloudHeldOnPage.current && !sandbox.unread;
+  const sendToCloudLatest = useRef<typeof sendToCloud>(() => false);
   const sendToCloud = (
     text: string,
     attachments: ComposerAttachment[],
     start: Omit<CloudStart, "task" | "attachments">,
     fromPage = false,
+    /// A held send going (`cloudAfterCheck`): whether the chat composer still shows the prompt as it
+    /// was held. Edited meanwhile, the composer keeps the edit and the start takes nothing from it.
+    heldStillShown?: boolean,
   ): string | boolean => {
-    const refused = cloudPageRefusal(sandboxOffered);
-    if (refused === "cloud_not_now")
-      return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
+    const refused = cloudPageRefusal({ offerable: sandboxOfferable, checked: sandbox.checked });
+    if (refused === "cloud_chat_starting") return translate("cloudStart.chatStartingHere");
+    if (refused === "cloud_checking") {
+      // The tab's check hasn't answered (cloudRun.ts cloudPageRefusal): this send waits for it and
+      // goes by itself, the prompt held where it was typed. A read now, since the handshake's may
+      // have missed its 15 s; a read that fails again shows Check again (sandboxUnchecked).
+      // The composer's text as it was held, raw (the send's text is trimmed and expanded): an
+      // unchanged composer matches it exactly.
+      const shownAtHold = fromPage ? undefined : composerHandle.current?.draft();
+      cloudAfterCheck.hold(
+        () => {
+          const handle = composerHandle.current;
+          const stillShown = !fromPage && heldPromptShown(handle?.draft(), shownAtHold);
+          const went = sendToCloudLatest.current(text, attachments, start, fromPage, stillShown);
+          if (typeof went === "string") {
+            setCloudHeld({ refusal: went, prompt: text, ...(start.cwd ? { cwd: start.cwd } : {}) });
+            return;
+          }
+          setCloudHeld(undefined);
+          // The chat composer kept the prompt while the send waited (it answered false): the start
+          // takes it out now, as a Send that went at once does, unless the person changed it meanwhile.
+          // A page send needs nothing: the page stays locked from the hold through its start
+          // (`cloudPageHeld`, `cloudStarting`), so it holds no edit the start would lose.
+          if (went === true && stillShown) handle?.take();
+        },
+        { prompt: text, ...(start.cwd ? { cwd: start.cwd } : {}) },
+      );
+      cloudHeldOnPage.current = fromPage;
+      setCloudHeld("checking");
+      void sandbox.read();
+      return false;
+    }
     if (cloudStartPending.current) return false;
     // The Environment chip's pick (CLOUD_ENVIRONMENTS_ENABLED); Auto, and the flag off, name none.
     const environment = cloudEnvironment.forSend(start.environment);
@@ -4787,11 +4874,56 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ...(team ? { team } : {}),
     };
     // A page's send leaves the page: its draft comes back in the chat composer, compared there.
-    const started = beginCloudSend(request, false, fromPage ? undefined : composerHandle.current?.draft(), fromPage);
+    const preserved = fromPage || heldStillShown === false ? undefined : composerHandle.current?.draft();
+    const started = beginCloudSend(request, false, preserved, fromPage);
     // A composer's send leaves the composer open and empty, as a local send does: the prompt shows
     // as the message (CloudStartView) and comes back if the start fails (`cloudStartHeld`).
     return Boolean(started) && !fromPage;
   };
+  // The held send runs the render's latest `sendToCloud` (its offerable and checked), set after commit, not during render.
+  useLayoutEffect(() => {
+    sendToCloudLatest.current = sendToCloud;
+  });
+  // The held send goes once Cloud is offered here; leaving Cloud, a chat opening here or another
+  // New Tab drops it.
+  // The check answered that a chat is starting in this tab: the held send can't go, so its notice
+  // becomes that refusal, with New Cloud chat.
+  useEffect(() => {
+    if (!cloudWaitsForCheck) return;
+    if (sandbox.mode !== "cloud" || snapshot.sessionId) {
+      cloudAfterCheck.drop();
+      setCloudHeld(undefined);
+    } else if (sandboxOffered) {
+      cloudAfterCheck.offered();
+    } else if (sandbox.unread && cloudHeldOnPage.current) {
+      cloudAfterCheck.drop();
+      setCloudHeld(undefined);
+    } else if (sandbox.checked && !sandboxOfferable) {
+      const held = cloudAfterCheck.take();
+      setCloudHeld({
+        refusal: translate("cloudStart.chatStartingHere"),
+        prompt: held?.prompt ?? "",
+        ...(held?.cwd ? { cwd: held.cwd } : {}),
+      });
+    }
+  }, [
+    cloudAfterCheck,
+    cloudWaitsForCheck,
+    sandboxOffered,
+    sandboxOfferable,
+    sandbox.checked,
+    sandbox.unread,
+    sandbox.mode,
+    snapshot.sessionId,
+  ]);
+  // Another New Tab, or leaving Cloud, ends what the held send said.
+  useEffect(() => {
+    cloudAfterCheck.drop();
+    setCloudHeld(undefined);
+  }, [cloudAfterCheck, newTabGeneration]);
+  useEffect(() => {
+    if (sandbox.mode !== "cloud") setCloudHeld((held) => (held === "checking" ? held : undefined));
+  }, [sandbox.mode]);
   const beginCloudSend = (
     request: CloudStart,
     signingIn = false,
@@ -5579,7 +5711,12 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- endedCommandList is new on every snapshot; its key is not
   }, [endedCommandsKey, trayAgents]);
   const endedTray = useMemo(
-    () => (subagentTray ? [...endedCommandItems, ...finishedTrayItems(trayAgents, childSessions)] : []),
+    () =>
+      subagentTray
+        ? [...endedCommandItems, ...finishedTrayItems(trayAgents, childSessions)].filter(
+            (item) => !endedInFailure(item),
+          )
+        : [],
     [subagentTray, endedCommandItems, trayAgents, childSessions],
   );
   const lingerLive = useMemo(() => trayList.map(trayItemKey), [trayList]);
@@ -7503,6 +7640,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.
     let reconnect = false;
+    /// The chat the lost client held (direct.ts `CarriedChat`): the next client starts from it, so
+    /// a reconnect keeps every row on screen instead of reading the chat again from nothing.
+    let carriedChat: CarriedChat | undefined;
     /// When the handshakes began failing (cleared by a connect): a recovery is said only once it
     /// has failed for HOST_ERROR_DEADLINE_MS (hostRetry.ts).
     let failingSince: number | undefined;
@@ -7856,6 +7996,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
             // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
             if (cancelled) return;
             reconnect = true;
+            carriedChat = directClient.current?.takeCarried() ?? carriedChat;
             // A switch in flight runs again on the next client.
             harnessSwitch.disconnect(switchPort);
             setStartModeSource(undefined);
@@ -7878,7 +8019,10 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
               ? () => new BridgeSocket() as unknown as WebSocket
               : undefined,
           mock ? "daemon" : "native",
+          undefined,
+          carriedChat,
         );
+        carriedChat = undefined;
         if (cancelled) {
           client.close();
           return;
@@ -7901,6 +8045,9 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         if (!mock) client.handoffTurn = handoffTurns(callNative, host);
         // Attachments too large to go inline upload at the Send, under its ticket (sendUploads.ts).
         if (!mock) client.uploadForSend = (chips, prompt) => uploadForSend(chips, prompt, callNative);
+        // Prompts no agent took yet outlive the page: the app keeps them and a relaunch draws them
+        // again as Not sent rows (unsentPrompts.ts).
+        if (!mock) client.setUnsentPromptStore(nativeUnsentPrompts(callNative));
         setClientEpoch((epoch) => epoch + 1);
         // The minimap's prompt bookmarks live in acpmux's session (threadMinimap/bookmarks.ts).
         setBookmarkTransport({
@@ -9902,6 +10049,17 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         .then(setHeaderState)
         .catch(() => undefined);
   }, [snapshot.sessionId, snapshot.isWorking, snapshot.turnsEnded, quick]);
+  const finishTurnSummary = useMemo(() => newestTurnSummary(snapshot.rows), [snapshot.rows]);
+  // A long turn's end, green checks and a merge: the short "done" state and its sound (finish/).
+  useFinishMoments({
+    session: snapshot.sessionId,
+    working: snapshot.isWorking,
+    turnStartedAtMs: snapshot.turnStartedAtMs,
+    clockOffsetMs: snapshot.clockOffsetMs,
+    stopping: snapshot.stopping === true,
+    pullRequest: headerPullRequest,
+    turnSummary: finishTurnSummary,
+  });
   // A floating chat's panel that held this chat before the page loaded (a tab moved there, a reload)
   // says so once; later changes are pushed, and a reread per chat could land after a newer push.
   useEffect(() => {
@@ -10837,13 +10995,25 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   // Stable: memoized transcript rows compare it.
   const toggleActivity = useCallback((id: string, covers?: readonly string[]) => {
     const view = chatViewRef.current;
+    // A turn's fold opens with every line in it closed, whatever the reader opened there before
+    // (Lucas, 2026-11-11): its toggle forgets them. Closed, nothing in it draws, so open or close alike.
+    if (isWorkedFold(id)) {
+      const edits = new Set<string>();
+      forgetInsideTurn(shownSessionRef.current, turnInsideIds(turnRowsRef.current, id, edits), edits);
+    }
     // In Thinking and Verbose a turn's "Worked for" is open unless toggled there (viewFolds.ts):
     // the reader's open or close overrides the view, and Normal's own folds stay as they were.
-    if (view !== "normal" && isWorkedFold(id))
+    if (view !== "normal" && isWorkedFold(id)) {
       setViewToggles((current) =>
         new Map(current).set(view, toggleViewTurnFold(turnRowsRef.current, current.get(view) ?? NO_FOLD_TOGGLES, id)),
       );
-    else setExpanded((current) => toggleTurnFold(turnRowsRef.current, current, id, covers));
+      // Its runs of messages close with it in this view too.
+      setExpanded((current) => {
+        const next = new Set(current);
+        closeTurnRuns(turnRowsRef.current, next, id);
+        return next.size === current.size ? current : next;
+      });
+    } else setExpanded((current) => toggleTurnFold(turnRowsRef.current, current, id, covers));
   }, []);
   const loadReplay = useCallback(
     // l10n-allow: never shown; the replay says replay.failed.
@@ -11880,8 +12050,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                     // hold it does it come back to the composer, saying why.
                     void keepLostPrompt(error, connectedClients, sentOn, { input: text, attachments }).then(
                       (outcome) => {
-                        if (outcome === "shown") return promptLanded.current();
+                        // A failed row keeps the host's copy (unsentPrompts.ts) for a relaunch;
+                        // a shown prompt is acpmux's, and one given back is the composer's.
                         if (outcome === "failed") return;
+                        sentOn?.forgetUnsentPrompt(lostPrompt(error)!.promptId);
+                        if (outcome === "shown") return promptLanded.current();
                         giveBack();
                         const line = heldSendNotice(error, attachments);
                         if (line) directClient.current?.notice(line);
@@ -12540,17 +12713,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         >
           <div ref={setToastTop} className="acpmux-toasts-top" />
           {!harnessesOpen && showNewTab && !newTab.history && (
-            // The page's dots, under it: Claude Minimal, Claude Minimal with the quick actions, Codex
-            // Minimal (newtab/tabDots.ts, from the look and Minimal's actions widget), then with the
-            // style dots on (on Minimal a widget, off by default: newtab/pageWidgets.ts) the page's
-            // other styles (newtab/PageDots.tsx); a pick shows in place at once.
+            // The page's dots, under it: Claude Minimal and Codex Minimal (newtab/tabDots.ts, the
+            // composer's look), then on every layout but Minimal the page's other styles
+            // (newtab/PageDots.tsx); a pick shows in place at once.
             <PageDots
               template={shownTemplate(newTab)}
-              styleDots={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets).has("styleDots")}
-              actions={shownPageWidgets("minimal", newTab.pageWidgets).has("actions")}
               callNative={callNative}
               show={(next) => setNewTab((current) => current && { ...current, template: next })}
-              showWidgets={(done) => setNewTab((current) => current && withWidgetEdit(current, done))}
               onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
             />
           )}
@@ -12584,6 +12753,38 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                         runMode: sandboxModeRows,
                         // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
                         // the prompt and attachments put back in its composer.
+                        ...(!cloudStart && cloudWaitsForCheck && !sandbox.unread
+                          ? {
+                              cloudStatus: (
+                                <output className="acpmux-switch-notice">
+                                  <span>{t("cloudStart.checkingTab")}</span>
+                                </output>
+                              ),
+                            }
+                          : {}),
+                        ...(!cloudStart && typeof cloudHeld === "object"
+                          ? {
+                              cloudStatus: (
+                                <output className="acpmux-switch-notice acpmux-folder-choice">
+                                  <span role="alert">{cloudHeld.refusal}</span>{" "}
+                                  <button
+                                    type="button"
+                                    className="acpmux-folder-choice-button"
+                                    onClick={() => {
+                                      const { prompt, cwd } = cloudHeld;
+                                      setCloudHeld(undefined);
+                                      void openCloudChatWith({
+                                        ...(prompt ? { prompt } : {}),
+                                        ...(cwd ? { cwd } : {}),
+                                      }).catch(() => undefined);
+                                    }}
+                                  >
+                                    {t("cloudStart.openNewCloudChat")}
+                                  </button>
+                                </output>
+                              ),
+                            }
+                          : {}),
                         ...(cloudStart
                           ? {
                               cloudStatus: (
@@ -12603,7 +12804,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                             }
                           : {}),
                         // The page stays locked through a stall: its send would start a chat in this tab.
-                        cloudStarting: cloudSendHeld,
+                        cloudStarting: cloudSendHeld || cloudPageHeld,
                         onCloud: (
                           harness: string,
                           text: string,
@@ -12668,18 +12869,8 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                   // The host answers only for a page on this Mac; another machine's keeps the refusal.
                   {...(!quick ? { localPaths } : {})}
                   template={screenTemplate(shownTemplate(newTab))}
-                  {...(newTab.widgets ? { widgets: true } : {})}
-                  pageWidgets={shownPageWidgets(shownTemplate(newTab), newTab.pageWidgets)}
-                  {...(newTab.headlineOff ? { headlineOff: true } : {})}
                   {...(newTab.allChats === false ? { allChats: false } : {})}
                   {...(newTab.suggestionOrder ? { suggestionOrder: newTab.suggestionOrder } : {})}
-                  {...(newTab.weather ? { weather: newTab.weather } : {})}
-                  onEditWidgets={(edit) =>
-                    editNewTabWidgets(edit, {
-                      callNative,
-                      show: (done) => setNewTab((current) => current && withWidgetEdit(current, done)),
-                    })
-                  }
                   snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
                   {...(newTabFixError ? { fixError: newTabFixError } : {})}
                   omnibar={newTab.omnibar}

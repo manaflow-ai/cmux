@@ -14,6 +14,7 @@ import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { THINKING, turnView } from "../src/agent-session/acpmux/conversation/turns";
 import { Thinking } from "../src/agent-session/acpmux/conversation/Thinking";
 import { WorkingCountsContext, type WorkingCounts } from "../src/agent-session/acpmux/conversation/workingForModel";
+import { settleReact } from "./support/domTeardown";
 
 const START = Date.UTC(2026, 10, 7, 8, 0, 0);
 const row = (id: string, kind: string, second: number, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
@@ -86,9 +87,10 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
-afterEach(() => {
+afterEach(async () => {
   act(() => root?.unmount());
   root = undefined;
+  await settleReact();
   for (const [key, value] of saved) {
     if (value === undefined) delete scope[key];
     else scope[key] = value;

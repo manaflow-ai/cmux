@@ -1377,6 +1377,42 @@
           ]
         },
         {
+          "key": "appearance.metrics.sidebarRowHeight",
+          "name": "sidebarRowHeight",
+          "title": {
+            "key": "settings.appearance.sidebarRowHeight",
+            "text": "Workspace Row Height"
+          },
+          "kind": "number",
+          "swift_owner": {
+            "type": "LayoutMetricSetting",
+            "prefixed": true
+          },
+          "range": {
+            "min": 20,
+            "max": 48,
+            "step": 1,
+            "unit": "points",
+            "placeholder": 24
+          },
+          "default": null,
+          "default_label": {
+            "key": "settings.default.density",
+            "text": "Density default"
+          },
+          "keywords": [
+            "sidebar",
+            "workspace",
+            "row",
+            "height",
+            "thinner",
+            "sidebarRowHeight"
+          ],
+          "consumers": [
+            "cmux-next"
+          ]
+        },
+        {
           "key": "appearance.borders",
           "title": {
             "key": "settings.appearance.borders",

@@ -12,6 +12,7 @@ import type { Root } from "react-dom/client";
 import { translate as t } from "../src/agent-session/acpmux/i18n";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -105,11 +106,7 @@ afterEach(() => {
 
 afterAll(async () => {
   (await import("../src/agent-session/acpmux/cloudMachines")).setCloudMachinesForTestAccount(undefined);
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 // What `_acpmux/status` reports (cmux-tui/crates/acpmux/src/peer.rs Peer::summary): an `ssh://`

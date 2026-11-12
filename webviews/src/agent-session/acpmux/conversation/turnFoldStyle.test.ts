@@ -101,16 +101,16 @@ test("claude: Worked for over the conclusion, the chatter and runs folded under 
   expect(rows.find((row) => row.kind === "turnSummary")?.folded).toBe(true);
 });
 
-// Leo, 2026-11-06: "your intermediate message got lost. that can never happen" (turn-fold-keeps-replies.test.ts).
+// Lawrence, 2026-11-11 (Codex parity): a closed fold keeps only the final answer in sight; the reply
+// between two runs folds with them. The arms that keep it in sight: turn-fold-keeps-replies.test.ts.
 for (const family of ["claude", "codex", "gemini", "muse"])
-  test(`${family}: a closed fold keeps a reply between two runs in sight, both runs under it`, () => {
+  test(`${family}: a closed fold hides a reply between two runs with the runs`, () => {
     const rows = drawn(family, new Set(), replied);
     const worked = rows.find((row) => row.kind === WORKED)!;
     expect(worked.foldOpen).toBe(false);
-    // The fold hides only calls, so no header counts messages.
-    expect(worked.previous).toBeUndefined();
-    // Every call stays under the closed line, as chatgpt.com draws it (turn-fold-hides-every-call.test.ts).
-    expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "n1", "a"]);
+    // Codex's header counts the messages it folds; the other families read "Worked for" alone.
+    expect(worked.previous === undefined).toBe(family !== "codex");
+    expect(ids(rows.filter((row) => row.kind !== "turnSummary"))).toEqual([worked.id, "a"]);
   });
 
 test("claude, opened: its runs fold per run with the chatter between them", () => {

@@ -21,6 +21,7 @@ import { act, type ReactNode } from "react";
 import type { Root } from "react-dom/client";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { TurnCheckpointLoad } from "../src/agent-session/acpmux/changes/turnCheckpoint";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -79,12 +80,9 @@ afterEach(() => {
   root = undefined;
 });
 
-afterAll(() => {
+afterAll(async () => {
   for (const key of added) delete scope[key];
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const FOLDER = "/Users/you/src/uploader";

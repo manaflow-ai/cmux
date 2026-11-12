@@ -112,7 +112,8 @@ await requireBrowserLane("transcript-cohesion.test.ts", async () => {
                 `transcript-live-gap ${phase} ${variant} ${label} ${density} ${interfaceScale}: ${JSON.stringify(measured)}`,
               );
               if (process.env.CMUX_COHESION_MEASURE_ONLY !== "1")
-                expect(measured.gap).toBeCloseTo(16 * interfaceScale, 1);
+                // The transcript's run gap, 12 at scale 1 (transcriptGrid.ts TRANSCRIPT_RUN_GAP; Lucas, 2026-11-11).
+                expect(measured.gap).toBeCloseTo(12 * interfaceScale, 1);
               expect(measured.wholeTurnFolds).toBe(0);
               if (process.env.FAST_CHECKS_OUT) {
                 await mkdir(process.env.FAST_CHECKS_OUT, { recursive: true });

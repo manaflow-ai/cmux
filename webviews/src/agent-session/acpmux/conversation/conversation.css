@@ -129,7 +129,7 @@
      run of flush lines keeps --cv-note-gap (below) around it: the run gap, as for any prose by a run
      (design/transcript-spacing.md rule 4). */
   --cv-reply-room: 0px;
-  --cv-note-gap: var(--grid-gap-run);
+  --cv-note-gap: var(--grid-gap-inner); /* TRANSCRIPT_RUN_GAP (transcriptGrid.ts): 12, 2026-11-11 */
   --cv-status-reply-tail: 0px;
   --cv-tool-gap: var(--grid-gap);
   /* One icon column for every transcript meta row (Leo, 2026-10-31: "YOU GUYS CANNOT FUCKIGN
@@ -1916,9 +1916,10 @@
 /* Its rows scroll sideways in Pierre's own box (`[data-code]`); the body only cuts the preview.
    Unwrapped, Pierre keeps a lane for that box's scrollbar under the rows at all times, `--cv-lane`
    tall, inside the box's own bottom gap (its padding is the gap less the lane), so the box is as
-   tall with a scrollbar as without one. A cut preview shows eight rows and the lane under them,
-   Pierre's box cut with it (`--cv-block-cut`, sideways.ts PIERRE_BLOCK_CSS), and its bottom fade
-   stops above the lane. Wrapped rows never scroll sideways: no lane. */
+   tall with a scrollbar as without one. A long diff shows eight rows and the lane under them:
+   Pierre's box is cut with it (`--cv-block-cut`, sideways.ts PIERRE_BLOCK_CSS) and scrolls down
+   itself, its sideways scrollbar in view; the body scrolls on to the file's next edits. Wrapped
+   rows never scroll sideways: no lane. */
 .cv-edit-diff__body {
   --cv-lane: 6px;
   --cv-bar: var(--cv-lane);
@@ -1928,13 +1929,15 @@
 .cv-edit-diff[data-wrap="true"] > .cv-edit-diff__body {
   --cv-lane: 0px;
 }
+/* Past eight lines the diff scrolls inside an eight-line box (the lane under them added), as a Shell
+   block's output does; its bottom edge fades only while more lies under it (moreBelow.ts). */
 .cv-edit-diff__body[data-preview="cut"] {
   --cv-block-cut: calc(8 * var(--cv-codeblock-line-height, var(--cmux-diff-line-height, 18px)) + var(--cv-lane));
   max-height: var(--cv-block-cut);
+  overflow-y: auto;
 }
-/* Show all N lines / Show less is the card's whole bottom row on the card's own fill (ExpandRow.tsx),
-   as tall as its header: a cut diff's last lines fade straight into it, and an open one's last line
-   ends on the same surface the row continues, with no strip of another colour under the lines. */
+/* An expand row is the card's whole bottom row on the card's own fill (ExpandRow.tsx), as tall as
+   its header, with no strip of another colour under the lines. */
 .cv-edit-diff > .cv-expand-row {
   min-height: calc(var(--cv-font-size) * 32 / 14);
   margin: 0;
@@ -2996,13 +2999,43 @@ pre.cv-math-source {
 :root[data-transcript-note-gap="roomy"] {
   --cv-note-gap: var(--cv-turn-gap);
 }
-/* An opened run's calls stay in the transcript's one vertical scroll surface. A run can be long,
-   but its summary and collapsed rows never become a second scroll box; opened shell/output bodies
-   own their horizontal overflow below. */
+/* An opened run's calls draw at their full height inside it; a long run's own scroll box is
+   `.cv-run-scroll` around it (RunScroll.tsx), and with the `inline` arm they stay in the
+   transcript's one scroll. Opened shell/output bodies own their horizontal overflow below. */
 .cv-tool-run {
   max-height: none;
   overflow: visible;
   overscroll-behavior: auto;
+}
+/* A long opened run as the Codex app draws it (runScroll.experiment.ts; Lucas, 2026-11-11): 14
+   lines tall, scrolled on its own, faded one line deep at the top and bottom where more is hidden
+   (`data-fade-top`, `data-fade-bottom`, RunScroll.tsx). A short run is its own height, unfaded. */
+.cv-run-scroll {
+  --cv-run-fade-top: 0px;
+  --cv-run-fade-bottom: 0px;
+  max-height: calc(var(--cv-tool-row-height) * 14);
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--cv-run-fade-top),
+    #000 calc(100% - var(--cv-run-fade-bottom)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--cv-run-fade-top),
+    #000 calc(100% - var(--cv-run-fade-bottom)),
+    transparent
+  );
+}
+.cv-run-scroll[data-fade-top] {
+  --cv-run-fade-top: var(--cv-tool-row-height);
+}
+.cv-run-scroll[data-fade-bottom] {
+  --cv-run-fade-bottom: var(--cv-tool-row-height);
 }
 .cv-tool {
   all: unset;
@@ -4895,8 +4928,8 @@ a.cv-sha:focus-visible {
     transition: none;
   }
 }
-/* A tool-call block's body (BlockParts.tsx): past eight lines its first ones fade out at the bottom
-   (Show all N lines opens it), and an unwrapped line running past the right edge fades out there
+/* A tool-call block's body (BlockParts.tsx): past eight lines it scrolls in an eight-line box whose
+   bottom fades out while more lies under it, and an unwrapped line running past the right edge fades out there
    while more of it lies past (sideways.ts). A fade, never a hard edge; no transition, so it shows
    and goes at once whatever the motion settings. Under unwrapped lines that run past the edge, the
    box keeps a thin scrollbar thumb at rest (scrollers.ts SIDEWAYS_ATTRIBUTE), `--cv-bar` tall, in a
@@ -4925,7 +4958,7 @@ a.cv-sha:focus-visible {
 }
 /* A shell body scrolled to its end (moreBelow.ts) has a hard bottom edge. It comes after the shared
    fade above: the two selectors weigh the same, so the later one wins. */
-.cv-shell__body[data-preview="cut"]:not([data-more-below]) {
+:is(.cv-edit-diff__body, .cv-shell__body)[data-preview="cut"]:not([data-more-below]) {
   --cv-fade-bottom: 0px;
 }
 :is(.cv-shell__body, .cv-tool-output__box > .cv-tool-output)[data-more-right] {
@@ -4943,6 +4976,14 @@ a.cv-sha:focus-visible {
     ),
     linear-gradient(to left, transparent, #000 var(--cv-fade-right, 0px));
   mask-composite: intersect;
+}
+/* A long diff's lane is inside each hunk's own box, which scrolls by under the body's edge, so the
+   body fades to its very bottom; its right edge fades in each hunk's box (sideways.ts). */
+.cv-edit-diff__body[data-preview="cut"][data-more-below] {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - var(--cv-fade-bottom)), transparent);
+}
+.cv-edit-diff__body[data-preview="cut"]:not([data-more-below]) {
+  mask-image: none;
 }
 /* Its lines, one block each: wrapped, a long one hangs under its first row; unwrapped, it stays on
    one row and the body scrolls sideways (trackpad, Shift-wheel). */

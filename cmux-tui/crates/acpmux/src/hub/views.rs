@@ -494,6 +494,8 @@ impl Hub {
         use crate::protocol::session::{
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
         };
+        #[cfg(test)]
+        self.summaries_built.fetch_add(1, Ordering::SeqCst);
         let m = session.meta();
         let waiting = super::subsession_send::waiting_on(session);
         let turn = session.turn();
@@ -934,6 +936,9 @@ impl Hub {
             "largeMessages": crate::wire_size::global().status(),
             // The session list each client is sent, by its name (`list_bytes.rs`).
             "listReplies": crate::list_bytes::global().status(),
+            // Startup phases, memory, list rebuilds and each connection's queued bytes
+            // (`gauges.rs`, `server/queue_gauge.rs`): atomics and short locks no request holds.
+            "gauges": crate::gauges::daemon_status(),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
