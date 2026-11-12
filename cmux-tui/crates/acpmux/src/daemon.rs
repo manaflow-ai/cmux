@@ -12,6 +12,8 @@ use std::time::Duration;
 pub(crate) mod exe_path;
 mod lock;
 #[cfg(unix)]
+mod log_cap;
+#[cfg(unix)]
 mod open_file_limit;
 #[cfg(unix)]
 use lock::live_holder_pid;
@@ -297,6 +299,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // Record the held home before any startup write, and start its watcher immediately. The
     // watcher marks a replacement before the later startup and shutdown paths can write there.
     crate::config::hold_home();
+    // Its output file stays bounded: past the cap, this run starts a new one (`log_cap.rs`).
+    #[cfg(unix)]
+    match log_cap::rotate_at_start(&home().join("daemon.log"), log_cap::CAP) {
+        Ok(true) => {
+            tracing::info!("daemon.log was past {} MiB: moved to daemon.log.1", log_cap::CAP >> 20)
+        }
+        Ok(false) => {}
+        Err(e) => tracing::warn!("daemon.log could not be moved aside: {e:#}"),
+    }
     let startup_home_gone =
         tokio::spawn(home_watch::watch(owned_home.clone(), None, &home(), &socket_path()));
     let _startup_home_watch = AbortOnDrop(startup_home_gone.abort_handle());
