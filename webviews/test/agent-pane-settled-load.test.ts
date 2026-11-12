@@ -250,6 +250,21 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
     return null;
   };
   let status = "running";
+  /// The settled cold open (cmuxterm-hq#9655 stage 1): whether this daemon serves `settled-attach-v1`,
+  /// whether it serves forks, and whether it is still reading the chat's log after its restart. While
+  /// it reads, an attach answers the newest page from disk with the summary it had before the log was
+  /// read: no queue (requests.rs MUX_ATTACH, `waitLogs: false`); the queue comes later as a
+  /// session change. A settled view, written at the last turn end, carries the queue with the frame.
+  let settledServed = false;
+  let forkServed = false;
+  let restoring = false;
+  const RESTORED_QUEUE = [
+    { promptId: "q-1", prompt: "After this, run the retry suite again" },
+    { promptId: "q-2", prompt: "Then write up what changed" },
+    { promptId: "q-3", prompt: "And open the pull request" },
+  ];
+  /// The attach requests the pane made, as asked (their `settled` flag and page bounds).
+  const attachesAsked: Record<string, any>[] = [];
   /// Initialize requests: one per connection the pane made.
   let connections = 0;
   /// Older pages the pane asked for (`_acpmux/events` with `beforeSeq`).
@@ -258,17 +273,51 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
   function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
       case "initialize":
-        return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
+        return {
+          protocolVersion: 1,
+          _meta: {
+            acpmux: {
+              origin: "local",
+              extensions: [],
+              operations: forkServed ? ["acp.session.fork"] : [],
+              capabilities: settledServed ? ["settled-attach-v1"] : [],
+            },
+          },
+        };
       case "_acpmux/watch":
         return { sessions: [summary(status)] };
       case "_acpmux/attach": {
+        attachesAsked.push(params);
         const p = page(params, true);
+        const session = restoring ? summary(status) : { ...summary(status), queue: RESTORED_QUEUE, queued: 3 };
+        // The view written at the chat's last turn end: its records are the page's, up to that end.
+        const viewEnd = [...events].reverse().find((event) => event.kind === "turn_result")?.seq ?? events.length;
+        const settled =
+          settledServed && params.settled === true
+            ? {
+                schema: 1,
+                lastSeq: viewEnd,
+                writtenAt: Date.now(),
+                hasMore: p.hasMore,
+                pageThrough: events.length,
+                queue: RESTORED_QUEUE,
+                queued: RESTORED_QUEUE.length,
+                pending: [],
+                forkSeqs: p.events.filter((event) => event.kind === "turn_result").map((event) => event.seq),
+                status: "idle",
+                logLoaded: !restoring,
+              }
+            : null;
         return {
-          session: summary(status),
+          session:
+            settled && restoring
+              ? { ...session, queue: RESTORED_QUEUE, queued: RESTORED_QUEUE.length, queueFrom: "settled" }
+              : session,
           ...p,
           lastSeq: events.length,
           pageThrough: events.length,
           turnOpener: turnOpener(p.events[0], p.hasMore),
+          ...(settledServed ? { settled } : {}),
         };
       }
       case "_acpmux/events": {
@@ -423,6 +472,18 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
         overlaps: [] as string[],
         atBottom: false,
         leftBottom: [] as string[],
+        // The settled cold open's detectors, from the first frame on (armed or not): each distinct
+        // state the pane showed in order (blank, newtab, rows), the queued prompts the composer
+        // shows by frame, and the fork controls on screen in the first frame that showed rows.
+        states: [] as string[],
+        queued: [] as [number, number][],
+        forkFirstRows: undefined as number | undefined,
+        // By painted frame, not by time: the queued count in the first frame that showed rows, and
+        // the queued count changes in the frames after it.
+        queuedFirstRows: undefined as number | undefined,
+        queuedChangesAfterRows: 0,
+        forks: [] as [number, number][],
+        settledPainted: [] as number[],
       };
       if ((window as unknown as { __settledArmed?: boolean }).__settledArmed) state.on = true;
       (window as unknown as { __settled: typeof state }).__settled = state;
@@ -554,6 +615,21 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
         if (state.on && state.atBottom && scroller && !paneHidden) {
           const gap = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight;
           if (gap > 48) state.leftBottom.push(`${Math.round(gap)}px@${Math.round(now)}`);
+        }
+        {
+          const frameState = document.querySelector(".nt-screen") ? "newtab" : visibleIds.length > 0 ? "rows" : "blank";
+          if (state.states.at(-1) !== frameState) state.states.push(frameState);
+          const fold = document.querySelector(".acpmux-queue-fold")?.textContent?.match(/\d+/)?.[0];
+          const queued = fold ? Number(fold) : document.querySelectorAll(".acpmux-queued").length;
+          if (state.queued.at(-1)?.[1] !== queued) {
+            if (state.queuedFirstRows !== undefined) state.queuedChangesAfterRows += 1;
+            state.queued.push([Math.round(now), queued]);
+            if (state.queued.length > 1) changed = true;
+          }
+          if (frameState === "rows" && state.queuedFirstRows === undefined) state.queuedFirstRows = queued;
+          const forks = scroller?.querySelectorAll(".cv-fork-button").length ?? 0;
+          if (frameState === "rows" && state.forkFirstRows === undefined) state.forkFirstRows = forks;
+          if (state.forks.at(-1)?.[1] !== forks) state.forks.push([Math.round(now), forks]);
         }
         if (changed) state.lastChange = now;
       };
@@ -784,127 +860,257 @@ await requireBrowserLane("agent-pane-settled-load.test.ts", async () => {
   // page then opens it cold, as after the restart, from that and the daemon. From its first frame
   // the rows a reader sees, their folds and the background count must be the settled ones, and no
   // frame may show the New Tab page: later data only adds.
-  test.each(engines.map(([name]) => name))(
-    "%s: a long chat opened cold after a restart draws its settled rows, folds and count from the first frame",
-    async (name) => {
-      events.length = fixtureEnd;
-      liveAt = fixtureLiveAt;
-      record("mux", "turn_result", { status: "completed" });
-      status = "idle";
-      const kept = { tails: {}, anchors: {} };
-      const before = await browsers.get(name)!.newPage({ viewport: { width: 1200, height: 860 } });
-      try {
-        await before.addInitScript((value) => {
-          (globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept = value;
-        }, kept);
-        await installPaintedFrames(before);
-        await installRecorder(before);
-        await before.goto(url());
-        await before.locator(".acpmux-row").first().waitFor({ timeout: 60_000 });
-        await settle(before);
-        // Quit: the page hands the host what it keeps (pagehide), as the app's quit does.
-        await before.evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false })));
-        Object.assign(
-          kept,
-          await before.evaluate(() =>
-            JSON.parse(JSON.stringify((globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept)),
-          ),
-        );
-      } finally {
-        await before.close();
-      }
-      // SETTLED_LOAD_VIDEO=DIR records the cold open (the PR's before/after video).
-      const videoDir = process.env.SETTLED_LOAD_VIDEO;
-      const page = await browsers.get(name)!.newPage({
-        viewport: { width: 1200, height: 860 },
-        ...(videoDir ? { recordVideo: { dir: path.join(videoDir, name), size: { width: 1200, height: 860 } } } : {}),
-      });
-      try {
-        await page.addInitScript((value) => {
-          (globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept = value;
-          (window as unknown as { __settledArmed?: boolean }).__settledArmed = true;
-        }, kept);
-        await installPaintedFrames(page);
-        await installRecorder(page);
-        const navigated = Date.now();
-        await page.goto(url());
-        await page.locator(".acpmux-row").first().waitFor({ timeout: 60_000 });
-        // The daemon restarted with the app and is still restoring its chats: the pane's connection
-        // drops and comes back a few times while the chat opens, and the background tasks restore.
-        for (let round = 0; round < 3; round++) {
-          const before = connections;
-          drop();
-          const deadline = Date.now() + 30_000;
-          while ((connections === before || attached.size === 0) && Date.now() < deadline)
-            await page.evaluate(() => window.cmuxPaintFrame());
+  // `settled`: acpmux serves its settled view (cmuxterm-hq#9655), which the page lays on the kept tail
+  // it drew as live records, with no replay.
+  for (const mode of ["old", "settled"] as const)
+    test.each(engines.map(([name]) => name))(
+      `%s: a long chat opened cold after a restart draws its settled rows, folds and count from the first frame (${mode})`,
+      async (name) => {
+        events.length = fixtureEnd;
+        liveAt = fixtureLiveAt;
+        record("mux", "turn_result", { status: "completed" });
+        status = "idle";
+        settledServed = mode === "settled";
+        const kept = { tails: {}, anchors: {} };
+        const before = await browsers.get(name)!.newPage({ viewport: { width: 1200, height: 860 } });
+        try {
+          await before.addInitScript((value) => {
+            (globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept = value;
+          }, kept);
+          await installPaintedFrames(before);
+          await installRecorder(before);
+          await before.goto(url());
+          await before.locator(".acpmux-row").first().waitFor({ timeout: 60_000 });
+          await settle(before);
+          // Quit: the page hands the host what it keeps (pagehide), as the app's quit does.
+          await before.evaluate(() => dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false })));
+          Object.assign(
+            kept,
+            await before.evaluate(() =>
+              JSON.parse(JSON.stringify((globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept)),
+            ),
+          );
+        } finally {
+          await before.close();
         }
-        const settledAt = await settle(page);
-        const result = await page.evaluate(() => {
-          const s = (window as unknown as { __settled: any }).__settled;
-          const folds: string[] = [];
-          for (const [id, seen] of s.folds as Map<string, [number, string][]>)
-            if (seen.length > 1)
-              folds.push(`${id}:${seen.map(([at, sig]: [number, string]) => `${sig || "-"}@${at}`).join(">")}`);
-          return {
-            frames: s.frames,
-            firstRow: s.firstRow,
-            setChanges: s.setChanges,
-            newTab: s.newTab,
-            folds,
-            pending: s.pending,
-            overlaps: s.overlaps,
-            flips: s.flips,
-            remounts: s.remounts,
-            rowsSeen: { text: s.rowsSeen.text.size, tool: s.rowsSeen.tool.size },
+        // SETTLED_LOAD_VIDEO=DIR records the cold open (the PR's before/after video).
+        const videoDir = process.env.SETTLED_LOAD_VIDEO;
+        const page = await browsers.get(name)!.newPage({
+          viewport: { width: 1200, height: 860 },
+          ...(videoDir ? { recordVideo: { dir: path.join(videoDir, name), size: { width: 1200, height: 860 } } } : {}),
+        });
+        try {
+          await page.addInitScript((value) => {
+            (globalThis as { cmuxDevHostKept?: unknown }).cmuxDevHostKept = value;
+            (window as unknown as { __settledArmed?: boolean }).__settledArmed = true;
+          }, kept);
+          await installPaintedFrames(page);
+          await installRecorder(page);
+          const navigated = Date.now();
+          await page.goto(url());
+          await page.locator(".acpmux-row").first().waitFor({ timeout: 60_000 });
+          // The daemon restarted with the app and is still restoring its chats: the pane's connection
+          // drops and comes back a few times while the chat opens, and the background tasks restore.
+          for (let round = 0; round < 3; round++) {
+            const before = connections;
+            drop();
+            const deadline = Date.now() + 30_000;
+            while ((connections === before || attached.size === 0) && Date.now() < deadline)
+              await page.evaluate(() => window.cmuxPaintFrame());
+          }
+          const settledAt = await settle(page);
+          const result = await page.evaluate(() => {
+            const s = (window as unknown as { __settled: any }).__settled;
+            const folds: string[] = [];
+            for (const [id, seen] of s.folds as Map<string, [number, string][]>)
+              if (seen.length > 1)
+                folds.push(`${id}:${seen.map(([at, sig]: [number, string]) => `${sig || "-"}@${at}`).join(">")}`);
+            return {
+              frames: s.frames,
+              firstRow: s.firstRow,
+              setChanges: s.setChanges,
+              newTab: s.newTab,
+              folds,
+              pending: s.pending,
+              overlaps: s.overlaps,
+              flips: s.flips,
+              remounts: s.remounts,
+              rowsSeen: { text: s.rowsSeen.text.size, tool: s.rowsSeen.tool.size },
+            };
+          });
+          const report = {
+            engine: name,
+            case: `cold-restart-${mode}`,
+            kept_tail_records:
+              Object.values(kept.tails as Record<string, { events?: unknown[] }>)[0]?.events?.length ?? 0,
+            frames: result.frames,
+            first_row_ms: Math.round(result.firstRow ?? Number.NaN),
+            settled_ms: Math.round(settledAt),
+            wall_ms: Date.now() - navigated,
+            rows_seen: result.rowsSeen,
+            row_set_changes: result.setChanges.length,
+            fold_changes: result.folds.length,
+            new_tab_frames: result.newTab.length,
+            pending_changes: Math.max(0, result.pending.length - 1),
+            overlap_frames: result.overlaps.length,
+            flips: { text: result.flips.text.length, tool: result.flips.tool.length },
+            remounts: { text: result.remounts.text.length, tool: result.remounts.tool.length },
+            examples: {
+              row_set_changes: result.setChanges.slice(0, 8),
+              folds: result.folds.slice(0, 4),
+              pending: result.pending.slice(0, 8),
+              flips: [...result.flips.text.slice(0, 4), ...result.flips.tool.slice(0, 2)],
+              remounts: [...result.remounts.text.slice(0, 4), ...result.remounts.tool.slice(0, 2)],
+            },
           };
-        });
-        const report = {
-          engine: name,
-          case: "cold-restart",
-          kept_tail_records:
-            Object.values(kept.tails as Record<string, { events?: unknown[] }>)[0]?.events?.length ?? 0,
-          frames: result.frames,
-          first_row_ms: Math.round(result.firstRow ?? Number.NaN),
-          settled_ms: Math.round(settledAt),
-          wall_ms: Date.now() - navigated,
-          rows_seen: result.rowsSeen,
-          row_set_changes: result.setChanges.length,
-          fold_changes: result.folds.length,
-          new_tab_frames: result.newTab.length,
-          pending_changes: Math.max(0, result.pending.length - 1),
-          overlap_frames: result.overlaps.length,
-          flips: { text: result.flips.text.length, tool: result.flips.tool.length },
-          remounts: { text: result.remounts.text.length, tool: result.remounts.tool.length },
-          examples: {
-            row_set_changes: result.setChanges.slice(0, 8),
-            folds: result.folds.slice(0, 4),
-            pending: result.pending.slice(0, 8),
-            flips: [...result.flips.text.slice(0, 4), ...result.flips.tool.slice(0, 2)],
-            remounts: [...result.remounts.text.slice(0, 4), ...result.remounts.tool.slice(0, 2)],
-          },
-        };
-        console.log(`settled-load: ${JSON.stringify(report)}`);
-        expect(report.kept_tail_records).toBeGreaterThan(0);
-        expect(Number.isFinite(settledAt)).toBe(true);
-        expect(report.rows_seen.text).toBeGreaterThan(2);
-        expect({
-          row_set_changes: report.row_set_changes,
-          new_tab_frames: report.new_tab_frames,
-          pending_changes: report.pending_changes,
-          flips: report.flips,
-          remounts: report.remounts,
-        }).toEqual({
-          // fold_changes and overlap_frames are reported, not yet gated: base shows the same (the last
-          // turn footer's Timeline toggle goes while the connection is down), a separate root fix.
-          row_set_changes: 0,
-          new_tab_frames: 0,
-          pending_changes: 0,
-          flips: { text: 0, tool: 0 },
-          remounts: { text: 0, tool: 0 },
-        });
-      } finally {
-        await page.close();
-      }
-    },
-  );
+          console.log(`settled-load: ${JSON.stringify(report)}`);
+          expect(report.kept_tail_records).toBeGreaterThan(0);
+          expect(Number.isFinite(settledAt)).toBe(true);
+          expect(report.rows_seen.text).toBeGreaterThan(2);
+          expect({
+            row_set_changes: report.row_set_changes,
+            new_tab_frames: report.new_tab_frames,
+            pending_changes: report.pending_changes,
+            flips: report.flips,
+            remounts: report.remounts,
+          }).toEqual({
+            // fold_changes and overlap_frames are reported, not yet gated: base shows the same (the last
+            // turn footer's Timeline toggle goes while the connection is down), a separate root fix.
+            row_set_changes: 0,
+            new_tab_frames: 0,
+            pending_changes: 0,
+            flips: { text: 0, tool: 0 },
+            remounts: { text: 0, tool: 0 },
+          });
+        } finally {
+          settledServed = false;
+          await page.close();
+        }
+      },
+    );
+
+  // cmuxterm-hq#9655 stage 1 (Leo, 2026-11-12: "where is the better architecture the chat ...
+  // only works 1% of the time now if you consider the appearance"): a chat opened cold after a
+  // restart, with nothing kept on the Mac (the host's tail is in memory only), while acpmux is still
+  // reading the chat's log. `old`: this acpmux serves no settled view, so its attach answers the newest
+  // page with no queue and the queue comes later; `settled`: it serves `settled-attach-v1`, and the
+  // attach answers the view written at the last turn end, queue and fork points with it. Reported per
+  // mode; gated in `settled` only: the pane shows blank, then the settled chat, and nothing else
+  // (no New Tab, no row set change, no queue change, the fork control in its first frame).
+  for (const mode of ["old", "settled"] as const)
+    test.each(engines.map(([name]) => name))(
+      `%s: a chat opened cold while acpmux restores draws blank then its settled frame only (${mode})`,
+      async (name) => {
+        events.length = fixtureEnd;
+        liveAt = fixtureLiveAt;
+        record("mux", "turn_result", { status: "completed" });
+        status = "idle";
+        settledServed = mode === "settled";
+        forkServed = true;
+        restoring = true;
+        attachesAsked.length = 0;
+        const page = await browsers.get(name)!.newPage({ viewport: { width: 1200, height: 860 } });
+        try {
+          await page.addInitScript(() => {
+            (window as unknown as { __settledArmed?: boolean }).__settledArmed = true;
+          });
+          await installPaintedFrames(page);
+          await installRecorder(page);
+          await page.goto(url());
+          await page.locator(".acpmux-row").first().waitFor({ timeout: 60_000 });
+          // acpmux finishes reading the log: the real queue arrives as a session change.
+          await frames(page, 20);
+          restoring = false;
+          const restored = { ...summary(status), queue: RESTORED_QUEUE, queued: RESTORED_QUEUE.length };
+          for (const ws of attached)
+            ws.send(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                method: "_acpmux/session_changed",
+                params: { sessionId: SESSION, session: restored, kind: "queue", seq: events.length },
+              }),
+            );
+          const settledAt = await settle(page);
+          const result = await page.evaluate(() => {
+            const s = (window as unknown as { __settled: any }).__settled;
+            return {
+              states: s.states as string[],
+              setChanges: s.setChanges as number[],
+              newTab: s.newTab as number[],
+              queued: s.queued as [number, number][],
+              forkFirstRows: s.forkFirstRows as number | undefined,
+              queuedFirstRows: s.queuedFirstRows as number | undefined,
+              queuedChangesAfterRows: s.queuedChangesAfterRows as number,
+              forks: s.forks as [number, number][],
+              flips: s.flips,
+              remounts: s.remounts,
+              firstRow: s.firstRow as number | undefined,
+              settledDrawn: document.documentElement.dataset.acpmuxSettledDrawn ?? "",
+            };
+          });
+          const queuedSeq = result.queued.map(([, n]) => n);
+          const report = {
+            engine: name,
+            case: `cold-restoring-${mode}`,
+            settled_asked: attachesAsked.filter((p) => p.settled === true).length,
+            attaches: attachesAsked.length,
+            first_row_ms: Math.round(result.firstRow ?? Number.NaN),
+            settled_ms: Math.round(settledAt),
+            states: result.states.join(">"),
+            state_flips: Math.max(0, result.states.length - 2) + (result.states[0] === "blank" ? 0 : 1),
+            row_set_changes: result.setChanges.length,
+            new_tab_frames: result.newTab.length,
+            queued: queuedSeq.join(">"),
+            queued_monotonic: queuedSeq.every((n, i) => i === 0 || n >= queuedSeq[i - 1]!),
+            queued_in_first_rows_frame: result.queuedFirstRows ?? 0,
+            queue_changes_after_rows: result.queuedChangesAfterRows,
+            fork_in_first_rows_frame: result.forkFirstRows ?? 0,
+            fork_changes: Math.max(0, result.forks.length - 1),
+            flips: { text: result.flips.text.length, tool: result.flips.tool.length },
+            remounts: { text: result.remounts.text.length, tool: result.remounts.tool.length },
+            settled_drawn_marker: result.settledDrawn,
+          };
+          console.log(`settled-load: ${JSON.stringify(report)}`);
+          expect(Number.isFinite(settledAt)).toBe(true);
+          if (mode === "settled") {
+            // The page asked for the view, with the page bounds the view is keyed on, every time.
+            expect(report.settled_asked).toBe(report.attaches);
+            for (const asked of attachesAsked)
+              expect({ limit: asked.limit, maxBytes: asked.maxBytes, kinds: asked.kinds }).toEqual({
+                limit: attachesAsked[0]!.limit,
+                maxBytes: attachesAsked[0]!.maxBytes,
+                kinds: attachesAsked[0]!.kinds,
+              });
+            expect({
+              states: report.states,
+              row_set_changes: report.row_set_changes,
+              new_tab_frames: report.new_tab_frames,
+              queued_monotonic: report.queued_monotonic,
+              queued_in_first_rows_frame: report.queued_in_first_rows_frame,
+              queue_changes_after_rows: report.queue_changes_after_rows,
+              fork_in_first_rows_frame: report.fork_in_first_rows_frame > 0,
+              flips: report.flips,
+              remounts: report.remounts,
+              settled_drawn_marker: report.settled_drawn_marker,
+            }).toEqual({
+              states: "blank>rows",
+              row_set_changes: 0,
+              new_tab_frames: 0,
+              queued_monotonic: true,
+              queued_in_first_rows_frame: RESTORED_QUEUE.length,
+              queue_changes_after_rows: 0,
+              fork_in_first_rows_frame: true,
+              flips: { text: 0, tool: 0 },
+              remounts: { text: 0, tool: 0 },
+              settled_drawn_marker: "true",
+            });
+          } else expect(report.settled_asked).toBe(0);
+        } finally {
+          settledServed = false;
+          forkServed = false;
+          restoring = false;
+          await page.close();
+        }
+      },
+    );
 });

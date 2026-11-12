@@ -528,6 +528,37 @@ export function attachedLocalRow(result: unknown, sessionId: string): Session | 
 /// peer daemon's own detail, with no `peer`, so the detail alone read as this Mac's chat and Session
 /// Info named this Mac for a peer's chat (Leo, 2026-11-07: "hmm is the session info not accurately
 /// describing machine provenance?").
+/// The settled view an attach answered with (`settled`, acpmux `settled-attach-v1`): where its frame
+/// ends and the turn ends a fork can go through. Undefined for a plain attach reply (`settled: null`,
+/// an older acpmux, or a reply that does not say).
+export type SettledView = { lastSeq: number; forkSeqs: readonly number[] };
+
+export function settledView(result: unknown): SettledView | undefined {
+  const settled = (result as { settled?: unknown } | undefined)?.settled;
+  if (!settled || typeof settled !== "object") return undefined;
+  const view = settled as { lastSeq?: unknown; forkSeqs?: unknown };
+  if (typeof view.lastSeq !== "number" || !Number.isFinite(view.lastSeq)) return undefined;
+  const forkSeqs = Array.isArray(view.forkSeqs)
+    ? view.forkSeqs.filter((seq): seq is number => typeof seq === "number" && Number.isFinite(seq))
+    : [];
+  return { lastSeq: view.lastSeq, forkSeqs };
+}
+
+/// The records of a settled attach page that go on from the rows already drawn (a kept tail, a
+/// reconnect's own records): those after `drawnThrough`, when the page meets it. Undefined when the
+/// page does not meet the rows (a gap), when nothing is drawn, or when the reply is no settled view:
+/// the caller then lays the page in as before.
+export function settledAppend(
+  page: readonly EventRecord[],
+  drawnThrough: number,
+  view: SettledView | undefined,
+): EventRecord[] | undefined {
+  if (!view || drawnThrough <= 0 || page.length === 0) return undefined;
+  const oldest = Math.min(...page.map((event) => event.seq));
+  if (oldest > drawnThrough + 1) return undefined;
+  return page.filter((event) => event.seq > drawnThrough).sort((a, b) => a.seq - b.seq);
+}
+
 export function attachedDetail(result: unknown): Record<string, any> {
   const reply = result as { session?: unknown; peer?: unknown } | undefined;
   const detail = reply?.session && typeof reply.session === "object" ? (reply.session as Record<string, any>) : {};
@@ -693,6 +724,10 @@ const MEMORY_INBOX_CAPABILITY = "memory-inbox-v1";
 /// The capability id an acpmux that serves the prompt coach names (`coach_offer` and `coach` records,
 /// `_acpmux/prompt_coach`): without it the page never asks for a rewrite.
 const PROMPT_COACH_CAPABILITY = "prompt-coach-v1";
+/// The capability id an acpmux that keeps each chat's settled view names (cmuxterm-hq#9655 stage 1):
+/// written at every turn end, it answers `_acpmux/attach { settled: true }` first, with the records
+/// logged after it, its queue and its fork points, even before a restarted acpmux read the chat's log.
+export const SETTLED_ATTACH_CAPABILITY = "settled-attach-v1";
 /// The feature a chat on another machine names (Cloud, SSH: the app's RemoteAcpmuxWire) where that
 /// machine opens the chat's side chats there, with `_acpmux/side_chat`.
 const SIDE_CHAT_FEATURE = "side_chat";
@@ -3107,6 +3142,10 @@ export class AcpmuxDirectClient {
   /// any attach answered. The pane's host reads it in the first-paint report and shows such a chat
   /// in one frame instead of fading it in (tailCache.ts, AgentPaneView+Loading.swift).
   private drewKeptTail = false;
+  /// The settled view the open's attach answered with (`settled-attach-v1`), for the chat and
+  /// selection it was read for: its frame is the one the pane draws first, and the host is told
+  /// once it is on screen (`settled` in the snapshot, App.tsx `pane.painted`).
+  private settled?: SettledView & { sessionId: string; generation: number };
   /// A kept tail a cold open drew while its socket was still connecting (`drawTailWhileConnecting`):
   /// the chat, the selection it was drawn for and the newest seq drawn. The open's attach takes it
   /// as the tail it lays its page over, as it does a tail it read itself; anything that clears the
@@ -4168,6 +4207,7 @@ export class AcpmuxDirectClient {
     this.olderDelay.cancel();
     // Nothing is drawn, so nothing drawn came from a kept tail: the next open says for itself.
     this.drewKeptTail = false;
+    this.settled = undefined;
     this.earlyTail = undefined;
     this.peerCopy = undefined;
     this.copyLive = undefined;
@@ -6509,6 +6549,9 @@ export class AcpmuxDirectClient {
       // attach page can read the newest records directly; queue/status restoration continues in
       // the daemon and arrives on the attached event stream (Leo: the window must be well under 1 s).
       waitLogs: false,
+      // The chat's settled view first (cmuxterm-hq#9655): acpmux keys it on these page bounds, which
+      // stay the same on every open of the pane; it carries the queue a restarted acpmux has not read.
+      ...(this.capabilities?.has(SETTLED_ATTACH_CAPABILITY) ? { settled: true } : {}),
       limit: 400,
       // The most opening a chat downloads, however large its tool output (a remote session's open).
       maxBytes: OPEN_PAGE_BYTES,
@@ -6901,10 +6944,26 @@ export class AcpmuxDirectClient {
     } else this.turnOpener = served ?? undefined;
     if (readCommandsThrough !== undefined)
       void this.fetchCommands(sessionId, generation, readCommandsThrough).catch(() => {});
-    // Merged after the opener's read: live events that landed meanwhile are kept.
-    this.events = mergeEventRecords(page, this.events);
-    this.sawPrompts(page);
-    this.rebuild();
+    const view = settledView(result);
+    this.settled = view ? { ...view, sessionId, generation } : undefined;
+    // A settled view that goes on from the rows drawn (a kept tail, a reconnect's records) is laid
+    // on them as live records are: no replay of what is on screen, and nothing drawn is swapped
+    // for a page (cmuxterm-hq#9655 stage 1). Records it holds from before the rows are left to the
+    // older pages, as the history above a kept tail is.
+    const append = replaced ? undefined : settledAppend(page, this.events.length > 0 ? this.lastSeq : 0, view);
+    if (append) {
+      this.events = mergeEventRecords(append, this.events);
+      this.sawPrompts(append);
+      for (const event of append) {
+        this.lastSeq = Math.max(this.lastSeq, event.seq);
+        this.reduce(event);
+      }
+    } else {
+      // Merged after the opener's read: live events that landed meanwhile are kept.
+      this.events = mergeEventRecords(page, this.events);
+      this.sawPrompts(page);
+      this.rebuild();
+    }
     // acpmux's list is the order; the replayed `queued` records give each prompt its whole text.
     const latest = watch.latestSummary;
     const latestIsNew =
@@ -6922,8 +6981,10 @@ export class AcpmuxDirectClient {
     );
     // A held prompt whose record is older than the page shows its list preview: read its record.
     this.fetchHeldText();
-    // acpmux holds nothing older than the page: the pane offers no more history.
-    if (result?.hasMore === false) this.historyExhausted = true;
+    // acpmux holds nothing older than the page: the pane offers no more history. A settled page laid
+    // on drawn rows left its older records to the history reads, so those still read them.
+    if (result?.hasMore === false && !(append && page.some((event) => event.seq < (this.firstSeq ?? 0))))
+      this.historyExhausted = true;
     this.attachedGeneration = generation;
     // A lag marker that came before this reply (`resyncAfterLag`): read what it dropped from where
     // the machine read the page, so events dropped after that read come back.
@@ -10155,6 +10216,12 @@ export class AcpmuxDirectClient {
           }
         : {}),
       ...(this.chatRead() ? { chatRead: true as const } : {}),
+      ...(this.settled &&
+      this.settled.sessionId === this.selectedSessionId &&
+      this.settled.generation === this.selectionGeneration &&
+      this.attachedGeneration === this.selectionGeneration
+        ? { settled: { lastSeq: this.settled.lastSeq, forkSeqs: this.settled.forkSeqs } }
+        : {}),
       ...(this.extensions.includes("acp.trust.set") ? { answersTrust: true } : {}),
       ...(this.ownerCloud ? { ownerCloud: true as const } : {}),
       ...(this.extensions.includes(MCP_RECONNECT_METHOD) ? { reconnectsMcp: true } : {}),
