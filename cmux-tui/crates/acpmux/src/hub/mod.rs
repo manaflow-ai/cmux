@@ -1670,6 +1670,12 @@ impl Hub {
         let rebuilt = restored.is_ok() && !results.is_empty();
         if rebuilt {
             let mut meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            // A result past the saved metadata is one a kill lost the save of: its summary is the
+            // chat's last turn before any request reads it (every chat request waits for this
+            // read, `log_load.rs`), not only once the queue resume corrects it.
+            if let Some(newest) = results.first() {
+                Self::correct_last_turn(&mut meta, newest);
+            }
             for record in results.into_iter().rev() {
                 meta.harness_failures.observe(&record.msg, record.seq, record.at);
             }
