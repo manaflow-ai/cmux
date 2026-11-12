@@ -71,7 +71,7 @@ import {
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
 import { finishCarry, notePinPass, pinLiveLine } from "./conversation/pinnedLiveLine";
-import { createFollowChase, type FollowChase, ARRIVAL_EASE, arrivalStepMs } from "./conversation/followChase";
+import { ARRIVAL_EASE, arrivalStepMs, createFollowChase, type FollowChase } from "./conversation/followChase";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
