@@ -185,6 +185,9 @@ const down = (run: DragRun, rest: number) => most(run.frames.map((shot) => shot.
 /// the latest row (`foot`: the room under it where the view is at the chat's end).
 const cut = (run: DragRun, rest: number, foot: number) =>
   most(run.frames.map((shot) => Math.min(rest - shot.top, shot.foot - foot)));
+/// The height of the mounted rows in one read, first row's top to last row's bottom. (The scroll
+/// content's own height says nothing for a chat that fits: it is never less than the view's.)
+const tall = (run: DragRun, shot: Shot) => Math.round((run.view - shot.top - shot.foot) * 10) / 10;
 const settle = (run: DragRun) => ({
   top: Math.round((run.after.top - last(run).top) * 10) / 10,
   foot: Math.round((run.after.foot - last(run).foot) * 10) / 10,
@@ -241,6 +244,7 @@ export async function dragStays({ file, shape, engine, engineName, configFile }:
         view: run.view,
         gapMs: run.gap,
         extent: [run.extentBefore, run.extentAfter],
+        rows: [tall(run, run.before), tall(run, run.after)],
         before: run.before,
         lastFrame: last(run),
         after: run.after,
@@ -266,7 +270,7 @@ export async function dragStays({ file, shape, engine, engineName, configFile }:
           after: true,
         });
         expect(
-          Math.abs(run.extentAfter - run.extentBefore),
+          Math.abs(tall(run, run.after) - tall(run, run.before)),
           "the drag rewraps the rows: the chat's height changes",
         ).toBeGreaterThan(20);
         expect(run.before.top, "the first row starts inside the view").toBeGreaterThanOrEqual(0);
@@ -288,13 +292,24 @@ export async function dragStays({ file, shape, engine, engineName, configFile }:
       if (height > 0) return height;
       const page = await open(6000, ROWS, WIDE);
       const read = (width: number) =>
-        drag(page, width, width).then((run) => ({ extent: run.extentAfter, view: run.view }));
+        drag(page, width, width).then((run) => ({
+          rows: tall(run, run.after),
+          top: run.after.top,
+          fits: run.fitsAfter,
+          view: run.view,
+        }));
       const wide = await read(WIDE);
       const narrow = await read(NARROW);
       await page.close();
-      expect(narrow.extent - wide.extent, "the chat is taller narrow than wide").toBeGreaterThan(150);
-      // The window's height less the view's: what the page shows around the transcript.
-      height = Math.round((wide.extent + narrow.extent) / 2) + (6000 - wide.view);
+      expect({ wide: wide.fits, narrow: narrow.fits }, "the 6000 px window holds the chat whole").toEqual({
+        wide: true,
+        narrow: true,
+      });
+      expect(narrow.rows - wide.rows, "the chat is taller narrow than wide").toBeGreaterThan(150);
+      // The space above the first row, the rows at halfway between the two widths, and what the page
+      // shows around the transcript (the window's height less the view's).
+      height = Math.round(wide.top + (wide.rows + narrow.rows) / 2) + (6000 - wide.view);
+      console.log(`${file}: sized ${JSON.stringify({ wide, narrow, window: height })}`);
       return height;
     };
 
