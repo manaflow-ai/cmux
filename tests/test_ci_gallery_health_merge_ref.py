@@ -181,8 +181,9 @@ class GalleryHealthBaseReds(unittest.TestCase):
         self.assertIn("head.repo.full_name == github.repository", job["if"])
         self.assertNotIn("needs", job, "it runs beside the shards, not before them")
         self.assertNotIn("needs", workflow["jobs"]["health"])
-        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", job["runs-on"])
-        self.assertNotIn("blacksmith", job["runs-on"])
+        runs_on = "\n".join(workflow_jobs.runs_on_cells(job) or ["<unresolved matrix>"])
+        self.assertIn("fromJSON(vars.RUNNER_POOLS).linux", runs_on)
+        self.assertNotIn("blacksmith", runs_on)
         # It checks out what the shards check out, and restores the base by the judge step's own command.
         self.assertEqual(job["steps"][0]["with"], step("Checkout")["with"])
         build = next(entry for entry in job["steps"] if entry.get("name") == "Build the base gallery")["run"]

@@ -136,7 +136,9 @@ def credentialed_control_jobs(doc):
             cells = [cell for cell in cells if 'ubuntu' in cell and 'macos' not in cell]
             if not cells or all(cell.rstrip().endswith(f"|| '{SIGNING_SLOT}' }}}}") for cell in cells):
                 continue
-        if name in HOSTED_SECRET_JOBS:
+        # The hosted preflight's one credential is its own GITHUB_TOKEN's issues: write, for the failure notice
+        # (test_nightly_owned_minis_only pins it to that and no secret); it stays on hosted Ubuntu by design.
+        if name in HOSTED_SECRET_JOBS or name in HOSTED_PREFLIGHT_JOBS:
             continue
         if holds_credential(job):
             found.add(name)

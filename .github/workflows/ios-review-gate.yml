@@ -194,7 +194,7 @@ jobs:
         with:
           name: ${{ inputs.ipa_artifact_name }}
           # The runner's temp folder, emptied before each job: a self-hosted worker keeps its workspace, and an
-          # .ipa an earlier job left in `ipa/` would be linted as this binary (tests/test_ci_self_hosted_downloads_are_fresh.py).
+          # .ipa an earlier job left in `ipa/` would be linted as this binary (the self-hosted downloads guard, test_ci_self_hosted_downloads_are_fresh, run by hand).
           path: ${{ runner.temp }}/ipa
       - name: Download the dispatched run's binary
         if: inputs.ipa_artifact_run != ''

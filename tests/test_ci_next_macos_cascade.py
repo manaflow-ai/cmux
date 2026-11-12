@@ -1799,11 +1799,11 @@ class CarriedPlacement(unittest.TestCase):
 
     def test_a_rerun_with_a_carried_placement_never_waits_on_an_owned_label(self):
         mac_jobs = [name for name, job in self.jobs.items()
-                    if "needs.macos-placement" in str(job.get("runs-on", ""))]
+                    if "needs.macos-placement" in workflow_jobs.runs_on(job)]
         self.assertTrue(set(CASCADED) | set(GUI_JOBS) <= set(mac_jobs))
         for name in mac_jobs:
-            runs_on = self.jobs[name]["runs-on"]
-            runner_env = (self.jobs[name].get("env") or {}).get("CMUX_NEXT_RUNNER")
+            runs_on = runs_on_of(self.jobs[name])
+            runner_env = env_of(self.jobs[name]).get("CMUX_NEXT_RUNNER")
             for event, attempt, actor in itertools.product(
                     ("pull_request", "push", "workflow_dispatch"), ("2", "3", "4", "6"),
                     ("teamleaderleo", BOT, "cmux-bot[bot]")):
@@ -1820,7 +1820,7 @@ class CarriedPlacement(unittest.TestCase):
     def test_a_carried_fast_tier_hand_back_is_not_read_on_a_rerun(self):
         # The hand-back placement may name the owned side label (side_lane_placement.handback()); a re-run of
         # failed jobs carries it like macos-placement's reading, so the fast tier takes Blacksmith instead.
-        runs_on = self.jobs["fast-tier"]["runs-on"]
+        runs_on = runs_on_of(self.jobs["fast-tier"])
         for attempt, actor in (("2", "teamleaderleo"), ("3", BOT), ("4", "cmux-bot[bot]")):
             for placed in ("1", str(int(attempt) - 1), ""):
                 with self.subTest(attempt=attempt, actor=actor, placed=placed):
@@ -1837,7 +1837,7 @@ class CarriedPlacement(unittest.TestCase):
 
     def test_attempt_1_and_a_placed_rerun_keep_the_owned_label_the_placement_read(self):
         for name in ("cmux-scheme-compile", "release-compile", "swift-canary"):
-            runs_on = self.jobs[name]["runs-on"]
+            runs_on = runs_on_of(self.jobs[name])
             for event in ("pull_request", "workflow_dispatch"):
                 with self.subTest(job=name, event=event):
                     self.assertEqual(evaluate(runs_on, self.context(event, "1", "teamleaderleo", "1")), SIDE)

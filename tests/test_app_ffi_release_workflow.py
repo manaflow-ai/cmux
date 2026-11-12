@@ -218,7 +218,7 @@ class PublishJob(unittest.TestCase):
     def test_the_hand_publish_command_is_one_shell_command_that_ends_with_the_pin_proved(self):
         # Review of #37645 at ec4829a3, F1: it read "...; then pin it with ...", prose no shell accepts, so the
         # command named on a failed publish could not be pasted as given.
-        command = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["publish"]["env"]["HAND_PUBLISH"]
+        command = workflow_jobs.resolve(workflow_jobs.jobs(WORKFLOW)["publish"]).env["HAND_PUBLISH"]
         command = re.sub(r"\$\{\{[^}]*\}\}", "X", command)
         checked = subprocess.run(["bash", "-n", "-c", command], capture_output=True, text=True)
         self.assertEqual(checked.returncode, 0, checked.stderr)
