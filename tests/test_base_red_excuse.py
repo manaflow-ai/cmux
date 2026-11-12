@@ -10575,6 +10575,30 @@ class CompileErrorsAreComparedBySignature(unittest.TestCase):
         self.assertEqual(said.other, ("error: linking with `cc` failed: exit status: 1",))
         self.assertEqual(len(said.located), 1)
 
+    def test_an_unlocated_error_never_takes_a_later_warnings_location(self):
+        # Codex F1 on #42028 at 41133513: an unlocated error followed by a warning's `-->` is not located.
+        job = CompileErrorGitHub().jobs[1]
+        said = excuse.compile_errors(["error: linking with `cc` failed: exit status: 1",
+                                      "warning: unused variable: `x`",
+                                      "  --> crates/acpmux/src/chats/watch.rs:61:5"], job)
+        self.assertEqual(said.located, frozenset())
+        self.assertEqual(said.other, ("error: linking with `cc` failed: exit status: 1",))
+        github = CompileErrorGitHub()
+        github.logs[1] = clippy_log(CompileErrorGitHub.SIM, CompileErrorGitHub.SIM_STEP, [
+            f"2026-11-12T11:45:0{n}.0Z {line}" for n, line in enumerate((
+                "error: linking with `cc` failed: exit status: 1", "warning: variant `RootEntries` is never constructed",
+                "  --> crates/acpmux/src/chats/watch.rs:61:5"))])
+        with self.assertRaises(excuse.Refused):
+            self.judge(github)
+
+    def test_two_failed_steps_of_one_name_against_the_bases_one_are_the_prs_own(self):
+        # Codex F2 on #42028: step names compared by multiplicity, never as dictionary keys.
+        github = CompileErrorGitHub(base_step="failure")
+        github.jobs[1]["steps"].append({"name": CompileErrorGitHub.SIM_STEP, "status": "completed",
+                                        "conclusion": "failure"})
+        with self.assertRaises(excuse.Refused):
+            self.judge(github)
+
 
 class UnplacedLogsAreComparedWhole(unittest.TestCase):
     """2026-11-11: every red in 'cmux-next checks' (cmux#40954) and the CmuxMobileKit tests (cmux#40598 at ea17b848,

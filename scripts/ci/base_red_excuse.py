@@ -1921,7 +1921,6 @@ DIAGNOSTIC_SUMMARY = re.compile(r"^error: (?:could not compile `[^`]+`|aborting 
 # file a base-red line names must still be one the PR does not change.
 CLIPPY_SCOPE = re.compile(r"^##\[error\]clippy -D warnings failed for [^;]+; run `cargo clippy ")
 CLIPPY_BASE_RED = re.compile(r"^##\[error\](?P<path>\S+) is red and this change does not touch it: ")
-DIAGNOSTIC_AT_WITHIN = 3  # rustc prints the `-->` line right after the error's own
 COMPILE_ERROR_LOGS = 6  # base job logs read for one red, at most
 
 
@@ -1929,8 +1928,8 @@ class CompileErrors(NamedTuple):
     located: frozenset  # (error code or "", repo_path of the file, message with numbers masked)
     summaries: frozenset  # cargo's summary lines, numbers masked: read, never compared
     other: tuple  # every other error line: a red that has one is not judged by its compile errors
-    named: frozenset = frozenset()  # the files the clippy wrapper's base-red lines name (CLIPPY_BASE_RED)
-    counts: Counter = Counter()  # how often each located signature is printed: a base error once is not the PR's twice
+    named: frozenset  # the files the clippy wrapper's base-red lines name (CLIPPY_BASE_RED)
+    counts: Counter  # how often each located signature is printed: a base error once is not the PR's twice
 
 
 def compile_errors(lines: list[str], job: dict) -> CompileErrors:
@@ -1956,12 +1955,9 @@ def compile_errors(lines: list[str], job: dict) -> CompileErrors:
             summaries.add(normalise_error(said))
             continue
         found = DIAGNOSTIC.match(said)
-        at = None
-        for later in lines[n + 1:n + 1 + DIAGNOSTIC_AT_WITHIN] if found else ():
-            if later.lstrip().startswith(("error", "##[error]")):
-                break  # another error's location is never this one's (an unlocated error before a located one)
-            if (at := DIAGNOSTIC_AT.match(later)) is not None:
-                break
+        # rustc prints a diagnostic's `-->` on the line right after its header. Only that line is its location: a
+        # later one may be another diagnostic's (an unlocated error before a warning's `-->`, Codex F1 on #42028).
+        at = DIAGNOSTIC_AT.match(lines[n + 1]) if found and n + 1 < len(lines) else None
         if found is None or at is None:
             other.append(said)
             continue
@@ -2008,10 +2004,18 @@ def compile_errors_verdict(repo: str, base: str, sha: str, name: str, job: dict,
             return None
     if head is None or head.other or not head.located:
         return None
-    ran = {str(step.get("name") or ""): step.get("conclusion")  # step-name: classify
-           for step in (same_job or {}).get("steps") or []}
-    if any(ran.get(step) not in (None, "skipped", "failure") for step, _ in failed_step_keys(job)):
+    # Each head failed step against the same job's base verdict by (name, how many): a name the base has fewer times
+    # than the head failed it, or one it ran and passed, is the PR's own (Codex F2 on #42028: names in a dict hid a
+    # second failed step of one name).
+    mine = Counter(step for step, _ in failed_step_keys(job).elements())
+    theirs = Counter(str(step.get("name") or "")  # step-name: classify
+                     for step in (same_job or {}).get("steps") or []
+                     if step.get("conclusion") in ("skipped", "failure"))
+    known = Counter(str(step.get("name") or "") for step in (same_job or {}).get("steps") or [])  # step-name: classify
+    if any(known[step] and theirs[step] < n for step, n in mine.items()):
         return None
+    if view is UNPLACED and sum(mine.values()) != 1:
+        return None  # no line of an unplaced log is known to be its step's: one failed step, or nothing is compared
     try:
         _, changed = pr_paths_once(repo, base, sha, github, run_reads)
     except Final:
