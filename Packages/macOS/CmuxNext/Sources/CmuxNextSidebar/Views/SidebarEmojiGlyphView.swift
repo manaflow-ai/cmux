@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CoreText
 
 /// One emoji drawn whole inside its square. The view measures the glyph's
@@ -28,7 +29,8 @@ final class SidebarEmojiGlyphView: NSView {
         guard target > 0, let (size, ink) = Self.fit(text, target: target, pixelScale: pixelScale) else { return }
         context.saveGState()
         context.textMatrix = .identity
-        let x = leadsWithInk ? SidebarStyle.iconColumnGlyphX(leading: bounds.minX, ink: ink) : bounds.midX - ink.midX
+        // The icon view's frame already carries the Density Lab's x offset (`iconColumnGlyphX`), so not again here.
+        let x = leadsWithInk ? SidebarStyle.iconColumnGlyphX(leading: bounds.minX, ink: ink) - SidebarIconTokens.current.x : bounds.midX - ink.midX
         context.textPosition = CGPoint(x: x, y: bounds.midY - ink.midY)
         CTLineDraw(Self.line(text, size: size), context)
         context.restoreGState()

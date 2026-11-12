@@ -55,6 +55,10 @@ extension SidebarViewComponents {
         var noColorBlocks: Bool
         /// Where leading glyphs sit in the icon column (`sidebar.leadingColumn`): every row lays out again.
         var leadingColumn: SidebarLeadingColumnLook
+        /// The density's sidebar icon geometry (the Density Lab): every row lays out again.
+        var iconTokens: SidebarIconTokens
+        /// The density's tab radius, which the rows' fills share (the Density Lab's roundness).
+        var rowRadius: CGFloat
         /// One list's "Workspaces" heading (`sidebar.listHeading`): the list lays out again with or without it.
         var listHeading: Bool
         /// What a pinned row with its own icon leads with (`sidebar.pinnedRowLeading`): every row lays out again.
@@ -104,6 +108,8 @@ extension SidebarViewComponents {
             groupLineJoinsBar = SidebarGroupLine.joinsBar
             noColorBlocks = SidebarNoColorGroupLook.tunable.value != .plain
             leadingColumn = SidebarLeadingColumnLook.tunable.value
+            iconTokens = SidebarIconTokens.current
+            rowRadius = Metrics.tabCornerRadius
             listHeading = SidebarTunables.listHeading.value
             pinnedRowLeading = SidebarPinnedRowLeading.tunable.value
             titlebarRow = [SidebarStyle.toolbarButtonSize, SidebarStyle.titlebarPlusTrailingInset, TitlebarBandButton.side,
@@ -149,6 +155,7 @@ extension SidebarViewComponents {
         let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
             || lastState?.titlebarHeight != state.titlebarHeight || lastState?.leadingColumn != state.leadingColumn
             || lastState?.pinnedRowLeading != state.pinnedRowLeading
+            || lastState?.iconTokens != state.iconTokens || lastState?.rowRadius != state.rowRadius
         if lastState?.titlebarRow != state.titlebarRow {
             // The window root sets the reserve from the toolbar band, whose width follows the same tokens.
             window?.contentView?.needsLayout = true

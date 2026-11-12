@@ -116,13 +116,14 @@ public final class DensityLabModel {
         guard all.contains(where: { $0.id == id }) else { return }
         selectedID = id
         design.densityTokens = selected
-        if !selectedIsBuiltIn { hooks.saveCustom(customs, id) }
+        hooks.saveCustom(customs, id)
         scheduleRecapture()
     }
 
     /// Sets `control` on the selected density (nil: automatic) and draws the app in it at once.
     func set(_ control: DensityLabControl, _ value: Double?) {
-        replaceSelected(control.applying(value.map { ($0 / control.step).rounded() * control.step }, to: selected))
+        let clamped = value.map { min(max(($0 / control.step).rounded() * control.step, control.range.lowerBound), control.range.upperBound) }
+        replaceSelected(control.applying(clamped, to: selected))
     }
 
     /// A slider was let go, or a field committed: a custom density is saved and the selected density captured again.

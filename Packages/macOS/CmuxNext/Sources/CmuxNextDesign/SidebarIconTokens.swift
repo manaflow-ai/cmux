@@ -3,7 +3,7 @@ public import CoreGraphics
 /// A density's own sidebar icon geometry (Lawrence 2026-11-12: "make sure i can control icons in sidebar, sizing,
 /// positioning, everything"): exact values in `DensityTokens.tokens` under ``Name``, nil where the density follows the
 /// sidebar's derived rule. The Density Lab sets them; a custom density stores them in cmux.json like any token.
-public nonisolated struct SidebarIconTokens: Sendable, Equatable {
+public nonisolated struct SidebarIconTokens: Sendable, Hashable {
     /// A token's key in `DensityTokens.tokens`.
     public enum Name: String, CaseIterable, Sendable {
         /// The side every row's leading glyph ink fills (favicons, symbols, Home's house, pins).
