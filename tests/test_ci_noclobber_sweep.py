@@ -164,7 +164,7 @@ def code(line: str) -> str:
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import shell_tree  # noqa: E402
 
-SHELL_TREE_SHA256 = "418b9e14806dc6aad4d681e4f5c04ca78ea9eec5389f74dc0fc02f0a2077c1c3"
+SHELL_TREE_SHA256 = "9fa7d9d2f074bf532a21c04fa627a9a3ccac652cdab8dfe60d66b2e38b11238c"
 
 
 def without_templates(line: str) -> str:
@@ -494,7 +494,7 @@ class NoclobberSweep(unittest.TestCase):
         """A review of this copy, F2: macOS has no signal.sigtimedwait, so the reaper crashed on every row there. With
         it taken away, the reaper still waits for every process the run leaves and answers as it does with it."""
         self.own_runs()
-        portable = "import signal\ndel signal.sigtimedwait\n" + shell_tree.REAPER
+        portable = NO_SIGTIMEDWAIT + shell_tree.REAPER
         rows = [(": > /tmp/out.$$", True), ("d=$(mktemp -d /tmp/x.XXXXXX)", False)]
         if os.path.isdir("/proc/self"):  # the child subreaper waits for an orphan (Linux)
             rows.append(("{ x=0; while ((x < 20000)); do ((x++)); done; : > /tmp/late.$$; } & exit 0", True))
@@ -510,7 +510,7 @@ class NoclobberSweep(unittest.TestCase):
         for real, fake in (("prctl(36, 1, 0, 0, 0)", "prctl(0, 0, 0, 0, 0)"), ('os.path.isdir("/proc/self")', "False")):
             assert reaper.count(real) == 1, real
             reaper = reaper.replace(real, fake)
-        return "import signal\ndel signal.sigtimedwait\n" + reaper
+        return NO_SIGTIMEDWAIT + reaper
 
     def test_with_no_subreaper_the_reaper_waits_for_the_group(self):
         """A review of this copy's upstream (#4647), F2: with no child subreaper, no /proc and no sigtimedwait, a process bash leaves in
@@ -704,6 +704,11 @@ class NoclobberSweep(unittest.TestCase):
         self.assertTrue(app_named('sock="/tmp/cmux-debug-$tag.sock"'))
         self.assertFalse(app_named('cp "/tmp/cmux-debug-$tag.log" "/tmp/mine-$$.log"'))
         self.assertFalse(app_named('f=/tmp/out.$$'))
+
+
+# Takes signal.sigtimedwait away, as macOS has none: a no-op on a host that already lacks it, where deleting it as it
+# is raised AttributeError before the reaper ran (#41862 review, F2).
+NO_SIGTIMEDWAIT = "import signal\nif hasattr(signal, 'sigtimedwait'):\n    del signal.sigtimedwait\n"
 
 
 def left(roots: list[str]) -> list[int]:

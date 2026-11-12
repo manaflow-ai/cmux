@@ -2629,7 +2629,10 @@ PROCESS_BUDGET = 64
 # milliseconds between checks (macOS has no sigtimedwait: cmux#41809 review, F2). It writes "PID SUBREAPER" (1 or 0)
 # to argv[2]. Where it is no subreaper, a process that leaves the group (setsid, job control) is out of its sight:
 # with SHELL_TREE_NEEDS_SUBREAPER set it runs nothing and exits 126. It exits 0 when bash and every process it left
-# are gone; any other status (a crash) is no answer (bash_writes()).
+# are gone; any other status (a crash) is no answer (bash_writes()). It owns bash from the moment it starts it: an
+# error anywhere after that, the pid write included, kills bash's group and every process below the reaper (what it
+# adopted, a setsid one included) before it exits 1, since once it is gone they are init's and nothing holds them
+# (cmux#41862 review, F1; upstream #4657 review, F2).
 REAPER = r"""
 import ctypes, os, signal, subprocess, sys, time
 deadline = time.monotonic() + float(sys.argv[1])
@@ -2642,9 +2645,6 @@ if not subreaper and os.environ.get("SHELL_TREE_NEEDS_SUBREAPER"):
 wait = getattr(signal, "sigtimedwait", None)
 if wait:
     signal.pthread_sigmask(signal.SIG_BLOCK, [signal.SIGCHLD])
-bash = subprocess.Popen(sys.argv[3:], start_new_session=True, env=dict(os.environ, SHELL_TREE_ROOT=str(os.getpid())))
-with open(sys.argv[2], "w") as f:
-    f.write("%d %d\n" % (bash.pid, subreaper))
 
 
 def below():
@@ -2698,31 +2698,52 @@ def kill_group():
         pass
 
 
-while True:
-    kids = reap(False)
-    if not kids and not group():
-        os._exit(0)
-    left = deadline - time.monotonic()
-    if left <= 0:
+# Kill bash's group and every process below the reaper until it has no child left, then wait (5 s at most) for the
+# group to empty. A below() that fails still kills the group and reaps what is left.
+def kill_all():
+    kill_group()
+    while True:
+        try:
+            pids = below()
+        except Exception:
+            pids = []
+        for pid in pids:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except OSError:
+                pass
         kill_group()
-        while True:
-            for pid in below():
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except OSError:
-                    pass
-            kill_group()
-            if not reap(True):
-                break
-        end = time.monotonic() + 5
-        while group() and time.monotonic() < end:
-            kill_group()
-            time.sleep(0.01)
-        os._exit(124)
-    if kids and wait:
-        wait([signal.SIGCHLD], min(left, 0.05))
-    else:
-        time.sleep(min(left, 0.005))
+        if not reap(True):
+            break
+    end = time.monotonic() + 5
+    while group() and time.monotonic() < end:
+        kill_group()
+        time.sleep(0.01)
+
+
+def run():
+    with open(sys.argv[2], "w") as f:
+        f.write("%d %d\n" % (bash.pid, subreaper))
+    while True:
+        kids = reap(False)
+        if not kids and not group():
+            os._exit(0)
+        left = deadline - time.monotonic()
+        if left <= 0:
+            kill_all()
+            os._exit(124)
+        if kids and wait:
+            wait([signal.SIGCHLD], min(left, 0.05))
+        else:
+            time.sleep(min(left, 0.005))
+
+
+bash = subprocess.Popen(sys.argv[3:], start_new_session=True, env=dict(os.environ, SHELL_TREE_ROOT=str(os.getpid())))
+try:
+    run()
+except BaseException:
+    kill_all()
+    os._exit(1)
 """
 # How long past its own deadline the reaper may take to stop before its own group is killed.
 REAPER_GRACE = 5
@@ -2771,19 +2792,22 @@ def kill_below(root: int, seconds: float = REAPER_GRACE) -> list[int]:
         time.sleep(0.01)
 
 
+PID_LINE = re.compile(r"([1-9][0-9]*) ([01])\n?")
+
+
 def read_pid(pidfile: str) -> tuple[int | None, bool | None]:
     """(bash's pid, whether the reaper is a child subreaper) from the reaper's PIDFILE: (None, None) when it is
-    missing, empty or not what the reaper writes (it never wrote it, or died mid-write), and SUBREAPER None when the
-    file holds a pid alone."""
+    missing, or holds anything but the one line the reaper writes, "PID SUBREAPER" with SUBREAPER 1 or 0 (it never
+    wrote it, died mid-write, or something else did). A pid read from other text would name a process to kill
+    (stop_run()), so a doubt is no pid (cmux#41925 review, F1: `123 nope` and `123 0 extra` named pid 123)."""
     try:
         with open(pidfile) as f:
-            fields = f.read().split()
-        pid = int(fields[0])
-    except (OSError, ValueError, IndexError):
+            got = PID_LINE.fullmatch(f.read())
+    except (OSError, ValueError):
         return None, None
-    if pid <= 0:
+    if not got:
         return None, None
-    return pid, (fields[1] == "1") if len(fields) > 1 else None
+    return int(got[1]), got[2] == "1"
 
 
 def stop_run(pidfile: str) -> None:
@@ -2825,9 +2849,23 @@ class BashTimeout(OracleUnavailable):
 
 
 # Words in TEXT that may start a process outside bash's process group, which only a child subreaper (Linux) sees:
-# setsid, and job control (set -m, set -o monitor, an interactive shell's -i).
+# setsid, and job control (set -m, set -o monitor, a shell's own -i, -m or -o monitor), read in leaves_group()'s
+# plain text. A set or eval with a word only a run can tell ($o, $(...), `...`, $'...'), or a shell with one among its
+# options, may turn job control on too.
+_SHELL_OPTIONS = (r"(?<![\w.-])(?:ba|da|z|k|mk|a)?sh"
+                  r"(?:\s+(?:--[\w-]+|[-+][oO]\s+[^\s;|&-][^\s;|&]*|[-+][A-Za-z]+))*?\s+")
 LEAVES_GROUP = re.compile(r"(?<![\w.-])setsid(?![\w.-])|\bset\b[^\n;|&]*(?:\s[-+][A-Za-z]*m|\bmonitor\b)|"
-                          r"(?<![\w.-])(?:ba|da|z|k|mk|a)?sh\s+(?:-\w*i|--login\b)")
+                          + _SHELL_OPTIONS + r"(?:[-+][A-Za-z]*[im][A-Za-z]*(?![\w-])|[-+]o\s+monitor\b|"
+                          r"--login\b|--interactive\b)|"
+                          r"\b(?:set|eval)\b[^\n;|&]*[$`]|" + _SHELL_OPTIONS + r"[-+]?[$`]")
+
+
+def leaves_group(text: str) -> bool:
+    """Whether TEXT may start a process outside bash's process group (LEAVES_GROUP), read as bash reads it: a
+    continued line joined, and quotes and backslashes taken out, so set '-m', s'e't -m and set -o mon''itor are set -m
+    and set -o monitor; an ANSI-C $'...' keeps its $ and is a word only a run can tell. A doubt is True: such a run is
+    then never made where the reaper is no subreaper (upstream #4657 review, F1)."""
+    return bool(LEAVES_GROUP.search(re.sub(r"[\"'\\]", "", text.replace("\\\n", ""))))
 
 
 # The wrappers that stay as a process of their own around the command they run (timeout and GNU time wait for it;
@@ -2994,7 +3032,7 @@ def bash_writes(text: str, timeout: float = 10, stats: dict | None = None) -> bo
             # bash's own messages go to a file, so a fork that failed is told from an answer (cmux#41336 review)
             f.write(f"exec 2>>'{errors}'\n" + script)
         env = {"PATH": bindir, "HOME": root, "USER": "u", "LC_ALL": "C", "TMPDIR": tmp}
-        if LEAVES_GROUP.search(text):
+        if leaves_group(text):
             env["SHELL_TREE_NEEDS_SUBREAPER"] = "1"  # the reaper refuses to run it where it cannot see such a process
         peak_log = os.path.join(root, "peak")
         if stats is not None:
@@ -3099,7 +3137,9 @@ def oracle_needs(text: str) -> list[str]:
     try:
         programs(text)
     except Unparsed:
-        return [c for c, words in CAPABILITY_WORDS.items() if words.search(text)]
+        # A continued line is one line to bash, so `env \` with -S on the next is env -S (cmux#41925 review, F2).
+        joined = text.replace("\\\n", "")
+        return [c for c, words in CAPABILITY_WORDS.items() if words.search(joined)]
     return needs(text)
 
 

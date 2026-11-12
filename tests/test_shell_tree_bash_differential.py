@@ -449,8 +449,13 @@ class NoOracleIsNoVerdict(unittest.TestCase):
     def test_a_host_without_an_oracle_program_skips(self):
         which = shutil.which
         for hidden in REAL:
+            # Every other program the oracle needs is present, whether this host has it or not, so the skip names
+            # HIDDEN alone (#41862 review, F3: on a host without setsid, the row hiding sh was told setsid is
+            # missing).
             def hide(name, *args, **kwargs):
-                return None if name == hidden else which(name, *args, **kwargs)
+                if name == hidden:
+                    return None
+                return which(name, *args, **kwargs) or (f"/present/{{name}}" if name in REAL else None)
 
             with mock.patch.object(shutil, "which", hide):
                 self.assertIn(hidden, oracle_missing() or "")
