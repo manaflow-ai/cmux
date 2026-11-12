@@ -698,10 +698,13 @@ pub(super) struct StreamState {
     pub(super) trailing_seqs: Vec<u64>,
     pub(super) trailing_overflow: bool,
     /// The reply segment streaming now (`stream.rs` `reply_segment`): the id stamped on each of
-    /// its `agent_message_chunk` records, until something other than its text comes between.
+    /// its `agent_message_chunk` records, until a new message or a prompt (a steer) ends it.
     pub(super) reply_segment: Option<String>,
     /// Reply segments started in this turn, which numbers the next one.
     pub(super) reply_segments: u32,
+    /// The turn `reply_segments` counts in, and the `messageId` of the segment streaming now.
+    pub(super) segment_turn: Option<String>,
+    pub(super) segment_message: Option<String>,
 }
 
 /// An inline `/btw` side session's transcript owner: its family and the parent chat's env.

@@ -3664,6 +3664,11 @@ export class AcpmuxDirectClient {
           }
         }
         const oldest = page.length > 0 ? Math.min(...page.map((event) => event.seq)) : 0;
+        // A hole the attach's page starts at or before is filled by it: the next resume starts after
+        // the page, not from the hole again (`wholeSeq`). One a carried chat brought is cleared here.
+        if (oldest > 0)
+          for (const [key, gap] of this.gapReads)
+            if (gap.sessionId === sessionId && oldest <= gap.seq + 1) this.gapReads.delete(key);
         if (resumeAfter > 0 && oldest > resumeAfter + 1)
           await this.fetchMissedEvents(sessionId, generation, resumeAfter, false).catch((error: unknown) => {
             // The gap stays: usage before the new page is no longer whole (the turn's tokens hide).
@@ -6305,6 +6310,10 @@ export class AcpmuxDirectClient {
     const hostLast = typeof through === "number" ? through : undefined;
     const createdAt = result?.session?.createdAt;
     const drawnThrough = copy?.lastSeq ?? (keptThrough || this.carriedThrough);
+    // Rows a lost client carried (`resumeCarried`), not a kept tail or a copy: they are of another
+    // session only when both say which and differ. A machine that names no `createdAt` (a peer's,
+    // an older acpmux) is the same session, as for a reconnect of one client.
+    const carriedRows = !copy && keptThrough === 0 && this.carriedThrough > 0;
     this.carriedThrough = 0;
     const row = this.sessions.find((s) => s.sessionId === sessionId);
     const peerChat = typeof row?.peer === "string";
@@ -6323,7 +6332,7 @@ export class AcpmuxDirectClient {
       drawnThrough > 0 &&
       (forkStray ||
         (copy !== undefined ? copy.peer !== row?.peer : otherMachine) ||
-        (peerChat || copy !== undefined
+        (!carriedRows && (peerChat || copy !== undefined)
           ? !sameGeneration(drawnOf, createdAt)
           : typeof drawnOf === "number" && typeof createdAt === "number" && drawnOf !== createdAt));
     const replaced =
