@@ -184,21 +184,13 @@ impl<'a> Output<'a> {
             },
         });
     }
-    pub fn body(
-        &mut self,
-        id: u64,
-        field: BodyField,
-        append: bool,
-        raw: &RawValue,
-    ) -> Result<(), Error> {
-        let offset = (raw.get().as_ptr() as usize)
-            .checked_sub(self.bytes.as_ptr() as usize)
-            .ok_or(Error::InvalidRecord("body not in input"))?;
+    pub fn body(&mut self, id: u64, field: BodyField, append: bool, raw: &RawValue) {
+        // RawValue is borrowed from `bytes` by serde_json, so this range cannot
+        // fail for a validated harness line. Keeping it infallible prevents a
+        // late provenance error from leaving checkpoint state ahead of its ops.
+        let offset = (raw.get().as_ptr() as usize).saturating_sub(self.bytes.as_ptr() as usize);
         let range = RawRange { offset, length: raw.get().len() };
-        if offset.checked_add(range.length).is_none_or(|end| end > self.bytes.len()) {
-            return Err(Error::InvalidRecord("body not in input"));
-        }
+        debug_assert!(offset.saturating_add(range.length) <= self.bytes.len());
         self.emit(Change::Body { id, field, append, source: BodySource::Input(range) });
-        Ok(())
     }
 }

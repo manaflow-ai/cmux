@@ -116,7 +116,6 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
     super::bounded(&rec.dir)?;
     super::bounded(&rec.kind)?;
     let msg: Message<'_> = input::value(rec.msg)?;
-    super::bounded(&msg.status)?;
     super::bounded(&msg.method)?;
     super::bounded(&msg.turn_id)?;
     super::bounded(&msg.prompt_id)?;
@@ -125,10 +124,6 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
         if let Some(raw) = params.update {
             let update: Update<'_> = input::value(raw)?;
             super::bounded(&update.session_update)?;
-            super::bounded(&update.kind)?;
-            super::bounded(&update.status)?;
-            super::bounded(&update.state)?;
-            super::bounded(&update.meta.claude.tool)?;
             if let Some(raw) = update.content {
                 input::content(raw, 0, &mut |_| Ok(()))?;
             }
@@ -189,15 +184,19 @@ fn mux(
             }
             let mut end = state.row(RowKind::Notice, out)?;
             end.open = false;
-            end.field("notice", "turn_result")?;
+            end.field("notice", "turn_result");
             end.fields.insert("forkable".into(), "true".into());
             if !msg.status.is_empty() {
-                end.field("status", &msg.status)?;
+                if end.field("status", &msg.status) {
+                    state.cut_fields = state.cut_fields.saturating_add(1);
+                }
             }
             out.row(&end);
             if !msg.status.is_empty() {
                 if let Some(group) = &mut state.group {
-                    group.field("status", &msg.status)?;
+                    if group.field("status", &msg.status) {
+                        state.cut_fields = state.cut_fields.saturating_add(1);
+                    }
                 }
             }
             state.finish(out);
@@ -206,10 +205,10 @@ fn mux(
         "failover" | "forked" | "fork_start_failed" | "host_notice" | "policy_unenforced"
         | "recap" | "stopping" | "stopped" | "exited" => {
             let mut row = state.row(RowKind::Notice, out)?;
-            row.field("notice", kind)?;
+            row.field("notice", kind);
             out.row(&row);
             if let Some(raw) = msg.text.or(msg.error).or(msg.reason).or(msg.detail) {
-                out.body(row.id, BodyField::Content, false, raw)?;
+                out.body(row.id, BodyField::Content, false, raw);
             }
             row.open = false;
             out.row(&row);
@@ -291,7 +290,7 @@ fn agent(
                 };
                 row.fields.insert("hidden".into(), (raw.get() == "[]").to_string());
                 out.row(&row);
-                out.body(row.id, BodyField::Entries, false, raw)?;
+                out.body(row.id, BodyField::Entries, false, raw);
                 state.plan = Some(row);
             }
         }
@@ -301,7 +300,7 @@ fn agent(
             } else {
                 state.row(RowKind::Notice, out)?
             };
-            row.field("notice", "compaction")?;
+            row.field("notice", "compaction");
             let status = if !u.state.is_empty() {
                 u.state.as_ref()
             } else if !u.status.is_empty() {
@@ -309,7 +308,9 @@ fn agent(
             } else {
                 "running"
             };
-            row.field("status", status)?;
+            if row.field("status", status) {
+                state.cut_fields = state.cut_fields.saturating_add(1);
+            }
             row.open = status == "running";
             out.row(&row);
             if row.open {

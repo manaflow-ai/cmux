@@ -387,6 +387,49 @@ fn malformed_harness_lines_are_counted_and_do_not_block_replay() {
     assert!(translate(&mut state, Harness::V1, br#"not-json"#).is_ok());
     assert_eq!(state.counters().invalid_records, 2);
 }
+
+#[test]
+fn duplicate_sequences_are_noops_but_new_replayed_prompts_start_a_turn() {
+    let line = mux(1, "user_message", r#"{"text":"first","promptId":"p","turnId":"t1"}"#);
+    let mut state = State::default();
+    translate(&mut state, Harness::V1, line.as_bytes()).unwrap();
+    let before = state.clone();
+    let duplicate = translate(&mut state, Harness::V1, line.as_bytes()).unwrap();
+    assert!(duplicate.is_empty());
+    assert_eq!(state, before);
+    let end = mux(2, "turn_result", r#"{"turnId":"t1"}"#);
+    translate(&mut state, Harness::V1, end.as_bytes()).unwrap();
+    let replay = mux(3, "user_message", r#"{"text":"second","promptId":"p","turnId":"t2"}"#);
+    let ops = translate(&mut state, Harness::V1, replay.as_bytes()).unwrap();
+    assert!(!ops.is_empty());
+    assert_eq!(state.counters().replayed_prompts, 1);
+    assert!(state.turn.is_some_and(|id| id > before.last_id));
+}
+
+#[test]
+fn long_metadata_is_cut_without_a_late_line_error() {
+    let long = "x".repeat(64 * 1024);
+    let v1 = update(
+        1,
+        &format!(
+            r#"{{"sessionUpdate":"tool_call","toolCallId":"t","status":"running","_meta":{{"claude":{{"tool":{}}}}}}}"#,
+            quote(&long)
+        ),
+    );
+    let mut state = State::default();
+    let before = state.checkpoint().unwrap();
+    assert!(translate(&mut state, Harness::V1, v1.as_bytes()).is_ok());
+    assert!(state.counters().cut_fields > 0);
+    assert_eq!(state.counters().line_errors, 0);
+    let after = state.checkpoint().unwrap();
+    assert_ne!(before, after);
+
+    let malformed = br#"{"type":"assistant","message":{"content":7}}"#;
+    let before = state.checkpoint().unwrap();
+    assert!(translate(&mut state, Harness::Claude, malformed).is_ok());
+    assert_eq!(state.checkpoint().unwrap(), before);
+    assert_eq!(state.counters().line_errors, 0);
+}
 #[test]
 fn large_tool_bodies_are_ranges_and_streamed_replies_have_small_checkpoints() {
     for harness in [Harness::V1, Harness::Claude] {

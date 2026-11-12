@@ -149,7 +149,7 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
                             let mut row = state.row(RowKind::Image, out)?;
                             out.row(&row);
                             if let Some(raw) = block.source {
-                                out.body(row.id, BodyField::Source, false, raw)?;
+                                out.body(row.id, BodyField::Source, false, raw);
                             }
                             row.open = false;
                             out.row(&row);
@@ -187,7 +187,6 @@ pub(super) fn validate(bytes: &[u8]) -> Result<(), Error> {
                         input::content(raw, 0, &mut |_| Ok(()))?;
                     }
                     super::bounded(&block.id)?;
-                    super::bounded(&block.name)?;
                     super::bounded(&block.tool_use_id)
                 })?;
             } else if body.get().starts_with('"') {

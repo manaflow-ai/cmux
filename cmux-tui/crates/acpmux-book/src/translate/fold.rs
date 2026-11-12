@@ -19,11 +19,11 @@ pub(super) struct Reply {
     last_newline: bool,
 }
 impl Reply {
-    pub fn row(&mut self, id: u64) -> Result<(), super::Error> {
+    pub fn row(&mut self, id: u64) {
         if let Some(last) = self.runs.last_mut() {
             if last.1.saturating_add(1) == id {
                 last.1 = id;
-                return Ok(());
+                return;
             }
         }
         if self.runs.len() == 8 {
@@ -33,10 +33,9 @@ impl Reply {
                 last.1 = id;
             }
             self.wide = true;
-            return Ok(());
+            return;
         }
         self.runs.push(Run(id, id));
-        Ok(())
     }
     pub fn push(&mut self, ch: char) {
         // R1 classifies text.trim(). Delay whitespace facts until a following word
