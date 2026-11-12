@@ -38,6 +38,8 @@ import subprocess
 import sys
 import tempfile
 import time
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 BUNDLE_ID = "com.cmuxterm.app.staging"
 CHANNEL = "staging"
@@ -163,7 +165,7 @@ class Home:
         failed = []
         for session, state_dir in reversed(self.started + ([] if own in self.started else [own])):
             code, result, error = self.tui(session, state_dir, "server", "stop", "--end-terminals")
-            print(f"  stop {session}: exit {code} {result.get('status')} {error[-200:]}")
+            safe_print(f"  stop {session}: exit {code} {result.get('status')} {error[-200:]}")
             if code != 0 and "not running" not in (error + json.dumps(result)).lower() and "no server" not in error.lower():
                 failed.append(session)
         self.started = []
@@ -172,7 +174,7 @@ class Home:
             env = self.env()
             env["ACPMUX_HOME"] = acpmux_home
             out = subprocess.run([acpmux, "daemon", "shutdown"], env=env, capture_output=True, text=True, timeout=20)
-            print(f"  acpmux daemon shutdown {acpmux_home}: exit {out.returncode}")
+            safe_print(f"  acpmux daemon shutdown {acpmux_home}: exit {out.returncode}")
         if failed:
             raise SystemExit(f"could not stop {failed}; refusing to run the next scenario on a live daemon")
 

@@ -499,9 +499,6 @@ public struct AgentChatTranscript: View {
                 ChatTurnBar(navigator: navigator, store: store, surface: surface)
                     .padding(.top, (topInset ?? 0) + 4)
                     .transition(.opacity)
-            } else {
-                AgentChatUpdatingPill(store: store)
-                    .padding(.top, (topInset ?? 0) + 4)
             }
         }
         // UIKit owns the native top edge and the workspace's iOS 26 gradient fallback.
@@ -613,26 +610,22 @@ struct AgentChatLoadingState: View {
     }
 }
 
-/// Kept rows show while the chat catches up with the Mac: a small pill under the header says so.
-struct AgentChatUpdatingPill: View {
+/// Kept rows show while the chat is away from the Mac or catches up with it; after
+/// ``QuietStatusGate/threshold`` one quiet line by the composer says so
+/// (``AgentChatStore/connectionLine``). Never a pill over the rows.
+struct AgentChatConnectionLine: View {
     let store: AgentChatStore
 
     var body: some View {
-        if store.isLoadingHistory, store.hasTurns {
-            HStack(spacing: 6) {
-                CmuxSpinner(tint: .secondary).controlSize(.mini)
-                Text(store.summary.status == .disconnected
-                     ? "Connecting to \(store.summary.macName)…"
-                     : "Updating…")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .glassEffect(.regular, in: .capsule)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("agentChat.updatingHistory")
-            .allowsHitTesting(false)
+        if let line = store.connectionLine {
+            Text(verbatim: line)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 20)
+                .accessibilityIdentifier("agentChat.connectionLine")
+                .allowsHitTesting(false)
+                .transition(.opacity)
         }
     }
 }
@@ -750,6 +743,7 @@ public struct AgentChatBottomStack: View {
                         .accessibilityHint("Dismiss")
                     }
                 }
+                AgentChatConnectionLine(store: store)
                 // Pinned plan progress while a turn runs (ACP web UI parity).
                 if let progress = store.runningPlan, let entries = store.runningPlanEntries {
                     PlanProgressBar(progress: progress, entries: entries)
@@ -991,9 +985,13 @@ struct UserBubble: View {
                     }
                 }
         }
-        .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.8 }
+        .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in Self.maxWidth(in: width) }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
+
+    /// 80% of the column, at most 560 pt: on an unfolded foldable's wide screen 80% would
+    /// run a prompt's lines across most of it. The native row measures with the same rule.
+    nonisolated static func maxWidth(in column: CGFloat) -> CGFloat { min(column * 0.8, 560) }
 }
 
 extension UserBubble {

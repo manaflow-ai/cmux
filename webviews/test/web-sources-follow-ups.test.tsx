@@ -9,6 +9,7 @@ import type { Root } from "react-dom/client";
 import type { AcpmuxActivity } from "../src/agent-session/acpmux/model";
 import { activityText } from "../src/agent-session/acpmux/conversation/chatFind";
 import { webSources } from "../src/agent-session/acpmux/conversation/webSourceList";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = ["window", "document", "navigator", "HTMLElement", "customElements", "IS_REACT_ACT_ENVIRONMENT"] as const;
@@ -29,12 +30,9 @@ beforeAll(() => {
   host = window.document.querySelector<HTMLElement>("#root")!;
 });
 
-afterAll(() => {
+afterAll(async () => {
   act(() => root?.unmount());
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { scope });
 });
 
 const SEARCH = [

@@ -72,6 +72,9 @@ public final class AgentPaneView: NSView {
     var otherInstallNotice: AgentPaneNotice?
     /// The pane's daemon is another cmux install's (cx-fcaq); the line shows only while a request waits.
     var runsOnOtherInstall = false
+    /// "Not verified as you, reconnecting identity": this pane's connection did not prove the
+    /// person, so its prompts would reach the agent as an unverified sender's.
+    var personUnprovenNotice: AgentPaneNotice?
     /// "Remote approvals are off" (cx-0q7o), and the restart the chat's machine offers.
     var remoteApprovalsNotice: AgentPaneNotice?
     var remoteApprovals: AgentPaneRemoteApprovals?
@@ -413,7 +416,7 @@ public final class AgentPaneView: NSView {
         guard page == nil else { return }
         applyZoom()
         uiScaleObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale) }) {
+            for await _ in ObservationStream({ (DesignSettings.shared.uiScale, Typography.pageScale, Typography.pageDensityScale, Typography.pageDensityTextScale) }) {
                 guard let self else { return }
                 self.applyZoom()
             }
@@ -570,6 +573,8 @@ public final class AgentPaneView: NSView {
         if let connection = model.transport.connection { model.transport.close(connection: connection) }
         model.transport.deliver = nil
         model.transport.onOtherInstall = nil
+        model.transport.onPersonProof = nil
+        model.transport.recoverPersonProof = nil
         model.transport.onRemoteApprovalsOff = nil
         model.transport.onPeerApprovalsOff = nil
         model.onTabRowToolMenuRequested = nil

@@ -1,0 +1,204 @@
+2026-11-12T09:59:49.4442641Z Current runner version: '2.338.2'
+2026-11-12T09:59:49.7776202Z A job started hook has been configured by the self-hosted runner administrator
+2026-11-12T09:59:49.7851417Z ##[group]Run '/setup.sh'
+2026-11-12T09:59:49.7863376Z ##[endgroup]
+2026-11-12T09:59:49.8306259Z Enabling Blacksmith transparent cache
+2026-11-12T09:59:49.9853888Z ##[group]Run actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+2026-11-12T09:59:49.9863448Z ##[endgroup]
+2026-11-12T10:00:34.4197566Z ##[endgroup]
+2026-11-12T10:00:34.4322921Z ##[group]Run scripts/ci/reset-stale-submodules.sh
+2026-11-12T10:00:34.4334962Z ##[endgroup]
+2026-11-12T10:00:34.4958921Z ##[group]Run set -euo pipefail
+2026-11-12T10:00:34.4971894Z ##[endgroup]
+2026-11-12T10:00:36.2103957Z Successfully installed PyYAML-6.0.3
+2026-11-12T10:00:36.2819440Z ##[group]Run scripts/ci/run-checks-concurrently.sh --start "$RUNNER_TEMP/background-checks" --jobs "$(getconf _NPROCESSORS_ONLN)" <<'CHECKS'
+2026-11-12T10:00:36.2904200Z ##[endgroup]
+2026-11-12T10:00:36.3214007Z 159 commands started, 16 at a time
+2026-11-12T10:00:36.3425779Z ##[group]Run base=()
+2026-11-12T10:00:36.3451026Z ##[endgroup]
+2026-11-12T10:00:40.0579329Z CmuxNextDaemon/DaemonStore: 2751 lines, 0 fns, over budget on the base too; this change did not grow it
+2026-11-12T10:00:40.3031375Z ##[group]Run base=()
+2026-11-12T10:00:40.3070581Z ##[endgroup]
+2026-11-12T10:00:42.9228366Z cmux-tui/crates/ghostty-vt/tests/tmux_conformance.rs: 2274 lines, 196 fns, over budget on the base too; this change did not grow it
+2026-11-12T10:00:43.2120947Z ##[group]Run if [[ "$FULL_CI" != true ]]; then
+2026-11-12T10:00:43.2136529Z ##[endgroup]
+2026-11-12T10:00:43.2179769Z Size cap is a batch cadence check; ordinary PRs receive the fast tier only.
+2026-11-12T10:00:43.2266973Z ##[group]Run scripts/cmux-next/check-no-swift-cli.sh "$GITHUB_WORKSPACE"
+2026-11-12T10:00:43.2280173Z ##[endgroup]
+2026-11-12T10:00:43.2823793Z check-no-swift-cli: ok
+2026-11-12T10:00:43.2911766Z ##[group]Run scripts/cmux-next/check-no-swift-closed-history.sh "$GITHUB_WORKSPACE"
+2026-11-12T10:00:43.2924388Z ##[endgroup]
+2026-11-12T10:00:43.7160490Z check-no-swift-closed-history: ok
+2026-11-12T10:00:43.7294130Z ##[group]Run python3 -I scripts/cmux-next/check-single-omnibar.py "$GITHUB_WORKSPACE"
+2026-11-12T10:00:43.7314816Z ##[endgroup]
+2026-11-12T10:00:44.3928882Z check-single-omnibar: ok
+2026-11-12T10:00:44.4045317Z ##[group]Run base=()
+2026-11-12T10:00:44.4070823Z ##[endgroup]
+2026-11-12T10:00:44.4580233Z REACT-PAGES: ok, 31 page(s), 4 debt, 5 to review
+2026-11-12T10:00:44.4668075Z ##[group]Run base=()
+2026-11-12T10:00:44.4682668Z ##[endgroup]
+2026-11-12T10:00:46.5897153Z NO-SWIFTUI: ok, 85 allowlisted file(s) left
+2026-11-12T10:00:46.6127009Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" no-process-scan
+2026-11-12T10:00:46.6195665Z ##[endgroup]
+2026-11-12T10:00:52.4890172Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-12T10:00:52.5181850Z ##[group]Run python3 -I scripts/cmux-next/check-default-cursor.py "$GITHUB_WORKSPACE"
+2026-11-12T10:00:52.5202117Z ##[endgroup]
+2026-11-12T10:00:55.0164559Z check-default-cursor: ok
+2026-11-12T10:00:55.0330539Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" state-roots
+2026-11-12T10:00:55.0343353Z ##[endgroup]
+2026-11-12T10:01:02.1309212Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-12T10:01:02.1540443Z ##[group]Run python3 -I scripts/cmux-next/check-dialog-key-hints.py "$GITHUB_WORKSPACE"
+2026-11-12T10:01:02.1569113Z ##[endgroup]
+2026-11-12T10:01:03.1803315Z check-dialog-key-hints: every dialog button shows its key
+2026-11-12T10:01:03.1991850Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" concurrency
+2026-11-12T10:01:03.2013543Z ##[endgroup]
+2026-11-12T10:01:03.2153599Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-12T10:01:03.2307596Z ##[group]Run python3 -I scripts/cmux-next/check-webview-factory.py "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+2026-11-12T10:01:03.2325429Z ##[endgroup]
+2026-11-12T10:01:04.4638033Z check-webview-factory: every web view goes through the engine decision
+2026-11-12T10:01:04.4811361Z ##[group]Run if [[ "$FULL_CI" != true ]]; then
+2026-11-12T10:01:04.4831839Z ##[endgroup]
+2026-11-12T10:01:04.4897948Z Crash ratchet is a batch cadence check; ordinary PRs receive the fast tier only.
+2026-11-12T10:01:04.5044960Z ##[group]Run scripts/cmux-next/check-test-notification-centers.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+2026-11-12T10:01:04.5061498Z ##[endgroup]
+2026-11-12T10:01:05.9678962Z check-test-notification-centers: ok
+2026-11-12T10:01:05.9925193Z ##[group]Run set -o pipefail
+2026-11-12T10:01:05.9974495Z ##[endgroup]
+2026-11-12T10:01:07.2890671Z needs_review (machine translated): en=2 ar=6706 bs=7444 da=7439 de=6708 es=6710 fr=6705 it=7433 ja=3494 km=7571 ko=6704 nb=7444 pl=7431 pt-BR=7431 ru=7432 th=7439 tr=7431 uk=7438 vi=7625 zh-Hans=6705 zh-Hant=6705
+2026-11-12T10:01:07.3006397Z ##[group]Run scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+2026-11-12T10:01:07.3025320Z ##[endgroup]
+2026-11-12T10:01:07.7289859Z check-module-resources: ok
+2026-11-12T10:01:07.7467810Z ##[group]Run set -o pipefail
+2026-11-12T10:01:07.7483284Z ##[endgroup]
+2026-11-12T10:01:10.8662158Z ##[error]Process completed with exit code 1.
+2026-11-12T10:01:10.8771731Z ##[group]Run scripts/cmux-next/check-motion.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+2026-11-12T10:01:10.8799738Z ##[endgroup]
+2026-11-12T10:01:19.5180188Z check-motion: ok
+2026-11-12T10:01:19.5470643Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" overlay-glass
+2026-11-12T10:01:19.5507976Z ##[endgroup]
+2026-11-12T10:01:19.5686239Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-12T10:01:19.5871303Z ##[group]Run python3 -I scripts/cmux-next/gen-type-scale.py --check
+2026-11-12T10:01:19.5897490Z ##[endgroup]
+2026-11-12T10:01:20.4301972Z check-swift-type-scale: ok (14 raw font sizes and 19 off-scale weights left in the baseline)
+2026-11-12T10:01:20.4628986Z ##[group]Run python3 -I tests/test_layout_grid.py && python3 -I scripts/cmux-next/gen-layout-grid.py --check
+2026-11-12T10:01:20.4733697Z ##[endgroup]
+2026-11-12T10:01:20.5996243Z OK
+2026-11-12T10:01:20.6601455Z ##[group]Run if [[ "$EVENT_NAME" == pull_request ]]; then
+2026-11-12T10:01:20.6644712Z ##[endgroup]
+2026-11-12T10:01:29.8634897Z ui font: ok
+2026-11-12T10:01:29.8838517Z ##[group]Run python3 -I scripts/cmux-next/gen-motion-scale.py --check
+2026-11-12T10:01:29.8854679Z ##[endgroup]
+2026-11-12T10:01:29.9293401Z ##[group]Run python3 -I scripts/cmux-next/tests/test_motion_inventory.py
+2026-11-12T10:01:29.9328385Z ##[endgroup]
+2026-11-12T10:01:45.8721308Z motion coverage 0.8756 {'apps': 0.0, 'native': 0.9193, 'rust': None, 'webviews': 0.8642}
+2026-11-12T10:01:45.8838902Z ##[group]Run python3 -I scripts/cmux-next/check-surface-roles.py
+2026-11-12T10:01:45.8856330Z ##[endgroup]
+2026-11-12T10:01:45.9052978Z surface roles: copies match schemas/surface-roles/surface-roles.json
+2026-11-12T10:01:45.9164566Z ##[group]Run python3 -I scripts/cmux-next/gen-menu-metrics.py --check
+2026-11-12T10:01:45.9185213Z ##[endgroup]
+2026-11-12T10:01:46.5578202Z menu metrics: 186 menu surface file(s) on the grid, 6 still in DEBT
+2026-11-12T10:01:46.5690051Z ##[group]Run python3 -I scripts/cmux-next/gen-protected-folders.py --check
+2026-11-12T10:01:46.5704219Z ##[endgroup]
+2026-11-12T10:01:46.5969525Z ##[group]Run python3 -I scripts/cmux-next/gen-settings-sources.py --check
+2026-11-12T10:01:46.5983450Z ##[endgroup]
+2026-11-12T10:01:46.9705598Z OK
+2026-11-12T10:01:46.9881481Z ##[group]Run python3 -I scripts/cmux-next/gen-phone-lane-fields.py --check
+2026-11-12T10:01:46.9898906Z ##[endgroup]
+2026-11-12T10:01:47.0272434Z ##[group]Run python3 -I scripts/cmux-next/export-backdrop-art.py --check
+2026-11-12T10:01:47.0289626Z ##[endgroup]
+2026-11-12T10:01:47.0745437Z plans/cmux-next/backdrop-art.json is current
+2026-11-12T10:01:47.0865337Z ##[group]Run bash tests/test_cmux_next_stale_pcm_cleanup.sh
+2026-11-12T10:01:47.0879468Z ##[endgroup]
+2026-11-12T10:01:47.1092322Z PASS: missing serialized module scans request the stale retry
+2026-11-12T10:01:47.1188184Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" script-tests
+2026-11-12T10:01:47.1202266Z ##[endgroup]
+2026-11-12T10:04:36.0302128Z ##[error]bash scripts/cmux-next/tests/generated-ownership.test.sh
+2026-11-12T10:04:36.0307632Z ##[error]Process completed with exit code 1.
+2026-11-12T10:04:36.0387601Z ##[group]Run git submodule update --init --depth 1 --filter=blob:none ghostty-next
+2026-11-12T10:04:36.0405093Z ##[endgroup]
+2026-11-12T10:04:39.4297089Z PASS: the bundle has Ghostty's themes and terminfo whichever order the resource phases run in
+2026-11-12T10:04:39.4552542Z ##[group]Run bash scripts/cmux-next/tests/bundled-terminfo.test.sh
+2026-11-12T10:04:39.4563982Z ##[endgroup]
+2026-11-12T10:04:39.6293402Z PASS: bundled terminfo has ghostty-next capabilities, Pst and cmux's 256-color 8-15 patch
+2026-11-12T10:04:39.6409664Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" package-conventions
+2026-11-12T10:04:39.6421390Z ##[endgroup]
+2026-11-12T10:04:39.6554451Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-12T10:04:39.6605347Z ##[group]Run python3 scripts/icons/chromium_icons.py --check
+2026-11-12T10:04:39.6616169Z ##[endgroup]
+2026-11-12T10:04:39.8343705Z browser chrome icons: all Chromium
+2026-11-12T10:04:39.8420887Z ##[group]Run python3 tests/test_app_store_rules.py
+2026-11-12T10:04:39.8432529Z ##[endgroup]
+2026-11-12T10:04:42.8363515Z ok: cmux-next-ios sources: no App Store review rule broken
+2026-11-12T10:04:42.8465596Z ##[group]Run python3 tests/test_cmux_next_perf_source_guard.py
+2026-11-12T10:04:42.8478010Z ##[endgroup]
+2026-11-12T10:04:43.8057676Z perf source guard: 8294 files, no hits
+2026-11-12T10:04:43.8149770Z ##[group]Run python3 tests/test_cmux_next_fixture_host_names.py
+2026-11-12T10:04:43.8162103Z ##[endgroup]
+2026-11-12T10:04:44.3220995Z Fixture host names: ok (879 fixture files)
+2026-11-12T10:04:44.3313073Z ##[group]Run python3 tests/test_cmux_next_kill_switches.py
+2026-11-12T10:04:44.3324605Z ##[endgroup]
+2026-11-12T10:04:46.3203121Z kill switches: ok
+2026-11-12T10:04:46.3300948Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" checks-structure
+2026-11-12T10:04:46.3312727Z ##[endgroup]
+2026-11-12T10:04:46.3517106Z 13 checks, 16 at a time: 13 passed, 0 failed
+2026-11-12T10:04:46.3581292Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" tier-routing
+2026-11-12T10:04:46.3597068Z ##[endgroup]
+2026-11-12T10:04:46.3758418Z 7 checks, 16 at a time: 7 passed, 0 failed
+2026-11-12T10:04:46.3817625Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" package-dependency-lists
+2026-11-12T10:04:46.3829579Z ##[endgroup]
+2026-11-12T10:04:46.3919952Z 2 checks, 16 at a time: 2 passed, 0 failed
+2026-11-12T10:04:46.3983728Z ##[group]Run scripts/ci/run-checks-concurrently.sh --wait "$RUNNER_TEMP/background-checks" web-bundle-key-inputs
+2026-11-12T10:04:46.3994310Z ##[endgroup]
+2026-11-12T10:04:46.4076907Z 1 checks, 16 at a time: 1 passed, 0 failed
+2026-11-12T10:04:46.4142824Z ##[group]Run bash tests/test_build_web_bundles_from.sh
+2026-11-12T10:04:46.4154535Z ##[endgroup]
+2026-11-12T10:04:46.7738062Z PASS: build-web-bundles.sh --from installs and stamps a prebuilt tree, and refuses an incomplete one or a stale inspector page, and keeps committed files
+2026-11-12T10:04:46.7846677Z ##[group]Run python3 tests/test_web_ota_publication_contract.py
+2026-11-12T10:04:46.7858450Z ##[endgroup]
+2026-11-12T10:04:50.9993259Z web-ota pointer: ok
+2026-11-12T10:04:51.0102069Z ##[group]Run python3 tests/test_cmux_next_generated_catch_up.py
+2026-11-12T10:04:51.0118251Z ##[endgroup]
+2026-11-12T10:05:40.1447819Z no longer spends the token (drop its line from .github/github-token-budget.json): nightly.yml: Resolve the attempt
+2026-11-12T10:05:40.1513985Z ##[group]Run python3 tests/test_test_reds.py
+2026-11-12T10:05:40.1526750Z ##[endgroup]
+2026-11-12T10:06:27.6612246Z web subareas: db=true diff_sidecar=true instant=true production_build=true react_apps=true typecheck=true unit_tests=true
+2026-11-12T10:06:27.6819162Z ##[group]Run python3 tests/test_cmux_next_update_dev_daily.py
+2026-11-12T10:06:27.6831234Z ##[endgroup]
+2026-11-12T10:06:31.6322407Z ok   test_a_split_workspace_keeps_its_panes
+2026-11-12T10:06:31.6437866Z ##[group]Run if [[ "$EVENT_NAME" != pull_request ]]; then
+2026-11-12T10:06:31.6453142Z ##[endgroup]
+2026-11-12T10:06:31.6513100Z The router did not change.
+2026-11-12T10:06:31.6577338Z ##[group]Run set -euo pipefail
+2026-11-12T10:06:31.6599621Z ##[endgroup]
+2026-11-12T10:06:34.9060876Z app FFI pin: release built from ced7d0211fbe4646e840ba5f230eacb879ac1dc3 with checksum 113fd6211b7d7534520b41c8563853788e32912fbe52fa3470023da0f9c7c8fa
+2026-11-12T10:06:35.5293585Z ##[group]Run python3 scripts/cmux-next/check-daemon-capabilities-fresh.py
+2026-11-12T10:06:35.5306180Z ##[endgroup]
+2026-11-12T10:06:35.8514433Z check-daemon-capabilities-fresh: plans/cmux-next/daemon-capabilities.json matches DaemonEndpoint.swift (7 required, 185 optional, 0 unservedByBundledDaemon)
+2026-11-12T10:06:35.8613779Z ##[group]Run python3 -I scripts/cmux-next/check-app-capability-references.py --repo .
+2026-11-12T10:06:35.8625197Z ##[endgroup]
+2026-11-12T10:06:38.6615070Z check-app-capability-references: PASS: 202 capabilities referenced; every gated one is defined by the daemon source (322 defined) and listed for the same-tree identify check (192 listed)
+2026-11-12T10:06:38.6767970Z ##[group]Run bash scripts/cmux-next/tests/capability-text.test.sh
+2026-11-12T10:06:38.6779285Z ##[endgroup]
+2026-11-12T10:06:39.6787106Z capability-text tests: ok
+2026-11-12T10:06:39.6859383Z ##[group]Run # Sidebar look owner sweep (plans/cmux-next/sidebar-owner.md): every commit since the check landed,
+2026-11-12T10:06:39.6877470Z ##[endgroup]
+2026-11-12T10:06:54.3953425Z prepush-gate: no new violations (0.8s)
+2026-11-12T10:06:54.4124966Z ##[group]Run failed=()
+2026-11-12T10:06:54.4160256Z ##[endgroup]
+2026-11-12T10:06:54.4206088Z ##[warning]Scrollbars thin, one style found issues; see that step's log
+2026-11-12T10:06:54.4211019Z ### 1 style guard(s) reported findings (warn-only)
+2026-11-12T10:06:54.4211142Z 
+2026-11-12T10:06:54.4211203Z - Scrollbars thin, one style
+2026-11-12T10:06:54.4211296Z 
+2026-11-12T10:06:54.4212459Z ##[error]red check: Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
+2026-11-12T10:06:54.4217156Z ### 1 cmux-next check(s) failed
+2026-11-12T10:06:54.4217251Z 
+2026-11-12T10:06:54.4217354Z - Script tests (pin-cmux-tui, embed-cef, ensure-cef store) (failure)
+2026-11-12T10:06:54.4217502Z 
+2026-11-12T10:06:54.4217573Z Each check's own step log has the details.
+2026-11-12T10:06:54.4219289Z ##[error]Process completed with exit code 1.
+2026-11-12T10:06:54.4329629Z Post job cleanup.
+2026-11-12T10:06:54.5721903Z A job completed hook has been configured by the self-hosted runner administrator
+2026-11-12T10:06:54.5736567Z ##[group]Run '/job_completed.sh'
+2026-11-12T10:06:54.5744991Z ##[endgroup]
+2026-11-12T10:06:54.6230632Z Cleaning up orphan processes

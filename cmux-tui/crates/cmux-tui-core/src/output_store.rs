@@ -45,6 +45,7 @@ mod parked_trim;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
 mod tail;
+mod writer;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -568,7 +569,7 @@ pub(crate) struct OutputStore {
     /// `None` for an in-memory session (no registry directory).
     directory: Option<PathBuf>,
     logs: Mutex<HashMap<TerminalPublicId, Arc<TerminalLog>>>,
-    writer: snapshot::Writer,
+    writer: writer::Writer,
     full: segments::Segments,
     /// Snapshot mode: output after the snapshot goes to its tail file.
     tail: std::sync::atomic::AtomicBool,
@@ -622,7 +623,7 @@ impl OutputStore {
         Self {
             directory: registry_directory.map(|directory| directory.join(STORE_DIRECTORY)),
             logs: Mutex::new(HashMap::new()),
-            writer: snapshot::Writer::default(),
+            writer: writer::Writer::default(),
             full: segments::Segments::default(),
             tail: std::sync::atomic::AtomicBool::new(false),
             last_enforce: Mutex::new(None),
@@ -1112,24 +1113,40 @@ impl OutputStore {
     }
 
     /// Final write at quit, on the caller's thread: stop the writer, then
-    /// write every changed terminal once more.
+    /// make every terminal's unwritten bytes durable.
     pub(crate) fn shutdown(&self, mux: &Mux) {
         if self.directory.is_none() {
             return;
         }
         self.writer.stop();
+        // A terminal whose bytes since its snapshot are all in a synced tail
+        // is visited too: the pass reads its screen (a digest, no snapshot)
+        // and writes a snapshot only where the tail cannot carry it, a
+        // terminal on the alternate screen included (quit_pass_tests.rs).
+        for log in self.logs.lock().unwrap_or_else(PoisonError::into_inner).values() {
+            let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if state.tail_bytes > 0 {
+                state.dirty = true;
+            }
+        }
         self.write_now(mux);
     }
 
-    /// Write every terminal's snapshot now when its content changed (a
-    /// journal checkpoint and quit): the screen a respawn after a reboot
-    /// gets is the screen at this point.
+    /// Store every terminal's output now (a journal checkpoint and quit):
+    /// the screen a respawn after a reboot gets is the screen at this point.
+    /// Only terminals with bytes not yet durable are visited (unwritten
+    /// bytes, an unsynced tail, or a pass they wait for): a quit with
+    /// hundreds of terminals does work for the ones that printed, not for
+    /// every terminal, while no daemon answers (quit_pass_tests.rs).
     pub(crate) fn write_now(&self, mux: &Mux) {
         if self.directory.is_none() {
             return;
         }
         for log in self.logs.lock().unwrap_or_else(PoisonError::into_inner).values() {
-            log.state.lock().unwrap_or_else(PoisonError::into_inner).dirty = true;
+            let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+            if !state.pending.is_empty() || state.tail_unsynced || state.force_snapshot {
+                state.dirty = true;
+            }
         }
         let policy = self.cached_policy().unwrap_or_else(|| {
             PersistencePolicy::resolve(

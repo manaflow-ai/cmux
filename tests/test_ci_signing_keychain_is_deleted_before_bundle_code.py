@@ -90,7 +90,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import signing_runner_variables  # noqa: E402
 import workflow_jobs  # noqa: E402
-from shell_invocations import must_run  # noqa: E402  (every caller here CREDITS a step: uncertain is not run)
+from shell_invocations import must_run, run_when_reached  # noqa: E402  (every caller here CREDITS a step: uncertain is not run)
 
 CREATE = re.compile(r"signing-keychain\.sh\s+create\b|\bsecurity\s+create-keychain\b")
 DELETE = re.compile(
@@ -99,6 +99,20 @@ DELETE = re.compile(
     r"|scripts/ci/notarize-nightly-dmg\.sh|scripts/ci/resume-helper-notarization\.sh"
     r"|scripts/ci/resume-stapled-app-notarization\.sh"
 )
+# The scripts DELETE names that delete the keychain themselves.
+SELF_DELETING_SCRIPTS = ("scripts/ci/notarize-nightly-dmg.sh", "scripts/ci/resume-helper-notarization.sh",
+                         "scripts/ci/resume-stapled-app-notarization.sh")
+
+
+def deletes_keychain(words: list[str]) -> bool:
+    """Whether one command (program first, as must_run() gives it) deletes a keychain: the program itself, not an
+    argument (`echo ./scripts/ci/signing-keychain.sh delete` deletes nothing)."""
+    program = words[0].rsplit("/", 1)[-1]
+    return ((program == "signing-keychain.sh" and words[1:2] == ["delete"])
+            or (program == "security" and words[1:2] == ["delete-keychain"])
+            or words[0] in SELF_DELETING_SCRIPTS)
+
+
 BUNDLE_CODE = [
     re.compile(r"smoke-launch-macos-app\.sh"),
     re.compile(r"smoke-signed-app-cli\.sh"),
@@ -636,6 +650,11 @@ def script_made_keychain(job: dict) -> str | None:
         for program in invoked_programs(step):
             if program in KEYCHAIN_MAKING_SCRIPTS:
                 return program
+        # The script imports the certificate and makes the keychain in one: a run that skips it (a loop over
+        # candidates, an if branch) imports nothing, so any run of it that bash gets to counts (run_when_reached()).
+        for words in run_when_reached(str(step.get("run", ""))):
+            if words[0] in KEYCHAIN_MAKING_SCRIPTS:
+                return words[0]
     return None
 
 
@@ -777,6 +796,16 @@ def script_made_fixture_failures(documents: dict[str, dict]) -> list[str]:
     if found != [f"{label}: imports the Developer ID certificate without scripts/ci/signing-keychain.sh create"]:
         problems.append(f"script-made keychains: a job that reads the certificate and makes no keychain is not "
                         f"named: {found}")
+    # #40784: a run of the script bash may skip (a loop over candidates, an if branch) still makes the keychain
+    # whenever it imports the certificate, so it is credited; a run in a substitution or behind eval is not.
+    for form, run in (("in a loop", f"for c in $LIST; do ./{KEYCHAIN_MAKING_SCRIPTS[0]} \"$c\"; done"),
+                      ("in an if branch", f"if [ -n \"$X\" ]; then ./{KEYCHAIN_MAKING_SCRIPTS[0]}; fi")):
+        looped = {"runs-on": "blacksmith-6vcpu-macos-26", "steps": [{**CERTIFICATE_STEP, "run": run}]}
+        found = [why for why in tree_job_failures(with_job(documents, "release.yml", "script-keychain-fixture", looped),
+                                                  label) if "Developer ID certificate" in why]
+        if found:
+            problems.append(f"script-made keychains: a job that runs {KEYCHAIN_MAKING_SCRIPTS[0]} {form} fails "
+                            f"rule 3: {found}")
     # Codex: the script named only as text (a step name, a comment, an env value, an echo, another step) makes no
     # keychain; the certificate step runs ./sign.sh, so rule 3 still names the job.
     script = KEYCHAIN_MAKING_SCRIPTS[0]
@@ -824,7 +853,8 @@ def release_pool_signer_fixture_failures(documents: dict[str, dict]) -> list[str
     # A real invocation behind a condition, an env assignment and a shell's options is still read as one.
     for form, run in (("if ! VAR=1", f"if ! CMUX_X=1 ./{signer} app; then exit 1; fi"),
                       ("bash -e", f"bash -e {signer} app"),
-                      ("after &&", f"test -n \"$CERT\" && ./{signer} app")):
+                      ("left of ||", f"./{signer} app || true"),
+                      ("after a guard line", f"test -n \"$CERT\" || exit 1\n./{signer} app")):
         prefixed = {**good, "steps": [{**CERTIFICATE_STEP, "run": run}]}
         found = [why for why in tree_job_failures(with_job(documents, "nightly.yml", "signer-fixture", prefixed), label)
                  if "release-pool signer" in why or "Developer ID certificate" in why]
@@ -855,7 +885,16 @@ def release_pool_signer_mention_fixture_failures(documents: dict[str, dict]) -> 
                       ("run inside a substitution", f"x=$(./{signer} app)\n./sign.sh"),
                       ("run by eval", f"eval ./{signer} app\n./sign.sh"),
                       ("run by bash -c", f"bash -c './{signer} app'\n./sign.sh"),
-                      ("defined as a function", f"{signer.split('/')[-1].split('.')[0]}() {{ true; }}\n./{signer} app\n./sign.sh")):
+                      ("defined as a function", f"{signer.split('/')[-1].split('.')[0]}() {{ true; }}\n./{signer} app\n./sign.sh"),
+                      # Codex (#40784 F1, BLOCK at 341c7c1b): a signer bash may skip is not credited either, so the
+                      # job cannot take rule 8's no-keychain path while the signer never runs.
+                      ("right of &&", f"false && ./{signer} app\n./sign.sh"),
+                      ("after && on a test", f"test -n \"$CERT\" && ./{signer} app\n./sign.sh"),
+                      ("in an if branch", f"if false; then ./{signer} app; fi\n./sign.sh"),
+                      ("in an else branch", f"if ./sign.sh; then true; else ./{signer} app; fi"),
+                      ("in a case branch", f"case \"$MODE\" in release) ./{signer} app;; esac\n./sign.sh"),
+                      ("in a loop body", f"for app in; do ./{signer} \"$app\"; done\n./sign.sh"),
+                      ("after exit", f"./sign.sh\nexit 0\n./{signer} app")):
         job = {"runs-on": "ubuntu-24.04", "steps": [{**CERTIFICATE_STEP, "run": run}]}
         found = [why for why in tree_job_failures(with_job(documents, "nightly.yml", "signer-fixture", job), label)
                  if "Developer ID certificate" in why or "release-pool signer" in why]
@@ -874,6 +913,10 @@ def managed_keychain_mention_fixture_failures(documents: dict[str, dict]) -> lis
     create = "./scripts/ci/signing-keychain.sh create"
     delete = {"if": "always()", "run": "./scripts/ci/signing-keychain.sh delete"}
     for form, run, named in (("real create", create, False),
+                             ("real create, left of ||", f"{create} || exit 1", False),
+                             # #40784 F1: a create bash may skip makes no keychain.
+                             ("right of &&", f"false && {create}", True),
+                             ("in an if branch", f"if false; then {create}; fi", True),
                              ("comment", f"# {create}", True),
                              ("echo", f"echo {create}", True),
                              ("heredoc body", f"cat <<EOF > plan.txt\n{create}\nEOF", True)):
@@ -887,6 +930,41 @@ def managed_keychain_mention_fixture_failures(documents: dict[str, dict]) -> lis
     return problems
 
 
+def keychain_cleanup_fixture_failures(documents: dict[str, dict]) -> list[str]:
+    """Rule 2's cleanup (#40784 F1 sweep): an `if: always()` step counts as deleting the keychain only when bash
+    surely runs the delete. `false && ./scripts/ci/signing-keychain.sh delete` or a delete in an if branch leaves the
+    keychain on the runner and must be named; a delete that runs (also left of `||`) is not."""
+    problems = []
+    label = "release.yml cleanup-fixture"
+    create = {"name": "Keychain", "run": "./scripts/ci/signing-keychain.sh create"}
+    sign = {**CERTIFICATE_STEP, "run": "./sign.sh"}
+    for form, run, named in (("real delete", "./scripts/ci/signing-keychain.sh delete", False),
+                             ("delete || true", "./scripts/ci/signing-keychain.sh delete || true", False),
+                             ("security delete-keychain", "security delete-keychain \"$K\"", False),
+                             ("right of &&", "false && ./scripts/ci/signing-keychain.sh delete", True),
+                             ("in an if branch", "if false; then ./scripts/ci/signing-keychain.sh delete; fi", True),
+                             ("echo", "echo ./scripts/ci/signing-keychain.sh delete", True)):
+        job = {"runs-on": "blacksmith-6vcpu-macos-26", "steps": [create, sign, {"if": "always()", "run": run}]}
+        found = [why for why in tree_job_failures(with_job(documents, "release.yml", "cleanup-fixture", job), label)
+                 if "no `if: always()` step deletes it" in why]
+        expected = [f"{label}: creates a signing keychain but no `if: always()` step deletes it"]
+        if found != (expected if named else []):
+            problems.append(f"keychain cleanup: an always() delete as {form} is misread: {found}")
+    # A keychain in a job with no signing secret holds no signing identity: an uncertain delete (under sudo) is not
+    # named there, and is named once the job reads the certificate.
+    sudo_delete = {"if": "always()", "run": "sudo -n -u \"$U\" -- security delete-keychain \"$K\" || true"}
+    for form, steps, named in (("no signing secret", [{"run": "security create-keychain -p x \"$K\""}, sudo_delete], False),
+                               ("a signing secret", [{"run": "security create-keychain -p x \"$K\""}, sign, sudo_delete],
+                                True)):
+        job = {"runs-on": "blacksmith-6vcpu-macos-26", "steps": steps}
+        found = [why for why in tree_job_failures(with_job(documents, "release.yml", "cleanup-fixture", job), label)
+                 if "no `if: always()` step deletes it" in why]
+        expected = [f"{label}: creates a signing keychain but no `if: always()` step deletes it"] if named else []
+        if found != expected:
+            problems.append(f"keychain cleanup: a sudo delete with {form} is misread: {found}")
+    return problems
+
+
 def keychain_list_fixture_failures(documents: dict[str, dict]) -> list[str]:
     """The four keychain lists' fixtures, each built on every workflow document (with_job). Each red fixture adds a
     job with the list's trait that reads its secrets by bracket (`secrets['X']`) and carries no release
@@ -895,7 +973,7 @@ def keychain_list_fixture_failures(documents: dict[str, dict]) -> list[str]:
     return [*step_level_fixture_failures(documents), *inline_keychain_fixture_failures(documents),
             *script_made_fixture_failures(documents), *release_pool_signer_fixture_failures(documents),
             *release_pool_signer_mention_fixture_failures(documents),
-            *managed_keychain_mention_fixture_failures(documents)]
+            *managed_keychain_mention_fixture_failures(documents), *keychain_cleanup_fixture_failures(documents)]
 
 
 def check_keychain_lists(documents: dict[str, dict], failures: list[str]) -> None:
@@ -922,15 +1000,20 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
             continue
         label = step.get("name") or step.get("id") or step.get("uses") or "<step>"
         condition = str(step.get("if", ""))
+        # A keychain is deleted only by a delete bash surely runs (must_run()); a line that names one behind `&&`, in
+        # an if branch or in an echo deletes nothing (#40784 F1 sweep). Creating stays read off any mention: it
+        # opens the window, which only makes the guard stricter.
+        deletes = any(deletes_keychain(words) for words in must_run(str(step.get("run", ""))))
         for command in commands(str(step.get("run", ""))):
             if CREATE.search(command):
                 open_window = label
                 created = True
                 continue
             if DELETE.search(command):
-                open_window = ""
-                if "always()" in condition:
-                    cleaned_up = True
+                if deletes:
+                    open_window = ""
+                    if "always()" in condition:
+                        cleaned_up = True
                 continue
             smokes = SMOKING_SCRIPTS.search(command) and not deferred_step(step)
             if open_window and (smokes or any(pattern.search(command) for pattern in BUNDLE_CODE)):
@@ -938,7 +1021,9 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                     f"{name}: step {label!r} runs bundle code while the signing keychain from "
                     f"{open_window!r} exists: {command[:120]}"
                 )
-    if created and not cleaned_up:
+    # Only a job that holds a signing secret can put a signing identity in the keychain it makes; a test user's
+    # login keychain (machine-vault-e2e.yml, deleted under `sudo -n`, which must_run() cannot be sure of) holds none.
+    if created and not cleaned_up and signing_secret(job):
         failures.append(f"{name}: creates a signing keychain but no `if: always()` step deletes it")
 
     if name not in STEP_LEVEL_ONLY:

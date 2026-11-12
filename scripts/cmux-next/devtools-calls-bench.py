@@ -36,6 +36,7 @@ import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory  # noqa: E402
+from safe_log import safe_print  # noqa: E402  (a line in a cleanup path never skips the kill)
 
 LINE = 'globalThis.__cmuxPageHostResolve?.(7, {"text":"a\\\\b é \\"q\\""});\n'
 # Frames of the DevTools send path: the call itself, the JSON writer under it, the shim's parse. Not "JSONValue"
@@ -232,8 +233,8 @@ def main():
         arms[label] = path
     sizes = [parse_size(s) for s in opts.sizes.split(",") if s.strip()]
     server, url = serve_page()
-    print(f"DEVTOOLS-CALLS-HOST host={socket.gethostname()} load={os.getloadavg()} arms={list(arms)} "
-          f"sizes={[s >> 10 for s in sizes]}KiB calls={opts.calls} rounds={opts.rounds} threshold={opts.threshold_ms}ms", flush=True)
+    safe_print(f"DEVTOOLS-CALLS-HOST host={socket.gethostname()} load={os.getloadavg()} arms={list(arms)} "
+               f"sizes={[s >> 10 for s in sizes]}KiB calls={opts.calls} rounds={opts.rounds} threshold={opts.threshold_ms}ms", flush=True)
     rows = []
     stopped = None
     try:
@@ -251,18 +252,18 @@ def main():
                 json.dump({"arms": arms, "sizes": sizes, "calls": opts.calls, "rounds": opts.rounds, "threshold_ms": opts.threshold_ms,
                            "stopped": stopped, "summary": summary(rows, list(arms), sizes), "rows": rows}, handle, indent=1)
     table = summary(rows, list(arms), sizes)
-    print("\narm   size      calls  gap_ms p50/p95/p99/max            stall_ms p50/p95/p99/max          devtools stalls (stack heuristic), failed")
+    safe_print("\narm   size      calls  gap_ms p50/p95/p99/max            stall_ms p50/p95/p99/max          devtools stalls (stack heuristic), failed")
     for line in table:
         g, s = line["gap_ms"], line["stall_ms"]
-        print(f"DEVTOOLS-CALLS {line['arm']:<5} {line['size'] >> 10:>6}KiB {line['calls']:>4}  "
-              f"{g['p50']:>6} {g['p95']:>6} {g['p99']:>6} {g['max']:>7}    "
-              f"{s['p50']:>6} {s['p95']:>6} {s['p99']:>6} {s['max']:>7}    {line['devtools_stalls']}, {line['failed']}")
+        safe_print(f"DEVTOOLS-CALLS {line['arm']:<5} {line['size'] >> 10:>6}KiB {line['calls']:>4}  "
+                   f"{g['p50']:>6} {g['p95']:>6} {g['p99']:>6} {g['max']:>7}    "
+                   f"{s['p50']:>6} {s['p95']:>6} {s['p99']:>6} {s['max']:>7}    {line['devtools_stalls']}, {line['failed']}")
     problems = incomplete(rows, table, list(arms), sizes, opts.calls * opts.rounds, stopped)
     if problems:
         # A run with failed or missing calls is not a result: it must never read as one (REVIEW.md section 9).
-        print("DEVTOOLS-CALLS-INCOMPLETE " + "; ".join(problems), flush=True)
+        safe_print("DEVTOOLS-CALLS-INCOMPLETE " + "; ".join(problems), flush=True)
         sys.exit(1)
-    print("DEVTOOLS-CALLS-COMPLETE", flush=True)
+    safe_print("DEVTOOLS-CALLS-COMPLETE", flush=True)
 
 
 def incomplete(rows, table, arms, sizes, expected, stopped):

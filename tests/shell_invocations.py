@@ -16,9 +16,14 @@ the script, or a script the lexer could not finish (an unterminated quote or sub
 nohup, timeout, sudo, command, exec ...) and a shell given a script are read through one table of which operand
 runs (_WRAPPERS, _shell_script): an option it does not model, or a mode that does not run the first operand as a
 script (`bash -n`, `-s`, `-i`, `-o NAME`, `--rcfile`, `command -v`), leaves the command uncertain. Commands
-inside a substitution, and those in an unquoted heredoc body's `$(..)`, are reported uncertain. Not modeled, and
-documented here so no caller reads more into "certain" than it holds: control flow. A command in an `if`, after
-`&&` / `||`, or after `exit` is reported as a command bash would run if control reached it. tests/
+inside a substitution, and those in an unquoted heredoc body's `$(..)`, are reported uncertain.
+
+`certain` also means bash reaches the command whenever the script runs to its end (`set -e` semantics): control flow
+is read, and a command it may skip is uncertain (cmux#40784 F1: `false && sign` credited the signer). Only the
+commands of the top-level sequence, and of `{ }` groups and `( )` subshells in it, are reached: the left side of `&&`
+and `||` (the right side is not), and the first `if`'s condition (its `then`, `elif` and `else` parts are not).
+`while`, `until`, `for`, `select` and `case` parts, a function body, everything after the first `exit`, `return` or
+`exec PROGRAM`, and everything after a keyword this cannot pair (a `fi` with no `if`) are not reached. tests/
 test_shell_invocations.py runs each fixture in real bash and checks must_run is a subset of what ran and may_run a
 superset.
 
@@ -394,6 +399,119 @@ class _Command(NamedTuple):
     words: list[Token]
     dynamic: bool  # some word, or a redirection target, holds a substitution or expansion
     nested: bool  # it runs inside a substitution
+    reached: bool = False  # bash runs it whenever the script runs to its end (_Flow); False unless shown
+
+
+# Compound commands: the keyword that opens one, and the one that closes it.
+_OPENS = {"if": "fi", "while": "done", "until": "done", "for": "done", "select": "done", "case": "esac"}
+_CLOSES = {"fi", "done", "esac"}
+# A command after which bash runs nothing more of the script (`exec` only with a program to run).
+_ENDS = {"exit", "return"}
+
+
+class _Frame:
+    """One open construct: the top level, a `{ }` group, a `( )` subshell or a compound command."""
+
+    def __init__(self, kind: str, entered: bool, part: str = "") -> None:
+        self.kind = kind  # "top", "{", "(", or an opening keyword of _OPENS
+        self.entered = entered  # bash surely reaches the construct itself
+        self.part = part  # in an `if`: "cond" (the first condition) or "branch"; in a loop or case: "body"
+        self.after_and_or = False  # a `&&` or `||` came before, in this list: the rest may be skipped
+
+
+class _Flow:
+    """Whether bash surely reaches each top-level command, read off the keywords and operators between them. It fails
+    closed: anything it cannot place (an unpaired closing keyword, an `exit`) makes every later command unreached."""
+
+    def __init__(self) -> None:
+        self.frames = [_Frame("top", True)]
+        self.lost = False  # an exit, return or exec PROGRAM ran, or the structure could not be followed
+
+    def reached(self) -> bool:
+        if self.lost:
+            return False
+        for frame in self.frames:
+            if not frame.entered or frame.after_and_or:
+                return False
+            if frame.kind in _OPENS and not (frame.kind == "if" and frame.part == "cond"):
+                return False
+        return True
+
+    def keywords(self, words: list[Token]) -> int:
+        """Read the keywords that start a command (pushing and popping constructs); the index of its first other word."""
+        index = 0
+        while index < len(words) and not words[index].quoted:
+            text = words[index].text
+            top = self.frames[-1]
+            if text in _OPENS:
+                if text == "if":
+                    self.frames.append(_Frame("if", self.reached(), "cond"))
+                else:
+                    self.frames.append(_Frame(text, False, "body"))
+                index += 1
+                if text in ("for", "select", "case"):
+                    return len(words)  # `for x in ...`, `case $x in pattern`: no command in the header
+                continue
+            if text in ("then", "elif", "else"):
+                if top.kind != "if":
+                    self.lost = True
+                else:
+                    top.part = "branch"
+                    top.after_and_or = False
+            elif text == "do":
+                if top.kind not in ("while", "until", "for", "select"):
+                    self.lost = True
+            elif text in _CLOSES:
+                if _OPENS.get(top.kind) != text:
+                    self.lost = True
+                else:
+                    self.frames.pop()
+            elif text == "{":
+                self.frames.append(_Frame("{", self.reached()))
+            elif text == "}":
+                if top.kind != "{":
+                    self.lost = True
+                else:
+                    self.frames.pop()
+            elif text != "!":
+                break
+            index += 1
+        return index
+
+    def ended(self, words: list[Token], start: int) -> None:
+        """After a command: an exit, return or exec PROGRAM there may end the script, so every command after it is
+        unreached. One exception: an `exit N` bash may skip (`test -n "$X" || exit 1`) with N a literal nonzero
+        status ends only a run that fails, and a credit holds for a run that succeeds."""
+        rest = [word for word in words[start:] if not _ASSIGNMENT.match(word.text)]
+        if not rest or rest[0].quoted:
+            return
+        name = rest[0].text
+        if name == "exit" and not self.reached() and len(rest) == 2 and not rest[1].quoted and not rest[1].dynamic \
+                and rest[1].text.isdigit() and int(rest[1].text) % 256 != 0:
+            return
+        if name in _ENDS or (name == "exec" and len(rest) > 1):
+            self.lost = True
+
+    def operator(self, text: str, starts_command: bool) -> None:
+        top = self.frames[-1]
+        if text in ("&&", "||"):
+            top.after_and_or = True
+        elif text in (";", "&", "\n", ";;", ";&", ";;&"):
+            top.after_and_or = False
+        elif text == "(":
+            if top.kind == "case":
+                return  # a pattern's optional `(`
+            if starts_command:
+                self.frames.append(_Frame("(", self.reached()))
+            else:
+                self.lost = True  # a function's `name ( )`, or something not read here
+        elif text == ")":
+            if top.kind == "case":
+                return  # a pattern's `)`
+            if top.kind == "(":
+                self.frames.pop()
+            else:
+                self.lost = True
 
 
 def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command], bool]:
@@ -409,6 +527,16 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
     previous: Token | None = None
     tokens = lexed.tokens
     in_array = 0  # depth inside `name=( .. )`: its elements are values, not commands
+    flow = _Flow()
+    joined = False  # the last operator was `&&`, `||` or `|`: a newline after it continues the list
+
+    def close(command_words: list[Token], command_dynamic: bool) -> None:
+        # The keywords that open, continue or close a construct (and a `for`/`case` header) are no command.
+        start = flow.keywords(command_words)
+        if start < len(command_words):
+            found.append(_Command(command_words[start:], command_dynamic, nested, not nested and flow.reached()))
+        flow.ended(command_words, start)
+
     for index, token in enumerate(tokens):
         if in_array:
             if token.kind == "op" and token.text == "(":
@@ -454,12 +582,21 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
             skip_target = True
         else:
             skip_target = False
+            starts_command = not words
             if words:
-                found.append(_Command(words, dynamic, nested))
+                close(words, dynamic)
             words, dynamic = [], False
+            if token.kind == "nl":
+                if not joined:
+                    flow.operator("\n", starts_command)
+            else:
+                flow.operator(token.text, starts_command)
+            joined = token.kind == "op" and token.text in ("&&", "||", "|", "|&")
+        if token.kind == "word":
+            joined = False
         previous = token
     if words:
-        found.append(_Command(words, dynamic or not lexed.complete, nested))  # a command cut short is not certain
+        close(words, dynamic or not lexed.complete)  # a command cut short is not certain
     for sub in lexed.heredoc_subs:
         commands, ok = _commands(sub, True, defined)
         inner.extend(commands)
@@ -570,7 +707,7 @@ def _classify(command: _Command, defined: set[str]) -> Invocation | None:
             _ASSIGNMENT.match(words[start].text)
             or (words[start].text in _KEYWORDS and not words[start].quoted)):
         start += 1
-    certain = not command.dynamic and not command.nested
+    certain = not command.dynamic and not command.nested and command.reached
     any_program = False
     while start < len(words) and not _opaque(words[start]):
         name = words[start].text
@@ -623,6 +760,23 @@ def must_run(run: str) -> list[list[str]]:
     """The commands (program first) bash really runs and the detector is certain of. Anything it cannot be sure of
     is left out: use this where a script is credited with running something."""
     return [invocation.words for invocation in may_run(run) if invocation.certain]
+
+
+def run_when_reached(run: str) -> list[list[str]]:
+    """must_run() without the control flow: the commands bash runs whenever it gets to them (behind `&&`, in a branch
+    or a loop too), read in full: none in a substitution, behind an expansion or eval, or after a function is
+    defined. Use it only where a credit holds for every run that gets to the command, and holds when no run does
+    (script_made_keychain(): a script that imports the certificate and makes the keychain in one)."""
+    defined: set[str] = set()
+    commands, complete = _commands(run, False, defined)
+    if defined:
+        return []
+    found = []
+    for command in commands:
+        invocation = _classify(command._replace(reached=True), defined)
+        if invocation is not None and invocation.certain:
+            found.append(invocation.words)
+    return found
 
 
 def may_run_program(run: str, program: str) -> bool:

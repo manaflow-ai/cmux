@@ -415,7 +415,9 @@ impl ChatService {
                 // Not under a lost home (`config::refuse_lost_home`): it may be another daemon's.
                 let recorded = crate::config::refuse_lost_home(&self.recorded_roots_path())
                     .map_err(std::io::Error::other)
-                    .and_then(|()| state.recorded.record(spec.clone()));
+                    .and_then(|()| {
+                        state.recorded.record_with(spec.clone(), &crate::home_fs::write_index_file)
+                    });
                 match recorded {
                     Ok(fresh) => new |= fresh,
                     Err(e) => tracing::warn!("record a launch root: {e}"),
@@ -435,7 +437,11 @@ impl ChatService {
             (state.recorded.roots().to_vec(), state.settings.clone())
         };
         let (found, settings_refused) = discover_roots(&self.sources, &recorded, &settings);
-        let paths: Vec<PathBuf> = found.roots.iter().map(|root| root.real_path.clone()).collect();
+        let paths: Vec<watch::WatchedRoot> = found
+            .roots
+            .iter()
+            .map(|root| watch::WatchedRoot { path: root.real_path.clone(), kind: root.harness })
+            .collect();
         let (watcher, errors) = watch::start(&paths, Arc::downgrade(self));
         let mut state = lock(&self.state);
         let known: HashSet<String> = state.index.roots().map(|root| root.id()).collect();
@@ -535,16 +541,20 @@ impl ChatService {
     fn save(&self, index: &ChatIndex) {
         let path = cache_path(&self.sources);
         // Not under a lost home (`config::mark_home_lost`): it may be another daemon's now.
-        let saved = crate::config::refuse_lost_home(&path)
-            .and_then(|()| index.save(&path).map_err(anyhow::Error::from));
+        let saved = crate::config::refuse_lost_home(&path).and_then(|()| {
+            index.save_with(&path, &crate::home_fs::write_index_file).map_err(anyhow::Error::from)
+        });
         if let Err(e) = saved {
             tracing::warn!("chat index cache: {e}");
         }
     }
 
     fn rewatch(self: &Arc<Self>) {
-        let paths: Vec<PathBuf> =
-            lock(&self.state).index.roots().map(|root| root.real_path.clone()).collect();
+        let paths: Vec<watch::WatchedRoot> = lock(&self.state)
+            .index
+            .roots()
+            .map(|root| watch::WatchedRoot { path: root.real_path.clone(), kind: root.harness })
+            .collect();
         let (watcher, errors) = watch::start(&paths, Arc::downgrade(self));
         let mut state = lock(&self.state);
         state.watch_errors = errors;

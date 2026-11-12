@@ -1,6 +1,6 @@
-// A completed turn folds its work into one disclosure and keeps every reply to the person in sight,
-// the final answer and each earlier one, with the work around each folded into its own line (Leo,
-// 2026-11-06: "your intermediate message got lost. that can never happen"; turn-fold-keeps-replies.test.ts).
+// A completed turn folds its work and its earlier replies into one disclosure; only the final answer
+// stays in sight, as Codex ends a turn (Lawrence, 2026-11-11). The arms that keep every reply in sight
+// (Leo, 2026-11-06) are tested in turn-fold-keeps-replies.test.ts.
 // Short narration between steps folds with them. While running, intermediate dialogue remains visible.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
@@ -46,15 +46,9 @@ const leosTurn = () => [
   summary(),
 ];
 
-test("the final answer and every earlier answer stay in sight; the work around each folds", () => {
-  // Every call stays under the closed Worked for, as chatgpt.com draws it (turn-fold-hides-every-call.test.ts).
-  expect(drawn(leosTurn())).toEqual([
-    "user:u",
-    "worked:worked-u",
-    "assistant:first",
-    "assistant:second",
-    "turnSummary:end",
-  ]);
+test("only the final answer stays in sight; every earlier answer folds with the work, as Codex does", () => {
+  // Lawrence, 2026-11-11 standup: the closed fold "does not hide enough stuff" (turnFoldReplies `answer`).
+  expect(drawn(leosTurn())).toEqual(["user:u", "worked:worked-u", "assistant:second", "turnSummary:end"]);
 });
 
 test("the one fold opens every intermediate answer and command in order", () => {
@@ -116,9 +110,9 @@ test("short narration between tools folds with them", () => {
   expect(open.find((shaped) => shaped.id === "read")?.joined).toEqual(["read", "check", "grep", "running", "test"]);
 });
 
-test("long reply, then a tool, then 'Pushed.': both replies stay in sight, each tool under Worked for", () => {
+test("long reply, then a tool, then 'Pushed.': the long reply folds with the work, 'Pushed.' ends the turn", () => {
   const rows = [row("u", "user"), ran("read"), answer("reply"), ran("git push"), say("pushed", "Pushed."), summary()];
-  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:reply", "assistant:pushed", "turnSummary:end"]);
+  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:pushed", "turnSummary:end"]);
 });
 
 test("completed compactions and subagent reports fold, while a refusal stays available", () => {

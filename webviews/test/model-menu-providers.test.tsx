@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import { teardownDom } from "./support/domTeardown";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -79,14 +80,7 @@ afterEach(() => {
 });
 
 afterAll(async () => {
-  // A popover update left outside act() queues React scheduler work on setImmediate; let it run
-  // while the JSDOM globals still exist, or it throws "window is not defined" between tests.
-  for (let turn = 0; turn < 3; turn += 1) await new Promise((resolve) => setImmediate(resolve));
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const variants = () => import("../src/agent-session/acpmux/modelVariants");
@@ -224,13 +218,8 @@ const detailOf = (row: HTMLElement) => row.querySelector(".acpmux-quick-value")?
 const cols = () => dom.window.document.querySelector<HTMLElement>(".acpmux-cols");
 const colRows = () => [...(cols()?.querySelectorAll<HTMLElement>('[role="listbox"] [role="option"]') ?? [])];
 const colName = (row: HTMLElement) => row.querySelector(".acpmux-cols-name")?.textContent ?? "";
-/// The provider a row's tooltip names: the part before its model id, which the tooltip ends with
-/// (Lawrence 2026-11-05: a hover names the model's id).
-const colProvider = (row: HTMLElement) => {
-  const parts = row.title.split(" · ").slice(1);
-  if (/^[a-z0-9~][\w.~:\-/[\]]*$/.test(parts.at(-1) ?? "")) parts.pop();
-  return parts.at(-1) ?? "";
-};
+/// The provider a row lands, which it names to assistive tech (its tooltip is the model's name alone).
+const colProvider = (row: HTMLElement) => row.getAttribute("aria-description") ?? "";
 const colTab = (name: string) =>
   cols()!.querySelector<HTMLElement>(`.acpmux-cols-tab[role="tab"][aria-label="${name}"]`);
 

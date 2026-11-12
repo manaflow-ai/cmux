@@ -62,6 +62,26 @@ ALLOWED: dict[tuple[str, str], str] = {
     # Not workflow jobs: GitHub API job records and other dicts a test happens to name `job` or iterate as jobs.
     ("test_base_red_excuse.py", "dict(job, run_attempt=number)"): "a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job",
     ("test_base_red_excuse.py", "{k: v for k, v in job.items() if k != 'run_id'}"): "a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job",
+    ('test_base_red_excuse.py', 'dict(base_job, id=2, run_id=20, head_sha=BASE_SHA)'):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', "dict(github.jobs[2], conclusion='success', steps=[dict(step, conclusion='success' if step['name'] == PrOnlyStepGitHub.LIVE else step['conclusion']) for step in github.jobs[2]['steps']])"):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', "dict(job, conclusion='success')"):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', 'dict(job, id=1, run_id=10, head_sha=HEAD)'):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', "dict(job, id=2, run_id=20, head_sha=BASE_SHA, conclusion='success', steps=green)"):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', "dict(self.gh.jobs[2], conclusion='success', steps=[dict(step, conclusion='success') for step in self.gh.jobs[2]['steps']])"):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', 'dict(self.gh.jobs[1], steps=framed_steps(steps))'):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', 'dict(job)'):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job' + " (the fake GitHub's jobs listing)",
+    ('test_base_red_excuse.py', 'dict(job, name=name)'):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
+    ('test_base_red_excuse.py', "dict(self.gh.jobs[2], steps=[{'number': 1, 'name': 'Set up job', 'status': 'completed', 'conclusion': 'success', 'started_at': '2026-10-30T23:15:20Z', 'completed_at': '2026-10-30T23:15:30Z'}, {'number': 2, 'name': 'swift test (macOS)', 'status': 'completed', 'conclusion': 'success', 'started_at': '2026-10-30T23:15:31Z', 'completed_at': '2026-10-30T23:16:37Z'}, {'number': 3, 'name': self.STEP, 'status': 'completed', 'conclusion': 'failure', 'started_at': '2026-10-30T23:16:38Z', 'completed_at': '2026-10-30T23:29:27Z'}, {'number': 4, 'name': 'Complete job', 'status': 'completed', 'conclusion': 'success', 'started_at': '2026-10-30T23:29:27Z', 'completed_at': '2026-10-30T23:29:27Z'}])"):
+        'a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job',
     ("test_ci_r2_artifact.py", "{**job, 'name': 'macos / ' + job['name']}"): "a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job",
     ("test_ci_timing_readout.py", "dict(j)"): "a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job",
     ("test_nightly_next_pipeline.py", "dict(jobs[0], conclusion=None)"): "a GitHub REST API job record (name, conclusion, run_attempt), not a workflow job",
