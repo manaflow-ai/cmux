@@ -69,7 +69,7 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         attach(app, "03-portrait-tucked-away")
 
         // Drag it up: back.
-        handle.swipeUp()
+        dragUp(handle)
         XCTAssertTrue(wait(for: drawer, value: "open"), "notch drag up did not bring the trackpad back\n\(app.debugDescription)")
         XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad surface after drag up")
         settle(app, 1)
@@ -101,7 +101,7 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
             settle(app, 2.5)
             XCTAssertEqual(drawer.value as? String, "closed", "landscape starts tucked away")
             attach(app, "06-landscape-tucked-away")
-            handle.swipeUp()
+            dragUp(handle)
             XCTAssertTrue(wait(for: drawer, value: "open"), "notch drag up in landscape")
             XCTAssertTrue(pad.waitForExistence(timeout: 5), "trackpad in landscape")
             settle(app, 1)
@@ -131,6 +131,14 @@ final class ScreenTrackpadOverlayUITests: XCTestCase {
         }
         #endif
         attach(app, "08-options-menu")
+    }
+
+    /// Drags the notch up by a few of its heights: a press then a drag, which starts on the notch
+    /// even next to the bottom edge, where a quick swipe can go to the system instead.
+    @MainActor
+    func dragUp(_ handle: XCUIElement) {
+        let notch = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        notch.press(forDuration: 0.05, thenDragTo: notch.withOffset(CGVector(dx: 0, dy: -260)))
     }
 
     @MainActor
