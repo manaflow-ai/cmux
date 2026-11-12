@@ -17,6 +17,9 @@ LOCK_WAIT_SECONDS, then they fetch anyway), find the commit, and fetch nothing. 
 (another git process, such as a slow concurrent fetch) is retried while the lock stays, for up to
 GIT_LOCK_WAIT_SECONDS; a lock still held past that is "git lock held: ...", its own result, never "needs history"
 (cmux#41434 review: four quick retries, 3 s in all, and a slow fetch next door read as missing history).
+Only git's own lock line is a held lock (`git_lock_held`): a permission failure on the lock file or a remote
+URL with ".lock" in it fails at once with its own error (cmux#41716 review F1: any ".lock" or "Unable to create"
+in the error was waited on for up to 600 s, which stalled CI and hid the error).
 
 Load this module by path, never `import git_history`: tests run as `python3 -I` have no script
 directory on sys.path.
@@ -26,6 +29,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import re
 import subprocess
 import time
 import unittest
@@ -36,12 +40,21 @@ FETCH_TIMEOUT_SECONDS = 180
 LOCK_WAIT_SECONDS = 600
 LOCK_FILE = "cmux-history-fetch.lock"
 GIT_LOCK_WAIT_SECONDS = 600
-GIT_LOCK_WORDS = (".lock", "Unable to create", "another git process")
+# git's line for a lock another process holds (lockfile.c, unable_to_lock_message), as git 2.55 prints it:
+#   fatal: Unable to create '/repo/.git/shallow.lock': File exists.
+# The same words with another reason ("': Permission denied") are a real error, not a held lock.
+GIT_LOCK_LINE = re.compile(r"^(?:fatal|error): Unable to create '(?P<path>[^\n]+\.lock)': File exists\.$", re.MULTILINE)
 LOCK_HELD = "git lock held: "
 
 
 class _GitLockHeld(Exception):
     """A git lock in the clone stayed held past GIT_LOCK_WAIT_SECONDS: contention, not missing history."""
+
+
+def git_lock_held(stderr: str) -> str | None:
+    """The lock file git's error says another git process holds, or None when the error is anything else."""
+    match = GIT_LOCK_LINE.search(stderr)
+    return match.group("path") if match else None
 
 
 def _git(root: Path, *args: str, timeout: float | None = None) -> subprocess.CompletedProcess:
@@ -108,7 +121,7 @@ def _fetch(root: Path, shas: list[str], depth: int) -> list[str]:
         if done.returncode == 0:
             return []
         err = done.stderr.strip()
-        if not any(word in err for word in GIT_LOCK_WORDS):
+        if git_lock_held(err) is None:
             return [f"git fetch origin: {err or done.returncode}"]
         # Another git process holds a lock (a concurrent fetch while it runs): wait it out, it is not missing history.
         if time.monotonic() + pause > deadline:
