@@ -282,7 +282,7 @@ export function IconPicker({
         )}
       </div>
       {error && (
-        <p className="icon-picker-error" role="alert">
+        <p className="ui-glass icon-picker-error" role="alert">
           {error}
         </p>
       )}
