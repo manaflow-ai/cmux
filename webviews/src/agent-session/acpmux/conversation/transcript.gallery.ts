@@ -1591,7 +1591,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/TurnRows.tsx",
     "agent-session/acpmux/conversation/DateLine.tsx",
     "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryFailure",
-    "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryMark",
+    "agent-session/acpmux/conversation/PromptDelivery.tsx#PendingDelivery",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
     "agent-session/acpmux/conversation/icons.tsx#MultiTool",
@@ -3148,7 +3148,7 @@ export default agentPaneEntry({
       },
     },
     "prompt-delivery": {
-      note: "Each sent prompt's way to the agent: the read check once it started, unread once acpmux took it, a clock and Still sending while it waits, and one that failed with Retry, Edit, Remove and Details.",
+      note: "Each sent prompt's way to the agent, one state per row: the read check once it started, unread once acpmux took it, Sending in the footer's time slot while it waits (no age beside it, no second label), and one that failed with Retry, Edit, Remove and Details and no sent footer.",
       snapshot: chat([
         user("Add retries to the client", 6, {
           delivery: { state: "read", promptId: "p1", sessionId: "s", sentAt: 0, acceptedAt: 40, readAt: 90 },
@@ -3178,6 +3178,7 @@ export default agentPaneEntry({
         }),
       ]),
     },
+    ...promptPendingLooks(),
     "failed-sends-grouped": {
       note: "Three prompts acpmux held behind the folder's trust question (Leo 2026-10-21): one card under the last of them, one plain sentence with Trust folder, and Retry, Edit, Remove and Details once for the three; the raw code only under Details.",
       snapshot: chat([
@@ -3925,5 +3926,46 @@ function forkTurns(family: string | undefined, title = "Add retries to the fetch
     ...snapshot,
     summary: snapshot.summary && { ...snapshot.summary, family, title },
     sessions: snapshot.sessions.map((entry) => ({ ...entry, displayTitle: title })),
+  };
+}
+
+/// A slow acknowledgement on a prompt, and a steer on its way into the running turn, in each look
+/// (Leo, 2026-11-11: "what's up with this still sending thing? ... it already, like, shows that it's
+/// sent. So this is incongruous."). Every look keeps the state in the footer's time slot, the age's
+/// place once it lands, so the row moves nothing and never says sent and sending at once.
+function promptPendingLooks() {
+  const rows = () =>
+    chat(
+      [
+        user("Add retries to the client", 6, {
+          delivery: { state: "read", promptId: "p1", sessionId: "s", sentAt: 0, acceptedAt: 40, readAt: 90 },
+        }),
+        assistant("Added retries with backoff.", 5.5, { streaming: true }),
+        user("Use the cache dir, not tmp", 1, {
+          pending: true,
+          delivery: { state: "sending", promptId: "p2", sessionId: "s", sentAt: 0, queued: true },
+        }),
+        user("Then open a PR", 0.5, {
+          pending: true,
+          delivery: { state: "sending", promptId: "p3", sessionId: "s", sentAt: 0, slow: true },
+        }),
+      ],
+      { isWorking: true },
+    );
+  return {
+    "prompt-pending": {
+      note: "Chosen (A): a prompt still on its way says so in its footer's time slot, a clock and one sentence (Sending; Queued, sends when the current turn ends for a steer behind the running turn), shown at rest; the row's buttons come with the pointer and the age takes the slot once it lands.",
+      snapshot: rows(),
+    },
+    "prompt-pending-clock": {
+      note: "Variant B, not shipped: the clock alone in the time slot, its words for VoiceOver only. Quietest, but a reader cannot tell a queued steer from a slow send without hovering.",
+      snapshot: rows(),
+      documentAttributes: { "prompt-pending-look": "clock" },
+    },
+    "prompt-pending-dim": {
+      note: "Variant C, not shipped: A's words, and the bubble's text muted until it lands. Clearest at a glance, but the bubble changing tone when the send lands reads as a second event.",
+      snapshot: rows(),
+      documentAttributes: { "prompt-pending-look": "dim" },
+    },
   };
 }

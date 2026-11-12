@@ -104,6 +104,11 @@ public nonisolated enum TabTunables {
         "tabs.separators", .tabs, "Tab separators",
         help: "A short line between tabs and before +, hidden beside the selected tab.",
         default: true, code: "TabTunables.separators")
+    // @intent Lucas 2026-11-12 ("show the chevron on hover of the +"): on by default; off keeps the ⌄ shown.
+    public static let chevronOnHover = Tunable<Bool>.toggle(
+        "tabs.chevronOnHover", .tabs, "Pane type ⌄ only on hover",
+        help: "The ⌄ after the tab bar's + shows only while the + or the ⌄ is under the pointer or its menu is open; it keeps its place.",
+        default: true, code: "TabTunables.chevronOnHover")
     public static let pinnedDivider = Tunable<Bool>.toggle(
         "tabs.pinnedDivider", .tabs, "Pinned group divider",
         help: "A short line between the pinned tabs and the other tabs.",
@@ -187,6 +192,6 @@ public nonisolated enum TabTunables {
          separatorHeight, groupChipPadding, groupUnderlineHeight, tearOffDistance, dragStartDistance].map(\.descriptor)
             + [separators.descriptor, pinnedDivider.descriptor, separatorOpacity.descriptor, restingControlOpacity.descriptor, crowdedControls.descriptor,
                crowdedControlOpacity.descriptor, groupJoinHysteresis.descriptor, autoscrollGain.descriptor,
-               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, trailingButtons.descriptor] + VerticalTabTunables.all
+               hoverPreviews.descriptor, hoverCardEntrance.descriptor, loadingAnimation.descriptor, trailingButtons.descriptor, chevronOnHover.descriptor] + VerticalTabTunables.all
     }
 }

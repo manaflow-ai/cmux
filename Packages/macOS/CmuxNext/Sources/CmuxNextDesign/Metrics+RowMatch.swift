@@ -25,9 +25,10 @@ public extension Metrics {
     /// around the pill stays the density's.
     static var tabRowGrowth: CGFloat { tabsFollowRows ? densityRowHeight - MetricTunables.tabHeight.value : 0 }
 
-    /// The tab pill's corner when it follows the rows at Default: the Codex row's (a third of the row, 10 on 30,
-    /// `SidebarRowTokens.codexCornerRadius`). Nil keeps the concentric tab radius: every other density, a corner
-    /// setting (`layout.paneCornerRadius`, `layout.cornerPadding`) and Floating Panes, whose corners the tab nests in.
+    /// The tab pill's corner when it follows the rows at Default: the Codex row's (a third of the row, 10 on 30).
+    /// The sidebar rows read the tab's radius (`SidebarDensityTokens.rowCornerRadius`). Nil keeps the concentric tab
+    /// radius: every other density, a corner setting (`layout.paneCornerRadius`, `layout.cornerPadding`) and Floating
+    /// Panes, whose corners the tab nests in.
     static var tabRowCornerRadius: CGFloat? {
         let chrome = DesignSettings.shared.paneChrome
         guard tabsFollowRows, tokens.id == DensityPreset.cozy.rawValue, chrome.cornerRadius == nil,

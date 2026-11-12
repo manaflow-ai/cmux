@@ -107,7 +107,8 @@ extension TabStripView {
         }
         let buttonWidth = metrics.newTabButtonWidth
         let buttonX = tabsClip.frame.minX + min(trailing - mapping.offset(isPinned: false), viewportWidth) + newTabLeadingGap
-        let buttonFrame = CGRect(x: pixel(buttonX), y: pixel(basis.tabTop + (basis.tabHeight - buttonWidth) / 2), width: buttonWidth, height: buttonWidth)
+        let buttonHeight = NewTabButtonView.frameHeight(split: newTabButton.splitSegment, side: buttonWidth, tabHeight: basis.tabHeight)
+        let buttonFrame = CGRect(x: pixel(buttonX), y: pixel(basis.tabTop + (basis.tabHeight - buttonHeight) / 2), width: buttonWidth, height: buttonHeight)
         let menuFrame = CGRect(x: buttonFrame.maxX, y: buttonFrame.minY, width: newTabControlsWidth - buttonWidth, height: buttonFrame.height)
         if newTabButton.frame != buttonFrame {
             newTabButton.frame = buttonFrame

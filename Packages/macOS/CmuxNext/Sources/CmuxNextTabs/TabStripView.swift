@@ -301,8 +301,14 @@ public final class TabStripView: NSView {
             else { model.send(.newTab(after: nil)) }
         }
         // The split look's two segments tint together: either one under the pointer gives the other its soft fill.
-        newTabButton.onHoverChange = { [weak newTabMenuButton] hovering in newTabMenuButton?.siblingHovered = hovering }
-        newTabMenuButton.onHoverChange = { [weak newTabButton] hovering in newTabButton?.siblingHovered = hovering }
+        newTabButton.onHoverChange = { [weak self, weak newTabMenuButton] hovering in
+            newTabMenuButton?.siblingHovered = hovering
+            self?.updateChooserReveal()
+        }
+        newTabMenuButton.onHoverChange = { [weak self, weak newTabButton] hovering in
+            newTabButton?.siblingHovered = hovering
+            self?.updateChooserReveal()
+        }
         newTabButton.onAccessibilityFocus = { [weak self, weak newTabButton] focused in
             guard let newTabButton else { return }
             self?.noteAccessibilityFocus(ObjectIdentifier(newTabButton), focused)
@@ -509,6 +515,22 @@ public final class TabStripView: NSView {
         applyPinnedDividerColor()
     }
 
+    /// Debug `tabs.chevronOnHover` (on by default, Lucas 2026-11-12): the ⌄ shows only while the + or the ⌄ is under
+    /// the pointer or a new-tab menu is open. It keeps its slot (alpha, not hidden), so nothing moves as it shows.
+    func updateChooserReveal() {
+        let reveal = Self.revealsChooser(onHoverOnly: TabTunables.chevronOnHover.value,
+                                         plusHovered: newTabButton.isHovered, chooserHovered: newTabMenuButton.isHovered,
+                                         menuOpen: newTabButton.isMenuOpen || newTabMenuButton.isHighlighted,
+                                         accessibilityFocused: !accessibilityFocusedElements.isEmpty)
+        newTabMenuButton.alphaValue = reveal ? 1 : 0
+    }
+
+    /// Whether the ⌄ shows (``updateChooserReveal``): always, unless it shows only on hover.
+    nonisolated static func revealsChooser(onHoverOnly: Bool, plusHovered: Bool, chooserHovered: Bool, menuOpen: Bool,
+                                          accessibilityFocused: Bool = false) -> Bool {
+        !onHoverOnly || plusHovered || chooserHovered || menuOpen || accessibilityFocused
+    }
+
     func applyTokens(animated: Bool) {
         metrics = customMetrics ?? TabStripMetrics()
         if opensNewTabMenuOnPress { metrics.newTabButtonWidth += Metrics.space4 }
@@ -517,6 +539,7 @@ public final class TabStripView: NSView {
         newTabButton.splitSegment = showsTypeChooser && trailingButtons == .split
         newTabMenuButton.style = trailingButtons
         newTabMenuButton.isHidden = !showsTypeChooser || !model.showsNewTabButton
+        updateChooserReveal()
         hoverCard.tokensChanged()
         geometryDidChange()
         let font = Typography.tabTitle

@@ -5,7 +5,9 @@ setup.sh runs the installer last under `set -e`, so a non-zero exit reports the
 whole setup as failed. Existing hooks (a global core.hooksPath, or Git LFS's
 hooks in .git/hooks) are left alone with a warning; real errors still fail.
 """
+import errno
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
@@ -16,7 +18,9 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 import unittest
+from unittest import mock
 
 
 def _load_git_fixture_env():
@@ -919,6 +923,9 @@ mkdir -p node_modules/.bin
         result = self.run_pre_commit(env)
         self.assertFalse(marker.exists(), result.stderr)
         self.assertIn("inside this checkout", result.stderr)
+        # npm's `env node` finds no checked node, and says so instead of a bare not-found.
+        self.assertIn("node is in CHILD_TOOLS (scripts/git-hooks/pre-commit), but PATH has no copy of it"
+                      " outside this checkout", result.stderr)
 
     def symlink_layouts(self, name, payload):
         """(label, PATH entry) for each layout that steers a lookup of name at payload in the checkout."""
@@ -987,6 +994,48 @@ mkdir -p node_modules/.bin
                     self.assertIn("inside this checkout", result.stderr)
                     if name == "git":
                         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_a_child_running_a_tool_not_in_child_tools_names_it(self):
+        """A child of the hook that needs a tool missing from CHILD_TOOLS got a bare
+        command-not-found; by name, by exec and by shebang it now names the tool and the list.
+        A hidden executable (.hidden-tool) is a tool like any other: the review of #41254
+        found every name starting with "." skipped. Executability decides, not the name."""
+        self.assertEqual(self.install().returncode, 0)
+        marker = self.root / "unlisted-ran"
+        extra = self.root / "extra-bin"
+        extra.mkdir()
+        for tool in ("frobnicate", ".hidden-tool"):
+            unlisted = extra / tool
+            unlisted.write_text(f"#!/bin/sh\n: > {shlex.quote(str(marker))}\n")
+            unlisted.chmod(0o755)
+            script = self.root / f"child-script{tool}"
+            script.write_text(f"#!/usr/bin/env {tool}\n")
+            script.chmod(0o755)
+            for how, call in (("by name", f"{tool} --version"),
+                              ("by exec", f"exec {tool} --version"),
+                              ("by shebang", shlex.quote(str(script)))):
+                with self.subTest(tool=tool, how=how):
+                    marker.unlink(missing_ok=True)
+                    result = self.run_child_with_extra_path(extra, call)
+                    self.assertFalse(marker.exists(), "an unlisted tool never runs\n" + result.stderr)
+                    self.assertIn(f"{tool} isn't in CHILD_TOOLS (scripts/git-hooks/pre-commit)", result.stderr)
+                    self.assertIn("exit 127", result.stderr)
+        # A file on PATH that is not executable is no tool: no stub claims it is one.
+        inert = extra / "inert-file"
+        inert.write_text("#!/bin/sh\n")
+        inert.chmod(0o644)
+        result = self.run_child_with_extra_path(extra, "inert-file --version")
+        self.assertNotIn("inert-file isn't in CHILD_TOOLS", result.stderr)
+        self.assertIn("exit 127", result.stderr)
+
+    def run_child_with_extra_path(self, extra, call):
+        env = self.bootstrap_env()
+        env["PATH"] = f"{env['PATH']}{os.pathsep}{extra}"
+        bun = self.fake_bun(Path(env["PATH"].split(os.pathsep)[0]) / "bun", "1.4.4", install_body=call)
+        try:
+            return self.run_pre_commit(env)
+        finally:
+            bun.unlink()
 
     def test_merge_driver_does_not_follow_checked_out_script_changes(self):
         result = self.install()
@@ -1961,6 +2010,182 @@ mkdir -p node_modules/.bin
         self.assertIn(f"pid {holder.pid}", result.stderr)
         self.assertNotIn("85305", result.stderr)
 
+
+
+def load_tool_resolver():
+    """The pre-commit hook's TOOL_RESOLVER (a single-quoted bash string) as a namespace of its
+    functions; its dispatch runs only as __main__."""
+    text = (SOURCE / "scripts/git-hooks/pre-commit").read_text(encoding="utf-8")
+    match = re.search(r"^TOOL_RESOLVER='\n(.*?)\n'\n", text, re.S | re.M)
+    namespace = {"__name__": "pre_commit_tool_resolver"}
+    exec(compile(match.group(1), "scripts/git-hooks/pre-commit (TOOL_RESOLVER)", "exec"), namespace)
+    return namespace
+
+
+class CaseInsensitiveDestination:
+    """os.symlink and os.readlink as on a case- and normalization-insensitive volume (the
+    macOS default for the temporary directory): a name matches an entry of its directory
+    whose NFD casefold is equal, so making a second one fails with FileExistsError."""
+
+    def __init__(self, under):
+        self.under = str(under)
+        self.real_symlink = os.symlink
+        self.real_readlink = os.readlink
+
+    @staticmethod
+    def key(name):
+        return unicodedata.normalize("NFD", name).casefold()
+
+    def existing(self, path):
+        path = os.fspath(path)
+        directory, name = os.path.split(path)
+        if path.startswith(self.under + os.sep) and os.path.isdir(directory):
+            for entry in os.listdir(directory):
+                if self.key(entry) == self.key(name):
+                    return os.path.join(directory, entry)
+        return path
+
+    def symlink(self, target, path, *args, **kwargs):
+        if os.path.lexists(self.existing(path)):
+            raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), os.fspath(path))
+        return self.real_symlink(target, path, *args, **kwargs)
+
+    def readlink(self, path, *args, **kwargs):
+        return self.real_readlink(self.existing(path), *args, **kwargs)
+
+    def __enter__(self):
+        self.patches = [mock.patch.object(os, "symlink", self.symlink),
+                        mock.patch.object(os, "readlink", self.readlink)]
+        for patch in self.patches:
+            patch.start()
+        return self
+
+    def __exit__(self, *exc):
+        for patch in reversed(self.patches):
+            patch.stop()
+        return False
+
+
+class CaseInsensitiveLookup:
+    """os.path.isfile, os.path.exists, os.path.islink and os.access as on a case- and normalization-insensitive
+    volume (macOS's default): a lookup of a name under UNDER finds the entry whose NFD casefold is equal, so a PATH
+    directory holding NODE answers for node too (cmux#41666 review: the hook found NODE as node there)."""
+
+    def __init__(self, under):
+        self.folding = CaseInsensitiveDestination(under)
+        self.real = {"isfile": os.path.isfile, "exists": os.path.exists, "islink": os.path.islink,
+                     "access": os.access}
+
+    def __enter__(self):
+        fold = self.folding.existing
+        real = self.real
+        self.patches = [
+            mock.patch.object(os.path, "isfile", lambda path: real["isfile"](fold(path))),
+            mock.patch.object(os.path, "exists", lambda path: real["exists"](fold(path))),
+            mock.patch.object(os.path, "islink", lambda path: real["islink"](fold(path))),
+            mock.patch.object(os, "access", lambda path, mode, *a, **k: real["access"](fold(path), mode, *a, **k)),
+        ]
+        for patch in self.patches:
+            patch.start()
+        return self
+
+    def __exit__(self, *exc):
+        for patch in reversed(self.patches):
+            patch.stop()
+        return False
+
+
+class ChildPathStubNamesTests(unittest.TestCase):
+    """The stubs for names on PATH that CHILD_TOOLS does not list: names that differ only in
+    case (or Unicode normalization) are one file on a case-insensitive temporary volume, and
+    the hook raised an uncaught FileExistsError there, refusing every commit."""
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="cmux-child-path-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(os.path.realpath(temporary.name))
+        self.temp = self.root / "tmp"
+        self.temp.mkdir()
+        self.resolver = load_tool_resolver()
+        patch = mock.patch.object(tempfile, "tempdir", str(self.temp))
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def path_dir(self, label, *names, mode=0o755):
+        directory = self.root / label
+        directory.mkdir()
+        for name in names:
+            (directory / name).write_text("#!/bin/sh\nexit 0\n")
+            (directory / name).chmod(mode)
+        return str(directory)
+
+    def child_path(self, *entries):
+        return Path(self.resolver["child_path"](os.pathsep.join(entries), [], {}))
+
+    def stub_kind(self, shims, name):
+        stub = CaseInsensitiveDestination(self.temp).existing(shims / self.resolver["NOT_LISTED"] / name)
+        return os.path.basename(os.readlink(stub))
+
+    def folded(self, shims):
+        names = os.listdir(shims / self.resolver["NOT_LISTED"])
+        return sorted(CaseInsensitiveDestination.key(name) for name in names)
+
+    def test_names_differing_only_in_case_get_one_stub(self):
+        entry = self.path_dir("bin", "Probe", "probe")
+        with CaseInsensitiveDestination(self.temp):
+            shims = self.child_path(entry)
+        self.assertEqual(self.folded(shims).count("probe"), 1)
+        self.assertEqual(self.stub_kind(shims, "probe"), "not-listed")
+
+    def test_the_same_name_in_two_path_dirs_gets_one_stub(self):
+        first, second = self.path_dir("one", "Probe", "same"), self.path_dir("two", "probe", "same")
+        with CaseInsensitiveDestination(self.temp):
+            shims = self.child_path(first, second)
+        self.assertEqual(self.folded(shims).count("probe"), 1)
+        self.assertEqual(self.folded(shims).count("same"), 1)
+
+    def test_a_listed_name_keeps_its_own_stub_beside_a_case_variant(self):
+        """node is in CHILD_TOOLS with no copy here; NODE on PATH must not take its stub."""
+        # Not executable: on macOS's case-insensitive volumes an executable NODE is node itself (the same file), and
+        # the hook rightly links it (cmux#41666 review). This test is about the stub name, so the lookups fold too.
+        entry = self.path_dir("bin", "NODE", mode=0o644)
+        with CaseInsensitiveDestination(self.temp), CaseInsensitiveLookup(self.root):
+            shims = self.child_path(entry)
+        self.assertEqual(self.folded(shims).count("node"), 1)
+        self.assertEqual(self.stub_kind(shims, "node"), "unresolved")
+
+    def test_on_a_case_insensitive_volume_an_executable_case_variant_is_the_listed_tool(self):
+        """There NODE and node are one file, so the hook links node to it (a NODE stub after it is never reached:
+        the links come first on the children's PATH)."""
+        entry = self.path_dir("bin", "NODE")
+        with CaseInsensitiveDestination(self.temp), CaseInsensitiveLookup(self.root):
+            shims = self.child_path(entry)
+        self.assertEqual(os.readlink(shims / "node"), os.path.join(entry, "node"))
+
+    def test_names_differing_only_in_normalization_get_one_stub(self):
+        composed, decomposed = "caf\u00e9", "cafe\u0301"
+        entry = self.path_dir("bin", composed, decomposed)
+        with CaseInsensitiveDestination(self.temp):
+            shims = self.child_path(entry)
+        self.assertEqual(self.folded(shims).count(CaseInsensitiveDestination.key(composed)), 1)
+
+    def test_any_other_filesystem_error_names_the_stub_and_stops(self):
+        entry = self.path_dir("bin", "probe")
+        real_symlink = os.symlink
+
+        def refuse_probe(target, path, *args, **kwargs):
+            if os.path.basename(path) == "probe":
+                raise PermissionError(errno.EACCES, os.strerror(errno.EACCES), path)
+            return real_symlink(target, path, *args, **kwargs)
+
+        stderr = io.StringIO()
+        with mock.patch.object(os, "symlink", refuse_probe), mock.patch.object(sys, "stderr", stderr):
+            with self.assertRaises(SystemExit) as stopped:
+                self.child_path(entry)
+        self.assertEqual(stopped.exception.code, 1)
+        self.assertIn("pre-commit: ", stderr.getvalue())
+        self.assertIn(os.path.join(self.resolver["NOT_LISTED"], "probe"), stderr.getvalue())
+        self.assertIn(os.strerror(errno.EACCES), stderr.getvalue())
 
 # Detector: every command the pre-commit hook runs is a shell builtin, a function
 # the hook defines, or a tool the hook's one resolver (resolve_tool) returned.

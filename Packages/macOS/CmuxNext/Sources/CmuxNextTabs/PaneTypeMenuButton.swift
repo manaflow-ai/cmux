@@ -91,6 +91,7 @@ final class PaneTypeMenuButton: NSView {
         if style == .split {
             fillLayer.frame = bounds
             fillLayer.cornerRadius = NewTabButtonView.splitCornerRadius
+            fillLayer.cornerCurve = Metrics.tabCornerCurve
             fillLayer.maskedCorners = [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
         } else {
             fillLayer.frame = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)

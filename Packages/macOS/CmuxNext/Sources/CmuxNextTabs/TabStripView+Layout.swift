@@ -370,8 +370,10 @@ extension TabStripView {
         framedCells = FramedCells(basis: cellFrameBasis(mapping: mapping), trailing: trailing, count: cells.count)
         let buttonWidth = metrics.newTabButtonWidth
         let buttonX = tabsClip.frame.minX + min(trailing - offset, viewportWidth) + newTabLeadingGap
-        // Square, centered on the tabs: it keeps its size when the tabs are shorter.
-        let buttonFrame = CGRect(x: pixel(buttonX), y: pixel(tabY + (tabHeight - buttonWidth) / 2), width: buttonWidth, height: buttonWidth)
+        // Square, centered on the tabs: it keeps its size when the tabs are shorter. The split look's `+ ⌄` is a tab's
+        // height, so its hover is a tab's band (Lucas 2026-11-12: "same height and roundness as tabs").
+        let buttonHeight = NewTabButtonView.frameHeight(split: newTabButton.splitSegment, side: buttonWidth, tabHeight: tabHeight)
+        let buttonFrame = CGRect(x: pixel(buttonX), y: pixel(tabY + (tabHeight - buttonHeight) / 2), width: buttonWidth, height: buttonHeight)
         let buttonFrom = newTabButton.frame.origin
         newTabButton.frame = buttonFrame
         newTabMenuButton.frame = CGRect(x: buttonFrame.maxX, y: buttonFrame.minY,

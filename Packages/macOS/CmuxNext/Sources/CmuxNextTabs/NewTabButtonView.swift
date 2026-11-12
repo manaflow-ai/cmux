@@ -54,7 +54,7 @@ final class NewTabButtonView: NSView {
         wantsLayer = true
         layerContentsRedrawPolicy = .never
         fillLayer.cornerRadius = Metrics.tabCornerRadius
-        fillLayer.cornerCurve = .circular // Helium's tab: a circular-arc SkRRect, not a squircle
+        fillLayer.cornerCurve = Metrics.tabCornerCurve
         fillLayer.actions = ["bounds": NSNull(), "position": NSNull()]
         glyphLayer.fillColor = nil
         glyphLayer.lineWidth = Metrics.addGlyphLineWidth
@@ -91,11 +91,13 @@ final class NewTabButtonView: NSView {
         let side = min(bounds.width, bounds.height)
         let square = CGRect(x: (bounds.width - side) / 2, y: (bounds.height - side) / 2, width: side, height: side)
         let split = splitSegment && !showsChevron
-        fillLayer.frame = split ? square : showsChevron ? bounds.insetBy(dx: Metrics.space1, dy: (bounds.height - side) / 2) : square
+        // The split look's + is a tab's height (``frameHeight``): its fill is its whole frame, a tab's band.
+        fillLayer.frame = split ? bounds : showsChevron ? bounds.insetBy(dx: Metrics.space1, dy: (bounds.height - side) / 2) : square
         // A circle in the circles look, one diameter with the ⌄ and the ⋮; else the tabs' shape. The split look
         // rounds only the group's leading corners: the ⌄ beside it rounds the trailing ones.
         fillLayer.cornerRadius = split ? Self.splitCornerRadius
             : hoverStyle == .circle && !showsChevron ? side / 2 : Metrics.tabCornerRadius
+        fillLayer.cornerCurve = Metrics.tabCornerCurve
         fillLayer.maskedCorners = split ? [.layerMinXMinYCorner, .layerMinXMaxYCorner] : Self.allCorners
         glyphLayer.frame = bounds
         // The add buttons' one + (`Metrics.addGlyphExtent`), the sidebar's New Workspace size.
@@ -172,9 +174,13 @@ final class NewTabButtonView: NSView {
         return ChromeHover.fillColor(.init(hovering: true)).map { $0.withAlphaComponent($0.alphaComponent / 2) }
     }
 
-    /// The split control's corner: a button's (``Metrics/controlCornerRadius``), not the tab's, so the `+ ⌄` hover
-    /// reads as a rounded square pair, not a pill (Lucas 2026-11-12: "as a pill but that rounding").
-    static var splitCornerRadius: CGFloat { Metrics.controlCornerRadius }
+    /// The split control's corner: a tab's (``Metrics/tabCornerRadius``), on a tab's height (``frameHeight``), so the
+    /// `+ ⌄` hover reads as a tab, not a pill (Lucas 2026-11-12: "same height and roundness as tabs").
+    static var splitCornerRadius: CGFloat { Metrics.tabCornerRadius }
+
+    /// The + button's height in the tab strip: the split look's `+ ⌄` is a tab's height, so its hover fill is a tab's
+    /// band; every other look keeps the square button (`side`), centered on the tabs.
+    static func frameHeight(split: Bool, side: CGFloat, tabHeight: CGFloat) -> CGFloat { split ? tabHeight : side }
 
     /// The trailing controls' glyph ink: secondary at rest, primary on hover, the lit ink while pressed or while its
     /// menu is open. The ⌄ beside the + draws with it too. Call inside the view's theme scope.
