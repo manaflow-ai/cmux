@@ -38,8 +38,6 @@ jobs:
     timeout-minutes: 40
     permissions:
       contents: read
-    env:
-      V2_GATE_OUT: ${{ runner.temp }}/quality/v2-measures.ndjson
     steps:
       - name: Name tonight's marker
         id: day
@@ -69,8 +67,10 @@ jobs:
       - name: Initialize v2 gate measures
         if: steps.done.outputs.cache-hit != 'true'
         run: |
-          mkdir -p "$RUNNER_TEMP/quality"
-          : > "$V2_GATE_OUT"
+          v2_gate_out="$RUNNER_TEMP/quality/v2-measures.ndjson"
+          echo "V2_GATE_OUT=$v2_gate_out" >> "$GITHUB_ENV"
+          mkdir -p "$(dirname "$v2_gate_out")"
+          : > "$v2_gate_out"
 
       # Reads only, on the route App's own budget (not the GITHUB_TOKEN every workflow shares): this repository's
       # perf-cron-state artifact, and cmuxterm-hq's hang-watch issues (the fallback crash source). No App or a failed

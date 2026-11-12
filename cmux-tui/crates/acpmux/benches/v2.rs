@@ -4,6 +4,7 @@
 //! entry point live means the nightly report can name every promised row from PR 0 onward.
 
 #[path = "v2/mod.rs"]
+#[allow(dead_code)]
 mod home;
 
 fn main() {

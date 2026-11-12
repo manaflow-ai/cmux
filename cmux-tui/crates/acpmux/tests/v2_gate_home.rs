@@ -1,6 +1,8 @@
 #[path = "../benches/v2/mod.rs"]
+#[allow(dead_code)]
 mod home;
 
+use std::collections::HashSet;
 use std::io::Write;
 
 fn measure_file(name: &str, small_p95: f64, god_p95: f64) -> tempfile::NamedTempFile {
@@ -16,8 +18,14 @@ fn measure_file(name: &str, small_p95: f64, god_p95: f64) -> tempfile::NamedTemp
 #[test]
 fn skipped_placeholder_passes() {
     let report = home::report(&[]).unwrap();
-    assert_eq!(report["rows"].as_array().unwrap().len(), 14);
-    assert_eq!(report["rows"][0]["status"], "skipped");
+    let rows = report["rows"].as_array().unwrap();
+    let ids = rows.iter().map(|row| row["pr"].as_str().unwrap()).collect::<HashSet<_>>();
+    for pr in
+        ["1", "1b", "2", "2b", "3", "4", "5", "5b", "6", "7", "8", "9", "10", "11", "12", "13"]
+    {
+        assert!(ids.contains(pr), "missing placeholder for PR {pr}");
+    }
+    assert_eq!(rows[0]["status"], "skipped");
     assert_eq!(report["fixtures"]["god"]["chats"], 527);
     assert_eq!(report["fixtures"]["god"]["peers"], 30);
 }

@@ -44,6 +44,12 @@ pub const GATE_ROWS: &[GateRow] = &[
         measured: false,
     },
     GateRow {
+        pr: "2b",
+        name: "v2.pr02b.translate_line_queue_full",
+        done_when: "fold(a ++ b) == apply(fold(a), b) holds for the queue as for the rows, over 10k random splits. For every settled group in every interleaving, the rows in sight are the group row and out, nothing else. The state is inside its bound with 1,024 entries waiting.",
+        measured: false,
+    },
+    GateRow {
         pr: "3",
         name: "v2.pr03.chat_actor_window_resume",
         done_when: "First window within 50 ms of sub, 1.2x. Resume from a cursor costs O(missed). RSS with the god chat subscribed within 1.2x of small. An append that waits behind a cold page read: its wait 1.2x, god against small. The actor killed mid-turn 50 times: the replay settles every row once.",
@@ -59,6 +65,12 @@ pub const GATE_ROWS: &[GateRow] = &[
         pr: "5",
         name: "v2.pr05.index_list_stream",
         done_when: "First list window within 200 ms of listen with 11k sessions, 1.2x against 20. One summary change costs O(1): no work proportional to the list.",
+        measured: false,
+    },
+    GateRow {
+        pr: "5b",
+        name: "v2.pr05b.start_first_window",
+        done_when: "From exec to the first list window out of the snapshot: under 200 ms at 11,000 sessions, 1.2x against 20.",
         measured: false,
     },
     GateRow {
