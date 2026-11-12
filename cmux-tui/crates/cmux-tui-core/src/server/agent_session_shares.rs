@@ -452,6 +452,9 @@ pub(in crate::server) struct LinkShares {
     /// Moving an unreadable file aside fails while set (tests).
     #[cfg(test)]
     pub(super) refuse_set_aside: std::sync::atomic::AtomicBool,
+    /// The millisecond a move aside names its copy with while set (tests; 0: the wall clock).
+    #[cfg(test)]
+    pub(super) set_aside_ms: AtomicU64,
 }
 
 impl Drop for LinkShares {
@@ -747,6 +750,10 @@ impl LinkShares {
         #[cfg(test)]
         if self.refuse_set_aside.load(Ordering::Relaxed) {
             return Err(std::io::Error::other("set aside refused (test)"));
+        }
+        #[cfg(test)]
+        if let ms @ 1.. = self.set_aside_ms.load(Ordering::Relaxed) {
+            return set_aside_unreplaced(directory, ms);
         }
         set_aside_unreplaced(directory, wall_ms())
     }
