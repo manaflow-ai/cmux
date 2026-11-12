@@ -159,4 +159,30 @@ git -C "$repo" -c user.name=t -c user.email=t@t commit -qam catalog
 bash "$FIX" --no-fmt --sdk "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on stale descriptors"
 python3 -I "$repo/cmux-tui/bindings/rust/scripts/sync-resource-api.py" --check || fail "the descriptors must match the catalog after --sdk"
 grep -q '^fixed: regenerated cmux-tui/bindings/zig/.cmux-resource-api.json' "$tmp/out" || fail "a resynced descriptor must be reported"
+# --display-suites rewrites scripts/ci/display-suites.txt from the test sources' display skip traits:
+# 8d01c87e13c (a direct push, so no pull request check) added HeaderTerminalSplitAtOnceTests with a
+# display trait and left tooling-tests red on base (run 43166772721). The real display_suites.py runs.
+mkdir -p "$repo/scripts/ci" "$repo/Packages/macOS/Pkg/Tests/PkgTests"
+cp "$ROOT_DIR/scripts/ci/display_suites.py" "$repo/scripts/ci/display_suites.py"
+echo '// swift-tools-version: 6.2' > "$repo/Packages/macOS/Pkg/Package.swift"
+cat > "$repo/Packages/macOS/Pkg/Tests/PkgTests/NewDisplayTests.swift" <<'SWIFT'
+struct NewDisplayTests {
+    @Test(.enabled("needs a display for pane geometry") { true })
+    func paneGeometry() {}
+}
+SWIFT
+printf '# header\n' > "$repo/scripts/ci/display-suites.txt"
+git -C "$repo" add -A && git -C "$repo" -c user.name=t -c user.email=t@t commit -qm 'a new display suite'
+bash "$FIX" --no-fmt "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed without --display-suites"
+grep -q NewDisplayTests "$repo/scripts/ci/display-suites.txt" && fail "the display suite list is written only with --display-suites"
+bash "$FIX" --no-fmt --display-suites "$repo" > "$tmp/out" 2>&1 || fail "the fixer must succeed on a stale display suite list"
+grep -qx 'Packages/macOS/Pkg PkgTests.NewDisplayTests' "$repo/scripts/ci/display-suites.txt" \
+  || fail "a new display suite must be added to the list: $(cat "$repo/scripts/ci/display-suites.txt")"
+grep -q '^fixed: regenerated scripts/ci/display-suites.txt' "$tmp/out" || fail "the regenerated list must be reported"
+python3 -I "$repo/scripts/ci/display_suites.py" --root "$repo" --check || fail "the list must pass the check after --display-suites"
+git -C "$repo" -c user.name=t -c user.email=t@t commit -qam 'list fixed'
+bash "$FIX" --no-fmt --display-suites "$repo" > "$tmp/out" 2>&1 || fail "a second display run must succeed"
+[[ -z "$(git -C "$repo" status --porcelain)" ]] || fail "a current display suite list must stay unchanged"
+grep -q 'display-suites' "$tmp/out" && fail "a current display suite list must not be reported"
+
 echo "base autofix: ok"

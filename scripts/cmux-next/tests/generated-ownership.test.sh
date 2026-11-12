@@ -50,12 +50,15 @@ drift schemas/defaults/cmux-next.json "$schema" && fail "the settings export alo
 # pull request caused (the Java SDK sources and the namespace ratchet were missing once).
 for path in cmux-tui/bindings/java/src/com/cmux/raw/Client.java cmux-tui/bindings/go/raw/generated_ops.go \
   scripts/lint-namespace-types-ratchet.txt web/data/cmux-shortcuts.generated.json clients/ts/cloud/src/generated.ts \
-  plans/cmux-next/daemon-capabilities.json \
+  plans/cmux-next/daemon-capabilities.json scripts/ci/display-suites.txt \
   cmux-tui/crates/cmux-cloud-wire/src/generated/ops.rs scripts/ghosttykit-checksums.txt; do
   python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import generated_outputs as g; sys.exit(g.output_of(sys.argv[2]) is None)' \
     "$ROOT_DIR/scripts/cmux-next" "$path" || fail "$path is an autofix output missing from the table"
 done
 drift cmux-tui/bindings/java/src/com/cmux/raw/Client.java cmux-tui/spec/sdk-schema.json || fail "the SDK schema causes the Java sources"
+drift scripts/ci/display-suites.txt Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/HeaderTerminalSplitAtOnceTests.swift \
+  || fail "a new display test causes its display suite list row"
+drift scripts/ci/display-suites.txt webviews/src/main.tsx && fail "the display suite list is drift without a test source"
 drift scripts/lint-namespace-types-ratchet.txt Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift || fail "a Swift fix causes its ratchet row"
 # Hand-written files are never drift.
 drift webviews/src/main.tsx scripts/cmux-next/base-autofix.sh || fail "a hand-written file is not drift"

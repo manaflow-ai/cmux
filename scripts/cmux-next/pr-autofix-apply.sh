@@ -49,6 +49,7 @@ allowed() { # repository-relative path -> 0 when an autofix repair writes it
     web/data/cmux-shortcuts.generated.json) return 0 ;;
     plans/cmux-next/action-surfaces.json|plans/cmux-next/actions.md|plans/cmux-next/links.json) return 0 ;; # action exports
     plans/cmux-next/daemon-capabilities.json) return 0 ;; # daemon capability export
+    scripts/ci/display-suites.txt) return 0 ;; # display suite list (display_suites.py --fix)
     scripts/lint-namespace-types-ratchet.txt) return 0 ;;
     clients/ts/cloud/src/generated.ts) return 0 ;;
     cmux-tui/crates/cmux-cloud-wire/src/generated/*) return 0 ;;

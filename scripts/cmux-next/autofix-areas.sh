@@ -20,6 +20,10 @@ area() { # key, path regex
 }
 area graph 'Packages/|scripts/cmux-next/ci-target-graph\.py'
 area capabilities 'Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndpoint\.swift|Packages/macOS/CmuxNext/Tests/CmuxNextDaemonTests/DaemonCapabilityExportTests\.swift|plans/cmux-next/daemon-capabilities\.json|scripts/cmux-next/check-daemon-capabilities-fresh\.py|scripts/cmux-next/tests/daemon-capabilities-fresh\.test\.sh'
+# The display suite list (scripts/ci/display-suites.txt, display_suites.py --fix) reads every package's test
+# sources and Package.swift. A hand-kept copy went stale on a direct push (8d01c87e13c added
+# HeaderTerminalSplitAtOnceTests with a display trait; tooling-tests red on base run 43166772721).
+area displaysuites 'Packages/.+/Tests/|Packages/.+/Package\.swift|scripts/ci/display_suites\.py|scripts/ci/display-suites\.txt'
 # The strings generator reads xcstrings catalogs under Packages and webviews/src, and the settings schema.
 area strings 'Packages/|webviews/src/|webviews/scripts/pages/|schemas/settings/'
 # The SDK generator reads the SDK schema and its own emitters.

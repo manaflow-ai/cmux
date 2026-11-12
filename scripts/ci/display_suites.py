@@ -7,6 +7,9 @@ display and animations on, ...", "run on a GUI host", "no GUI login session"). T
 truth; `scripts/ci/display-suites.txt` declares the same suites so cmux-ci can read them at a step's ref and send
 a `package-test-lane.sh suite` step that names one to a display worker (the `gui-session-v1` label) without the
 lane asking. `--check` (cmux-next checks, tests/test_ci_display_suites.py) fails when the two differ.
+The list is generated: the PR autofix and the base autofix (scripts/cmux-next/base-autofix.sh --display-suites) run
+`--fix` whenever a package's tests change, so a direct push that adds a display suite no longer leaves base red
+(8d01c87e13c, tooling-tests on base run 43166772721).
 
 Usage: display_suites.py [--root DIR]      print the suites the traits ask for (`PACKAGE TARGET.SUITE`, sorted)
        display_suites.py --check           exit 1 when scripts/ci/display-suites.txt declares other suites
@@ -168,7 +171,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"display-suites.txt: missing {row} (it has a display skip trait)", file=sys.stderr)
             for row in sorted(have - want):
                 print(f"display-suites.txt: lists {row}, which has no display skip trait", file=sys.stderr)
-            print("run: python3 scripts/ci/display_suites.py --fix", file=sys.stderr)
+            print("run: python3 scripts/ci/display_suites.py --fix (the base autofix also rewrites it after a "
+                  "feat-cmux-next push: base-autofix.sh --display-suites)", file=sys.stderr)
             return 1
         return 0
     sys.stdout.write(text)

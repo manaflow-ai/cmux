@@ -17,6 +17,9 @@
 #     (cmux-tui/bindings/rust/scripts/sync-resource-api.py; with --sdk);
 #   - the daemon capability export: plans/cmux-next/daemon-capabilities.json from
 #     DaemonEndpoint.swift (scripts/cmux-next/check-daemon-capabilities-fresh.py; with --capabilities);
+#   - the display suite list: scripts/ci/display-suites.txt from the test
+#     sources' display skip traits (scripts/ci/display_suites.py --fix; with
+#     --display-suites);
 #   - the docs shortcuts: web/data/cmux-shortcuts.generated.json from the
 #     committed action catalog export (web/scripts/export-docs-shortcuts.ts;
 #     with --docs-shortcuts);
@@ -75,10 +78,10 @@
 # Prints one line per change ("fixed: ..."), skip ("skipped (frozen): ...") or
 # repair left to a person ("left: ...").
 #
-# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO
+# Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--display-suites] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" sdk=0 capabilities=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" locks=0 fmt=1
+generated="" package_dump="" sdk=0 capabilities=0 display_suites=0 docs_shortcuts=0 app_host=0 app_host_committed=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" locks=0 fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
@@ -86,6 +89,7 @@ while (( $# > 1 )); do
     --strings) shift ;; # a no-op since #21946 (page strings are build output)
     --sdk) sdk=1; shift ;;
     --capabilities) capabilities=1; shift ;;
+    --display-suites) display_suites=1; shift ;;
     --docs-shortcuts) docs_shortcuts=1; shift ;;
     --app-host) app_host=1; shift ;;
     --app-host-committed-exports) app_host_committed=1; shift ;;
@@ -96,10 +100,10 @@ while (( $# > 1 )); do
     --webviews-fmt-patch) webviews_patch="$2"; shift 2 ;;
     --locks) locks=1; shift ;;
     --no-fmt) fmt=0; shift ;;
-    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO" >&2; exit 2 ;;
+    *) echo "usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--display-suites] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO" >&2; exit 2 ;;
   esac
 done
-repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO}" && pwd)"
+repo="$(cd "${1:?usage: $0 [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--capabilities] [--display-suites] [--docs-shortcuts] [--app-host] [--app-host-committed-exports] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--locks] [--no-fmt] REPO}" && pwd)"
 frozen_list="$script_dir/base-autofix-frozen.txt"
 
 frozen() { # repository-relative path -> 0 when frozen; a "!" line exempts a path
@@ -179,6 +183,22 @@ if (( capabilities )) && [[ -f "$repo/scripts/cmux-next/check-daemon-capabilitie
   python3 -I "$repo/scripts/cmux-next/check-daemon-capabilities-fresh.py" --repo "$repo" --write >/dev/null
   if [[ "$before" != "$(cksum < "$repo/plans/cmux-next/daemon-capabilities.json")" ]]; then
     echo "fixed: regenerated plans/cmux-next/daemon-capabilities.json"
+  fi
+fi
+
+# 1d3. The display suite list, from the test sources' own display skip traits (pure Python, no build).
+# cmux-ci reads it at a step's ref to send a display suite to a display worker; the
+# tooling-tests check compares it with the traits. A direct push skips every PR check, so
+# 8d01c87e13c's new display suite left it stale and that check red on base (run 43166772721).
+if (( display_suites )) && [[ -f "$repo/scripts/ci/display_suites.py" ]]; then
+  rel=scripts/ci/display-suites.txt
+  if ! python3 -I "$repo/scripts/ci/display_suites.py" --root "$repo" --check >/dev/null 2>&1; then
+    if frozen "$rel"; then
+      echo "skipped (frozen): $rel (stale; python3 scripts/ci/display_suites.py --fix)"
+    else
+      python3 -I "$repo/scripts/ci/display_suites.py" --root "$repo" --fix
+      echo "fixed: regenerated $rel"
+    fi
   fi
 fi
 

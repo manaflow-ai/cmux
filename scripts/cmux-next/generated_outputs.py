@@ -70,6 +70,9 @@ CAPABILITY_INPUTS = (
     r"|scripts/cmux-next/tests/daemon-capabilities-fresh\.test\.sh$"
 )
 
+# The display suite list reads every package's test sources (their display skip traits) and which packages exist.
+DISPLAY_SUITES_INPUTS = r"Packages/.+/Tests/.+\.swift$|Packages/.+/Package\.swift$|scripts/ci/display_suites\.py$"
+
 # An input regex that no path matches: only the base autofix writes the output.
 BOT_ONLY = r"(?!)"
 
@@ -83,6 +86,8 @@ OUTPUTS: tuple[tuple[tuple[str, ...], str, str], ...] = (
      "scripts/cmux-next/ci-target-graph.py; only the base autofix writes it"),
     (("plans/cmux-next/daemon-capabilities.json",), CAPABILITY_INPUTS,
      "scripts/cmux-next/check-daemon-capabilities-fresh.py --write (the autofix)"),
+    (("scripts/ci/display-suites.txt",), DISPLAY_SUITES_INPUTS,
+     "python3 scripts/ci/display_suites.py --fix (the autofix)"),
     (("plans/cmux-next/action-surfaces.json", "plans/cmux-next/actions.md", "plans/cmux-next/links.json"),
      ACTIONS_INPUTS, "scripts/cmux-next/regenerate-action-exports.sh (a Mac; the autofix)"),
     (SETTINGS_EXPORTS,

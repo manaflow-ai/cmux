@@ -36,6 +36,14 @@ for path in Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonEndp
   [[ "$(capabilities "$path")" == true ]] || fail "a change to $path must repair the daemon capability export"
 done
 [[ "$(capabilities webviews/src/main.tsx)" == false ]] || fail "a webviews change must not repair the daemon capability export"
+displaysuites() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^displaysuites=//p'; }
+for path in Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/HeaderTerminalSplitAtOnceTests.swift \
+  Packages/Shared/CmuxAuthRuntime/Package.swift scripts/ci/display_suites.py scripts/ci/display-suites.txt; do
+  [[ "$(displaysuites "$path")" == true ]] || fail "a change to $path must repair the display suite list"
+done
+for path in webviews/src/main.tsx Packages/macOS/CmuxNext/Sources/CmuxNextApp/AgentTabs+Wiring.swift; do
+  [[ "$(displaysuites "$path")" == false ]] || fail "a change to $path must not repair the display suite list"
+done
 apphost() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^apphost=//p'; }
 for path in cmux-tui/spec/resource-operations-v2.json backend/catalog/cloud-operations.json \
   plans/cmux-next/action-surfaces.json first-party-apps/notes/catalog.json \

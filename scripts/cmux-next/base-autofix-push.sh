@@ -89,6 +89,7 @@ output_areas() {
       # The exports read the actions area only; what is built from them follows them (built_from).
       plans/cmux-next/action-surfaces.json | plans/cmux-next/actions.md | plans/cmux-next/links.json) echo actions ;;
       plans/cmux-next/daemon-capabilities.json) echo capabilities ;;
+      scripts/ci/display-suites.txt) echo displaysuites ;;
       schemas/settings/settings-schema.json | docs/mdm/*) echo settings ;;
       "$snapshot") echo settings; echo actions ;;
       web/data/cmux-shortcuts.generated.json) echo shortcuts; echo actions ;;

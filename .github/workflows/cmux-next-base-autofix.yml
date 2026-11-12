@@ -11,6 +11,7 @@ name: cmux-next base autofix
 # docs reference pages (web/scripts/export-next-docs.ts), the app-host
 # generated files (cmux-tui/crates/cmux-app-host/tools/gen-cmux-global.ts), the namespace
 # daemon capability export (scripts/cmux-next/check-daemon-capabilities-fresh.py), the
+# display suite list (scripts/ci/display_suites.py --fix), the
 # ratchet's stale rows (scripts/lint-namespace-types-ratchet.txt), the cloud
 # wire clients from the committed cloud catalog (backend/packages/protocol),
 # webviews formatting (vp fmt in the read-only webviews-fmt job), cargo fmt
@@ -117,6 +118,9 @@ on:
       - scripts/cmux-next/publish-bot-head-tree.sh
       - scripts/cmux-next/autofix-areas.sh
       - scripts/cmux-next/check-daemon-capabilities-fresh.py
+      # The display suite list (base-autofix.sh --display-suites); Packages/** covers the test sources.
+      - scripts/ci/display_suites.py
+      - scripts/ci/display-suites.txt
       - scripts/cmux-next/tests/daemon-capabilities-fresh.test.sh
       - scripts/cmux-next/pr-autofix-apply.sh
       - scripts/cmux-next/base-autofix-frozen.txt
@@ -756,6 +760,7 @@ jobs:
           STRINGS: ${{ steps.areas.outputs.strings }}
           SDK: ${{ steps.areas.outputs.sdk }}
           CAPABILITIES: ${{ steps.areas.outputs.capabilities }}
+          DISPLAY_SUITES: ${{ steps.areas.outputs.displaysuites }}
           SHORTCUTS: ${{ steps.areas.outputs.shortcuts }}
           APPHOST: ${{ steps.areas.outputs.apphost }}
           ACTIONS: ${{ steps.areas.outputs.actions }}
@@ -832,6 +837,7 @@ jobs:
           STRINGS: ${{ steps.areas.outputs.strings }}
           SDK: ${{ steps.areas.outputs.sdk }}
           CAPABILITIES: ${{ steps.areas.outputs.capabilities }}
+          DISPLAY_SUITES: ${{ steps.areas.outputs.displaysuites }}
           SHORTCUTS: ${{ steps.areas.outputs.shortcuts }}
           APPHOST: ${{ steps.areas.outputs.apphost }}
           ACTIONS: ${{ steps.areas.outputs.actions }}

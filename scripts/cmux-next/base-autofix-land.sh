@@ -74,12 +74,12 @@ main() {
   fi
   repair_script="${CMUX_BASE_AUTOFIX_REPAIR:-$root/scripts/cmux-next/base-autofix-repair.sh}"
 
-  # A held file a round on the tip makes again (base-autofix-push.sh's output areas graph, sdk,
+  # A held file a round on the tip makes again (base-autofix-push.sh's output areas graph, displaysuites, sdk,
   # ratchets, cloud and fmt; what is built from the exports when they are current on the tip). The
   # rest needs the Mac job or an artifact made at an older commit.
   remade() {
     case "$1" in
-      Packages/macOS/CmuxNext/ci-target-graph.json | plans/cmux-next/daemon-capabilities.json | cmux-tui/bindings/* | scripts/lint-namespace-types-ratchet.txt \
+      Packages/macOS/CmuxNext/ci-target-graph.json | plans/cmux-next/daemon-capabilities.json | scripts/ci/display-suites.txt | cmux-tui/bindings/* | scripts/lint-namespace-types-ratchet.txt \
         | clients/ts/cloud/* | cmux-tui/crates/cmux-cloud-wire/src/generated/*) return 0 ;;
       # The namespace lint's safe rewrites (base-autofix.sh 1f', with --ratchets).
       Packages/*.swift | ios/cmux/*.swift) return 0 ;;
