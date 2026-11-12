@@ -333,7 +333,7 @@ fn provider_error(error: &ProviderError) -> CarrierError {
     }
 }
 
-fn connection_error(error: &ConnectionError) -> CarrierError {
+pub(crate) fn connection_error(error: &ConnectionError) -> CarrierError {
     let detail = error.to_string();
     match error {
         ConnectionError::Provider(provider) => provider_error(provider),
@@ -363,37 +363,59 @@ pub struct CarrierSession {
     ended: tokio::sync::watch::Sender<bool>,
 }
 
-/// Whether a session can still carry streams: not closed, the daemon still
-/// has it, its multiplexer's reader has not failed, and its resume did not
-/// give up. The Mac's carrier retires a session on the same signals
-/// (cmux-tui `carrier/held.rs` `alive`). `Disconnected` is what the
-/// connection publishes when the daemon no longer has the session and when
-/// a recovery runs out of `RESUME_DEADLINE`; the phone then dials anew.
+/// How long past [`RESUME_DEADLINE`] a session may stay `Disconnected` before the watcher
+/// ends it. A recovery publishes `Disconnected` while one of its bursts waits to redial, and
+/// again when it gives up; it never runs past `RESUME_DEADLINE`, so `Disconnected` held this
+/// long is a recovery that ended.
+const GAVE_UP_MARGIN: Duration = Duration::from_secs(2);
+
+/// Whether a session can still carry streams: not closed, the daemon still has it, and its
+/// multiplexer's reader has not failed. The Mac's carrier retires a session on the same signals
+/// (cmux-tui `carrier/held.rs` `alive`). `Disconnected` alone is not death: a recovery in
+/// progress publishes it between redials ([`watch_session`] times it instead).
 fn session_alive(connection: &ClientConnection, multiplexer: &ServiceMultiplexer) -> bool {
-    use cmux_remote::observability::ConnectionState;
     !connection.session_unavailable()
         && !multiplexer.session_unavailable()
         && multiplexer.subscribe_fatal().borrow().is_none()
         && !matches!(
             *connection.subscribe_state().borrow(),
-            ConnectionState::Disconnected | ConnectionState::Closed
+            cmux_remote::observability::ConnectionState::Closed
         )
 }
 
-/// Ends `connection` once it dies (any [`session_alive`] signal), so
-/// [`CarrierSession::closed`] resolves at once and every stream on it ends.
+/// Ends `connection` once it dies, so [`CarrierSession::closed`] resolves at once and every
+/// stream on it ends: a [`session_alive`] signal, or `Disconnected` held for longer than any
+/// recovery runs ([`RESUME_DEADLINE`] and [`GAVE_UP_MARGIN`]). A burst that parks and then
+/// reconnects inside that window keeps the session (a network handoff resumes, no new grant).
 fn watch_session(
     connection: Arc<ClientConnection>,
     multiplexer: Arc<ServiceMultiplexer>,
     ended: tokio::sync::watch::Sender<bool>,
 ) {
+    use cmux_remote::observability::ConnectionState;
     tokio::spawn(async move {
         let mut state = connection.subscribe_state();
         let mut fatal = multiplexer.subscribe_fatal();
+        let mut disconnected_since: Option<Instant> = None;
         while session_alive(&connection, &multiplexer) {
+            let now = Instant::now();
+            disconnected_since = match *state.borrow_and_update() {
+                ConnectionState::Disconnected => Some(disconnected_since.unwrap_or(now)),
+                _ => None,
+            };
+            let gave_up_at = disconnected_since.map(|since| since + RESUME_DEADLINE + GAVE_UP_MARGIN);
+            if gave_up_at.is_some_and(|at| now >= at) {
+                break;
+            }
             tokio::select! {
                 changed = state.changed() => if changed.is_err() { break },
                 changed = fatal.changed() => if changed.is_err() { break },
+                () = async {
+                    match gave_up_at {
+                        Some(at) => tokio::time::sleep_until(at).await,
+                        None => std::future::pending().await,
+                    }
+                } => {}
             }
         }
         ended.send_replace(true);
@@ -618,7 +640,7 @@ async fn attempt(
 /// open) is retried with a fresh session, as the Mac's carrier does; the
 /// daemon's own refusal of the stream (a grant that does not admit it) is
 /// `Handshake`; anything else is a retryable transport failure.
-fn mux_open_error(
+pub(crate) fn mux_open_error(
     connection: &ClientConnection,
     multiplexer: &ServiceMultiplexer,
     error: &cmux_remote::bridge::BridgeError,

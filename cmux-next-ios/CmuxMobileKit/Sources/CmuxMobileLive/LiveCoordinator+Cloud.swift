@@ -130,13 +130,26 @@ extension LiveCoordinator {
         let token = session.closeSerial
         session.pendingClose = token
         let release = releaseBeforeClose
-        // task-owner: bounded by the releases' 2 s deadline (run together), then the close
+        // A close after a touch called an earlier one off waits for that one's releases, so the
+        // link never closes while an earlier release is unanswered.
+        let prior = session.releasing
+        // task-owner: bounded by the releases' 2 s deadline (run together), after the prior ones
+        let releases = Task { @MainActor in
+            await prior?.value
+            await release(session)
+        }
+        session.releasing = releases
+        // task-owner: waits for `releases`, then the close
         // Strong: a session closeSession already forgot must still close its link.
         Task { @MainActor in
-            await release(session)
+            await releases.value
+            if session.releasing == releases { session.releasing = nil }
             guard session.pendingClose == token else {
-                // Opened again while it released: it stays, and what is on screen claims again.
-                for terminal in session.terminals.compactMap(\.session) { terminal.reclaimSizeAfterKeptLink() }
+                // Called off by a touch: what is on screen claims its size again, but only if the link
+                // really stays (no later close is pending, and it is still wanted and up).
+                if session.pendingClose == nil, session.link.target != nil, session.link.phase.isConnected {
+                    for terminal in session.terminals.compactMap(\.session) { terminal.reclaimSizeAfterKeptLink() }
+                }
                 return
             }
             session.pendingClose = nil
@@ -170,9 +183,14 @@ extension LiveCoordinator {
         guard let config = ChiefCloudConfig.current() else { return nil }
         // Account-default scope, as the machine list reads it (no `x-cmux-team`): the phone's
         // active team is a Mac team (`personal-…` or a Stack id), not a Cloud `team_…` id.
+        // This sign-in's epoch: a dial still running after sign-out can't write a key back.
+        let epoch = CloudCarrierKey.epoch(userID: userID)
         return CloudCarrierDialer.ffi(apiBase: config.baseURL, teamID: nil, deviceName: deviceName,
                                       accessToken: { try await api.accessToken($0) },
-                                      noiseKey: { try CloudCarrierKey.load(userID: userID, store: secrets, newKey: CloudCarrierDialer.newNoiseKey) })
+                                      noiseKey: {
+                                          try CloudCarrierKey.load(userID: userID, epoch: epoch, store: secrets,
+                                                                   newKey: CloudCarrierDialer.newNoiseKey)
+                                      })
     }
 }
 
@@ -182,12 +200,17 @@ extension CloudRefusal {
     static let noDaemonKeyHold: Duration = .seconds(60)
 
     /// Whether `machine`, as the list shows it now, lifts the refusal. Paused or gone: the list
-    /// is the truth once it no longer says running. No daemon key yet: any change to the
-    /// machine's listing, or a list read after `noDaemonKeyHold`. Others hold until Retry.
+    /// is the truth once it no longer says running. No daemon key yet: the machine's state moved
+    /// (it restarted: its status or availability changed), or a list read after
+    /// `noDaemonKeyHold`. Only state counts: its last-active time moves on its own (the
+    /// phone's own asks touch it), and lifting on that would ask for grants at every read.
+    /// Others hold until Retry.
     func lifted(by machine: MacDevice, now: ContinuousClock.Instant) -> Bool {
         switch code {
         case "cloud.machine.paused", "cloud.machine.not_found": machine.cloud?.status != .running
-        case CloudCarrierDialer.noDaemonKey: machine != listed || now - at >= Self.noDaemonKeyHold
+        case CloudCarrierDialer.noDaemonKey:
+            machine.cloud?.status != listed.cloud?.status || machine.isOnline != listed.isOnline
+                || now - at >= Self.noDaemonKeyHold
         default: false
         }
     }

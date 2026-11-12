@@ -62,6 +62,9 @@ final class MacSession {
     var workspacesTimeout: Task<Void, Never>?
     /// A Cloud link close waiting for its terminals to release their sizes (nil: none).
     var pendingClose: Int?
+    /// The size releases of the latest close, in flight: a later close waits for them, so it never
+    /// closes the link before an earlier release is answered.
+    var releasing: Task<Void, Never>?
     var closeSerial = 0
     /// The link fed this Mac's data and connection state (cleared when it closes).
     var fedData = false

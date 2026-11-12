@@ -300,7 +300,8 @@ public final class CloudMachinesModel {
         } catch is CancellationError {
             phase = before
         } catch {
-            phase = .failed(Self.message(error))
+            // A failed poll keeps the page that read: only a first read with nothing to show fails it.
+            if machines.isEmpty { phase = .failed(Self.message(error)) } else { phase = before == .loading ? .loaded : before }
         }
     }
 
@@ -328,8 +329,12 @@ public final class CloudMachinesModel {
         case refused(String)
         /// The service holds it for an approval in the Feed.
         case awaitingApproval(String)
-        /// Not run: another action was running, signed out, or cancelled.
-        case skipped
+        /// Not run: another action is still running on this page.
+        case busy
+        /// Not run: signed out.
+        case signedOut
+        /// Cancelled before it answered (its change was put back).
+        case cancelled
     }
 
     /// New Cloud Machine: `cloud.machine.create {name, size}` (or from a snapshot).
@@ -428,9 +433,13 @@ public final class CloudMachinesModel {
     @discardableResult
     private func act(_ id: String, optimistic: ((inout CloudMachine) -> Void)? = nil, rollback: (() -> Void)? = nil,
                      _ work: @MainActor (AccountCloud) async throws -> Data) async -> Outcome {
-        guard busyID == nil, let account = account() else {
+        guard let account = account() else {
             rollback?()
-            return .skipped
+            return .signedOut
+        }
+        guard busyID == nil else {
+            rollback?()
+            return .busy
         }
         let old = machines
         if let optimistic, let index = machines.firstIndex(where: { $0.id == id }) { optimistic(&machines[index]) }
@@ -453,7 +462,7 @@ public final class CloudMachinesModel {
             return .done(answered)
         } catch is CancellationError {
             restore()
-            return .skipped
+            return .cancelled
         } catch let failure as AccountCloud.Failure where failure.code == "approval.pending" {
             restore()
             let note = String(localized: "Approve it in your Feed to finish.")

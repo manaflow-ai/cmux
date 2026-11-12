@@ -684,9 +684,17 @@ public final class LiveCoordinator {
         }
         let macDecision = linkPolicy.decide(macs: ranked.filter { !$0.isCloud }, focused: focusedMacID, showing: showing,
                                             lastShown: lastShown, now: now, pinned: pairing?.invites.pending()?.mac)
-        // Cloud machines have their own cap: the one opened last comes first (`touchedCloud`).
+        // Cloud machines have their own cap: the one opened last comes first (`touchedCloud`), but
+        // only while it is on screen or was shown within the idle window; after that it expires
+        // like any other, so it never holds a carrier (and keeps its machine awake) for good.
+        let touched = touchedCloud.flatMap { id -> String? in
+            if showing.contains(id) { return id }
+            guard let at = lastShown[id], now - at < cloudLinkPolicy.idleAfter else { return nil }
+            return id
+        }
+        if touched == nil { touchedCloud = nil }
         let cloudDecision = cloudLinkPolicy.decide(macs: ranked.filter(\.isCloud), focused: nil, showing: showing,
-                                                   lastShown: lastShown, now: now, pinned: touchedCloud)
+                                                   lastShown: lastShown, now: now, pinned: touched)
         let decision = MacLinkPolicy.Decision(linked: macDecision.linked + cloudDecision.linked,
                                               nextExpiry: [macDecision.nextExpiry, cloudDecision.nextExpiry].compactMap(\.self).min())
         for mac in macs where decision.linked.contains(mac.id) {

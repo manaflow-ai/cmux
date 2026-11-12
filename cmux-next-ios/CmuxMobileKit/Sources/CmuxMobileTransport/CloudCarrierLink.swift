@@ -171,15 +171,21 @@ public struct CloudCarrierDialer: MacLinkDialer {
         return CloudCarrierLink(machineID: machineID, session: session)
     }
 
-    /// Refusals no redial can fix until something changes: the daemon is not the pinned one or
-    /// refused this phone's grant, the machine is paused or gone, the account may not use it,
-    /// or Cloud is turned off. The coordinator stops dialing and shows why.
-    public static let permanentCodes: Set<String> = [
-        "carrier.handshake", "cloud.machine.paused", "cloud.machine.not_found", "auth.forbidden", "feature.disabled",
-        "invalid_argument", noDaemonKey, keychainUnavailable,
+    /// What a redial may fix: the network or relay (`transport`, `timeout`), a session that ended
+    /// (`closed`), a malformed platform answer and a locked Keychain. Every other code a dial
+    /// throws is a refusal no redial fixes until something changes (``isPermanent``): the carrier
+    /// sends a retryable platform refusal (408, 429, 5xx, `owner.unreachable`) as `transport`, and
+    /// a failure it gave up on as `carrier.failed`, so an unknown code never redials, and never
+    /// asks the platform for grants, forever.
+    public static let retryableCodes: Set<String> = ["transport", "timeout", "closed", "signaling", answerCode, keychainLocked]
+
+    /// Codes the app words itself; any other refusal is shown with the carrier's message.
+    public static let knownPermanentCodes: Set<String> = [
+        "carrier.handshake", "carrier.failed", "cloud.machine.paused", "cloud.machine.not_found", "auth.forbidden",
+        "feature.disabled", "invalid_argument", noDaemonKey, keychainUnavailable,
     ]
 
-    /// A malformed platform answer (`cmux_mobile_carrier`): retryable, never in ``permanentCodes``.
+    /// A malformed platform answer (`cmux_mobile_carrier`): retryable.
     public static let answerCode = "carrier.answer"
     /// The Keychain is locked (before the first unlock): retryable.
     public static let keychainLocked = "keychain.locked"
@@ -190,15 +196,17 @@ public struct CloudCarrierDialer: MacLinkDialer {
     /// the carrier asked again inside its dial; the app waits for its machine list to change.
     public static let noDaemonKey = "carrier.no_daemon_key"
 
-    /// Whether a redial may help (`transport`, a timeout, a session that ended).
+    /// Whether a redial may help (``retryableCodes``; an error that is not a `LinkError` too).
     public static func isRetryable(_ error: any Error) -> Bool {
         guard let error = error as? LinkError else { return true }
-        return !permanentCodes.contains(error.code) && error.code != LinkError.unauthorized
+        return retryableCodes.contains(error.code)
     }
 
-    /// Whether `error` is a refusal no redial fixes (``permanentCodes``).
+    /// Whether `error` is a refusal no redial fixes: any `LinkError` code outside
+    /// ``retryableCodes`` but `unauthorized` (the sign-in path owns that one).
     public static func isPermanent(_ error: any Error) -> Bool {
-        (error as? LinkError).map { permanentCodes.contains($0.code) } ?? false
+        guard let error = error as? LinkError else { return false }
+        return !retryableCodes.contains(error.code) && error.code != LinkError.unauthorized
     }
 }
 

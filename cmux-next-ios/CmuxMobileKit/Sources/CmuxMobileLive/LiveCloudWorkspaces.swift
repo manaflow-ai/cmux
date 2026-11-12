@@ -217,8 +217,12 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         case .refused(let message), .awaitingApproval(let message):
             clearShared(message)
             return fail(creation, message)
-        case .skipped:
-            return fail(creation, String(localized: "Couldn't ask for a new Cloud machine now. Try again."))
+        case .busy:
+            return fail(creation, String(localized: "Another Cloud machine change is still running. Try again in a moment."))
+        case .signedOut:
+            return fail(creation, String(localized: "Sign in to cmux to make a Cloud machine."))
+        case .cancelled:
+            return fail(creation, nil)
         }
         update(creation.id) { $0.machineID = made.id }
         publish()
@@ -259,11 +263,12 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         change(&creations[index])
     }
 
-    private func fail(_ creation: Creation, _ message: String) {
-        log.error("new cloud workspace failed: \(message, privacy: .public)")
+    /// Ends a pending creation; `message` is said to the person (nil: cancelled, nothing to say).
+    private func fail(_ creation: Creation, _ message: String?) {
+        log.error("new cloud workspace failed: \(message ?? "cancelled", privacy: .public)")
         creations.removeAll { $0.id == creation.id }
         publish()
-        onRefusal?(message)
+        if let message { onRefusal?(message) }
     }
 
     /// An action's own refusal or approval note, said once (the page's alert does not show it too).
@@ -272,9 +277,11 @@ public final class LiveCloudWorkspaces: CloudWorkspaceActions {
         case .refused(let message), .awaitingApproval(let message):
             clearShared(message)
             onRefusal?(message)
-        case .skipped:
+        case .busy:
             onRefusal?(String(localized: "Another Cloud machine change is still running. Try again in a moment."))
-        case .done:
+        case .signedOut:
+            onRefusal?(String(localized: "Sign in to cmux to change Cloud machines."))
+        case .cancelled, .done:
             break
         }
     }

@@ -300,3 +300,20 @@ fn an_unusable_answer_is_retryable() {
     assert!(matches!(error, CarrierError::Answer(_)), "{error:?}");
     assert!(error.retryable());
 }
+
+#[test]
+fn a_wrong_daemon_or_a_refused_grant_is_a_handshake_failure_never_retried() {
+    use cmux_remote::connection::ConnectionError;
+    use cmux_remote::crypto::CryptoError;
+    let wrong_key = connection_error(&ConnectionError::Crypto(CryptoError::DaemonKeyMismatch {
+        expected: "aa".into(),
+        actual: "bb".into(),
+    }));
+    assert!(matches!(wrong_key, CarrierError::Handshake(_)), "{wrong_key:?}");
+    assert!(!wrong_key.retryable());
+    let refused = connection_error(&ConnectionError::Crypto(CryptoError::Unauthorized("grant".into())));
+    assert!(matches!(refused, CarrierError::Handshake(_)), "{refused:?}");
+    assert!(!refused.retryable());
+    // A session the daemon lost is asked again with a fresh session.
+    assert!(connection_error(&ConnectionError::SessionUnavailable).retryable());
+}

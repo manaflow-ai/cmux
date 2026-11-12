@@ -331,6 +331,43 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         #expect(linkUpWhileReleasing == [true, true])
     }
 
+    /// Close, touch, close again while the first release is unanswered: the second close waits for
+    /// the first release before it closes the link, and the first (called off) never claims the
+    /// size back on a link that is closing.
+    @Test func aCloseAfterATouchWaitsForTheEarlierRelease() async throws {
+        let store = emptyStore()
+        let cloud = RecordingCloudDialer()
+        let live = coordinator(store: store, cloud: cloud)
+        defer { live.stop() }
+        var gates: [CheckedContinuation<Void, Never>] = []
+        var started = 0
+        live.releaseBeforeClose = { _ in
+            started += 1
+            await withCheckedContinuation { gates.append($0) }
+        }
+        await settle { store.macConnection["m1"] == .connected }
+        live.showing(macIDs: nil)
+        live.applyCloudMachines([machine(.running)])
+        await settle { store.macConnection[vm] == .connected }
+        let session = try #require(live.sessions[vm])
+
+        live.closeLink(session)
+        await settle { gates.count == 1 }
+        live.touch(vm)
+        live.closeLink(session)
+        for _ in 0..<50 { await Task.yield() }
+        // The second close has not started its release, and the link is still up.
+        #expect(started == 1, "the second close waits for the first release")
+        #expect(session.link.target != nil)
+        gates.removeFirst().resume()
+        await settle { gates.count == 1 }
+        #expect(session.link.target != nil, "still up until the second release is answered")
+        gates.removeFirst().resume()
+        await settle { session.link.target == nil }
+        #expect(session.pendingClose == nil)
+        #expect(session.releasing == nil)
+    }
+
     /// Remove This iPhone from My Macs leaves Cloud machines' links alone (they approved no keys).
     @Test func removeThisPhoneKeepsCloudLinks() async {
         let store = emptyStore()
@@ -355,7 +392,7 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         // Eight first dials at once, off the main actor.
         let loads = (0..<8).map { _ in
             Task.detached {
-                try? CloudCarrierKey.load(userID: user, store: secrets, newKey: {
+                try? CloudCarrierKey.load(userID: user, epoch: CloudCarrierKey.epoch(userID: user), store: secrets, newKey: {
                     made.add()
                     return Data((0..<32).map { _ in UInt8.random(in: 0...255) })
                 })
@@ -368,12 +405,12 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
 
         let locked = FailingSecretStore(status: errSecInteractionNotAllowed)
         #expect(throws: LinkError(code: CloudCarrierDialer.keychainLocked, message: "the Keychain is locked until this iPhone is unlocked")) {
-            _ = try CloudCarrierKey.load(userID: user, store: locked, newKey: { Data(count: 32) })
+            _ = try CloudCarrierKey.load(userID: user, epoch: CloudCarrierKey.epoch(userID: user), store: locked, newKey: { Data(count: 32) })
         }
         #expect(CloudCarrierDialer.isRetryable(CloudCarrierKey.failure(KeychainSecretStore.Failure(status: errSecInteractionNotAllowed))))
         let missing = FailingSecretStore(status: -34018)
         do {
-            _ = try CloudCarrierKey.load(userID: user, store: missing, newKey: { Data(count: 32) })
+            _ = try CloudCarrierKey.load(userID: user, epoch: CloudCarrierKey.epoch(userID: user), store: missing, newKey: { Data(count: 32) })
             Issue.record("a missing entitlement made a key")
         } catch let error as LinkError {
             #expect(error.code == CloudCarrierDialer.keychainUnavailable)
@@ -393,8 +430,9 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
             return Data(repeating: UInt8(made), count: 32)
         }
         let user = "user-\(UUID().uuidString)"
-        let first = try CloudCarrierKey.load(userID: user, store: secrets, newKey: make)
-        let again = try CloudCarrierKey.load(userID: user, store: secrets, newKey: make)
+        let signedIn = CloudCarrierKey.epoch(userID: user)
+        let first = try CloudCarrierKey.load(userID: user, epoch: signedIn, store: secrets, newKey: make)
+        let again = try CloudCarrierKey.load(userID: user, epoch: CloudCarrierKey.epoch(userID: user), store: secrets, newKey: make)
         #expect(first == again && made == 1)
         let directory = FileManager.default.temporaryDirectory.appending(path: "cmux-mobile-cloud-signout-\(UUID().uuidString)")
         let defaults = UserDefaults(suiteName: "cmux-mobile-cloud-signout-\(UUID().uuidString)") ?? .standard
@@ -405,7 +443,14 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         signOut.secrets = secrets
         signOut.signedOut(userID: user, session: nil)
         #expect(try secrets.read(service: DeviceIdentity.defaultService, account: CloudCarrierKey.account(user)) == nil)
-        let next = try CloudCarrierKey.load(userID: user, store: secrets, newKey: make)
+        // A dial that began before the sign-out (its dialer holds the old epoch) never writes a key back.
+        #expect(throws: LinkError.self) {
+            _ = try CloudCarrierKey.load(userID: user, epoch: signedIn, store: secrets, newKey: make)
+        }
+        #expect(try secrets.read(service: DeviceIdentity.defaultService, account: CloudCarrierKey.account(user)) == nil)
+        #expect(made == 1)
+        // The next sign-in (a new dialer, the new epoch) makes a new key.
+        let next = try CloudCarrierKey.load(userID: user, epoch: CloudCarrierKey.epoch(userID: user), store: secrets, newKey: make)
         #expect(next != first && made == 2)
     }
 
@@ -656,6 +701,9 @@ final class RecordingCloudDialer: MacLinkDialer, @unchecked Sendable {
         failing.add("fail")
         await cloud.refresh()
         #expect(store.cloudMachines.map(\.id) == ["vm_run"])
+        // The shared page keeps what it read, and New Cloud Workspace stays offered.
+        #expect(cloud.model.phase == .loaded)
+        #expect(cloud.canCreateMachine)
         // Only sign-out clears it.
         cloud.stop()
         #expect(store.cloudMachines.isEmpty)

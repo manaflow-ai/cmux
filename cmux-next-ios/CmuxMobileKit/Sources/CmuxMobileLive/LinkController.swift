@@ -56,7 +56,7 @@ public final class LinkController {
     nonisolated static let probeGrace: Duration = .milliseconds(500)
     @ObservationIgnored private var quickProbe = false
     @ObservationIgnored public var onLink: (@MainActor ((any MacLink)?) -> Void)?
-    /// A dial refused in a way no redial fixes (`CloudCarrierDialer.permanentCodes`: a Cloud
+    /// A dial refused in a way no redial fixes (`CloudCarrierDialer.isPermanent`: a Cloud
     /// machine paused or gone, its daemon not the pinned one). The owner stops targeting it;
     /// until then the usual backoff applies.
     @ObservationIgnored public var onPermanentRefusal: (@MainActor (LinkError) -> Void)?

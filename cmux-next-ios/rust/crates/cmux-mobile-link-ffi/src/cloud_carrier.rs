@@ -16,6 +16,10 @@ use crate::{CmuxMobileError, UNAUTHORIZED, on_runtime};
 /// the pinned one or refused this phone's grant (or its mux stream).
 pub const CARRIER_HANDSHAKE: &str = "carrier.handshake";
 
+/// The code of [`CmuxMobileError::Refused`] for a carrier failure no retry fixes (a
+/// relay or protocol error the carrier gave up on), so the app does not redial it.
+pub const CARRIER_FAILED: &str = "carrier.failed";
+
 /// The code of [`CmuxMobileError::Refused`] when the platform's carrier answer
 /// was not usable (malformed, or no grant). Retryable: a later ask may pass.
 pub const CARRIER_ANSWER: &str = "carrier.answer";
@@ -81,9 +85,23 @@ impl From<CarrierError> for CmuxMobileError {
             CarrierError::Unauthorized => {
                 Self::Refused { code: UNAUTHORIZED.into(), message: error.to_string() }
             }
-            CarrierError::Refused { code, message, .. } => Self::Refused { code, message },
+            // Codes the app knows keep their code (it words them, and lifts no_daemon_key on a
+            // list change). Any other refusal the platform says may pass later (408, 429, 5xx,
+            // owner.unreachable) is a transport failure the app retries; one it says won't pass
+            // keeps its code, which the app treats as a refusal: never redialed for ever.
+            CarrierError::Refused { code, message, retryable } => {
+                if retryable && code != cmux_mobile_carrier::NO_DAEMON_KEY {
+                    Self::Transport { message: format!("{code}: {message}") }
+                } else {
+                    Self::Refused { code, message }
+                }
+            }
             CarrierError::Handshake(message) => Self::Refused { code: CARRIER_HANDSHAKE.into(), message },
-            CarrierError::Transport { .. } => Self::Transport { message: error.to_string() },
+            CarrierError::Transport { retryable: true, .. } => Self::Transport { message: error.to_string() },
+            // A failure the carrier gave up on (a protocol error, a refused relay): a refusal.
+            CarrierError::Transport { retryable: false, .. } => {
+                Self::Refused { code: CARRIER_FAILED.into(), message: error.to_string() }
+            }
             CarrierError::Invalid(message) => Self::InvalidArgument { message },
             CarrierError::Answer(message) => Self::Refused { code: CARRIER_ANSWER.into(), message },
             CarrierError::Closed => Self::Closed { message: error.to_string() },
@@ -393,6 +411,30 @@ mod tests {
         );
         assert!(after_drop >= 1);
         server.abort();
+    }
+
+    #[test]
+    fn a_refusals_retryability_crosses_to_the_app() {
+        // A platform refusal that may pass later is a transport failure (the app retries it)...
+        let later: CmuxMobileError =
+            CarrierError::Refused { code: "owner.unreachable".into(), message: "m".into(), retryable: true }
+                .into();
+        assert!(matches!(later, CmuxMobileError::Transport { .. }), "{later:?}");
+        // ...one that won't keeps its code, even one the app has never heard of.
+        let never: CmuxMobileError = CarrierError::Refused {
+            code: "cloud.something_new".into(),
+            message: "m".into(),
+            retryable: false,
+        }
+        .into();
+        assert!(matches!(never, CmuxMobileError::Refused { ref code, .. } if code == "cloud.something_new"));
+        // A transport failure the carrier gave up on is a refusal.
+        let gave_up: CmuxMobileError =
+            CarrierError::Transport { step: "handshake", detail: "protocol".into(), retryable: false }.into();
+        assert!(matches!(gave_up, CmuxMobileError::Refused { ref code, .. } if code == CARRIER_FAILED));
+        let again: CmuxMobileError =
+            CarrierError::Transport { step: "relay", detail: "reset".into(), retryable: true }.into();
+        assert!(matches!(again, CmuxMobileError::Transport { .. }));
     }
 
     #[test]

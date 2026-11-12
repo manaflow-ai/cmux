@@ -5302,5 +5302,5 @@ public func uniffiEnsureCmuxMobileLinkFfiInitialized() {
     }
 }
 
-// swiftlint:enable allrbx-remote: build 22.4s exit 0 (lane ios-cloud-ws, slot 1/4, jobs 24, test threads 32)
-rbx: sync 11.2s, build 23.0s, exit 0 (lane ios-cloud-ws, cd6fb1bfa176)
+// swiftlint:enable allrbx-remote: build 28.8s exit 0 (lane ios-cloud-ws, slot 1/4, jobs 24, test threads 32)
+rbx: sync 7.9s, build 29.9s, exit 0 (lane ios-cloud-ws, 5f384107d70b)

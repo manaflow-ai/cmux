@@ -203,7 +203,14 @@ final class EchoLineStream: CloudCarrierByteStream, @unchecked Sendable {
         #expect(CloudCarrierDialer.isPermanent(LinkError(code: CloudCarrierDialer.noDaemonKey, message: "")))
         // A malformed answer is asked again; constructor arguments are not.
         #expect(CloudCarrierDialer.isRetryable(LinkError(code: CloudCarrierDialer.answerCode, message: "")))
-        #expect(!CloudCarrierDialer.permanentCodes.contains("carrier.answer"))
+        #expect(!CloudCarrierDialer.isPermanent(LinkError(code: CloudCarrierDialer.answerCode, message: "")))
+        // A code the app doesn't know (an unlisted 4xx, a non-JSON body's "http", a failure the carrier
+        // gave up on) is a refusal: no redial, so no grant asked for forever.
+        #expect(CloudCarrierDialer.isPermanent(LinkError(code: "http", message: "")))
+        #expect(CloudCarrierDialer.isPermanent(LinkError(code: "cloud.something_new", message: "")))
+        #expect(CloudCarrierDialer.isPermanent(LinkError(code: "carrier.failed", message: "")))
+        #expect(!CloudCarrierDialer.isRetryable(LinkError(code: "cloud.something_new", message: "")))
+        #expect(CloudCarrierDialer.isRetryable(LinkError(code: "closed", message: "")))
         #expect(CloudCarrierDialer.isPermanent(LinkError(code: "invalid_argument", message: "")))
         #expect(CloudCarrierDialer.isRetryable(LinkError(code: CloudCarrierDialer.keychainLocked, message: "")))
         #expect(CloudCarrierDialer.isPermanent(LinkError(code: CloudCarrierDialer.keychainUnavailable, message: "")))
