@@ -13,6 +13,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -287,6 +288,93 @@ RECOVERED = dict(
     RECOVERED_BEHIND="1",
     RECOVERED_BEHIND_HOURS="2",
 )
+
+
+class RecoveryBudgetExecutionTests(unittest.TestCase):
+    """Run the real budget shell and Python checker with the workflow's env.
+
+    Only mounting, the HTTP baseline, and the unrelated native strip test are
+    faked. No caller environment may supply missing workflow inputs.
+    """
+
+    COMPONENT = "Contents/Resources/CmuxNext_CmuxNextPages.bundle"
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        job = yaml.safe_load(WORKFLOW.read_text())["jobs"]["verify-recovered-nightly-next"]
+        self.budget_step = step(job, "Bundle size budget (recovered)")
+        context = {
+            "needs.decide.outputs.track": "nightly-next",
+            "needs.decide.outputs.dmg_prefix": "cmux-nightly-next-macos",
+            "needs.decide.outputs.sign_channel": "nightly",
+            "needs.recover-nightly-next-notarization.outputs.stapled_app_fallback_id": "",
+            "vars.CMUX_CI_XCODE_APP_MACOS_26": "/fixture/Xcode.app",
+        }
+        self.env = {
+            "PATH": f"{self.root / 'bin'}:{os.environ['PATH']}",
+            "RUNNER_TEMP": str(self.root / "runner"),
+            "GITHUB_REPOSITORY": REPO,
+            "GITHUB_STEP_SUMMARY": str(self.root / "summary.md"),
+        }
+        for key, value in {**job["env"], **self.budget_step["env"]}.items():
+            self.env[key] = re.sub(r"\$\{\{\s*(.*?)\s*\}\}",
+                                   lambda m: context[m.group(1)], str(value))
+        for folder in ("bin", "runner", "tests", "recovered", "scripts/ci/nightly-steps", "scripts/cmux-next"):
+            (self.root / folder).mkdir(parents=True, exist_ok=True)
+        for name in ("scripts/ci/nightly-steps/verify-final-dmg-bundle-size-budget.sh",
+                     "scripts/cmux-next/bundle-size.py"):
+            shutil.copyfile(ROOT / name, self.root / name)
+        (self.root / "tests/test_strip_release_bundle_atom_info.sh").write_text("exit 0\n")
+        app = self.root / "fixture.app" / self.COMPONENT / "Contents/Resources/pages"
+        app.mkdir(parents=True)
+        (app / "payload").write_bytes(b"x" * 10)
+        (self.root / self.env["BUNDLE_SIZE_DMG_PATH"]).write_bytes(b"d" * 10)
+        for name, script in {
+            "hdiutil": '#!/bin/bash\nset -eu\nif [ "$1" = attach ]; then\n'
+                       '  test "$6" = "$BUNDLE_SIZE_DMG_PATH"\n'
+                       '  cp -R fixture.app "$5/fixture.app"\nfi\n',
+            "curl": '#!/bin/bash\nprintf "%s\\n" "$@" > curl-args\n'
+                    'printf "Content-Length: 12\\r\\n"\n',
+        }.items():
+            path = self.root / "bin" / name
+            path.write_text(script)
+            path.chmod(0o755)
+
+    def run_budget(self, **caps):
+        rules = dict(app_max_bytes=10, dmg_max_bytes=10,
+                     components={self.COMPONENT: 10}, forbidden=[])
+        rules.update(caps)
+        (self.root / "scripts/cmux-next/bundle-size-budget.json").write_text(
+            json.dumps({"schema": 1, "variants": {"arm64": rules}}))
+        return subprocess.run(["bash", "-e", "-c", self.budget_step["run"]],
+                              cwd=self.root, env=self.env, capture_output=True, text=True)
+
+    def test_recovery_env_runs_budget_and_reads_the_correct_previous_dmg(self):
+        result = self.run_budget()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("unbound variable", result.stderr)
+        self.assertIn("fits the arm64 budget", result.stdout)
+        self.assertIn(f"https://github.com/{REPO}/releases/download/nightly-next/cmux-nightly-next-macos-arm64.dmg",
+                      (self.root / "curl-args").read_text())
+        summary = json.loads((self.root / "runner/bundle-size-summary.json").read_text())
+        self.assertEqual(summary["previous_dmg_bytes"], 12)
+
+    def test_recovered_app_overage_fails(self):
+        result = self.run_budget(app_max_bytes=9)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("app over budget: 10 bytes", result.stderr)
+
+    def test_recovered_resource_overage_fails(self):
+        result = self.run_budget(components={self.COMPONENT: 9})
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn(f"component over budget: {self.COMPONENT} is 10 bytes", result.stderr)
+
+    def test_recovered_dmg_overage_fails(self):
+        result = self.run_budget(dmg_max_bytes=9)
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("DMG over budget:", result.stderr)
 
 
 class WorkflowTests(unittest.TestCase):
