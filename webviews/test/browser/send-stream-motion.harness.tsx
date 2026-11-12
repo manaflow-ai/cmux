@@ -482,14 +482,17 @@ export type HeldFold = {
 const HELD_FOOT_UNDER_PX = 24;
 
 /// A reader opens a finished run while the running turn's live line is held (held-live-line-fold-
-/// browser.test.ts). The turn: a reply, a finished run of three calls, a longer reply, then one more
-/// call that starts and finishes. That call's row lands above the live line, so the follow chase draws
-/// the thread back and the live line holds still against it (pinnedLiveLine.ts). 16 ms into that
-/// chase the reader wheels up, just far enough that the live line's foot goes under the view's end:
-/// the line is held where it is drawn. Then they click the first run's line, which is in view over the
-/// composer. The turn runs on to the last frame. No experiment arm is set here: the page draws the
-/// look the app ships.
-async function heldFold({ settleMs = 500 }: { settleMs?: number } = {}): Promise<HeldFold> {
+/// browser.test.ts). The turn comes as a socket's events bring it, as `run`'s scripted turns do
+/// (scriptedTurn.ts: rows `put` and drawn in the next frame, the replies streamed 24 characters every
+/// 16 ms), so the view follows it from the prompt on: a reply streams, three calls run and finish one
+/// after another in one row (a finished run, a closed line), a longer reply streams, then, after a
+/// rest, one more call starts and, after another rest, finishes. That call's row lands above the live
+/// line, so the follow chase draws the thread back and the live line holds still against it
+/// (pinnedLiveLine.ts), as in chat-scroll-back-still's `arrive-tool` turn. 16 ms into that chase the
+/// reader wheels up, just far enough that the live line's foot goes under the view's end: the line is
+/// held where it is drawn. Then they click the first run's line, which is in view over the composer.
+/// No experiment arm is set here: the page draws the look the app ships.
+async function heldFold({ settleMs = 450 }: { settleMs?: number } = {}): Promise<HeldFold> {
   await loadHighlightedCode();
   // fixed-wait: the history's rows measure over the first frames
   await wait(400);
@@ -508,36 +511,47 @@ async function heldFold({ settleMs = 500 }: { settleMs?: number } = {}): Promise
     kind: "user",
     text: "Why does the relay fall over?",
   } as AcpmuxRow;
-  const reply = (id: string, at: number, text: string) =>
-    ({ id, version: 1, at, kind: "assistant", text, streaming: false }) as AcpmuxRow;
-  const calls = (id: string, at: number, version: number, status: string, titles: [string, string][]) =>
+  /// The turn's rows after the prompt, by id in order; `emit` draws them in the next frame.
+  const turn = new Map<string, AcpmuxRow>();
+  let version = 0;
+  let scheduled = false;
+  const put = (row: Omit<AcpmuxRow, "version">) => {
+    version += 1;
+    turn.set(row.id, { ...row, version } as AcpmuxRow);
+  };
+  const emit = () => {
+    if (scheduled) return;
+    scheduled = true;
+    nextFrame(() => {
+      scheduled = false;
+      show({ rows: [...base, prompt, ...turn.values()], working: true });
+    });
+  };
+  const stream = async (id: string, at: number, source: string) => {
+    for (let index = 0; index < source.length; index += 24) {
+      put({ id, at, kind: "assistant", text: source.slice(0, index + 24), streaming: true });
+      emit();
+      // fixed-wait: the reply streams 24 characters every 16 ms, as `run`'s does
+      await wait(16);
+    }
+    put({ id, at, kind: "assistant", text: source, streaming: false });
+    emit();
+  };
+  type Call = { kind: "tool"; text: string; tool: { id: string; title: string; kind: string; status: string } };
+  const call = (row: string, index: number, title: string, kind: string, status: string): Call => ({
+    kind: "tool",
+    text: title,
+    tool: { id: `${row}-call-${index}`, title, kind, status },
+  });
+  const activity = (id: string, at: number, items: Call[]) =>
     ({
       id,
-      version,
       at,
       kind: "activity",
-      toolCount: titles.length,
-      items: titles.map(([title, kind], index) => ({
-        kind: "tool",
-        text: title,
-        tool: { id: `${id}-call-${index}`, title, kind, status },
-      })),
-      streaming: status !== "completed",
-    }) as AcpmuxRow;
-  const settled = [
-    reply(ANSWER_ID, 100_001, paragraphs[0]!),
-    calls("held-run-a", 100_002, 1, "completed", [
-      ["Read relay.ts", "read"],
-      ["Grep reconnect", "search"],
-      ["Read socket.ts", "read"],
-    ]),
-    // Two paragraphs: a reply to the reader, never a short note that joins the runs around it
-    // (turns.ts `mergeShortNotes`), and tall enough that the first run's line stays over the composer.
-    reply(`${ANSWER_ID}-2`, 100_003, `${paragraphs[1]!}\n\n${paragraphs[0]!}`),
-  ];
-  const last = (version: number, status: string) =>
-    calls("held-run-b", 100_004, version, status, [["Read retry.ts", "read"]]);
-  const draw = (rows: AcpmuxRow[]) => nextFrame(() => show({ rows: [...base, prompt, ...rows], working: true }));
+      toolCount: items.length,
+      items,
+      streaming: items.some((item) => item.tool.status !== "completed"),
+    }) as Omit<AcpmuxRow, "version">;
   const step = (name: string) => {
     phase = name;
     eventAt = performance.now();
@@ -548,16 +562,42 @@ async function heldFold({ settleMs = 500 }: { settleMs?: number } = {}): Promise
   show({ rows: [...base, prompt], working: true, card: CARD_EMPTY });
   // fixed-wait: the scripted turn is a socket's events on its own clock; the frames sampled are the measurement
   await wait(300);
-  step("work");
-  draw(settled);
-  // fixed-wait: every motion of the rows that came ends before the next event
+  step("stream");
+  await stream(ANSWER_ID, 100_001, paragraphs[0]!);
+  // The first run: each call starts, runs and finishes (scriptedTurn.ts `tool-group`).
+  const first: [string, string][] = [
+    ["Read relay.ts", "read"],
+    ["Grep reconnect", "search"],
+    ["Read socket.ts", "read"],
+  ];
+  const items: Call[] = [];
+  for (const [index, [title, kind]] of first.entries()) {
+    step(`call-${index + 1}`);
+    items.push(call("held-run-a", index, title, kind, "in_progress"));
+    put(activity("held-run-a", 100_002, [...items]));
+    emit();
+    // fixed-wait: the call runs
+    await wait(200);
+    items[index] = call("held-run-a", index, title, kind, "completed");
+    put(activity("held-run-a", 100_002, [...items]));
+    emit();
+    // fixed-wait: the agent reads the result before its next call
+    await wait(100);
+  }
+  // Two paragraphs: a reply to the reader, never a short note that joins the runs around it
+  // (turns.ts `mergeShortNotes`), and tall enough that the first run's line stays over the composer.
+  step("segment");
+  await stream(`${ANSWER_ID}-2`, 100_010, `${paragraphs[1]!}\n\n${paragraphs[0]!}`);
+  // fixed-wait: every motion of the rows that came ends before the next event, as an arrival turn's does
   await wait(ARRIVAL_QUIET_MS);
   step("begin");
-  draw([...settled, last(1, "in_progress")]);
+  put(activity("held-run-b", 100_011, [call("held-run-b", 0, "Read retry.ts", "read", "in_progress")]));
+  emit();
   // fixed-wait: the view rests before the call lands, as an arrival turn's does
   await wait(ARRIVAL_QUIET_MS);
   step("land");
-  draw([...settled, last(2, "completed")]);
+  put(activity("held-run-b", 100_011, [call("held-run-b", 0, "Read retry.ts", "read", "completed")]));
+  emit();
   // fixed-wait: the reader's wheel lands 16 ms into the chase, as chat-scroll-back-still's does
   await wait(16);
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
@@ -568,8 +608,9 @@ async function heldFold({ settleMs = 500 }: { settleMs?: number } = {}): Promise
   scroller.scrollTop -= px;
   wheeledAt = performance.now();
   step("wheel");
-  // fixed-wait: the reader reads for a moment before they click
-  await wait(300);
+  // fixed-wait: the reader reads for a moment before they click; the click, the fold and the frames
+  // after it all come before their input goes quiet (userScroll.ts USER_SCROLL_INTENT_MS, 1 s)
+  await wait(200);
   step("click");
   const view = scroller.getBoundingClientRect();
   // The topmost closed run line that the reader sees whole.
