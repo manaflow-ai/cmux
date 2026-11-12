@@ -623,7 +623,7 @@ class GateScriptTests(unittest.TestCase):
     """launch-smoke-gate.sh against a stub harness: only a crash with launch evidence fails."""
 
     def run_gate(self, plan: list[str], attempt_seconds: str = "60", stale: dict | None = None,
-                 stale_folder: bool = False) -> tuple[int, str, Path]:
+                 stale_folder: bool = False, summary: str = "summary.md") -> tuple[int, str, Path]:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             ci = root / "scripts" / "ci"
@@ -681,6 +681,9 @@ class GateScriptTests(unittest.TestCase):
                 " 'seeded-daemon-silent': {'verdict': 'pass', 'pid': 1, 'arm': 'empty', 'daemon': up,"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass',"
                 " 'daemon': [{'state': 'disconnected', 'failure': None}] + silent}}},"
+                " 'daemon-reconnected': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
+                " 'daemon': [{'state': 'disconnected', 'failure': None}] + up,"
+                " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass', 'daemon': up}}},"
                 " 'daemon-unasked': {'verdict': 'pass', 'pid': 1, 'arm': 'empty',"
                 " 'arms': {'empty': empty, 'seeded': {'verdict': 'pass'}}},"
                 " 'crash': {'verdict': 'fail', 'pid': 1, 'exit': -11, 'arm': 'empty',"
@@ -705,7 +708,7 @@ class GateScriptTests(unittest.TestCase):
                 "open(os.path.join(out, 'app.log'), 'w').write('log\\n')\n"
                 "sys.exit({'pass': 0, 'crash': 1, 'seeded-crash': 1, 'seeded-not-run': 0, 'seeded-cannot-run': 0,"
                 " 'daemon-down': 1, 'seeded-daemon-down': 1, 'daemon-other': 0, 'daemon-silent': 0,"
-                " 'seeded-daemon-silent': 0, 'daemon-unasked': 0,"
+                " 'seeded-daemon-silent': 0, 'daemon-unasked': 0, 'daemon-reconnected': 0,"
                 " 'cannot-run': 3}[kind])\n")
             dmg = root / "app.dmg"
             dmg.write_bytes(b"dmg")
@@ -718,11 +721,11 @@ class GateScriptTests(unittest.TestCase):
                 (root / "runner" / "launch-smoke" / "attempt-1" / "report.json" / "kept").mkdir(parents=True)
             env = {"PATH": os.environ["PATH"], "RUNNER_TEMP": str(root / "runner"), "STUB_PLAN": ",".join(plan),
                    "LAUNCH_SMOKE_ATTEMPT_SECONDS": attempt_seconds, "LAUNCH_SMOKE_KILL_GRACE": "1",
-                   "GITHUB_STEP_SUMMARY": str(root / "summary.md")}
+                   "GITHUB_STEP_SUMMARY": str(root / summary)}
             result = subprocess.run(["bash", str(ci / "nightly-steps" / GATE.name), str(dmg)], env=env,
                                     capture_output=True, text=True, timeout=60)
             cleaned = (root / "runner" / "launch-smoke" / "attempt-1" / "cleaned").exists()
-            self.summary = (root / "summary.md").read_text() if (root / "summary.md").exists() else ""
+            self.summary = (root / summary).read_text() if (root / summary).exists() else ""
             return result.returncode, result.stdout + result.stderr, cleaned
 
     def test_a_pass_passes(self) -> None:
@@ -802,12 +805,30 @@ class GateScriptTests(unittest.TestCase):
             self.assertIn("### Launch smoke: pass", self.summary, kind)
             self.assertIn(f"Daemon: the daemon was not judged {where} {why}. The app launched; the build is not held.",
                           self.summary, kind)
-        # A launch whose reads end "connected" says nothing of it; nor does a seeded home that did not pass (it
-        # has its own line), a daemon of another launch (its own warning) or a held build.
-        for plan in (["pass"], ["daemon-down", "pass"], ["seeded-not-run"], ["seeded-cannot-run"], ["daemon-other"],
-                     ["daemon-down", "daemon-down"]):
+        # A launch whose reads end "connected" says nothing of it (the LAST read counts: a daemon that was
+        # connected again at the second read was judged); nor does a seeded home that did not pass (it has its
+        # own line), a daemon of another launch (its own warning) or a held build.
+        for plan in (["pass"], ["daemon-reconnected"], ["daemon-down", "pass"], ["seeded-not-run"],
+                     ["seeded-cannot-run"], ["daemon-other"], ["daemon-down", "daemon-down"]):
             _, output, _ = self.run_gate(plan)
             self.assertNotIn("the daemon was not judged", output + self.summary, plan)
+
+    def test_a_pass_stays_a_pass_when_the_job_summary_cannot_be_written(self) -> None:
+        # The pass branch ended with a write to the job summary. When that write fails (a runner fault: the file's
+        # folder is gone), its status was the script's: exit 1 with "launch smoke passed" and no error line, which
+        # holds a build that passed. Before the daemon line it was the seeded home's line that did so.
+        for kind in ("seeded-not-run", "daemon-silent", "seeded-daemon-silent", "daemon-unasked", "pass"):
+            with self.subTest(kind=kind):
+                status, output, _ = self.run_gate([kind], summary="gone/summary.md")
+                self.assertEqual(status, 0, output)
+                self.assertIn("launch smoke passed", output)
+        # What is held stays held, and what could not run stays a warning.
+        status, output, _ = self.run_gate(["daemon-down", "crash"], summary="gone/summary.md")
+        self.assertEqual(status, 1, output)
+        self.assertIn("this build is not published", output)
+        status, output, _ = self.run_gate(["cannot-run"], summary="gone/summary.md")
+        self.assertEqual(status, 0, output)
+        self.assertIn("::warning", output)
 
     def test_a_pass_with_the_daemon_of_another_launch_is_a_warning_and_never_a_pass(self) -> None:
         status, output, _ = self.run_gate(["daemon-other", "pass"])
