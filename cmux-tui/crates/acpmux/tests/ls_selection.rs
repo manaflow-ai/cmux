@@ -294,3 +294,49 @@ fn the_default_text_list_is_compact_and_all_brings_the_rest_back() {
     let v: Value = serde_json::from_slice(&json_out.stdout).unwrap();
     assert_eq!(v["sessions"].as_array().map(Vec::len), Some(3), "--json is unchanged");
 }
+
+/// PROFILE ONLY, never merged (RUST TIP REDS): two whole `acpmux --json ls` reads of 3,000 chats
+/// with the daemon's list cost log (`acpmux::list_cost`), printed. It fails on purpose, so that
+/// nextest shows what it printed.
+#[test]
+fn profile_one_whole_list_of_a_large_store() {
+    let root = scratch("profile");
+    write_sessions(&root, 3_000);
+    let log = root.join("daemon.log");
+    let mut child = daemon_env::acpmux(&root)
+        .args(["daemon", "run", "--ready-fd", "1", "--log", "warn,acpmux::list_cost=debug"])
+        .env("ACPMUX_HOME", &root)
+        .env("ACPMUX_SOCKET", root.join("acpmux.sock"))
+        .env("ACPMUX_LOGIN_ENV", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::from(fs::File::create(&log).unwrap()))
+        .spawn()
+        .unwrap();
+    let ready = BufReader::new(child.stdout.take().unwrap())
+        .lines()
+        .map_while(Result::ok)
+        .any(|line| serde_json::from_str::<Value>(&line).is_ok_and(|v| v["ready"] == true));
+    assert!(ready, "daemon did not become ready");
+    let daemon = Daemon { child, root: root.clone() };
+    let mut printed = 0;
+    for round in 0..2 {
+        let (full, elapsed) = run(&root, &["--json", "ls"]);
+        eprintln!(
+            "ls-profile round={round} ok={} bytes={} elapsed={elapsed:?}",
+            full.status.success(),
+            full.stdout.len()
+        );
+        let text = fs::read_to_string(&log).unwrap_or_default();
+        let cost = |line: &&str| {
+            line.contains("list_snapshot_build") || line.contains("list_reply_reservation")
+        };
+        let lines: Vec<&str> = text.lines().filter(cost).collect();
+        for line in lines.iter().skip(printed) {
+            eprintln!("ls-profile round={round} {line}");
+        }
+        printed = lines.len();
+    }
+    drop(daemon);
+    panic!("profile only: read the ls-profile lines above");
+}
