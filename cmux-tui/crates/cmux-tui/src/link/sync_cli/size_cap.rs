@@ -13,10 +13,13 @@
 //! The one override is a [`Grant`]: a person agreed to copy this folder at the size a full count
 //! found ([`measure`]), and for [`GRANT_LASTS`] a copy of it by any surface sends up to that size
 //! plus a margin ([`Grant::max_bytes`], [`Grant::max_files`]). A folder that grew past the margin
-//! is refused again. [`record`] is the only writer of grants. The app's "Copy anyway" counts the
-//! folder (`link copy-grant measure`), shows what it found, and records exactly that (`link
-//! copy-grant record`); `--allow-large` (on `link seed push`, `link sync push` and `cloud
-//! start-chat --from-folder`) counts and records in one step ([`allow`]).
+//! is refused again. [`record`] is the only writer of grants, and grants no more than a fresh
+//! [`measure`] of the same folder found: a count keeps what it found ([`Counted`]) for
+//! [`COUNT_LASTS`], and a record above it, or with no count, is refused. The app's "Copy anyway"
+//! counts the folder (`link copy-grant measure`), shows what it found, and records exactly that
+//! (`link copy-grant record`); `--allow-large` (on `link seed push`, `link sync push` and `cloud
+//! start-chat --from-folder`) counts and records in one step ([`allow`]). Grants and counts are
+//! kept in folders only this user can open, written through no symbolic link.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -33,6 +36,9 @@ pub(crate) const MAX_FILES: u64 = 500_000;
 pub(crate) const CODE: &str = "copy.too_large";
 /// How long a grant lasts for its folder.
 const GRANT_LASTS: Duration = Duration::from_secs(24 * 60 * 60);
+/// How long a count ([`measure`]) may be granted ([`record`]) after it was made: the time a person
+/// has to read "Copy 87 GB in 1.2M files?" and agree.
+const COUNT_LASTS: Duration = Duration::from_secs(60 * 60);
 /// The least a grant's folder may grow in bytes and still go: 1 GiB (or 10%, when that is more).
 const MARGIN_BYTES: u64 = 1024 * 1024 * 1024;
 /// The least a grant's folder may grow in files and still go: 10,000 (or 10%, when that is more).
@@ -273,16 +279,38 @@ impl Grant {
 }
 
 /// What a full count of a copy of a folder found ([`measure`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Measured {
+    /// The folder counted, canonical.
+    pub folder: PathBuf,
     pub bytes: u64,
     pub files: u64,
     /// Of `bytes`, those of the repository's history (`.git/`).
     pub git_bytes: u64,
 }
 
+/// What a count of a folder found, kept for [`record`] to grant no more than that.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct Counted {
+    /// The folder, canonical.
+    folder: PathBuf,
+    bytes: u64,
+    files: u64,
+    /// When it was counted, in seconds since the Unix epoch.
+    at: u64,
+}
+
 /// Where the grant of `folder` is kept: `<state>/link-sync/allow-large/<sha256>`.
 fn grant_path(folder: &Path) -> Option<PathBuf> {
+    kept_path("allow-large", folder)
+}
+
+/// Where the last count of `folder` is kept: `<state>/link-sync/copy-counted/<sha256>`.
+fn count_path(folder: &Path) -> Option<PathBuf> {
+    kept_path("copy-counted", folder)
+}
+
+fn kept_path(kind: &str, folder: &Path) -> Option<PathBuf> {
     #[cfg(test)]
     let state = TEST_STATE.with(|state| state.borrow().clone());
     #[cfg(not(test))]
@@ -290,16 +318,22 @@ fn grant_path(folder: &Path) -> Option<PathBuf> {
     let state = state.or_else(cmux_tui_core::platform::workspace_state_dir)?;
     let digest = Sha256::digest(folder.as_os_str().as_encoded_bytes());
     let name: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-    Some(state.join("link-sync").join("allow-large").join(name))
+    Some(state.join("link-sync").join(kind).join(name))
 }
 
 fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs())
 }
 
+/// Whether something made `at` (seconds since the Unix epoch) is younger than `lasts`: not older,
+/// and not dated in the future.
+fn fresh(at: u64, lasts: Duration) -> bool {
+    now().checked_sub(at).is_some_and(|age| age < lasts.as_secs())
+}
+
 /// Counts what a copy of `folder` sends, by the rules a copy counts by, to the end (no limit
 /// stops it): what "Copy anyway" shows the person before they agree. `progress` hears the count
-/// as it goes.
+/// as it goes. What it found is kept for [`COUNT_LASTS`]: [`record`] grants no more than that.
 pub(crate) fn measure(folder: &Path, progress: Option<Progress>) -> anyhow::Result<Measured> {
     use anyhow::Context as _;
     let folder = std::fs::canonicalize(folder)
@@ -307,48 +341,85 @@ pub(crate) fn measure(folder: &Path, progress: Option<Progress>) -> anyhow::Resu
     let cap = Cap::unbounded(&folder, progress);
     let set = super::local::collect(&folder, super::local::Rules::Copy, Some(cap))?;
     let cap = set.cap.context("the count kept no total")?;
-    Ok(Measured { bytes: cap.bytes, files: cap.files, git_bytes: cap.git_bytes })
+    let counted = Counted { folder: folder.clone(), bytes: cap.bytes, files: cap.files, at: now() };
+    let path = count_path(&folder).context("this Mac has no state folder to keep the count in")?;
+    keep(&path, &serde_json::to_vec(&counted)?)?;
+    Ok(Measured { folder, bytes: cap.bytes, files: cap.files, git_bytes: cap.git_bytes })
 }
 
 /// Records that a copy of `folder` may send `bytes` in `files` (what the person was shown), plus
-/// the margin, for [`GRANT_LASTS`]. The only writer of grants: it writes a new file and renames
-/// it over the old one, so a reader never sees half a grant.
+/// the margin, for [`GRANT_LASTS`]. Refused, granting nothing, unless a [`measure`] of the same
+/// folder in the last [`COUNT_LASTS`] found at least that much. The only writer of grants.
 pub(crate) fn record(folder: &Path, bytes: u64, files: u64) -> anyhow::Result<Grant> {
     use anyhow::Context as _;
-    use std::os::unix::fs::DirBuilderExt as _;
     let folder = std::fs::canonicalize(folder)
         .with_context(|| format!("cannot open {}", folder.display()))?;
+    let counted = count_path(&folder)
+        .and_then(|path| std::fs::read(path).ok())
+        .and_then(|bytes| serde_json::from_slice::<Counted>(&bytes).ok())
+        .filter(|counted| counted.folder == folder && fresh(counted.at, COUNT_LASTS))
+        .with_context(|| {
+            format!("{} was not counted in the last hour: count it first", shown(&folder))
+        })?;
+    anyhow::ensure!(
+        bytes <= counted.bytes && files <= counted.files,
+        "{} was counted at {} in {} files: a grant cannot be for more",
+        shown(&folder),
+        size(counted.bytes),
+        count(counted.files),
+    );
     let path = grant_path(&folder).context("this Mac has no state folder to keep the grant in")?;
+    let grant = Grant { folder, bytes, files, granted_at: now() };
+    keep(&path, &serde_json::to_vec(&grant)?)?;
+    Ok(grant)
+}
+
+/// Writes `bytes` whole at `path`: a new file that only this user can read, in a folder only this
+/// user can open (made 0700, or made so when it is there), renamed over the old one, so a reader
+/// never sees half of it. A symbolic link in place of the folder or the new file is refused.
+fn keep(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+    use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
     let dir = path.parent().context("no state folder")?;
     std::fs::DirBuilder::new()
         .recursive(true)
         .mode(0o700)
         .create(dir)
         .with_context(|| format!("cannot make {}", dir.display()))?;
-    let grant = Grant { folder, bytes, files, granted_at: now() };
-    let name = path.file_name().context("no grant name")?.to_string_lossy();
+    let kind =
+        std::fs::symlink_metadata(dir).with_context(|| format!("cannot open {}", dir.display()))?;
+    anyhow::ensure!(kind.is_dir(), "{} is not a folder (a link?): nothing written", dir.display());
+    std::fs::set_permissions(dir, std::fs::Permissions::from_mode(0o700))
+        .with_context(|| format!("cannot make {} private", dir.display()))?;
+    let name = path.file_name().context("no file name")?.to_string_lossy();
     let temporary = dir.join(format!(".{name}.{}.tmp", std::process::id()));
-    let written = write_private(&temporary, &serde_json::to_vec(&grant)?)
-        .and_then(|()| std::fs::rename(&temporary, &path));
-    if written.is_err() {
+    write_private(&temporary, bytes)
+        .with_context(|| format!("cannot write {}", temporary.display()))?;
+    let renamed = std::fs::rename(&temporary, path);
+    if renamed.is_err() {
+        // Ours: write_private made it new.
         let _ = std::fs::remove_file(&temporary);
     }
-    written.with_context(|| format!("cannot write {}", path.display()))?;
-    Ok(grant)
+    renamed.with_context(|| format!("cannot write {}", path.display()))
 }
 
-/// Writes `bytes` to a new file at `path` that only this user can read, flushed to the disk.
+/// Writes `bytes` to a new file at `path` that only this user can read, flushed to the disk. A
+/// file or link already at `path` is refused (`create_new`, and no link followed), never written
+/// through. A file it made but could not fill is removed.
 fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write as _;
     use std::os::unix::fs::OpenOptionsExt as _;
     let mut file = std::fs::OpenOptions::new()
         .write(true)
-        .create(true)
-        .truncate(true)
+        .create_new(true)
+        .custom_flags(libc::O_NOFOLLOW)
         .mode(0o600)
         .open(path)?;
-    file.write_all(bytes)?;
-    file.sync_all()
+    let filled = file.write_all(bytes).and_then(|()| file.sync_all());
+    if filled.is_err() {
+        let _ = std::fs::remove_file(path);
+    }
+    filled
 }
 
 /// `--allow-large`: counts `folder` to the end ([`measure`]) and grants what it found ([`record`]).
@@ -362,8 +433,7 @@ pub(crate) fn allow(folder: &Path) -> anyhow::Result<Grant> {
 /// one older than [`GRANT_LASTS`] or one dated in the future is none.
 fn granted(folder: &Path) -> Option<Grant> {
     let grant: Grant = serde_json::from_slice(&std::fs::read(grant_path(folder)?).ok()?).ok()?;
-    let fresh = now().checked_sub(grant.granted_at).is_some_and(|age| age < GRANT_LASTS.as_secs());
-    (fresh && grant.folder == folder).then_some(grant)
+    (fresh(grant.granted_at, GRANT_LASTS) && grant.folder == folder).then_some(grant)
 }
 
 /// The limits a copy runs with: [`MAX_BYTES`] and [`MAX_FILES`], or a test's own.

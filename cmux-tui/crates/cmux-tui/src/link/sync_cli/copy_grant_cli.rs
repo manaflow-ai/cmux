@@ -1,7 +1,8 @@
 //! `cmux link copy-grant`: the app's "Copy anyway" for a folder refused as too big to copy
 //! ([`super::size_cap`]). `measure` counts the folder to the end, by the rules a copy counts by,
-//! reporting as it goes; the app shows what it found, and `record` grants exactly that, plus the
-//! margin, for a day. One JSON line on stdout; `measure` also prints one JSON line on stderr per
+//! reporting as it goes, and answers the canonical folder with what it found; the app shows that,
+//! and `record` grants exactly that, plus the margin, for a day. `record` refuses numbers above
+//! what a `measure` of the same folder found in the last hour, or with no such count. One JSON line on stdout; `measure` also prints one JSON line on stderr per
 //! report (`{"counted_bytes":N,"counted_files":M}`). A count is cancelled by ending the process.
 
 use std::path::PathBuf;
@@ -61,6 +62,7 @@ pub(crate) fn run(args: &[String]) -> i32 {
             size_cap::measure(&folder, Some(progress)).map(|measured| {
                 json!({
                     "ok": true,
+                    "folder": measured.folder,
                     "bytes": measured.bytes,
                     "files": measured.files,
                     "git_bytes": measured.git_bytes,
