@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43127330852",
+  "recorded_at": "2026-11-12T00:29:00Z",
+  "reason": "cmux-tui b94dc84c6b81 changes the image's cmux-tui (pinned a57b62059280)",
+  "dry_run": false,
+  "cmux_tui": "b94dc84c6b811999ed4ee2d82b0fb371cc1e2a7f",
+  "fixes": [
+    {
+      "sha": "b94dc84c6b811999ed4ee2d82b0fb371cc1e2a7f",
+      "mergedAt": "2026-11-12T00:11:29Z",
+      "subject": "cmux-tui test: the history page test's daemon uses zsh on macOS (#40715)"
+    },
+    {
+      "sha": "0cd0a4f60e49c592458f768b28dff02865a40329",
+      "mergedAt": "2026-11-12T00:10:45Z",
+      "subject": "cmux-tui test: the docs checker reads a `cmux vm` line as the CLI runs it (tip red: remote_cli_docs) (#41566)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "failed",
+    "bake_job": "failure",
+    "done_at": "2026-11-12T00:29:00Z"
+  },
+  "promotion": {
+    "result": "not-run",
+    "job": "skipped",
+    "commit": "",
+    "image": "",
+    "revision": "",
+    "at": null
+  },
+  "rolled_back": false
+}
