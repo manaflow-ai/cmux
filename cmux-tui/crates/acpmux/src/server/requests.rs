@@ -13,10 +13,17 @@ mod info;
 #[path = "requests/mailbox.rs"]
 mod mailbox;
 pub(super) mod person_stop;
+mod prompt_sender;
+pub(super) use prompt_sender::person_admitted;
+use prompt_sender::{app_pane_unproven, owner_terminal};
 mod presets;
 mod queued;
 mod session_open;
 pub use session_open::FEATURE as SESSION_RESUME_FEATURE;
+mod settled_attach;
+#[cfg(test)]
+#[path = "requests/settled_attach_tests.rs"]
+mod settled_attach_tests;
 mod successor;
 mod turn_opener;
 mod workflow_dispatch;
@@ -1854,12 +1861,13 @@ async fn dispatch_request_with_identity(
             // (`prompt_provenance.rs` `verified`, `transport`, `claimed`): the proven person's
             // prompt carries none; one no proof attributes is `unverified`, never the person's.
             let transport = transport_of(conn);
-            // The owner's own terminal send, claiming no agent, harness or relay: the person's
-            // prompt again, though it proves no person (`owner_terminal`, the trust boundary).
+            // The owner's own terminal send, or the app's own pane before it proved the person,
+            // claiming no agent, harness or relay: the person's prompt again, though it proves no
+            // person (`owner_terminal`, `app_pane_unproven`, the trust boundary).
             let unproven_owner = provenance.is_none()
                 && !person_admitted(conn, &params)
                 && declared.is_none()
-                && owner_terminal(conn, &params);
+                && (owner_terminal(conn, &params) || app_pane_unproven(conn, &params));
             let provenance = match provenance {
                 Some(p) => Some(crate::prompt_provenance::observed(p, transport)),
                 None if unproven_owner || person_admitted(conn, &params) => None,
@@ -2998,13 +3006,17 @@ async fn dispatch_request_with_identity(
         method::MUX_ATTACH => {
             let s = hub.resolve(session_key(&params)?)?;
             let hidden = params.get("visible") == Some(&Value::Bool(false));
+            // `settled`: the chat's settled view first, read before any log wait; a restart's
+            // queue then comes from it (`settled_attach.rs`, cmuxterm-hq#9655).
+            let settled = settled_attach::saved(hub, &s, &params);
+            let answered_settled = settled.as_ref().is_some_and(|(_, view)| view.is_some());
             // A restart reads the chat logs after its ready line: the queue, turn and status
             // shown here come from this chat's (`hub/log_load.rs`). A chat opened on screen
             // reads it, and its first page below, ahead of agent work (`qos.rs`).
             // A visible page asks for the newest records immediately (`waitLogs:false`); waiting
             // for the full restore here made a restarted long chat blank for tens of seconds.
             // Callers that need authoritative queue/status details keep the old default.
-            if params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
+            if !answered_settled && params.get("waitLogs").and_then(Value::as_bool) != Some(false) {
                 if hidden {
                     hub.session_log(&s).await;
                 } else {
@@ -3030,6 +3042,17 @@ async fn dispatch_request_with_identity(
                     rows: None,
                 },
             );
+            let settled_key = match settled {
+                Some((_, Some(view))) => {
+                    let key = view.key.clone();
+                    if let Some(reply) = settled_attach::reply(hub, conn, &s, view)? {
+                        return Ok(reply);
+                    }
+                    Some(key)
+                }
+                Some((key, None)) => Some(key),
+                None => None,
+            };
             let after = params.get("afterSeq").and_then(Value::as_u64);
             let before = params.get("beforeSeq").and_then(Value::as_u64);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(2000) as usize;
@@ -3077,6 +3100,11 @@ async fn dispatch_request_with_identity(
             let reader = crate::author::author(&params).ok().flatten();
             let read_through = hub.read_through(&s, crate::hub::reader_of(reader.as_ref()));
             let mut reply = json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": last, "pageThrough": through, "presence": presence, "turnOpener": opener, "readThrough": read_through});
+            // Asked `settled` and none answered: say so, and write it for the chat's next open.
+            if let Some(key) = settled_key {
+                reply["settled"] = Value::Null;
+                hub.settle_view_for_open(&s, key);
+            }
             // The page and its opener each keep a record of up to 14 MiB: together they could
             // pass one message, and the chat then never opened (`hub::fit_reply`).
             crate::hub::fit_reply(&mut reply);
@@ -3504,90 +3532,6 @@ fn transport_of(conn: &Conn) -> &'static str {
         super::Origin::LocalApp => "app",
         super::Origin::Web | super::Origin::Peer => super::carrier::transport(conn),
     }
-}
-
-/// Whether a prompt naming no sender is the person's, by a proof and never by a label: the
-/// connection proved the person (`hub/person.rs`: the app's own pane), a paired phone sent it (a
-/// Web connection with the device's `client` credential, `pairing.rs` `origin_of`), or a peer link
-/// forwarded one its own daemon's connection proved (`remote_guard::PERSON_PROVEN`, that peer's
-/// word, recorded as come over `peer`). A local process of the user (a shell, a script, an agent
-/// outside acpmux, the Cloud mobile carrier's unix connection) proves nothing: socket access,
-/// the listener token and environment tags are not the person. An unnamed prompt from the owner's
-/// own terminal is still recorded as the person's ([`owner_terminal`]), which proves nothing to
-/// a peer or a protected hold.
-pub(super) fn person_admitted(conn: &Conn, params: &Value) -> bool {
-    if conn.is_person() {
-        return true;
-    }
-    if !conn.auth.authenticated() {
-        return false;
-    }
-    match conn.origin {
-        // The listener token a dashboard or browser socket holds proves no person; a paired
-        // read-only device sends no prompt.
-        super::Origin::Web => conn.auth == ConnAuth::Device,
-        // Only the forwarding daemon's own proof (`remote_guard::attest_person`, by this same
-        // rule there), on a peer daemon's own link (`PeerToken`). A paired machine's `client`
-        // credential is served as Peer too (`pairing.rs` `origin_of`, `Device`): it is a client,
-        // and its own `personVerified` proves nothing. Its `via` is no proof either: it labels
-        // any client but the owner's, a unix one too.
-        super::Origin::Peer => {
-            conn.auth.peer_daemon()
-                && params
-                    .pointer("/_meta/acpmux")
-                    .and_then(|m| m.get(super::remote_guard::PERSON_PROVEN))
-                    .and_then(Value::as_bool)
-                    == Some(true)
-        }
-        super::Origin::Local | super::Origin::LocalApp => false,
-    }
-}
-
-/// Whether an unnamed prompt is the owner's own terminal send (`acpmux send` at
-/// a plain shell of this machine's user), recorded as the person's prompt as it was before #37497,
-/// so every client draws the owner's bubble.
-///
-/// The trust boundary: the unix socket is reachable only by this machine's user, and among that
-/// user's processes the daemon tells an agent from the person by what it can check or what the
-/// CLI declares, never by the text. An agent in an acpmux session holds a caller token
-/// (`hub/person.rs` (a)), proven or not, and its send is that session's. An agent harness's own
-/// shell outside acpmux (Claude Code, Codex, an `AI_AGENT` tool) names itself and its harness
-/// (`cli/sender.rs` `implicit`, `harness_of`: `fromAgent`, `fromHarness`), and a send whose
-/// environment or process chain shows a harness, an MCP client or an app that is no terminal
-/// says so (`sender_harness.rs`: `senderHarness`; a shell under a terminal or cmux claims none). A relay names what it
-/// carries (`fromRelay`, `via`: the lane-gh broker, the Cloud mobile carrier). A trigger, the
-/// app's own transport (`LocalApp`, whose pane proves the person instead) and every non-unix
-/// transport are no terminal. Any of those stays `unverified`. A send the daemon keeps and delivers
-/// later (`_acpmux/send_queue`) replays on the outbox's own unix connection with its request's
-/// claims and the caller its sender named, proven or not (`Delivery::unproven_caller`), so it is
-/// judged here as the send itself was (#38260 F1). An acpmux CLI says at `initialize` whether
-/// it runs in an acpmux session's environment (`cli_caller.rs`): one that says `agent` (its token
-/// proved nothing to this daemon, or it had none), and an old acpmux CLI that says nothing (it
-/// checked nothing: bench round 4 recorded an agent's send through `acpmux` 0.1.0 as the person),
-/// are no terminal either; the outbox replays that too (`Delivery::not_terminal`). What is left
-/// is a plain unix connection of the user that claims nothing: the person at their terminal. A script of the
-/// same user that strips every label is let through, as it was before #37497; it still never
-/// releases a protected hold (`PromptOptions::unproven_owner`), never counts as an authenticated
-/// person (`human_authenticated` needs the proven person) and is never forwarded to a peer as
-/// the person's (`attest_person` reads `person_admitted` only).
-pub(super) fn owner_terminal(conn: &Conn, params: &Value) -> bool {
-    let claims = params.pointer("/_meta/acpmux").and_then(Value::as_object).is_some_and(|mux| {
-        [
-            "fromAgent",
-            crate::prompt_provenance::FROM_HARNESS,
-            crate::sender_harness::META_KEY,
-            "fromRelay",
-            "via",
-        ]
-        .iter()
-        .any(|key| mux.get(*key).is_some_and(|v| !v.is_null()))
-    });
-    conn.origin == super::Origin::Local
-        && !conn.is_trigger()
-        && conn.caller().is_none()
-        && conn.unproven_caller.get().is_none()
-        && conn.may_be_owner_terminal()
-        && !claims
 }
 
 /// The labels a prompt's sender gave about itself, kept as claims (`prompt_provenance::CLAIMED`),

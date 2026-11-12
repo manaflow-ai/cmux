@@ -76,8 +76,11 @@ seems like very good. Because it's like, okay, you get jump to bottom, but then 
 thread."
 
 - **Jump to latest**: a glass control on the composer's center line while the reader is scrolled up.
-- **Jump up** stands one control and one gap above it (`jumpPair.css`): the same look, size, glass, focus and
-  fade, its arrow up. The two read as one column, and neither moves for the other.
+- **Jump up** is the same disc with its arrow turned up in place (`jumpPair.css`, One control below): the
+  same look, size, glass, focus and fade. So only one of the two ever shows (Leo, 2026-11-12: "after
+  clicking the jump to bottom button, this appears... and then it appears again when you went up. which is
+  cute, but... maybe a bit extra?"). A press of Jump to latest is the reader's own act, so it never turns
+  the disc up just because of it.
 - **The look** is the `jump-pair-look` experiment (`jumpPair.experiment.ts`; gallery
   `agent-pane.jump-pair-look`, view Compare arms). Leo, 2026-11-12, of the fisheye disc: "I feel like this
   jump to top button is a little bit strange-looking, no?" Prior art: the common chat apps draw a small
@@ -112,6 +115,16 @@ thread."
   stays while they read. The unread banner keeps its setting and its default; its Jump goes to the same row.
 - An open is a breakpoint: nothing scrolls, animates or pops on open, and a restart, update or reconnect
   with nothing new shows no arrow.
+- Where you left off is the seen cursor, not a place the client marks (model of record: cmuxterm-hq
+  `docs/design/agent-transcript-clean-slate.md`, "Where you left off: one model"). It replaces #41831's idle
+  mark (a view place kept per chat in localStorage) and keeps both of its asks. Leo, 2026-11-12: "it's more
+  so, like, idle detection... when you have, like, at least one full screen of idleness, that's when it
+  starts having that... instead of getting overwritten by some useless noise": the arrow comes only once an
+  unseen row went above the view, that is once more than a screen of new rows came while the reader was not
+  attending (less stays in view, so nothing unseen is above it), and a restart, update, reconnect, notice
+  or the view's own moves never move the cursor. And "after clicking the jump to bottom button, this appears... and then it
+  appears again when you went up. which is cute, but... maybe a bit extra?": there is one disc, never two,
+  and a press of Jump to latest or a scroll back up turns it up only if unseen rows lie above.
 
 ## What counts as seen
 

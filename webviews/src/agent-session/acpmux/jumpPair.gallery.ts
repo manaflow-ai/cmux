@@ -2,9 +2,12 @@
 // The jump control's look (jumpPair.experiment.ts, jumpPair.css, VirtualTranscript.tsx `JumpToLatest`,
 // one disc that turns up to unseen rows: jumpControl.ts). Leo, 2026-11-12, on the fisheye disc over the transcript: "I feel like this jump to
 // top button is a little bit strange-looking, no? Like, did we redesign that [stuff] yet?"
-// Each variant parks the reader mid-chat below an unread "New" line, so the control shows pointing up
-// over real prose; `frosted-image` over a wallpaper. `pair` pins no arm, so View Compare
-// arms draws it once per look side by side; the other variants pin one look each. Light and dark:
+// One disc at a time, never two (Leo, 2026-11-12: the two stacked are "maybe a bit extra?"). Most
+// variants park the reader mid-chat below an unread "New" line, so the disc points up over real prose;
+// the `-up` variants leave them at the latest message, the line far above, where it points up too; the
+// `-latest` ones park above the line, where nothing unseen lies above and it is Jump to latest;
+// `frosted-image` over a wallpaper. `pair`, `up` and `latest` pin no arm, so View Compare arms draws
+// them once per look side by side; the other variants pin one look each. Light and dark:
 // ?colorScheme=light / dark.
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play, PlayContext } from "../../gallery/play";
@@ -56,13 +59,30 @@ const snapshot = chat(
 
 const scroller = (ctx: PlayContext) => ctx.document.querySelector<HTMLElement>(".acpmux-scroll");
 
+const shown = (ctx: PlayContext, jump: "up" | "latest") =>
+  ctx.document.querySelectorAll(".acpmux-jump-latest[data-shown]").length === 1 &&
+  ctx.document.querySelector(`.acpmux-jump-latest[data-jump="${jump}"][data-shown]`) !== null;
+
 /// Below the unread line and above the latest message, with prose under the control: it points up
 /// (the first unseen row is above the view).
 const park: Play = async (ctx) => {
   await ctx.waitFor(() => (scroller(ctx)?.scrollHeight ?? 0) > 2_000);
   const view = scroller(ctx)!;
   await ctx.scroll({ selector: ".acpmux-scroll" }, view.scrollHeight - view.clientHeight - 700);
-  await ctx.waitFor(() => ctx.document.querySelector('.acpmux-jump-latest[data-jump="up"][data-shown]'));
+  await ctx.waitFor(() => shown(ctx, "up"));
+};
+
+/// At the latest message, the unread line far above: the one disc points up.
+const atLatest: Play = async (ctx) => {
+  await ctx.waitFor(() => (scroller(ctx)?.scrollHeight ?? 0) > 2_000);
+  await ctx.waitFor(() => shown(ctx, "up"));
+};
+
+/// Above the unread line, nothing unseen above the view: the one disc is Jump to latest.
+const above: Play = async (ctx) => {
+  await ctx.waitFor(() => (scroller(ctx)?.scrollHeight ?? 0) > 2_000);
+  await ctx.scroll({ selector: ".acpmux-scroll" }, 0);
+  await ctx.waitFor(() => shown(ctx, "latest"));
 };
 
 const overImage: Play = async (ctx) => {
@@ -92,9 +112,31 @@ export default agentPaneEntry({
   experiment: { definition: jumpPairLook, script: [{ name: "Park mid-chat under the New line", run: park }] },
   variants: {
     pair: {
-      note: "The pair in the app's look (the experiment's arm, frosted by default); View Compare arms puts every look side by side.",
+      note: "The disc pointing up in the app's look (the experiment's arm, frosted by default); View Compare arms puts every look side by side.",
       snapshot,
       play: park,
+    },
+    up: {
+      note: "Jump up at the latest message, the New line far above, in the app's look; View Compare arms puts every look side by side.",
+      snapshot,
+      play: atLatest,
+    },
+    "labeled-up": {
+      note: "Labeled Jump up: its own words, at the latest message.",
+      snapshot,
+      play: atLatest,
+      ...look("labeled"),
+    },
+    latest: {
+      note: "Above the New line: nothing unseen above, so the one disc is Jump to latest, in the app's look.",
+      snapshot,
+      play: above,
+    },
+    "labeled-latest": {
+      note: "Labeled Jump to latest: its own words, above the New line.",
+      snapshot,
+      play: above,
+      ...look("labeled"),
     },
     frosted: {
       note: "Selected (ships): a 32 px frosted disc at the composer's glass level; the words under it frost, nothing bends.",

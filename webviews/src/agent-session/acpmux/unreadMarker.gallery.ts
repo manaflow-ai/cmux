@@ -199,7 +199,7 @@ export default agentPaneEntry({
       },
     },
     "jump-pair": {
-      note: "Scrolled up above the New line: nothing unseen above, so the one control is Jump to latest; never two discs.",
+      note: 'Scrolled up above the New line: nothing unseen above, so the one control is Jump to latest; never two discs (Leo, 2026-11-12: "a bit extra").',
       snapshot,
       play: midChat,
     },

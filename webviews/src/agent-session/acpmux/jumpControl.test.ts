@@ -173,3 +173,58 @@ test("a press lands on the New line while only rows that never count lie between
   expect(lineOver(rows, 5, -1)).toBe(5);
   expect(lineOver(rows, 0, 1)).toBe(0);
 });
+
+/// The control for `rows` (each 100 px tall) with the cursor at `readThrough` and the view's top at
+/// `top`, `height` tall, at the latest message when its bottom reaches the last row.
+function controlAt(rows: readonly AcpmuxRow[], readThrough: number, top: number, height = 500) {
+  const unseen = firstUnseen(rows, readThrough, scan());
+  const view = visibleRows(geometry(rows.length), top, top + height);
+  return jumpControl({
+    unseenAbove: unseen >= 0 && unseen < view.first,
+    behind: top + height < rows.length * 100,
+    asks: 0,
+    asksElsewhere: 0,
+  }).kind;
+}
+
+// #41831's idle mark asked for these (Leo, 2026-11-12: "it's more so, like, idle detection... when
+// you have, like, at least one full screen of idleness, that's when it starts having that... instead
+// of getting overwritten by some useless noise"); the cursor model keeps them.
+test("a restart, a reconnect, an older page or the page's own moves bring no up arrow", () => {
+  const seen = Array.from({ length: 40 }, (_, i) => row(`r${i}`, i + 1));
+  // Reopened at the latest, the cursor where it was: nothing.
+  expect(controlAt(seen, 40, 3500)).toBe("hidden");
+  // A reconnect redraws the same rows and adds its notice and status rows after the cursor: nothing.
+  const reconnected = [...seen, row("reconnected", 41, "notice"), row("status", 42, "status")];
+  expect(controlAt(reconnected, 40, 3700)).toBe("hidden");
+  // An older page lands above: its rows are all before the cursor.
+  const older = [...Array.from({ length: 20 }, (_, i) => row(`o${i}`, i - 30)), ...seen];
+  expect(controlAt(older, 40, 5500)).toBe("hidden");
+  // The page moves the view (a reveal, Find, a settle) anywhere: Jump to latest, never up.
+  for (const top of [0, 1200, 2900]) expect(controlAt(seen, 40, top)).toBe("latest");
+});
+
+test("after Jump to latest nothing turns up, and going back up a little is Jump to latest, not up", () => {
+  const rows = Array.from({ length: 40 }, (_, i) => row(`r${i}`, i + 1));
+  // Everything seen, scrolled up, pressed: at the latest the disc goes; a little up it is down again.
+  expect(controlAt(rows, 40, 3500)).toBe("hidden");
+  expect(controlAt(rows, 40, 3300)).toBe("latest");
+  // Unless unseen rows lie above: that is the one thing that turns it up.
+  expect(controlAt(rows, 30, 3500)).toBe("up");
+});
+
+test("less than a screen of new content while idle brings no up arrow; a screen of it does", () => {
+  const before = Array.from({ length: 40 }, (_, i) => row(`r${i}`, i + 1));
+  const arrived = (count: number) => [...before, ...Array.from({ length: count }, (_, i) => row(`n${i}`, 41 + i))];
+  // The reader stepped away at the latest (cursor 40) with a 500 px view; the view follows the reply.
+  const atLatest = (rows: AcpmuxRow[]) => controlAt(rows, 40, rows.length * 100 - 500);
+  // Three rows (300 px): all of them still in view, nothing unseen above.
+  expect(atLatest(arrived(3))).toBe("hidden");
+  // Five rows fill the view exactly: the first is at its top, still in view.
+  expect(atLatest(arrived(5))).toBe("hidden");
+  // Six (more than a screen): the first new row went above the view.
+  expect(atLatest(arrived(6))).toBe("up");
+  // Only bookkeeping arrived, a screen of it: nothing to catch up on.
+  const noise = [...before, ...Array.from({ length: 12 }, (_, i) => row(`s${i}`, 41 + i, "status"))];
+  expect(atLatest(noise)).toBe("hidden");
+});

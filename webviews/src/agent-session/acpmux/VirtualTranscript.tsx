@@ -2688,7 +2688,7 @@ function TranscriptView({
     /// Each drawn row's viewport top at the click.
     drawn: Map<Element, number>;
     /// The toggle adds or removes whole rows (toggleRow), or changes its row with no height fold of
-    /// its own (Show all lines, Details): the thread slides instead.
+    /// its own (Show all output, Details): the thread slides instead.
     rows?: boolean;
     animation?: Animation;
     /// The line the held rows start at, in the thread's own coordinates.
@@ -3599,7 +3599,7 @@ function TranscriptView({
       settleFollowBottom(node, latest);
       const delta = layoutScrollTop(node) - stack.beforeTop;
       const host = thread.current;
-      // A control with no height fold of its own (a shell block's Show all lines, a failure's
+      // A control with no height fold of its own (a shell block's Show all output, a failure's
       // Details, Raw, Wrap lines) lays out in one step: the thread slides to it, as whole rows do.
       if (!stack.rows && !heightFoldInFlight(stack.row) && Math.abs(delta - stack.delta) > 0.5) {
         stack.rows = true;
@@ -5463,7 +5463,9 @@ function TranscriptView({
   // moves in the same frame the button starts to fade in or out.
   const jumpVisible = control.kind !== "hidden";
   const jumpShownReport = useRef(onJumpShownChange);
-  jumpShownReport.current = onJumpShownChange;
+  useLayoutEffect(() => {
+    jumpShownReport.current = onJumpShownChange;
+  });
   useLayoutEffect(() => {
     jumpShownReport.current?.(jumpVisible);
   }, [jumpVisible]);
