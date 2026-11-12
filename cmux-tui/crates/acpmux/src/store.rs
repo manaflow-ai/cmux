@@ -957,6 +957,31 @@ pub(crate) mod test_clock {
         AHEAD_MS.with(|a| a.set(0));
         FOLLOW.with(|f| f.set(None));
     }
+
+    /// A followed clock is ticked time only: the real milliseconds a run takes, more on a loaded
+    /// host, never move it, so the wall-clock rules a test drives (a peer parked after a day
+    /// down) fall on the same tick in every run (`stress::reconnect`, "a seed replays its
+    /// schedule exactly", failed at 9dc6d10f under load 22-60).
+    #[tokio::test(start_paused = true)]
+    async fn a_followed_clock_moves_with_ticked_time_only() {
+        follow_tokio();
+        let before = super::now_ms();
+        // Real time passes, as when a loaded host deschedules the test; tokio's paused clock
+        // does not (no await, so it cannot auto-advance).
+        let real = std::time::Instant::now();
+        while real.elapsed() < std::time::Duration::from_millis(20) {
+            std::hint::spin_loop();
+        }
+        let after_real = super::now_ms();
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        let after_tick = super::now_ms();
+        advance(5_000);
+        let after_sleep = super::now_ms();
+        reset();
+        assert_eq!(after_real, before, "20 ms of real time moved the followed clock");
+        assert_eq!(after_tick, before + 1_000, "1 s of ticked time");
+        assert_eq!(after_sleep, before + 6_000, "a computer sleep still runs the wall clock ahead");
+    }
 }
 
 pub trait Store: Send + Sync {
