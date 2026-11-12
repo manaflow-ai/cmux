@@ -61,17 +61,18 @@ class InventoryTests(unittest.TestCase):
             self.assertEqual(MODULE.tests_in(Path("empty"), ignored=True), [])
 
 
-def write_fake_core(root: Path, red: set[str]) -> tuple[Path, Path]:
+def write_fake_core(root: Path, red: set[str], a_exit: str = "exit 101") -> tuple[Path, Path]:
     """A fake cmux-tui-core library test binary and the cargo messages that name it.
 
-    The binary lists `a_red_test` and `b_green_test`, exits 101 for each name in RED,
-    and records every test it runs in `ran.log`. Returns (messages, core_root).
+    The binary lists `a_red_test` and `b_green_test`, ends each name in RED with A_EXIT
+    (a shell command, `exit 101` by default), and records every test it runs in
+    `ran.log`. Returns (messages, core_root).
     """
     core_root = root / "crates" / "cmux-tui-core"
     (core_root / "src").mkdir(parents=True)
     ran = root / "ran.log"
     binary = root / "cmux_tui_core-fake"
-    red_cases = "".join(f"  {name}) echo \"test {name} ... FAILED\"; exit 101 ;;\n" for name in sorted(red))
+    red_cases = "".join(f"  {name}) echo \"test {name} ... FAILED\"; {a_exit} ;;\n" for name in sorted(red))
     binary.write_text(
         "#!/usr/bin/env bash\n"
         'if [ "$1" = --list ]; then\n'
@@ -100,11 +101,21 @@ def write_fake_core(root: Path, red: set[str]) -> tuple[Path, Path]:
     return messages, core_root
 
 
+def die_by(signal_name: str) -> str:
+    """A fake-test shell command that ends the test process by SIG<SIGNAL_NAME>.
+
+    The process resets the signal to its default action first, so neither bash nor
+    Python handles it and the runner sees a signal-ended child.
+    """
+    code = f"import os, signal; s = signal.SIG{signal_name}; signal.signal(s, signal.SIG_DFL); os.kill(os.getpid(), s)"
+    return f"exec '{sys.executable}' -c '{code}'"
+
+
 class RunAllTests(unittest.TestCase):
-    def run_runner(self, red: set[str]) -> tuple[int, str, list[str]]:
+    def run_runner(self, red: set[str], a_exit: str = "exit 101") -> tuple[int, str, list[str]]:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            messages, core_root = write_fake_core(root, red)
+            messages, core_root = write_fake_core(root, red, a_exit)
             result = subprocess.run(
                 [sys.executable, str(SCRIPT), str(messages), str(core_root)],
                 check=False,
@@ -121,6 +132,30 @@ class RunAllTests(unittest.TestCase):
         self.assertEqual(ran, ["a_red_test", "b_green_test"], output)
         self.assertNotEqual(code, 0, output)
         self.assertIn("a_red_test", output)
+
+    def test_a_cancelled_core_test_stops_the_run(self) -> None:
+        # Exit 129, 130 or 143 is a hangup, an interrupt or a terminate (a cancelled job):
+        # the next test must not start, and the runner must still fail.
+        for a_exit in ("exit 129", "exit 130", "exit 143"):
+            with self.subTest(a_exit=a_exit):
+                code, output, ran = self.run_runner({"a_red_test"}, a_exit)
+                self.assertEqual(ran, ["a_red_test"], output)
+                self.assertNotEqual(code, 0, output)
+
+    def test_a_cancel_signal_stops_the_run_with_a_nonzero_status(self) -> None:
+        # A test that a signal ends has a negative returncode, and sys.exit of a negative
+        # number is not a failure on every host: the runner exits with 128 + the signal.
+        for signal_name, status in (("HUP", 129), ("INT", 130), ("TERM", 143)):
+            with self.subTest(signal=signal_name):
+                code, output, ran = self.run_runner({"a_red_test"}, die_by(signal_name))
+                self.assertEqual(ran, ["a_red_test"], output)
+                self.assertEqual(code, status, output)
+
+    def test_a_crashed_core_test_does_not_stop_the_others(self) -> None:
+        # A crash is a red like any other: the next test still runs, and the run fails.
+        code, output, ran = self.run_runner({"a_red_test"}, die_by("ABRT"))
+        self.assertEqual(ran, ["a_red_test", "b_green_test"], output)
+        self.assertEqual(code, 134, output)
 
     def test_a_green_core_passes(self) -> None:
         code, output, ran = self.run_runner(set())

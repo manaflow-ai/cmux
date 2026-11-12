@@ -317,23 +317,35 @@ def test_journal_sentinels_are_focused_only_and_full_uses_isolated_core_runner()
     assert "crates/cmux-tui-core" in cargo_test
 
 
-def _run_full_step(workspace_fails: bool, core_fails: bool = False) -> tuple[int, str]:
+def _run_full_step(
+    workspace_fails: bool,
+    core_fails: bool = False,
+    build_fails: bool = False,
+    doc_fails: bool = False,
+) -> tuple[int, str]:
     """Run the test job's full-mode `cargo test` step against a fake cargo and python3.
 
-    The fake cargo fails the workspace call when WORKSPACE_FAILS; the fake python3 (the
-    isolated core runner) exits 1 when CORE_FAILS. Returns the exit code and every cargo
-    and python3 call, in order.
+    The fake cargo exits 101 for the workspace call when WORKSPACE_FAILS, 4 for the core
+    `--no-run` build when BUILD_FAILS, and 3 for the core doc tests when DOC_FAILS. The
+    fake python3 (the isolated core runner) exits 1 when CORE_FAILS. Returns the exit code
+    and every cargo and python3 call, in order.
     """
     steps = {step.get("name"): step for step in _test_job()["steps"]}
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         log = root / "calls.log"
-        fail = 'case "$*" in *"--workspace --exclude cmux-tui-core"*) exit 101 ;; esac\n'
+        fail = ""
+        if workspace_fails:
+            fail += 'case "$*" in *"--workspace --exclude cmux-tui-core"*) exit 101 ;; esac\n'
+        if build_fails:
+            fail += 'case "$*" in *"-p cmux-tui-core --locked --no-run"*) exit 4 ;; esac\n'
+        if doc_fails:
+            fail += 'case "$*" in *"-p cmux-tui-core --doc"*) exit 3 ;; esac\n'
         cargo = root / "cargo"
         cargo.write_text(
             "#!/usr/bin/env bash\n"
             f'echo "cargo $*" >> "{log}"\n'
-            + (fail if workspace_fails else ""),
+            + fail,
             encoding="utf-8",
         )
         python = root / "python3"
@@ -388,6 +400,23 @@ def test_a_red_core_runner_still_runs_the_core_doc_tests_and_fails_the_step() ->
 
     code, calls = _run_full_step(workspace_fails=True, core_fails=True)
     assert code == 101, (code, calls)
+    assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
+
+
+def test_a_red_doc_test_fails_the_step() -> None:
+    code, calls = _run_full_step(workspace_fails=False, doc_fails=True)
+    assert code == 3, (code, calls)
+    assert "python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py" in calls, calls
+
+    # The first red status wins: the workspace before the doc tests.
+    code, calls = _run_full_step(workspace_fails=True, doc_fails=True)
+    assert code == 101, (code, calls)
+
+
+def test_a_failed_core_build_skips_the_core_runner_and_still_runs_the_doc_tests() -> None:
+    code, calls = _run_full_step(workspace_fails=False, build_fails=True)
+    assert code == 4, (code, calls)
+    assert "python3 ../.github/scripts/run-cmux-tui-core-tests-isolated.py" not in calls, calls
     assert "cargo test -p cmux-tui-core --doc --locked" in calls, calls
 
 
