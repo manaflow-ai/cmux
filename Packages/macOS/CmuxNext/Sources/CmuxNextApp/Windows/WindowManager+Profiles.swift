@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -238,13 +239,11 @@ enum WindowOwnSpace {
                 _ = try await connection.createProfile(name: name, id: space, color: color.rawValue, browserProfileID: browser)
                 let reported = { ids.compactMap { WindowProfiles.qualified($0, machines: machines) } } // one made for the move may not be yet
                 let waiting = Task { await store.mirrored(profile: space); for await done in ObservationStream({ reported().count == ids.count || store.connectionState != connected }) where done { break } }
-                let bound = Task { try? await Task.sleep(for: .seconds(10)); waiting.cancel() }; await waiting.value; bound.cancel() // ends on a reconnect or after 10 s
+                let bound = DemandTimer(owner: "WindowOwnSpace.give"); bound.schedule(after: .seconds(10)) { waiting.cancel() }; await waiting.value; bound.cancel() // a reconnect or 10 s
                 for workspace in reported() {
                     try await connection.pinWorkspace(session: workspace.session, key: WorkspaceKey(rawValue: workspace.key), to: space)
                 }
-            } catch {
-                logger.error("own space for a new window failed: \(String(describing: error), privacy: .public)")
-            }
+            } catch { logger.error("own space for a new window failed: \(String(describing: error), privacy: .public)") }
         }
     }
 }
