@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4310733551501",
+  "notes": "notes/4310733551501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41208,
+      "title": "cmux next: a steady model picker, and Ultracode before a pick",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41207,
+      "title": "cmux next: the composer follows density, one icon size",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41198,
+      "title": "cmux next: menus draw a crisp checkmark",
+      "author": "Lucas Ribeiro",
+      "clip": "no clip"
+    },
+    {
+      "pr": 37645,
+      "title": "cmux-next: pin the app FFI in app-ffi-pin.json; no gate reads Swift",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41466,
+      "title": "acpmux: four flaky lib tests made deterministic, and a same-size edit saved in one clock tick is no longer lost",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41396,
+      "title": "Agent chat: a chat shown again at a new size draws in place on the first frame back",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41471,
+      "title": "Feed path: one session key for every phone item add and withdraw, with a lint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41295,
+      "title": "Feed bridge: a peer prompt answered elsewhere is withdrawn from the phone",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
