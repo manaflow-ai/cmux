@@ -2001,9 +2001,15 @@ async fn dispatch_request_with_identity(
             // `acpmux send --wait`): when the session a lane reports to sent it, that turn is
             // read, and no lane report of it goes to the same session again
             // (`hub/lane_report_reads.rs`). Held until this request returns.
-            let reply_reader = (flag(crate::cli::output::READS_REPLY_META) == Some(true))
-                .then(|| hub.lane_report_reply_reader(conn.caller(), &s.id, conn.ended.subscribe()))
-                .flatten();
+            // It reads while its connection is open and it has not cancelled this request: a
+            // cancel revokes it (`prompt_cancel.rs`, review F2 of #41361).
+            let reads_reply = flag(crate::cli::output::READS_REPLY_META) == Some(true);
+            let reader = (reads_reply || flag("wakeOrFail") == Some(true))
+                .then(|| super::prompt_cancel::ReaderGone::new(hub, conn.ended.subscribe()));
+            let reply_reader = reader
+                .as_ref()
+                .filter(|_| reads_reply)
+                .and_then(|r| hub.lane_report_reply_reader(conn.caller(), &s.id, r.subscribe()));
             if let Some(reader) = &reply_reader {
                 on_accepted = Some(reader.watch(on_accepted));
             }
@@ -2092,9 +2098,7 @@ async fn dispatch_request_with_identity(
                 wake_or_fail: flag("wakeOrFail") == Some(true),
                 // Only a caller that waits for the reply and prints it reads it
                 // (`hub/question_replies.rs`); an outbox delivery's open request reads nothing.
-                reply_reader: (flag(crate::cli::output::READS_REPLY_META) == Some(true)
-                    || flag("wakeOrFail") == Some(true))
-                .then(|| conn.ended.subscribe()),
+                reply_reader: reader.as_ref().map(super::prompt_cancel::ReaderGone::subscribe),
                 inbox: inbox_on
                     && crate::hub::inbox::plain_send(
                         conn.origin == super::Origin::Peer,
@@ -2139,7 +2143,7 @@ async fn dispatch_request_with_identity(
             }
             // A `$/cancel_request` of this request stops its prompt, and the prompt runs on to
             // its turn's end, never dropped half way (`prompt_cancel.rs`).
-            let stop = super::prompt_cancel::PromptStop::new(hub, &s);
+            let stop = super::prompt_cancel::PromptStop::new(hub, &s, reader);
             opts.on_accepted = stop.watch(opts.on_accepted.take());
             let hub = hub.clone();
             let run = async move {
@@ -2177,10 +2181,21 @@ async fn dispatch_request_with_identity(
             let workspace_id = crate::session_env::workspace_id(mux_meta(&params), &env)?;
             let through = super::fork_through::through(&params);
             let start_later = super::fork_through::starts_later(&params);
+            // A remote device's switch is its new chat (`hub/fork.rs` `Retarget::remote`).
+            let remote_switch = conn.origin.web_class();
+            let retarget = super::fork_through::retarget(&params)?
+                .map(|r| crate::hub::Retarget { remote: remote_switch, ..r });
+            let switched = retarget.is_some();
             let who = who(conn);
             let (new, warning) = if let Some(prompt) =
                 params.pointer("/_meta/acpmux/beforePromptId").and_then(Value::as_str)
             {
+                // A switch forks the chat as it is now; a fork before a prompt keeps its harness.
+                if retarget.is_some() {
+                    return Err(RpcError::invalid_params(
+                        "a fork before a prompt keeps the chat's harness: omit harness",
+                    ));
+                }
                 let request = params
                     .pointer("/_meta/acpmux/requestId")
                     .and_then(Value::as_str)
@@ -2195,12 +2210,42 @@ async fn dispatch_request_with_identity(
                     if crate::hub::fork_cancel::cancelled() {
                         return Err(crate::hub::fork_cancel::cancelled_refusal());
                     }
-                    let fork = hub.fork(&s, name, cwd, env, workspace_id, through, start_later);
-                    let new = admitted.run(fork).await?;
+                    // Onto another harness (`_meta.acpmux.harness`, `hub/fork.rs` `Retarget`): a
+                    // pick of another harness's model in a started chat, at its next send.
+                    let new = match retarget {
+                        Some(retarget) => {
+                            let fork = hub.fork_to(
+                                &s,
+                                retarget,
+                                name,
+                                cwd,
+                                env,
+                                workspace_id,
+                                start_later,
+                            );
+                            admitted.run(fork).await?
+                        }
+                        None => {
+                            let fork =
+                                hub.fork(&s, name, cwd, env, workspace_id, through, start_later);
+                            admitted.run(fork).await?
+                        }
+                    };
                     Ok((new, admitted.warning.clone()))
                 };
                 hub.fork_cancellable(token, fork).await?
             };
+            // Onto another harness from a remote device: the mode a chat that device starts runs
+            // in (`session/new` above), its family's reviewed asking default, or the fork is
+            // ended and refused. A plain fork keeps the chat's mode, which the guard checked.
+            if switched && remote_switch {
+                let peer = super::remote_guard::settles_as_peer(conn.origin, conn.auth, &params);
+                let cloud_mobile = super::remote_guard::cloud_mobile(&params);
+                heap(|| {
+                    super::remote_guard::settle_web_session_mode(hub, &new, peer, cloud_mobile)
+                })
+                .await?;
+            }
             attach(hub, conn, &new.id);
             let meta = new.meta();
             let mut summary = hub.session_summary(&new);
