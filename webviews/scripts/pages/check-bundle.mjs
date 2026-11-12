@@ -5,7 +5,7 @@
 import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright";
-import { useSystemChrome } from "../../test/support/systemChrome.ts";
+import { useSystemChrome as configureSystemChrome } from "../../test/support/systemChrome.ts";
 import { siteSettings, siteData, certificateChain } from "../../src/browser-chrome/page-info/windowFixtures.ts";
 
 const [input, output, mode = "scheme", baseline] = process.argv.slice(2);
@@ -20,7 +20,7 @@ for (const name of await readdir(root)) {
   if (await stat(path.join(root, name, "index.html")).catch(() => null)) pages.push(name);
 }
 if (!pages.length) throw new Error("No built page documents found");
-useSystemChrome(chromium);
+configureSystemChrome(chromium);
 const browser = await chromium.launch({ headless: true, timeout: 30_000 });
 const receipts = [];
 const hostStates = {

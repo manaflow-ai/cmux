@@ -456,8 +456,8 @@ extension PageWebView {
         return PageSchemeHandler.readyResponse(to: request, source: ready)
     }
 
-    /// `url`'s file of `page` at `root` as the live web loop answers it, for a Chromium tab that has
-    /// no page host (a browser tab at a `cmux-page://` address). A dynamic path is a 404 there.
+    /// `url`'s file of `page` at `root` for a Chromium page, including a browser tab without a
+    /// page host. A dynamic path is a 404 here.
     /// `bundledOnly` keeps imports beside a document served directly by the shim, outside the live loop.
     public static func liveChromiumResource(_ url: URL, range: String?, page: PageDescriptor, root: URL,
                                            bundledOnly: Bool = false) async -> PageChromiumResponse {
