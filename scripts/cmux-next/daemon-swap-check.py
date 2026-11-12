@@ -554,6 +554,8 @@ class Scenarios:
         self.hidden = args.hidden
         self.fullscreen = args.fullscreen
         self.flood_secs = args.flood
+        # This share of the shells runs a program on the alternate screen across each swap.
+        self.alt_share = getattr(args, "alt_share", 0.0)
         self.typist = args.typist
         # A second typist into an interactive shell: reported, not a failure (see Typist).
         self.typist_shell = getattr(args, "typist_shell", False)
@@ -565,7 +567,7 @@ class Scenarios:
     @classmethod
     def none(cls) -> "Scenarios":
         return cls(argparse.Namespace(hidden=False, fullscreen=False, flood=0, typist=False,
-                                      typist_shell=False, control=False))
+                                      typist_shell=False, control=False, alt_share=0.0))
 
 
 def same_file_key(binary: Path) -> str:
@@ -609,6 +611,11 @@ def open_work(daemon: Daemon, count: int, scenarios: Scenarios, born: int) -> li
             raise RuntimeError("the run response names no pane for the hidden-tab scenario")
         terms[0]["kind"] = "behind-a-tab"
         terms.append(open_shell(daemon, "front-tab", f"{tag}H", born, pane=pane))
+    if scenarios.alt_share > 0 and born == 0:
+        # Each swap stops the old daemon while these hold the alternate screen with output since
+        # their last snapshot: what a quit must still store for an older reader.
+        for t in terms[1:1 + round(count * scenarios.alt_share)]:
+            t["kind"] = "fullscreen"
     if scenarios.fullscreen:
         terms.append(open_shell(daemon, "fullscreen", f"{tag}F", born, new_workspace=True))
     if born == 0:
@@ -1287,6 +1294,9 @@ def main() -> int:
     parser.add_argument("--hidden", action="store_true", help="a shell behind a second tab in its pane")
     parser.add_argument("--fullscreen", action="store_true",
                         help="a program on the alternate screen with bracketed paste and mouse modes on")
+    parser.add_argument("--alt-share", type=float, default=0.0, metavar="FRACTION",
+                        help="this share of the --terminals shells runs a program on the alternate screen "
+                             "across each swap, with the full-screen checks (0.1 = 10%%)")
     parser.add_argument("--flood", type=float, default=0.0, metavar="SECS",
                         help="a terminal printing numbered lines for SECS seconds across the swap")
     parser.add_argument("--typist", action="store_true",
