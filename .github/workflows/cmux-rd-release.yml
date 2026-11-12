@@ -169,11 +169,11 @@ jobs:
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: cmux-rd-release-files
-          path: dist
+          path: ${{ runner.temp }}/dist
       - name: Attest
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
         with:
-          subject-path: dist/*.tar.gz
+          subject-path: ${{ runner.temp }}/dist/*.tar.gz
       - name: Release
         shell: bash
         env:
@@ -182,15 +182,15 @@ jobs:
           SHA: ${{ needs.build.outputs.sha }}
         run: |
           set -euo pipefail
-          (cd dist && sha256sum -c checksums.txt)
+          (cd "$RUNNER_TEMP/dist" && sha256sum -c checksums.txt)
           notes="cmux-rd $VERSION for $TARGET (glibc $GLIBC_FLOOR or later), built from https://github.com/${GITHUB_REPOSITORY}/commit/${SHA} with features $FEATURES.
 
           The archive holds bin/cmux-rd, LICENSE (GPL-3.0-or-later) and THIRD_PARTY_LICENSES.md. It contains no H.264 codec: run \`cmux-rd openh264-install\` on the machine to download Cisco's OpenH264 from Cisco (pinned SHA-256)."
           # Published assets are never replaced: a re-run fails on an asset that is already there
           # (it only adds what a partial upload left out).
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" dist/*.tar.gz dist/checksums.txt
+            gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" "$RUNNER_TEMP"/dist/*.tar.gz "$RUNNER_TEMP"/dist/checksums.txt
             exit 0
           fi
           gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
-            --title "cmux-rd $VERSION" --notes "$notes" dist/*.tar.gz dist/checksums.txt
+            --title "cmux-rd $VERSION" --notes "$notes" "$RUNNER_TEMP"/dist/*.tar.gz "$RUNNER_TEMP"/dist/checksums.txt

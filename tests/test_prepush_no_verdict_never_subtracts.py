@@ -241,10 +241,27 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         tree = self.swift_tree()
         self.assertNoVerdictText(self.gate.ast_grep(tool, tree / "sgconfig.yml", tree, ["Sources/A.swift"]), "ast-grep")
 
+    def test_ast_grep_that_prints_json_of_the_wrong_shape_is_no_verdict(self) -> None:
+        # #41827 review (F1): valid JSON that is not a list of matches (an error object, a match with no file) made
+        # m["file"] raise TypeError and crash the gate instead of refusing.
+        tree = self.swift_tree()
+        for printed in ('{"error": "rule sgconfig.yml failed"}', '[{"ruleId": "x"}]',
+                        '[{"file": "Sources/A.swift", "range": {"start": {}}, "ruleId": "x", "message": "m"}]'):
+            with self.subTest(printed=printed):
+                tool = self.fake_tool("ast-grep", f"print({printed!r})\n")
+                out = self.gate.ast_grep(tool, tree / "sgconfig.yml", tree, ["Sources/A.swift"])
+                self.assertNoVerdictText(out, "ast-grep wrong-shape JSON")
+
     def test_ast_grep_clean_and_matching_runs_still_judge(self) -> None:
         tree = self.swift_tree()
         clean = self.fake_tool("ast-grep", "print('[]')\n")
         self.assertEqual(self.gate.ast_grep(clean, tree / "sgconfig.yml", tree, ["Sources/A.swift"]), "")
+        match = ('[{"file": "Sources/A.swift", "range": {"start": {"line": 0}}, "ruleId": "no-try-bang", '
+                 '"message": "no try!"}]')
+        found = self.fake_tool("ast-grep", f"print({match!r})\nraise SystemExit(1)\n")
+        out = self.gate.ast_grep(found, tree / "sgconfig.yml", tree, ["Sources/A.swift"])
+        self.assertEqual(out, "Sources/A.swift:1: [no-try-bang] no try!")
+        self.assertFalse(self.gate.no_verdict(1, out), out)
 
     def test_swiftformat_that_cannot_parse_the_file_is_no_verdict(self) -> None:
         tool = self.fake_tool("swiftformat", "print('error: Unexpected end of file at 2:1 in Sources/A.swift.', "
@@ -293,6 +310,19 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         found = self.quiet(self.gate.highlight_problems, self.repo, base, head)
         self.assertRefusedWithNoVerdict(found, "highlights")
 
+    def test_a_whats_new_result_of_the_wrong_shape_refuses(self) -> None:
+        # #41827 review: the result was checked to be a dict, not its values. A problem that is not a string raised
+        # TypeError in the loop after the try and crashed the gate instead of refusing.
+        self.write("scripts/whats-new/digest.py", "def parse(name, text):\n    return text\n\n\n"
+                                                  "def entry_problems(entry):\n    return [{'not': 'a string'}]\n")
+        self.write("scripts/whats-new/validate.py", "")
+        self.write(self.gate.HIGHLIGHTS_DIR + "a.md", "title: A\n\nOne.\n")
+        base = self.commit("base")
+        self.write(self.gate.HIGHLIGHTS_DIR + "a.md", "title: B\n\nTwo.\n")
+        head = self.commit("head")
+        found = self.quiet(self.gate.highlight_problems, self.repo, base, head)
+        self.assertRefusedWithNoVerdict(found, "highlights wrong shape")
+
     def test_a_cargo_locks_checker_that_crashes_refuses(self) -> None:
         from unittest import mock  # noqa: PLC0415
         self.install(self.gate.CARGO_LOCKS_SCRIPT, CRASH)
@@ -303,6 +333,75 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
         with mock.patch.object(self.gate.shutil, "which", return_value="/usr/bin/cargo"):
             found = self.quiet(self.gate.cargo_lock_drift, self.repo, base, head, self.installed)
         self.assertRefusedWithNoVerdict(found, "cargo locks")
+
+
+    # #41827 review: a checker's "findings" exit with no finding the gate can read is no verdict, not a pass.
+
+    def test_swiftformat_exit_1_with_no_finding_line_is_no_verdict(self) -> None:
+        tool = self.fake_tool("swiftformat", "print('Source input did not pass lint check.', file=sys.stderr)\n"
+                                             "raise SystemExit(1)\n")
+        tree = self.swift_tree()
+        out = self.gate.swiftformat(tool, tree / "swiftformat.conf", tree, ["Sources/A.swift"])
+        self.assertNoVerdictText(out, "SwiftFormat exit 1, no finding")
+
+    def test_swiftlint_violations_exit_with_no_located_line_is_no_verdict(self) -> None:
+        tool = self.fake_tool("swiftlint", "print('Done linting! Found 1 violation, 1 serious in 1 file.')\n"
+                                           "raise SystemExit(2)\n")
+        tree = self.swift_tree()
+        out = self.gate.swiftlint(tool, tree / "swiftlint.yml", tree, ["Sources/A.swift"])
+        self.assertNoVerdictText(out, "SwiftLint exit 2, no located finding")
+
+    def rustfmt_failing(self, stderr: bytes) -> str:
+        from unittest import mock  # noqa: PLC0415
+        tree = Path(self.tmp.name) / "tree"
+        (tree / "cmux-tui/crates/x/src").mkdir(parents=True, exist_ok=True)
+        (tree / "cmux-tui/crates/x/src/lib.rs").write_text("fn a() {}\n", encoding="utf-8")
+        config = Path(self.tmp.name) / "rustfmt.toml"
+        config.write_text("", encoding="utf-8")
+        (self.repo / "cmux-tui").mkdir(exist_ok=True)
+        done = subprocess.CompletedProcess(["rustfmt"], 101, stdout=b"", stderr=stderr)
+        with mock.patch.object(self.gate.subprocess, "run", return_value=done):
+            return self.quiet(self.gate.rustfmt, self.repo, config, tree, ["cmux-tui/crates/x/src/lib.rs"])
+
+    def test_rustfmt_that_panics_is_no_verdict(self) -> None:
+        out = self.rustfmt_failing(b"thread 'main' panicked at src/formatting.rs:1:1\n")
+        self.assertNoVerdictText(out, "rustfmt panic")
+
+    def test_rustfmt_missing_from_the_toolchain_still_warns_and_passes(self) -> None:
+        out = self.rustfmt_failing(b"error: 'rustfmt' is not installed for the toolchain '1.90.0'\n")
+        self.assertEqual(out, "")
+
+    def test_a_cargo_locks_exit_1_with_no_stale_line_refuses(self) -> None:
+        from unittest import mock  # noqa: PLC0415
+        self.install(self.gate.CARGO_LOCKS_SCRIPT, "print('checking 30 workspaces')\nraise SystemExit(1)\n")
+        self.write("cmux-tui/Cargo.toml", "[workspace]\n")
+        base = self.commit("base")
+        self.write("cmux-tui/Cargo.toml", "[workspace]\nmembers = []\n")
+        head = self.commit("head")
+        with mock.patch.object(self.gate.shutil, "which", return_value="/usr/bin/cargo"):
+            found = self.quiet(self.gate.cargo_lock_drift, self.repo, base, head, self.installed)
+        self.assertRefusedWithNoVerdict(found, "cargo locks exit 1, no stale line")
+
+    def test_a_reserved_keys_exit_1_with_no_finding_refuses(self) -> None:
+        self.install(self.gate.RESERVED_SCRIPT, "raise SystemExit(1)\n")
+        self.write(self.gate.RESERVED_LIST, "[]\n")
+        self.write(self.gate.RESERVED_SURFACES, "{}\n")
+        base = self.commit("base")
+        self.write(self.gate.RESERVED_SURFACES, '{"changed": true}\n')
+        head = self.commit("head")
+        found = self.quiet(self.gate.reserved_keys, self.repo, base, head, self.installed)
+        self.assertRefusedWithNoVerdict(found, "reserved keys exit 1, no finding")
+
+    def test_a_ui_font_exit_1_with_only_its_summary_refuses(self) -> None:
+        self.install(self.gate.UI_FONT_SCRIPT, "import sys\nif '--inputs' in sys.argv:\n    print('webviews/')\n"
+                                               "    raise SystemExit(0)\nprint('ui font: 1 finding(s).')\n"
+                                               "raise SystemExit(1)\n")
+        self.write("webviews/a.css", "a {}\n")
+        base = self.commit("base")
+        self.write("webviews/a.css", "b {}\n")
+        head = self.commit("head")
+        found = self.quiet(self.gate.ui_font, self.repo, base, head, self.installed)
+        self.assertRefusedWithNoVerdict(found, "ui font exit 1, only its summary")
 
 
 if __name__ == "__main__":
