@@ -997,5 +997,95 @@ class PrepushGateLayer(unittest.TestCase):
 
 
 
+class DeletedCheckInputs(unittest.TestCase):
+    """Review F1 on #40894 (P1, security): the layer skipped the scan whenever HEAD lacked
+    .github/single-host-fallbacks.json, base or no base, so a push that deleted the declaration and added an
+    undeclared `runs-on: ${{ vars.X }}` passed. The class: an exemption "HEAD has no such file, so the check does not
+    apply" holds only for a branch older than the file, whose base lacks it too (deleted_inputs). Each check that
+    keys an exemption on a file at HEAD (the fallback declaration, the Ghostty reserved-keys list and the surfaces it
+    judges against, and the check script itself through check_script) has a row here."""
+
+    # PrepushGateLayer's fixture (a repository whose base has the declaration), without rerunning its tests.
+    setUpClass = vars(PrepushGateLayer)["setUpClass"]
+    setUp, git, workflow, commit, checker, layer = (vars(PrepushGateLayer)[name] for name in (
+        "setUp", "git", "workflow", "commit", "checker", "layer"))
+
+    def delete_declaration(self) -> None:
+        (self.repo / ".github" / "single-host-fallbacks.json").unlink()
+
+    def test_deleting_the_declaration_with_an_undeclared_variable_refuses(self) -> None:
+        self.checker(None)
+        self.delete_declaration()
+        self.workflow("c.yml", "${{ vars.NEW_X }}")
+        head = self.commit("delete the declaration, add an undeclared variable")
+        for trusted in (self.installed, None):  # the hook's installed copy, and a manual run
+            with self.subTest(trusted=trusted), contextlib.redirect_stderr(io.StringIO()):
+                refused = self.gate.single_host_fallback_problems(self.repo, self.base, head, trusted)
+                self.assertEqual(len(refused), 1, refused)
+                self.assertIn("deletes .github/single-host-fallbacks.json", refused[0])
+                self.assertIsInstance(refused[0], self.gate.NoVerdict)
+
+    def test_deleting_the_declaration_alone_refuses(self) -> None:
+        self.checker(None)
+        self.delete_declaration()
+        self.commit("delete the declaration")
+        refused = self.layer()
+        self.assertEqual(len(refused), 1, refused)
+        self.assertIn("deletes .github/single-host-fallbacks.json", refused[0])
+
+    def test_a_branch_whose_base_lacks_the_declaration_stays_exempt(self) -> None:
+        self.checker(None)
+        self.delete_declaration()
+        self.base = self.commit("a base older than the declaration")
+        self.workflow("c.yml", "${{ vars.NEW_X }}")
+        self.commit("head")
+        self.assertEqual(self.layer(), [])
+
+    def write(self, path: str, text: str) -> None:
+        target = self.repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+
+    def test_deleting_what_the_reserved_keys_check_reads_refuses(self) -> None:
+        checker = "import sys\nsys.exit(0)\n"
+        self.write(self.gate.RESERVED_SCRIPT, checker)
+        self.write(self.gate.RESERVED_LIST, "[]\n")
+        self.write(self.gate.RESERVED_SURFACES, "{}\n")
+        self.base = self.commit("base with the reserved keys check")
+        (self.installed / Path(self.gate.RESERVED_SCRIPT).name).write_text(checker, encoding="utf-8")
+        for path in (self.gate.RESERVED_LIST, self.gate.RESERVED_SURFACES):
+            with self.subTest(path=path):
+                self.git("checkout", "-q", "--detach", self.base)
+                (self.repo / path).unlink()
+                head = self.commit(f"delete {path}")
+                for trusted in (self.installed, None):
+                    refused = self.gate.reserved_keys(self.repo, self.base, head, trusted)
+                    self.assertEqual(len(refused), 1, refused)
+                    self.assertIn(f"deletes {path}", refused[0])
+        # A branch older than the check (its base has none of it) stays exempt.
+        self.git("checkout", "-q", "--detach", self.base)
+        for path in (self.gate.RESERVED_SCRIPT, self.gate.RESERVED_LIST, self.gate.RESERVED_SURFACES):
+            (self.repo / path).unlink()
+        older = self.commit("older than the check")
+        self.assertEqual(self.gate.reserved_keys(self.repo, older, older, None), [])
+
+    def test_a_deleted_check_script_still_runs(self) -> None:
+        self.write(self.gate.UI_FONT_SCRIPT, "BASE = 1\n")
+        self.base = self.commit("base with the check")
+        (self.repo / self.gate.UI_FONT_SCRIPT).unlink()
+        head = self.commit("delete the check")
+        installed = self.installed / Path(self.gate.UI_FONT_SCRIPT).name
+        installed.write_text("INSTALLED = 1\n", encoding="utf-8")
+        check_script = self.gate.check_script
+        self.assertEqual(check_script(self.repo, head, self.gate.UI_FONT_SCRIPT, self.installed, self.base),
+                         b"INSTALLED = 1\n")
+        self.assertEqual(check_script(self.repo, head, self.gate.UI_FONT_SCRIPT, None, self.base), b"BASE = 1\n")
+        installed.unlink()  # an install without the check this push's base has refuses, never skips
+        with self.assertRaises(SystemExit):
+            check_script(self.repo, head, self.gate.UI_FONT_SCRIPT, self.installed, self.base)
+        # A branch older than the check: neither side has it.
+        self.assertIsNone(check_script(self.repo, head, self.gate.UI_FONT_SCRIPT, self.installed, head))
+
+
 if __name__ == "__main__":
     sys.exit(unittest.main())
