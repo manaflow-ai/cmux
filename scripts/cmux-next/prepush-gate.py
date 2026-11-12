@@ -302,6 +302,10 @@ REDEFINITION_HINT = ("Keep one definition of each name: Python keeps only the la
 CARGO_LOCK_CHECK = "Every Cargo.lock matches its manifests (scripts/cmux-next/cargo-locks.py)"
 CARGO_FILE = re.compile(r"(^|/)Cargo\.(toml|lock)$")
 CARGO_LOCKS_SCRIPT = SCRIPTS + "/cargo-locks.py"
+# The gate's outer limit on the lock check, and the deadline it gives the check inside it: the check ends its own
+# resolves by then and reports what it could not judge, so this limit is never what ends it (cmux#41742 review F2).
+CARGO_LOCKS_TIMEOUT = 300
+CARGO_LOCKS_DEADLINE = CARGO_LOCKS_TIMEOUT - 45
 CARGO_HINT = ("Fix the locks: run `scripts/cmux-next/cargo-locks.py fix` (it runs `cargo update --workspace` in each "
               "stale workspace, which rewrites only what the manifests now need), commit the Cargo.lock files, then "
               "push. A manifest change in one workspace can leave another workspace's lock stale (eb4f3eb1d94).")
@@ -1508,8 +1512,11 @@ def cargo_lock_drift(repo: Path, base: str, head: str, trusted_scripts: Path | N
         check = Path(tmp) / "cargo-locks.py"
         check.write_bytes(script)
         # 30 workspaces resolve offline in parallel (about 4 s on a warm index); any the cached index cannot answer
-        # then resolve with the network one at a time, each with its own 120 s limit, inside a 300 s budget.
-        code, out = run(["python3", "-I", str(check), "check", "--repo", str(repo.resolve())], Path(tmp), timeout=300)
+        # then resolve with the network one at a time, each with its own 120 s limit, all inside --deadline.
+        command = ["python3", "-I", str(check), "check", "--repo", str(repo.resolve())]
+        if b"--deadline" in script:  # an older head's copy has no --deadline (and its own default budget)
+            command += ["--deadline", str(CARGO_LOCKS_DEADLINE)]
+        code, out = run(command, Path(tmp), timeout=CARGO_LOCKS_TIMEOUT)
     if code == 124:
         log(f"prepush-gate: Cargo.lock check skipped: {out}")
         return []
