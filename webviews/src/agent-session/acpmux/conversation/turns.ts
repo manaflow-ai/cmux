@@ -1572,15 +1572,6 @@ function shapeTurn(
         (steerDialogue.has(row.id) ||
           keptOut.has(row.id) ||
           (row.kind === "activity" && (row.items ?? []).some((item) => awaitsPermission(item.tool)))));
-    // Opened, the person's steer after the answer draws in the fold, in its place: the answer draws
-    // in its own place too, above the steer it came before, never moved under it (Leo, 2026-11-12:
-    // "in this case you didnt respond to me at all..."). A card or strip under it keeps it last.
-    const inPlace =
-      open &&
-      said !== undefined &&
-      !(nextStep && !cutOff && said === answer) &&
-      !(walked && said === answer && !walkedDrawn) &&
-      after.some((row) => row.kind === "user" && steerDialogue.has(row.id));
     const work = [...before, ...after].filter((row) => !out(row));
     // A row drawn beside the closed fold is not in the card too: the card takes its first row's id.
     // A file change that never got its input changed nothing (toolGroups.ts `isDraftCall`).
@@ -1589,6 +1580,18 @@ function shapeTurn(
     // it stays drawn as it ran, the steer between the replies (agent-pane-steer-split.test.ts).
     // Reports received from other agents fold like work.
     const dialogue = work.every((row) => (row.kind === "user" && !row.incoming) || isAnswer(row));
+    // Opened, the person's steer after the answer draws in the fold, in its place: the answer draws
+    // in its own place too, above the steer it came before, never moved under it (Leo, 2026-11-12:
+    // "in this case you didnt respond to me at all..."). A card or strip under it keeps it last.
+    // Only where the fold draws its work: a turn of dialogue alone draws as it ran.
+    const inPlace =
+      open &&
+      work.length > 0 &&
+      !dialogue &&
+      said !== undefined &&
+      !(nextStep && !cutOff && said === answer) &&
+      !(walked && said === answer && !walkedDrawn) &&
+      after.some((row) => row.kind === "user" && steerDialogue.has(row.id));
     // The tasks this fold hides, as one line each beside it (TaskLine.tsx).
     const tasks = !open && taskLook && taskLook !== "card" && work.length && !dialogue ? startedTasks(work) : [];
     const taskLine: AcpmuxRow | undefined = tasks.length

@@ -105,6 +105,25 @@ function replay(events: EventRecord[]): AcpmuxRow[] {
 const drawn = (rows: readonly AcpmuxRow[], expanded = new Set<string>()) =>
   turnView(rows, expanded, { agentFamily: "claude" });
 
+/// Every arm of the fold experiments, as the host override sets them (turnFoldStyle.test.ts): the
+/// default `worked-for` fold, Claude's in-place `runs` look, and each way a steered turn folds.
+const ARMS: Record<string, string>[] = [
+  {},
+  { "claude-turn-fold": "runs" },
+  ...["nested-open", "nested", "header", "split"].map((arm) => ({ "turn-fold-steered": arm })),
+  ...["groups", "runs", "replies"].map((arm) => ({ "turn-fold-replies": arm })),
+];
+function eachArm(check: (arm: string) => void) {
+  try {
+    for (const arms of ARMS) {
+      globalThis.cmuxExperiments = arms;
+      check(JSON.stringify(arms));
+    }
+  } finally {
+    delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
+  }
+}
+
 test("an answer the agent followed with a send draws under the prompt, beside its closed Worked for", () => {
   seq = 0;
   const events = [
@@ -246,15 +265,34 @@ test("opened, a steered turn's answer stays above the steer it came before", () 
     ...call("c3", "bun test"),
     ended(),
   ];
-  const rows = replay(events);
-  for (const view of [drawn(rows), openedAll(rows)]) {
-    const kinds = view.map((row) => `${row.kind}:${(row.text ?? "").slice(0, 20)}`);
-    const answer = view.findIndex((row) => row.kind === "assistant" && row.text === ANSWER);
-    const steered = view.findIndex((row) => row.kind === "user" && row.text === "Also check CI");
-    expect(answer, kinds.join("\n")).toBeGreaterThan(0);
-    expect(answer < steered, kinds.join("\n")).toBe(true);
-  }
+  answerOnceAboveSteer(replay(events));
 });
+
+test("a turn of only an answer and the steer after it draws the answer, open or closed, in every fold", () => {
+  seq = 0;
+  answerOnceAboveSteer(
+    replay([
+      prompt("What changed?"),
+      started(),
+      say(ANSWER, "m1"),
+      steer("Also check CI", "p1"),
+      steerRead("p1"),
+      ended(),
+    ]),
+  );
+});
+
+function answerOnceAboveSteer(rows: AcpmuxRow[]) {
+  eachArm((arm) => {
+    for (const view of [drawn(rows), openedAll(rows)]) {
+      const kinds = `${arm}\n${view.map((row) => `${row.kind}:${(row.text ?? "").slice(0, 20)}`).join("\n")}`;
+      const answers = view.flatMap((row, at) => (row.kind === "assistant" && row.text === ANSWER ? [at] : []));
+      const steered = view.findIndex((row) => row.kind === "user" && row.text === "Also check CI");
+      expect(answers.length, kinds).toBe(1);
+      expect(answers[0]! < steered, kinds).toBe(true);
+    }
+  });
+}
 
 // The whole class: random turns of chunks, calls, subagent and task progress, the person's steers
 // and notice-driven turns. Closed, every reply to the person draws in order and outside the fold;
@@ -398,19 +436,21 @@ test("each answer to the person draws closed, in order, never in a fold, for ran
 });
 
 test("every reply draws once the folds open, each stretch's after the one before, for random interleavings", () => {
-  for (let seed = 1; seed <= 400; seed += 1) {
-    const { events, stretches } = chat(seed);
-    const all = replyText(openedAll(replay(events)));
-    let floor = 0;
-    for (const stretch of stretches) {
-      // Within a stretch the fold draws above its answer, so only the stretches keep their order.
-      let end = floor;
-      for (const words of stretch.replies) {
-        const at = all.indexOf(words, floor);
-        expect(at, `seed ${seed}: "${words}" missing or out of order\n${all}`).toBeGreaterThanOrEqual(0);
-        end = Math.max(end, at + words.length);
+  eachArm((arm) => {
+    for (let seed = 1; seed <= 400; seed += 1) {
+      const { events, stretches } = chat(seed);
+      const all = replyText(openedAll(replay(events)));
+      let floor = 0;
+      for (const stretch of stretches) {
+        // Within a stretch the fold draws above its answer, so only the stretches keep their order.
+        let end = floor;
+        for (const words of stretch.replies) {
+          const at = all.indexOf(words, floor);
+          expect(at, `${arm} seed ${seed}: "${words}" missing or out of order\n${all}`).toBeGreaterThanOrEqual(0);
+          end = Math.max(end, at + words.length);
+        }
+        floor = end;
       }
-      floor = end;
     }
-  }
+  });
 });
