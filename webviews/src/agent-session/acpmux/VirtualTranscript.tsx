@@ -1454,6 +1454,8 @@ function TranscriptView({
   const chasing = followArm !== "eased";
   const followChase = useRef<FollowChase>(undefined);
   followChase.current ??= createFollowChase(followArm);
+  /// Freezes the composer growth's rise of the rows where it is painted (the dock's effect sets it).
+  const freezeGrowthRise = useRef<() => void>(() => {});
   // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
@@ -1823,6 +1825,23 @@ function TranscriptView({
     // rows go home on the compositor with the field.
     let growth: { field: HTMLElement; to: number } | undefined;
     let rowsMove: Animation | undefined;
+    // The reader's input wins over the rise: the rows freeze where they are painted (the rise's part
+    // handed to the follow chase, held as it holds), and the card grows on over them, as `cardHold`
+    // does. Played on, the rise moved the rows while the reader scrolled up. Two style reads, on input
+    // only while a rise plays.
+    freezeGrowthRise.current = () => {
+      const rows = thread.current;
+      const move = rowsMove;
+      if (!rows || !move || move.playState === "finished" || move.playState === "idle") return;
+      const drawnY = () => {
+        const value = getComputedStyle(rows).translate;
+        return value && value !== "none" ? Number.parseFloat(value.split(" ")[1] ?? "") || 0 : 0;
+      };
+      const before = drawnY();
+      move.cancel();
+      rowsMove = undefined;
+      followChase.current?.carry(rows, before - drawnY());
+    };
     /// What the field has yet to grow (px), 0 once it rests (and the growth is over).
     const toGrow = () => {
       if (!growth) return 0;
@@ -1899,6 +1918,7 @@ function TranscriptView({
       dock.removeEventListener("click", toggled, { capture: true });
       dock.removeEventListener(FIELD_GROWTH_EVENT, grew);
       rowsMove?.cancel();
+      freezeGrowthRise.current = () => {};
     };
   }, [dock, noteQueue]);
   // And each time the queue changes, in the commit that draws it. A change that leaves the stack's
@@ -4472,6 +4492,8 @@ function TranscriptView({
   useLayoutEffect(() => {
     if (sends === seenSends.current) return;
     seenSends.current = sends;
+    // The send's ride and the rows it brings are the motion the full rate is for: never a reason to cap it.
+    renderRate.sent(performance.now());
     const node = ref.current;
     if (!node) return;
     if (!didOpenAtLatest.current) {
@@ -4913,6 +4935,7 @@ function TranscriptView({
       // The rows under a change gliding to their place hold where they are drawn too (tailGlide.ts),
       // and play on with the chase.
       tailGlide.current?.hold();
+      freezeGrowthRise.current();
       followChase.current?.hold(() => {
         const followed = followingRef.current && jumpTarget.current === undefined;
         if (followed) tailGlide.current?.resume();
