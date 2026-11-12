@@ -1,9 +1,13 @@
 // Snapshot metadata points to one producer, never a previous array or a snapshot chain.
 // An open fence reads its indexed row and event revision without scanning transcript history.
 import type { AcpmuxRow } from "./model";
+import { onTestReset } from "../testReset";
 
 const sources = new WeakMap<object, RowUpdates>();
 let generation = 0;
+onTestReset(() => {
+  generation = 0;
+});
 export const rowUpdates = (rows: object) => sources.get(rows);
 
 export class RowUpdates {

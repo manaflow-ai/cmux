@@ -1,3 +1,4 @@
+import { onTestReset } from "../../testReset";
 // What a tool call's result says, without the JSON a harness wrapped it in. Harnesses hand the pane
 // a tool's result as text, and that text is often the protocol's envelope rather than the result:
 // an MCP result (`{"content":[{"type":"text","text":"…"}]}`), a bare list of content blocks, a
@@ -512,6 +513,7 @@ function fromJSON(
 }
 
 const imagesCache = new Map<string, string[]>();
+onTestReset(() => imagesCache.clear());
 
 /// The images the call's strip shows from its output's envelope, the ones `toolResult(output, …,
 /// true)` leaves out of its text (which `clean` never changes). Kept for the last few outputs, so a

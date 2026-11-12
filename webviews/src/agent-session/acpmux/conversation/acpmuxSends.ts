@@ -20,6 +20,7 @@
 // of session names is involved: the target is the word the command gives (`name`, `host/name`,
 // `host:name`, `reports:person`).
 import type { AcpmuxActivity } from "../model";
+import { onTestReset } from "../../testReset";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -450,6 +451,9 @@ export function recordedMessageBodyChanges(line: string): RecordedMessageBodyCha
 // entries only as long as their tool snapshots are live; no cache entry retains a transcript row.
 let recordedBodyCache = new WeakMap<object, { command: string; changes: readonly RecordedMessageBodyChange[] }>();
 let recordedBodyParseCount = 0;
+onTestReset(() => {
+  recordedBodyParseCount = 0;
+});
 
 export function recordedMessageBodyChangesForTool(tool: {
   id: string;
@@ -1467,6 +1471,9 @@ type SendCallsMemo = {
 };
 let sendCallsCache = new WeakMap<object, SendCallsMemo>();
 let sendCallsParseCount = 0;
+onTestReset(() => {
+  sendCallsParseCount = 0;
+});
 
 /// The messages a shell call sends, each with its state: one for a single `acpmux send`, several
 /// for a batch, nil for any other call. Memoized per call snapshot when no recorded message files

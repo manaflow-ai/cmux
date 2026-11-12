@@ -15,10 +15,14 @@ import {
   type PointerPlace,
 } from "../../../ui/scrollHover";
 import { focusRingShown } from "../../../ui/focusModality";
+import { onTestReset } from "../../testReset";
 
 export type HoverCard = ReturnType<typeof useHoverCard>;
 
 let nextBridgeId = 0;
+onTestReset(() => {
+  nextBridgeId = 0;
+});
 type Rect = { left: number; top: number; right: number; bottom: number };
 type PointerBridgeListener = (point: Point) => void;
 const activePointerBridges = new Set<PointerBridgeListener>();

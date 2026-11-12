@@ -6,10 +6,14 @@
 // every earlier snapshot alive through the one after it (a running command's 1,000 updates over
 // 5,000 rows kept 1,001 arrays). Each entry now dies with its own snapshot.
 import type { AcpmuxRow } from "./model";
+import { onTestReset } from "../testReset";
 
 /// A snapshot's number, given when a change first names it.
 const serials = new WeakMap<readonly AcpmuxRow[], number>();
 let serial = 0;
+onTestReset(() => {
+  serial = 0;
+});
 const oneRowChanges = new WeakMap<readonly AcpmuxRow[], { readonly from: number; readonly index: number }>();
 
 function serialOf(rows: readonly AcpmuxRow[]): number {

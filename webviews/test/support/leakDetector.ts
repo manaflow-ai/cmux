@@ -29,6 +29,9 @@
 //   global document (Object.defineProperty(document, ...)) that outlives the file.
 // - Module mocks: bun's mock.module replaces a module for every later file too. A module the file
 //   mocked and did not mock back to its real exports fails the file (and is put back).
+// - Store resets: a store may register the function that puts it back to a fresh page's state with
+//   `onTestReset` (src/agent-session/testReset.ts). Those run after each checked file, before the
+//   drain, so a store that resets itself leaves nothing for the drain to find.
 //
 // Failures name what was left and where. Module state and timers are a ratchet, since most files
 // leave a cache or counter behind today: test/support/leak-baseline.json lists what each file leaves,
@@ -640,7 +643,24 @@ function hookTotals(): void {
   });
 }
 
+/// Resets stores registered with `onTestReset` (src/agent-session/testReset.ts): each puts its store
+/// back to a fresh page's state after every checked file, before the drain looks at what is left.
+const testResets: (() => void)[] = [];
+
+function runTestResets(): string[] {
+  const failed: string[] = [];
+  for (const reset of testResets) {
+    try {
+      reset();
+    } catch (error) {
+      failed.push(`reset: a store's onTestReset threw (${error instanceof Error ? error.message : String(error)})`);
+    }
+  }
+  return failed;
+}
+
 function checkFile(path: string): void {
+  const resetFailures = runTestResets();
   // A listener a module adds while it loads stays for the module's life (it loads once per process),
   // so it counts with the module state below; one the file's own code added and left fails the file.
   const leaks = listening
@@ -653,6 +673,7 @@ function checkFile(path: string): void {
   const drained = [...new Set([...drainModuleState(), ...drainTimers(), ...loadListeners])].sort();
   if (fileStart) leaks.push(...leakedGlobals(fileStart));
   leaks.push(...drainModuleMocks());
+  leaks.push(...resetFailures);
   fileStart = undefined;
   const name = shortPath(path);
   const allowed = baselineOf(name);
@@ -836,6 +857,7 @@ export function installLeakDetector(): void {
   scope.__cmuxModuleEnd = moduleEnd;
   scope.__cmuxStartFile = startFile;
   scope.__cmuxCheckFile = checkFile;
+  (globalThis as Record<symbol, unknown>)[Symbol.for("cmux.testResets")] = testResets;
   wrapTimers();
   wrapGlobalListeners();
   wrapModuleMocks();

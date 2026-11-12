@@ -13,6 +13,7 @@ import { peerCopyTail, type PeerCopy } from "./peerCopy";
 import { postNative } from "./native";
 import type { EventRecord } from "./direct";
 import type { QueuedPrompt } from "./model";
+import { onTestReset } from "../testReset";
 
 /// A chat as the page last read it. What it says about the chat's *past* is drawn on the next
 /// open; what it says about what the chat is *doing* is not (direct.ts `drawKeptTail`).
@@ -141,10 +142,11 @@ export function forgetTail(sessionId: string): void {
 /// chat that asks.
 export function readHostTail(sessionId: string): Promise<KeptTail | undefined> {
   const read = startHostRead(sessionId);
-  return Promise.race([
-    read,
-    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), HOST_TAIL_READ_MS)),
-  ]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), HOST_TAIL_READ_MS);
+  });
+  return Promise.race([read, late]).finally(() => clearTimeout(timer));
 }
 
 /// Keeps the tail the app host handed this page with an adopt event (AgentPaneView+SessionAdopt.swift):
@@ -432,3 +434,4 @@ export function resetKeptTailsForTests(): void {
   readAheadTails.clear();
   reading.clear();
 }
+onTestReset(resetKeptTailsForTests);

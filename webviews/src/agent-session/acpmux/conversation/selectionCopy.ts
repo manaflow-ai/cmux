@@ -21,6 +21,7 @@ import { safeHref } from "../replyHref";
 import { chipText, chipsAsLinks, withWholeChips } from "./chipCopy";
 import { mathCopyOf } from "./mathCopy";
 import { transcriptSelectionContents } from "./transcriptSelectionCopy";
+import { onTestReset } from "../../testReset";
 
 export { withWholeChips };
 
@@ -33,6 +34,10 @@ const KEEP = new Set(["href", "start", "colspan", "rowspan", "src", "alt"]);
 const CHROME = "svg, [aria-hidden='true'], [hidden], .sr-only, .cv-li__num, .cv-li__bullet";
 /// The document the listener is on: once per page, and again for a new one (a test's next DOM).
 let installedOn: Document | undefined;
+onTestReset(() => {
+  installedOn?.removeEventListener("copy", onCopy);
+  installedOn = undefined;
+});
 
 export function installSelectionCopy() {
   if (typeof document === "undefined" || installedOn === document) return;
