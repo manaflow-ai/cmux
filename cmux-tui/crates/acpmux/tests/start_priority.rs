@@ -140,10 +140,15 @@ fn a_harness_starts_at_the_daemons_priority_and_yields_once_started() {
             ),
         ],
     );
-    let logged: Value = serde_json::from_str(
-        fs::read_to_string(&log).expect("the harness logged its start").lines().next().unwrap(),
-    )
-    .unwrap();
+    // Every harness that answered a `session/new` logged a line; the session's own is the one still
+    // running (a daemon may start a harness of its own, a probe, which ends).
+    let text = fs::read_to_string(&log).expect("the harness logged its start");
+    eprintln!("harness starts logged: {text}");
+    let logged: Value = text
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .rfind(|v| v["pid"].as_u64().is_some_and(|pid| nice_of(pid as u32).is_some()))
+        .expect("no harness that answered session/new is still running");
     let pid = logged["pid"].as_u64().unwrap() as u32;
     let at_start = logged["nice"].as_i64().unwrap() as i32;
     // The start ran at the daemon's priority (this process's: the daemon inherits it), not under

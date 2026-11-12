@@ -18,14 +18,22 @@
 //! `cargo test -p acpmux --release --test start_under_load_bench -- --ignored --nocapture`
 //! (`START_BENCH_LOAD`, `START_BENCH_SAMPLES` override the load and the sample count;
 //! `START_BENCH_LOAD_NICE` runs the loops at that nice: 0 is load from outside acpmux, 5 (Linux)
-//! the agent tier's, as the tools of other agents run;
+//! the agent tier's, as the tools of other agents run; `START_BENCH_SPARE=1` lets the daemon keep its
+//! warm spare harness (`hub/pool/spare.rs`), which the hermetic environment turns off;
 //! `START_BENCH_ASSERT=1` fails when a loaded p95 is past 1.2x the idle one).
 #![cfg(unix)]
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
 // The daemon this test starts runs tests/fake_agent.py only.
-const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+// The knobs below are the bench's own, not the host's: kept through the hermetic re-start.
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
+    "START_BENCH_LOAD",
+    "START_BENCH_SAMPLES",
+    "START_BENCH_LOAD_NICE",
+    "START_BENCH_SPARE",
+    "START_BENCH_ASSERT",
+]);
 
 use serde_json::{Value, json};
 use std::fs;
@@ -127,6 +135,7 @@ fn start(scratch: &Path, home: &Path) -> (Daemon, PathBuf) {
         .args(["daemon", "run", "--ready-fd", "1", "--log", "warn"])
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", &socket)
+        .env("ACPMUX_SPARE_HARNESS", if knob("START_BENCH_SPARE", 0) == 1 { "1" } else { "0" })
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
@@ -243,8 +252,9 @@ fn send_to_first_token_at_load_100_is_within_1_2x_of_idle() {
 
     let cpus = std::thread::available_parallelism().map_or(0, |n| n.get());
     println!(
-        "start_under_load_bench: {cpus} CPUs, {load} busy loops at nice +{load_nice}, {samples} samples, \
-         harness boot {BOOT_CPU_MS} ms CPU"
+        "start_under_load_bench: {cpus} CPUs, {load} busy loops at nice +{load_nice}, {samples} samples, spare {}, \
+         harness boot {BOOT_CPU_MS} ms CPU",
+        knob("START_BENCH_SPARE", 0) == 1
     );
     #[cfg(target_os = "linux")]
     println!(
