@@ -81,6 +81,56 @@
       "size": 938
     },
     {
+      "path": "Appearance.java",
+      "sha256": "fc070a8dc9b752ff5bacac0d685d46d1cb2c9f33db142ee99bd22c26a6902009",
+      "size": 10320
+    },
+    {
+      "path": "AppearanceBackground.java",
+      "sha256": "54a428dd54b5bf20326b72b4d4004f1c1c0e614f9226588e996f1bd3b15a45b9",
+      "size": 6580
+    },
+    {
+      "path": "AppearanceBackgroundRequest.java",
+      "sha256": "bc5352739ae6d97821489ced09a0e083161631beece8456880407854c05e7298",
+      "size": 4665
+    },
+    {
+      "path": "AppearanceChangedEvent.java",
+      "sha256": "65f38c8e98af25bf4a64e9a14e207c27cc731ac902ca223cfebabead3f10f23a",
+      "size": 2388
+    },
+    {
+      "path": "AppearanceChat.java",
+      "sha256": "b7bc3788c34952ee8b545babe950394af543ef4f491d44d695ecfe7d0292e72e",
+      "size": 4253
+    },
+    {
+      "path": "AppearanceGroups.java",
+      "sha256": "67c11b254bc45beb81fcefafd1355c1f2abd1224a4e76a8e8b9a30d84a55ed18",
+      "size": 2734
+    },
+    {
+      "path": "AppearanceTerminal.java",
+      "sha256": "7231fcfa96aedf92ed25dfa65a16fc0b70a97f62c1bb12b90ac34fb1a84a2851",
+      "size": 2825
+    },
+    {
+      "path": "AppearanceTheme.java",
+      "sha256": "f5aff4fbfec19e53ac68cece76013f9cac6454caed5b2ccbfb81143d18917c09",
+      "size": 3412
+    },
+    {
+      "path": "AppearanceThemeInput.java",
+      "sha256": "61dc22aa5ba0755da83f5c18e4972057cc0552049ae0dd9cd2eb635d615d6427",
+      "size": 8497
+    },
+    {
+      "path": "AppearanceThemeSide.java",
+      "sha256": "e451e270b21c1deb4c0bb317cda3bc1c98c0f67feadf3750db1c3d7af30105d2",
+      "size": 2604
+    },
+    {
       "path": "AppliedPane.java",
       "sha256": "a6713fb889bfe7e3d33e48ab7e5b3c41010a003c60bac0228adaab6e9790cb7f",
       "size": 2522
@@ -772,8 +822,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "9b2556322dd27cc4adaeb5e8cf260d311f975aa00486d25300c3c8dfeecd5b29",
-      "size": 83125
+      "sha256": "3be615f862f29890f85bb97adce25e59a5a6844acd6f94a6c4ec6d145204f9b5",
+      "size": 83623
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1317,8 +1367,8 @@
     },
     {
       "path": "Events.java",
-      "sha256": "4b84a7d9daf435ad06dbe65ccf0ad9a03485d1e190768a48f9170c0e912c1e01",
-      "size": 19650
+      "sha256": "b06c75b83e02af8937ac14c9b5a0a2ad29afcb574df79a007f148d39de516b7f",
+      "size": 19861
     },
     {
       "path": "ExportLayoutRequest.java",
@@ -1432,8 +1482,18 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "1de32efec57a7de64ebc078d6bfed89bcccf0528709ce16f3566bc6c3e1842de",
-      "size": 71521
+      "sha256": "99568ddb3b602b03fe64e3efc59356ce70620a8d100851cad15b2ce3d250e8b5",
+      "size": 72052
+    },
+    {
+      "path": "GetAppearanceRequest.java",
+      "sha256": "929c8a07f28d81e1f9b4ab7b714917e1ff90f650ccd0b8c141e88e1fe110f397",
+      "size": 2095
+    },
+    {
+      "path": "GetAppearanceResult.java",
+      "sha256": "c75625190763ad32732aab15c16c36ba6f0b0e544414174a56321298a78f09ba",
+      "size": 2032
     },
     {
       "path": "GetBlobRequest.java",
@@ -2202,8 +2262,8 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "9e5c4dcdbf43a9d071a75850c89f04cdf779409dda32b714b0da1797d92e2086",
-      "size": 8000
+      "sha256": "bc3cc4aa3f6e2bb5ecb0c1dcd1c274ffda31d4582f618bd1bdaa73d8771eaf33",
+      "size": 8081
     },
     {
       "path": "ProtocolEvent.java",
@@ -2754,6 +2814,16 @@
       "path": "ServerStatsWriterPhase.java",
       "sha256": "72c2585d60467ab291742dda9d6babe925cfbc33f84eadfcfb26753aa7ecfa66",
       "size": 972
+    },
+    {
+      "path": "SetAppearanceBackgroundRequest.java",
+      "sha256": "e973e202cb2d7f8a5a87c13be48dc8d1118d3b0f257b28950027d5e4f9a953ad",
+      "size": 2235
+    },
+    {
+      "path": "SetAppearanceBackgroundResult.java",
+      "sha256": "93e5cf3f01dd12f0679ae4d36fcc0e8ea4a5736662d6c146bce4377b78a52e23",
+      "size": 2086
     },
     {
       "path": "SetAttachVisibilityRequest.java",
@@ -3702,7 +3772,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde",
+  "ir_sha256": "817bb303ae4febf6abfd88d437dc6af4dd86e3a2bcaf60f9ff00ac9ef59c3206",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

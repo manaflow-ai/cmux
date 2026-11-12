@@ -78,7 +78,10 @@ impl Grant {
 /// (a newer app's grant), so one new word never voids the whole trust list.
 pub fn known_grants<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Vec<Grant>, D::Error> {
     let words = Vec::<String>::deserialize(deserializer)?;
-    Ok(words.iter().filter_map(|word| serde_json::from_value(serde_json::Value::from(word.as_str())).ok()).collect())
+    Ok(words
+        .iter()
+        .filter_map(|word| serde_json::from_value(serde_json::Value::from(word.as_str())).ok())
+        .collect())
 }
 
 /// What a machine peer needs to open a service.
@@ -98,8 +101,10 @@ pub enum Need {
 pub fn need_for(service: &str) -> Option<Need> {
     Some(match service {
         "echo" | "version" | "machine" => Need::Paired,
-        "file" | "file-preview" | "needs-you" => Need::Grant(Grant::View),
-        "daemon" | "acpmux" | "chief" | "upload" | "browser" | "surface" | "localhost" => Need::Grant(Grant::Control),
+        "file" | "file-preview" | "needs-you" | "appearance-asset" => Need::Grant(Grant::View),
+        "daemon" | "acpmux" | "chief" | "upload" | "browser" | "surface" | "localhost" => {
+            Need::Grant(Grant::Control)
+        }
         // Cloud chats ride the Mac's own Cloud session: a phone's lane only.
         _ => return None,
     })

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde. */
+/* cmux-tui mux protocol 12, IR 817bb303ae4febf6abfd88d437dc6af4dd86e3a2bcaf60f9ff00ac9ef59c3206. */
 
 
 import type * as T from "./types.js";
@@ -1286,6 +1286,12 @@ export interface ForgetSessionRequest extends CmuxRequestBase {
 export type ForgetSessionResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
+export interface GetAppearanceRequest extends CmuxRequestBase {
+  cmd: "get-appearance";
+  "include_path"?: (boolean) | null;
+}
+
+/** Protocol v12; authority: control. */
 export interface GetBlobRequest extends CmuxRequestBase {
   cmd: "get-blob";
   "blob": string;
@@ -2358,6 +2364,12 @@ export interface ServerStatsRequest extends CmuxRequestBase {
   "include"?: (Array<string>) | null;
 }
 
+/** Protocol v12; authority: control. */
+export interface SetAppearanceBackgroundRequest extends CmuxRequestBase {
+  cmd: "set-appearance-background";
+  "background"?: (T.AppearanceBackgroundRequest) | null;
+}
+
 /** Protocol v12; authority: frontend. */
 export interface SetAttachVisibilityRequest extends CmuxRequestBase {
   cmd: "set-attach-visibility";
@@ -3151,6 +3163,7 @@ export type CmuxRequest =
   | FocusDirectionRequest
   | FocusPaneRequest
   | ForgetSessionRequest
+  | GetAppearanceRequest
   | GetBlobRequest
   | GetBrowserProviderRequest
   | GetCellPixelsRequest
@@ -3262,6 +3275,7 @@ export type CmuxRequest =
   | SendRequest
   | SendKeyRequest
   | ServerStatsRequest
+  | SetAppearanceBackgroundRequest
   | SetAttachVisibilityRequest
   | SetCellPixelsRequest
   | SetClientInfoRequest
@@ -4281,6 +4295,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "profiles-v1";
     stream: null;
   };
+  "get-appearance": {
+    request: GetAppearanceRequest;
+    result: T.GetAppearanceResult;
+    authority: "control";
+    since: 12;
+    capability: "appearance-v1";
+    stream: null;
+  };
   "get-blob": {
     request: GetBlobRequest;
     result: GetBlobResult;
@@ -5167,6 +5189,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "local-admin";
     since: 12;
     capability: "server-stats-v1";
+    stream: null;
+  };
+  "set-appearance-background": {
+    request: SetAppearanceBackgroundRequest;
+    result: T.SetAppearanceBackgroundResult;
+    authority: "control";
+    since: 12;
+    capability: "appearance-v1";
     stream: null;
   };
   "set-attach-visibility": {

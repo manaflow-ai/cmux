@@ -1574,9 +1574,14 @@ itself (`cmux-theme-tokens` over the FFI), so nothing here is needed to draw.
   changes (`Loaded::watch_paths`).
 - **Background.** Only the Mac app can resolve `appearance.background`
   (`daily`, `desktop`, a folder shuffle, bundled art from its asset catalog).
-  Whenever its shown backdrop changes it exports that image once, scaled so
-  its long side is at most 2560 px (never upscaled), as JPEG (quality 0.85)
-  under `<Application Support>/<bundle id>/mobile-appearance/<sha256>.jpg`, and
+  Whenever its shown backdrop changes (the app scope's picture, the one every
+  window shows unless a workspace pinned its own; none under Reduce
+  Backgrounds; a moving wallpaper without a still counts as none) it exports
+  that image once, scaled so its long side is at most 2560 px (never
+  upscaled), as JPEG (quality 0.85) under
+  `<Application Support>/<bundle id>/mobile-appearance/<sha256>.jpg` (the
+  newest three are kept), with its average luminance (16 × 16, Rec. 709 over
+  linear sRGB), and
   sends `set-appearance-background {background: {path, sha256, width, height,
   luminance} | null}`. That command is accepted only from the verified cmux
   app (as `set-host-size-policy`'s writes); a phone lane gets `forbidden`.
@@ -1600,10 +1605,10 @@ itself (`cmux-theme-tokens` over the FFI), so nothing here is needed to draw.
     "chrome_style": "two-tone",
     "hue": 0.0, "saturation": 1.0,
     "glass_transparency": 0.5,
-    "sidebar_surface": "glass",
+    "sidebar_surface": "same",
     "terminal": {"font_family": "JetBrains Mono", "font_size": 13},
     "chat": {"sent": "#RRGGBB", "sent_text": "#RRGGBB", "received": "#RRGGBB", "received_text": "#RRGGBB"},
-    "groups": {"palette": ["blue", "red", "..."], "gradient": "aurora"},
+    "groups": {"palette": "glass", "gradient": "aurora"},
     "background": null
   }
   ```
@@ -1611,20 +1616,35 @@ itself (`cmux-theme-tokens` over the FFI), so nothing here is needed to draw.
   `THEME_INPUT` is `cmux-theme-tokens::ThemeInput` as JSON:
   `{background, foreground, palette: [16 × "#RRGGBB"], selection_background?,
   selection_foreground?, cursor?, background_opacity, background_blur,
-  accent_color?}` (colours `#RRGGBB`, optional ones omitted when unset). An
-  unset setting is omitted or `null` and the phone uses its default; values
-  are the settings file's own (`appearance.accent`, `appearance.chromeStyle`,
+  accent_color?}` (colours uppercase `#RRGGBB`, optional ones omitted when
+  unset; `accent` is not in it, it is `appearance.accent` below). The app's
+  per-theme edits (`appearance.themeEdits` for that theme's `name`:
+  background, foreground, cursor, selection, `0`...`15`, accent) and its
+  `appearance.highlightColor` (the selection) are applied to it, as the Mac's
+  terminal draws them; `name` is `null` without a theme. An unset setting is
+  `null` and the phone uses its default; values are the settings file's own,
+  unchanged (`appearance.accent`, `appearance.chromeStyle`,
   `appearance.hue`, `appearance.saturation`, `appearance.glassTransparency`,
-  `appearance.sidebarSurface`, `terminal.fontFamily`, `terminal.fontSize`,
-  `home.bubbleColors.*`, `sidebar.groupPalette`, `sidebar.groupGradient`).
+  `appearance.sidebarSurface` (`same` | `separate`), `terminal.fontFamily`,
+  `terminal.fontSize`, `home.bubbleColors.*`, `sidebar.groupPalette` (one
+  palette name: `glass`, `theme`, `wallpaper`, `grayscale`, `vibrant`,
+  `gradient`, `pictorial`), `sidebar.groupGradient`).
   `background`, when the app set one, is
   `{"sha256": HEX, "bytes": N, "width": W, "height": H, "luminance": 0..1,
   "opacity": appearance.backgroundOpacity, "blur": appearance.backgroundBlur}`;
   the file path never leaves the Mac. `revision` grows with every change.
 - `appearance-changed {revision}` is a `subscribe` event, at most one per
-  50 ms (coalesced), after any of the keys above, a Ghostty theme file or the
-  background changes. The phone answers it with `get-appearance`.
-- `set-appearance-background {background}`: app only, see above.
+  50 ms (coalesced: the first change leaves at once, later ones in the window
+  as one event with the newest revision), after any of the keys above
+  (`appearance.themeEdits` and `appearance.highlightColor` included), a
+  Ghostty file the theme was read from or the background changes. The phone
+  answers it with `get-appearance`.
+- `set-appearance-background {background}` → `{revision}`: app only, see
+  above; a bad value (relative path, missing or too large file, bad hash,
+  size or luminance) is `bad_request`. `include_path: true` on
+  `get-appearance` adds `background.path` and is accepted only from the
+  verified cmux app and the bundled cmux-mobile-host; any other connection
+  gets `forbidden`.
 
 cmux-mobile-host (and the Mac app's Swift `DaemonLanePolicy` mirror) allow
 `get-appearance` and pass `appearance-changed`; `set-appearance-background`
@@ -1635,10 +1655,14 @@ stays closed to a phone.
 `open {"service": "appearance-asset", "args": {"sha256": HEX}}`. hostd asks
 its daemon for the current background (`get-appearance` with the app-only
 `include_path: true`, which the phone filter strips), and serves the file only
-when its SHA-256 equals `sha256`; otherwise `close {code: "not_found"}`. The
+when the file's own bytes hash to `sha256` (checked as it is read, so a file
+the app replaced is never served under another name); otherwise `close
+{code: "not_found"}` (`bad_request` when `sha256` is not 64 hex digits). The
 reply is one JSON data frame `{"bytes": N, "mime": "image/jpeg"}`, then the
-bytes in data frames of at most 64 KiB, then `close {code: "ok"}`. The phone
-checks length and hash before it keeps the file.
+bytes in data frames of at most 64 KiB, then `close {code: "eof"}` (the link's
+ordinary end of a service). The phone checks length and hash before it keeps
+the file. A paired machine (not a phone) needs the View grant, as for
+`file-preview`.
 
 ### Phone
 

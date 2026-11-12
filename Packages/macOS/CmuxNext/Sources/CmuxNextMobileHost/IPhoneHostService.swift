@@ -146,6 +146,8 @@ public final class IPhoneHostService {
     /// the setting off and on, or signing in again. Then it registers as a new device.
     public private(set) var removed = false
     @ObservationIgnored private var signedOutSinceRemoval = false
+    /// The shown backdrop, exported for the phones (`appearance-v1`), once this Mac serves them.
+    @ObservationIgnored var mobileAppearance: MobileAppearanceExport?
     @ObservationIgnored var dependencies: Dependencies? {
         didSet {
             if let directory = dependencies?.stateDirectory { configurePairedFile(directory) }

@@ -75,6 +75,12 @@ extension IPhoneHostService {
         }
         followAccount { Self.account(of: auth, signedIn: auth.isSignedIn) }
         servesPhones = executable != nil
+        // The phones look like this Mac (`appearance-v1`): hostd serves the exported backdrop.
+        if executable != nil, mobileAppearance == nil {
+            let export = MobileAppearanceExport(daemon: daemon, folder: stateRoot.appendingPathComponent("mobile-appearance", isDirectory: true))
+            export.start()
+            mobileAppearance = export
+        }
         wireRemoteControl(auth: auth, settings: settings)
         dependencies = Dependencies(
             executable: executable,

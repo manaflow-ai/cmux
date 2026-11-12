@@ -32,6 +32,12 @@ REVIEWED_TYPES = {
     "SendExpectAgent": ("an agent's harness session id that a send must still match; it only narrows the write",
                         "201877f6931063f5"),
 }
+# Plain fields a phone must never send on one command, though the schema has them. get-appearance's
+# include_path would return the background file's path, which never leaves the Mac (the phone fetches the
+# image by hash, appearance-asset); DaemonLanePolicy.evaluate and cmux-mobile-host strip it.
+PHONE_EXCLUDED_FIELDS = {
+    ("get-appearance", "include_path"),
+}
 REVIEWED_FIELDS = {
     # The same browser tab new-frontend-browser-tab makes (a URL, an engine name and display strings),
     # made as the new workspace's first tab; no program, directory or environment.
@@ -130,7 +136,7 @@ def table():
             raise SystemExit("%s: %s takes open-ended params; review it by hand" % (SCHEMA, name))
         fields = []
         for field, spec in sorted((request.get("fields") or {}).items()):
-            if field in PROGRAM_FIELDS:
+            if field in PROGRAM_FIELDS or (name, field) in PHONE_EXCLUDED_FIELDS:
                 continue
             t = spec.get("type") or {}
             if not plain(types, t) and (name, field) in REVIEWED_FIELDS:

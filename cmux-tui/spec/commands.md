@@ -5165,6 +5165,72 @@ Result: `object{policy:object{mode,order}}`.
 {"id":4,"ok":true,"data":{"policy":{"mode":"priority","order":["device:A1B2","mac"]}}}
 ```
 
+### get-appearance
+
+| Field | Value |
+| --- | --- |
+| name | `get-appearance` |
+| status | implemented |
+| since | protocol 12 with `appearance-v1` |
+
+Returns this Mac's look for its phones (cmux-next-ios/PROTOCOL.md
+"Appearance"): the terminal theme resolved once for dark and once for light
+(the user's Ghostty config with `appearance.theme` over it), the appearance
+settings the phone draws with, and the backdrop image the Mac app shows.
+`revision` advances on every change of any of it; `appearance-changed`
+carries the same revision. The settings-backed fields (`accent`,
+`chrome_style`, `hue`, `saturation`, `glass_transparency`, `sidebar_surface`,
+`terminal.*`, `chat.*`, `groups.*`, and a background's `opacity` and `blur`)
+are the settings file's raw JSON value, or `null` when unset.
+
+`include_path` adds the background file's absolute `path`. It is refused with
+`forbidden` unless the caller is the verified cmux app or cmux-mobile-host
+(which strips it from every phone request and serves the file itself).
+
+Params: optional `include_path:boolean`.
+
+Result: `object{appearance:object{revision,theme,accent,chrome_style,hue,
+saturation,glass_transparency,sidebar_surface,terminal,chat,groups,
+background}}`. `theme` is `{dark,light,follows_system}`; `dark` and `light`
+are `{name:string|null,input}` and `input` is `{background,foreground,
+palette:[16 colors],selection_background?,selection_foreground?,cursor?,
+background_opacity,background_blur,accent_color?}` with `#RRGGBB` colors.
+`background` is `null` or `{sha256,bytes,width,height,luminance,opacity,blur,
+path?}`.
+
+```json
+{"id":5,"cmd":"get-appearance"}
+{"id":5,"ok":true,"data":{"appearance":{"revision":3,"theme":{"dark":{"name":"cmux-dark","input":{"background":"#282C34","foreground":"#FFFFFF","palette":["#000000"],"background_opacity":1.0,"background_blur":0}},"light":{"name":"cmux-light","input":{"background":"#FFFFFF","foreground":"#000000","palette":["#000000"],"background_opacity":1.0,"background_blur":0}},"follows_system":true},"accent":null,"chrome_style":null,"hue":null,"saturation":null,"glass_transparency":null,"sidebar_surface":null,"terminal":{"font_family":null,"font_size":null},"chat":{"sent":null,"sent_text":null,"received":null,"received_text":null},"groups":{"palette":null,"gradient":null},"background":null}}}
+```
+
+(`palette` is shortened to one entry here; the daemon sends 16.)
+
+### set-appearance-background
+
+| Field | Value |
+| --- | --- |
+| name | `set-appearance-background` |
+| status | implemented |
+| since | protocol 12 with `appearance-v1` |
+
+Sets or clears (`background:null` or absent) the backdrop image the Mac app
+shows, as it exported it. Only the verified cmux app may call it; any other
+connection is refused with `forbidden`. The daemon keeps it in memory only.
+`path` must be absolute and name a regular file of 1 byte to 32 MiB, `sha256`
+64 hex digits, `width` and `height` 1 to 65535 and `luminance` 0 to 1; any
+other value is refused with `bad request`. A change advances the appearance
+revision and publishes `appearance-changed`; setting the same value again
+changes nothing.
+
+Params: optional `background:null|object{path,sha256,width,height,luminance}`.
+
+Result: `object{revision:uint64}`, the appearance revision in effect.
+
+```json
+{"id":6,"cmd":"set-appearance-background","background":{"path":"/Users/me/mobile-appearance/ab12.jpg","sha256":"ab12...64 hex digits","width":2560,"height":1440,"luminance":0.31}}
+{"id":6,"ok":true,"data":{"revision":4}}
+```
+
 ### set-terminal-idle-policy
 
 | Field | Value |

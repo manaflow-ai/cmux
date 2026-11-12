@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde.
+// cmux-tui mux protocol 12, IR 817bb303ae4febf6abfd88d437dc6af4dd86e3a2bcaf60f9ff00ac9ef59c3206.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -131,6 +131,103 @@ pub enum AgentState {
     Done,
     #[serde(rename = "unknown")]
     Unknown,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Appearance {
+    pub accent: Nullable<JsonValue>,
+    pub background: Nullable<AppearanceBackground>,
+    pub chat: AppearanceChat,
+    pub chrome_style: Nullable<JsonValue>,
+    pub glass_transparency: Nullable<JsonValue>,
+    pub groups: AppearanceGroups,
+    pub hue: Nullable<JsonValue>,
+    pub revision: u64,
+    pub saturation: Nullable<JsonValue>,
+    pub sidebar_surface: Nullable<JsonValue>,
+    pub terminal: AppearanceTerminal,
+    pub theme: AppearanceTheme,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppearanceBackground {
+    pub blur: Nullable<JsonValue>,
+    pub bytes: u64,
+    pub height: u32,
+    pub luminance: f64,
+    pub opacity: Nullable<JsonValue>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub path: Optional<String>,
+    pub sha256: String,
+    pub width: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppearanceBackgroundRequest {
+    pub height: u32,
+    pub luminance: f64,
+    pub path: String,
+    pub sha256: String,
+    pub width: u32,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppearanceChat {
+    pub received: Nullable<JsonValue>,
+    pub received_text: Nullable<JsonValue>,
+    pub sent: Nullable<JsonValue>,
+    pub sent_text: Nullable<JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppearanceGroups {
+    pub gradient: Nullable<JsonValue>,
+    pub palette: Nullable<JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppearanceTerminal {
+    pub font_family: Nullable<JsonValue>,
+    pub font_size: Nullable<JsonValue>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppearanceTheme {
+    pub dark: AppearanceThemeSide,
+    pub follows_system: bool,
+    pub light: AppearanceThemeSide,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppearanceThemeInput {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub accent_color: Optional<String>,
+    pub background: String,
+    pub background_blur: i32,
+    pub background_opacity: f64,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub cursor: Optional<String>,
+    pub foreground: String,
+    pub palette: Vec<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub selection_background: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub selection_foreground: Optional<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppearanceThemeSide {
+    pub input: AppearanceThemeInput,
+    pub name: Nullable<String>,
 }
 
 #[rustfmt::skip]
@@ -884,6 +981,12 @@ pub struct FrontendProjection {
     pub schema_version: u32,
     pub scope: String,
     pub subject_key: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GetAppearanceResult {
+    pub appearance: Appearance,
 }
 
 #[rustfmt::skip]
@@ -2152,6 +2255,12 @@ pub enum ServerStatsWriterPhase {
     WaitingLock,
     #[serde(rename = "committing")]
     Committing,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetAppearanceBackgroundResult {
+    pub revision: u64,
 }
 
 #[rustfmt::skip]

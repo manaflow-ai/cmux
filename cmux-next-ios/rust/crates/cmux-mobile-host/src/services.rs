@@ -120,6 +120,7 @@ pub async fn serve(
         "cloud-acpmux" => cloud_acpmux(&sender, receiver, &args).await,
         "file" => file(&config, &args, &sender, false).await,
         "file-preview" => file(&config, &args, &sender, true).await,
+        "appearance-asset" => appearance_asset(&config, &args, &sender).await,
         "upload" => upload(&config, &peer, &args, &sender, receiver).await,
         "version" => version(&config, &sender).await,
         "machine" => {
@@ -1640,6 +1641,102 @@ async fn file(
     }
 }
 
+/// `appearance-asset {sha256}`: the backdrop image the Mac app shows
+/// (PROTOCOL.md "Appearance"), only while its SHA-256 is `sha256`. One JSON
+/// frame `{bytes, mime}`, the bytes in frames of at most 64 KiB, then `eof`.
+/// Any other image, none, or a file whose bytes no longer hash to it is
+/// `not_found`; the path comes from the daemon (`include_path`, which only
+/// this hostd and the app may ask for) and never reaches the phone.
+async fn appearance_asset(
+    config: &ServiceConfig,
+    args: &Value,
+    sender: &ChannelSender,
+) -> Result<(), Refusal> {
+    let wanted = appearance_asset_hash(args)?;
+    let reply = daemon_query(
+        &config.daemon_socket(),
+        b"{\"cmd\":\"get-appearance\",\"id\":\"cmux-mobile-appearance\",\"include_path\":true}\n",
+        "cmux-mobile-appearance",
+    )
+    .await?;
+    let path = appearance_background_path(&reply, &wanted)?;
+    let bytes = read_appearance_asset(&path, &wanted).await?;
+    let header = serde_json::json!({"bytes": bytes.len(), "mime": "image/jpeg"});
+    if sender.send(Bytes::from(header.to_string())).await.is_err() {
+        return Ok(());
+    }
+    let bytes = Bytes::from(bytes);
+    for start in (0..bytes.len()).step_by(APPEARANCE_ASSET_CHUNK) {
+        let end = (start + APPEARANCE_ASSET_CHUNK).min(bytes.len());
+        if sender.send(bytes.slice(start..end)).await.is_err() {
+            return Ok(());
+        }
+    }
+    Ok(())
+}
+
+/// Largest data frame of `appearance-asset`.
+const APPEARANCE_ASSET_CHUNK: usize = 64 * 1024;
+/// Largest background the daemon accepts (`set-appearance-background`).
+const APPEARANCE_ASSET_MAX_BYTES: u64 = 32 * 1024 * 1024;
+
+/// The `sha256` an `appearance-asset` open names: 64 hex digits, lowercased.
+pub fn appearance_asset_hash(args: &Value) -> Result<String, Refusal> {
+    args.get("sha256")
+        .and_then(Value::as_str)
+        .filter(|hash| hash.len() == 64 && hash.bytes().all(|b| b.is_ascii_hexdigit()))
+        .map(str::to_ascii_lowercase)
+        .ok_or_else(|| Refusal::new("bad_request", "sha256 must be 64 hex digits"))
+}
+
+/// The background file of a `get-appearance {include_path}` reply, when its
+/// hash is `wanted`; else `not_found`.
+pub fn appearance_background_path(reply: &Value, wanted: &str) -> Result<PathBuf, Refusal> {
+    let data = reply.get("data").unwrap_or(reply);
+    let background = data.get("appearance").and_then(|appearance| appearance.get("background"));
+    let not_found = || Refusal::new("not_found", "this Mac does not show that background");
+    let background = background.filter(|b| !b.is_null()).ok_or_else(not_found)?;
+    let hash = background.get("sha256").and_then(Value::as_str).map(str::to_ascii_lowercase);
+    if hash.as_deref() != Some(wanted) {
+        return Err(not_found());
+    }
+    background
+        .get("path")
+        .and_then(Value::as_str)
+        .filter(|path| path.starts_with('/'))
+        .map(PathBuf::from)
+        .ok_or_else(not_found)
+}
+
+/// The file's bytes when they hash to `wanted` (at most 32 MiB, a regular
+/// file); `not_found` otherwise, so a file the app replaced is never served
+/// under another image's name.
+pub async fn read_appearance_asset(path: &Path, wanted: &str) -> Result<Vec<u8>, Refusal> {
+    use sha2::{Digest, Sha256};
+    let not_found = || Refusal::new("not_found", "this Mac does not show that background");
+    let file = tokio::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+        .await
+        .map_err(|_| not_found())?;
+    let metadata = file.metadata().await.map_err(|_| not_found())?;
+    if !metadata.is_file() || metadata.len() > APPEARANCE_ASSET_MAX_BYTES {
+        return Err(not_found());
+    }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take(APPEARANCE_ASSET_MAX_BYTES)
+        .read_to_end(&mut bytes)
+        .await
+        .map_err(|e| Refusal::new("io", e.to_string()))?;
+    let digest = Sha256::digest(&bytes);
+    let hash: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    if hash != wanted {
+        return Err(not_found());
+    }
+    Ok(bytes)
+}
+
 /// A file name a phone sent, made safe for a folder of this Mac: no path
 /// separators, control characters or leading dots, at most 120 bytes; an
 /// empty result is `attachment`.
@@ -2504,5 +2601,69 @@ mod session_exposure_queue_tests {
             serde_json::from_slice(&exposed_daemon_line(reply, Some(&rx)).unwrap()).unwrap();
         assert_eq!(filtered.pointer("/data/tabs").unwrap().as_array().unwrap().len(), 1);
         assert_eq!(filtered["data"]["tabs"][0]["id"], "terminal");
+    }
+}
+
+#[cfg(test)]
+mod appearance_asset_tests {
+    use super::*;
+    use serde_json::json;
+    use sha2::{Digest, Sha256};
+
+    fn hash(bytes: &[u8]) -> String {
+        Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    fn reply(path: &Path, sha256: &str) -> Value {
+        json!({"id":"cmux-mobile-appearance","ok":true,"data":{"appearance":{"revision":3,"background":{
+            "sha256": sha256, "bytes": 4, "width": 10, "height": 10, "luminance": 0.5,
+            "path": path.to_string_lossy(),
+        }}}})
+    }
+
+    #[test]
+    fn appearance_asset_takes_only_a_hex_hash() {
+        let upper = "AB".repeat(32);
+        assert_eq!(appearance_asset_hash(&json!({"sha256": upper})).unwrap(), "ab".repeat(32));
+        for args in
+            [json!({}), json!({"sha256": "ab"}), json!({"sha256": "zz".repeat(32)}), json!({"sha256": 7})]
+        {
+            assert_eq!(appearance_asset_hash(&args).unwrap_err().code, "bad_request", "{args}");
+        }
+    }
+
+    #[test]
+    fn appearance_asset_serves_only_the_shown_background() {
+        let path = Path::new("/tmp/shown.jpg");
+        let shown = "ab".repeat(32);
+        assert_eq!(appearance_background_path(&reply(path, &shown), &shown).unwrap(), path);
+        // Another image than the one the Mac shows, or none at all.
+        let other = "cd".repeat(32);
+        assert_eq!(appearance_background_path(&reply(path, &shown), &other).unwrap_err().code, "not_found");
+        let none = json!({"data":{"appearance":{"revision":1,"background":null}}});
+        assert_eq!(appearance_background_path(&none, &shown).unwrap_err().code, "not_found");
+        // A reply without the path (a daemon that refused include_path).
+        let mut no_path = reply(path, &shown);
+        no_path["data"]["appearance"]["background"].as_object_mut().unwrap().remove("path");
+        assert_eq!(appearance_background_path(&no_path, &shown).unwrap_err().code, "not_found");
+    }
+
+    #[tokio::test]
+    async fn appearance_asset_hash_mismatch_is_not_found() {
+        let dir = std::env::temp_dir().join(format!("cmux-appearance-asset-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("bg.jpg");
+        let bytes = b"\xff\xd8\xff\xe0 image bytes".to_vec();
+        std::fs::write(&file, &bytes).unwrap();
+        assert_eq!(read_appearance_asset(&file, &hash(&bytes)).await.unwrap(), bytes);
+        // The app replaced the file: its bytes no longer hash to the name asked for.
+        std::fs::write(&file, b"another image").unwrap();
+        assert_eq!(read_appearance_asset(&file, &hash(&bytes)).await.unwrap_err().code, "not_found");
+        assert_eq!(
+            read_appearance_asset(&dir.join("gone.jpg"), &hash(&bytes)).await.unwrap_err().code,
+            "not_found"
+        );
+        assert_eq!(read_appearance_asset(&dir, &hash(&bytes)).await.unwrap_err().code, "not_found");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

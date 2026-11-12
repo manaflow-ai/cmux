@@ -40,6 +40,7 @@ extension DaemonLanePolicy {
         "export-layout": ["screen"],
         "focus-direction": ["dir", "pane"],
         "focus-pane": ["pane"],
+        "get-appearance": [],
         "get-cell-pixels": [],
         "get-frontend-projection": ["frontend", "scope", "subject_key"],
         "get-host-size-policy": ["surface"],

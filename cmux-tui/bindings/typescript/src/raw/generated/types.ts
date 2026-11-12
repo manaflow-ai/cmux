@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde. */
+/* cmux-tui mux protocol 12, IR 817bb303ae4febf6abfd88d437dc6af4dd86e3a2bcaf60f9ff00ac9ef59c3206. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -53,6 +53,80 @@ export type AgentSessionSource = {
 export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
 export type AgentState = "working" | "blocked" | "idle" | "done" | "unknown";
+
+export type Appearance = {
+  "accent": (JsonValue) | null;
+  "background": (AppearanceBackground) | null;
+  "chat": AppearanceChat;
+  "chrome_style": (JsonValue) | null;
+  "glass_transparency": (JsonValue) | null;
+  "groups": AppearanceGroups;
+  "hue": (JsonValue) | null;
+  "revision": bigint;
+  "saturation": (JsonValue) | null;
+  "sidebar_surface": (JsonValue) | null;
+  "terminal": AppearanceTerminal;
+  "theme": AppearanceTheme;
+};
+
+export type AppearanceBackground = {
+  "blur": (JsonValue) | null;
+  "bytes": bigint;
+  "height": number;
+  "luminance": number;
+  "opacity": (JsonValue) | null;
+  "path"?: (string) | null;
+  "sha256": string;
+  "width": number;
+};
+
+export type AppearanceBackgroundRequest = {
+  "height": number;
+  "luminance": number;
+  "path": string;
+  "sha256": string;
+  "width": number;
+};
+
+export type AppearanceChat = {
+  "received": (JsonValue) | null;
+  "received_text": (JsonValue) | null;
+  "sent": (JsonValue) | null;
+  "sent_text": (JsonValue) | null;
+};
+
+export type AppearanceGroups = {
+  "gradient": (JsonValue) | null;
+  "palette": (JsonValue) | null;
+};
+
+export type AppearanceTerminal = {
+  "font_family": (JsonValue) | null;
+  "font_size": (JsonValue) | null;
+};
+
+export type AppearanceTheme = {
+  "dark": AppearanceThemeSide;
+  "follows_system": boolean;
+  "light": AppearanceThemeSide;
+};
+
+export type AppearanceThemeInput = {
+  "accent_color"?: (string) | null;
+  "background": string;
+  "background_blur": number;
+  "background_opacity": number;
+  "cursor"?: (string) | null;
+  "foreground": string;
+  "palette": Array<string>;
+  "selection_background"?: (string) | null;
+  "selection_foreground"?: (string) | null;
+};
+
+export type AppearanceThemeSide = {
+  "input": AppearanceThemeInput;
+  "name": (string) | null;
+};
 
 export type AppliedPane = {
   "pane": Id;
@@ -507,6 +581,10 @@ export type FrontendProjection = {
   "schema_version": number;
   "scope": string;
   "subject_key": string;
+};
+
+export type GetAppearanceResult = {
+  "appearance": Appearance;
 };
 
 export type GetCellPixelsResult = {
@@ -1338,6 +1416,10 @@ export type ServerStatsWritePath = {
 };
 
 export type ServerStatsWriterPhase = "idle" | "waiting_lock" | "committing";
+
+export type SetAppearanceBackgroundResult = {
+  "revision": bigint;
+};
 
 export type SetCellPixelsResult = {
   "failures": Array<CellPixelFailure>;

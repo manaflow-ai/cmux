@@ -39,6 +39,8 @@ cmux-classic-import.workspace = true
 cmux-conductor-import.workspace = true
 cmux-palette-ranker.workspace = true
 cmux-config.workspace = true
+# get-appearance resolves the Ghostty theme (mux/appearance.rs).
+cmux-theme-tokens.workspace = true
 cmux-usage-patterns.workspace = true
 cmux-feed-core.workspace = true
 cmux-history.workspace = true

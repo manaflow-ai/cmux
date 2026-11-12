@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde.
+// cmux-tui mux protocol 12, IR 817bb303ae4febf6abfd88d437dc6af4dd86e3a2bcaf60f9ff00ac9ef59c3206.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -71,6 +71,12 @@ pub struct AgentPresenceChangedEvent {
     pub tool: Nullable<String>,
     /// When the hook observed the event; null on clear.
     pub updated_at_ms: Nullable<u64>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AppearanceChangedEvent {
+    pub revision: u64,
 }
 
 #[rustfmt::skip]
@@ -1029,6 +1035,7 @@ pub enum Event {
     AgentInventoryChanged(AgentInventoryChangedEvent),
     AgentInventoryWatchEnded(AgentInventoryWatchEndedEvent),
     AgentPresenceChanged(AgentPresenceChangedEvent),
+    AppearanceChanged(AppearanceChangedEvent),
     Bell(BellEvent),
     BookmarksChanged(BookmarksChangedEvent),
     BrowserState(BrowserStateEvent),
@@ -1129,6 +1136,7 @@ impl Event {
             Self::AgentInventoryChanged(_) => Some("agent-inventory-changed"),
             Self::AgentInventoryWatchEnded(_) => Some("agent-inventory-watch-ended"),
             Self::AgentPresenceChanged(_) => Some("agent-presence-changed"),
+            Self::AppearanceChanged(_) => Some("appearance-changed"),
             Self::Bell(_) => Some("bell"),
             Self::BookmarksChanged(_) => Some("bookmarks-changed"),
             Self::BrowserState(_) => Some("browser-state"),
@@ -1228,6 +1236,7 @@ impl Event {
             Self::AgentInventoryChanged(_) => Some(&AGENT_INVENTORY_CHANGED_EVENT_METADATA),
             Self::AgentInventoryWatchEnded(_) => Some(&AGENT_INVENTORY_WATCH_ENDED_EVENT_METADATA),
             Self::AgentPresenceChanged(_) => Some(&AGENT_PRESENCE_CHANGED_EVENT_METADATA),
+            Self::AppearanceChanged(_) => Some(&APPEARANCE_CHANGED_EVENT_METADATA),
             Self::Bell(_) => Some(&BELL_EVENT_METADATA),
             Self::BookmarksChanged(_) => Some(&BOOKMARKS_CHANGED_EVENT_METADATA),
             Self::BrowserState(_) => Some(&BROWSER_STATE_EVENT_METADATA),
@@ -1359,6 +1368,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("agent-presence-changed") => match serde_json::from_value::<AgentPresenceChangedEvent>(raw.clone()) {
             Ok(event) => Event::AgentPresenceChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("appearance-changed") => match serde_json::from_value::<AppearanceChangedEvent>(raw.clone()) {
+            Ok(event) => Event::AppearanceChanged(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

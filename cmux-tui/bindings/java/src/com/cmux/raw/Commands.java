@@ -128,6 +128,7 @@ public final class Commands {
     public static final CommandMetadata FOCUS_DIRECTION = new CommandMetadata("focus-direction", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FOCUS_PANE = new CommandMetadata("focus-pane", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata FORGET_SESSION = new CommandMetadata("forget-session", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata GET_APPEARANCE = new CommandMetadata("get-appearance", Authority.CONTROL, 12, "appearance-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_BLOB = new CommandMetadata("get-blob", Authority.CONTROL, 12, "icon-assets-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_BROWSER_PROVIDER = new CommandMetadata("get-browser-provider", Authority.LOCAL_ADMIN, 10, "browser-provider-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata GET_CELL_PIXELS = new CommandMetadata("get-cell-pixels", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -239,6 +240,7 @@ public final class Commands {
     public static final CommandMetadata SEND = new CommandMetadata("send", Authority.CONTROL, 5, null, StreamKind.NONE, Map.ofEntries(Map.entry("paste", 7L)), Map.ofEntries(Map.entry("expect_agent", "send-expect-agent-v1"), Map.entry("expect_foreground", "send-expect-foreground-v1"), Map.entry("submit", "send-expect-agent-v1"), Map.entry("terminal_id", "terminal-input-while-creating-v1")));
     public static final CommandMetadata SEND_KEY = new CommandMetadata("send-key", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SERVER_STATS = new CommandMetadata("server-stats", Authority.LOCAL_ADMIN, 12, "server-stats-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata SET_APPEARANCE_BACKGROUND = new CommandMetadata("set-appearance-background", Authority.CONTROL, 12, "appearance-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_ATTACH_VISIBILITY = new CommandMetadata("set-attach-visibility", Authority.FRONTEND, 12, "attach-visibility-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_CELL_PIXELS = new CommandMetadata("set-cell-pixels", Authority.FRONTEND, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_CLIENT_INFO = new CommandMetadata("set-client-info", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("api_revision", 12L), Map.entry("device_id", 12L), Map.entry("device_kind", 12L), Map.entry("device_name", 12L), Map.entry("display_name", 12L), Map.entry("install", 12L), Map.entry("remote", 12L), Map.entry("user_id", 12L), Map.entry("version", 12L)), Map.ofEntries(Map.entry("device_id", "shared-sizing-v1"), Map.entry("device_kind", "shared-sizing-v1"), Map.entry("device_name", "shared-sizing-v1"), Map.entry("display_name", "shared-sizing-v1"), Map.entry("remote", "host-size-policy-v1"), Map.entry("user_id", "shared-sizing-v1")));
@@ -433,6 +435,7 @@ public final class Commands {
         values.put("focus-direction", FOCUS_DIRECTION);
         values.put("focus-pane", FOCUS_PANE);
         values.put("forget-session", FORGET_SESSION);
+        values.put("get-appearance", GET_APPEARANCE);
         values.put("get-blob", GET_BLOB);
         values.put("get-browser-provider", GET_BROWSER_PROVIDER);
         values.put("get-cell-pixels", GET_CELL_PIXELS);
@@ -544,6 +547,7 @@ public final class Commands {
         values.put("send", SEND);
         values.put("send-key", SEND_KEY);
         values.put("server-stats", SERVER_STATS);
+        values.put("set-appearance-background", SET_APPEARANCE_BACKGROUND);
         values.put("set-attach-visibility", SET_ATTACH_VISIBILITY);
         values.put("set-cell-pixels", SET_CELL_PIXELS);
         values.put("set-client-info", SET_CLIENT_INFO);

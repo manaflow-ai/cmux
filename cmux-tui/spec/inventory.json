@@ -415,6 +415,7 @@
       "focus-direction",
       "focus-pane",
       "forget-session",
+      "get-appearance",
       "get-blob",
       "get-frontend-browser-history",
       "get-frontend-projection",
@@ -507,6 +508,7 @@
       "select-workspace",
       "send",
       "send-key",
+      "set-appearance-background",
       "set-client-info",
       "set-client-sizing",
       "set-column-dock",
@@ -691,6 +693,12 @@
     },
     {
       "name": "agent-presence-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "appearance-changed",
       "streams": [
         "subscribe"
       ]

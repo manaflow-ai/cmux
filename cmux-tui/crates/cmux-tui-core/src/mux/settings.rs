@@ -143,14 +143,16 @@ fn adopt_freeing(mux: &Mux, store: &ConfigStore, changes: &[Change]) {
     }
 }
 
-fn emit_changes(mux: &Mux, changes: impl IntoIterator<Item = Change>) {
+fn emit_changes(mux: &Arc<Mux>, changes: impl IntoIterator<Item = Change>) {
     let mut changed = false;
     for change in changes {
         changed |= change.keys.iter().any(|key| {
             key == "notifications.agentIdleTimers"
                 || key.starts_with("notifications.agentIdleTimers.")
         });
+        let keys = change.keys.clone();
         mux.emit(MuxEvent::SettingsChanged(change));
+        mux.note_appearance_settings(&keys);
     }
     // The idle reminders live in agent_chat_notices, which is unix only.
     #[cfg(unix)]

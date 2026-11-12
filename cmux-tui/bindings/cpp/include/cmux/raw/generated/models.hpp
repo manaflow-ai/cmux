@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde";
+inline constexpr std::string_view kProtocolIrSha256 = "817bb303ae4febf6abfd88d437dc6af4dd86e3a2bcaf60f9ff00ac9ef59c3206";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -24,6 +24,15 @@ enum class AgentReportSource;
 struct AgentSessionSource;
 enum class AgentSource;
 enum class AgentState;
+struct Appearance;
+struct AppearanceBackground;
+struct AppearanceBackgroundRequest;
+struct AppearanceChat;
+struct AppearanceGroups;
+struct AppearanceTerminal;
+struct AppearanceTheme;
+struct AppearanceThemeInput;
+struct AppearanceThemeSide;
 struct AppliedPane;
 struct ApplyLayoutResult;
 struct AttachedViewOutcomeResult;
@@ -84,6 +93,7 @@ struct FocusDirectionResult;
 enum class FrontendFocusTarget;
 struct FrontendJournalEvent;
 struct FrontendProjection;
+struct GetAppearanceResult;
 struct GetCellPixelsResult;
 struct GetHostSizePolicyResult;
 struct GetSizeStateResult;
@@ -192,6 +202,7 @@ struct ServerStatsResourceProjection;
 struct ServerStatsResult;
 struct ServerStatsWritePath;
 enum class ServerStatsWriterPhase;
+struct SetAppearanceBackgroundResult;
 struct SetCellPixelsResult;
 struct SetHostSizePolicyResult;
 struct SetSizeCountsResult;
@@ -414,6 +425,7 @@ struct FeedLocalReadRequest;
 struct FocusDirectionRequest;
 struct FocusPaneRequest;
 struct ForgetSessionRequest;
+struct GetAppearanceRequest;
 struct GetBlobRequest;
 struct GetBrowserProviderRequest;
 struct GetCellPixelsRequest;
@@ -539,6 +551,7 @@ struct SendRequest;
 struct SendResult;
 struct SendKeyRequest;
 struct ServerStatsRequest;
+struct SetAppearanceBackgroundRequest;
 struct SetAttachVisibilityRequest;
 struct SetAttachVisibilityResult;
 struct SetCellPixelsRequest;
@@ -619,6 +632,7 @@ struct AgentChangedEvent;
 struct AgentInventoryChangedEvent;
 struct AgentInventoryWatchEndedEvent;
 struct AgentPresenceChangedEvent;
+struct AppearanceChangedEvent;
 struct BellEvent;
 struct BookmarksChangedEvent;
 struct BrowserStateEvent;
@@ -885,6 +899,99 @@ struct AgentSessionSource {
     Field<std::string> host_name{};
     Field<std::string> session{};
     friend bool operator==(const AgentSessionSource&, const AgentSessionSource&) = default;
+};
+
+struct JsonValue {
+    Json value{};
+    friend bool operator==(const JsonValue&, const JsonValue&) = default;
+};
+
+struct AppearanceBackground {
+    std::optional<JsonValue> blur{};
+    std::uint64_t bytes{};
+    std::uint32_t height{};
+    double luminance{};
+    std::optional<JsonValue> opacity{};
+    Field<std::string> path{};
+    std::string sha256{};
+    std::uint32_t width{};
+    friend bool operator==(const AppearanceBackground&, const AppearanceBackground&) = default;
+};
+
+struct AppearanceChat {
+    std::optional<JsonValue> received{};
+    std::optional<JsonValue> received_text{};
+    std::optional<JsonValue> sent{};
+    std::optional<JsonValue> sent_text{};
+    friend bool operator==(const AppearanceChat&, const AppearanceChat&) = default;
+};
+
+struct AppearanceGroups {
+    std::optional<JsonValue> gradient{};
+    std::optional<JsonValue> palette{};
+    friend bool operator==(const AppearanceGroups&, const AppearanceGroups&) = default;
+};
+
+struct AppearanceTerminal {
+    std::optional<JsonValue> font_family{};
+    std::optional<JsonValue> font_size{};
+    friend bool operator==(const AppearanceTerminal&, const AppearanceTerminal&) = default;
+};
+
+struct AppearanceThemeInput {
+    Field<std::string> accent_color{};
+    std::string background{};
+    std::int32_t background_blur{};
+    double background_opacity{};
+    Field<std::string> cursor{};
+    std::string foreground{};
+    std::vector<std::string> palette{};
+    Field<std::string> selection_background{};
+    Field<std::string> selection_foreground{};
+    friend bool operator==(const AppearanceThemeInput&, const AppearanceThemeInput&) = default;
+};
+
+struct AppearanceThemeSide {
+    AppearanceThemeInput input{};
+    std::optional<std::string> name{};
+    friend bool operator==(const AppearanceThemeSide&, const AppearanceThemeSide&) = default;
+};
+
+struct AppearanceTheme {
+    AppearanceThemeSide dark{};
+    bool follows_system{};
+    AppearanceThemeSide light{};
+    friend bool operator==(const AppearanceTheme&, const AppearanceTheme&) = default;
+};
+
+struct Appearance {
+    std::optional<JsonValue> accent{};
+    std::optional<AppearanceBackground> background{};
+    AppearanceChat chat{};
+    std::optional<JsonValue> chrome_style{};
+    std::optional<JsonValue> glass_transparency{};
+    AppearanceGroups groups{};
+    std::optional<JsonValue> hue{};
+    std::uint64_t revision{};
+    std::optional<JsonValue> saturation{};
+    std::optional<JsonValue> sidebar_surface{};
+    AppearanceTerminal terminal{};
+    AppearanceTheme theme{};
+    friend bool operator==(const Appearance&, const Appearance&) = default;
+};
+
+struct AppearanceBackgroundRequest {
+    std::uint32_t height{};
+    double luminance{};
+    std::string path{};
+    std::string sha256{};
+    std::uint32_t width{};
+    friend bool operator==(const AppearanceBackgroundRequest&, const AppearanceBackgroundRequest&) = default;
+};
+
+struct AppearanceChangedEvent {
+    std::uint64_t revision{};
+    friend bool operator==(const AppearanceChangedEvent&, const AppearanceChangedEvent&) = default;
 };
 
 struct AppliedPane {
@@ -1288,11 +1395,6 @@ struct ChiefInspectRequest {
     std::string path{};
     std::optional<std::map<std::string, std::string, std::less<>>> query{};
     friend bool operator==(const ChiefInspectRequest&, const ChiefInspectRequest&) = default;
-};
-
-struct JsonValue {
-    Json value{};
-    friend bool operator==(const JsonValue&, const JsonValue&) = default;
 };
 
 struct ChiefInspectResult {
@@ -3110,6 +3212,16 @@ struct FrontendProjectionChangedEvent {
     std::string scope{};
     std::string subject_key{};
     friend bool operator==(const FrontendProjectionChangedEvent&, const FrontendProjectionChangedEvent&) = default;
+};
+
+struct GetAppearanceRequest {
+    Field<bool> include_path{};
+    friend bool operator==(const GetAppearanceRequest&, const GetAppearanceRequest&) = default;
+};
+
+struct GetAppearanceResult {
+    Appearance appearance{};
+    friend bool operator==(const GetAppearanceResult&, const GetAppearanceResult&) = default;
 };
 
 struct GetBlobRequest {
@@ -5375,6 +5487,16 @@ struct ServerStatsResult {
     friend bool operator==(const ServerStatsResult&, const ServerStatsResult&) = default;
 };
 
+struct SetAppearanceBackgroundRequest {
+    Field<AppearanceBackgroundRequest> background{};
+    friend bool operator==(const SetAppearanceBackgroundRequest&, const SetAppearanceBackgroundRequest&) = default;
+};
+
+struct SetAppearanceBackgroundResult {
+    std::uint64_t revision{};
+    friend bool operator==(const SetAppearanceBackgroundResult&, const SetAppearanceBackgroundResult&) = default;
+};
+
 struct SetAttachVisibilityRequest {
     Id surface{};
     bool visible{};
@@ -6592,6 +6714,60 @@ struct Codec<AgentState> {
 };
 
 template <>
+struct Codec<Appearance> {
+    static Result<Json> encode(const Appearance& value);
+    static Result<Appearance> decode(const Json& value);
+};
+
+template <>
+struct Codec<AppearanceBackground> {
+    static Result<Json> encode(const AppearanceBackground& value);
+    static Result<AppearanceBackground> decode(const Json& value);
+};
+
+template <>
+struct Codec<AppearanceBackgroundRequest> {
+    static Result<Json> encode(const AppearanceBackgroundRequest& value);
+    static Result<AppearanceBackgroundRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<AppearanceChat> {
+    static Result<Json> encode(const AppearanceChat& value);
+    static Result<AppearanceChat> decode(const Json& value);
+};
+
+template <>
+struct Codec<AppearanceGroups> {
+    static Result<Json> encode(const AppearanceGroups& value);
+    static Result<AppearanceGroups> decode(const Json& value);
+};
+
+template <>
+struct Codec<AppearanceTerminal> {
+    static Result<Json> encode(const AppearanceTerminal& value);
+    static Result<AppearanceTerminal> decode(const Json& value);
+};
+
+template <>
+struct Codec<AppearanceTheme> {
+    static Result<Json> encode(const AppearanceTheme& value);
+    static Result<AppearanceTheme> decode(const Json& value);
+};
+
+template <>
+struct Codec<AppearanceThemeInput> {
+    static Result<Json> encode(const AppearanceThemeInput& value);
+    static Result<AppearanceThemeInput> decode(const Json& value);
+};
+
+template <>
+struct Codec<AppearanceThemeSide> {
+    static Result<Json> encode(const AppearanceThemeSide& value);
+    static Result<AppearanceThemeSide> decode(const Json& value);
+};
+
+template <>
 struct Codec<AppliedPane> {
     static Result<Json> encode(const AppliedPane& value);
     static Result<AppliedPane> decode(const Json& value);
@@ -6949,6 +7125,12 @@ template <>
 struct Codec<FrontendProjection> {
     static Result<Json> encode(const FrontendProjection& value);
     static Result<FrontendProjection> decode(const Json& value);
+};
+
+template <>
+struct Codec<GetAppearanceResult> {
+    static Result<Json> encode(const GetAppearanceResult& value);
+    static Result<GetAppearanceResult> decode(const Json& value);
 };
 
 template <>
@@ -7597,6 +7779,12 @@ template <>
 struct Codec<ServerStatsWriterPhase> {
     static Result<Json> encode(const ServerStatsWriterPhase& value);
     static Result<ServerStatsWriterPhase> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetAppearanceBackgroundResult> {
+    static Result<Json> encode(const SetAppearanceBackgroundResult& value);
+    static Result<SetAppearanceBackgroundResult> decode(const Json& value);
 };
 
 template <>
@@ -8932,6 +9120,12 @@ struct Codec<ForgetSessionRequest> {
 };
 
 template <>
+struct Codec<GetAppearanceRequest> {
+    static Result<Json> encode(const GetAppearanceRequest& value);
+    static Result<GetAppearanceRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<GetBlobRequest> {
     static Result<Json> encode(const GetBlobRequest& value);
     static Result<GetBlobRequest> decode(const Json& value);
@@ -9682,6 +9876,12 @@ struct Codec<ServerStatsRequest> {
 };
 
 template <>
+struct Codec<SetAppearanceBackgroundRequest> {
+    static Result<Json> encode(const SetAppearanceBackgroundRequest& value);
+    static Result<SetAppearanceBackgroundRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<SetAttachVisibilityRequest> {
     static Result<Json> encode(const SetAttachVisibilityRequest& value);
     static Result<SetAttachVisibilityRequest> decode(const Json& value);
@@ -10159,6 +10359,12 @@ template <>
 struct Codec<AgentPresenceChangedEvent> {
     static Result<Json> encode(const AgentPresenceChangedEvent& value);
     static Result<AgentPresenceChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<AppearanceChangedEvent> {
+    static Result<Json> encode(const AppearanceChangedEvent& value);
+    static Result<AppearanceChangedEvent> decode(const Json& value);
 };
 
 template <>

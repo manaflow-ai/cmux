@@ -297,6 +297,7 @@ impl SurfaceSessionScope {
             | MuxEvent::FeedReportsChanged { .. }
             | MuxEvent::SettingsChanged(_)
             | MuxEvent::KeybindingsChanged(_)
+            | MuxEvent::AppearanceChanged { .. }
             | MuxEvent::Conversation(_)
             | MuxEvent::CloudConversation(_)
             | MuxEvent::TerminalRegistryChanged { .. }

@@ -603,6 +603,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final GetAppearanceResult getAppearance(GetAppearanceRequest request) throws CmuxException {
+        Object result = execute(Commands.GET_APPEARANCE, request.toWire());
+        return GetAppearanceResult.fromWire(result);
+    }
+
     public final Object getBlob(GetBlobRequest request) throws CmuxException {
         Object result = execute(Commands.GET_BLOB, request.toWire());
         return Wire.immutableJson(result);
@@ -1160,6 +1165,11 @@ public abstract class GeneratedCmuxClient {
     public final ServerStatsResult serverStats(ServerStatsRequest request) throws CmuxException {
         Object result = execute(Commands.SERVER_STATS, request.toWire());
         return ServerStatsResult.fromWire(result);
+    }
+
+    public final SetAppearanceBackgroundResult setAppearanceBackground(SetAppearanceBackgroundRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_APPEARANCE_BACKGROUND, request.toWire());
+        return SetAppearanceBackgroundResult.fromWire(result);
     }
 
     public final SetAttachVisibilityResult setAttachVisibility(SetAttachVisibilityRequest request) throws CmuxException {

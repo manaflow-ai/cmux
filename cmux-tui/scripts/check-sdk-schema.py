@@ -28,6 +28,7 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "TerminalDetachActor": "SizeDetachActor",
     "TerminalSizingPolicy": "SizePolicy",
     "HostSizePolicyRequest": "HostSizePolicyRequest",
+    "AppearanceBackgroundRequest": "AppearanceBackgroundRequest",
     "ClientIdentityWire": "SizingIdentity",
     "SplitRespawnRequest": "SplitRespawn",
     "crate::mux::CloseReason": "CloseReason",

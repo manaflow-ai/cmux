@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 59b51ae358cabb3d0eede0b4f8def6a6d6bec7de82f9284e7180d24e638dcfde. */
+/* cmux-tui mux protocol 12, IR 817bb303ae4febf6abfd88d437dc6af4dd86e3a2bcaf60f9ff00ac9ef59c3206. */
 
 
 import type * as T from "./types.js";
@@ -57,6 +57,11 @@ export type AgentPresenceChangedEvent = { event: "agent-presence-changed" } & {
   "tool": (string) | null;
   /** When the hook observed the event; null on clear. */
   "updated_at_ms": (bigint) | null;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type AppearanceChangedEvent = { event: "appearance-changed" } & {
+  "revision": bigint;
 };
 
 /** Protocol v5; emission: emitted; streams: subscribe. */
@@ -763,6 +768,7 @@ export type KnownCmuxEvent =
   | AgentInventoryChangedEvent
   | AgentInventoryWatchEndedEvent
   | AgentPresenceChangedEvent
+  | AppearanceChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | BrowserStateEvent
@@ -859,6 +865,7 @@ export type SerializedButNotEmittedEvent =
 export type KnownSubscribeEvent =
   | AgentChangedEvent
   | AgentPresenceChangedEvent
+  | AppearanceChangedEvent
   | BellEvent
   | BookmarksChangedEvent
   | ChiefChangedEvent
