@@ -94,8 +94,9 @@ public struct TabItemMapping {
     /// or the brand mark of `harness`, the harness its row draws (the subagent mark when cmux lists
     /// no such brand).
     public static func subagentIcon(harness: String?) -> TabIcon {
-        guard let brand = harness.flatMap({ AgentBrandCatalog.brand(for: $0)?.rawValue }) else { return .icon(.taskAi) }
-        return .agentMark(brand)
+        // A listed brand with no mark (AgentBrandCatalog.spec nil) draws the subagent mark, as the row's fallback does.
+        guard let brand = harness.flatMap({ AgentBrandCatalog.brand(for: $0) }), AgentBrandCatalog.spec(for: brand) != nil else { return .icon(.taskAi) }
+        return .agentMark(brand.rawValue)
     }
 
     /// The icon the user set on the tab record replaces every derived icon (kind, agent
