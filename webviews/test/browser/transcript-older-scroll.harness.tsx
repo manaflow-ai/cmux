@@ -16,6 +16,9 @@ import "../../src/pages/shared/desktop.css";
 import "../../src/agent-session/shared/styles.css";
 import "../../src/agent-session/acpmux/styles.css";
 import "../../src/agent-session/acpmux/conversation/conversation.css";
+// The prompt rail sits sticky over the rows at no height, as the pane draws it; unstyled, it took
+// its rail's height above the rows and moved them as the rail grew with each older page.
+import "../../src/agent-session/acpmux/threadMinimap/threadMinimap.css";
 
 const root = document.getElementById("root")!;
 document.documentElement.style.height = document.body.style.height = "100%";
