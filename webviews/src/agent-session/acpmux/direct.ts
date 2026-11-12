@@ -1,3 +1,4 @@
+import { pageAttention } from "./attention";
 import { sentFrom, type SentFrom } from "./conversation/sentFromHarness";
 import { stuckAttention } from "./loopEpisode";
 import { externalAccessFromRequest } from "./permissions/externalAccess";
@@ -2903,6 +2904,7 @@ export class AcpmuxDirectClient {
     this.onLost = onLost;
     this.selectedSessionId = host.sessionId;
     if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.showChanged);
+    this.stopAttention = pageAttention()?.subscribe(this.attentionChanged);
     // The chat on screen is handed over when this page goes away as well as when it is left, so a
     // tab closed or reloaded on a chat leaves that chat warm for the next tab (keptAttachments.ts
     // hands the composer's chips over the same way). Without this the only chat the host ever
@@ -4993,6 +4995,8 @@ export class AcpmuxDirectClient {
     }
     if (this.closed) return;
     if (pageShown()) this.wake();
+    // Showing the page is the reader's own move, made outside it (a tab, a workspace).
+    if (pageShown()) pageAttention()?.touch();
     const sessionId = this.selectedSessionId;
     if (!sessionId) return;
     this.syncView();
@@ -5002,6 +5006,17 @@ export class AcpmuxDirectClient {
     this.stopStallOwed = undefined;
     if (owed === sessionId && this.stoppingAfterSeq !== undefined && this.workingNow())
       this.checkStall(sessionId, "stop");
+  };
+
+  private stopAttention?: () => void;
+  /// The reader stepped away from the page or came back by hand (attention.ts): acpmux hears the
+  /// chat is not shown while they are away, so a turn that ends then stays unread, and their return
+  /// is seeing it: "New since you looked" goes after the last record they were here for.
+  private attentionChanged = (): void => {
+    const sessionId = this.selectedSessionId;
+    if (this.closed || !sessionId || !pageShown()) return;
+    this.syncView();
+    if (readerHere()) this.markSeen(sessionId);
   };
 
   private cameOnline = (): void => {
@@ -5085,13 +5100,16 @@ export class AcpmuxDirectClient {
   }
 
   /// Brings acpmux's view of the selected chat up to the page's. acpmux handles each request on
-  /// its own task, so a view must wait for the attach it changes and for the view before it.
+  /// its own task, so a view must wait for the attach it changes and for the view before it. Each
+  /// call keeps what the page was when it was made, so a reader who stepped away and came back
+  /// while an attach was out still tells acpmux both, in order: the turns that ended while they were
+  /// away stay unread.
   private syncView(): void {
     const generation = this.selectionGeneration;
+    const visible = readerHere();
     this.viewSync = this.viewSync.then(async () => {
       await this.attaching;
       const sessionId = this.selectedSessionId;
-      const visible = pageShown();
       if (
         generation !== this.selectionGeneration ||
         !sessionId ||
@@ -5110,9 +5128,10 @@ export class AcpmuxDirectClient {
     });
   }
 
-  /// Selecting a session is seeing it, including an unread flag acpmux sent. Turns that ended since
-  /// the person last left it put "New since you looked" after what they had seen; it stays until
-  /// another chat is selected, so it never appears or goes while the reader is on it.
+  /// Selecting a session is seeing it, including an unread flag acpmux sent, and so is coming back
+  /// to it by hand after stepping away (`attentionChanged`). Turns that ended since the person last
+  /// left it or stepped away put "New since you looked" after what they had seen; it stays until
+  /// the next return moves it or another chat is selected, so it never goes while the reader is on it.
   private markSeen(sessionId: string): void {
     const listed = this.sessions.find((session) => session.sessionId === sessionId);
     const turns = listed?.unreadTurns;
@@ -5886,7 +5905,7 @@ export class AcpmuxDirectClient {
   /// Asks acpmux to attach `sessionId` (its newest page, then its records live) and, with
   /// `reads`, the reads the chat draws with (`startAttachReads`) in the same round trip.
   private sendAttach(sessionId: string, generation: number, reads: boolean): SentAttach {
-    const visible = pageShown();
+    const visible = readerHere();
     const attaching = this.typed("_acpmux/attach", {
       sessionId,
       // The visible page must not wait for the daemon's restart-time full-log restoration. The
@@ -9418,6 +9437,10 @@ export class AcpmuxDirectClient {
   get selectedSession(): string | undefined {
     return this.selectedSessionId;
   }
+  /** The started chat a send goes to in its own task (`send`'s `shown`); none while a chat starts. */
+  get startedSession(): string | undefined {
+    return this.creating ? undefined : this.selectedSessionId;
+  }
   /** Changes on every selection, including leaving and returning to the same session. */
   get selectionToken(): number {
     return this.selectionGeneration;
@@ -11155,8 +11178,11 @@ export class AcpmuxDirectClient {
     this.missingReason = undefined;
     this.missingAmbiguous = false;
     // A hidden pane does not see the chat it opens (the tab's missing chat came back while its
-    // workspace was in the background): it stays unread until the page shows (`showChanged`).
-    if (pageShown()) this.markSeen(sessionId);
+    // workspace was in the background): it stays unread until the page shows (`showChanged`). Nor
+    // does a reader who stepped away: a chat reopened on its own (`reopenMissing`, a started chat)
+    // stays unread until their hand is back (`attentionChanged`). A pick by hand in this page came
+    // with its click or key, so the reader is here for it.
+    if (readerHere()) this.markSeen(sessionId);
     this.resetSessionState("select");
     // A chat this page read already draws from what that visit left, on the frame the switch lands;
     // its attach lays what acpmux holds now over that (Leo: "instant if cached").
@@ -12446,6 +12472,46 @@ export class AcpmuxDirectClient {
       this.forking = false;
     }
   }
+  /// A pick of another harness's model, sent (forkHold.ts; Leo 2026-11-11: "if i switch to a
+  /// different model in a chat, it should just be able to seamlesly within the same pane do stuff
+  /// and stop asking so much bullshit"): acpmux forks the open chat as it is now onto `harness`,
+  /// started on `model` (the caller sets the effort after), its history shown by reference and carried to the new agent
+  /// with its first prompt (`acp.session.fork {live, harness}`), and this pane opens the fork in
+  /// place: no review, no tab. Resolves the fork's id once it is the selected chat; rejects with
+  /// acpmux's reason when it refused, or when the reader opened another chat meanwhile (the fork is
+  /// then taken back), so the composer keeps the message.
+  async forkTo(target: { harness: string; model?: string }): Promise<string> {
+    const sessionId = this.actingSessionId;
+    // l10n-allow: the composer's promise only; the composer keeps the text, never shows this.
+    if (!this.canFork || !sessionId) throw new Error("chat cannot fork");
+    // l10n-allow: as above.
+    if (this.forking) throw new Error("a fork is already running");
+    this.forking = true;
+    const generation = this.selectionGeneration;
+    try {
+      const result = await this.request(FORK_OP, {
+        sessionId,
+        live: true,
+        harness: target.harness,
+        ...(target.model ? { model: target.model } : {}),
+      });
+      const forked = typeof result?.sessionId === "string" ? result.sessionId : "";
+      // l10n-allow: as above.
+      if (!forked) throw new Error("the fork made no chat");
+      if (generation !== this.selectionGeneration) {
+        this.takeBackFork(forked);
+        // l10n-allow: as above.
+        throw new Error("another chat was opened");
+      }
+      this.forking = false;
+      await this.select(forked);
+      // l10n-allow: as above.
+      if (this.selectedSessionId !== forked) throw new Error("the fork did not open");
+      return forked;
+    } finally {
+      this.forking = false;
+    }
+  }
   /// New side chat and `/side [prompt]` of a chat on another machine that opens side chats there
   /// (`sideChatOnMachine`): that machine forks the open chat through `throughSeq` (`live`: as it is
   /// now, its turn going on), tags the fork its side chat and sends it `prompt`, in one call, and
@@ -13363,6 +13429,8 @@ export class AcpmuxDirectClient {
   }
   private stopPageListeners(): void {
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
+    this.stopAttention?.();
+    this.stopAttention = undefined;
     if (typeof window !== "undefined") {
       window.removeEventListener("pagehide", this.pageWentAway);
       window.removeEventListener("online", this.cameOnline);
@@ -13719,6 +13787,12 @@ function transcriptSeq(session: Session | undefined): number | undefined {
 
 function pageShown(): boolean {
   return typeof document === "undefined" || document.visibilityState !== "hidden";
+}
+
+/// Whether the reader sees the chat: the page shows and their hand was on it lately (attention.ts).
+/// What acpmux hears as `visible`, so a turn that ends while they are away is unread.
+function readerHere(): boolean {
+  return pageShown() && (pageAttention()?.present() ?? true);
 }
 
 /// JSON-RPC's method-not-found code: a daemon that predates the method.

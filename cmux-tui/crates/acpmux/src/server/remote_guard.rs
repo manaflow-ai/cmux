@@ -919,15 +919,13 @@ pub(super) async fn web_starts_asking(
         // fork runs in the sandbox like its parent; an unknown chat is the peer's to judge.
         if let Ok(s) = super::session_key(params).and_then(|key| hub.resolve(key)) {
             let mut would_be = s.meta();
-            would_be.harness = harness.to_owned();
-            // The family the fork would carry (`hub/fork.rs` `Target`): a Claude adapter that is not
-            // Claude Code itself (family `claude`) is Claude here too. No such profile: the name, and
+            // The profile and family the fork would carry (`hub/fork.rs` `Target`), a family name
+            // resolved to its profile as the fork resolves it: a Claude adapter that is not Claude
+            // Code itself (family `claude`) is Claude here too. No such profile: the name, and
             // `local_claude_refusal` refuses a profile it cannot read.
-            would_be.family =
-                Some(hub.config.read().await.profile(harness).map_or_else(
-                    || harness.to_owned(),
-                    |p| crate::config::derive_family(harness, p),
-                ));
+            let (agent, family) = super::trust_gate::resolve_harness(hub, harness).await;
+            would_be.harness = agent;
+            would_be.family = Some(family);
             if let Some(e) = hub.local_claude_refusal(&would_be) {
                 return Err(e);
             }

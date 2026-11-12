@@ -810,8 +810,7 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
     cmux_unix_socket::check_path(path)?;
     if let Some(parent) = path.parent() {
         // Owner-only when created here, like the /tmp fallback directory.
-        use std::os::unix::fs::DirBuilderExt;
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(parent)?;
+        crate::home_fs::create_dir_all(parent, 0o700)?;
     }
     if path.exists() {
         // Refuse to steal a live socket.
@@ -827,14 +826,14 @@ pub async fn bind_unix(path: &std::path::Path) -> Result<UnixListener> {
             );
         }
         crate::config::refuse_lost_home(&crate::config::home())?;
-        std::fs::remove_file(path)?;
+        crate::home_fs::remove_file(path)?;
     }
     crate::config::refuse_lost_home(&crate::config::home())?;
     let listener = UnixListener::bind(path).with_context(|| format!("bind {}", path.display()))?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        crate::home_fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
     }
     tracing::info!("listening on {}", path.display());
     Ok(listener)

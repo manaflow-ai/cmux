@@ -1304,8 +1304,10 @@
   font-weight: 600;
 }
 /* A number of three or more digits (Markdown.tsx listNumberStyle) gets room for itself, so it never
-   draws over its item's text. */
-.cv-ol[style*="--cv-ol-digits"] > li {
+   draws over its item's text. Keyed on `data-wide-numbers`, never `[style*=...]`: a rule on the style
+   attribute restyled every list item under any element whose inline style changed, which the send motion
+   and the follow glide do each frame (test/css-invalidation-scope.test.ts). */
+.cv-ol[data-wide-numbers] > li {
   padding-left: calc(var(--cv-ol-digits) * 0.6em + 1.4em);
 }
 .cv-li__bullet {
@@ -1428,7 +1430,7 @@
   top: var(--cv-table-tools-pad);
 }
 .cv-table-block[data-actions="corner"] .cv-table thead th:last-child,
-.cv-table-block[data-actions="corner"] .cv-table:not(:has(thead)) tr:first-child td:last-child {
+.cv-table-block[data-actions="corner"] .cv-table[data-headless] tr:first-child td:last-child {
   padding-right: calc(var(--cv-table-tools-width) + var(--cv-action-gap, 4px));
 }
 /* Above: the pill rises just over the table's top-right corner, over the end of the line before. */
@@ -2725,7 +2727,8 @@ pre.cv-math-source {
    line's time and counts after its words (`data-tail`), drawn past the words' own box, and the new
    line's time and counts roll in with its words (`.cv-worked--live[data-roll]`), so no count pops off
    or on and nothing slides sideways while the words roll. */
-.cv-roll-out {
+.cv-roll-out,
+.cv-roll-out__tail {
   display: none;
 }
 @media (prefers-reduced-motion: no-preference) {
@@ -2750,14 +2753,30 @@ pre.cv-math-source {
     content: attr(data-lead);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out::after {
-    content: attr(data-text) attr(data-tail);
+    content: attr(data-text);
   }
-  /* The old line's tail runs past its words' box: the copy is as wide as its text, and the live
-     line's own clip (above) bounds it. */
+  /* The old line as it was drawn: its words cut where they were (their drawn width, set inline, the
+     ellipsis kept), and its time and counts in a box of their own from there on, past the new words'
+     box; the live line's own clip (above) bounds them. Review of cmux#41078: one box running words
+     and tail together dropped the ellipsis and moved the tail. */
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out[data-tail] {
     right: auto;
-    overflow: visible;
-    text-overflow: clip;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out__tail {
+    display: block;
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 100%;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+    color: var(--cv-text-dim);
+    animation: cv-roll-out var(--agent-motion-arrive, 80ms) var(--agent-ease-out, ease-out) both;
+  }
+  :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-roll-out__tail::after {
+    content: attr(data-tail);
   }
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="odd"] > .cv-worked__count,
   :root:not([data-cmux-motion="off"], [data-cmux-motion="reduced"], [data-agent-motion="off"], [data-status-indicators="static"]) .cv-worked--live[data-roll="odd"] > .cv-shimmer__row > :is(.cv-worked__time, .cv-worked__own) {

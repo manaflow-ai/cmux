@@ -495,3 +495,31 @@ test("the reply draining while the turn's end fold plays: each frame of the two 
   // Still home soon after the fold's fast first frames: within a few frames of BURST_S.
   expect(frames).toBeLessThanOrEqual(Math.ceil(BURST_S * 120) + 4);
 });
+
+test("carry: another motion's part the reader froze is drawn by the chase, held there, and goes home when followed again", () => {
+  const chase = createFollowChase("blocks");
+  const { node, frame, drawn, pending } = fixture();
+  // The composer growth's rise drew the rows 14 px down when the reader's wheel came.
+  chase.carry(node, 14);
+  chase.hold();
+  expect(drawn()).toBeCloseTo(14);
+  expect(pending()).toBe(0);
+  frame();
+  frame();
+  // Held: nothing moves but the reader's own scroll.
+  expect(drawn()).toBeCloseTo(14);
+  expect(chase.outstanding()).toBeCloseTo(14);
+  // Followed again: home from where it was painted, never past it.
+  chase.resume();
+  let previous = drawn();
+  while (pending() > 0) {
+    const at = frame();
+    expect(at).toBeLessThanOrEqual(previous + 1e-9);
+    expect(at).toBeGreaterThanOrEqual(0);
+    previous = at;
+  }
+  expect(drawn()).toBe(0);
+  // Nothing to carry moves nothing.
+  chase.carry(node, 0);
+  expect(drawn()).toBe(0);
+});

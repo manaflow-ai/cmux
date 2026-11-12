@@ -70,7 +70,8 @@ import {
 } from "./conversation/scrollCoordinates";
 import { createFollowGlide, followRoom } from "./conversation/followGlide";
 import { createTailGlide, type TailGlide } from "./conversation/tailGlide";
-import { createFollowChase, type FollowChase } from "./conversation/followChase";
+import { finishCarry, notePinPass, pinLiveLine } from "./conversation/pinnedLiveLine";
+import { createFollowChase, type FollowChase, ARRIVAL_EASE, arrivalStepMs } from "./conversation/followChase";
 import { followMotion } from "./conversation/followMotion.experiment";
 import { composerDockMotion } from "./composer/dockMotion.experiment";
 import { acpmuxPerf, type MountedSpan } from "./perf";
@@ -1453,6 +1454,8 @@ function TranscriptView({
   const chasing = followArm !== "eased";
   const followChase = useRef<FollowChase>(undefined);
   followChase.current ??= createFollowChase(followArm);
+  /// Freezes the composer growth's rise of the rows where it is painted (the dock's effect sets it).
+  const freezeGrowthRise = useRef<() => void>(() => {});
   // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
@@ -1822,6 +1825,23 @@ function TranscriptView({
     // rows go home on the compositor with the field.
     let growth: { field: HTMLElement; to: number } | undefined;
     let rowsMove: Animation | undefined;
+    // The reader's input wins over the rise: the rows freeze where they are painted (the rise's part
+    // handed to the follow chase, held as it holds), and the card grows on over them, as `cardHold`
+    // does. Played on, the rise moved the rows while the reader scrolled up. Two style reads, on input
+    // only while a rise plays.
+    freezeGrowthRise.current = () => {
+      const rows = thread.current;
+      const move = rowsMove;
+      if (!rows || !move || move.playState === "finished" || move.playState === "idle") return;
+      const drawnY = () => {
+        const value = getComputedStyle(rows).translate;
+        return value && value !== "none" ? Number.parseFloat(value.split(" ")[1] ?? "") || 0 : 0;
+      };
+      const before = drawnY();
+      move.cancel();
+      rowsMove = undefined;
+      followChase.current?.carry(rows, before - drawnY());
+    };
     /// What the field has yet to grow (px), 0 once it rests (and the growth is over).
     const toGrow = () => {
       if (!growth) return 0;
@@ -1898,6 +1918,7 @@ function TranscriptView({
       dock.removeEventListener("click", toggled, { capture: true });
       dock.removeEventListener(FIELD_GROWTH_EVENT, grew);
       rowsMove?.cancel();
+      freezeGrowthRise.current = () => {};
     };
   }, [dock, noteQueue]);
   // And each time the queue changes, in the commit that draws it. A change that leaves the stack's
@@ -3435,6 +3456,8 @@ function TranscriptView({
     }
   });
   useLayoutEffect(() => {
+    // What the pinned live line is drawn held back by, before this pass's chase moves the thread.
+    notePinPass(thread.current);
     /// This pass is the follow chase's (the last branch below): the rows under a change glide, against
     /// the row the chase measured from.
     let tailGlides = false;
@@ -3936,7 +3959,49 @@ function TranscriptView({
     }
     // The room a collapse kept follows the view's end, and goes once the rows reach it.
     if (node) trimFoldRoom(node);
-    tailGlide.current?.place(thread.current, tailGlides && chasing, tailAnchor, chasing && followingRef.current);
+    // The live line, the thread's last row, holds still at the bottom against the chase while the
+    // rows above it grow or come (pinnedLiveLine.ts), for as long as it stays the last row: a pin
+    // dropped and taken again a pass later left the line on its own glide, whose translate wins over
+    // the pin's, under a reply clipped for where the pin would draw it (overlap). A send's rows rise
+    // with theirs, and the turn's end folds them itself, so those let it go; the reader taking the
+    // view holds it where it is drawn.
+    const lastRow = rows.at(-1);
+    const lineStays = oldRows.at(-1)?.id === LIVE_THINKING;
+    // A prompt that comes over the line (a steer sent while a call runs) lets it go: the prompt's
+    // rows rise with it as a send's do, and the pin takes the line again once they rest. Pinned
+    // through it, the line was held back by the prompt's whole height at once, which the chase
+    // brought home in a step (105 px in turn-transition-jumps steer-tools). The reply's own rows
+    // (its text, a call's row) come under the pin as before.
+    // Rows come at the tail (before the live line): O(rows that came), never the chat's length.
+    let rowsCame = false;
+    for (let index = rows.length - 2; index >= Math.max(0, oldRows.length - 2); index -= 1) {
+      const row = rows[index]!;
+      if (row.kind === "user" && row.id !== oldRows[index]?.id) rowsCame = true;
+    }
+    const pinLive =
+      chasing &&
+      followingRef.current &&
+      lineStays &&
+      !rowsCame &&
+      lastRow?.id === LIVE_THINKING &&
+      Boolean(lastRow.below) &&
+      turnEndCapture.current === undefined &&
+      !thread.current?.hasAttribute(TURN_END_ATTR) &&
+      !(sends !== seenSends.current || performance.now() < sendRiseUntil.current);
+    const carry = pinLiveLine(thread.current, pinLive, !followingRef.current);
+    tailGlide.current?.place(
+      thread.current,
+      tailGlides && chasing,
+      tailAnchor,
+      chasing && followingRef.current,
+      pinLive ? LIVE_THINKING : undefined,
+      carry,
+    );
+    finishCarry(thread.current, carry, (px) => {
+      const style = thread.current ? getComputedStyle(thread.current) : undefined;
+      const floor = cssTimeMs(style?.getPropertyValue("--agent-motion-arrive") ?? "") ?? MOTION_MS.quick;
+      return { ms: floor > 0 ? arrivalStepMs(px, 1, floor) : 0, easing: ARRIVAL_EASE };
+    });
     previousLayout.current = layout;
     previousRows.current = rows;
     // The rows a fold ride moved are placed where they showed: its hand-over is spent.
@@ -4431,6 +4496,8 @@ function TranscriptView({
   useLayoutEffect(() => {
     if (sends === seenSends.current) return;
     seenSends.current = sends;
+    // The send's ride and the rows it brings are the motion the full rate is for: never a reason to cap it.
+    renderRate.sent(performance.now());
     const node = ref.current;
     if (!node) return;
     if (!didOpenAtLatest.current) {
@@ -4872,6 +4939,7 @@ function TranscriptView({
       // The rows under a change gliding to their place hold where they are drawn too (tailGlide.ts),
       // and play on with the chase.
       tailGlide.current?.hold();
+      freezeGrowthRise.current();
       followChase.current?.hold(() => {
         const followed = followingRef.current && jumpTarget.current === undefined;
         if (followed) tailGlide.current?.resume();
