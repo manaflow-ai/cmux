@@ -46,6 +46,7 @@ pub type SummaryRecord = Summary;
 pub const MAX_TITLE_BYTES: usize = 256;
 pub const MAX_SUMMARY_BYTES: usize = 2 * 1024;
 const MAX_FIELD_BYTES: usize = 256;
+const HOT_PAGE_ROWS: usize = 400;
 
 fn empty_object() -> Box<RawValue> {
     RawValue::from_string("{}".to_owned()).expect("a static JSON object is valid")
@@ -192,6 +193,7 @@ pub struct SummaryIndex {
     seq: u64,
     by_id: OrdMap<String, Arc<Summary>>,
     ordered: OrdMap<SortKey, Arc<Summary>>,
+    hot: Arc<Vec<Arc<Summary>>>,
 }
 
 impl Default for SummaryIndex {
@@ -202,7 +204,7 @@ impl Default for SummaryIndex {
 
 impl SummaryIndex {
     pub fn new() -> Self {
-        Self { seq: 0, by_id: OrdMap::new(), ordered: OrdMap::new() }
+        Self { seq: 0, by_id: OrdMap::new(), ordered: OrdMap::new(), hot: Arc::new(Vec::new()) }
     }
 
     pub fn seq(&self) -> u64 {
@@ -237,7 +239,8 @@ impl SummaryIndex {
             summary.clone(),
         );
         by_id.insert(summary.chat_id.clone(), summary);
-        Self { seq: self.seq.max(seq), by_id, ordered }
+        let hot = Arc::new(ordered.values().take(HOT_PAGE_ROWS).cloned().collect());
+        Self { seq: self.seq.max(seq), by_id, ordered, hot }
     }
 
     /// Test/telemetry hook: applying one summary records the number of
@@ -255,12 +258,18 @@ impl SummaryIndex {
     }
 
     pub fn page(&self, start: usize, limit: usize) -> Vec<Arc<Summary>> {
+        if start.saturating_add(limit) <= HOT_PAGE_ROWS {
+            return self.hot.iter().skip(start).take(limit).cloned().collect();
+        }
         self.iter().skip(start).take(limit).cloned().collect()
     }
 
     /// Returns a keyset page. The key is exclusive, so inserts before the
     /// anchor do not shift the next page.
     pub fn page_after_key(&self, key: Option<(&u64, &str)>, limit: usize) -> Vec<Arc<Summary>> {
+        if key.is_none() && limit <= HOT_PAGE_ROWS {
+            return self.hot.iter().take(limit).cloned().collect();
+        }
         self.ordered
             .iter()
             .filter(|(sort, _)| {
@@ -303,7 +312,8 @@ impl SummaryIndex {
         let mut ordered = self.ordered.clone();
         by_id.remove(chat_id);
         ordered.remove(&SortKey { last_activity: old.last_activity, chat_id: old.chat_id.clone() });
-        Some(Self { seq: self.seq.max(seq), by_id, ordered })
+        let hot = Arc::new(ordered.values().take(HOT_PAGE_ROWS).cloned().collect());
+        Some(Self { seq: self.seq.max(seq), by_id, ordered, hot })
     }
 }
 
