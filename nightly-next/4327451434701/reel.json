@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4327451434701",
+  "notes": "notes/4327451434701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41915,
+      "title": "acpmux: the store reads the held home on every platform, and a lint keeps checks by path out of store/ (#41721 F1)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42042,
+      "title": "cmux-tui: nine local JSON getters read through cmux-json's JsonGet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41768,
+      "title": "Name a stale base in every own-range reader; fail closed on unread matrix reads; read inside shell expansions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42046,
+      "title": "perf(acpmux): peer lists travel as row text and the hub copies no row it keeps",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41760,
+      "title": "Agent chat: a cold open draws acpmux's settled view first, with no replay (cmuxterm-hq#9655 stage 1, page)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42070,
+      "title": "ci: preserve Windows test codegen parallelism",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 40018,
+      "title": "Watchdog: say whether a stall was our code, the Mac, or an idle wait",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42088,
+      "title": "Agent chat: the Thinking line's clock stops once the reply is in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42028,
+      "title": "base_red_excuse: a compiler red is the base's when one red base job prints every error, in files the PR does not change",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41998,
+      "title": "Web notices wait out blips and drop stale or repeated ones",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41993,
+      "title": "feat(webviews): one shared Skeleton on the shared breath, still under reduced motion",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41523,
+      "title": "cmux-source-scan: one syn scanner for the test-hooks and timing-ratio checks, replacing two hand tokenizers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42044,
+      "title": "acpmux: attach to a long chat reads only its page, not the whole journal",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
