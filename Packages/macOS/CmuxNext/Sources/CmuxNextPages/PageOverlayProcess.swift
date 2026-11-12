@@ -19,7 +19,7 @@ import WebKit
 /// The composition root (`AppServices.overlayProcess`) makes the app's one instance and hands it to each
 /// overlay page's owner, which passes it to ``PageWebView`` (`overlayProcess:`). A page made without one
 /// keeps its own store and its own process: tests, every other page, and the browser chrome's popups
-/// (`BrowserChromeWebHost`: Page Info and the cookie import card, made only when opened).
+/// (`BrowserChromeWebHost`: Page Info's windows and the cookie import card, made only when opened).
 @MainActor
 public final class PageOverlayProcess {
     /// The most overlay pages one process serves: what one crash of that process takes down.

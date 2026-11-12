@@ -652,6 +652,11 @@ path = "tests/test_ci_testbox_broker_guard.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_timeout_handlers.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. Finds TimeoutExpired handlers in scripts/ci/*.py that fail a check without asking whether the change touched what timed out; run python3 -I tests/test_ci_timeout_handlers.py yourself after adding or changing a subprocess timeout in scripts/ci (about 1 s, no build)."
+
+[[test]]
 path = "tests/test_ci_timing_readout.py"
 lane = "linux-guard"
 

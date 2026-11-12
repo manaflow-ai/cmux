@@ -402,10 +402,10 @@ import CmuxNextCompat
         // A plan build answers the chat's plan approval or starts the plan in new worktrees: only
         // right after the person's own click, as an answer (its chat is bound above).
         if intent.method == "_acpmux/plan/build", !gestures.hasFreshAnswerGesture { return nil }
-        // A prompt held for the folder trust answer right after a new chat's start: the start took
-        // the send's gesture, and its credit becomes the prompt's ticket (the ticket outlives it).
-        if intent.method == "session/prompt", !gestures.isAvailable,
-           let fresh = startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime) {
+        // A prompt held for the trust answer after a new chat's start takes the start's credit; a Cloud start sent from a
+        // folder pick's acceptance (#40957's too-big card) takes the pick's (``grantPicked(_:)`` spent the click). Tickets outlive both.
+        if !gestures.isAvailable, let fresh = intent.method == "session/prompt" ? startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime)
+            : intent.method == "cloud.startChat" ? pickCredit.take(connection: current, now: gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) : nil {
             return fresh ? gestures.reserve(connection: current, intent: intent, paid: true) : nil
         }
         return gestures.reserve(connection: current, intent: intent, paid: false, personOnly: personOnly)
