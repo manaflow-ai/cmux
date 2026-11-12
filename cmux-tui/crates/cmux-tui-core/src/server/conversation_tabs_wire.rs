@@ -566,10 +566,24 @@ impl MessageWriter {
     }
 }
 
-/// Whether `text`, a JSON message, may hold a value that the outbound projection rewrites
-/// (`conversation` in a tab kind). The projection parses the whole message when this holds.
+/// Whether `text`, a JSON message, may hold a value that the outbound projection rewrites. The
+/// projection parses the whole message when this holds, so it must hold for every message that
+/// the projection changes, and should not hold for the others.
+///
+/// The projection rewrites only two string values: `"conversation"` (a tab's `kind` or
+/// `content_kind`, a closed tab's `kind`) and `"conversation_tab"` (a closed history row's
+/// `closed_kind`). Neither needs an escape, so each is written as that exact token. A token that is
+/// an object key is followed by `:` (after optional whitespace); a value never is. The key
+/// `"conversation"` of every raw tab (`null` for a terminal) therefore does not make it hold. A
+/// token that is only the end of a longer string (`"a\"conversation"`) may make it hold: that costs
+/// a parse, never a missed rewrite.
 pub(super) fn may_hold_a_conversation_kind(text: &str) -> bool {
-    text.contains("\"conversation")
+    ["\"conversation\"", "\"conversation_tab\""].into_iter().any(|token| {
+        text.match_indices(token).any(|(at, _)| {
+            let after = text[at + token.len()..].trim_start_matches([' ', '\t', '\n', '\r']);
+            !after.starts_with(':')
+        })
+    })
 }
 
 /// Older native apps already understand live conversation tabs, but closed
