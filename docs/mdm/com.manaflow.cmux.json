@@ -1356,6 +1356,13 @@
       "title" : "Divider Thickness",
       "type" : "number"
     },
+    "appearance.metrics.sidebarRowHeight" : {
+      "description" : "appearance.metrics.sidebarRowHeight",
+      "maximum" : 48,
+      "minimum" : 20,
+      "title" : "Workspace Row Height",
+      "type" : "number"
+    },
     "appearance.metrics.sidebarWidth" : {
       "description" : "appearance.metrics.sidebarWidth",
       "maximum" : 420,
