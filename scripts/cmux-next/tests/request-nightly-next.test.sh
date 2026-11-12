@@ -180,6 +180,11 @@ request --sha "$head" --release-compile-green
 [[ "$status" == 0 ]] || fail "a quarantined commit is not an error (exit $status):" "$out"
 ! dispatched "$head" || fail "a quarantined commit must not be promoted:" "$(cat "$TMP/gh.log")"
 grep -q "quarantined since direct push e0d3bb0ec2f0 by lawrencecchen" <<<"$out" || fail "the skip must name the push:" "$out"
+# The tick walks up to 120 commits, each a call of this script: GH_TICK_CACHE keeps the one read for the tick.
+GH_TICK_CACHE="$TMP/tick" request --sha "$head" --release-compile-green
+GH_TICK_CACHE="$TMP/tick" request --sha "$head" --release-compile-green
+! dispatched "$head" || fail "a cached quarantine must still hold the commit:" "$(cat "$TMP/gh.log")"
+[[ "$(grep -c '^api graphql ' "$TMP/gh.log")" == 0 ]] || fail "the tick's second call must read the quarantine from its cache:" "$(cat "$TMP/gh.log")"
 quarantine SUCCESS "$head"
 request --sha "$head" --release-compile-green
 [[ "$status" == 0 ]] && dispatched "$head" || fail "once a push's gates pass the commit is promoted:" "$out"
@@ -204,7 +209,12 @@ git_q -C "$src" checkout -q --detach "$head"
 branch() { # <commit>: feat-cmux-next's tip (the script's history, fetched or local)
   git_q -C "$src" update-ref refs/heads/feat-cmux-next "$1"
 }
-no_api() { ! grep -q '^api' "$TMP/gh.log" || fail "--tree-ready must read no GitHub API:" "$(cat "$TMP/gh.log")"; }
+# No REST read. The one exception is the direct-push quarantine's single GraphQL read (its own budget, kept for the
+# whole tick in GH_TICK_CACHE), made only once a candidate is about to be requested.
+no_api() {
+  ! grep -v '^api graphql ' "$TMP/gh.log" | grep -q '^api' || fail "--tree-ready must read no GitHub REST API:" "$(cat "$TMP/gh.log")"
+  (( $(grep -c '^api graphql ' "$TMP/gh.log") <= 1 )) || fail "the quarantine is read once a call:" "$(cat "$TMP/gh.log")"
+}
 branch "$other"
 request --tree-ready "$head"
 [[ "$status" == 0 ]] && dispatched "$app" || fail "the newest commit with the published tree must be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
