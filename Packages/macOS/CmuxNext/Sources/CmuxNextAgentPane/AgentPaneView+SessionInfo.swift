@@ -135,7 +135,8 @@ extension AgentPaneView {
         let height = frame.height * pinch.scale
         let x = page.minX + shown.x * scale
         let y = flipped ? page.minY + shown.y * scale : page.maxY - shown.y * scale - height
-        return CGRect(x: x, y: y, width: width, height: height)
+        // Zoomed in, the part past the page's edges is off the page's screen too: the panel ends there.
+        return CGRect(x: x, y: y, width: width, height: height).intersection(page).integral
     }
 
     /// A rect on the pinch-zoomed screen (top-left CSS pixels) in the page's layout, where the page
