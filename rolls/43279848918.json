@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43279848918",
+  "recorded_at": "2026-11-12T18:35:20Z",
+  "reason": "cmux-tui eca5285d7767 changes the image's cmux-tui (pinned 04b33a3ae2e4)",
+  "dry_run": false,
+  "cmux_tui": "eca5285d7767d139da30479e7ffaa65d7f9207bb",
+  "fixes": [
+    {
+      "sha": "eca5285d7767d139da30479e7ffaa65d7f9207bb",
+      "mergedAt": "2026-11-12T09:53:28-08:00",
+      "subject": "acpmux: the store reads the held home on every platform, and a lint keeps checks by path out of store/ (#41721 F1) (#41915)"
+    },
+    {
+      "sha": "b31d1c0ed47ea3b92b15790dc06ef1bb7e67bf70",
+      "mergedAt": "2026-11-12T09:50:12-08:00",
+      "subject": "cmux-tui: nine local JSON getters read through cmux-json's JsonGet (#42042)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T18:35:20Z",
+    "snapshot_id": "sh-578912edea4a4863bccbf50785ddcebf",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43279848918): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "687c57eb1c567d7aaa4dd3cfddc8d9049b3415ec",
+    "image": "cloud-native-auto-eca5285d-43279848918-1",
+    "revision": "ci-43279848918-1",
+    "at": "2026-11-12T18:35:20Z"
+  },
+  "rolled_back": false
+}
