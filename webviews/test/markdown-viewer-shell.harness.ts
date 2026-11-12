@@ -8,7 +8,7 @@ function asset(name: string): string {
   return readFileSync(join(viewerDir, name), "utf8");
 }
 
-export function shellHTML(): string {
+export function shellHTML(appLinkSchemes: string[] = []): string {
   const replacements: Record<string, string> = {
     "{{githubMarkdownCSS}}": asset("github-markdown.css"),
     "{{highlightLightCSS}}": asset("highlight-github.css"),
@@ -18,6 +18,7 @@ export function shellHTML(): string {
     "{{viewerNavigationJS}}": asset("viewer-navigation.js"),
     "{{markdownSanitizerJS}}": safeAsset("markdown-sanitizer.js"),
     "{{localizedStringsJSON}}": "{}",
+    "{{appLinkSchemesJSON}}": JSON.stringify(appLinkSchemes),
   };
   let html = asset("shell.html");
   for (const [placeholder, value] of Object.entries(replacements)) {
@@ -36,11 +37,13 @@ function safeAsset(name: string): string {
 
 export type PostedMessage = Record<string, unknown>;
 
-export function loadShell(): { dom: JSDOM; posted: PostedMessage[]; render(markdown: string): HTMLElement } {
+export function loadShell(
+  appLinkSchemes: string[] = [],
+): { dom: JSDOM; posted: PostedMessage[]; render(markdown: string): HTMLElement } {
   const posted: PostedMessage[] = [];
   // Bun cannot host jsdom's script runner, so evaluate the shell's inline
   // scripts in order with the jsdom window as their global scope.
-  const dom = new JSDOM(shellHTML(), { url: "file:///tmp/cmux-markdown-fixture/README.md" });
+  const dom = new JSDOM(shellHTML(appLinkSchemes), { url: "file:///tmp/cmux-markdown-fixture/README.md" });
   const win = dom.window as unknown as Record<string, unknown>;
   const media = { matches: false, addEventListener() {}, removeEventListener() {} };
   win.matchMedia = () => media;
