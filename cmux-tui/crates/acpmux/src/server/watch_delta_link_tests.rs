@@ -43,7 +43,7 @@ async fn linked(notices: &mut mpsc::Receiver<(String, u64, PeerNotice)>) -> Vec<
             .expect("the link connects")
             .expect("the link stays open");
         match notice {
-            PeerNotice::Sessions(rows) => listed = Some(rows),
+            PeerNotice::Sessions(rows) => listed = Some(crate::peer::parse_rows(&rows)),
             PeerNotice::Connected => return listed.expect("a list before Connected"),
             _ => {}
         }

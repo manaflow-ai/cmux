@@ -1189,9 +1189,10 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await typePrompt(ctx, "release");
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
-        // The workspace, Ask, then the first tab. Down to the last option (the create strip's end),
+        // The workspace, Ask, then the first tab. Down to the last line (the create strip, one line),
         // then three more wrap round to the first tab.
-        const options = ctx.document.querySelectorAll('.nt-popover [role="option"]').length;
+        const rows = ctx.document.querySelectorAll('.nt-popover [role="option"]:not(.nt-create-strip-item)').length;
+        const options = rows + (ctx.document.querySelector(".nt-create-strip-item") ? 1 : 0);
         for (let step = 0; step < options - 1; step++) await ctx.press("ArrowDown");
         for (let step = 0; step < 3; step++) await ctx.press("ArrowDown");
         await ctx.press("Enter");

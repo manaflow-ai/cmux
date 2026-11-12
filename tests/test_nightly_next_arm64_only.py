@@ -153,6 +153,9 @@ def compile_commands(outputs):
         (root / "scripts/cmux-next/lib").mkdir(parents=True)
         (root / "scripts/cmux-next/lib/compilation-cache.sh").write_text(
             (ROOT / "scripts/cmux-next/lib/compilation-cache.sh").read_text())
+        # And the Release Swift optimization settings (-Osize, hot targets at -O).
+        (root / "scripts/cmux-next/lib/swift-size-opt.sh").write_text(
+            (ROOT / "scripts/cmux-next/lib/swift-size-opt.sh").read_text())
         # It also sources the per-Mac build root (#32514). With no BUILD_TRACK here the script keeps
         # the slot's own tree, so xcodebuild still runs in this recorder root.
         (root / "scripts/ci/nightly-steps").mkdir(parents=True)

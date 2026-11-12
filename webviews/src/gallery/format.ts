@@ -188,6 +188,9 @@ type VariantBase = {
   play?: Play;
   /** Variant-specific play thresholds, merged over the entry defaults. */
   checks?: PlayChecks;
+  /** The title area tone the variant is drawn under, over the env's (env.ts TITLE_AREA_TONES): for
+   * a variant that only means something under one tone (a folder tab's join under Subtle Tone). */
+  titleAreaTone?: import("./env").TitleAreaToneName;
 };
 
 /** The whole agent pane (AcpmuxApp) on the pane bridge, as the app hosts it. */
@@ -417,6 +420,8 @@ export type HistoryPageVariant = VariantBase & {
   /** The app's cookie backups (the Cookie Backups panel). */
   cookieBackups?: CookieBackup[];
   loading?: boolean;
+  /** The owner's list is not complete yet (`pending_kinds`): the page shows its still-loading line. */
+  pending?: boolean;
   error?: "network" | "permission" | "not-found";
   query?: {
     text?: string;

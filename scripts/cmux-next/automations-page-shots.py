@@ -93,7 +93,7 @@ try:
         return False
     if not wait(up, 120):
         sys.exit("tagged app did not come up")
-    print(f"socket {SOCKET}", flush=True)
+    safe_print(f"socket {SOCKET}", flush=True)
     time.sleep(2)  # first frame and restore settle before the action (harness, not app code)
     ran = rpc("action.run", {"id": "automations.show", "focus": True})
     check("automations.show runs", "error" not in ran or not ran.get("error"), json.dumps(ran)[:200])

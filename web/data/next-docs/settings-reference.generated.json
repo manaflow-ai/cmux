@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 616,
+  "count": 619,
   "sections": [
     {
       "id": "general",
@@ -1807,6 +1807,14 @@
           ]
         },
         {
+          "key": "agentPane.display.finishSound",
+          "title": "Play Sound When Work Finishes",
+          "help": "A soft sound when a long turn in the chat you're looking at ends, its checks pass or its pull request merges. Follows the Mac's Play user interface sound effects setting.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Agent Chat"
+        },
+        {
           "key": "agentPane.display.font.lineHeight",
           "title": "Chat Line Height",
           "help": "",
@@ -3150,6 +3158,31 @@
           "kind": "text",
           "default": null,
           "group": "App Theme"
+        },
+        {
+          "key": "appearance.titleAreaContrast",
+          "title": "Title Area Contrast",
+          "help": "How much darker the title bar, the tab bar and the sidebar are than the content, under Subtle Tone or a shaded window style. 1 is the default; lower is softer, higher is stronger.",
+          "kind": "number",
+          "default": 1,
+          "group": "Panes",
+          "range": {
+            "min": 0,
+            "max": 2,
+            "unit": "fraction"
+          }
+        },
+        {
+          "key": "appearance.titleAreaTone",
+          "title": "Title Area",
+          "help": "One Color draws the title bar, the tab bar and the sidebar in the content's color, parted by thin dividers, with a highlighted selected tab. Subtle Tone shades them slightly apart from the content, and the selected tab opens into the content.",
+          "kind": "choice",
+          "default": "oneColor",
+          "group": "Panes",
+          "values": [
+            "oneColor",
+            "subtleTone"
+          ]
         },
         {
           "key": "appearance.wallpaperTint",
@@ -5753,8 +5786,8 @@
         },
         {
           "key": "chief.subagentSidebar",
-          "title": "Subagents in the Sidebar",
-          "help": "Automatic lets the Chief decide for each subagent: work you will want to watch or join shows, short errands stay hidden. Always and Never override the Chief.",
+          "title": "Subagent Workspaces",
+          "help": "Every subagent gets a workspace. Chief Decides puts work you will watch or join in the sidebar and errands in the collapsed Chief's workspaces group, which search still finds. Sidebar or Chief's Workspaces puts every subagent there.",
           "kind": "choice",
           "default": "auto",
           "group": "Subagents",
@@ -5766,16 +5799,16 @@
         },
         {
           "key": "chief.subagentSidebarHideWords",
-          "title": "Hide Tasks That Mention",
-          "help": "Words or phrases that keep a subagent hidden when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A show word wins.",
+          "title": "Chief's Workspaces for Tasks That Mention",
+          "help": "Words or phrases that put a subagent in the collapsed Chief's workspaces group when the Chief leaves it to these rules. They add to the built-in ones, such as lookup, cleanup and land queue. A sidebar word wins.",
           "kind": "string_list",
           "default": [],
           "group": "Subagents"
         },
         {
           "key": "chief.subagentSidebarMinWords",
-          "title": "Show Tasks Longer Than",
-          "help": "A task with no show or hide word shows when it has at least this many words, and stays hidden when it is shorter.",
+          "title": "Sidebar for Tasks Longer Than",
+          "help": "A task with neither kind of word goes in the sidebar when it has at least this many words, and in Chief's workspaces when it is shorter.",
           "kind": "number",
           "default": 50,
           "group": "Subagents",
@@ -5787,8 +5820,8 @@
         },
         {
           "key": "chief.subagentSidebarShowWords",
-          "title": "Show Tasks That Mention",
-          "help": "Words or phrases that show a subagent when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you.",
+          "title": "Sidebar for Tasks That Mention",
+          "help": "Words or phrases that put a subagent in the sidebar when the Chief leaves it to these rules. They add to the built-in ones, such as UI, design, screenshots and needs you.",
           "kind": "string_list",
           "default": [],
           "group": "Subagents"

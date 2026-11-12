@@ -12,6 +12,10 @@
 //! not search again. Words match as `_acpmux/chats_search`'s do: every word, any case and order,
 //! within one message; the hit is the chat's newest such message.
 //!
+//! A Claude Code or Codex chat is followed (`follow.rs`): after its first read, a change reads only
+//! the lines appended since and edits the chat's text from its newest turn on, so a change costs
+//! the same in a 1 GB chat as in a small one.
+//!
 //! Bounded: a chat holds its newest messages up to [`CHAT_BYTES`], and the index holds chats
 //! newest first up to [`TOTAL_BYTES`]; an older chat past that is not held, so its words do not
 //! find it. One pass over [`TOTAL_BYTES`] stays within a keystroke (`search_bench` prints p95
@@ -35,6 +39,7 @@ use cmux_chat_index::{ChatEntry, IndexedChat};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use super::follow::{self, Follow};
 use super::key_text;
 use super::search::{Needle, flatten, snippet_around};
 
@@ -49,7 +54,9 @@ const SAVE_EVERY: Duration = Duration::from_secs(600);
 /// A row's snippet: at most this many characters, this many of them before the first word.
 const ROW_SNIPPET: usize = 96;
 const ROW_BEFORE: usize = 24;
-const SCHEMA: u32 = 1;
+const SCHEMA: u32 = 2;
+/// Schema 1's docs read as schema 2's: their turns are the transcript's, no message out of the window.
+const SCHEMA_V1: u32 = 1;
 /// The largest saved copy read back: the most text a run holds, with room for JSON's escapes.
 const SAVED_BYTES: u64 = 2 * TOTAL_BYTES as u64;
 
@@ -66,7 +73,8 @@ impl Stamp {
     }
 }
 
-/// One message: where it starts in its chat's text, its turn, and whether it is the answer.
+/// One message: where it starts in its chat's text, its turn (among every turn the chat's reader
+/// numbered, [`Doc::first_turn`] the transcript's first), and whether it is the answer.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Message {
     start: u32,
@@ -76,11 +84,19 @@ struct Message {
 
 /// One chat's text: its messages oldest first, each flattened (one space for every whitespace
 /// run) and ended by a newline, so no word runs across two messages.
-#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Doc {
     stamp: Stamp,
     text: String,
     messages: Vec<Message>,
+    /// The number of `_acpmux/chat_transcript`'s first turn: a message's turn there is its `turn`
+    /// less this.
+    #[serde(default)]
+    first_turn: u32,
+    /// Messages before this one are of turns out of the transcript's window: never found, and let
+    /// go of when the text passes its bound ([`Doc::bound`]).
+    #[serde(default)]
+    live: u32,
     /// The text holds a letter that lowercases to ASCII (`İ`, the Kelvin sign): the ASCII
     /// case-blind pass would miss what `Needle` finds there, so this doc takes `Needle`'s.
     #[serde(skip)]
@@ -88,7 +104,13 @@ struct Doc {
 }
 
 impl Doc {
+    #[cfg(test)]
     fn new(stamp: Stamp, turns: &[Turn]) -> Self {
+        Self::of_turns(stamp, turns, 0)
+    }
+
+    /// The doc of `turns`, numbered from `first_turn`: their newest messages up to [`CHAT_BYTES`].
+    fn of_turns(stamp: Stamp, turns: &[Turn], first_turn: u32) -> Self {
         let mut newest_first: Vec<(u32, bool, String)> = Vec::new();
         let mut bytes = 0_usize;
         'turns: for (turn, t) in turns.iter().enumerate().rev() {
@@ -101,13 +123,16 @@ impl Doc {
                 if bytes > CHAT_BYTES {
                     break 'turns;
                 }
-                newest_first.push((u32::try_from(turn).unwrap_or(u32::MAX), answer, flat));
+                let turn = u32::try_from(turn).unwrap_or(u32::MAX).saturating_add(first_turn);
+                newest_first.push((turn, answer, flat));
             }
         }
         let mut doc = Self {
             stamp,
             text: String::with_capacity(bytes),
             messages: Vec::new(),
+            first_turn,
+            live: 0,
             folds_to_ascii: false,
         };
         for (turn, answer, flat) in newest_first.into_iter().rev() {
@@ -121,14 +146,67 @@ impl Doc {
     }
 
     fn read_folds(&mut self) {
-        self.folds_to_ascii = !self.text.is_ascii()
-            && self.text.chars().any(|c| !c.is_ascii() && c.to_lowercase().any(|l| l.is_ascii()));
+        self.folds_to_ascii = folds_to_ascii(&self.text);
+    }
+
+    /// Turn `turn` and every one after it are replaced by `turns` (numbered from `turn`), the
+    /// window starts at turn `first`, and the text is held to its bound. Costs what the replaced
+    /// and added text does, not what the chat holds.
+    fn edit(&mut self, turn: u32, turns: &[Turn], first: u32) {
+        let cut = self.messages.partition_point(|m| m.turn < turn);
+        self.text.truncate(self.messages.get(cut).map_or(self.text.len(), |m| m.start as usize));
+        self.messages.truncate(cut);
+        for (number, t) in (turn..).zip(turns) {
+            for (answer, text) in [(false, &t.prompt), (true, &t.answer)] {
+                let flat = flatten(text);
+                if flat.is_empty() {
+                    continue;
+                }
+                // A text that lost a folding letter keeps the flag: `Needle`'s pass finds all.
+                self.folds_to_ascii = self.folds_to_ascii || folds_to_ascii(&flat);
+                let start = u32::try_from(self.text.len()).unwrap_or(u32::MAX);
+                self.messages.push(Message { start, turn: number, answer });
+                self.text.push_str(&flat);
+                self.text.push('\n');
+            }
+        }
+        self.first_turn = first;
+        let live = self.messages.partition_point(|m| m.turn < first);
+        self.live = u32::try_from(live).unwrap_or(u32::MAX);
+        self.bound();
+    }
+
+    /// Past [`CHAT_BYTES`], lets go of the messages out of the window, then of the oldest others
+    /// until the newest fit: the messages [`Self::of_turns`] keeps. Moves at most [`CHAT_BYTES`],
+    /// however long the chat.
+    fn bound(&mut self) {
+        let len = self.text.len();
+        if len <= CHAT_BYTES {
+            return;
+        }
+        let fits = self.messages.partition_point(|m| len - m.start as usize > CHAT_BYTES);
+        let keep = fits.max(self.live as usize);
+        let cut = self.messages.get(keep).map_or(len, |m| m.start as usize);
+        self.text.drain(..cut);
+        self.messages.drain(..keep);
+        let cut = u32::try_from(cut).unwrap_or(u32::MAX);
+        for message in &mut self.messages {
+            message.start -= cut;
+        }
+        self.live = 0;
+    }
+
+    /// Where the window's first message starts.
+    fn live_start(&self) -> usize {
+        self.messages.get(self.live as usize).map_or(self.text.len(), |m| m.start as usize)
     }
 
     /// Whether a doc read back holds its bound and its messages start in its text, in order, each on
     /// a character boundary.
     fn is_sound(&self) -> bool {
         self.text.len() <= CHAT_BYTES
+            && self.live as usize <= self.messages.len()
+            && self.messages.iter().skip(self.live as usize).all(|m| m.turn >= self.first_turn)
             && self.messages.windows(2).all(|pair| matches!(pair, [a, b] if a.start < b.start))
             && self.messages.iter().all(|m| {
                 self.text.is_char_boundary(m.start as usize) && (m.start as usize) < self.text.len()
@@ -157,12 +235,15 @@ impl Doc {
         };
         let ascii = matcher.ascii.as_deref().filter(|_| !self.folds_to_ascii);
         let Some((first, rest)) = ascii.and_then(<[_]>::split_first) else {
-            (0..self.messages.len())
+            (self.live as usize..self.messages.len())
                 .filter(|&i| needle.find(self.message(i)).is_some())
                 .for_each(hit);
             return found;
         };
-        let mut from = 0;
+        let mut from = self.live_start();
+        if from >= self.text.len() {
+            return None;
+        }
         while let Some(m) = first.find(Input::new(&self.text).range(from..)) {
             let i = self
                 .messages
@@ -181,6 +262,12 @@ impl Doc {
         }
         found
     }
+}
+
+/// Whether `text` holds a letter that lowercases to ASCII (`İ`, the Kelvin sign).
+fn folds_to_ascii(text: &str) -> bool {
+    !text.is_ascii()
+        && text.chars().any(|c| !c.is_ascii() && c.to_lowercase().any(|l| l.is_ascii()))
 }
 
 /// The words of a query as one pass looks for them: when every word is ASCII, one case-blind
@@ -223,6 +310,8 @@ pub struct Found {
 /// Every chat's text, and the last query's answer.
 pub struct ChatText {
     inner: Mutex<Inner>,
+    /// The followed transcripts by chat key (`follow.rs`): only the text thread reads them.
+    follows: Mutex<HashMap<String, Follow>>,
     /// The generation of the text: a window recomputes when it moves.
     changed: tokio::sync::watch::Sender<u64>,
     path: PathBuf,
@@ -258,14 +347,19 @@ struct Loaded {
     docs: Vec<(String, Doc)>,
 }
 
-fn lock(mutex: &Mutex<Inner>) -> MutexGuard<'_, Inner> {
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 impl ChatText {
     /// An empty index saved at `path`; [`Self::load`] reads what an earlier run saved.
     pub fn new(path: PathBuf) -> Self {
-        Self { inner: Mutex::default(), changed: tokio::sync::watch::channel(0).0, path }
+        Self {
+            inner: Mutex::default(),
+            follows: Mutex::default(),
+            changed: tokio::sync::watch::channel(0).0,
+            path,
+        }
     }
 
     /// Takes the text an earlier run saved; a missing, damaged or older copy is read past.
@@ -278,7 +372,7 @@ impl ChatText {
             .filter(|()| std::fs::metadata(&self.path).is_ok_and(|m| m.len() <= SAVED_BYTES))
             .and_then(|()| std::fs::read(&self.path).ok())
             .and_then(|bytes| serde_json::from_slice::<Loaded>(&bytes).ok())
-            .filter(|saved| saved.schema == SCHEMA)
+            .filter(|saved| saved.schema == SCHEMA || saved.schema == SCHEMA_V1)
         else {
             return;
         };
@@ -321,28 +415,67 @@ impl ChatText {
     /// held), up to [`TOTAL_BYTES`], and drops every chat not among them. Blocking; the lock is
     /// never held across a read.
     pub fn update(&self, chats: &[IndexedChat], read: &dyn Fn(&ChatEntry) -> Option<Vec<Turn>>) {
+        self.update_with(chats, read, false);
+    }
+
+    /// [`Self::update`], with each Claude Code and Codex chat followed (`follow.rs`): read whole
+    /// once, then from where its last read ended.
+    pub fn follow(&self, chats: &[IndexedChat], read: &dyn Fn(&ChatEntry) -> Option<Vec<Turn>>) {
+        self.update_with(chats, read, true);
+    }
+
+    fn update_with(
+        &self,
+        chats: &[IndexedChat],
+        read: &dyn Fn(&ChatEntry) -> Option<Vec<Turn>>,
+        following: bool,
+    ) {
         let mut room = TOTAL_BYTES;
         let mut kept: HashSet<String> = HashSet::new();
         let mut read_since_publish = 0_usize;
         for chat in chats {
             let key = key_text(&chat.entry.key());
             let stamp = Stamp::of(&chat.entry);
-            let held = lock(&self.inner)
-                .docs
-                .get(&key)
-                .filter(|doc| doc.stamp == stamp)
-                .map(|doc| doc.text.len());
+            let (held, has_doc) = {
+                let inner = lock(&self.inner);
+                let doc = inner.docs.get(&key);
+                (doc.filter(|doc| doc.stamp == stamp).map(|doc| doc.text.len()), doc.is_some())
+            };
             let bytes = match held {
                 Some(bytes) => bytes,
                 None => {
-                    let Some(turns) = read(&chat.entry) else { continue };
-                    let doc = Doc::new(stamp, &turns);
-                    let bytes = doc.text.len();
-                    if bytes > room {
-                        break;
-                    }
+                    let family = follow::family(chat.entry.harness).filter(|_| following);
+                    let Some(edit) = (match family {
+                        Some(family) => self.follow_one(&key, family, &chat.entry, has_doc),
+                        None => {
+                            read(&chat.entry).map(|turns| follow::Read::Whole { first: 0, turns })
+                        }
+                    }) else {
+                        continue;
+                    };
                     let mut inner = lock(&self.inner);
-                    inner.docs.insert(key.clone(), Arc::new(doc));
+                    let bytes = match edit {
+                        follow::Read::Whole { first, turns } => {
+                            let doc = Doc::of_turns(stamp, &turns, first);
+                            let bytes = doc.text.len();
+                            if bytes > room {
+                                break;
+                            }
+                            inner.docs.insert(key.clone(), Arc::new(doc));
+                            bytes
+                        }
+                        follow::Read::Tail { from, first, turns } => {
+                            // Edited in place: the kept search answer is let go of first, so it
+                            // holds no copy of the doc and the edit copies nothing (a search
+                            // still running elsewhere keeps its own copy).
+                            inner.answer = None;
+                            let Some(doc) = inner.docs.get_mut(&key) else { continue };
+                            let doc = Arc::make_mut(doc);
+                            doc.stamp = stamp;
+                            doc.edit(from, &turns, first);
+                            doc.text.len()
+                        }
+                    };
                     read_since_publish += 1;
                     if read_since_publish >= BATCH {
                         self.publish(&mut inner);
@@ -357,6 +490,7 @@ impl ChatText {
             room -= bytes;
             kept.insert(key);
         }
+        lock(&self.follows).retain(|key, _| kept.contains(key));
         let mut inner = lock(&self.inner);
         let before = inner.docs.len();
         inner.docs.retain(|key, _| kept.contains(key));
@@ -381,6 +515,29 @@ impl ChatText {
         if let Err(error) = save(&self.path, &Saved { schema: SCHEMA, docs }) {
             tracing::warn!(%error, "chat text: not saved");
         }
+    }
+
+    /// Reads a followed chat on from its last read (whole when there is none, or no doc to edit).
+    /// None: unreadable, not held.
+    fn follow_one(
+        &self,
+        key: &str,
+        family: &'static str,
+        entry: &ChatEntry,
+        has_doc: bool,
+    ) -> Option<follow::Read> {
+        let mut held = lock(&self.follows).remove(key).filter(|_| has_doc);
+        let read = follow::read(&mut held, family, &entry.source_path);
+        if let Some(held) = held {
+            lock(&self.follows).insert(key.to_owned(), held);
+        }
+        read
+    }
+
+    /// The bytes read from a followed chat's transcript since it was first followed.
+    #[cfg(test)]
+    pub(crate) fn follow_bytes(&self, key: &str) -> Option<u64> {
+        lock(&self.follows).get(key).map(|held| held.bytes_read)
     }
 
     /// Every held chat whose messages hold every word of `needle`, by chat key. The answer is
@@ -432,7 +589,7 @@ impl ChatText {
         let text = doc.message(i);
         let snippet = snippet_around(text, needle.find(text).unwrap_or(0), ROW_BEFORE, ROW_SNIPPET);
         Some(json!({
-            "turn": message.turn,
+            "turn": message.turn.saturating_sub(doc.first_turn),
             "role": if message.answer { "answer" } else { "prompt" },
             "highlights": needle.highlights(&snippet),
             "snippet": snippet,
@@ -484,3 +641,7 @@ pub static SAVE_CHECKED: std::sync::OnceLock<fn(bool)> = std::sync::OnceLock::ne
 #[cfg(test)]
 #[path = "text_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "follow_tests.rs"]
+mod follow_tests;
