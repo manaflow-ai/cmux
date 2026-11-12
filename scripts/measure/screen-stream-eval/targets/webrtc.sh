@@ -156,13 +156,18 @@ EOF
     # window-view SECONDS SNAPSHOT GO RAW
     seconds=$1 snapshot=$2 go=$3 raw=$4
     : >"$raw"
+    start_ms=$(date +%s%3N)
     # The viewer creates GO itself at its first frame: swift test holds its output back until the
     # test ends, so a printed line would start the scene late (2026-11-05: GO 60 s late, after the
     # wait below ran out, put typing and scrolling past the window's end).
     CMUX_EVAL_WINDOW_S=$seconds CMUX_EVAL_SNAPSHOT=$snapshot CMUX_EVAL_GO=$go viewer StreamWindowTests "$raw" &
     pid=$!
     for _ in $(seq 1 600); do
-      [[ -e "$go" ]] && break
+      if [[ -e "$go" ]]; then
+        first_ms=$(date +%s%3N)
+        echo $((first_ms - start_ms)) >"$raw.first"
+        break
+      fi
       kill -0 "$pid" 2>/dev/null || break
       sleep 0.1 # bounded wait for the first frame (60 s: the test viewer starts, then connects)
     done
@@ -181,6 +186,12 @@ if not lines:
     sys.exit("webrtc: the window viewer printed no report")
 raw = json.loads(lines[-1])
 offset = float(sys.argv[4])
+first = None
+try:
+    if os.path.exists(sys.argv[1] + ".first"):
+        first = max(0, int(open(sys.argv[1] + ".first").read().strip()))
+except (ValueError, OSError):
+    first = None
 # Each 3 s interval's own encode mean, from consecutive cumulative lines, given to the seconds it covers.
 stamps = [json.loads(l) for l in open(sys.argv[3]) if l.strip()] if os.path.exists(sys.argv[3]) else []
 intervals = []
@@ -196,7 +207,8 @@ for s in raw["series"]:
                    "decode_ms": s["decode_ms_mean"] if s["decode_ms_mean"] >= 0 else None,
                    "encode_ms": encode_at(at), "rtt_ms": s.get("rtt_ms"), "jitter_buffer_ms": s.get("jitter_buffer_ms")})
 json.dump({"series": series,
-           "extra": {k: raw.get(k) for k in ("codec", "decoder", "packets_lost", "frames_dropped", "freezes")}}, open(sys.argv[2], "w"))
+           "extra": {"first_frame_ms": first, "cpu_pct": raw.get("client_cpu_pct"),
+                     **{k: raw.get(k) for k in ("codec", "decoder", "packets_lost", "frames_dropped", "freezes")}}}, open(sys.argv[2], "w"))
 EOF
     ;;
   *) echo "webrtc.sh: unknown verb $verb" >&2; exit 2 ;;

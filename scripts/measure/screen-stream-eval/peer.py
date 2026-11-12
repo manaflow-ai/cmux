@@ -148,6 +148,8 @@ def call(folder: Path, target: str, verb: str, args: list[str]) -> int:
     for key, path in outputs.items():
         if key in body.get("files", {}):
             Path(path).write_bytes(base64.b64decode(body["files"][key]))
+    if "first" in body.get("files", {}):
+        Path(f"{outputs['raw']}.first").write_bytes(base64.b64decode(body["files"]["first"]))
     if "clock" in body:
         Path(f"{outputs['raw']}.clock").write_text(json.dumps(body["clock"]))
     if "span" in body:  # on this Mac's wall clock, as the host's own logs are
@@ -269,7 +271,7 @@ def agent(host: str, port: int, token: str, root: Path) -> int:
         if not relayed and go.exists():
             request(f"/go/{cmd['id']}", {})
         after = offsets()
-        files = {k: base64.b64encode(p.read_bytes()).decode() for k, p in (("raw", raw), ("snapshot", snapshot)) if p.is_file()}
+        files = {k: base64.b64encode(p.read_bytes()).decode() for k, p in (("raw", raw), ("snapshot", snapshot), ("first", Path(f"{raw}.first"))) if p.is_file()}
         clock = {k: (before[k] + after[k]) / 2 for k in ("mono_ms", "wall_ms")}
         clock.update({"rtt_ms": min(before["rtt_ms"], after["rtt_ms"]),
                       "mono_drift_ms": after["mono_ms"] - before["mono_ms"], "wall_drift_ms": after["wall_ms"] - before["wall_ms"]})

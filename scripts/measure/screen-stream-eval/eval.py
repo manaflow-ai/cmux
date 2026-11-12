@@ -16,7 +16,7 @@ and each TARGET is
    "split": {"key"|"pointer": {"encode_ms", "transport_ms", "decode_ms", "input_to_capture_ms", "method",
                                 [rd: "input_to_capture_parts": {"render_ms"|"sck_ms"|"pickup_ms"|"gate_ms"|"encode_ms": {"n", "p50", "p95"}}]},
              "typing": {"encode_ms", "decode_ms"}},
-   "extra": {..., "repeats": [{"repeat", "kbps", "fps", "ocr_cer", ...}]}}
+   "extra": {..., "first_frame_ms", "cpu_pct", "repeats": [{"repeat", "kbps", "fps", "ocr_cer", ...}]}}
 The window and OCR scenarios run several times (the harness's repeats=, 3 by default): each of
 their numbers is the median of the repeats that measured it, and extra.repeats keeps every repeat's
 own. Latency runs once: its p50 and p95 are already over SAMPLES inputs.
@@ -75,7 +75,7 @@ def empty_target(errors: list[str]) -> dict:
         "ocr": dict.fromkeys(OCR_FIELDS),
         "split": {**{k: {"input_to_capture_ms": None, "encode_ms": None, "transport_ms": None, "decode_ms": None, "method": None}
                      for k in ("key", "pointer")}, "typing": {"encode_ms": None, "decode_ms": None}},
-        "extra": {},
+        "extra": {"first_frame_ms": None, "cpu_pct": None},
     }
 
 
@@ -144,7 +144,9 @@ def target(name: str, folder: Path, out: Path) -> None:
                 result["ocr"][k] = middle.get(k)
     else:
         errors.append("ocr: no result")
-    result["extra"] = {**(extras[0] if extras else {}), "repeats": per_rep}
+    result["extra"] = {"first_frame_ms": median_of(e.get("first_frame_ms") for e in extras),
+                        "cpu_pct": median_of(e.get("cpu_pct", e.get("process_cpu_pct")) for e in extras),
+                        **(extras[0] if extras else {}), "repeats": per_rep}
     result["ok"] = not errors
     out.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
 
@@ -204,6 +206,7 @@ def summary(results_path: Path, out: Path, previous_path: Path | None) -> None:
             lines.append(f"| kbps, {label} | {cell('kbps', phase, unit='', digits=0)} at {cell('fps', phase, unit=' fps')} |")
         lines.append(f"| Text OCR error (13 pt code, viewer vs host screenshot) | {cell('ocr', 'cer', unit='%', digits=2)}"
                      f" (host OCR vs drawn text {fmt(get(t, 'ocr', 'host_cer_vs_truth'), '%', 2)}) |")
+        lines.append(f"| First decoded frame / viewer CPU | {cell('extra', 'first_frame_ms')} / {cell('extra', 'cpu_pct', unit='%', digits=1)} |")
         for kind in ("key", "pointer"):
             lines.append(f"| {kind.capitalize()} split: input→capture / encode / transport / decode | "
                          f"{cell('split', kind, 'input_to_capture_ms')} / {cell('split', kind, 'encode_ms', digits=2)} / "

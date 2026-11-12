@@ -94,6 +94,12 @@ Today's targets:
 - `rd-window`: the same window alone as a cmux.rd/1 stream at the same 360 px rung (`cmux-rd host
   --display window:ID --max-width 360 --max-fps 6`), with `cmux-rd bench` as the viewer.
   `rd-window-30` runs it at 30 fps. Both have window rows only.
+- `apple-high` and `apple-standard` open Apple's Screen Sharing.app against the
+  same host and sample its displayed frames, bytes, first-frame time and viewer
+  CPU. They represent the two quality profiles selected in the app. Apple does
+  not expose a supported input-to-presented-frame timestamp, so their key and
+  pointer latency rows remain explicitly unavailable rather than mixing in a
+  different protocol.
 
 The window targets add `extra.process_cpu_pct`, the CPU of the process that captures and encodes,
 over the view. Compare them in one run with `--arg=targets=cu-png,rd-window,rd-window-30`
