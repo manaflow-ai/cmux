@@ -77,7 +77,8 @@ export function useFinishMoments({
     const pending = pendingSound.current;
     if (!pending || pending.session !== session || !summary || summary.id === pending.seen) return;
     pendingSound.current = undefined;
-    if (!UNFINISHED.has(summary.status ?? "")) playFinishSound("turn");
+    // A page hidden since the turn ended leaves the sound to the Agent Finished notification.
+    if (!UNFINISHED.has(summary.status ?? "") && shown()) playFinishSound("turn");
   };
   // The person pressed Stop on the running turn (the snapshot's `stopping`, at the last render): its
   // end is no success. A refused Stop clears it while the turn goes on, and that turn's end counts.
@@ -110,6 +111,15 @@ export function useFinishMoments({
     }
     // oxlint-disable-next-line react-hooks/exhaustive-deps -- turnSummary is read by the effect below
   }, [session, working, turnStartedAtMs, clockOffsetMs, stopping]);
+  // A page hidden while the sound waits gives the turn to the Agent Finished notification, which
+  // sounds for it; showing the page again before the summary comes does not bring the sound back.
+  useEffect(() => {
+    const dropWhenHidden = () => {
+      if (!shown()) pendingSound.current = undefined;
+    };
+    document.addEventListener("visibilitychange", dropWhenHidden);
+    return () => document.removeEventListener("visibilitychange", dropWhenHidden);
+  }, []);
   // The ended turn's summary row may come a render after its end.
   // oxlint-disable-next-line react-hooks/exhaustive-deps -- resolveSound reads refs and this render's session
   useEffect(() => resolveSound(turnSummary), [turnSummary?.id, turnSummary?.status]);
