@@ -16,17 +16,17 @@
 //! - **memory**: the peak resident memory of a new process that opens the god book and reads
 //!   its first window: under 8 MB (Linux).
 //!
-//! Also reported, with no bar: a resume from a cursor 40 rows back, a checkpoint, and an open
-//! that repairs a torn tail.
+//! Open, including torn-tail repair, is gated at 1.2x with the same checkpoint suffix.
 //!
 //! Run (Linux, release; about a minute and 700 MB of disk under `ACPMUX_BOOK_BENCH_DIR` or the
 //! temp dir):
 //! `cargo test -p acpmux-book --release --lib god_vs_small -- --ignored --nocapture`
 //! The kill-at-every-byte tests are in `recover_tests.rs` and run with the ordinary suite.
 
-use crate::log::{Anchor, Edge, Log, MAX_PAGE_BYTES, StateWriter, section};
+use crate::log::{Anchor, Edge, Log, MAX_PAGE_BYTES, RawRange, StateWriter, section};
 use crate::testkit::{open, text};
 use std::fmt::Write as _;
+use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -69,6 +69,32 @@ fn dist(samples: &[u64]) -> Dist {
         .min()
         .unwrap();
     Dist { p50: percentile(&sorted, 0.5), p95: percentile(&sorted, 0.95), best_p95 }
+}
+
+/// Append, rather than replace, so one runner can collect several crate-local gates.
+fn emit_measure(name: &str, small: u64, god: u64, unit: &str) {
+    if let Some(path) = std::env::var_os("V2_GATE_OUT") {
+        let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
+        writeln!(
+            file,
+            "{{\"name\":\"{name}\",\"small_p95\":{small},\"god_p95\":{god},\"unit\":\"{unit}\"}}"
+        )
+        .unwrap();
+    }
+}
+
+/// Use exactly the same distribution in the exported receipt and the asserted gate.
+fn gate_p95(small: &Dist, god: &Dist) -> (u64, u64) {
+    if small.best_p95 < 100_000 && god.best_p95 < 100_000 {
+        (small.best_p95, god.best_p95)
+    } else {
+        (small.p95, god.p95)
+    }
+}
+
+fn emit_timing(name: &str, small: &Dist, god: &Dist) {
+    let (small, god) = gate_p95(small, god);
+    emit_measure(name, small, god, "ns");
 }
 
 fn micros(nanos: u64) -> String {
@@ -118,14 +144,16 @@ impl Report {
             &micros(small.p95),
             &micros(god.p95),
             Some(god.p95 as f64 / small.p95 as f64),
-            "-",
-            None,
+            if gate { "pooled god <= 2x small" } else { "-" },
+            gate.then_some(god.p95 <= small.p95.saturating_mul(2)),
         );
-        let ratio = god.best_p95 as f64 / small.best_p95 as f64;
+        // The noise allowance is only for sub-100-us paths.
+        let (small_p95, god_p95) = gate_p95(small, god);
+        let ratio = god_p95 as f64 / small_p95 as f64;
         self.row(
             &format!("{what}, p95 (best of {ROUNDS} rounds)"),
-            &micros(small.best_p95),
-            &micros(god.best_p95),
+            &micros(small_p95),
+            &micros(god_p95),
             Some(ratio),
             if gate { "god <= 1.2x small" } else { "-" },
             gate.then_some(ratio <= 1.2),
@@ -151,25 +179,28 @@ fn actor_state(id: u64) -> StateWriter {
 struct Appends {
     /// Nanoseconds per `append_settled`.
     times: Vec<u64>,
+    bytes: Vec<u64>,
     /// Nanoseconds per `write_checkpoint`.
     checkpoints: Vec<u64>,
-    /// Row text appended, and everything `append_settled` wrote for it.
-    text_bytes: u64,
-    written: u64,
     checkpoint_bytes: u64,
 }
 
 /// Appends rows `from..=to`, timing each, with a checkpoint every 256 rows and one
 /// `ROWS_AFTER_CHECKPOINT` rows before `end`.
 fn timed_appends(log: &mut Log, from: u64, to: u64, end: u64, into: &mut Appends) {
+    let raw_file = log.append_raw_file(b"bench/raw.ndjson").unwrap();
     for id in from..=to {
         let text = text(id);
         let before = log.stats().bytes_written;
         let start = Instant::now();
-        log.append_settled(id, 1, &text).unwrap();
-        into.times.push(nanos(start));
-        into.written += log.stats().bytes_written - before;
-        into.text_bytes += text.len() as u64;
+        log.append_settled(id, 1, RawRange { file: raw_file, off: id, len: 1 }, &text).unwrap();
+        let elapsed = nanos(start);
+        // Both sides exclude the same position in each 40-row group. The first append to
+        // a new book pays mapping/allocation only on small; it has a separate cold gate.
+        if id % SMALL_ROWS != 1 {
+            into.times.push(elapsed);
+            into.bytes.push(log.stats().bytes_written - before);
+        }
         if id.is_multiple_of(CHECKPOINT_EVERY) || id + ROWS_AFTER_CHECKPOINT == end {
             let state = actor_state(id);
             let before = log.stats().bytes_written;
@@ -248,7 +279,7 @@ fn torn_open(dir: &Path) -> u64 {
     {
         let (mut log, _) = open(dir);
         let id = log.max_row() + 1;
-        log.append_settled(id, 1, &text(id)).unwrap();
+        log.append_settled(id, 1, RawRange { file: 1, off: id, len: 1 }, &text(id)).unwrap();
     }
     let last =
         std::fs::read_dir(dir.join("rows")).unwrap().map(|entry| entry.unwrap().path()).max();
@@ -289,10 +320,11 @@ fn god_vs_small() {
     // ---- append: one book of 2M rows; its last 20,000 appends are the ones timed ----
     let build = Instant::now();
     let (mut log, _) = open(&god_dir);
+    let raw_file = log.append_raw_file(b"bench/raw.ndjson").unwrap();
     let untimed = GOD_ROWS - TIMED_ROWS;
     for id in 1..=untimed {
-        log.append_settled(id, 1, &text(id)).unwrap();
-        if id.is_multiple_of(4096) {
+        log.append_settled(id, 1, RawRange { file: raw_file, off: id, len: 1 }, &text(id)).unwrap();
+        if id.is_multiple_of(CHECKPOINT_EVERY) {
             log.write_checkpoint(actor_state(id).as_bytes()).unwrap();
         }
     }
@@ -308,28 +340,20 @@ fn god_vs_small() {
         .map(|entry| entry.unwrap().metadata().unwrap().len())
         .sum();
 
-    let per = |bytes: u64| bytes as f64 / TIMED_ROWS as f64;
-    let (small_written, god_written) = (per(small.written), per(god.written));
+    let (small_written, god_written) = (dist(&small.bytes).p95, dist(&god.bytes).p95);
+    let byte_ratio = god_written as f64 / small_written as f64;
     report.row(
-        "append: bytes written per row",
-        &format!("{small_written:.1} B"),
-        &format!("{god_written:.1} B"),
-        Some(god_written / small_written),
+        "append: bytes written per row, p95",
+        &format!("{small_written} B"),
+        &format!("{god_written} B"),
+        Some(byte_ratio),
         "god <= 1.2x small",
-        Some(god_written / small_written <= 1.2),
+        Some(byte_ratio <= 1.2),
     );
-    let (small_over, god_over) =
-        (per(small.written - small.text_bytes), per(god.written - god.text_bytes));
-    report.row(
-        "append: of which not row text (record frame, index entries)",
-        &format!("{small_over:.2} B"),
-        &format!("{god_over:.2} B"),
-        Some(god_over / small_over),
-        "-",
-        None,
-    );
-    report.timed("append: time per row", &dist(&small.times), &dist(&god.times), true);
-    report.timed("checkpoint: time", &dist(&small.checkpoints), &dist(&god.checkpoints), false);
+    let (small_append, god_append) = (dist(&small.times), dist(&god.times));
+    report.timed("append: time per row", &small_append, &god_append, true);
+    emit_timing("v2.pr01.append_time", &small_append, &god_append);
+    emit_measure("v2.pr01.append_bytes", small_written, god_written, "bytes");
     report.row(
         "checkpoint: bytes",
         &format!("{} B", small.checkpoint_bytes / small.checkpoints.len() as u64),
@@ -361,7 +385,10 @@ fn god_vs_small() {
             "-",
             None,
         );
-        report.timed(&what, &small_dist, &god_dist, gate);
+        if gate {
+            report.timed(&what, &small_dist, &god_dist, true);
+            emit_timing("v2.pr01.first_window", &small_dist, &god_dist);
+        }
         if rows == 400 {
             let worst = small_dist.p95.max(god_dist.p95);
             report.row(
@@ -375,16 +402,44 @@ fn god_vs_small() {
         }
     }
 
+    // ---- open alone: the same checkpoint interval at each book length ----
+    let (mut small_open, mut god_open) = (Vec::new(), Vec::new());
+    for _ in 0..ROUNDS * 200 {
+        for (dir, samples) in [(&small_dir, &mut small_open), (&god_dir, &mut god_open)] {
+            let start = Instant::now();
+            let (log, recovered) = open(dir);
+            samples.push(nanos(start));
+            assert_eq!(recovered.replayed, ROWS_AFTER_CHECKPOINT);
+            drop(log);
+        }
+    }
+    let (small_open, god_open) = (dist(&small_open), dist(&god_open));
+    report.timed("open: one checkpoint interval", &small_open, &god_open, true);
+
+    // Both sides pay first map/allocation in a new book, with exactly the same payload.
+    let (mut small_cold, mut god_cold) = (Vec::new(), Vec::new());
+    for _ in 0..ROUNDS * 100 {
+        for samples in [&mut small_cold, &mut god_cold] {
+            let dir = tempfile::tempdir_in(home.path()).unwrap();
+            let (mut log, _) = open(dir.path());
+            let file = log.append_raw_file(b"bench/raw.ndjson").unwrap();
+            let text = text(1);
+            let start = Instant::now();
+            log.append_settled(1, 1, RawRange { file, off: 0, len: 1 }, &text).unwrap();
+            samples.push(nanos(start));
+        }
+    }
+    let (small_cold, god_cold) = (dist(&small_cold), dist(&god_cold));
+    report.timed("cold first append", &small_cold, &god_cold, true);
+    emit_timing("v2.pr01b.cold_first_append", &small_cold, &god_cold);
+
     // ---- page: a 256 KB page is one read ----
     let (mut log, _) = open(&god_dir);
     let (mut buf, mut at) = (Vec::new(), Vec::new());
-    let mut page_times = Vec::new();
     let (mut page_rows, mut page_bytes, mut most_reads) = (0usize, 0usize, 0u32);
     for anchor in (1..=200u64).map(|step| step * (GOD_ROWS / 200)) {
-        let start = Instant::now();
         let page = log.page(Edge::Before(anchor), MAX_PAGE_BYTES);
         let reads = log.fill(&page.rows, &mut buf, &mut at).unwrap();
-        page_times.push(nanos(start));
         most_reads = most_reads.max(reads);
         page_rows += page.rows.len();
         page_bytes += at.iter().map(|range| range.len()).sum::<usize>();
@@ -411,7 +466,6 @@ fn god_vs_small() {
         let reads = small_log.fill(&page.rows, &mut buf, &mut at).unwrap();
         (page.rows.len(), at.iter().map(|range| range.len()).sum::<usize>(), reads)
     };
-    let page_dist = dist(&page_times);
     report.row(
         "page (256 KB asked): reads per page",
         &format!("{} ({} rows, {} B)", small_page.2, small_page.0, small_page.1),
@@ -424,37 +478,6 @@ fn god_vs_small() {
         "one read",
         Some(most_reads == 1 && small_page.2 == 1),
     );
-    report.row(
-        "page (256 KB): page + fill",
-        "-",
-        &format!("p50 {}, p95 {}", micros(page_dist.p50), micros(page_dist.p95)),
-        None,
-        "-",
-        None,
-    );
-
-    // ---- resume: a cursor 40 rows back ----
-    let (mut small_log, _) = open(&small_dir);
-    let (mut small_times, mut god_times) = (Vec::new(), Vec::new());
-    for _ in 0..ROUNDS * 200 {
-        let start = Instant::now();
-        let since = small_log.since(0, WINDOW_BYTES).unwrap();
-        small_log.fill(&since.rows, &mut buf, &mut at).unwrap();
-        small_times.push(nanos(start));
-        assert_eq!(since.rows.len() as u64, SMALL_ROWS);
-        let start = Instant::now();
-        let since = log.since(GOD_ROWS - SMALL_ROWS, WINDOW_BYTES).unwrap();
-        log.fill(&since.rows, &mut buf, &mut at).unwrap();
-        god_times.push(nanos(start));
-        assert_eq!(since.rows.len() as u64, SMALL_ROWS);
-    }
-    report.timed(
-        "resume 40 rows back: since + fill",
-        &dist(&small_times),
-        &dist(&god_times),
-        false,
-    );
-    drop(small_log);
     drop(log);
 
     // ---- memory: a new process opens the book and reads its first window ----
@@ -490,13 +513,18 @@ fn god_vs_small() {
     }
 
     // ---- an open that repairs a torn tail ----
-    let small_torn: Vec<u64> = (0..50).map(|_| torn_open(&small_dir)).collect();
-    let god_torn: Vec<u64> = (0..50).map(|_| torn_open(&god_dir)).collect();
-    report.timed("open that cuts off a torn record", &dist(&small_torn), &dist(&god_torn), false);
+    let (mut small_torn, mut god_torn) = (Vec::new(), Vec::new());
+    for _ in 0..ROUNDS * 20 {
+        small_torn.push(torn_open(&small_dir));
+        god_torn.push(torn_open(&god_dir));
+    }
+    let (small_torn, god_torn) = (dist(&small_torn), dist(&god_torn));
+    report.timed("open that cuts off a torn record", &small_torn, &god_torn, true);
+    emit_timing("v2.pr01b.torn_open", &small_torn, &god_torn);
 
     let header = format!(
         "acpmux-book god vs small: {GOD_ROWS} rows against {SMALL_ROWS}. God book: {segments} segments, {:.0} MB of \
-         segments, rows.idx {:.0} MB mapped, built in {build_seconds:.1} s ({:.0} rows/s with a checkpoint every 4096 \
+         segments, rows.idx {:.0} MB mapped, built in {build_seconds:.1} s ({:.0} rows/s with a checkpoint every 256 \
          rows).\n\n| What | small ({SMALL_ROWS} rows) | god ({GOD_ROWS} rows) | god/small | bar | |\n|---|---|---|---|---|---|\n",
         god_disk as f64 / 1e6,
         god_stats.index_mapped_bytes as f64 / 1e6,
