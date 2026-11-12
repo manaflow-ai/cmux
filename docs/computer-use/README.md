@@ -144,10 +144,14 @@ Prevention, in the desktop (macOS):
     By > Name"). On macOS 27 that is most context menus.
   - A one-call pick holds the keyboard while it picks (about 0.5 to 1.5 s),
     as Codex Computer Use's does.
-  - A helper process's key-focus theft (a System Settings pane's pop-up)
-    is released only once its menu window shows over the target, and the
-    notice is read before the window is up, so on macOS 12 to 26 such a
-    menu usually falls to KEYBOARD_KEPT_REFUSAL; `set_value` still picks it.
+  - When the handoff armed but the keyboard was not given back (a helper's
+    theft, released only once its menu window shows over the target, or a
+    release that missed), the menu is listed and closed the same way, with
+    the reason in the result's note (`keyboard handoff: ...`); `set_value`
+    and `click` with `menu_item` still pick in one call.
+  - The target's theft goes back once any new menu-layer window shows (a
+    context menu's window need not belong to the process the notice
+    names), or as soon as the call itself sees its menu open.
   - Display screenshots show a menu the agent opened as it is on screen,
     hidden items' titles included (only the windows of blocked apps are
     redacted; a window screenshot leaves menus out). Codex Computer Use

@@ -560,6 +560,8 @@ impl MacDesktop {
             return Err(e);
         }
         if let Some(found) = found {
+            // The menu is up: a target theft still waiting goes back now.
+            key_focus::menu_opened();
             return Ok(found);
         }
         // A menu window of the app showed, but no menu element in time: it
@@ -834,12 +836,12 @@ impl MacDesktop {
     fn list_opened(&self, t: &Target, opened: OpenedMenu, route: &str) -> DResult<ActionOutcome> {
         let (menu, windows, _, guard) = opened;
         let keyboard = guard.report();
-        if guard.armed() && keyboard == "menu" {
-            let refused = DesktopError::Unsupported(menus::KEYBOARD_KEPT_REFUSAL.into());
-            return Err(self.close_and_fail(t, &menu, &windows, refused));
-        }
+        // The guard armed but the keyboard was not given back: the menu holds
+        // it (the person's window would even look active), so it is never
+        // left open; it is listed and closed, as on the fallback.
+        let kept = guard.armed() && keyboard == "menu";
         let all = items(self, &menu);
-        let held = !guard.armed();
+        let held = !guard.armed() || kept;
         // A menu that holds the person's keyboard reaches every level by
         // their own keys, and AX gives no sign of a submenu the app fills
         // when it opens (an "Item" placeholder or a stale list that becomes
@@ -848,7 +850,7 @@ impl MacDesktop {
         // closed and its titles listed, for a one-call pick with a path.
         let nested_hidden =
             held && self.denies_any() && all.iter().any(|i| i.denied || i.info.submenu);
-        if nested_hidden {
+        if nested_hidden || kept {
             if self.denies_any() && !workspace::app_names_ready() {
                 let refused = DesktopError::Unsupported(menus::APP_NAMES_LOADING.into());
                 return Err(self.close_and_fail(t, &menu, &windows, refused));
@@ -868,6 +870,9 @@ impl MacDesktop {
                 return Err(DesktopError::Failed(menus::MENU_DID_NOT_CLOSE.into()));
             }
             let mut out = ActionOutcome::delivered(route);
+            if kept {
+                out.note = format!("keyboard handoff: {}", key_focus::note());
+            }
             let mut report = MenuReport::listed(shown, hidden);
             report.more = more;
             report.keyboard = keyboard;

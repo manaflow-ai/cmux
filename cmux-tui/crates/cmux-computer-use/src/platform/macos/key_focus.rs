@@ -164,6 +164,9 @@ struct State {
     /// The target's theft (thief, person's app) that showed no menu: its
     /// keyboard goes back when the call disarms.
     pending: Option<(i32, i32)>,
+    /// What the handoff did last for the armed call, for the result's note
+    /// when the keyboard was not given back.
+    note: &'static str,
     lookup_until: Option<Instant>,
     released: u64,
     missed: u64,
@@ -336,6 +339,7 @@ extern "C" fn front_tap(
     match classify(event_type, subtype, thief, front, std::process::id() as i32, armed, owner) {
         Notice::Pass => event,
         Notice::ReleaseAndDrop(thief) => {
+            state().note = "the theft was seen; the release had not run yet";
             // The release waits for the menu window: released earlier, the
             // window server orders the menu's window group (and the target's
             // window) to the front.
@@ -385,8 +389,14 @@ extern "C" fn menu_tap(
 /// the menu shows (or, for the target, when the call disarms).
 fn release_theft(thief: i32, front: i32, thief_is_target: bool) {
     let start = Instant::now();
-    let menu_shows =
-        || super::cgwindows::on_screen().iter().any(|w| w.pid == thief && w.layer == MENU_LAYER);
+    // Any menu window that was not there when the call armed: a context
+    // menu's window need not belong to the process the notice names.
+    let before = state().menus_before.clone();
+    let menu_shows = || {
+        super::cgwindows::on_screen()
+            .iter()
+            .any(|w| w.layer == MENU_LAYER && (w.pid == thief || !before.contains(&w.id)))
+    };
     while start.elapsed() < MENU_WAIT && !menu_shows() {
         std::thread::sleep(Duration::from_millis(2));
     }
@@ -395,6 +405,7 @@ fn release_theft(thief: i32, front: i32, thief_is_target: bool) {
         ReleasePlan::Now => give_back(thief),
         ReleasePlan::AtDisarm => {
             let mut st = state();
+            st.note = "no new menu window seen after the theft";
             if st.armed_until.is_some() {
                 st.pending = Some((thief, front));
             } else {
@@ -403,7 +414,15 @@ fn release_theft(thief: i32, front: i32, thief_is_target: bool) {
                 give_back(thief);
             }
         }
-        ReleasePlan::Miss => state().missed += 1,
+        ReleasePlan::Miss => {
+            let mut st = state();
+            st.missed += 1;
+            st.note = if person_front {
+                "a helper's theft with no menu window over the target"
+            } else {
+                "the person's app was no longer in front"
+            };
+        }
     }
 }
 
@@ -442,7 +461,34 @@ fn give_back(thief: i32) {
         release_below(own, |id| unsafe { (sl.release)(id) }).is_some()
     });
     let mut st = state();
-    if ok { st.released += 1 } else { st.missed += 1 }
+    if ok {
+        st.released += 1;
+        st.note = "released";
+    } else {
+        st.missed += 1;
+        st.note = "the SkyLight release found no theft to release";
+    }
+}
+
+/// The call saw its menu open: a target theft still waiting for its menu
+/// window (an owner or layer the release thread did not recognize) goes
+/// back now rather than at disarm.
+pub(super) fn menu_opened() {
+    let pending = state().pending.take();
+    if let Some((thief, front)) = pending {
+        if super::frontmost_pid() == Some(front) {
+            give_back(thief);
+        } else {
+            let mut st = state();
+            st.missed += 1;
+            st.note = "the person's app was no longer in front";
+        }
+    }
+}
+
+/// What the handoff did last for the armed call (for a result's note).
+pub(super) fn note() -> &'static str {
+    state().note
 }
 
 /// A focus-notice tap on `pid`, on a thread of its own with a run loop.
@@ -540,6 +586,7 @@ pub(super) fn arm(
     st.menus_before = before;
     st.guard = guard;
     st.target_frame = Some(target_frame);
+    st.note = "no lost-key notice from the person's app";
     true
 }
 
