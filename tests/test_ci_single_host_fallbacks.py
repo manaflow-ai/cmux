@@ -541,6 +541,17 @@ class SingleHostFallbacks(unittest.TestCase):
         findings = self.scan({"x.yml": matrix})
         self.assertTrue([f for f in findings if "cannot settle" in f], findings)
 
+    def test_review_f1_a_constant_fromjson_the_resolver_leaves_unresolved_cannot_settle(self) -> None:
+        """Review F1 on #41933: settled() took any `fromJSON('<literal>')` as settled, even one constant_from_json
+        leaves unresolved (`null`, an object, a key the literal lacks), so its runs-on passed with no label read. A
+        constant settles only as the labels it resolves to; one that resolves to none is a finding."""
+        for value in ("${{ fromJSON('null') }}", "${{ fromJSON(('null')) }}", "${{ fromJSON('{\"mac\": \"a\"}') }}",
+                      "${{ fromJSON('{\"mac\": \"a\"}').linux }}", "${{ fromJSON('[]') }}",
+                      "${{ needs.a.outputs.x && fromJSON('null') || 'ubuntu-24.04' }}"):
+            with self.subTest(runs_on=value):
+                findings = self.runs_on(value)
+                self.assertTrue([f for f in findings if "cannot settle" in f], findings)
+
     def test_review_f1_a_settled_picker_still_passes(self) -> None:
         for value in ("${{ fromJSON(github.run_attempt > 1 && needs.r.outputs.retry || needs.r.outputs.runs_on) }}",
                       "${{ fromJSON(needs.p.outputs.runners || '{}')['cli-product'] }}",
