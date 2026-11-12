@@ -285,14 +285,13 @@ extension PaletteModel {
         return [PaletteResultSection(section: items[0].section, rows: rows)] + sections
     }
 
-    /// `sections` with each of the page's `notices` (`PaletteItem.showsForEveryQuery`) that the typed query did
-    /// not find, after the rows of its section, or in a last section of its own. A page with no notice (nearly
-    /// every page) costs one check.
+    /// `sections` with each of the page's `notices` (`PaletteItem.showsForEveryQuery`; the ranker never finds
+    /// one for a typed query) after the rows of its section, or in a last section of its own. A page with no
+    /// notice (nearly every page) costs one check; a notice costs a lookup of its section and one append.
     static func withNotices(_ sections: [PaletteResultSection], _ notices: [PaletteItem]) -> [PaletteResultSection] {
         guard !notices.isEmpty else { return sections }
-        let found = Set(sections.lazy.flatMap(\.rows).map(\.id))
         var sections = sections
-        for notice in notices where !found.contains(notice.id) {
+        for notice in notices {
             let row = PaletteRow(item: notice, highlights: [], score: 0)
             if let index = sections.firstIndex(where: { $0.section.id == notice.section.id }) {
                 sections[index] = PaletteResultSection(section: sections[index].section, rows: sections[index].rows + [row])

@@ -116,6 +116,7 @@ final class PageState {
         var sections: [PaletteSection] = []
         var sectionIndexByID: [String: Int] = [:]
         var seen = Set<String>()
+        var notices: [PaletteItem] = []
         for provider in page.providers {
             for item in providerItems[provider.id] ?? [] where seen.insert(item.id).inserted {
                 let sectionIndex: Int
@@ -127,6 +128,7 @@ final class PageState {
                     sections.append(item.section)
                 }
                 items.append(item)
+                if item.showsForEveryQuery { notices.append(item) }
                 let visible = provider.showsItemsForEmptyQuery && item.queryPrefix == nil && !item.hidesWhenQueryEmpty
                 entries.append(PaletteSearchEntry(item, visible: visible, sectionIndex: sectionIndex))
             }
@@ -158,7 +160,7 @@ final class PageState {
         self.items = items
         self.entries = entries
         self.sections = sections
-        notices = items.filter(\.showsForEveryQuery)
+        self.notices = notices
         Self.versionCounter += 1
         version = Self.versionCounter
     }

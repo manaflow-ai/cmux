@@ -68,7 +68,8 @@ public struct PaletteItem: Identifiable {
     /// its family's row stands for).
     public var hidesWhenQueryEmpty = false
     /// The row is a notice about the list itself, not a result (a list that is not complete yet): a typed
-    /// query never filters it out. It is not ranked: it comes after the rows the query found in its section.
+    /// query never filters it out and never finds it. It is not ranked: it comes after the rows the query
+    /// found in its section.
     public var showsForEveryQuery = false
     /// A row of a secondary kind (a setting): it ranks below a command with
     /// the same match (ten setting rows are titled "Color"), so 200 setting
