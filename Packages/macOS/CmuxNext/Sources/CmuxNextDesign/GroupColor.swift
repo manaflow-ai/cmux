@@ -23,18 +23,6 @@ public nonisolated enum GroupColor: String, CaseIterable, Codable, Hashable, Sen
     case cyan
     case orange
 
-    /// The color a new space or browser profile gets: the first of
-    /// `automaticOrder` not in `used`; never blue or grey. Nil when every
-    /// such color is in use. Groups get none: no color until a person picks one.
-    public static func automatic(used: Set<String>) -> GroupColor? {
-        automaticOrder.first { !used.contains($0.rawValue) }
-    }
-
-    /// The color a new space or browser profile gets after `existing` (the profiles' colors, oldest first).
-    public static func automatic(after existing: [String]) -> GroupColor {
-        automatic(used: Set(existing)) ?? .grey
-    }
-
     /// A stable palette color for an unbranded harness or session mark. Groups with no
     /// user-chosen color use `GroupTint.none` and never call this fallback.
     public static func unset(id: String) -> GroupColor {
