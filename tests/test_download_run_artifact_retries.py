@@ -75,6 +75,26 @@ class RetryTests(unittest.TestCase):
             download.with_retries(always, "lookup")
         self.assertEqual(len(calls), download.MAX_ATTEMPTS)
 
+    def test_a_long_budget_is_not_cut_short_by_the_attempt_cap(self) -> None:
+        # The sign stage's restore sets a 1800 s budget; a headerless 403 that clears after 600 s must
+        # still be retried (2026-11-12: 8 attempts gave up at 510 s).
+        with mock.patch.object(download, "RETRY_BUDGET_SECONDS", 1800.0), \
+                mock.patch.object(download, "MAX_ATTEMPTS", max(8, int(1800.0 // 120) + 5)):
+            start = self.now[0]
+
+            def refused_for_600_s():
+                if self.now[0] - start < 600:
+                    raise refused(403)
+                return "ok"
+
+            self.assertEqual(download.with_retries(refused_for_600_s, "lookup"), "ok")
+        self.assertGreaterEqual(sum(self.slept), 600)
+
+    def test_the_default_budget_keeps_eight_attempts(self) -> None:
+        self.assertEqual(max(8, int(240.0 // 120) + 5), 8)
+        if download.RETRY_BUDGET_SECONDS == 240.0:
+            self.assertEqual(download.MAX_ATTEMPTS, 8)
+
     def test_slow_calls_count_against_the_wall_clock_deadline(self) -> None:
         def slow_refusal():
             self.now[0] += 100  # each refused call itself takes 100 s

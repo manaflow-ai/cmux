@@ -392,12 +392,12 @@ public struct Typography {
 
     /// Tab titles, sidebar rows, palette results.
     public static var body: NSFont { system(.default, size: size(12, 13), weight: .regular) }
-    /// Tab titles: `appearance.metrics.tabFontSize` (times the interface scale when it is on), else Chrome's 12 pt at
-    /// every density, times the user's text scale (Chromium's `ChromeTypographyProvider` gives a tab label its default
-    /// 12 pt; Lawrence 2026-11-07: match Chrome's tab title size). Not the density's text size: a density with its own
-    /// `fontSize` (Default's 13 pt, #37274) would scale it to 12.5.
+    /// Tab titles use the density's body size less one point, times the user's text scale.
+    /// `appearance.metrics.tabFontSize` overrides that size, times the interface scale when enabled.
     public static var tabTitle: NSFont {
-        guard let points = DesignSettings.shared.overrides[.tabFontSize] else { return system(.default, size: 12 * scale, weight: .regular) }
+        guard let points = DesignSettings.shared.overrides[.tabFontSize] else {
+            return system(.default, size: (Metrics.tokens.bodySize - 1) * scale, weight: .regular)
+        }
         return system(.default, size: Metrics.scale(points), weight: .regular)
     }
     /// Selected or emphasized row titles.

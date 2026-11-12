@@ -8,6 +8,7 @@ import { JSDOM } from "jsdom";
 import { NoticeSlot } from "./NoticeSlot";
 import { PaneNotices } from "./PaneNotices";
 import { paneNotices, readPaneNotices, setPaneNotices } from "./paneNoticeStore";
+import { settleReact } from "../../../test/support/domTeardown";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -34,6 +35,7 @@ afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
   setPaneNotices([]);
+  await settleReact();
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {

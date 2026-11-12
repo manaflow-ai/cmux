@@ -26,6 +26,10 @@ public final class AgentPaneModel {
     /// for a chat read cold, for a page that says nothing, and for the host's
     /// own give-up path, which keep the fade unless a child-window page is replacing a saved frame.
     public internal(set) var paintedFromKeptTail = false
+    /// That first frame was the chat's settled view (`pane.painted`'s `settled`, hq#9655 stage 1):
+    /// the chat as it stands, not a partial page on its way to it. The loading state ends on it in
+    /// one step, as for a kept tail. False for a page that says nothing and for the give-up path.
+    public internal(set) var paintedSettled = false
     /// The first reveal came from the page's after-render report, rather than the watchdog.
     @ObservationIgnored var pageReportedPaint = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
@@ -467,7 +471,7 @@ public final class AgentPaneModel {
         newTab = nil
         // The spare's start folder was no tab's; the chat's folder comes with its session.
         handshakeCwd = nil
-        (hasPainted, paintedFromKeptTail, pageReportedPaint) = (false, false, false)
+        (hasPainted, paintedFromKeptTail, paintedSettled, pageReportedPaint) = (false, false, false, false)
         return true
     }
 
@@ -539,13 +543,14 @@ public final class AgentPaneModel {
         case .renderRate(let full):
             onRenderRate?(full)
             return AgentPaneReply.success()
-        case .painted(let fromKeptTail):
+        case .painted(let fromKeptTail, let settled):
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
             // The first report only, and before `markPainted`: the pane's loading state leaves on
             // that call, and what that frame drew is what decides whether the page fades in
             // (``AgentPaneView/pageFades``). A later report describes a frame nothing is waiting on.
             if !hasPainted {
                 paintedFromKeptTail = fromKeptTail
+                paintedSettled = settled
                 pageReportedPaint = true
             }
             markPainted()
