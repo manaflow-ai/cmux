@@ -100,6 +100,9 @@ SOURCES = "Packages/macOS/CmuxNext/Sources/"
 SWIFT_SOURCES = f":(glob){SOURCES}**/*.swift"
 TESTS = "Packages/macOS/CmuxNext/Tests/"
 SWIFT_TESTS = f":(glob){TESTS}**/*.swift"
+# The iPhone app's sources (CmuxMobileKit and TabsKit): only the phone-width rule reads them.
+IOS_SOURCES = ("cmux-next-ios/CmuxMobileKit/Sources/", "Packages/iOS/CmuxTabsKit/Sources/")
+SWIFT_IOS = tuple(f":(glob){prefix}**/*.swift" for prefix in IOS_SOURCES)
 # Where a shipped build's settings live: the release and nightly pipelines, the release script, build
 # settings files and the app's package manifest.
 SHIPPED_BUILD = (".github/workflows/", "scripts/build-sign-upload.sh", "Packages/macOS/CmuxNext/Package.swift")
@@ -586,9 +589,10 @@ def lex_cache_dir(repo: Path) -> Path | None:
 
 
 def in_diff_scope(path: str) -> bool:
-    """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SHIPPED_BUILD_SPECS), so its blobs are read
+    """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SWIFT_IOS, SHIPPED_BUILD_SPECS), so its blobs are read
     while the content diff runs. A path this misses is read after the diff (check()'s late read)."""
-    return ((path.startswith((SOURCES, TESTS)) and path.endswith(".swift")) or path.startswith(".github/workflows/")
+    return ((path.startswith((SOURCES, TESTS, *IOS_SOURCES)) and path.endswith(".swift"))
+            or path.startswith(".github/workflows/")
             or path in ("scripts/build-sign-upload.sh", "Packages/macOS/CmuxNext/Package.swift")
             or path.endswith(".xcconfig") or path.split("/")[-1] == "project.pbxproj")
 
@@ -2129,6 +2133,19 @@ RULES = (
          "// index-allow: <why the index is valid here>",
          line_rule(r"\.(clickedRow|clickedColumn|selectedColumn)\b|\bitem\(atRow:|\bselectedRow\(inColumn:",
                    "index-allow:")),
+    Rule("phone-width", "An iPhone layout that assumes a phone's width: a grid with a fixed column count "
+         "(`GridItem(...), count: N`, two or more literal `GridItem(.flexible())`) or a literal iPhone screen width "
+         "(375, 390, 393, 402, 414, 428, 430, 440) as a width",
+         "an unfolded foldable iPhone's window grows to about 800 pt (nearly square) with no rotation: a fixed "
+         "column count stretches each column to twice its size, and a literal phone width lays out or draws a "
+         "page at the wrong size (Leo, 2026-11-10: \"make it work for iPhone Duo as well\")",
+         "columns from the width: `GridItem(.adaptive(minimum:maximum:))`, or a count computed from the live width "
+         "(TabsKit `OverviewLayout.columns(width:)`); a size from the view's own bounds or `onGeometryChange`, "
+         "and a readable cap (`.frame(maxWidth:)`) where text would run edge to edge",
+         "// width-allow: <why this size never lays out live content (a placeholder frame replaced at layout)>",
+         line_rule(r"\bGridItem\(.*\)\s*,\s*count:\s*\d|\[\s*GridItem\(\.flexible\b[^\]]*\bGridItem\(\.flexible\b"
+                   r"|\bwidth:\s*(375|390|393|402|414|428|430|440)\b", "width-allow:"),
+         scope=IOS_SOURCES),
     Rule("undo-text-write", "Undo turned on for a text view (`allowsUndo = true`)",
          "AppKit's `string` setter replaces the text without telling the undo manager: a typing action keeps its "
          "range into the old text and Cmd-Z raises NSRangeException (#24912)",
@@ -2995,7 +3012,7 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     """([(rule, every hit, measurements and warning hits included)], warnings) for what HEAD adds over BASE."""
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse. No
     # inter-hunk context: a user's diff.interHunkContext would join nearby hunks with unchanged lines between them.
-    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS]
+    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SWIFT_IOS, *SHIPPED_BUILD_SPECS]
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     # The content diff and the blob read each decompress the same objects: on the slowest real pushes (242 files,
     # load 37) each took 0.7-1 s one after the other. The changed paths come first from a cheap name-only diff, so
