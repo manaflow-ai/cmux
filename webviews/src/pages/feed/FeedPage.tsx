@@ -51,7 +51,7 @@ export function FeedPage({ store, strings }: { store: FeedStore; strings: String
       ) : (
         <NeedsYouView {...props} />
       )}
-      <NoticeStack queue={store.notices} dismissLabel={t("toast.dismiss")} />
+      <NoticeStack queue={store.notices} dismissLabel={t("toast.dismiss")} label={t("toast.region")} />
     </div>
   );
 }
