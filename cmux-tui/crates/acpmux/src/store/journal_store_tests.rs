@@ -2109,8 +2109,10 @@ fn every_test_wait_on_a_hold_is_bounded() {
                 }
                 // A reader draining a channel (`while let Some(line) = rx.recv()`): it ends
                 // when the senders drop, and waits on no hold.
+                // A comment that names one (this scan's own) is no wait.
                 let line_start = region[..at].rfind('\n').map_or(0, |i| i + 1);
-                if region[line_start..at].trim_start().starts_with("while let ") {
+                let lead = region[line_start..at].trim_start();
+                if lead.starts_with("while let ") || lead.starts_with("//") {
                     continue;
                 }
                 // The receiver: the expression chain right before the call (`rx`,
