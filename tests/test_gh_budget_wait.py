@@ -381,6 +381,55 @@ NEXT_TIMEOUT = re.compile(r"\$\{\{ needs\.(?:decide|published-build)\.outputs\.t
 # deltas and feed to R2), so their nightly-next timeout needs no room for the hour's wait.
 NO_GH_ON_NIGHTLY_NEXT = ("republish-nightly-deltas",)
 
+# Every workflow's github.token shares one hourly limit, and the fleet spends it. A publish-path step
+# that reads GitHub on github.token alone fails when it runs out: sign runs 43129190893 and 43139032769
+# failed their unsigned restore on HTTP 403 and no nightly published from 01:28 to 03:25 UTC
+# (2026-11-12, Leo: "this is not a thing you can hold ci for anything for", "where is the prevention").
+# A step has an App-token path when its token is `steps.<mint>.outputs.token || github.token` (the
+# step names the App token first), or when its job installed gh_app_token.sh before it (gh goes out as
+# the release App first).
+TOKEN_KEYS = ("GH_TOKEN", "GITHUB_TOKEN", "token", "github-token")
+SHARED_TOKEN = re.compile(r"github\.token|secrets\.GITHUB_TOKEN")
+APP_TOKEN_FIRST = re.compile(r"steps\.[\w-]+\.outputs\.token\s*\|\|")
+# (job, step name): the publish-path steps on github.token alone on 2026-11-12. A new one fails; give
+# it an App-token path instead. Delete an entry when its step gets one.
+SHARED_TOKEN_ONLY = {
+    ("resolve-nightly-cmux-tui-client", "Validate the saved unsigned nightly source"),
+    ("resolve-nightly-cmux-tui-client", "Build the tip while its tree publishes"),
+    ("resolve-nightly-cmux-tui-client", "Resolve cmux-tui client commit"),
+    ("resolve-nightly-cmux-tui-client", "Leave the build slot to a newer nightly-next push"),
+    ("prepare-nightly-variant-primary", "Reuse a successful primary preparation"),
+    ("prepare-nightly-variant-primary", "Download signing inputs (parallel)"),
+    ("prepare-nightly-variant-primary", "Verify shipped libintl has its source"),
+    ("prepare-nightly-variant", "Reuse a successful primary preparation"),
+    ("prepare-nightly-variant", "Download signing inputs (parallel)"),
+    ("prepare-nightly-variant", "Verify shipped libintl has its source"),
+    ("find-nightly-next-recovery", "List newer pending nightly-next notarizations"),
+    ("published-in", "Comment the build on its PRs"),
+    ("sign-release-notes", "Build and sign the release notes"),
+    ("publish-nightly-reel", "Build and publish the reel"),
+    ("build-nightly-app", "Look up the nightly app compiled on the same inputs"),
+    ("build-nightly-app", "Stop when the run can no longer publish (before the compile)"),
+    ("build-nightly-app", "Bundle the cmux-tui client"),
+    ("build-nightly-app", "Stop when the run can no longer publish (before the upload)"),
+}
+
+
+def shared_token_only_steps(jobs: dict, names=PUBLISH_PATH) -> list[tuple[str, str]]:
+    """The (job, step name) pairs among `names` that read GitHub on github.token with no App-token path."""
+    found = []
+    for name in names:
+        installed = False
+        for step in jobs[name].get("steps", []):
+            if "gh_app_token.sh --install" in str(step.get("run", "")):
+                installed = True
+                continue
+            tokens = [str(value) for source in (step.get("env") or {}, step.get("with") or {})
+                      for key, value in source.items() if key in TOKEN_KEYS]
+            if any(SHARED_TOKEN.search(t) and not APP_TOKEN_FIRST.search(t) for t in tokens) and not installed:
+                found.append((name, str(step.get("name") or step.get("id"))))
+    return found
+
 
 class WorkflowTests(unittest.TestCase):
     @classmethod
@@ -399,13 +448,34 @@ class WorkflowTests(unittest.TestCase):
                         if "github.token" in str(s.get("env", {})) or "release-tag-token" in str(s.get("env", {}))]
             # Only prepare's reuse probe (before any checkout; a refusal prepares here), the nightly
             # product lookup (no gh: a bounded REST lookup whose every refusal is a miss) and the
-            # unsigned-resume restore (a hand-run recovery, not the publish path) come first.
+            # unsigned-resume restore come first. The restore runs in every nightly-next sign run, so it
+            # reads with the routing App's token (test_no_new_publish_path_step_reads_github_on_the_shared_token_alone).
             early = [i for i in later_gh if i < at]
             for i in early:
                 resume = "nightly_next_unsigned_run != ''" in str(steps[i].get("if", ""))
                 # gh_app_token.sh installs first so this wrapper wraps it (tests/test_gh_app_token.py).
                 app_token = "gh_app_token.sh --install" in str(steps[i].get("run", ""))
                 self.assertTrue(steps[i].get("id") in ("reuse", "nightly-product") or resume or app_token, (name, steps[i].get("name")))
+
+    def test_no_new_publish_path_step_reads_github_on_the_shared_token_alone(self) -> None:
+        new = [pair for pair in shared_token_only_steps(self.jobs) if pair not in SHARED_TOKEN_ONLY]
+        self.assertEqual(new, [], "give each step an App-token path: mint one and pass "
+                         "`steps.<mint>.outputs.token || github.token`, or install gh_app_token.sh earlier in its job")
+
+    def test_the_shared_token_detector(self) -> None:
+        mint = {"name": "Mint", "id": "mint", "uses": "actions/create-github-app-token@x"}
+        jobs = {"j": {"steps": [
+            {"name": "alone", "env": {"GH_TOKEN": "${{ github.token }}"}},
+            {"name": "secret", "with": {"github-token": "${{ secrets.GITHUB_TOKEN }}"}},
+            mint,
+            {"name": "app first", "env": {"GH_TOKEN": "${{ steps.mint.outputs.token || github.token }}"}},
+            {"name": "app last", "env": {"GH_TOKEN": "${{ github.token || steps.mint.outputs.token }}"}},
+            {"name": "other token", "env": {"GH_TOKEN": "${{ steps.mint.outputs.token }}"}},
+            {"name": "not a token", "env": {"REPO": "${{ github.token }}"}},
+            {"name": "install", "run": "bash scripts/ci/gh_app_token.sh --install"},
+            {"name": "after the wrapper", "env": {"GH_TOKEN": "${{ github.token }}"}},
+        ]}}
+        self.assertEqual(shared_token_only_steps(jobs, ["j"]), [("j", "alone"), ("j", "secret"), ("j", "app last")])
 
     def test_every_dispatch_is_on_the_publish_path(self) -> None:
         for name, job in self.jobs.items():

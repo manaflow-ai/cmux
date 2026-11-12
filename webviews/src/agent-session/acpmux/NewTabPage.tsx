@@ -34,6 +34,7 @@ import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
 import { customizeMessage } from "./customizeCommand";
 import { useNewTabCommand, type NewTabCommandActions } from "./newtab/useNewTabCommand";
+import { reportInputReadyWhenFocused } from "./newtab/inputReady";
 import {
   TAB_KINDS,
   type TabKind,
@@ -431,13 +432,20 @@ export function NewTabPage({
       setFocused(input.focused());
     };
     focus();
-    if (inputToken && inputReadyReported.current !== inputToken) {
-      inputReadyReported.current = inputToken;
-      inputReady.current?.(inputToken);
-    }
     const host = fieldElement()?.ownerDocument.defaultView;
+    // The app replays the keys typed after Cmd-T at this readiness: it waits for the page's focus.
+    let cancelReady = () => {};
+    if (inputToken && inputReadyReported.current !== inputToken) {
+      cancelReady = reportInputReadyWhenFocused(host, () => {
+        inputReadyReported.current = inputToken;
+        inputReady.current?.(inputToken);
+      });
+    }
     host?.addEventListener(FOCUS_LOCATION_EVENT, focus);
-    return () => host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
+    return () => {
+      cancelReady();
+      host?.removeEventListener(FOCUS_LOCATION_EVENT, focus);
+    };
   }, [inputToken, fieldReady]);
   const choose = (next: TabKind) => {
     changeKind(next);
