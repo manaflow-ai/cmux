@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43127407428",
+  "recorded_at": "2026-11-12T00:38:13Z",
+  "reason": "cmux-tui 538a758feb57 changes the image's cmux-tui (pinned a57b62059280)",
+  "dry_run": false,
+  "cmux_tui": "538a758feb57d742f22403d23e0d3dddf0dd1978",
+  "fixes": [
+    {
+      "sha": "538a758feb57d742f22403d23e0d3dddf0dd1978",
+      "mergedAt": "2026-11-12T00:12:11Z",
+      "subject": "cmux-tui: cancel the queued input of one creation (daemon half) (#41387)"
+    },
+    {
+      "sha": "b94dc84c6b811999ed4ee2d82b0fb371cc1e2a7f",
+      "mergedAt": "2026-11-12T00:11:29Z",
+      "subject": "cmux-tui test: the history page test's daemon uses zsh on macOS (#40715)"
+    },
+    {
+      "sha": "0cd0a4f60e49c592458f768b28dff02865a40329",
+      "mergedAt": "2026-11-12T00:10:45Z",
+      "subject": "cmux-tui test: the docs checker reads a `cmux vm` line as the CLI runs it (tip red: remote_cli_docs) (#41566)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T00:38:13Z",
+    "snapshot_id": "sh-14719651a6b042e38b558bee77a21a7c",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43127407428): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ae749a9f3c859a5d5f2cb6afeb6823a45a3bb156",
+    "image": "cloud-native-auto-538a758f-43127407428-1",
+    "revision": "ci-43127407428-1",
+    "at": "2026-11-12T00:38:13Z"
+  },
+  "rolled_back": false
+}
