@@ -378,7 +378,9 @@ async fn a_prompt_is_accepted_as_soon_after_a_start_in_a_god_chat_as_in_a_small_
     }
     daemon.sigterm();
 
-    let targets = ["god", "small", "chat-0262"];
+    // One of the many small chats, from the middle of the list.
+    let middle = format!("chat-{:04}", chats / 2);
+    let targets = ["god", "small", middle.as_str()];
     let mut times: Vec<Vec<f64>> = vec![Vec::new(); targets.len()];
     for round in 0..rounds {
         for (t, target) in targets.iter().enumerate() {
