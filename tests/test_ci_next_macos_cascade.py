@@ -43,11 +43,10 @@ import workflow_jobs  # noqa: E402
 
 
 def load(name: str):
-    spec = importlib.util.spec_from_file_location(name, SCRIPTS / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
+    # Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+    if str(SCRIPTS) not in sys.path:
+        sys.path.insert(0, str(SCRIPTS))
+    return importlib.import_module(name)
 
 
 def runs_on_of(job: dict) -> str:
@@ -1028,13 +1027,27 @@ class Rerun(unittest.TestCase):
                          none_placed(**{SMALL: ("cmux-scheme-compile",)}))
         self.assertEqual(cascade.place(self.rerun(), (), {LARGE: 0, SMALL: 10}, waiting).jobs, none_placed())
 
+    def test_the_rescues_attempt_3_is_placed_afresh_too(self):
+        # cmux#40330's run 42858473381: attempt 2 was placed at 17:32Z while Blacksmith 6 vCPU was stalled, so its
+        # fast tier stayed on the owned side label and waited hours. The rescue's attempt 3 (owned_pool_rescue's
+        # re-placement after OWNED_REPLACE_MINUTES) reads what is free when it starts, as attempt 2 does.
+        live, waiting = {LARGE: 0, SMALL: 5}, {LARGE: 0, SMALL: 0}
+        values = self.rerun(GITHUB_RUN_ATTEMPT="3")
+        self.assertTrue(cascade.bot_rerun(values))
+        self.assertTrue(cascade.bot_rerun(self.rerun(GITHUB_RUN_ATTEMPT="3", GITHUB_TRIGGERING_ACTOR="cmux-bot[bot]")))
+        self.assertEqual(cascade.skipped(values), "")
+        result = cascade.place(values, (), live, waiting)
+        self.assertEqual(result.jobs, none_placed(**{LARGE: ("cmux-scheme-compile",)}))
+        self.assertIn("the rescue's re-run (attempt 3) is placed afresh", result.why)
+        self.assertEqual(cascade.LAST_PLACED_ATTEMPT, 3)
+
     def test_a_persons_rerun_and_later_attempts_keep_their_route(self):
         free = {LARGE: 0, SMALL: 0}
-        for attempt, actor in (("2", "teamleaderleo"), ("3", BOT), ("2", "")):
+        for attempt, actor in (("2", "teamleaderleo"), ("4", BOT), ("3", "teamleaderleo"), ("2", "")):
             with self.subTest(attempt=attempt, actor=actor):
                 overrides = self.rerun(GITHUB_RUN_ATTEMPT=attempt, GITHUB_TRIGGERING_ACTOR=actor)
                 self.assertFalse(cascade.bot_rerun(overrides))
-                # Attempt 3 by the bot too: it is the rescue's last overflow attempt, not a fresh placement.
+                # Attempt 4 by the bot too: it is the rescue's last overflow attempt, not a fresh placement.
                 self.assertEqual(cascade.skipped(overrides), "a person re-run keeps its own route")
                 self.assertEqual(cascade.place(overrides, (), free, free).jobs, none_placed())
 
@@ -1063,16 +1076,16 @@ class Rerun(unittest.TestCase):
         workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
         job = workflow["jobs"]["macos-placement"]
         own, shared = env_of(job)["CMUX_NEXT_SIDE_ROUTE"], workflow["env"]["CMUX_NEXT_SIDE_ROUTE"]
-        for attempt, actor, expected in (("1", "teamleaderleo", SIDE), ("2", BOT, SIDE),
-                                         ("2", "teamleaderleo", SMALL), ("3", BOT, SMALL)):
+        for attempt, actor, expected in (("1", "teamleaderleo", SIDE), ("2", BOT, SIDE), ("3", BOT, SIDE),
+                                         ("2", "teamleaderleo", SMALL), ("4", BOT, SMALL)):
             with self.subTest(attempt=attempt, actor=actor):
                 context = self.route_context(attempt, actor)
                 self.assertEqual(evaluate(own, context), expected)
                 # Every other case is the workflow's route, which the Mac jobs restate.
-                if (attempt, actor) != ("2", BOT):
+                if (attempt, actor) not in (("2", BOT), ("3", BOT)):
                     self.assertEqual(evaluate(own, context), evaluate(shared, context))
-                # The job itself runs on attempt 1 and the bot's attempt 2.
-                self.assertIn("github.run_attempt == 2 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)",
+                # The job itself runs on attempt 1 and the bot's attempts 2 and 3.
+                self.assertIn("github.run_attempt <= 3 && contains(fromJSON('[\"github-actions[bot]\",\"cmux-bot[bot]\"]'), github.triggering_actor)",
                               job["if"])
         place = next(step for step in job["steps"] if step.get("id") == "place")
         self.assertEqual(place["env"]["SIDE_LABEL"], "${{ env.CMUX_NEXT_SIDE_ROUTE }}")
@@ -1130,8 +1143,9 @@ class Rerun(unittest.TestCase):
                 outputs["placed_attempt"] = evaluate(self.placement_job()["outputs"]["placed_attempt"], context)
                 context["needs"] = {"macos-placement": {"outputs": outputs}}
                 self.assertEqual(evaluate(runs_on, context), expected)
+                # A carried reading (a re-run of failed jobs) never keeps the owned label (CarriedPlacement).
                 outputs["placed_attempt"] = "1"
-                self.assertEqual(evaluate(runs_on, context), SIDE)
+                self.assertEqual(evaluate(runs_on, context), SMALL)
 
     def rerun_outputs(self, runners: list, live: dict, waiting: dict, **extra: str) -> dict:
         """placement.main() on the bot's attempt 2, then the step's shell, as the runner runs them."""
@@ -1218,7 +1232,7 @@ class Rerun(unittest.TestCase):
         context["inputs"] = {"dev_daily": True}
         for attempt, actor, expected in (("1", "teamleaderleo", "cmux-scheme-compile"),
                                          ("2", BOT, "cmux-scheme-compile"), ("2", "teamleaderleo", ""),
-                                         ("3", BOT, "")):
+                                         ("3", BOT, "cmux-scheme-compile"), ("4", BOT, "")):
             with self.subTest(attempt=attempt, actor=actor):
                 context["github"].update(run_attempt=attempt, triggering_actor=actor)
                 self.assertEqual(evaluate(fresh, context), expected)
@@ -1372,7 +1386,7 @@ class Wiring(unittest.TestCase):
             # The attempt the placement ran in: by default where it really runs (attempt 1, the bot's
             # attempt 2); any other attempt carries attempt 1's job and outputs.
             "placed_attempt": placed if placed is not None else (
-                attempt if attempt == "1" or attempt == "2" and actor == BOT else "1")}}}
+                attempt if attempt == "1" or attempt in ("2", "3") and actor == BOT else "1")}}}
         return context
 
     def test_attempt_1_takes_the_blacksmith_slot_the_placement_found(self):
@@ -1391,9 +1405,10 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.context()), SIDE)
                 # The bot's attempt 2 (the rescue moved a stuck sibling) keeps the slot.
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, large=f" {name} ")), LARGE)
-                # A person's later retry cannot reuse the owned label; fast-tier falls to Blacksmith.
-                self.assertEqual(evaluate(runs_on, self.context("2", large=f" {name} ")), LARGE if name == "fast-tier" else SIDE)
-                self.assertEqual(evaluate(runs_on, self.context("3", large=f" {name} ")), LARGE if name == "fast-tier" else SIDE)
+                # A person's later retry reuses neither attempt 1's slot nor its owned label: it takes
+                # Blacksmith (vars.MACOS_RUNNER_26 here), the way a carried placement does (CarriedPlacement).
+                self.assertEqual(evaluate(runs_on, self.context("2", large=f" {name} ")), LARGE)
+                self.assertEqual(evaluate(runs_on, self.context("3", large=f" {name} ")), LARGE)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True, large=f" {name} ")), SMALL)
 
     def test_release_compile_pr_takes_an_idle_mini_else_the_placements_blacksmith_slot(self):
@@ -1445,16 +1460,17 @@ class Wiring(unittest.TestCase):
         self.assertEqual(evaluate(runs_on, push(runner="", small=" release-compile ")), SMALL)
         # Another job's slot is not the Release compile's.
         self.assertEqual(evaluate(runs_on, push(large=" cmux-scheme-compile ")), SIDE)
-        # A re-run of the push does not reuse attempt 1's slot.
+        # A re-run of the push reuses neither attempt 1's slot nor its owned label: 6 vCPU's moving queue.
         rerun = push(large=" release-compile ")
         rerun["github"]["run_attempt"] = "2"
-        self.assertEqual(evaluate(runs_on, rerun), SIDE)
+        self.assertEqual(evaluate(runs_on, rerun), SMALL)
         # The job's own label variable agrees with its runs-on.
         runner_env = env_of(self.jobs["release-compile"])["CMUX_NEXT_RUNNER"]
         for outputs in ({}, {"large": " release-compile "}, {"small": " release-compile "}, {"runner": ""}):
             self.assertEqual(evaluate(runner_env, push(**outputs)), evaluate(runs_on, push(**outputs)))
         self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="")), SMALL)
-        self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), SIDE)
+        # The bot's attempt 3 carrying attempt 2's reading takes Blacksmith, not the owned label.
+        self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL, placed="2")), LARGE)
         # Release compile never targets the dedicated nightly runner.
         self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", runs_on_of(self.jobs["release-compile"]))
         self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", env_of(self.jobs["release-compile"])["CMUX_NEXT_RUNNER"])
@@ -1522,7 +1538,9 @@ class Wiring(unittest.TestCase):
                     ("1", {"fresh_runner": fresh, "fresh_jobs": f" {name} "}, fresh),
                     ("1", {"fresh_runner": fresh, "fresh_jobs": " other "}, SIDE),
                     ("1", {"fresh_runner": "", "fresh_jobs": f" {name} "}, SIDE),
-                    ("2", {"fresh_runner": fresh, "fresh_jobs": f" {name} "}, SIDE)):
+                    # A re-run carries attempt 1's reading, so it takes Blacksmith, never the slot or the side label.
+                    ("2", {"fresh_runner": fresh, "fresh_jobs": f" {name} "},
+                     LARGE if name == "cmux-scheme-compile" else SMALL)):
                 with self.subTest(job=name, attempt=attempt, outputs=outputs):
                     context = self.context(attempt)
                     context["github"].update(event_name=event, ref=feat, event={})
@@ -1632,15 +1650,22 @@ class Wiring(unittest.TestCase):
         for name in CASCADED:
             runs_on = runs_on_of(self.jobs[name])
             with self.subTest(job=name):
-                expected_without_retry = LARGE if name == "fast-tier" else SIDE
+                # A carried placement takes Blacksmith (vars.MACOS_RUNNER_26 here), never the owned label.
+                expected_without_retry = LARGE
                 # The bot's attempt 2, placed afresh, takes its retry label; an earlier reading never.
                 self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="")), SMALL)
-                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), expected_without_retry)
-                self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="", placed="1")), SIDE if name == "fast-tier" else expected_without_retry)
-                # With no slot or a carried placement, preserve the base's
-                # owned queue rather than bypassing Blacksmith exclusions.
-                self.assertEqual(evaluate(runs_on, self.context("3", BOT)), expected_without_retry)
-                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry="")), expected_without_retry)
+                # The bot's attempt 3 (the rescue's re-placement of a long wait) is placed afresh like attempt 2.
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL, runner="")), SMALL)
+                # The bot's attempt 3 that re-runs failed jobs (a refusal) carries attempt 2's placement.
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL, placed="2")),
+                                 expected_without_retry)
+                self.assertEqual(evaluate(runs_on, self.context("2", BOT, retry=SMALL, runner="", placed="1")),
+                                 expected_without_retry)
+                # A carried placement's retry label is as stale as its slots: Blacksmith's moving label, not the
+                # owned queue (cmux#38484's run 42728317341 waited hours there on every re-run).
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT, placed="2")), expected_without_retry)
+                self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry="", placed="2")),
+                                 expected_without_retry)
 
     def test_retry_runner_is_limited_to_the_placement_retry_set(self):
         runs_on = runs_on_of(self.jobs["release-compile"])
@@ -1667,9 +1692,9 @@ class Wiring(unittest.TestCase):
         disabled["vars"]["CI_PR_POOL_OWNED"] = "0"
         self.assertEqual(evaluate(runs_on, disabled), LARGE)
 
-    def test_fast_tier_bot_retry_with_carried_placement_keeps_base_queue(self):
+    def test_fast_tier_bot_retry_with_carried_placement_leaves_the_owned_queue(self):
         runs_on = runs_on_of(self.jobs["fast-tier"])
-        self.assertEqual(evaluate(runs_on, self.context("2", BOT, runner="", placed="1")), SIDE)
+        self.assertEqual(evaluate(runs_on, self.context("2", BOT, runner="", placed="1")), LARGE)
 
     def test_all_excluded_without_fleet_client_preserves_base_queue_and_coverage(self):
         busy = {"name": "side-mini", "status": "online", "busy": True,
@@ -1734,6 +1759,91 @@ class Wiring(unittest.TestCase):
         self.assertEqual(job["outputs"]["retry_runner"], "${{ steps.place.outputs.free_retry_runner }}")
         self.assertEqual(set(cascade.CASCADE_JOBS), set(CASCADED))
         self.assertTrue(set(cascade.CASCADE_JOBS) <= set(place["env"]["JOBS"].split()))
+
+
+class CarriedPlacement(unittest.TestCase):
+    """A re-run whose macOS placement is carried from an earlier attempt never waits on an owned label.
+
+    GitHub's re-run of failed jobs re-runs the failed jobs and the jobs that need them, never a job they
+    need: macos-placement, and any re-run placement job skipped on attempt 1, keep the earlier attempt's
+    result and outputs. Such a reading may be hours old, so a Mac job that took the owned label from it had
+    no way off: cmux#38484's run 42728317341 (a same-tree dispatch) kept `cmux app scheme compile (Debug)`
+    on glaeda-side-std-xcode-26.6 through cmux-bot's attempt 2 (03:06Z to 05:17Z) and teamleaderleo's attempts
+    3 (05:45Z to 20:48Z) and 4 (21:27Z to 23:16Z). Only an attempt the placement read itself takes an owned
+    label; a carried one takes the moving Blacksmith label, as the push Release compile's fallback does.
+    """
+
+    OWNED = (SIDE, GUI, "glaeda-session-std-xcode-26.6", "glaeda-dev-std-xcode-26.6")
+
+    def setUp(self):
+        self.jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+
+    def context(self, event: str, attempt: str, actor: str, placed: str) -> dict:
+        side, gui, session, fresh = self.OWNED
+        context = github_context(event, ref="refs/pull/1/merge" if event == "pull_request" else
+                                 "refs/heads/feat-cmux-next", CI_PR_POOL_OWNED="1", CI_SIDE_LANE_RUNNER=side,
+                                 CI_SESSION_LANE_RUNNER=session, CI_DEV_COMPILE_RUNNER=fresh, MACOS_RUNNER_26=SMALL)
+        context["vars"].pop("MACOS_RUNNER_PR", None)
+        context["github"].update(repository="manaflow-ai/cmux", run_attempt=attempt, triggering_actor=actor,
+                                 base_ref="feat-cmux-next" if event == "pull_request" else "")
+        if event == "pull_request":
+            context["github"]["event"] = {"pull_request": {
+                "head": {"repo": {"full_name": "manaflow-ai/cmux"}}, "labels": [{"name": "full-ci"}],
+                "author_association": "MEMBER"}}
+        # Attempt 1's placement as it left every Mac job: all of them on the owned pool, no Blacksmith slot.
+        context["needs"] = {"macos-placement": {"result": "success", "outputs": {
+            "runner": side, "deferred_runner": side, "gui_runner": gui, "session_runner": session,
+            "free_gui_runner": gui, "free_session_runner": session, "session_lane_runner": session,
+            "owned_jobs": f" {ALL_JOBS} ", "placed_attempt": placed}}}
+        return context
+
+    def test_a_rerun_with_a_carried_placement_never_waits_on_an_owned_label(self):
+        mac_jobs = [name for name, job in self.jobs.items()
+                    if "needs.macos-placement" in str(job.get("runs-on", ""))]
+        self.assertTrue(set(CASCADED) | set(GUI_JOBS) <= set(mac_jobs))
+        for name in mac_jobs:
+            runs_on = self.jobs[name]["runs-on"]
+            runner_env = (self.jobs[name].get("env") or {}).get("CMUX_NEXT_RUNNER")
+            for event, attempt, actor in itertools.product(
+                    ("pull_request", "push", "workflow_dispatch"), ("2", "3", "4", "6"),
+                    ("teamleaderleo", BOT, "cmux-bot[bot]")):
+                # Carried from attempt 1 or the attempt before, or skipped (a person's re-run of all jobs).
+                for placed in sorted({"1", str(int(attempt) - 1), ""}):
+                    with self.subTest(job=name, event=event, attempt=attempt, actor=actor, placed=placed):
+                        context = self.context(event, attempt, actor, placed)
+                        label = evaluate(runs_on, context)
+                        self.assertNotIn(label, self.OWNED)
+                        self.assertFalse(str(label).startswith("glaeda-"), label)
+                        if runner_env is not None:
+                            self.assertEqual(evaluate(runner_env, context), label)
+
+    def test_a_carried_fast_tier_hand_back_is_not_read_on_a_rerun(self):
+        # The hand-back placement may name the owned side label (side_lane_placement.handback()); a re-run of
+        # failed jobs carries it like macos-placement's reading, so the fast tier takes Blacksmith instead.
+        runs_on = self.jobs["fast-tier"]["runs-on"]
+        for attempt, actor in (("2", "teamleaderleo"), ("3", BOT), ("4", "cmux-bot[bot]")):
+            for placed in ("1", str(int(attempt) - 1), ""):
+                with self.subTest(attempt=attempt, actor=actor, placed=placed):
+                    context = self.context("pull_request", attempt, actor, placed)
+                    context["needs"]["fast-tier-fleet"] = {"result": "success", "outputs": {"verdict": "queued"}}
+                    context["needs"]["fast-tier-handback-placement"] = {"outputs": {
+                        "runner": SIDE, "placed_attempt": placed}}
+                    self.assertFalse(str(evaluate(runs_on, context)).startswith("glaeda-"))
+        # Read in this attempt (attempt 1, where the hand-back ran), it keeps its owned pick.
+        context = self.context("pull_request", "1", "teamleaderleo", "1")
+        context["needs"]["fast-tier-fleet"] = {"result": "success", "outputs": {"verdict": "queued"}}
+        context["needs"]["fast-tier-handback-placement"] = {"outputs": {"runner": SIDE, "placed_attempt": "1"}}
+        self.assertEqual(evaluate(runs_on, context), SIDE)
+
+    def test_attempt_1_and_a_placed_rerun_keep_the_owned_label_the_placement_read(self):
+        for name in ("cmux-scheme-compile", "release-compile", "swift-canary"):
+            runs_on = self.jobs[name]["runs-on"]
+            for event in ("pull_request", "workflow_dispatch"):
+                with self.subTest(job=name, event=event):
+                    self.assertEqual(evaluate(runs_on, self.context(event, "1", "teamleaderleo", "1")), SIDE)
+                    # The rescue's attempt 2 and 3, placed afresh, read their own placement.
+                    self.assertEqual(evaluate(runs_on, self.context(event, "2", BOT, "2")), SIDE)
+                    self.assertEqual(evaluate(runs_on, self.context(event, "3", BOT, "3")), SIDE)
 
 
 class SaturatedOwnedPool(unittest.TestCase):

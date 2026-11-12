@@ -2,8 +2,13 @@ name: cmux-tui SDKs
 
 on:
   push:
+    # feat-cmux-next too: a pull request into it is judged against the base's own verdict
+    # (scripts/ci/base_red_excuse.py), and with main alone a contract red the base caused
+    # (b9783320dc5, create-workspace first_tab) had no feat-cmux-next verdict to excuse it
+    # with, so every cmux-tui pull request stalled behind it (cmux#41132).
     branches:
       - main
+      - feat-cmux-next
     paths:
       - "cmux-tui/**"
       - "cmux-tui/scripts/verify-pypi-tui-upload.sh"

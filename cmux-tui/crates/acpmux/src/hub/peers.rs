@@ -1549,6 +1549,8 @@ impl Hub {
             .map(|p| (p.name.clone(), p.state().as_str()))
             .collect();
         let mut emit = |r: &RemoteSession| {
+            #[cfg(test)]
+            self.remote_rows_copied.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let mut summary = r.summary.clone();
             summary.set("stale", Value::Bool(summary["stale"] == true));
             if let Some(state) = states.get(&r.peer) {

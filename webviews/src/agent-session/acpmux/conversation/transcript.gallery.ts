@@ -10,6 +10,7 @@ import { childRows } from "../subagents/childRows";
 import type { PlayContext } from "../../../gallery/play";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { workedTurnRows } from "../workedTurn";
+import { openEndedStretch } from "./endedStretchPlay";
 import { checkRunningLineLoops, hasCompleteRunningLineShimmer } from "./runningLineMotion";
 import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import {
@@ -279,6 +280,12 @@ const openFoldedRun = async (ctx: PlayContext) => {
   );
 };
 
+/// The collapsed-run scenes' play: the ended stretch's Worked for opened, then its first run's line.
+const openEndedRun = async (ctx: PlayContext) => {
+  await openEndedStretch(ctx);
+  await openFoldedRun(ctx);
+};
+
 const openGroupedShells = async (ctx: PlayContext) => {
   await openWorked(ctx);
   // A finished run that is one group folds to its line ("Ran 2 commands"); opened, it lists its calls.
@@ -359,8 +366,10 @@ const SHELL_LONG_LOG = Array.from({ length: 6 }, (_, index) => shellLogLine(inde
 /// A log past the eight-line preview, every line wider than the column.
 const SHELL_LONG_LOG_CUT = Array.from({ length: 14 }, (_, index) => shellLogLine(index)).join("\n");
 
-/// A command still running, its output streaming in, in its own row: the turn went on past it
-/// (a lone running call reads only on the turn's live line).
+/// A command still running, its output streaming in, in its own row: its stretch ended with its
+/// summary while it ran on, and the turn went on past it (a lone running call reads only on the
+/// turn's live line, and under the shipped live-turn-work `line` the stretch still running draws no
+/// run, so the command is in sight only from a stretch that ended: turns.ts `codexRuns`).
 const liveShellRows = (id: string, output: string) => [
   user("Follow the retry log", 1, { id: `${id}-user` }),
   activity(
@@ -374,6 +383,7 @@ const liveShellRows = (id: string, output: string) => [
     0.8,
     { id: `${id}-activity` },
   ),
+  summary(0.7, { id: `${id}-summary`, status: "completed", durationMs: 6_000, toolCount: 1 }),
   activity([tool("Read retryPolicy.ts", "read", "in_progress")], 0.5, { id: `${id}-read` }),
 ];
 
@@ -600,8 +610,11 @@ const longChatRows = Array.from({ length: 24 }, (_, index) => {
   ];
 }).flat();
 
-/// A thought of a few lines, and a live turn whose step holds `items` and a call, then `after` and a
-/// second call (ThoughtRow.tsx, thoughts.ts).
+/// A thought of a few lines, and a step that holds `items` and a call, then `after` and a second
+/// call (ThoughtRow.tsx, thoughts.ts). The chat still works, but the step's stretch already ended
+/// with its summary: under the shipped live-turn-work `line` a running stretch draws none of its
+/// finished work, only the live line, so a finished thought's row shows once its stretch ended
+/// (turns.ts `codexRuns`, liveTurnWork.experiment.ts).
 const SHORT_THOUGHT =
   "Check how the helper parses errors first.\n\nThe retry wrapper in src/net/client.ts swallows the status code, so a 429 looks like a network failure.\n\nRetry only on 429 and 5xx, with jittered backoff capped at three attempts.";
 const thoughtChat = (items: AcpmuxActivity[], after: AcpmuxActivity[] = []) =>
@@ -619,6 +632,7 @@ const thoughtChat = (items: AcpmuxActivity[], after: AcpmuxActivity[] = []) =>
         ],
         1.5,
       ),
+      summary(1.4, { status: "completed", durationMs: 14_000, toolCount: after.length ? 2 : 1 }),
     ],
     { isWorking: true },
   );
@@ -1113,6 +1127,10 @@ const collapsedRunChat = (extra: AcpmuxActivity[] = []) =>
         "The helper is in and the client uses it. Next I check that nothing else in src/net already retries, so a failing request never backs off twice.",
         3,
       ),
+      // The stretch above ended with its summary: under the shipped live-turn-work `line` only an
+      // ended stretch draws its runs while the chat works (turns.ts `codexRuns`); the work after it
+      // is the live line's.
+      summary(2.9, { status: "completed", durationMs: 66_000, toolCount: 6 }),
       activity(
         [
           shellTool("rg -n retry src/net"),
@@ -1943,6 +1961,7 @@ export default agentPaneEntry({
       note: 'Play: a finished thought is one quiet row, for Codex parity: the brain glyph and its words on one line, cut with an ellipsis, with no tooltip. Opened, it reads Thought for 12s over its text. Debug Settings agentPane.debug.thoughtFoldThreshold "Taller than the transcript" brings back the short thought in full after Thought.',
       snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         const row = () => ctx.document.querySelector<HTMLElement>(".cv-thought");
         // Its words on one line, its paragraphs joined with spaces (ThoughtRow.tsx thoughtLine).
         const line = SHORT_THOUGHT.split("\n").filter(Boolean).join(" ");
@@ -1971,6 +1990,7 @@ export default agentPaneEntry({
       },
       snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         await ctx.click({ selector: "button.cv-thought" });
         const body = () => ctx.document.querySelector<HTMLElement>(".cv-thought__body");
         await ctx.waitFor(() => body()?.textContent?.includes("jittered backoff capped at three attempts") ?? false);
@@ -1996,6 +2016,7 @@ export default agentPaneEntry({
         }),
       ]),
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         const rows = () => [...ctx.document.querySelectorAll<HTMLElement>(".cv-thought")];
         await ctx.waitFor(() => rows()[0]?.textContent?.includes("parses errors first") ?? false);
         if (rows().length !== 1) throw new Error(`two thoughts side by side draw ${rows().length} rows, not one`);
@@ -2013,6 +2034,7 @@ export default agentPaneEntry({
         [thought("I am here", { startedAt: 0, endedAt: 300 })],
       ),
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         // The step draws its calls (a live run may show only its newest), and nothing else.
         await ctx.waitFor(() => ctx.document.querySelector(".cv-tools .cv-tool"));
         await ctx.hover({ selector: ".cv-tools .cv-tool" });
@@ -2035,6 +2057,7 @@ export default agentPaneEntry({
         ),
       ]),
       play: async (ctx) => {
+        await openEndedStretch(ctx);
         await ctx.click({ selector: "button.cv-thought" });
         const titles = () => [...ctx.document.querySelectorAll(".cv-thought__title")].map((node) => node.textContent);
         await ctx.waitFor(() => titles().length === 2);
@@ -2422,24 +2445,24 @@ export default agentPaneEntry({
     "collapsed-run-open": {
       note: "The same line opened: the rows it holds, drawn as they are on their own.",
       snapshot: collapsedRunChat(),
-      play: openFoldedRun,
+      play: openEndedRun,
     },
     "collapsed-run-spacing-tight": {
       note: "Gallery comparison: the tool rows use a 20px line and 2px after the run.",
       snapshot: collapsedRunChat(),
       documentAttributes: { "transcript-tool-spacing": "tight" },
-      play: openFoldedRun,
+      play: openEndedRun,
     },
     "collapsed-run-spacing-selected": {
       note: "Selected gallery rhythm: compact 22px tool rows and a 4px gap before the reply, matching the Codex reference.",
       snapshot: collapsedRunChat(),
-      play: openFoldedRun,
+      play: openEndedRun,
     },
     "collapsed-run-spacing-roomy": {
       note: "Gallery comparison: the prior 26px tool rows and 8px after-run gap.",
       snapshot: collapsedRunChat(),
       documentAttributes: { "transcript-tool-spacing": "roomy" },
-      play: openFoldedRun,
+      play: openEndedRun,
     },
     "collapsed-run-failed": {
       note: "A failed call in the collapsed run is counted on its line.",
@@ -2494,10 +2517,14 @@ export default agentPaneEntry({
             1.7,
           ),
           activity([shellTool("cd ~/wt/lanes/sidebar-drag && git status --short && git log --oneline -3")], 1.6),
+          // The stretch ended with its summary while the chat works on: under the shipped
+          // live-turn-work `line` only an ended stretch draws its calls (turns.ts `codexRuns`).
+          summary(1.5, { status: "completed", durationMs: 30_000, toolCount: 4 }),
         ],
         { isWorking: true },
       ),
       play: async (ctx: PlayContext) => {
+        await openEndedStretch(ctx);
         // The run of sends and the shell call folds into one line ("Sent 3 messages, ran a command",
         // MessageRunLine.tsx, #31398): open it, then the shell call under it.
         const run = () => ctx.document.querySelector("button[data-message-run]");
@@ -2799,17 +2826,21 @@ export default agentPaneEntry({
       height: 1100,
       snapshot: chat(
         // The reply under the calls keeps every call a row: with nothing after it, the live line
-        // would hold the last finished call instead.
+        // would hold the last finished call instead. The stretch ended with its summary while the
+        // chat works on: under the shipped live-turn-work `line` only an ended stretch draws its
+        // calls (turns.ts `codexRuns`).
         [
           user("Stop the watcher, check the issues and run the tests.", 1),
           activity(ENVELOPE_TOOLS, 0.8),
           assistant("The watcher is stopped and the tests pass.", 0.5),
+          summary(0.5, { status: "completed", durationMs: 30_000, toolCount: ENVELOPE_TOOLS.length }),
         ],
         { isWorking: true },
       ),
       play: async (ctx) => {
-        // A running turn keeps its calls in sight (cmux#38339); a run folded to its line opens to
-        // them. Each call is then opened in turn.
+        // The ended stretch folds under its Worked for; opened, a run folded to its line opens to
+        // its calls. Each call is then opened in turn.
+        await openEndedStretch(ctx);
         await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-tool.is-toggle")));
         const closed = '.cv-tool.is-toggle[aria-expanded="false"]';
         if (ctx.document.querySelectorAll(closed).length < ENVELOPE_TOOLS.length) await openFoldedRun(ctx);
@@ -3117,7 +3148,7 @@ export default agentPaneEntry({
       },
     },
     "prompt-delivery": {
-      note: "Each sent prompt's way to the agent: the read check once it started, unread once acpmux took it, a clock and Still sending while it waits, and one that failed with Retry, Edit, Remove and Details.",
+      note: "Each sent prompt's way to the agent: the read check once it started, unread once acpmux took it, a clock while it waits (no words: the bubble already reads as sent), and one that failed with Retry, Edit, Remove and Details.",
       snapshot: chat([
         user("Add retries to the client", 6, {
           delivery: { state: "read", promptId: "p1", sessionId: "s", sentAt: 0, acceptedAt: 40, readAt: 90 },

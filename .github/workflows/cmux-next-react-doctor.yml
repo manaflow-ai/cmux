@@ -8,8 +8,12 @@ name: cmux-next React Doctor
 # Every pull request (no paths): feat-cmux-next requires `React Doctor (changed
 # React projects)`, and a required check must report. The gate scans only the
 # projects the change touches and exits green at once when it touches none.
-# Pushes to feat-cmux-next check what the push brought, so a direct push that
-# adds an error shows red within minutes.
+# Pushes to feat-cmux-next scan every project, the whole tree as it now is: base
+# stays red for as long as any project is over its baseline, whatever the push
+# touched. A push run that scanned only what the push changed let one red push
+# (the gate's own direct push, da29cd0af55, over its branch-made baseline) be
+# followed by green runs on base while every PR touching webviews failed on rows
+# it never changed, and base_red_excuse.py saw a green base and excused nothing.
 #
 # Not the official millionco/react-doctor action: it blocks on findings that
 # changed lines introduce (no per-project baseline for this monorepo), posts PR
@@ -47,24 +51,20 @@ jobs:
       - name: Gate tests
         run: python3 tests/test_react_doctor_gate.py
 
+      # A pull request scans what it changes; a push or a dispatch scans every project (see the top).
       - name: Pick the base
         id: base
-        env:
-          PUSH_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: |
           set -euo pipefail
           base=""
           if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
             base="$(git rev-parse HEAD^1)"
-          elif [ -n "$PUSH_BASE" ] && [ "$PUSH_BASE" != "0000000000000000000000000000000000000000" ] \
-              && git fetch --no-tags --depth=1 origin "$PUSH_BASE"; then
-            base="$PUSH_BASE"
           fi
           echo "base=$base" >> "$GITHUB_OUTPUT"
           if [ -n "$base" ]; then
             projects="$(git diff --name-only "$base" HEAD | python3 -c 'import sys; sys.path.insert(0, "scripts/ci"); import react_doctor_gate as g; print(" ".join(g.select_projects(sys.stdin.read().split())))')"
           else
-            echo "::notice title=React Doctor::base unknown; scanning every project"
+            echo "::notice title=React Doctor::$GITHUB_EVENT_NAME: scanning every project"
             projects="all"
           fi
           echo "projects=$projects" >> "$GITHUB_OUTPUT"
@@ -108,5 +108,5 @@ jobs:
         with:
           name: react-doctor-reports
           path: ${{ runner.temp }}/react-doctor
-          retention-days: 14
+          retention-days: 3
           if-no-files-found: ignore

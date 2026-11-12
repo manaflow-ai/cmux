@@ -78,11 +78,10 @@ import web_subareas  # noqa: E402
 import select_package_tests  # noqa: E402
 
 TEST_EXECUTION_VALIDATOR = ROOT / "scripts" / "ci" / "validate_test_execution_registry.py"
-validator_spec = importlib.util.spec_from_file_location("validate_test_execution_registry", TEST_EXECUTION_VALIDATOR)
-assert validator_spec and validator_spec.loader
-test_execution_validator = importlib.util.module_from_spec(validator_spec)
-sys.modules[validator_spec.name] = test_execution_validator
-validator_spec.loader.exec_module(test_execution_validator)
+# Imported by name, never loaded by path: one module object per file (tests/test_script_module_loads.py).
+if str(ROOT / "scripts/ci") not in sys.path:
+    sys.path.insert(0, str(ROOT / "scripts/ci"))
+import validate_test_execution_registry as test_execution_validator  # noqa: E402
 
 
 def test_execution_registry_lane_discovery_ignores_yaml_comments() -> None:
@@ -5608,6 +5607,14 @@ def _main() -> int:
                 failures.append((name, error))
     for name, error in sorted(failures):
         print(f"FAIL: {name}\n{error}", file=sys.stderr)
+    # One check per red test for the guard runner (scripts/ci/run_ci_guards.py), so a
+    # test red on the base excuses only itself, never another red the change adds.
+    # A test green here writes nothing: the base's missing entry charges a new red.
+    check_results = os.environ.get("CMUX_GUARD_CHECK_RESULTS")
+    if check_results and failures:
+        with open(check_results, "a", encoding="utf-8") as handle:
+            for name, _ in sorted(failures):
+                handle.write(f"0\ttests/test_ci_change_areas.py::{name}\n")
     if failures:
         print(f"{len(failures)} of {len(names)} tests failed", file=sys.stderr)
         return 1

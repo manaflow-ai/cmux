@@ -266,7 +266,7 @@ extension LiveCoordinator {
         let needsYou = session.needsYou
         Task { await needsYou.read(on: link, macID: macID) }
         do {
-            let channel = try await link.openChannel(service: "acpmux", args: [:])
+            let channel = try await link.openChannel(service: "acpmux", args: AcpmuxConnection.channelArgs)
             // The link closed while the channel opened: nothing more on it.
             guard session.currentLink === link else {
                 await channel.close(code: "eof", reason: "link replaced")

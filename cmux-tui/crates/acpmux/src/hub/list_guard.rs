@@ -42,6 +42,11 @@ const CONN_BURST: u32 = 2;
 const REPLIES: u32 = 8;
 /// The least a page costs, in lists: it reads every row's key to find its rows.
 const PAGE_MIN: f64 = 1.0 / 16.0;
+/// The least a byte page of the whole list costs, in lists: it reads the keys once and copies
+/// its megabyte of the shared text. Every list reply is a page of at most
+/// `rpc::REPLY_PAGE_BYTES` (`server/list_reply.rs`), so a 31 MB list is about 31 of them: at
+/// [`PAGE_MIN`] each, one whole read would cost two lists and be paced as such.
+const BYTE_PAGE_MIN: f64 = 1.0 / 64.0;
 /// The longest a list request waits for its turn; a longer wait is refused.
 pub(crate) const MAX_WAIT: Duration = Duration::from_secs(30);
 
@@ -634,8 +639,50 @@ impl Rows {
     }
 }
 
+/// Where a client's request is, for a test's hold (`Hub::hold_requests_for_tests`): about to be
+/// served (`server/mod.rs`), or its list reply sent from inside it (`server/list_reply.rs`)
+/// built and not queued yet, or queued to the client with the request not finished yet.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RequestStage {
+    Dispatch,
+    ListBuilt,
+    ListQueued,
+}
+
+/// A test's hold on requests at each [`RequestStage`], by method and id: the request waits for
+/// the future it returns, and a cancel may drop it there.
+#[doc(hidden)]
+pub type RequestHold = Arc<
+    dyn Fn(
+            RequestStage,
+            &str,
+            &Value,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>
+        + Send
+        + Sync,
+>;
+
+impl Hub {
+    /// Integration-test hold on requests (`tests/cancel_list_reply.rs`): a cancel races a request
+    /// at a stage the test picks, never by timing. Set once per hub; a daemon never sets it.
+    #[doc(hidden)]
+    pub fn hold_requests_for_tests(&self, hold: RequestHold) {
+        let _ = self.list_guard.hold.set(hold);
+    }
+
+    /// Waits out a test's hold at `stage` of request `id` of method `m`, if one is set.
+    pub(crate) async fn request_hold(&self, stage: RequestStage, m: &str, id: &Value) {
+        if let Some(hold) = self.list_guard.hold.get() {
+            hold(stage, m, id).await;
+        }
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct ListGuard {
+    /// A test's hold on requests (`Hub::hold_requests_for_tests`); unset in a daemon.
+    pub(crate) hold: std::sync::OnceLock<RequestHold>,
     state: Arc<tokio::sync::Mutex<State>>,
     /// The last build's window (ns), row count and whole list's bytes, read without waiting for
     /// a build.
@@ -669,7 +716,7 @@ impl ListGuard {
     /// byte pages costs about one list in all, not one per page.
     pub(crate) fn share_bytes(&self, budget: usize) -> f64 {
         let bytes = self.bytes.load(Ordering::Relaxed).max(1) as f64;
-        (budget as f64 / bytes).clamp(PAGE_MIN, 1.0)
+        (budget as f64 / bytes).clamp(BYTE_PAGE_MIN, 1.0)
     }
 
     /// Reserves `share` of a list on a connection's `pace`, then on every connection's
@@ -1082,16 +1129,20 @@ mod tests {
         .unwrap(); // archive tag
         cached_rows_equal_uncached(&hub);
 
+        // The tag expires when this thread's test clock is moved past it, between the two
+        // checks: a 20 ms life on the wall clock could run out in the middle of the first one,
+        // between its uncached walk and the cached rows it compares with.
+        const LIFE_MS: u64 = 60 * 60 * 1_000;
         parent.meta.lock().unwrap().tags.insert(
             "expires".into(),
             crate::store::Tag {
                 value: "soon".into(),
-                expires_at: Some(crate::store::now_ms() + 20),
+                expires_at: Some(crate::store::now_ms() + LIFE_MS),
             },
         );
         hub.save_meta_answered(&parent).unwrap();
         cached_rows_equal_uncached(&hub);
-        std::thread::sleep(std::time::Duration::from_millis(30));
+        crate::store::test_clock::advance(LIFE_MS);
         cached_rows_equal_uncached(&hub); // time-expiring tags invalidate without an event
 
         hub.set_visible(&parent, true); // mark-seen
@@ -1123,6 +1174,7 @@ mod tests {
         parent.purged.store(true, Ordering::SeqCst);
         hub.remove_cached_closed_summary(&parent.id);
         assert!(!hub.closed_summary_cache.lock().unwrap().contains_key(&parent.id));
+        crate::store::test_clock::reset();
     }
 
     /// While one live chat streams, a list build reuses every closed row's bytes: a streamed
