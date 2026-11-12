@@ -88,7 +88,7 @@ VARS = {
 
 def manaflow_route(name: str) -> str:
     """The job's runs-on source for manaflow-ai: what follows the fork short-circuit."""
-    runs_on = str(JOBS[name].get("runs-on", ""))
+    runs_on = workflow_jobs.single_runs_on(JOBS[name])
     return re.sub(r"github\.repository_owner != 'manaflow-ai' && '[^']*' \|\|", "", runs_on)
 
 

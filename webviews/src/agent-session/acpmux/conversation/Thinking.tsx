@@ -360,9 +360,17 @@ export function Thinking({
   const [answered, settled] = useAnswered(waiting);
   const [asked, grown] = useAsked(waiting);
   const startLook = starting && !waiting ? experimentArm(agentStartLook) : "thinking";
+  // A reply that paused only a moment is still being written; one silent for longer is the agent
+  // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
+  const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
+  // Once the reply has stopped, nothing the agent does is timed until its next step: the line says
+  // "Thinking" with no clock or token count, which until the turn's end ticked on under the reply as if
+  // the agent still worked (Leo, 2026-11-12: "the thinking timer is overstaying its welome after you
+  // just replied!"). The next call, thought or reply brings the turn's clock back.
+  const replied = liveState === "writing" && !stillWriting;
   // The turn's time, from the prompt, whatever the line names: it keeps counting across steps and
   // never starts again at a call (Leo, 2026-11-01: "it should just keep going").
-  const from = untimed ? undefined : since;
+  const from = untimed || replied ? undefined : since;
   const timed = !waiting && from !== undefined;
   const time = useTicking(timed, now);
   const statusVerbConfig = useStatusVerbConfig();
@@ -371,9 +379,6 @@ export function Thinking({
     () => thinkingVerbs ?? statusVerbLabels(t, statusVerbConfig),
     [t, statusVerbConfig, thinkingVerbs],
   );
-  // A reply that paused only a moment is still being written; one silent for longer is the agent
-  // thinking before its next step, which reads "Thinking" (Leo, 2026-11-03).
-  const stillWriting = !useQuiet(liveState === "writing" ? quietKey : undefined, WRITING_MS, quietAt, now);
   const sendName = useSubsessionInfo(sendSession)?.name ?? sendTo;
   const waitsOnAgents = liveState === "subagents" && liveAgents > 0;
   const writing = liveState === "writing" && stillWriting;

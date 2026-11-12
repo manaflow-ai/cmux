@@ -71,7 +71,7 @@ pub(super) async fn hub_with(plan_bytes: usize) -> Arc<crate::hub::Hub> {
             })
             .collect();
         let mut settled = peer.settled();
-        for notice in [PeerNotice::Sessions(rows), PeerNotice::Connected] {
+        for notice in [PeerNotice::sessions_from_values(rows), PeerNotice::Connected] {
             hub.peer_notices.send((name.to_owned(), peer.generation, notice)).await.unwrap();
         }
         tokio::time::timeout(Duration::from_secs(30), settled.wait_for(|n| *n >= 1))

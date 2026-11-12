@@ -80,13 +80,20 @@
   color: var(--page-text-3);
 }
 
-.history-error {
+.history-error,
+.history-pending {
   flex: none;
   margin: 0;
   padding: 8px var(--page-edge);
   border-bottom: 1px solid var(--page-separator);
   color: var(--page-text-2);
   overflow-wrap: anywhere;
+}
+
+/* The list is not complete yet (`pending_kinds`): one quiet line above the rows that came. */
+.history-pending {
+  display: block;
+  color: var(--page-text-3);
 }
 
 /* Narrow panes wrap the filters onto a second row; none is ever hidden. */

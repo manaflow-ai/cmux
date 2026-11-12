@@ -1920,6 +1920,170 @@ def pr_only_step_verdict(repo: str, base: str, name: str, head: UnplacedSignatur
     return None
 
 
+# A compiler or lint red another base job prints (2026-11-12, cmux#40935 at d2e676e6 and #41633): e0d3bb0ec2f left
+# `error: variant `RootEntries` is never constructed` (cmux-tui/crates/acpmux/src/chats/watch.rs, built on Linux only)
+# red on feat-cmux-next's 'clippy (changed cmux-tui packages)'. A PR that changes acpmux also runs 'acpmux simulation
+# (seeds)', whose `cargo clippy -p acpmux --features sim --test sim` step fails on that same error; base pushes skip
+# that step (they do not change acpmux's test inputs), so the job is green on base and the red was refused as the PR's
+# own, and the two logs never matched line for line anyway (times, run paths, line numbers, order and the other
+# errors differ). Such a red is the base's when every compiler error it prints is one error a red base job prints, in
+# a file the PR does not change. An error is compared by its signature (compile_errors): the rustc or clippy error code,
+# the file its `-->` line names (repo_path: the checkout root masked, never the line or column), and its message with
+# numbers and shas masked (normalise_error, so a file name keeps its digits). Strict, so a PR's own error never hides:
+# - every error line of the head's red (its failed sections, or its whole log when step_owners cannot place it) is such
+#   a located diagnostic, or the summary cargo prints after one (`could not compile ...`, `aborting due to ...`: never
+#   compared, since its count differs whenever the base job prints more errors); any other error line, a failing
+#   test, a crash, a panic ratchet row or a runner's unnamed failure leaves the red to the rules above;
+# - each failed step of the head job was skipped, absent or failed in the base verdict of the same job: a step the base
+#   ran and passed is the PR's own red;
+# - ONE red base job, in one run of the workflow in the window (BASE_WINDOW job lists within BASE_WINDOW_HOURS of the
+#   newest, COMPILE_ERROR_LOGS logs), prints every head signature; a job that passed in a newer base run is fixed
+#   from there back and never counts (pr_only_step_verdict's rule);
+# - no file a signature names is one the PR changes (pr_paths; cargo prints a path from its workspace, so a PR path
+#   that ends with it, or that it ends with, is the same file).
+DIAGNOSTIC = re.compile(r"^error(?:\[(?P<code>[A-Z]\d{4})\])?: (?P<message>\S.*)$")
+DIAGNOSTIC_AT = re.compile(r"^\s*--> (?P<path>\S.*?):\d+(?::\d+)?\s*$")
+DIAGNOSTIC_SUMMARY = re.compile(r"^error: (?:could not compile `[^`]+`|aborting due to )")
+# The lines .github/scripts/cmux-tui-clippy-changed.py prints after clippy's own: the run's scope, and each red file
+# outside the diff with the base commit that last changed it. They name no error of their own (each is a located
+# diagnostic above them), and differ between a PR and the base by scope and commit, so they are never compared; the
+# file a base-red line names must still be one the PR does not change.
+CLIPPY_SCOPE = re.compile(r"^##\[error\]clippy -D warnings failed for [^;]+; run `cargo clippy ")
+CLIPPY_BASE_RED = re.compile(r"^##\[error\](?P<path>\S+) is red and this change does not touch it: ")
+COMPILE_ERROR_LOGS = 6  # base job logs read for one red, at most
+
+
+class CompileErrors(NamedTuple):
+    located: frozenset  # (error code or "", repo_path of the file, message with numbers masked)
+    summaries: frozenset  # cargo's summary lines, numbers masked: read, never compared
+    other: tuple  # every other error line: a red that has one is not judged by its compile errors
+    named: frozenset  # the files the clippy wrapper's base-red lines name (CLIPPY_BASE_RED)
+    counts: Counter  # how often each located signature is printed: a base error once is not the PR's twice
+
+
+def compile_errors(lines: list[str], job: dict) -> CompileErrors:
+    """CompileErrors of LINES (a job's lines with stamps, colours and script echoes removed): each error line the
+    classifier reads (the filter unplaced_signature applies), sorted into located diagnostics, summaries and the rest."""
+    located, summaries, other, named, counts = set(), set(), [], set(), Counter()
+    for n, line in enumerate(lines):
+        if line.startswith(test_reds.TAP_MARKER) or SUMMARY_RED.match(line) or SOURCE_EXCERPT.match(line):
+            continue
+        if not ((ERROR.search(line) or DIAGNOSTIC.match(line.strip())  # `error[E0425]:` has no `error:`
+                 or ((marker := JOB_ERROR.get(job.get("name", ""))) is not None and marker.search(line))
+                 or SHELL_FAIL.match(line))
+                and not GENERIC.search(line) and not WARNING.search(line) and not CRASH_LINE.search(line)
+                and not SUCCESS_DIAGNOSTIC.search(line)):
+            continue
+        said = line.strip()
+        if CLIPPY_SCOPE.match(said):
+            continue
+        if (wrapper := CLIPPY_BASE_RED.match(said)) is not None:
+            named.add(repo_path(wrapper["path"]))
+            continue
+        if DIAGNOSTIC_SUMMARY.match(said):
+            summaries.add(normalise_error(said))
+            continue
+        found = DIAGNOSTIC.match(said)
+        # rustc prints a diagnostic's `-->` on the line right after its header. Only that line is its location: a
+        # later one may be another diagnostic's (an unlocated error before a warning's `-->`, Codex F1 on #42028).
+        at = DIAGNOSTIC_AT.match(lines[n + 1]) if found and n + 1 < len(lines) else None
+        if found is None or at is None:
+            other.append(said)
+            continue
+        key = (found["code"] or "", repo_path(at["path"]), normalise_error(found["message"]))
+        located.add(key)
+        counts[key] += 1
+    return CompileErrors(frozenset(located), frozenset(summaries), tuple(other), frozenset(named), counts)
+
+
+def signature_text(error: tuple) -> str:
+    code, path, message = error
+    return f"{path}: {'[' + code + '] ' if code else ''}{message}"
+
+
+def touched_by(path: str, changed: list[str]) -> list[str]:
+    """The PR paths in CHANGED that are the file PATH names: the same path, or one that ends with the other at a
+    directory boundary (cargo prints `crates/x/src/a.rs` for `cmux-tui/crates/x/src/a.rs`)."""
+    said = path.lstrip("/")
+    return [p for p in changed if p == said or p.endswith("/" + said) or said.endswith("/" + p)]
+
+
+def compile_errors_verdict(repo: str, base: str, sha: str, name: str, job: dict, view: "FailedView | Unplaced",
+                           head: "CompileErrors | None", unplaced: "UnplacedSignature | None", same_job: dict | None,
+                           runs: list[dict], base_jobs: dict, github, run_reads: dict) -> str | None:
+    """The audit line for red job NAME (JOB, its failed_view VIEW, its whole-log UNPLACED, and HEAD, read_head's
+    compile_errors of it) when every compiler error it prints is one red base job's in a file the PR does not change
+    (the rule above); None when the rule does not apply or no base job shows it. SAME_JOB: the base verdict of the
+    same job; RUNS: the workflow's base runs, newest first."""
+    if view is UNPLACED:
+        if unplaced is None or unplaced.tests or unplaced.crashes or unplaced.unnamed:
+            return None
+        if any(error.startswith("ratchet: ") for error in unplaced.errors):
+            return None
+    else:
+        _, tests, errors = signature(view)
+        if tests or crash_signals(view) or any(RATCHET_SCOPE.match(error) for error in errors):
+            return None
+        if test_reds.read(view_text(view)).unnamed:
+            return None
+        # Each failed section is a compile red of its own: a second failed step that prints no located error (a
+        # sim run that exits 1 on `seed 42 diverged`) is never excused by the clippy step's base errors.
+        if any(not compile_errors(list(lines_of("\n".join(lines))), job).located
+               for _, _, lines in view.sections):
+            return None
+    if head is None or head.other or not head.located:
+        return None
+    # Each head failed step against the same job's base verdict by (name, how many): a name the base has fewer times
+    # than the head failed it, or one it ran and passed, is the PR's own (Codex F2 on #42028: names in a dict hid a
+    # second failed step of one name).
+    mine = Counter(step for step, _ in failed_step_keys(job).elements())
+    theirs = Counter(str(step.get("name") or "")  # step-name: classify
+                     for step in (same_job or {}).get("steps") or []
+                     if step.get("conclusion") in ("skipped", "failure"))
+    known = Counter(str(step.get("name") or "") for step in (same_job or {}).get("steps") or [])  # step-name: classify
+    if any(known[step] and theirs[step] < n for step, n in mine.items()):
+        return None
+    if view is UNPLACED and sum(mine.values()) != 1:
+        return None  # no line of an unplaced log is known to be its step's: one failed step, or nothing is compared
+    try:
+        _, changed = pr_paths_once(repo, base, sha, github, run_reads)
+    except Final:
+        raise
+    except Refused:
+        return None
+    if any(touched_by(path, changed) for path in {path for _, path, _ in head.located} | head.named):
+        return None
+    newest = created(runs[0]) if runs else None
+    fixed: set = set()
+    reads = compared = 0
+    for run in runs:
+        if run.get("conclusion") not in ("failure", "success"):
+            continue
+        if newest and created(run) and abs(newest - created(run)) > timedelta(hours=BASE_WINDOW_HOURS):
+            continue
+        if run["id"] not in base_jobs or base_jobs[run["id"]] is None:
+            if reads >= BASE_WINDOW:
+                break
+            reads += 1
+            base_jobs[run["id"]] = base_run_jobs(repo, run, github)
+        jobs = base_jobs[run["id"]]
+        passed = {other.get("name") for other in jobs if other.get("conclusion") == "success"}
+        for other in jobs:
+            if other.get("conclusion") != "failure" or other.get("name") in fixed | passed:
+                continue
+            if compared >= COMPILE_ERROR_LOGS:
+                return None
+            compared += 1
+            theirs = compile_base_evidence(repo, run, other, github, run_reads)
+            if all(theirs.counts[error] >= n for error, n in head.counts.items()):
+                url = run.get("html_url") or f"https://github.com/{repo}/actions/runs/{run['id']}"
+                return (f"excused '{name}': every compiler error it prints is one {base} run {run['id']}'s red "
+                        f"'{other.get('name')}' prints ({url}), in files this PR does not change: "
+                        f"{'; '.join(sorted(signature_text(error) for error in head.located))[:400]}")
+        fixed |= passed
+    return None
+
+
 # The shared generated-files check reads its host job's verdict and prints nothing of its own (GENERATED_VERDICT_JOB).
 # A 'stale' verdict from a host whose regeneration could not run is the host's red, not a stale file: when that host's
 # red on this head was excused by pr_only_step_verdict (its regeneration failed only on base reds), the shared check's
@@ -6069,6 +6233,9 @@ class Head(NamedTuple):
     # The whole-log signature of an unplaced head (VIEW UNPLACED) or of a placed one with nothing to compare, else
     # None: unplaced_verdict compares it.
     unplaced: "UnplacedSignature | None" = None
+    # Its compiler errors (compile_errors) of its failed sections, or of its whole log when VIEW is UNPLACED:
+    # compile_errors_verdict compares them.
+    compile: "CompileErrors | None" = None
 
 
 def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_reads: dict,
@@ -6134,7 +6301,19 @@ def read_head(repo: str, base: str, sha: str, name: str, job: dict, github, run_
     bare = (early is not UNPLACED and not early[1] and not early[2] and not crash_signals(view)
             and not chromium_without_diagnostics)
     return Head(None, view, chromium_without_diagnostics, per_test,
-                unplaced_signature(job, head_log) if view is UNPLACED or bare else None)
+                unplaced_signature(job, head_log) if view is UNPLACED or bare else None,
+                compile_errors(test_reds.lines_of(head_log) if view is UNPLACED else list(lines_of(view_text(view))),
+                               job))
+
+
+def compile_base_evidence(repo: str, run: dict, found: dict, github, run_reads: dict) -> "CompileErrors":
+    """compile_errors of red base job FOUND (of base run RUN): of its failed sections (failed_view), or of its whole
+    log when step_owners cannot place it, as pr_only_step_verdict reads an unplaced base job. The one reader of the
+    raw log of a base job compile_errors_verdict compares."""
+    text = github.log(repo, found)
+    view = failed_view(found, text, base=True,
+                       step_names=job_step_names(repo, found, github, run_reads, path=run.get("path")))
+    return compile_errors(test_reds.lines_of(text) if view is UNPLACED else list(lines_of(view_text(view))), found)
 
 
 def base_evidence(repo: str, base: str, name: str, run: dict, found: dict, github, run_reads: dict) -> tuple:
@@ -6527,6 +6706,13 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     audit.append(only)
                     pr_only.add((job.get("run_id"), name))
                     continue
+                # Or a step the green verdict skipped, red only on compiler errors another red base job prints in
+                # files this PR does not change (compile_errors_verdict; cmux#40935's acpmux simulation clippy step).
+                if aside is None and (same := compile_errors_verdict(
+                        repo, base, sha, name, job, view, got.compile, got.unplaced, base_job, evidence.runs(workflow),
+                        base_jobs, github, run_reads)) is not None:
+                    audit.append(same)
+                    continue
                 if purpose == PER_STEP_PURPOSE:
                     try:
                         audit.append(green_since(repo, base, sha, name, job, workflow_info, base_run, base_job,
@@ -6573,7 +6759,7 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                 # The window the placed comparison reads (BASE_WINDOW verdicts within BASE_WINDOW_HOURS of the newest,
                 # a green one ends it): identity with any one red verdict in it, never a mix of several. cmux#41086 at
                 # 5d0fb077: the newest base run had one more failing test than the head (a pre-push gate flake).
-                newest, read, seen = created(base_run), 1, []
+                newest, read, seen, newest_job = created(base_run), 1, [], base_job
                 while True:
                     try:
                         theirs = unplaced_base_evidence(repo, base_job, github)
@@ -6595,6 +6781,11 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                                                              base_jobs, github)) is not None:
                                 audit.append(only + (f"; {aside}" if aside is not None else ""))
                                 pr_only.add((job.get("run_id"), name))
+                                break
+                            if aside is None and (same := compile_errors_verdict(
+                                    repo, base, sha, name, job, view, got.compile, got.unplaced, newest_job,
+                                    evidence.runs(workflow), base_jobs, github, run_reads)) is not None:
+                                audit.append(same)
                                 break
                             raise
                         read += 1
@@ -6631,6 +6822,12 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                         or (newest and created(run) and newest - created(run) > timedelta(hours=BASE_WINDOW_HOURS))):
                     if aside is not None:  # the step-A pin rule set its red aside: judged as before
                         raise
+                    # BASE_JOB: the newest verdict's job, as read from the jobs API (never the window's view).
+                    if (same := compile_errors_verdict(repo, base, sha, name, job, view, got.compile, got.unplaced,
+                                                       base_job, evidence.runs(workflow), base_jobs, github,
+                                                       run_reads)) is not None:
+                        audit.append(same)
+                        break
                     try:
                         audit.append(by_step())
                         break
