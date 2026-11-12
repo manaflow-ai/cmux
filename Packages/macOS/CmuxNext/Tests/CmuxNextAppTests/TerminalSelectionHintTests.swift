@@ -40,38 +40,35 @@ import Testing
         #expect(GhosttyInput.mods(sent).rawValue == GhosttyInput.mods(.shift).rawValue)
     }
 
-    /// The hint shows only in a terminal wide enough for the whole chip; a narrower one keeps it for a
-    /// later drag instead of clipping it or spilling into the next pane.
-    @Test func theHintWaitsForATerminalWideEnoughForIt() {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 60, height: 200))
-        let hint = TerminalSelectionHint(view: view)
+    /// The hint is a toast like every other (Lawrence 2026-11-12: "for option/shift space dialog when
+    /// im trying to drag over terminals need a button for it to never show again"): it offers Don't
+    /// Show Again, and once hidden it never shows on a drag again.
+    @Test func theHintIsAToastThePersonCanHideForGood() throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        defer { window.close() }
+        let view = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 300))
+        window.contentView = view
+        let store = CmuxToastNeverShowStore(defaults: UserDefaults(suiteName: "hint-\(UUID().uuidString)")!)
+        let center = CmuxToastCenter(neverShow: store)
+        let hint = TerminalSelectionHint(view: view, toasts: center)
         hint.pressed([], captured: true)
         hint.dragged()
-        #expect(hint.shownText == nil)
+        let shown = try #require(center.toasts(in: window).first)
+        #expect(shown.id == TerminalSelectionHint.toastID)
+        #expect(shown.message == TerminalSelectionHint.text)
+        #expect(shown.offersNeverShow)
+        #expect(hint.shownText == TerminalSelectionHint.text)
         hint.released()
-        view.setFrameSize(NSSize(width: 800, height: 200))
-        hint.pressed([], captured: true)
-        hint.dragged()
-        #expect(hint.shownText == TerminalSelectionHint.text)
-        let chip = view.subviews.compactMap { $0 as? ShortcutHintChipView }.first
-        #expect(chip.map { $0.frame.minX >= 0 && $0.frame.maxX <= view.bounds.width } == true)
         hint.hide()
-    }
+        #expect(center.toasts(in: window).isEmpty)
 
-    /// A terminal that shrinks below the hint while it shows takes it down rather than clip it or
-    /// let it spill into the next pane.
-    @Test func aTerminalShrunkBelowTheHintHidesIt() {
-        let view = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 200))
-        let hint = TerminalSelectionHint(view: view)
-        hint.pressed([], captured: true)
-        hint.dragged()
-        #expect(hint.shownText == TerminalSelectionHint.text)
-        view.setFrameSize(NSSize(width: 700, height: 200))
-        hint.resized()
-        #expect(hint.shownText == TerminalSelectionHint.text)
-        view.setFrameSize(NSSize(width: 60, height: 200))
-        hint.resized()
-        #expect(hint.shownText == nil)
+        store.hide(TerminalSelectionHint.toastID)
+        let later = TerminalSelectionHint(view: view, toasts: center)
+        later.pressed([], captured: true)
+        later.dragged()
+        #expect(center.toasts(in: window).isEmpty)
+        #expect(later.shownText == nil)
     }
 
     /// A press whose release never comes (the terminal left its window mid-drag) leaves no Option
