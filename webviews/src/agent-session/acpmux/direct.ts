@@ -2315,14 +2315,18 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// any cut). A reply's chunks write its row one after another and take one entry.
   private changeSeqs: number[] = [];
   private changeIds: string[] = [];
+  /// Where each changed row sorts (its maker's seq), kept here so a row a later record deleted
+  /// still spans the records between.
+  private changeOrders: number[] = [];
 
-  private noteChange(id: string, seq: number): void {
+  private noteChange(id: string, seq: number, order = this.order.get(id) ?? Infinity): void {
     const last = this.changeSeqs.length - 1;
     if (last < 0 || seq >= this.changeSeqs[last]!) {
-      if (last >= 0 && this.changeIds[last] === id) this.changeSeqs[last] = seq;
+      if (last >= 0 && this.changeIds[last] === id && this.changeOrders[last] === order) this.changeSeqs[last] = seq;
       else {
         this.changeSeqs.push(seq);
         this.changeIds.push(id);
+        this.changeOrders.push(order);
       }
       return;
     }
@@ -2331,6 +2335,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const at = this.changesFrom(seq + 1);
     this.changeSeqs.splice(at, 0, seq);
     this.changeIds.splice(at, 0, id);
+    this.changeOrders.splice(at, 0, order);
   }
 
   /// The index of the first change noted at or after record `seq`.
@@ -2351,6 +2356,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     const at = this.changesFrom(seq);
     this.changeSeqs.length = at;
     this.changeIds.length = at;
+    this.changeOrders.length = at;
   }
 
   /// The oldest place of a row made before record `seq` that a record from `seq` on changed:
@@ -2359,8 +2365,8 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   spanningFrom(seq: number): number {
     let from = Infinity;
     for (let index = this.changeSeqs.length - 1; index >= 0 && this.changeSeqs[index]! >= seq; index -= 1) {
-      const order = this.order.get(this.changeIds[index]!);
-      if (order !== undefined && order < seq) from = Math.min(from, order);
+      const order = this.changeOrders[index]!;
+      if (order < seq) from = Math.min(from, order);
     }
     return from;
   }
@@ -2369,18 +2375,24 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   forgetChanges(): void {
     this.changeSeqs = [];
     this.changeIds = [];
+    this.changeOrders = [];
   }
 
   /// Row `from`, made by record `made`, was merged into the older row `into` (an older page's fold
   /// joins a compaction's notes or a shell's end to rows it brought): `from`'s changes and the
   /// record that made it are `into`'s. Kept in record order; O(changes), on an older page only.
   mergeChanges(from: string, into: string, made: number): void {
+    const order = this.order.get(into) ?? Infinity;
     for (let index = 0; index < this.changeIds.length; index += 1)
-      if (this.changeIds[index] === from) this.changeIds[index] = into;
+      if (this.changeIds[index] === from) {
+        this.changeIds[index] = into;
+        this.changeOrders[index] = order;
+      }
     if (!Number.isFinite(made)) return;
     const at = this.changesFrom(made + 1);
     this.changeSeqs.splice(at, 0, made);
     this.changeIds.splice(at, 0, into);
+    this.changeOrders.splice(at, 0, order);
   }
 
   /// An event was reduced (it may have made no row).
@@ -2394,6 +2406,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
     this.pullRequestActivityVersion = Symbol();
     this.pullRequestCommandVersion = Symbol();
     this.transcriptSummaryVersion = {};
+    // A row a later record takes away changed too: a cut between them would draw it again.
+    const made = this.order.get(id);
+    if (this.current !== undefined && made !== undefined && made < this.current)
+      this.noteChange(id, this.current, made);
     this.dropOrdered(id);
     this.snapshot = undefined;
     this.compactionIds.delete(id);
@@ -7406,14 +7422,19 @@ export class AcpmuxDirectClient {
     this.awaiting = undefined;
     // Past a cut, what the turns above it left (ended turns, a running compaction's time, a call's
     // reactions and helper lines) stays: a refold reads none of their records again.
-    if (frozenBefore === undefined) this.endedTurns.clear();
-    this.supersededTurns.clear();
-    this.steerRows.clear();
+    // So do the maps from an id to the row it found: a record the refold reads, one a repair just
+    // brought included, finds a row above the cut through them (a sender claim, a steer, a plan
+    // call); the refold sets each again for its own records.
+    if (frozenBefore === undefined) {
+      this.endedTurns.clear();
+      this.supersededTurns.clear();
+      this.steerRows.clear();
+      this.promptsShown.clear();
+      this.sentFromPrompts.clear();
+      this.inboxClaimRows.clear();
+    }
     this.stoppingTurn = undefined;
     this.lateSteers = [];
-    this.promptsShown.clear();
-    this.sentFromPrompts.clear();
-    this.inboxClaimRows.clear();
     this.firstSeq = undefined;
     // Found again as the held events are reduced (`reduceEvent`); one above a cut stays.
     this.nativeSeed = nativeSeed;
@@ -7454,7 +7475,7 @@ export class AcpmuxDirectClient {
       this.backgroundSources.clear();
       this.sourceLines.clear();
     }
-    this.planCalls.clear();
+    if (frozenBefore === undefined) this.planCalls.clear();
     // Past a cut, the subagents' views drawn from the records above it stay (`publishedSubagentViews`):
     // a group row above the cut opens its subagent's view, and the refold reads none of its records.
     // No subagent above it still runs (`rebuildCut`'s `openSince`); the refold's views win.
