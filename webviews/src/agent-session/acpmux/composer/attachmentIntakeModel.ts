@@ -269,6 +269,8 @@ type Intake = (
   kind?: SourceKind,
   again?: string,
   needsOriginal?: boolean,
+  /// The chat the gesture was made in, when it is read later than its own task (filesOnce).
+  made?: { scope: string | undefined },
 ) => Promise<void>;
 
 /// How many cancelled loading chips keep their file for an undo (`revive`).
@@ -302,6 +304,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const t = useT();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const [pending, setPending] = useState<PendingAttachment[]>([]);
+  /// The gestures whose files are still read for twins (attachments.ts filesOnce), each with its chat.
+  const [twinReads, setTwinReads] = useState<{ scope: string | undefined }[]>([]);
   const pendingRef = useRef<PendingAttachment[]>([]);
   pendingRef.current = pending;
   const [attachError, setAttachError] = useState<string | undefined>();
@@ -421,7 +425,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
           : chips,
       ),
   );
-  const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again, needs = false) => {
+  const [intake] = useState<Intake>(() => async (given, uploads = false, kind, again, needs = false, chat) => {
     if (given.length === 0) return;
     // When the page took the gesture: the host answers its source only from a record made before
     // it (composer/attachmentSources.ts).
@@ -431,7 +435,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     // does a Finder drop, instead of streaming a copy of each (an older host answers nothing).
     const dropped: DroppedKind | undefined = kind;
     const { options: current } = live.current;
-    const batch = { scope: current.scope };
+    const batch = { scope: chat ? chat.scope : current.scope };
     // In the paste's or drop's own task, so React draws them before the next frame.
     const shown: PendingAttachment[] = files.map((file) => ({
       id: again ?? crypto.randomUUID(),
@@ -500,7 +504,8 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       );
     else {
       setPending((chips) => [...chips, ...shown]);
-      current.place?.(shown, dropped);
+      // A gesture read after the person left its chat goes to that chat's strip, not this prompt.
+      if (batch.scope === current.scope) current.place?.(shown, dropped);
     }
     const paths = current.localPaths;
     /// The chip each file became, by index, for its original's path arriving later.
@@ -730,8 +735,14 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   });
   const [attach] = useState(
     () =>
-      (given: (File | MadeFile)[], uploads = false, kind?: SourceKind, needs = false) =>
-        given.length && refused() ? Promise.resolve() : intake(given, uploads, kind, undefined, needs),
+      (
+        given: (File | MadeFile)[],
+        uploads = false,
+        kind?: SourceKind,
+        needs = false,
+        made?: { scope: string | undefined },
+      ) =>
+        given.length && refused() ? Promise.resolve() : intake(given, uploads, kind, undefined, needs, made),
   );
   /// A chip the host makes from something of its own (a long dictation recording it sends to the
   /// chat's machine): its tile shows at once, drawn before this returns so a send made in the same
@@ -921,10 +932,17 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   );
   useEffect(() => {
     // One set of bytes is one chip (attachments.ts filesOnce).
+    // While its twins are read (at most a frame) the gesture holds a send, and its chips go to the
+    // chat it was made in, as they would have from its own task.
     const attachOnce = (files: File[], uploads: boolean, kind: SourceKind) => {
       const once = filesOnce(files);
-      if (Array.isArray(once)) void attach(once, uploads, kind);
-      else void once.then((files) => attach(files, uploads, kind));
+      if (Array.isArray(once)) return void attach(once, uploads, kind);
+      const made = { scope: live.current.options.scope };
+      setTwinReads((reads) => [...reads, made]);
+      void once.then((files) => {
+        setTwinReads((reads) => reads.filter((read) => read !== made));
+        return attach(files, uploads, kind, false, made);
+      });
     };
     const paste = (event: ClipboardEvent) => {
       if (live.current.options.locked?.() || pastesPlaced.has(event)) return;
@@ -968,7 +986,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   /// video uploaded went at once without it (Leo, 2026-11-01: "oh i guess mp4 couldnt get sent").
   /// A file the composer refused (no images here, one that would not decode) holds none: its
   /// Retry could never make it. A chip the host makes (`bound`) holds it even once failed.
-  const loading = shown.filter((chip) => !chip.failed || chip.bound || chip.uploadFailed).length;
+  const loading =
+    shown.filter((chip) => !chip.failed || chip.bound || chip.uploadFailed).length +
+    twinReads.filter((read) => read.scope === scope).length;
   /// The same chips (useSendWhenAttached's `unsettled`).
   const unsettled = loading;
   /// The video chips whose poster and frames the host still reads, for a chat on this Mac

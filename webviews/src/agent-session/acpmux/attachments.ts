@@ -788,12 +788,15 @@ const TWIN_READ_MS = 16;
 /// A paste's or drop's files with each set of bytes once. A screenshot tool that copies both the
 /// saved file and its picture hands WebKit one image twice, and each became a chip, an upload and
 /// an image in the sent prompt (Leo, 2026-11-06: "Why am I seeing that, like the app is trying to
-/// attach doubled up screenshots?"). Only files of one type and size can be the same, so only
-/// those are read: any other gesture answers in its own task, as its chips must, and a read that
-/// takes past a frame keeps every file rather than hold the chips.
+/// attach doubled up screenshots?"). Only images: two other files with the same bytes (an empty
+/// `__init__.py` and `py.typed`, a file and its renamed copy) are two files the person meant, and
+/// a drop's paths are matched to its files by count. Only images of one type and size can be the
+/// same, so only those are read: any other gesture answers in its own task, as its chips must, and
+/// a read that takes past a frame keeps every file rather than hold the chips.
 export function filesOnce(files: File[], wait = TWIN_READ_MS): File[] | Promise<File[]> {
   const groups = new Map<string, number[]>();
   files.forEach((file, index) => {
+    if (!file.type.startsWith("image/")) return;
     const key = `${file.type}\n${file.size}`;
     groups.set(key, [...(groups.get(key) ?? []), index]);
   });

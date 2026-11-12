@@ -250,6 +250,27 @@ test("one screenshot the clipboard holds twice is one attachment atom and one im
   expect(promptBlocks(sent[0]!.text, sent[0]!.attachments).filter((block) => block.type === "image")).toHaveLength(1);
 });
 
+test("a send made while a paste's twins are still compared waits for its image", async () => {
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const shot = screenshot(1);
+  const twin = new File([await shot.arrayBuffer()], "copy.png", { type: "image/png" });
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", {
+    value: { files: [shot, twin], types: ["Files"], getData: () => "" },
+  });
+  // Return in the paste's own task, before the twins' bytes are read.
+  act(() => {
+    field().dispatchEvent(event);
+  });
+  act(() => {
+    composer.current!.send();
+  });
+  expect(sent).toHaveLength(0);
+  await until(() => sent.length === 1, "the held send");
+  expect(promptBlocks(sent[0]!.text, sent[0]!.attachments).filter((block) => block.type === "image")).toHaveLength(1);
+});
+
 test("a gesture's files keep every different file, and answer at once when none could be a twin", async () => {
   const { filesOnce } = await import("../src/agent-session/acpmux/attachments");
   const [one, two] = [screenshot(1), screenshot(2)];
@@ -258,6 +279,15 @@ test("a gesture's files keep every different file, and answer at once when none 
   // The same bytes as another type are another file.
   const asText = new File([await one.arrayBuffer()], "image.txt", { type: "text/plain" });
   expect(await filesOnce([one, asText])).toEqual([one, asText]);
+  // Files that aren't images are each the person's, whatever their bytes: two empty files stay two.
+  const init = new File([], "__init__.py", { type: "text/x-python" });
+  const typed = new File([], "py.typed", { type: "text/x-python" });
+  expect(await filesOnce([init, typed])).toEqual([init, typed]);
+  const copies = [
+    new File(["same"], "a.txt", { type: "text/plain" }),
+    new File(["same"], "b.txt", { type: "text/plain" }),
+  ];
+  expect(filesOnce(copies)).toEqual(copies);
   expect(await filesOnce([one, new File([await one.arrayBuffer()], "copy.png", { type: "image/png" })])).toEqual([one]);
   // No two files of one type and size: no read, the chips draw in the gesture's own task.
   const small = new File([Uint8Array.of(1)], "a.png", { type: "image/png" });
