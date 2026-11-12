@@ -164,6 +164,20 @@ import Testing
         #expect(declined.calls == ["read", "set off"])
     }
 
+    /// Not Now on a Mac whose agent already has cmux's server (added before the question existed)
+    /// takes cmux's own entry out after the answer is written; with none there it touches no config.
+    @Test func notNowTakesOutAServerAlreadyThere() async {
+        let had = Source(agents: [AgentToolsAgent(id: "claude", name: "Claude Code", state: .added),
+                                  AgentToolsAgent(id: "codex", name: "Codex", state: .ready)])
+        let model = AgentToolsStepModel(source: had)
+        model.start()
+        await Self.until { model.loaded }
+        model.decline()
+        await Self.until { had.calls.contains("remove") && !model.applying }
+        #expect(had.calls == ["read", "set off", "remove"], "the answer first, then cmux's entry comes out")
+        #expect(model.choice == .off && model.addedCount == 0 && !model.failed)
+    }
+
     // MARK: First run
 
     /// The step is asked at launch, a first run or an existing installation, once: while nobody

@@ -5,7 +5,7 @@ public import Observation
 /// The cmux Tools step (and Settings > Agents' row): asks whether cmux may add its MCP server,
 /// Computer Use included, to the person's coding agents, lists the agents found, and keeps the
 /// answer. Add to My Agents sets `on` and runs `cmux setup mcp` for the agents found; Not Now sets
-/// `off` and writes nothing. Nothing runs until the person answers (Aziz, 2026-11-10: "prevent
+/// `off`, adds nothing, and takes out cmux's own entry where one is already there. Nothing runs until the person answers (Aziz, 2026-11-10: "prevent
 /// overstepping on a user's setup").
 @MainActor
 @Observable
@@ -68,13 +68,19 @@ public final class AgentToolsStepModel {
         apply(choice: .on, remove: false)
     }
 
-    /// Not Now: the answer is no; nothing is written to any agent.
+    /// Not Now: the answer is no. Nothing is added; an agent that already has cmux's server (added
+    /// before the question, by Add, or by `cmux setup mcp`) gets it taken out (`--remove`, cmux's own
+    /// entry only), so no means no cmux tools in the person's agents. With none there, no config is touched.
     public func decline() {
         guard !applying else { return }
         answered = true
         localChoice = .off
         failed = false
         guard let source else { return }
+        if agents.contains(where: { $0.state == .added }) {
+            apply(choice: .off, remove: true)
+            return
+        }
         run?.cancel()
         // task-owner: one settings write the person asked for; a refused write shows as failed.
         run = Task { [weak self] in
