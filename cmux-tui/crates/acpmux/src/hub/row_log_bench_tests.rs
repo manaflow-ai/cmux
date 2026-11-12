@@ -18,7 +18,7 @@ fn p95(mut samples: Vec<Duration>) -> Duration {
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "bench: prints the before and after numbers"]
 async fn list_follow_bench() {
-    let mut follow = Vec::new();
+    let (mut follow, mut pages) = (Vec::new(), Vec::new());
     for chats in [525, 11_000] {
         let hub = hub_with(chats, 0, 0).await;
         let mut link = Client::new(&hub, Origin::Peer).await;
@@ -56,13 +56,36 @@ async fn list_follow_bench() {
             assert!(built.is_some(), "the log follows its own head");
             eprintln!("PERF follow peak bytes chats={chats}: {peak}");
         }
+        // The app's first page (`limit: 200`) and a whole read's first reply (`_acpmux/sessions`
+        // with no `limit`), each on a new connection after a change, as an app opens.
+        let (mut page, mut read) = (Vec::new(), Vec::new());
+        for n in 0..20 {
+            record(&hub, &format!("chat-{}", n % chats), "renamed");
+            let mut app = Client::new(&hub, Origin::Local).await;
+            let started = Instant::now();
+            app.call(method::MUX_WATCH, json!({"enabled": true, "limit": 200})).await;
+            page.push(started.elapsed());
+            record(&hub, &format!("chat-{}", (n + 1) % chats), "renamed");
+            let started = Instant::now();
+            app.call(method::MUX_SESSIONS, json!({})).await;
+            read.push(started.elapsed());
+        }
         let (f, w) = (p95(samples), p95(whole));
         eprintln!("PERF reconnect chats={chats}: follow p95 {f:?}, whole list p95 {w:?}");
+        let (p, r) = (p95(page), p95(read));
+        eprintln!(
+            "PERF open chats={chats}: first page p95 {p:?}, whole read first reply p95 {r:?}"
+        );
         follow.push(f);
+        pages.push(p);
     }
     eprintln!(
         "PERF follow god/small p95 ratio {:.2}",
         follow[1].as_secs_f64() / follow[0].as_secs_f64()
+    );
+    eprintln!(
+        "PERF first page god/small p95 ratio {:.2}",
+        pages[1].as_secs_f64() / pages[0].as_secs_f64()
     );
 
     // The first frame with 525 chats and 30 peers of 20 rows, while 30 links reconnect.
