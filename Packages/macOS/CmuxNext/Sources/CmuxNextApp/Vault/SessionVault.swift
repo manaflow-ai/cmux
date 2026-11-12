@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextHistory
+import CmuxNextHistoryDaemon
 import CmuxNextPages
 import Observation
 
@@ -19,6 +20,10 @@ final class SessionVault {
     var filter = ""
     /// A reload is running.
     private(set) var isLoading = false
+    /// The source's list is not complete yet: the rows are the sessions read so far.
+    private(set) var isPartial = false
+    @ObservationIgnored private var surfaces: [@MainActor () -> Bool?] = []
+    @ObservationIgnored private let waitForPending: @Sendable (Int) async throws -> Void
     @ObservationIgnored private let source: any VaultSessionSource
     @ObservationIgnored let pullRequests: VaultPullRequests
     @ObservationIgnored let copyText: @MainActor (String) -> Void
@@ -29,14 +34,20 @@ final class SessionVault {
     ///   - copyText: Puts Copy Resume Command's text on the pasteboard (tests record it: they run
     ///     without a pasteboard server).
     ///   - openURL: Opens a session's pull request (the app's link router).
+    ///   - waitForPending: Suspends before the read that follows that many reads of a list that is not complete.
     init(source: any VaultSessionSource, pullRequests: VaultPullRequests = VaultPullRequests(),
          copyText: @escaping @MainActor (String) -> Void = SessionVault.writeGeneralPasteboard,
-         openURL: @escaping @MainActor (URL) -> Void = { _ = LinkRouter.shared.open($0) }) {
+         openURL: @escaping @MainActor (URL) -> Void = { _ = LinkRouter.shared.open($0) },
+         waitForPending: @escaping @Sendable (Int) async throws -> Void = { try await DaemonHistoryClient.waitForPending(afterReads: $0) }) {
         self.source = source
+        self.waitForPending = waitForPending
         self.pullRequests = pullRequests
         self.copyText = copyText
         self.openURL = openURL
     }
+
+    /// A surface that shows the list says whether it is on screen (nil: the surface is gone).
+    func addSurface(_ isOnScreen: @escaping @MainActor () -> Bool?) { surfaces.append(isOnScreen) }
 
     /// The rows the search keeps.
     var shownRows: [VaultRow] { rows.filter { $0.matches(filter) } }

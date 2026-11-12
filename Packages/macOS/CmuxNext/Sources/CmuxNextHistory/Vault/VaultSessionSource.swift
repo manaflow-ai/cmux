@@ -10,4 +10,11 @@ package protocol VaultSessionSource: AnyObject {
     func sessions() -> [AgentSession]
     /// Whether the session's agent still runs in a tab this app can show.
     func isLive(_ session: AgentSession) -> Bool
+    /// Whether `sessions()` is the whole list.
+    var isComplete: Bool { get }
+}
+
+package extension VaultSessionSource {
+    /// A source whose list is always whole (fixed sessions).
+    var isComplete: Bool { true }
 }
