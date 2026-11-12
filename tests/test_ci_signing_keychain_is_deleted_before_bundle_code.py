@@ -91,6 +91,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import signing_runner_variables  # noqa: E402
 import workflow_jobs  # noqa: E402
 from shell_invocations import must_run, run_when_reached  # noqa: E402  (every caller here CREDITS a step: uncertain is not run)
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402  (finds each ${{ }}: a regex cuts at a }} in a string)
 
 CREATE = re.compile(r"signing-keychain\.sh\s+create\b|\bsecurity\s+create-keychain\b")
 DELETE = re.compile(
@@ -237,7 +239,7 @@ GUARDED_BY_SUCCESS = re.compile(r"^success\(\s*\)(?:\s*&&\s*(?P<rest>.+))?$", re
 def runs_after_failure(condition: object) -> bool:
     """Whether a step with this `if:` can run after an earlier step of its job failed."""
     text = str(condition or "").strip()
-    expression = re.fullmatch(r"\$\{\{(.*)\}\}", text, re.DOTALL)
+    expression = gh_expressions.EXPRESSION.fullmatch(text)
     text = (expression.group(1) if expression else text).strip()
     if not STATUS_FUNCTION.search(text):
         return False
@@ -294,8 +296,21 @@ GATED_SECRET_JOBS = {("stable-next.yml", "sign"): ("SIGN", "developer-id")}
 # 7b's shape (mode_gated_secret()) is in it or here with a reason, and every entry still has the shape
 # (check_gated_secret_classification). None today.
 GATED_SECRET_EXEMPT: dict[tuple[str, str], str] = {}
-# `${{ <condition> && '<value>' || '<other>' }}`: a job env mode variable, as secret_gate_failures() reads it.
-MODE_ENV_VALUE = re.compile(r"\$\{\{\s*(.+?)\s*&&\s*'([^']*)'\s*\|\|\s*'[^']*'\s*\}\}")
+# `${{ <condition> && '<value>' || '<other>' }}`: a job env mode variable, as secret_gate_failures() reads it. The
+# pattern reads the contents of one whole expression (mode_env_value()), which gh_expressions finds.
+MODE_ENV_VALUE = re.compile(r"(.+?)\s*&&\s*'([^']*)'\s*\|\|\s*'[^']*'", re.DOTALL)
+
+
+def mode_env_value(raw: object, value: str | None = None) -> re.Match | None:
+    """`raw` as `${{ <condition> && '<value>' || '<other>' }}` (with `value` given, that value), else None."""
+    whole = gh_expressions.STRIPPED.fullmatch(str(raw).strip())
+    if whole is None:
+        return None
+    if value is None:
+        return MODE_ENV_VALUE.fullmatch(whole.group(1))
+    return re.fullmatch(r"(.+?)\s*&&\s*'" + re.escape(value) + r"'\s*\|\|\s*'[^']*'", whole.group(1), re.DOTALL)
+
+
 LIVE_VALUE_CHECK = (".github/workflows/cmux-next-guards.yml", "signing-runner-variables")
 LIVE_VALUE_RUNNER = "blacksmith-2vcpu-ubuntu-2404"
 # `vars.CI_CLOUD_OVERFLOW_SAVED && '<blacksmith label>' ||`: the overflow failover,
@@ -416,8 +431,7 @@ def secret_gate_failures(name: str, job: dict) -> list[str] | None:
         return None
     variable, value = gate
     problems = []
-    mode = re.fullmatch(r"\$\{\{\s*(.+?)\s*&&\s*'" + re.escape(value) + r"'\s*\|\|\s*'[^']*'\s*\}\}",
-                        str(workflow_jobs.resolve(job).env.get(variable, "")).strip())
+    mode = mode_env_value(workflow_jobs.resolve(job).env.get(variable, ""), value)
     if not mode:
         return [f"{name}: env {variable} is not `${{{{ <condition> && '{value}' || '<other>' }}}}`"]
     condition = mode.group(1)
@@ -453,7 +467,7 @@ def mode_gated_secret(job: dict) -> tuple[str, str] | None:
     """Rule 7b's shape: (VAR, value) when the job env sets VAR from a condition (MODE_ENV_VALUE) and a step reads a
     signing secret under `env.VAR == 'value'` (its `if:` or the value itself); None otherwise."""
     modes = {str(name): match.group(2) for name, raw in workflow_jobs.resolve(job).env.items()
-             if (match := MODE_ENV_VALUE.fullmatch(str(raw).strip()))}
+             if (match := mode_env_value(raw))}
     for step in job.get("steps") or []:
         if not isinstance(step, dict) or not signing_secret(step):
             continue
