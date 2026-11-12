@@ -2130,7 +2130,7 @@ function TranscriptView({
       settled: false,
     };
   }
-  const drawn = opened.current.drawn;
+  const chatRowsDrawn = opened.current.drawn;
   const openSettledBefore = opened.current.settled;
   if (!loading && coldOpen === undefined && rows.length > 0) opened.current.settled = true;
   // A switched chat starts over: its row ids are its own, and may repeat the last chat's.
@@ -2138,7 +2138,7 @@ function TranscriptView({
   if (knownRows.current === null || sessionChanged) {
     const mounting = knownRows.current === null;
     knownRows.current = new Set(rows.map(rowFrameKey));
-    for (const row of rows) drawn.add(row.id);
+    for (const row of rows) chatRowsDrawn.add(row.id);
     // An empty chat draws no transcript: it mounts with the first prompt the reader just sent (and
     // its thinking line), and those rows enter on the send's clock as every later prompt's do
     // (conversation.css SEND-ENTRANCE). A transcript mounted again over an older chat does not.
@@ -2186,8 +2186,8 @@ function TranscriptView({
       // A row this page already drew for the chat, under another frame now (a reconnect's replay, a
       // transcript cleared and refilled), draws in place: it is not news and does not fade again.
       // The live line keeps one id from turn to turn, so a next turn's line counts by its time only.
-      const redrawn = drawn.has(row.id) && !nextLiveLine;
-      drawn.add(row.id);
+      const redrawn = chatRowsDrawn.has(row.id) && !nextLiveLine;
+      chatRowsDrawn.add(row.id);
       if (redrawn) continue;
       if (index < oldFirst) {
         olderLate ??= readerAtLoadedTop(ref.current, olderRoom.current?.room ?? 0);
