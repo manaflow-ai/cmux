@@ -861,16 +861,57 @@ fn hook_seq_a_reorder_longer_than_five_seconds_is_still_skipped() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// Whether the agent rows' fence for `terminal_id`, as `mux` holds it, skips
+/// a `UserPromptSubmit` of session `order-1` stamped at `monotonic_ms` /
+/// `observed_at_ms` (boot `boot-a`) as journaled out of send order.
+fn hook_seq_fence_skips(
+    mux: &Arc<Mux>,
+    terminal_id: &TerminalPublicId,
+    monotonic_ms: u64,
+    observed_at_ms: u64,
+) -> bool {
+    let mut ingress = crate::agent_hooks::agent_hook_journal_ingress(
+        "claude",
+        "UserPromptSubmit",
+        Some(terminal_id.as_str()),
+        serde_json::json!({"session_id": "order-1"}),
+    )
+    .unwrap();
+    crate::agent_hooks::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+    ingress.payload["normalized"]["boot_id"] = serde_json::json!("boot-a");
+    ingress.payload["normalized"]["monotonic_ns"] =
+        serde_json::json!((monotonic_ms * 1_000_000).to_string());
+    let fences = mux.agent_hook_fences.lock().unwrap();
+    let fence = fences.get(terminal_id);
+    crate::agent_hooks::hook_event_is_reordered(
+        &ingress.kind,
+        crate::agent_hooks::hook_observed_at_ms(&ingress.payload),
+        crate::journal_reducers::HookFence::last_observed_at_ms(fence, "order-1"),
+    )
+}
+
 #[test]
 fn hook_seq_the_order_survives_a_session_restart() {
-    let (mux, surface, terminal_id, root) = hook_seq_mux("restart");
+    let (mux, _surface, terminal_id, root) = hook_seq_mux("restart");
     append_clocked(&mux, &terminal_id, &[("SessionStart", 1_000, 1_000), ("Stop", 3_000, 3_000)]);
     mux.shutdown();
     drop(mux);
     let reopened = open_persistent_test_mux("hook-seq", &root);
     // The prompt the hooks sent before the Stop arrives after the restart.
+    // The test terminal is not live after the reopen, so the agent rows hold
+    // the event until it is; the fence they restored must skip it.
+    assert!(
+        hook_seq_fence_skips(&reopened, &terminal_id, 2_000, 2_000),
+        "the agent rows' restored fence lost the session's order"
+    );
+    // The roster folds the journal, so it keeps the order too.
     append_clocked(&reopened, &terminal_id, &[("UserPromptSubmit", 2_000, 2_000)]);
-    assert_hook_order_state(&reopened, surface, &terminal_id, Some(AgentState::Idle));
+    let entries = settled(&reopened).agent_roster.lock().unwrap().roster.entries.clone();
+    assert_eq!(
+        entries.get(terminal_id.as_str()).map(|entry| entry.agent_state()),
+        Some(AgentState::Idle),
+        "roster"
+    );
     reopened.shutdown();
     drop(reopened);
     let _ = std::fs::remove_dir_all(&root);
