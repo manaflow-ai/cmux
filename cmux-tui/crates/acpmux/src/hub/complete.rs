@@ -67,6 +67,23 @@ fn env_value(env: &BTreeMap<String, String>, key: &str) -> Option<String> {
         .filter(|m| !m.trim().is_empty() && !m.contains("${"))
 }
 
+/// The chat a daemon call speaks for (its recap, title or prompt coach): the call carries that
+/// chat's text, so it runs on the route the chat's own spawn takes, never the default instead.
+pub(super) struct ChatRoute {
+    session: String,
+    /// Its `CMUX_WORKSPACE_ID`, whose binding applies under the chat's own.
+    workspace: Option<String>,
+}
+
+impl ChatRoute {
+    pub(super) fn of(meta: &SessionMeta) -> Self {
+        Self {
+            session: meta.id.clone(),
+            workspace: meta.session_env.get("CMUX_WORKSPACE_ID").cloned(),
+        }
+    }
+}
+
 impl Hub {
     /// `_acpmux/complete` from a connection of `origin`: the unix socket
     /// only (`complete::allowed`). Logs the harness, model and duration only.
@@ -123,11 +140,21 @@ impl Hub {
         self: &Arc<Self>,
         req: &Request,
     ) -> Result<Value, CompleteError> {
+        self.complete_request_for(req, None).await
+    }
+
+    /// [`Self::complete_request`] for a call that carries chat `chat`'s text (its title): on
+    /// that chat's route.
+    pub(super) async fn complete_request_for(
+        self: &Arc<Self>,
+        req: &Request,
+        chat: Option<&ChatRoute>,
+    ) -> Result<Value, CompleteError> {
         let started = std::time::Instant::now();
         let deadline = tokio::time::Instant::now() + req.timeout;
         let (name, profile) = self.completion_harness(req.harness.as_deref()).await?;
         let recipe = recipes::recipe_for(&name, &profile)?;
-        let reply = self.complete_with(&name, &profile, recipe, req, deadline).await;
+        let reply = self.complete_with(&name, &profile, recipe, req, deadline, chat).await;
         let ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
         match &reply {
             Ok(v) => tracing::info!(
@@ -142,11 +169,13 @@ impl Hub {
     }
 
     /// One headless call for the daemon's own use (`prompt_coach.rs`): harness `name` (else the
-    /// default harness) on its small model, the answer cut to about `max_tokens` tokens. The
-    /// prompt is the daemon's, so `_acpmux/complete`'s prompt size limit does not apply.
+    /// default harness) on its small model and `chat`'s route, the answer cut to about
+    /// `max_tokens` tokens. The prompt is the daemon's, so `_acpmux/complete`'s prompt size limit
+    /// does not apply.
     pub(super) async fn complete_own(
         self: &Arc<Self>,
         name: Option<&str>,
+        chat: &ChatRoute,
         prompt: String,
         max_tokens: u32,
         timeout: std::time::Duration,
@@ -159,21 +188,23 @@ impl Hub {
                 .or_else(|| cfg.default_harness.as_deref().and_then(found))
                 .ok_or_else(|| CompleteError::UnknownHarness("(no default harness)".into()))?
         };
-        self.complete_own_on(name, profile, prompt, max_tokens, timeout).await
+        self.complete_own_on(name, profile, prompt, max_tokens, timeout, Some(chat)).await
     }
 
-    /// `complete_own` on harness `name` alone (`away_recap.rs`): never another harness, so the
-    /// call runs on the login and route the chat itself runs on. An error when it has no
-    /// headless recipe.
+    /// `complete_own` for chat `meta` (`away_recap.rs`): its own harness alone, never another,
+    /// on the route its own spawn takes (a chat's or workspace's binding included), so its text
+    /// reaches only the endpoint it was sent to. An error when the harness has no headless
+    /// recipe or that route cannot be applied: never the default route instead.
     pub(super) async fn complete_own_strict(
         self: &Arc<Self>,
-        name: &str,
+        meta: &SessionMeta,
         prompt: String,
         max_tokens: u32,
         timeout: std::time::Duration,
     ) -> Result<String, CompleteError> {
-        let (name, profile) = self.completion_harness(Some(name)).await?;
-        self.complete_own_on(name, profile, prompt, max_tokens, timeout).await
+        let (name, profile) = self.completion_harness(Some(&meta.harness)).await?;
+        let chat = ChatRoute::of(meta);
+        self.complete_own_on(name, profile, prompt, max_tokens, timeout, Some(&chat)).await
     }
 
     async fn complete_own_on(
@@ -183,11 +214,12 @@ impl Hub {
         prompt: String,
         max_tokens: u32,
         timeout: std::time::Duration,
+        chat: Option<&ChatRoute>,
     ) -> Result<String, CompleteError> {
         let recipe = recipes::recipe_for(&name, &profile)?;
         let req = Request { prompt, harness: Some(name.clone()), model: None, max_tokens, timeout };
         let deadline = tokio::time::Instant::now() + timeout;
-        let reply = self.complete_with(&name, &profile, recipe, &req, deadline).await?;
+        let reply = self.complete_with(&name, &profile, recipe, &req, deadline, chat).await?;
         Ok(reply.get("text").and_then(Value::as_str).unwrap_or_default().to_owned())
     }
 
@@ -227,15 +259,21 @@ impl Hub {
         recipe: Recipe,
         req: &Request,
         deadline: tokio::time::Instant,
+        chat: Option<&ChatRoute>,
     ) -> Result<Value, CompleteError> {
         let failed = |detail: String| CompleteError::Failed { harness: name.to_owned(), detail };
         let timed_out = || CompleteError::Timeout {
             harness: name.to_owned(),
             ms: u64::try_from(req.timeout.as_millis()).unwrap_or(u64::MAX),
         };
-        // The profile's env with its bound route (claude-sr, claude-cr, a route file).
+        // The profile's env with its bound route (claude-sr, claude-cr, a route file); for a
+        // chat's own call, the chat's and its workspace's bindings too, as its spawn applies them.
         let mut env = profile.env.clone();
-        self.apply_route_for(name, None, None, false, profile, &mut env)
+        let (session, workspace) = match chat {
+            Some(chat) => (Some(chat.session.as_str()), chat.workspace.as_deref()),
+            None => (None, None),
+        };
+        self.apply_route_for(name, session, workspace, false, profile, &mut env)
             .await
             .map_err(|e| failed(e.message))?;
         // Codex runs without the user's config: their provider comes back.

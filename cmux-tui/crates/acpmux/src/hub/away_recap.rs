@@ -231,13 +231,19 @@ impl Hub {
     /// `default` while the app's setting is on. Any harness: one with no way to make it gets none
     /// when it is asked (`ask_recap`).
     fn recap_applies(&self, session: &Session) -> bool {
+        Self::recap_chat_choice(session)
+            .unwrap_or_else(|| self.session_recap.load(Ordering::SeqCst))
+    }
+
+    /// The chat's own `session-recap` choice: Some(true) `on`, Some(false) `off`, None `default`.
+    fn recap_chat_choice(session: &Session) -> Option<bool> {
         let meta = session.meta.lock().unwrap_or_else(|e| e.into_inner());
         match super::model_options::current_option(&meta, crate::claude_stdio::RECAP_OPTION)
             .as_deref()
         {
-            Some("on") => true,
-            Some("off") => false,
-            _ => self.session_recap.load(Ordering::SeqCst),
+            Some("on") => Some(true),
+            Some("off") => Some(false),
+            _ => None,
         }
     }
 
@@ -245,6 +251,13 @@ impl Hub {
     /// (`server/view.rs`). From then on, leaving it starts an away period.
     pub(crate) fn recap_person_shows(&self, session: &Session) {
         session.away.lock().unwrap_or_else(|e| e.into_inner()).seen = true;
+    }
+
+    /// Whether chat `id` has a recap ready for the person's return (tests).
+    #[doc(hidden)]
+    pub fn recap_ready(&self, id: &str) -> bool {
+        self.resolve(id)
+            .is_ok_and(|s| s.away.lock().unwrap_or_else(|e| e.into_inner()).ready.is_some())
     }
 
     /// Whether a person has shown chat `id` since the daemon started (`recap_person_shows`).
@@ -286,7 +299,14 @@ impl Hub {
             "recap",
             // `since`: where the person left off, so a client draws the recap with its
             // "New since you looked" divider instead of twice (`seen.rs`).
-            json!({"text": text, "awayMs": away_for.as_millis() as u64, "since": since}),
+            // `chatOn`: the chat's own option is on, so a pane with the app setting off still
+            // draws it (webviews rows/RecapRow.tsx), as the daemon made it under that override.
+            json!({
+                "text": text,
+                "awayMs": away_for.as_millis() as u64,
+                "since": since,
+                "chatOn": Self::recap_chat_choice(session) == Some(true),
+            }),
         );
     }
 
@@ -419,8 +439,8 @@ impl Hub {
         let answer = match writer {
             Some(write) => write(prompt),
             None => {
-                let harness = session.meta().harness;
-                match self.complete_own_strict(&harness, prompt, MAX_TOKENS, TIMEOUT).await {
+                let meta = session.meta();
+                match self.complete_own_strict(&meta, prompt, MAX_TOKENS, TIMEOUT).await {
                     Ok(text) => Some(text),
                     Err(e) => {
                         tracing::debug!(session = %session.id, reason = e.reason(), "recap: no small-model answer");

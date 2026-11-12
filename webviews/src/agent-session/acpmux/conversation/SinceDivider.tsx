@@ -133,7 +133,9 @@ export function SinceDivider({
           )}
         </p>
       </ContextMenu>
-      {since.recap && recapOn && <RecapNote recap={since.recap} onDismiss={onDismissRecap} lead={false} />}
+      {since.recap && (recapOn || since.recap.chatOn) && (
+        <RecapNote recap={since.recap} onDismiss={onDismissRecap} lead={false} />
+      )}
     </div>
   );
 }

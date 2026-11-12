@@ -5,12 +5,15 @@ import { SinceDivider } from "../conversation/SinceDivider";
 import { type RowProps } from "./rowProps";
 import { dismissRecap } from "./rowActions";
 
-/// A session recap row. Off in Settings (Session Recap), it draws nothing.
+/// A session recap row. Off in Settings (Session Recap), it draws nothing, unless the chat's own
+/// option turned it on (`chatOn`).
 export const RecapRow = memo(
   function RecapRow({ row }: RowProps) {
     const on = useSessionRecapOn();
     const recap = row.recap;
-    return recap && on ? <RecapNote recap={recap} onDismiss={() => dismissRecap(row.id, recap.key)} /> : null;
+    return recap && (on || recap.chatOn) ? (
+      <RecapNote recap={recap} onDismiss={() => dismissRecap(row.id, recap.key)} />
+    ) : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );
@@ -19,7 +22,7 @@ export const RecapRow = memo(
 export const ReadOnlyRecapRow = memo(
   function ReadOnlyRecapRow({ row }: RowProps) {
     const on = useSessionRecapOn();
-    return row.recap && on ? <RecapNote recap={row.recap} /> : null;
+    return row.recap && (on || row.recap.chatOn) ? <RecapNote recap={row.recap} /> : null;
   },
   (a, b) => a.row.id === b.row.id && a.row.version === b.row.version,
 );

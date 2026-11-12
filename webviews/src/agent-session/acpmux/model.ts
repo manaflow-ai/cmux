@@ -157,7 +157,8 @@ export type AcpmuxFailover = { from: string; to: string };
 /// A session recap (acpmux `recap` record, `hub/away_recap.rs`): where the chat stands, shown when
 /// the person comes back after 5+ minutes away. Never a prompt; the daemon decides when.
 /// `key`: the chat and the record's seq, which the dismissal remembers (conversation/recapDismissed.ts).
-export type AcpmuxRecap = { key: string; text: string; awayMs?: number };
+/// `chatOn`: the chat's own Session Recap option is on, so it shows with the app setting off.
+export type AcpmuxRecap = { key: string; text: string; awayMs?: number; chatOn?: boolean };
 
 /// "New since you looked" (conversation/SinceDivider.tsx): where the person left the chat, drawn
 /// after the record they had seen (acpmux `seenSeq`, `hub/seen.rs`) when turns ended since. The
@@ -2357,7 +2358,7 @@ function fallbackRowHeight(
   // and its "※ recap:" lead; nothing while Session Recap is off (rows/RecapRow.tsx).
   if (row.kind === "recap")
     return finish(
-      sessionRecapEnabled()
+      sessionRecapEnabled() || row.recap?.chatOn
         ? Math.max(1, Math.ceil(((row.recap?.text.length ?? 0) + 10) / Math.max(24, Math.floor(width / 8) - 6))) *
             metrics().lineHeight
         : 0,
@@ -2367,7 +2368,7 @@ function fallbackRowHeight(
   if (row.kind === SINCE_DIVIDER)
     return finish(
       28 +
-        (row.since?.recap && sessionRecapEnabled()
+        (row.since?.recap && (sessionRecapEnabled() || row.since.recap.chatOn)
           ? Math.max(1, Math.ceil((row.since.recap.text.length + 10) / Math.max(24, Math.floor(width / 8) - 6))) *
             metrics().lineHeight
           : 0),

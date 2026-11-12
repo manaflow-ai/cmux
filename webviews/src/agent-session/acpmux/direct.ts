@@ -8738,7 +8738,12 @@ export class AcpmuxDirectClient {
           msg.since === since.seq
         ) {
           // Made for this return: it draws on "New since you looked", not as a second summary.
-          const recap = { key, text: msg.text.trim(), awayMs: typeof msg.awayMs === "number" ? msg.awayMs : undefined };
+          const recap = {
+            key,
+            text: msg.text.trim(),
+            awayMs: typeof msg.awayMs === "number" ? msg.awayMs : undefined,
+            chatOn: msg.chatOn === true,
+          };
           this.since = { ...since, recap };
           this.placeSince();
         } else if (typeof msg.text === "string" && msg.text.trim() && !recapDismissed(key)) {
@@ -8751,7 +8756,12 @@ export class AcpmuxDirectClient {
             version: 1,
             at: event.at,
             kind: "recap",
-            recap: { key, text: msg.text.trim(), awayMs: typeof msg.awayMs === "number" ? msg.awayMs : undefined },
+            recap: {
+              key,
+              text: msg.text.trim(),
+              awayMs: typeof msg.awayMs === "number" ? msg.awayMs : undefined,
+              chatOn: msg.chatOn === true,
+            },
           });
         }
       } else if (event.kind === "memory_offer") {

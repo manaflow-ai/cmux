@@ -3,7 +3,7 @@
 // × with no key dismisses the row's own recap, never one keyed "undefined" (#37818).
 import { expect, test } from "bun:test";
 import { AcpmuxDirectClient } from "./direct";
-import { SESSION_RECAP_KEY, sessionRecapEnabled, setChatDisplay } from "./chatDisplay";
+import { chatDisplay, SESSION_RECAP_KEY, sessionRecapEnabled, setChatDisplay } from "./chatDisplay";
 import { SINCE_DIVIDER, type AcpmuxRow } from "./model";
 
 const recapRow: AcpmuxRow = {
@@ -41,6 +41,15 @@ function fakeClient(
     AcpmuxDirectClient.prototype.dismissRecap.call(self as never, rowId, key);
   return { self, dismiss };
 }
+
+test("a toggle makes the transcript measure again, so an off-screen recap keeps no space", () => {
+  setChatDisplay({});
+  const before = chatDisplay();
+  setChatDisplay({ [SESSION_RECAP_KEY]: false });
+  expect(chatDisplay()).not.toBe(before);
+  expect(chatDisplay()).toEqual(before);
+  setChatDisplay({});
+});
 
 test("a dismissal with no key drops the row's own recap", () => {
   const { self, dismiss } = fakeClient([recapRow]);

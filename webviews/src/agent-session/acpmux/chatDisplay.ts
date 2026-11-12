@@ -378,6 +378,7 @@ export function setChatDisplay(value: unknown): void {
     return;
   commandLabels = labels;
   promptCoachOn = coach;
+  const recapChanged = recap !== sessionRecapOn;
   sessionRecapOn = recap;
   minimapOn = minimap;
   pinnedPlanOn = pinnedPlan;
@@ -388,6 +389,9 @@ export function setChatDisplay(value: unknown): void {
   transcriptView = view;
   presentation = nextPresentation;
   featureTipsOn = tips;
+  // Session Recap changes rows' heights (model.ts): a new look makes the transcript measure them
+  // again, off-screen ones too, so a hidden recap keeps no space.
+  if (same && recapChanged) current = { ...current };
   if (same) {
     for (const listener of listeners) listener();
     return;
