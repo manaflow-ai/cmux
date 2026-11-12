@@ -245,7 +245,22 @@ fn turns_out_of_the_newest_bytes_leave_the_window_as_a_whole_read_drops_them() {
 }
 
 #[test]
-fn a_long_followed_chat_stays_in_its_bound_and_keeps_its_newest_messages() {
+fn more_than_the_window_appended_between_two_reads_numbers_its_turns_as_a_whole_read() {
+    let mut chat = Followed::new(AdapterKind::ClaudeCode);
+    let prompt = |i: usize| {
+        format!(r#"{{"type":"user","message":{{"role":"user","content":"prompt {i}"}}}}"#) + "\n"
+    };
+    chat.append(&(0..10).map(prompt).collect::<String>());
+    chat.check("ten turns");
+    // More than twice the window at once: the fold lets go of the open turn while reading.
+    chat.append(&(10..460).map(prompt).collect::<String>());
+    chat.check("450 more at once");
+    let found = chat.text.search(&Needle::parse("459").expect("words"));
+    assert_eq!(found.len(), 1, "the newest turn is found");
+}
+
+#[test]
+fn a_long_followed_chat_holds_a_whole_reads_newest_messages_in_its_bound() {
     let mut chat = Followed::new(AdapterKind::ClaudeCode);
     let words = "w ".repeat(4_000);
     for i in 0..400 {
@@ -254,17 +269,11 @@ fn a_long_followed_chat_stays_in_its_bound_and_keeps_its_newest_messages() {
                 r#"{{"type":"user","message":{{"role":"user","content":"prompt{i} {words}"}}}}"#
             ) + "\n"),
         );
-        chat.stamp += 1;
-        chat.text.follow(&[self::chat(chat.harness, &chat.path, chat.stamp)], &|_| None);
-        let inner = lock(&chat.text.inner);
-        let doc = inner.docs.get(&chat.key()).expect("held");
-        assert!(doc.is_sound(), "prompt {i}");
-        assert!(doc.message(doc.messages.len() - 1).starts_with(&format!("prompt{i} ")));
+        chat.check(&format!("prompt {i}"));
     }
-    let found = chat.text.search(&Needle::parse("prompt399").expect("words"));
-    let hit =
-        ChatText::hit(found.values().next().expect("found"), &Needle::parse("prompt399").unwrap())
-            .expect("hit");
+    let needle = Needle::parse("prompt399").expect("words");
+    let found = chat.text.search(&needle);
+    let hit = ChatText::hit(found.values().next().expect("found"), &needle).expect("hit");
     assert_eq!(
         hit["turn"],
         json!(crate::adopt_replay::MAX_TURNS - 1),

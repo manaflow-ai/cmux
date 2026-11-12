@@ -58,6 +58,8 @@ pub struct Follow {
     items: Window,
     /// The doc is made of Codex's items (no event-message turn is in the window).
     reads_items: bool,
+    /// Where the Codex line that made items the turns ([`Fold::current`]) starts.
+    current_at: Option<u64>,
     /// Bytes read since this transcript was first followed (tests count them).
     pub bytes_read: u64,
 }
@@ -129,6 +131,7 @@ impl Follow {
             turns: Window::default(),
             items: Window::default(),
             reads_items: false,
+            current_at: None,
             bytes_read: 0,
         };
         // A bigger transcript is read from its newest MAX_BYTES; the line the cut falls in is
@@ -155,8 +158,10 @@ impl Follow {
                 || file.read_exact_at(&mut last, self.offset - 1).is_ok() && last[0] == b'\n')
     }
 
-    /// Folds what was appended since the last read. None: the turns moved between Codex's event
-    /// messages and its items, so the transcript is read whole.
+    /// Folds what was appended since the last read. None: the transcript is read whole, as the
+    /// turns moved between Codex's event messages and its items, or the Codex line that made
+    /// items the turns left the newest [`MAX_BYTES`] with an item after it folded by it (a whole
+    /// read, starting past that line, folds such an item as an item).
     fn tail(&mut self, file: &mut File, len: u64) -> Option<Read> {
         let open = self.fold_seen().saturating_sub(1);
         self.fold_lines(file, len, false).ok()?;
@@ -165,11 +170,19 @@ impl Follow {
         if self.turns.starts.is_empty() != self.reads_items {
             return None;
         }
-        // The open turn is always held (`settle` keeps the newest), so it comes again whole.
+        let cut = len.checked_sub(MAX_BYTES);
+        if self.fold.plain_after_current()
+            && self.current_at.zip(cut).is_some_and(|(at, cut)| at <= cut)
+        {
+            return None;
+        }
+        // The open turn comes again whole: it is held unless more than the window came since
+        // (`fold_lines` settles), and then every turn before the held ones is out of the window.
+        let from = open.max(self.fold.held(self.reads_items).0);
         let read = Read::Tail {
-            from: u32::try_from(open).unwrap_or(u32::MAX),
+            from: u32::try_from(from).unwrap_or(u32::MAX),
             first: u32::try_from(self.window().first).unwrap_or(u32::MAX),
-            turns: self.window_turns(open),
+            turns: self.window_turns(from),
         };
         self.fold.settle(1);
         Some(read)
@@ -195,7 +208,11 @@ impl Follow {
                 continue;
             }
             let (turns, items) = (self.fold.turns_seen(), self.fold.items_seen());
+            let current = self.fold.current();
             self.fold.line(&line);
+            if !current && self.fold.current() {
+                self.current_at = Some(start);
+            }
             for _ in turns..self.fold.turns_seen() {
                 self.turns.push(start);
             }

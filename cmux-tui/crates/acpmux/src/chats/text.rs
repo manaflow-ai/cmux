@@ -176,15 +176,15 @@ impl Doc {
         self.bound();
     }
 
-    /// Past [`CHAT_BYTES`], lets go of the messages out of the window and the oldest others down
-    /// to three quarters of it: a chat that keeps growing moves its text once per quarter of the
-    /// bound written, not once per message.
+    /// Past [`CHAT_BYTES`], lets go of the messages out of the window, then of the oldest others
+    /// until the newest fit: the messages [`Self::of_turns`] keeps. Moves at most [`CHAT_BYTES`],
+    /// however long the chat.
     fn bound(&mut self) {
         let len = self.text.len();
         if len <= CHAT_BYTES {
             return;
         }
-        let fits = self.messages.partition_point(|m| len - m.start as usize > CHAT_BYTES / 4 * 3);
+        let fits = self.messages.partition_point(|m| len - m.start as usize > CHAT_BYTES);
         let keep = fits.max(self.live as usize);
         let cut = self.messages.get(keep).map_or(len, |m| m.start as usize);
         self.text.drain(..cut);

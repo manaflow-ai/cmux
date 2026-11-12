@@ -92,6 +92,9 @@ pub struct Fold {
     // Current Codex records each finished tool call as an `item_completed` event; older Codex
     // wrote `exec_command_end` and patch events, read until the first such item.
     tool_items: bool,
+    /// A message item without kinds was folded as a turn after `current` was set: a read that
+    /// starts past the item that set it would fold that one as an item instead.
+    plain_after_current: bool,
 }
 
 impl Fold {
@@ -106,6 +109,7 @@ impl Fold {
             items_settled: 0,
             current: false,
             tool_items: false,
+            plain_after_current: false,
         }
     }
 
@@ -121,7 +125,9 @@ impl Fold {
             }
             return;
         }
-        self.current = self.current || has_item_kinds(&record);
+        let kinds = has_item_kinds(&record);
+        let was_current = self.current;
+        self.current = self.current || kinds;
         if let Some((tool, item)) = crate::adopt_tools::codex_tool(&record, at) {
             self.tool_items = self.tool_items || item;
             if self.tools && (item || !self.tool_items) {
@@ -136,8 +142,19 @@ impl Fold {
         } else if let Some(step) = codex_step(&record) {
             add(&mut self.turns, step, at);
         } else if let Some(step) = codex_item_step(&record) {
+            self.plain_after_current = self.plain_after_current || (was_current && !kinds);
             add(if self.current { &mut self.turns } else { &mut self.items }, step, at);
         }
+    }
+
+    /// A Codex message item annotated with its kinds was folded: items are the turns from it on.
+    pub fn current(&self) -> bool {
+        self.current
+    }
+
+    /// A message item without kinds was folded after [`Self::current`] was set.
+    pub fn plain_after_current(&self) -> bool {
+        self.plain_after_current
     }
 
     /// How many turns (event messages, or Claude Code's) and Codex items were folded so far.
