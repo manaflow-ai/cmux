@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43197107881",
+  "recorded_at": "2026-11-12T10:13:20Z",
+  "reason": "cmux-tui af577a2f94a2 changes the image's cmux-tui (pinned 0a46e9a29d58)",
+  "dry_run": false,
+  "cmux_tui": "af577a2f94a2d7b4242f63a373d02b046668bda0",
+  "fixes": [
+    {
+      "sha": "af577a2f94a2d7b4242f63a373d02b046668bda0",
+      "mergedAt": "2026-11-12T03:49:50-06:00",
+      "subject": "cmux-usage-patterns: no timer while nothing is counted; both daemons write their counts as they stop"
+    },
+    {
+      "sha": "41c9ecb06310e0329d8f2611fb8c95ab0d1e8838",
+      "mergedAt": "2026-11-12T03:49:49-06:00",
+      "subject": "cmux-tui and acpmux tests: an idle daemon has no periodic thread, and its usage counts survive a stop"
+    },
+    {
+      "sha": "4f3b29a4073c083964cdc660eda3ae024a04000a",
+      "mergedAt": "2026-11-12T01:45:54-08:00",
+      "subject": "Remove widgets completely"
+    },
+    {
+      "sha": "281f9aa9680df92431b90c5e35cc39b03217b444",
+      "mergedAt": "2026-11-12T01:43:00-08:00",
+      "subject": "acpmux: a rehydrate looks for the archive in the held home; the home detector checks reads in store/cold.rs (#41697 F1) (#41721)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T10:13:20Z",
+    "snapshot_id": "sh-1642f08fef174e40a79194ff683be99b",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43197107881): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "31aa893033bc8af0d20fd23a0f65140797185445",
+    "image": "cloud-native-auto-af577a2f-43197107881-1",
+    "revision": "ci-43197107881-1",
+    "at": "2026-11-12T10:13:20Z"
+  },
+  "rolled_back": false
+}
