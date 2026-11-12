@@ -4733,7 +4733,7 @@ jobs:
       # Why: docs/ci/cmux-next-workflow-notes.md#note-57
       - name: Clean generated layout-reducer FFI lockfile
         run: |
-          lock=cmux-tui/crates/cmux-app-ffi/Cargo.lock
+          lock=cmux-tui/crates/cmux-layout-reducer-ffi/Cargo.lock
           if git ls-files --error-unmatch "$lock" >/dev/null 2>&1; then
             git checkout -- "$lock"
           else
