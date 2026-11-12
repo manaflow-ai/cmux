@@ -39,7 +39,15 @@ const chunk = (seq: number, text: string, messageId: string, segment?: string) =
 /// A daemon holding one session (`createdAt` names which), whose log is `history`. Records what
 /// each attach asked and how each socket can be dropped.
 function fakeDaemon(history: Record<string, any>[], createdAt: number) {
-  const state = { history, createdAt, attaches: [] as Record<string, unknown>[], sockets: [] as any[] };
+  // `attachFrom`: the first seq an attach with no cursor answers (a page that starts mid-chat); the
+  // records before it come with an older page (`_acpmux/events` `beforeSeq`).
+  const state = {
+    history,
+    createdAt,
+    attachFrom: 0,
+    attaches: [] as Record<string, unknown>[],
+    sockets: [] as any[],
+  };
   const session = () => ({
     sessionId: CHAT,
     cwd: "/home/dev/x",
@@ -60,7 +68,7 @@ function fakeDaemon(history: Record<string, any>[], createdAt: number) {
         return { sessions: [session()] };
       case "_acpmux/attach": {
         state.attaches.push(params ?? {});
-        const after = Number(params?.afterSeq ?? 0);
+        const after = Math.max(Number(params?.afterSeq ?? 0), state.attachFrom - 1);
         return {
           session: session(),
           lastSeq: lastSeq(),
@@ -69,6 +77,10 @@ function fakeDaemon(history: Record<string, any>[], createdAt: number) {
         };
       }
       case "_acpmux/events": {
+        if (typeof params?.beforeSeq === "number") {
+          if (params.promptIndex) return { events: [], hasMore: false, lastSeq: lastSeq() };
+          return { events: state.history.filter((event) => event.seq < params.beforeSeq), hasMore: false };
+        }
         const after = Number(params?.afterSeq ?? 0);
         return { events: state.history.filter((event) => event.seq > after), hasMore: false, lastSeq: lastSeq() };
       }
@@ -99,7 +111,14 @@ function fakeDaemon(history: Record<string, any>[], createdAt: number) {
     socket.readyState = 3;
     socket.onclose?.({ code: 4000, reason: "", wasClean: false });
   };
-  return { state, open, drop };
+  /// A record streamed live to the connected page.
+  const push = (event: Record<string, any>) => {
+    state.history.push(event);
+    state.sockets
+      .at(-1)
+      ?.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }) });
+  };
+  return { state, open, drop, push };
 }
 
 /// Connects as App.tsx does: a lost client's chat goes to the client connected next.
@@ -134,6 +153,10 @@ async function page(daemon: ReturnType<typeof fakeDaemon>) {
   await connect();
   return {
     rows: () => rows,
+    older: async () => {
+      await client!.loadOlder();
+      await tick();
+    },
     text: () => rows.filter((row) => row.kind === "user" || row.kind === "assistant").map((row) => row.text),
     reconnected: async () => {
       await lost;
@@ -238,4 +261,46 @@ test.each([
   const pane = await page(daemon);
   const replies = pane.rows().filter((row) => row.kind === "assistant");
   expect(replies.map((row) => [row.id, row.text])).toEqual([["assistant-t1.x.1", "first half, second half"]]);
+});
+
+// Review of cmux#41540 at 360e73b7 (Codex F1, F2): paging into the middle of a reply. The attach's
+// page starts inside a reply named by its segment; the older page brings its first chunks. The reply
+// stays one row under the id it was drawn with, its text in order, never twice.
+test("an older page that brings the start of a reply the page cut keeps one row, its text in order", async () => {
+  const daemon = fakeDaemon(
+    [user(1, "go"), chunk(2, "one ", "m1", "t1.x.1"), chunk(3, "two ", "m1", "t1.x.1"), chunk(4, "three", "m1", "t1.x.1")],
+    1000,
+  );
+  daemon.state.attachFrom = 3;
+  const pane = await page(daemon);
+  expect(pane.rows().filter((row) => row.kind === "assistant").map((row) => [row.id, row.text])).toEqual([
+    ["assistant-t1.x.1", "two three"],
+  ]);
+  await pane.older();
+  expect(pane.text()).toEqual(["go", "one two three"]);
+  expect(pane.rows().filter((row) => row.kind === "assistant").map((row) => [row.id, row.text])).toEqual([
+    ["assistant-t1.x.1", "one two three"],
+  ]);
+});
+
+// An older page folded above the held turn (`foldOlder`) leaves the live reply's segment as it was:
+// a chunk of the reply's next segment (a steer between, under the same messageId) still starts its
+// own row, not the text of the older page's last reply.
+test("a folded older page keeps the live reply's segment", async () => {
+  const daemon = fakeDaemon(
+    [user(1, "old prompt"), chunk(2, "old reply", "m0", "t0.x.1"), user(3, "go"), chunk(4, "before", "m1", "t1.x.1")],
+    1000,
+  );
+  daemon.state.attachFrom = 3;
+  const pane = await page(daemon);
+  await pane.older();
+  expect(pane.text()).toEqual(["old prompt", "old reply", "go", "before"]);
+  daemon.push(chunk(5, " the steer", "m1", "t1.x.1"));
+  daemon.push(chunk(6, "after", "m1", "t1.x.2"));
+  await tick();
+  expect(pane.rows().filter((row) => row.kind === "assistant").map((row) => [row.id, row.text])).toEqual([
+    ["assistant-t0.x.1", "old reply"],
+    ["assistant-t1.x.1", "before the steer"],
+    ["assistant-t1.x.2", "after"],
+  ]);
 });
