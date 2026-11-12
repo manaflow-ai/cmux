@@ -277,12 +277,10 @@ impl<'ast> Visit<'ast> for Scan<'_> {
                 f.path.segments.iter().map(|s| s.ident.to_string()).collect();
             let last = last_segment(&f.path);
             let through_home_fs = segments.iter().any(|s| s == "home_fs");
-            if last == "exists_nofollow" {
-                self.row(c.span(), format!("{}(..)", segments.join("::")));
-            } else if !through_home_fs
+            let by_path = !through_home_fs
                 && (PATH_ONLY.contains(&last.as_str()) || last == "metadata")
-                && segments.len() > 1
-            {
+                && segments.len() > 1;
+            if last == "exists_nofollow" || by_path {
                 self.row(c.span(), format!("{}(..)", segments.join("::")));
             }
         }
