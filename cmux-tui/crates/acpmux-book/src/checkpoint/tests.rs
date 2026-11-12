@@ -160,3 +160,22 @@ fn checkpoint_rejects_inconsistent_editions_and_missing_open_ids() -> TestResult
     assert_eq!(Checkpoint::from_recovered(&recovered)?, state);
     Ok(())
 }
+
+#[test]
+fn group_and_steers_fit_beside_the_bulk_row_cap() -> TestResult {
+    let mut state = Checkpoint::new(5);
+    state.last_row = MAX_OPEN_BODIES as u64;
+    state.translator = vec![0; 32 * 1024];
+    state.prompts = vec![[0; 32]; MAX_PROMPTS];
+    for row in 1..=state.last_row {
+        let mut body = Body::new(row)?;
+        body.spilled = true;
+        body.generation = 1;
+        body.fields.insert("text".into(), Value::File(FieldFile { generation: 1, len: 1 << 20 }));
+        state.open.push(OpenBody { body, raw: RawRange { file: 1, off: 0, len: 1 } });
+    }
+    let encoded = state.encode(state.open.len())?;
+    assert_eq!(Checkpoint::decode(&encoded)?, state);
+    assert!(encoded.len() + crate::log::CHECKPOINT_OVERHEAD + state.open.len() * 8 <= 96 * 1024);
+    Ok(())
+}

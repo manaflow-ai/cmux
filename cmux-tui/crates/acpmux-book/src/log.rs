@@ -400,17 +400,17 @@ impl Log {
     /// With no checkpoint the indexes are rebuilt from every segment. An unreadable
     /// checkpoint requests a rebuild from raw; it never makes open scan all history.
     pub fn open(dir: &Path, options: Options) -> Result<(Log, Recovered), Error> {
-        Self::open_with_raw_end(dir, options, |_| Some(u64::MAX))
+        Self::open_with_raw_holds(dir, options, |_, _| Ok(true))
     }
 
-    /// Opens with the durable sources' current ends, measured in each source's places.
-    /// Checks the existing recovery scan only; the actor separately checks its checkpoint
-    /// cursor. A record beyond the raw end cuts the replayable suffix, just like a bad crc.
-    /// `None` means this raw source no longer exists.
-    pub fn open_with_raw_end(
+    /// Checks each known raw range's end through a bounded question to its source.
+    /// A false answer cuts the replayable suffix, just like a bad crc. Source I/O errors
+    /// propagate without turning a failed read into a cut. The actor separately checks
+    /// checkpoint cursors; no source needs to discover its whole-line end at open.
+    pub fn open_with_raw_holds(
         dir: &Path,
         options: Options,
-        raw_end: impl Fn(u32) -> Option<u64>,
+        mut holds: impl FnMut(u32, u64) -> io::Result<bool>,
     ) -> Result<(Log, Recovered), Error> {
         let rows_dir = dir.join("rows");
         fs::create_dir_all(&rows_dir)?;
@@ -548,13 +548,13 @@ impl Log {
                 if header.raw_len != 0 && (header.raw_file == 0 || header.raw_file > raw_files) {
                     return Err(Error::Corrupt("a record names a raw file absent from raw.map"));
                 }
-                if header.raw_len != 0
-                    && header.raw_len != u32::MAX
-                    && header.raw_off.checked_add(u64::from(header.raw_len)).is_none_or(|end| {
-                        raw_end(header.raw_file).is_none_or(|source_end| end > source_end)
-                    })
-                {
-                    return Ok(false);
+                if header.raw_len != 0 && header.raw_len != u32::MAX {
+                    let Some(end) = header.raw_off.checked_add(u64::from(header.raw_len)) else {
+                        return Ok(false);
+                    };
+                    if !holds(header.raw_file, end)? {
+                        return Ok(false);
+                    }
                 }
                 if last_seq.checked_add(1) != Some(header.seq) {
                     return Ok(false);

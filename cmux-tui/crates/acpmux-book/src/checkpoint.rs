@@ -10,7 +10,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 const VERSION: u32 = 1;
 const ACTOR: u8 = 128;
-pub const MAX_OPEN_BODIES: usize = 64;
+/// The translator caps bulk rows at 64; its group and 32 steers are additional.
+/// Their bodies use the same storage and must also survive a checkpoint.
+pub const MAX_OPEN_BODIES: usize = 64 + 1 + 32;
 pub const MAX_PROMPTS: usize = 1024;
 const MAX_FIELDS: usize = 32;
 
