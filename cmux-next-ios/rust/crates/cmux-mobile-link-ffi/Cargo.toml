@@ -22,6 +22,7 @@ required-features = ["bindgen"]
 bindgen = ["uniffi/cli"]
 
 [dependencies]
+cmux-mobile-carrier = { path = "../cmux-mobile-carrier" }
 cmux-mobile-link.workspace = true
 cmux-rd-ffi.workspace = true
 cmux-rd-proto.workspace = true

@@ -1,15 +1,24 @@
 //! Native remote runtime for cmux-tui.
+//!
+//! Without the `host` feature this is the client half only (the iOS app's
+//! Cloud carrier), and the daemon's helpers in shared modules go unused.
+#![cfg_attr(not(feature = "host"), allow(dead_code))]
 
+#[cfg(feature = "host")]
 pub mod acpmux_bridge;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "host"))]
 pub mod admin;
 pub mod bridge;
+#[cfg(feature = "host")]
 pub mod client;
 pub mod connection;
 pub mod crypto;
+#[cfg(feature = "host")]
 pub mod daemon;
+mod daemon_error;
 pub mod first_dial;
 pub mod grant;
+#[cfg(feature = "host")]
 pub mod http;
 pub mod identity;
 pub mod link;
@@ -28,6 +37,7 @@ pub mod secret_file;
 pub mod secrets;
 pub mod secure_directory;
 pub mod service;
+#[cfg(feature = "host")]
 pub mod services;
 pub mod session;
 mod ssh_args;
@@ -45,4 +55,5 @@ pub mod update_need;
 pub mod wireguard_hub;
 #[cfg(all(feature = "wireguard-transport", unix))]
 pub mod wireguard_hub_control;
+#[cfg(feature = "host")]
 pub mod workspace;

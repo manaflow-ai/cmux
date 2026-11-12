@@ -27,6 +27,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use async_trait::async_trait;
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use cmux_link::carrier_answer;
 use cmux_rd_link::dlink::TurnName;
 use serde_json::{Value, json};
 use url::Url;
@@ -34,8 +35,6 @@ use zeroize::Zeroizing;
 
 use super::contract::Vmk;
 
-/// The longest ticket accepted (cmux-remote's relay credential bound).
-const MAX_SECRET_BYTES: usize = 4096;
 /// One fetch's HTTP deadline (also bounded by the dial's own deadline).
 pub(super) const FETCH_TIMEOUT: Duration = Duration::from_secs(20);
 /// A cached ticket is reused until this long before it expires.
@@ -269,44 +268,7 @@ impl SourceError {
 
 /// base64url (no padding) of a 32-byte key, as the platform spells it.
 pub(super) fn key_text(key: &[u8; 32]) -> String {
-    URL_SAFE_NO_PAD.encode(key)
-}
-
-fn key_bytes(text: &str) -> Option<[u8; 32]> {
-    let bytes = URL_SAFE_NO_PAD.decode(text).ok()?;
-    let key: [u8; 32] = bytes.try_into().ok()?;
-    (key_text(&key) == text).then_some(key)
-}
-
-fn secret(value: &Value, name: &str) -> Result<Zeroizing<String>, String> {
-    secret_up_to(value, name, MAX_SECRET_BYTES)
-}
-
-/// [`secret`] up to `max` bytes: a grant may be as long as the session
-/// daemon reads (`cmux_link::carrier_grant::MAX_GRANT_BYTES`).
-fn secret_up_to(value: &Value, name: &str, max: usize) -> Result<Zeroizing<String>, String> {
-    let text = value.get(name).and_then(Value::as_str).ok_or(format!("{name} is missing"))?;
-    if text.is_empty() || text.len() > max || !text.bytes().all(|b| (0x21..=0x7e).contains(&b)) {
-        return Err(format!("{name} is not 1 to {max} visible ASCII bytes"));
-    }
-    Ok(Zeroizing::new(text.to_owned()))
-}
-
-/// The relay route a carrier dials: `relay+do://<host>`, or `relay+ws://`
-/// only to this machine (a local relay in development and tests).
-fn relay_route(text: &str) -> Result<Url, String> {
-    let url = Url::parse(text).map_err(|_| "relay is not a URL".to_owned())?;
-    let local = matches!(url.host_str(), Some("127.0.0.1" | "localhost" | "[::1]"));
-    let bare = url.username().is_empty()
-        && url.password().is_none()
-        && url.query().is_none()
-        && url.fragment().is_none()
-        && matches!(url.path(), "" | "/");
-    match url.scheme() {
-        "relay+do" if bare && url.host_str().is_some() => Ok(url),
-        "relay+ws" if bare && local => Ok(url),
-        _ => Err("relay is not a relay+do:// origin".into()),
-    }
+    carrier_answer::key_text(key)
 }
 
 /// The `vmk` claim of a compact grant (`header.claims.signature`, base64url
@@ -321,53 +283,27 @@ pub(super) fn grant_vmk(grant: &str) -> Option<Vmk> {
     Vmk::parse(claims.get("vmk")?.as_str()?)
 }
 
-/// Checks the answer's `value`.
+/// Checks the answer's `value`: its relay fields the way every carrier
+/// client does ([`carrier_answer::parse_relay`]), then this CLI's extras.
 pub(super) fn parse_answer(value: &Value) -> Result<CarrierAnswer, String> {
-    let relay = relay_route(value.get("relay").and_then(Value::as_str).ok_or("relay is missing")?)?;
-    let slot = value.get("slot").and_then(Value::as_str).ok_or("slot is missing")?;
-    if slot.is_empty()
-        || slot.len() > 128
-        || !slot.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-    {
-        return Err("slot is not 1 to 128 base64url characters".into());
-    }
-    let ticket = secret(value, "ticket")?;
-    let expires_at =
-        value.get("expires_at").and_then(Value::as_u64).ok_or("expires_at is missing")?;
-    let grant = match value.get("grant") {
-        None | Some(Value::Null) => None,
-        Some(_) => Some(secret_up_to(value, "grant", cmux_link::carrier_grant::MAX_GRANT_BYTES)?),
-    };
-    let daemon_key = value.get("daemon_key").and_then(Value::as_str).and_then(key_bytes);
+    let carrier_answer::RelayAnswer { relay, slot, ticket, expires_at, grant, daemon_key } =
+        carrier_answer::parse_relay(value)?;
     let vmk = grant.as_deref().and_then(|g| grant_vmk(g));
     let rd_link = rd_link(value);
     let ssh = ssh_candidate(value);
-    Ok(CarrierAnswer {
-        relay,
-        slot: slot.to_owned(),
-        ticket,
-        expires_at,
-        grant,
-        daemon_key,
-        vmk,
-        rd_link,
-        ssh,
-    })
+    Ok(CarrierAnswer { relay, slot, ticket, expires_at, grant, daemon_key, vmk, rd_link, ssh })
 }
 
 /// Reads one HTTP answer: `{ok: true, value}` is the carrier; anything else
 /// is a refusal, retryable on 408, 429 and 5xx (and `owner.unreachable`).
 pub(super) fn read_reply(status: u16, body: &Value) -> Result<CarrierAnswer, SourceError> {
-    if (200..300).contains(&status) && body.get("ok").and_then(Value::as_bool) == Some(true) {
-        return parse_answer(body.get("value").unwrap_or(&Value::Null))
-            .map_err(|why| SourceError::fatal(format!("the carrier answer is not valid: {why}")));
+    match carrier_answer::reply_value(status, body) {
+        Ok(value) => parse_answer(value)
+            .map_err(|why| SourceError::fatal(format!("the carrier answer is not valid: {why}"))),
+        Err(refusal) => {
+            Err(SourceError { retryable: refusal.retryable, detail: refusal.to_string() })
+        }
     }
-    let error = body.get("error");
-    let code = error.and_then(|e| e.get("code")).and_then(Value::as_str).unwrap_or("http");
-    let message = error.and_then(|e| e.get("message")).and_then(Value::as_str).unwrap_or("");
-    let detail = format!("cmux-platform answered {status} {code}: {message}");
-    let retryable = matches!(status, 408 | 429 | 500..=599) || code == "owner.unreachable";
-    Err(SourceError { retryable, detail })
 }
 
 /// Where carrier answers come from.

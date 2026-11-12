@@ -15,6 +15,7 @@ use std::fmt;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
+#[cfg(feature = "wireguard-transport")]
 use std::sync::Arc;
 
 use async_trait::async_trait;

@@ -10,6 +10,7 @@ use tokio::sync::{Mutex, Semaphore, oneshot, watch};
 
 use crate::mux_codec::{MAX_MUX_DOWNLOAD_LINE_BYTES, MAX_MUX_LINE_BYTES, mux_line_payload_len};
 use crate::service::{ServiceError, ServiceMultiplexer, ServiceStream};
+#[cfg(feature = "host")]
 use crate::services::ServicesError;
 
 pub const DEFAULT_MAX_FORWARD_CONNECTIONS: usize = 128;
@@ -569,6 +570,7 @@ where
 #[derive(Debug)]
 pub enum BridgeError {
     Service(ServiceError),
+    #[cfg(feature = "host")]
     Services(ServicesError),
     Io(std::io::Error),
     Json(serde_json::Error),
@@ -586,6 +588,7 @@ impl fmt::Display for BridgeError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Service(error) => error.fmt(formatter),
+            #[cfg(feature = "host")]
             Self::Services(error) => error.fmt(formatter),
             Self::Io(error) => error.fmt(formatter),
             Self::Json(error) => error.fmt(formatter),
@@ -621,6 +624,7 @@ impl From<ServiceError> for BridgeError {
     }
 }
 
+#[cfg(feature = "host")]
 impl From<ServicesError> for BridgeError {
     fn from(error: ServicesError) -> Self {
         Self::Services(error)

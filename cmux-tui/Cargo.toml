@@ -334,7 +334,7 @@ cmux-api-compat = { path = "crates/cmux-api-compat" }
 cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }
 cmux-link = { path = "crates/cmux-link" }
 cmux-build-identity = { path = "crates/cmux-build-identity" }
-cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["wireguard-transport"] }
+cmux-remote = { path = "crates/cmux-remote", default-features = false, features = ["host", "wireguard-transport"] }
 cmux-wg = { path = "crates/cmux-wg" }
 cmux-server = { path = "crates/cmux-server" }
 cmux-server-core = { path = "crates/cmux-server-core" }

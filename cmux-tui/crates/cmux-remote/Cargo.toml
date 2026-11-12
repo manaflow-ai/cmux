@@ -11,7 +11,12 @@ description = "Authenticated remote daemon, transports, and workspace services f
 workspace = true
 
 [features]
-default = ["wireguard-transport"]
+default = ["host", "wireguard-transport"]
+# The daemon side: the remote daemon, its HTTP and workspace services and
+# the owner lock. Off, the crate is the client half only (a carrier or relay
+# client session and its mux streams), which the iOS app links: no PTY, no
+# libghostty-vt, no HTTP server.
+host = ["dep:axum", "dep:cmux-pty", "dep:cmux-tui-core", "dep:diffy", "dep:ghostty-vt", "dep:hyper", "dep:hyper-util", "dep:tower", "dep:tower-http"]
 iroh-transport = ["dep:iroh"]
 # Dial `ws://` routes through an in-process WireGuard tunnel (cmux-wg) when
 # the target sits inside the tunnel's routes.
@@ -20,26 +25,26 @@ wireguard-transport = ["dep:cmux-wg"]
 [dependencies]
 cmux-json.workspace = true
 async-trait.workspace = true
-axum.workspace = true
+axum = { workspace = true, optional = true }
 base64.workspace = true
 bytes.workspace = true
-cmux-pty.workspace = true
+cmux-pty = { workspace = true, optional = true }
 cmux-link.workspace = true
 cmux-remote-protocol.workspace = true
-cmux-tui-core.workspace = true
+cmux-tui-core = { workspace = true, optional = true }
 cmux-wg = { workspace = true, optional = true }
-diffy.workspace = true
+diffy = { workspace = true, optional = true }
 flate2.workspace = true
 fs4.workspace = true
 futures-util.workspace = true
 getrandom.workspace = true
-ghostty-vt.workspace = true
+ghostty-vt = { workspace = true, optional = true }
 hmac.workspace = true
 # secrets-v1: RFC 9180 HPKE, DHKEM(X25519, HKDF-SHA256) / HKDF-SHA256 / ChaCha20Poly1305.
 hpke = { version = "0.13", default-features = false, features = ["alloc", "x25519"] }
 http.workspace = true
-hyper.workspace = true
-hyper-util.workspace = true
+hyper = { workspace = true, optional = true }
+hyper-util = { workspace = true, optional = true }
 iroh = { workspace = true, optional = true }
 libc.workspace = true
 rand_core = { version = "0.9", default-features = false }
@@ -52,8 +57,8 @@ snow.workspace = true
 subtle.workspace = true
 tokio.workspace = true
 tokio-tungstenite.workspace = true
-tower.workspace = true
-tower-http.workspace = true
+tower = { workspace = true, optional = true }
+tower-http = { workspace = true, optional = true }
 url.workspace = true
 uuid.workspace = true
 x25519-dalek.workspace = true

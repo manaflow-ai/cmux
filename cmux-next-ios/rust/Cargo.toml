@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/cmux-mobile-link", "crates/cmux-mobile-host", "crates/cmux-mobile-link-ffi"]
+members = ["crates/cmux-mobile-link", "crates/cmux-mobile-host", "crates/cmux-mobile-link-ffi", "crates/cmux-mobile-carrier"]
 
 [workspace.package]
 edition = "2024"

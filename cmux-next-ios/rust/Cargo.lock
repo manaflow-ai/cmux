@@ -476,6 +476,48 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1c133bc6a41be0d194c306b5506d15e6feeea7b1d6604bd3f8310dfb2ca96486"
 
 [[package]]
+name = "cmux-json"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-link"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "cmux-process",
+ "cmux-unix-socket",
+ "libc",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "url",
+ "zeroize",
+]
+
+[[package]]
+name = "cmux-mobile-carrier"
+version = "0.1.0"
+dependencies = [
+ "cmux-link",
+ "cmux-remote",
+ "cmux-remote-protocol",
+ "getrandom 0.3.4",
+ "reqwest",
+ "rustls",
+ "serde_json",
+ "thiserror 2.0.21",
+ "tokio",
+ "tracing",
+ "url",
+ "webpki-roots 1.0.10",
+ "zeroize",
+]
+
+[[package]]
 name = "cmux-mobile-host"
 version = "0.1.0"
 dependencies = [
@@ -544,6 +586,7 @@ dependencies = [
 name = "cmux-mobile-link-ffi"
 version = "0.1.0"
 dependencies = [
+ "cmux-mobile-carrier",
  "cmux-mobile-host",
  "cmux-mobile-link",
  "cmux-rd-core",
@@ -560,6 +603,14 @@ dependencies = [
  "tracing-subscriber",
  "uniffi",
  "uuid",
+]
+
+[[package]]
+name = "cmux-process"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "wait-timeout",
 ]
 
 [[package]]
@@ -596,6 +647,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-remote"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "cmux-json",
+ "cmux-link",
+ "cmux-remote-protocol",
+ "flate2",
+ "fs4",
+ "futures-util",
+ "getrandom 0.3.4",
+ "hmac",
+ "hpke",
+ "http",
+ "libc",
+ "rand_core 0.9.5",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2",
+ "snow",
+ "subtle",
+ "tokio",
+ "tokio-tungstenite",
+ "url",
+ "uuid",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
 name = "cmux-remote-browser"
 version = "0.1.0"
 dependencies = [
@@ -604,11 +688,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "cmux-remote-protocol"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "cmux-terminal-prediction"
 version = "0.1.0"
 
 [[package]]
 name = "cmux-transport"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "cmux-unix-socket"
 version = "0.1.0"
 dependencies = [
  "libc",
@@ -637,6 +738,22 @@ name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
+
+[[package]]
+name = "core-foundation"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2a6cd9ae233e7f62ba4e9353e81a88df7fc8a5987b8d445b4d90c879bd156f6"
+dependencies = [
+ "core-foundation-sys",
+ "libc",
+]
+
+[[package]]
+name = "core-foundation-sys"
+version = "0.8.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
 name = "cpufeatures"
@@ -973,6 +1090,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fs4"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e72ed92b67c146290f88e9c89d60ca163ea417a446f61ffd7b72df3e7f1dfd5"
+dependencies = [
+ "rustix",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "futures"
 version = "0.3.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1201,6 +1328,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
 dependencies = [
  "digest",
+]
+
+[[package]]
+name = "hpke"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f65d16b699dd1a1fa2d851c970b0c971b388eeeb40f744252b8de48860980c8f"
+dependencies = [
+ "aead",
+ "aes-gcm",
+ "chacha20poly1305",
+ "digest",
+ "generic-array",
+ "hkdf",
+ "hmac",
+ "rand_core 0.9.5",
+ "sha2",
+ "subtle",
+ "x25519-dalek",
+ "zeroize",
 ]
 
 [[package]]
@@ -1723,6 +1870,12 @@ name = "opaque-debug"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c08d65885ee38876c4f86fa503fb49d7b507c2b62552df7c70b2fce627e06381"
+
+[[package]]
+name = "openssl-probe"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e036b411754132fd6b74e94b74e9a13c5cf606fa93d1885c35860d3060820b1"
 
 [[package]]
 name = "p256"
@@ -2297,6 +2450,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "rustls-native-certs"
+version = "0.8.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a073f5dc7469f984c52ad2752b63b0807745133b6de880b7b64c1ac4c48aec4"
+dependencies = [
+ "openssl-probe",
+ "rustls-pki-types",
+ "schannel",
+ "security-framework",
+]
+
+[[package]]
 name = "rustls-pki-types"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2328,6 +2493,15 @@ name = "ryu"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
+
+[[package]]
+name = "schannel"
+version = "0.1.30"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9cb23c424d8ee841bb4d813677ca237e2a610067d594fec130f87d6093495ab5"
+dependencies = [
+ "windows-sys 0.61.2",
+]
 
 [[package]]
 name = "scopeguard"
@@ -2379,6 +2553,29 @@ dependencies = [
  "pkcs8",
  "subtle",
  "zeroize",
+]
+
+[[package]]
+name = "security-framework"
+version = "3.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7f4bc775c73d9a02cde8bf7b2ec4c9d12743edf609006c7facc23998404cd1d"
+dependencies = [
+ "bitflags 2.13.2",
+ "core-foundation",
+ "core-foundation-sys",
+ "libc",
+ "security-framework-sys",
+]
+
+[[package]]
+name = "security-framework-sys"
+version = "2.17.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6ce2691df843ecc5d231c0b14ece2acc3efb62c0a398c7e1d875f3983ce020e3"
+dependencies = [
+ "core-foundation-sys",
+ "libc",
 ]
 
 [[package]]
@@ -2567,6 +2764,23 @@ dependencies = [
  "defmt",
  "heapless",
  "managed",
+]
+
+[[package]]
+name = "snow"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "599b506ccc4aff8cf7844bc42cf783009a434c1e26c964432560fb6d6ad02d82"
+dependencies = [
+ "aes-gcm",
+ "blake2",
+ "chacha20poly1305",
+ "curve25519-dalek",
+ "getrandom 0.3.4",
+ "ring",
+ "rustc_version",
+ "sha2",
+ "subtle",
 ]
 
 [[package]]
@@ -2869,6 +3083,7 @@ dependencies = [
  "futures-util",
  "log",
  "rustls",
+ "rustls-native-certs",
  "rustls-pki-types",
  "tokio",
  "tokio-rustls",
@@ -3263,6 +3478,15 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "wait-timeout"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "09ac3b126d3914f9849036f826e054cbabdc8519970b8998ddaf3b5bd3c65f11"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "waitgroup"

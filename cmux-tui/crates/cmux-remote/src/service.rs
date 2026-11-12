@@ -11,7 +11,9 @@ use cmux_remote_protocol::{FrameFlags, Lane, MAX_FRAME_PAYLOAD, Service, Service
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc, watch};
 
 use crate::connection::{ClientConnection, ConnectionError};
-use crate::daemon::{DaemonError, ServerConnection};
+#[cfg(feature = "host")]
+use crate::daemon::ServerConnection;
+use crate::daemon_error::DaemonError;
 use crate::session::ReceivedFrame;
 
 const MAX_OPEN_STREAMS: usize = 256;
@@ -87,6 +89,7 @@ impl SessionEndpoint for ClientConnection {
     }
 }
 
+#[cfg(feature = "host")]
 #[async_trait]
 impl SessionEndpoint for ServerConnection {
     async fn send_frame(

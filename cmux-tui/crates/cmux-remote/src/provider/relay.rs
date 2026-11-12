@@ -33,6 +33,7 @@ use tokio_tungstenite::{
 use url::Url;
 use zeroize::{Zeroize, Zeroizing};
 
+#[cfg(feature = "host")]
 use crate::daemon::{InboundLink, NetworkPeer, RemoteDaemon};
 
 #[path = "relay_liveness.rs"]
@@ -514,6 +515,12 @@ impl RelayTls {
         .with_root_certificates(roots)
         .with_no_client_auth();
         Ok(Self { client_config: Some(Arc::new(config)) })
+    }
+
+    /// Trust what `config` trusts: a client whose platform has no native root
+    /// store rustls can read (the iOS app passes the Web PKI roots).
+    pub fn with_client_config(config: Arc<rustls::ClientConfig>) -> Self {
+        Self { client_config: Some(config) }
     }
 
     fn connector(&self) -> Option<Connector> {
@@ -1410,6 +1417,7 @@ pub trait RelayIncoming: Send + Sync + 'static {
     async fn incoming(self: Arc<Self>, link: Box<dyn FrameLink>);
 }
 
+#[cfg(feature = "host")]
 #[async_trait]
 impl RelayIncoming for RemoteDaemon {
     async fn incoming(self: Arc<Self>, link: Box<dyn FrameLink>) {

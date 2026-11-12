@@ -3,13 +3,17 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
+#[cfg(feature = "host")]
 use axum::extract::ws::{Message as AxumMessage, WebSocket};
 use bytes::Bytes;
+#[cfg(feature = "host")]
 use cmux_tui_core::net_keepalive::WebSocketKeepalive;
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::sync::{Mutex, watch};
+use tokio::sync::Mutex;
+#[cfg(feature = "host")]
+use tokio::sync::watch;
 use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::handshake::client::Request as ClientRequest;
@@ -184,6 +188,7 @@ pub async fn connect_websocket_via(
 /// frames), so a single inbound message that takes longer than the dead-peer
 /// timeout to arrive fails the link. The Cloud carrier caps a frame at
 /// 64 KiB, so that takes a link slower than about 1 KB/s.
+#[cfg(feature = "host")]
 pub struct AxumWebSocketLink {
     description: String,
     maximum: usize,
@@ -197,6 +202,7 @@ pub struct AxumWebSocketLink {
     dead: watch::Sender<bool>,
 }
 
+#[cfg(feature = "host")]
 impl AxumWebSocketLink {
     pub fn new(description: impl Into<String>, maximum: usize, socket: WebSocket) -> Self {
         Self::with_keepalive(description, maximum, socket, WebSocketKeepalive::default())
@@ -245,6 +251,7 @@ impl AxumWebSocketLink {
 }
 
 #[async_trait]
+#[cfg(feature = "host")]
 impl FrameLink for AxumWebSocketLink {
     fn description(&self) -> &str {
         &self.description

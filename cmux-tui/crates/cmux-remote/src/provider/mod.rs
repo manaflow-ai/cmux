@@ -14,7 +14,7 @@ mod relay;
 pub(crate) mod socks;
 mod ssh;
 mod stream;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "host"))]
 mod unix;
 mod websocket;
 
@@ -53,11 +53,12 @@ pub use ssh::{
     SshProvider, SshProviderConfig, one_line, ssh_stderr_of,
 };
 pub use stream::LengthDelimitedLink;
-#[cfg(unix)]
+#[cfg(all(unix, feature = "host"))]
 pub use unix::UnixProvider;
+#[cfg(feature = "host")]
+pub use websocket::AxumWebSocketLink;
 pub use websocket::{
-    AxumWebSocketLink, DirectWebSocketProvider, TungsteniteWebSocketLink, connect_websocket,
-    connect_websocket_via,
+    DirectWebSocketProvider, TungsteniteWebSocketLink, connect_websocket, connect_websocket_via,
 };
 
 /// Non-authoritative facts learned from the carrier.
