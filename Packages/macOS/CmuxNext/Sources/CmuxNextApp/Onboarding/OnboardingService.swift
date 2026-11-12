@@ -1,9 +1,11 @@
 import AppKit
 import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextAgentIntegrations
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextCompat
 import CmuxNextCookieImport
 import CmuxNextDesign
 import CmuxNextImportCards
@@ -78,6 +80,8 @@ final class OnboardingService {
     private(set) lazy var signInHarnesses = SettingsHarnesses(environment: { [weak services] in services.flatMap(QuitAgents.environment) },
                                                               openTerminal: { [weak self] line in await self?.openSignIn(line) ?? false })
     private(set) lazy var agentTools = AgentToolsStepModel.cliSource(cli: { [bundled = services.bundledCLI] in await bundled.resolve() }, settings: { [weak services] in services?.settings })
+    /// The follower that takes cmux's entry out when the answer turns to `off` (``followAgentToolsOff()``).
+    private var agentToolsOff: AgentToolsOffFollower?
     /// The top page a Sign In left (Bring your history); it shows again once the tool window closes.
     private var pageLeftForSignIn: TopPageRoute?
 
@@ -202,6 +206,21 @@ final class OnboardingService {
         // installation too: until it is answered, the person's agents get no cmux server.
         guard route == .windows else { return await presenter.askAgentToolsOnce(source: agentTools) }
         await presenter.showFirstRunSteps(isFirstRun: isFirstRun, source: signInHarnesses, agentTools: agentTools) { self.showHistoryAtFirstRun(isFirstRun: isFirstRun) }
+    }
+
+    /// Takes cmux's entry out of the person's agents when their answer turns to `off` on any surface
+    /// (``AgentToolsOffFollower``); started once the settings owner exists, onboarding or not.
+    func followAgentToolsOff(_ settings: SettingsController) {
+        guard agentToolsOff == nil else { return }
+        let source = agentTools
+        let follower = AgentToolsOffFollower(source: source)
+        agentToolsOff = follower
+        // task-owner: lives with the app; follows the settings file's answer from the first load on.
+        Task { [weak settings] in
+            guard let settings else { return }
+            await settings.waitForLoad(atLeast: 1)
+            await follower.follow(ObservationStream { source.agentToolsChoice() })
+        }
     }
 
     func historyImportFinished() {

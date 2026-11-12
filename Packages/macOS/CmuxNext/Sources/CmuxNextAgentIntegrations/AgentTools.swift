@@ -1,10 +1,10 @@
 public import Foundation
 
 /// The person's answer to "may cmux add its tools to your coding agents?": the settings key
-/// `agents.cmuxMcp` (schemas/settings/source/agent-defaults.json). `ask` is no answer yet, and keeps
-/// what cmux did before the question existed (the `claude` and `codex` shims in a cmux terminal pass
-/// the cmux MCP server); `on` passes it and writes it into the agents' own configs (`cmux setup
-/// mcp`); `off` passes and writes nothing.
+/// `agents.cmuxMcp` (schemas/settings/source/agent-defaults.json). `ask` is no answer yet: the
+/// `claude` and `codex` shims in a cmux terminal pass no cmux MCP server and `cmux setup mcp` writes
+/// nothing, and the app asks at launch. `on` passes the server and writes it into the agents' own
+/// configs (`cmux setup mcp`); `off` passes and writes nothing, and cmux's own entry comes out.
 public enum AgentToolsChoice: String, Sendable, CaseIterable {
     case ask, on, off
 

@@ -70,14 +70,17 @@ public final class AgentToolsStepModel {
 
     /// Not Now: the answer is no. Nothing is added; an agent that already has cmux's server (added
     /// before the question, by Add, or by `cmux setup mcp`) gets it taken out (`--remove`, cmux's own
-    /// entry only), so no means no cmux tools in the person's agents. With none there, no config is touched.
+    /// entry only), so no means no cmux tools in the person's agents. Once the read shows none there, no
+    /// config is touched.
     public func decline() {
         guard !applying else { return }
         answered = true
         localChoice = .off
         failed = false
         guard let source else { return }
-        if agents.contains(where: { $0.state == .added }) {
+        // Before the read lands, an entry may be there unseen: take cmux's out anyway (`--remove`
+        // touches nothing when there is none).
+        if !loaded || agents.contains(where: { $0.state == .added }) {
             apply(choice: .off, remove: true)
             return
         }

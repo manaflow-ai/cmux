@@ -178,6 +178,16 @@ import Testing
         #expect(model.choice == .off && model.addedCount == 0 && !model.failed)
     }
 
+    /// Not Now before the agents were read (Escape at once) still takes out an entry that may be there.
+    @Test func notNowBeforeTheReadStillRemoves() async {
+        let source = Source()
+        let model = AgentToolsStepModel(source: source)
+        model.decline()
+        await Self.until { source.calls.contains("remove") && !model.applying }
+        #expect(source.calls == ["set off", "remove"], "no read needed to take cmux's entry out")
+        #expect(model.choice == .off)
+    }
+
     // MARK: First run
 
     /// The step is asked at launch, a first run or an existing installation, once: while nobody
