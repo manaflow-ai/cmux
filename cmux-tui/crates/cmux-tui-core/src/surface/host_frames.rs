@@ -45,7 +45,7 @@
 //! not lost to the drop's own shutdown.
 
 use std::collections::VecDeque;
-use std::io::{BufReader, Read};
+use std::io::Read;
 use std::sync::{Arc, Condvar, Mutex};
 
 use crate::terminal_host_protocol::{Frame, MAX_FRAME_PAYLOAD, MessageKind, read_frame};
@@ -56,13 +56,19 @@ use crate::terminal_host_runtime::{CONTROL_RESPONSE_TIMEOUT, ControlResponses};
 /// by [`queued_cost`]. One frame is always admitted, however large.
 const QUEUED_BYTES_BUDGET: usize = 8 * 1024 * 1024;
 
-/// Bytes the reader thread reads from the socket in one call. A host link
-/// under backlog holds many frames; reading them one header and one payload
-/// at a time cost at least two `read` calls per frame. Bounded and small next
-/// to [`QUEUED_BYTES_BUDGET`]: when the queue is full the thread still stops
-/// reading, so the host keeps its backpressure (it may have written at most
-/// this many bytes more).
+/// Bytes the reader thread reads from the socket in one call while the link
+/// has a backlog. A host link under backlog holds many frames; reading them
+/// one header and one payload at a time cost at least two `read` calls per
+/// frame. Bounded and small next to [`QUEUED_BYTES_BUDGET`]: when the queue
+/// is full the thread still stops reading, so the host keeps its
+/// backpressure (it may have written at most this many bytes more). Held
+/// only while a backlog lasts: see [`LinkReader`].
 const LINK_READ_BUFFER: usize = 64 * 1024;
+
+/// Bytes of a read on a link that shows no backlog, into the reader's
+/// inline bytes (no heap). They take a typical interactive frame with its
+/// header in one read.
+const LINK_FIRST_READ: usize = 4 * 1024;
 
 /// What a queued frame costs besides its payload: the wire header it arrived
 /// with and its queue slot. Empty frames (Bell, metadata) cost this alone;
@@ -298,27 +304,106 @@ fn resolves_early(frame: &Frame, protocol_version: u16, early: EarlyResponses) -
         && frame.sequence == 0
 }
 
-/// The daemon's read side of one host link (see [`LINK_READ_BUFFER`]).
+/// The daemon's read side of one host link. A link with no backlog reads
+/// through [`LINK_FIRST_READ`] inline bytes. A read that fills them shows a
+/// backlog (the host wrote more than that), and the next reads go through a
+/// [`LINK_READ_BUFFER`] heap buffer, until one returns fewer bytes than that
+/// buffer holds (the link had no more ready): once those bytes are taken the
+/// buffer goes. A backlog still costs about one `read` per 64 KiB, and an
+/// idle terminal holds no 64 KiB buffer (a real session has about 800
+/// terminals: a buffer each kept 13 MB resident while idle, up to 51 MB
+/// after one burst each). With nothing buffered, a request at least as
+/// large as the active buffer (a large payload) is read straight into the
+/// caller's bytes.
 struct LinkReader<R> {
-    stream: BufReader<R>,
+    stream: R,
+    first: [u8; LINK_FIRST_READ],
+    backlog: Option<Vec<u8>>,
+    /// The buffered bytes are `backlog[start..end]`, else `first[start..end]`.
+    in_backlog: bool,
+    start: usize,
+    end: usize,
+    /// The read that filled `backlog` returned less than it holds: the
+    /// buffer goes once its bytes are taken.
+    drained: bool,
 }
 
 impl<R: Read> LinkReader<R> {
     fn new(stream: R) -> Self {
-        // A payload larger than the buffer is read straight into its frame.
-        Self { stream: BufReader::with_capacity(LINK_READ_BUFFER, stream) }
+        Self {
+            stream,
+            first: [0; LINK_FIRST_READ],
+            backlog: None,
+            in_backlog: false,
+            start: 0,
+            end: 0,
+            drained: false,
+        }
     }
 
     /// Heap bytes the reader holds for its reads (a test reads it).
     #[cfg(test)]
     fn held_bytes(&self) -> usize {
-        self.stream.capacity()
+        self.backlog.as_ref().map_or(0, Vec::len)
+    }
+
+    /// Refill the empty buffer with one read; the bytes read.
+    fn fill(&mut self) -> std::io::Result<usize> {
+        let read = match self.backlog.as_mut() {
+            Some(backlog) => {
+                let read = self.stream.read(backlog)?;
+                self.drained = read < backlog.len();
+                self.in_backlog = true;
+                read
+            }
+            None => {
+                let read = self.stream.read(&mut self.first)?;
+                self.in_backlog = false;
+                if read == LINK_FIRST_READ {
+                    // A backlog: the next reads take up to 64 KiB each.
+                    self.backlog = Some(vec![0; LINK_READ_BUFFER]);
+                }
+                read
+            }
+        };
+        self.start = 0;
+        self.end = read;
+        Ok(read)
     }
 }
 
 impl<R: Read> Read for LinkReader<R> {
     fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
-        self.stream.read(out)
+        if self.start == self.end {
+            let capacity = self.backlog.as_ref().map_or(LINK_FIRST_READ, Vec::len);
+            if out.len() >= capacity {
+                return self.stream.read(out);
+            }
+            if self.fill()? == 0 {
+                return Ok(0);
+            }
+        }
+        let buffered =
+            if self.in_backlog { self.backlog.as_deref() } else { Some(&self.first[..]) };
+        let count = {
+            let Some(buffered) = buffered.and_then(|bytes| bytes.get(self.start..self.end)) else {
+                return Ok(0);
+            };
+            let count = buffered.len().min(out.len());
+            let (Some(into), Some(from)) = (out.get_mut(..count), buffered.get(..count)) else {
+                return Ok(0);
+            };
+            into.copy_from_slice(from);
+            count
+        };
+        self.start += count;
+        if self.start == self.end && self.drained {
+            // The link had no more than these bytes: an idle link holds no
+            // large buffer.
+            self.backlog = None;
+            self.drained = false;
+        }
+        Ok(count)
     }
 }
 
