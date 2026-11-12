@@ -360,4 +360,40 @@ mod tests {
         assert!(matches!(probe(&repo).unwrap(), Probe::Ready(_)));
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    /// A sync that ended frees its locks at once, also while a child forked meanwhile (any
+    /// thread of a process that runs git, as the seed job's does) still has copies of its
+    /// descriptors: a lock belongs to the open file description, which a close alone leaves
+    /// held until the child execs or exits. Before, the next reader saw the ended sync as still
+    /// running and the next sync was refused "repository is in use" (LOCK-AUDIT, c-conc's
+    /// symptom: a lock refused after a wait proved it free).
+    #[test]
+    fn an_ended_sync_frees_its_locks_while_a_forked_child_still_has_its_descriptors() {
+        let dir = std::env::temp_dir().join(format!("cmux-sync-forked-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let repo = dir.canonicalize().unwrap().join("repo");
+        let mut sync = Sync::begin(&repo).unwrap();
+        sync.head_ready();
+        // SAFETY: the child calls only pause, which is async-signal-safe, until SIGKILL ends it.
+        let child = unsafe { libc::fork() };
+        assert!(child >= 0, "fork failed");
+        if child == 0 {
+            loop {
+                // SAFETY: as above.
+                unsafe { libc::pause() };
+            }
+        }
+        sync.complete().unwrap();
+        let ready = matches!(probe(&repo), Ok(Probe::Ready(_)));
+        let again = Sync::begin(&repo).map(drop);
+        let mut status = 0;
+        // SAFETY: `child` is this test's own child and `status` outlives the call.
+        unsafe {
+            libc::kill(child, libc::SIGKILL);
+            libc::waitpid(child, &mut status, 0);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(ready, "an ended sync read as running while a forked child kept its descriptors");
+        again.expect("an ended sync's locks are free while a forked child keeps its descriptors");
+    }
 }
