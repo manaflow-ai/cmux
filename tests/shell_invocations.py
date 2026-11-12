@@ -874,6 +874,9 @@ def _commands(run: str, nested: bool, defined: set[str]) -> tuple[list[_Command]
             continue
         if token.kind == "word" and not token.quoted and at_command_start() \
                 and token.text in ("case", "esac", "[["):
+            if words:
+                flow.keywords(words)
+                words, dynamic = [], False
             if token.text == "[[":
                 in_conditional = True
                 words, dynamic = [], False

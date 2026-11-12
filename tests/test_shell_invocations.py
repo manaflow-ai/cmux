@@ -161,6 +161,7 @@ FIXTURES = [
     ("a case pattern list is no command", "case x in x|gh) a ;; esac", {"a"}, None),
     ("a case pattern after a leading paren is no command", "case gh in (gh) a ;; esac", {"a"}, None),
     ("a case pattern after ;;& is no command", "case x in x) a ;;& x|gh) b ;; esac", {"a", "b"}, None),
+    ("a case in a skipped branch does not clear control flow", "if false; then case x in x) a ;; esac; fi", set(), set()),
     ("a case over lines", "case x\nin\n  x|gh)\n    a\n    ;;\nesac", {"a"}, None),
     ("a nested case", "case x in x) case y in y|gh) a ;; esac ;& c) b ;; esac", {"a", "b"}, None),
     ("a case pattern's paren does not close a substitution", "x=$(case x in y) echo ;; gh) a ;; esac)\nb",
