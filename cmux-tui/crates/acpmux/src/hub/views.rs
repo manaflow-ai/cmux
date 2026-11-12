@@ -425,6 +425,12 @@ pub(super) fn enforcement(
 /// as ask. `cli/mesh_control.rs` reads it so a start never copies full access the starter lacks.
 pub(crate) const FULL_ACCESS_OFF_NOTE: &str = " (full access is off on this machine)";
 
+/// Listed at initialize by a daemon whose `_acpmux/info` `enforcement.policy` is the effective
+/// policy, capped to ask while full access is off, with [`FULL_ACCESS_OFF_NOTE`] in the detail.
+/// An older daemon reports the stored policy uncapped, so `cli/mesh_control.rs` copies a
+/// starter's policy only from a daemon that lists this.
+pub(crate) const EFFECTIVE_POLICY_FEATURE: &str = "effectivePolicy";
+
 impl Hub {
     // ------------------------------------------------------------- views
 

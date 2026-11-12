@@ -72,13 +72,23 @@ fn target(key: &str, id: bool) -> Value {
 /// from an info that has no `enforcement`. A mode that skips every approval (`hub/start_mode.rs`
 /// `FULL_ACCESS_MODES`) is approve-all, unless full access is off there or the policy denies
 /// (deny-all, review): then the stricter one is sent. `None` when `info` names none.
-pub(crate) fn starter_policy(info: &Value) -> Option<String> {
+///
+/// `effective` says the daemon lists [`crate::hub::views::EFFECTIVE_POLICY_FEATURE`]. An older
+/// daemon reports a stored approve-all uncapped while it enforces ask, so from it nothing looser
+/// than ask is copied: deny-all and review stay, anything else is sent as ask.
+pub(crate) fn starter_policy(info: &Value, effective: bool) -> Option<String> {
     use crate::config::PermissionPolicy;
     let policy = info
         .pointer("/enforcement/policy")
         .and_then(Value::as_str)
         .or_else(|| info.get("policy").and_then(Value::as_str))
         .and_then(|p| p.parse::<PermissionPolicy>().ok());
+    if !effective {
+        return Some(match policy {
+            Some(p @ (PermissionPolicy::DenyAll | PermissionPolicy::Review)) => p.to_string(),
+            _ => PermissionPolicy::Ask.to_string(),
+        });
+    }
     let full_access_off = info
         .pointer("/enforcement/detail")
         .and_then(Value::as_str)
@@ -159,8 +169,12 @@ pub async fn run(command: SessionCmd, json_out: bool) -> Result<()> {
         SessionCmd::Start(args) if args.policy.is_none() => {
             match std::env::var("ACPMUX_SESSION_ID").ok().filter(|id| !id.trim().is_empty()) {
                 Some(id) => {
-                    let info = client.request(method::MUX_INFO, json!({"sessionId": id})).await?;
-                    let policy = starter_policy(&info);
+                    let info = client
+                        .request(method::MUX_INFO, json!({"sessionId": id, "waitLogs": false}))
+                        .await?;
+                    let effective =
+                        client.daemon_lists(crate::hub::views::EFFECTIVE_POLICY_FEATURE);
+                    let policy = starter_policy(&info, effective);
                     if let Some(p) = &policy {
                         eprintln!("mesh start: no --policy given; taking this session's: {p}");
                     }
@@ -256,15 +270,15 @@ mod tests {
         // The helper that started the stuck lanes: daemon default ask, in bypassPermissions.
         let bypass = json!({"policy": null, "currentModeId": "bypassPermissions",
                             "enforcement": {"policy": "ask"}});
-        assert_eq!(starter_policy(&bypass).as_deref(), Some("approve-all"));
+        assert_eq!(starter_policy(&bypass, true).as_deref(), Some("approve-all"));
         let own = json!({"policy": "approve-edits", "currentModeId": "default",
                          "enforcement": {"policy": "approve-edits"}});
-        assert_eq!(starter_policy(&own).as_deref(), Some("approve-edits"));
+        assert_eq!(starter_policy(&own, true).as_deref(), Some("approve-edits"));
         let default = json!({"policy": null, "currentModeId": "default",
                              "enforcement": {"policy": "deny-all"}});
-        assert_eq!(starter_policy(&default).as_deref(), Some("deny-all"));
-        assert_eq!(starter_policy(&json!({"policy": "bogus"})), None);
-        assert_eq!(starter_policy(&json!({})), None);
+        assert_eq!(starter_policy(&default, true).as_deref(), Some("deny-all"));
+        assert_eq!(starter_policy(&json!({"policy": "bogus"}), true), None);
+        assert_eq!(starter_policy(&json!({}), true), None);
     }
 
     /// Review F1 (#41877): with full access off (MDM or a team policy) a stored approve-all runs
@@ -275,15 +289,35 @@ mod tests {
         let capped = json!({"policy": "approve-all", "currentModeId": "default",
             "enforcement": {"policy": "ask",
                             "detail": format!("claude mode default; acpmux policy ask{off}")}});
-        assert_eq!(starter_policy(&capped).as_deref(), Some("ask"));
+        assert_eq!(starter_policy(&capped, true).as_deref(), Some("ask"));
         let bypass_capped = json!({"policy": null, "currentModeId": "bypassPermissions",
             "enforcement": {"policy": "ask",
                             "detail": format!("claude mode bypassPermissions; acpmux policy ask{off}")}});
-        assert_eq!(starter_policy(&bypass_capped).as_deref(), Some("ask"));
+        assert_eq!(starter_policy(&bypass_capped, true).as_deref(), Some("ask"));
         // A policy that denies stays stricter than a full-access mode.
         let deny = json!({"currentModeId": "bypassPermissions",
                           "enforcement": {"policy": "deny-all", "detail": ""}});
-        assert_eq!(starter_policy(&deny).as_deref(), Some("deny-all"));
+        assert_eq!(starter_policy(&deny, true).as_deref(), Some("deny-all"));
+    }
+
+    /// Review F1 (#41877, second round): a daemon on base code (no `effectivePolicy` at
+    /// initialize) answers info with the stored approve-all and no cap note even while it
+    /// enforces ask under the MDM cap. From it nothing looser than ask is copied.
+    #[test]
+    fn a_daemon_without_effective_policy_gets_ask() {
+        let base_daemon = json!({"policy": "approve-all", "currentModeId": "default",
+            "enforcement": {"policy": "approve-all",
+                            "detail": "claude mode default; acpmux policy approve-all"}});
+        assert_eq!(starter_policy(&base_daemon, false).as_deref(), Some("ask"));
+        let bypass = json!({"policy": null, "currentModeId": "bypassPermissions",
+                            "enforcement": {"policy": "ask"}});
+        assert_eq!(starter_policy(&bypass, false).as_deref(), Some("ask"));
+        let edits = json!({"policy": "approve-edits", "enforcement": {"policy": "approve-edits"}});
+        assert_eq!(starter_policy(&edits, false).as_deref(), Some("ask"));
+        // Stricter than ask stays.
+        let deny = json!({"policy": "deny-all", "enforcement": {"policy": "deny-all"}});
+        assert_eq!(starter_policy(&deny, false).as_deref(), Some("deny-all"));
+        assert_eq!(starter_policy(&json!({}), false).as_deref(), Some("ask"));
     }
 
     #[test]
