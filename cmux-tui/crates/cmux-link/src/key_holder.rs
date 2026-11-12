@@ -121,8 +121,8 @@ impl From<io::Error> for KeyHolderError {
 #[derive(Debug)]
 pub struct KeyHolder {
     dir: PathBuf,
-    // Held for the holder's life: the OS lock goes with this descriptor.
-    _lock: File,
+    // Held for the holder's life: the OS lock goes with its unlock (`Drop`) or this descriptor.
+    lock: File,
 }
 
 impl KeyHolder {
@@ -134,7 +134,7 @@ impl KeyHolder {
         let lock = open_private(&dir.join(LOCK_FILE), true)?;
         take(&lock, dir)?;
         write_pid(dir, std::process::id())?;
-        Ok(Self { dir: dir.to_path_buf(), _lock: lock })
+        Ok(Self { dir: dir.to_path_buf(), lock })
     }
 
     /// Open `key` in `dir` for a session with `open` (the owner's own
@@ -155,6 +155,10 @@ impl Drop for KeyHolder {
         if recorded_pid(&self.dir) == Some(std::process::id()) {
             let _ = std::fs::remove_file(self.dir.join(PID_FILE));
         }
+        // Unlocked, not only closed: the lock belongs to the open file description, which a
+        // child forked meanwhile shares until it execs or exits, and a close leaves that copy
+        // holding the lock (the next taker then waits out UNCLAIMED_WAIT and reads `KeyHeld`).
+        let _ = self.lock.unlock();
     }
 }
 
