@@ -950,6 +950,18 @@ def keychain_cleanup_fixture_failures(documents: dict[str, dict]) -> list[str]:
         expected = [f"{label}: creates a signing keychain but no `if: always()` step deletes it"]
         if found != (expected if named else []):
             problems.append(f"keychain cleanup: an always() delete as {form} is misread: {found}")
+    # A keychain in a job with no signing secret holds no signing identity: an uncertain delete (under sudo) is not
+    # named there, and is named once the job reads the certificate.
+    sudo_delete = {"if": "always()", "run": "sudo -n -u \"$U\" -- security delete-keychain \"$K\" || true"}
+    for form, steps, named in (("no signing secret", [{"run": "security create-keychain -p x \"$K\""}, sudo_delete], False),
+                               ("a signing secret", [{"run": "security create-keychain -p x \"$K\""}, sign, sudo_delete],
+                                True)):
+        job = {"runs-on": "blacksmith-6vcpu-macos-26", "steps": steps}
+        found = [why for why in tree_job_failures(with_job(documents, "release.yml", "cleanup-fixture", job), label)
+                 if "no `if: always()` step deletes it" in why]
+        expected = [f"{label}: creates a signing keychain but no `if: always()` step deletes it"] if named else []
+        if found != expected:
+            problems.append(f"keychain cleanup: a sudo delete with {form} is misread: {found}")
     return problems
 
 
@@ -1009,7 +1021,9 @@ def check_job(name: str, job: dict, failures: list[str]) -> None:
                     f"{name}: step {label!r} runs bundle code while the signing keychain from "
                     f"{open_window!r} exists: {command[:120]}"
                 )
-    if created and not cleaned_up:
+    # Only a job that holds a signing secret can put a signing identity in the keychain it makes; a test user's
+    # login keychain (machine-vault-e2e.yml, deleted under `sudo -n`, which must_run() cannot be sure of) holds none.
+    if created and not cleaned_up and signing_secret(job):
         failures.append(f"{name}: creates a signing keychain but no `if: always()` step deletes it")
 
     if name not in STEP_LEVEL_ONLY:
