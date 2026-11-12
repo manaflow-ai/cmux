@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43260954904",
+  "recorded_at": "2026-11-12T16:49:49Z",
+  "reason": "cmux-tui 338df222a9ce changes the image's cmux-tui (pinned 07cda7a13230)",
+  "dry_run": false,
+  "cmux_tui": "338df222a9ceb76db65b5c561d5acb25be5ca82e",
+  "fixes": [
+    {
+      "sha": "338df222a9ceb76db65b5c561d5acb25be5ca82e",
+      "mergedAt": "2026-11-12T16:08:34Z",
+      "subject": "chore(next): base autofix at cf2bb19bc184"
+    },
+    {
+      "sha": "cf2bb19bc184114de7bb77c08b89e59f7eb37d67",
+      "mergedAt": "2026-11-12T08:05:59-08:00",
+      "subject": "Cloud start follow-ups: a held send takes its prompt, a refused check offers New Cloud chat, only the account's own default team shows as Personal (#40942)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T16:49:49Z",
+    "snapshot_id": "sh-1e1dd08caf3440a9b8789e03fa2a38e1",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43260954904): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "171a79fa9d04226bf8055d33765559d301742e3a",
+    "image": "cloud-native-auto-338df222-43260954904-1",
+    "revision": "ci-43260954904-1",
+    "at": "2026-11-12T16:49:49Z"
+  },
+  "rolled_back": false
+}
