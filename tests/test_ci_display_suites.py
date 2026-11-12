@@ -53,6 +53,47 @@ class DerivedNeverCommittedTest(unittest.TestCase):
         self.assertFalse([row for row in rows if "FirstLaunchTests" in row], "a cmux-tui trait is no display trait")
 
 
+# feat-cmux-next's base-autofix.sh step 1e4 at 785cd859043c (lines 312-324), byte for byte. The pull request autofix
+# runs a trusted copy of base's scripts (`git archive "$BASE_SHA" scripts/cmux-next scripts/ci`) against the pull
+# request's tree, so until this change is on base, every pull request's autofix runs this step against a tree whose
+# display_suites.py has no committed copy to keep (run 43196743424: `unrecognized arguments: --fix`, exit 2). Remove
+# this copy, and display_suites.py's transitional --fix and --check, once no base the autofix can archive has step 1e4.
+BASE_STEP_1E4 = r'''display_list=scripts/ci/display-suites.txt
+if [[ -f "$repo/scripts/ci/display_suites.py" ]]; then
+  before="$(cksum < "$repo/$display_list" 2>/dev/null || true)"
+  python3 -I "$repo/scripts/ci/display_suites.py" --root "$repo" --fix
+  if [[ "$before" != "$(cksum < "$repo/$display_list")" ]]; then
+    if frozen "$display_list"; then
+      git -C "$repo" checkout --quiet -- "$display_list" 2>/dev/null || rm -f "$repo/$display_list"
+      echo "skipped (frozen): $display_list (stale; python3 scripts/ci/display_suites.py --fix)"
+    else
+      echo "fixed: regenerated $display_list"
+    fi
+  fi
+fi
+'''
+
+
+class TrustedBaseAutofixStepTest(unittest.TestCase):
+    """The pull request autofix runs base's base-autofix.sh against this tree: its step 1e4 must pass and write
+    no list."""
+
+    def test_base_step_1e4_passes_and_writes_no_list(self):
+        tmp = Path(tempfile.mkdtemp(prefix="display-suites-base-step-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        (tmp / "scripts/ci").mkdir(parents=True)
+        shutil.copy(ROOT / "scripts/ci/display_suites.py", tmp / "scripts/ci/display_suites.py")
+        tests = tmp / "Packages/macOS/Pkg/Tests/PkgTests"
+        tests.mkdir(parents=True)
+        (tmp / "Packages/macOS/Pkg/Package.swift").write_text("// swift-tools-version: 6.0\n")
+        (tests / "A.swift").write_text('@Suite(.enabled(if: hasScreen, "needs a display")) struct ZoomTests {}\n')
+        script = 'set -euo pipefail\nrepo="$1"\nfrozen() { return 1; }\n' + BASE_STEP_1E4
+        done = subprocess.run(["bash", "-c", script, "base-autofix.sh", str(tmp)], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, f"base's step 1e4 fails on this tree: {done.stderr}")
+        self.assertEqual(done.stdout, "", "base's step 1e4 reported a repair: there is no list to regenerate")
+        self.assertFalse((tmp / "scripts/ci/display-suites.txt").exists(), "base's step 1e4 wrote a list")
+
+
 class DerivationTest(unittest.TestCase):
     def test_a_suite_trait_names_its_declaration(self):
         source = ('@MainActor @Suite(.serialized, .enabled(if: !NSScreen.screens.isEmpty, "the drag tests need a display"))\n'
