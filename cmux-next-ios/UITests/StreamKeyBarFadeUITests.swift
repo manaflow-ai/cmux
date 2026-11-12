@@ -38,12 +38,14 @@ final class StreamKeyBarFadeUITests: XCTestCase {
         return app
     }
 
-    /// Drags the bar's keys sideways by most of its width, slowly, and holds so no momentum follows.
+    /// Drags the bar's keys sideways by `by` of its width, slowly, and holds so no momentum
+    /// follows. The drag moves at once: a touch held still on a key goes to the key, not the scroller.
     @MainActor
-    private func drag(_ bar: XCUIElement, left: Bool) {
-        let from = bar.coordinate(withNormalizedOffset: CGVector(dx: left ? 0.8 : 0.15, dy: 0.5))
-        let to = bar.coordinate(withNormalizedOffset: CGVector(dx: left ? 0.15 : 0.8, dy: 0.5))
-        from.press(forDuration: 0.1, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.4)
+    private func drag(_ bar: XCUIElement, left: Bool, by: CGFloat = 0.65) {
+        let start: CGFloat = left ? 0.8 : 0.8 - by
+        let from = bar.coordinate(withNormalizedOffset: CGVector(dx: start, dy: 0.5))
+        let to = bar.coordinate(withNormalizedOffset: CGVector(dx: left ? start - by : start + by, dy: 0.5))
+        from.press(forDuration: 0.01, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.4)
     }
 
     @MainActor
@@ -68,7 +70,7 @@ final class StreamKeyBarFadeUITests: XCTestCase {
             let bar = app.otherElements["browser.keys"]
             XCTAssertTrue(bar.waitForExistence(timeout: 30), "key bar\n\(app.debugDescription)")
             shot(app, "keyboard-\(label)-\(look)\(size)-1-start")
-            drag(bar, left: true)
+            drag(bar, left: true, by: 0.3)
             shot(app, "keyboard-\(label)-\(look)\(size)-2-middle")
             drag(bar, left: true)
             drag(bar, left: true)

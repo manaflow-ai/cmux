@@ -93,12 +93,17 @@ private final class GalleryBarView: UIView {
     let bar = StreamKeyBar(target: nil)
     let position: StreamKeyBarGallery.Position
     private var placedFor: CGSize = .zero
+    private var contentSizeObservation: NSKeyValueObservation?
 
     init(position: StreamKeyBarGallery.Position, fades: Bool) {
         self.position = position
         super.init(frame: .zero)
         bar.scroll.fadesEdges = fades
         addSubview(bar)
+        // The keys' width is known only after the bar's own layout pass: place the row then.
+        contentSizeObservation = bar.scroll.observe(\.contentSize) { [weak self] _, _ in
+            MainActor.assumeIsolated { self?.setNeedsLayout() }
+        }
     }
 
     required init?(coder: NSCoder) { return nil }
