@@ -204,7 +204,8 @@ fn judge_source_in(rel: &str, text: &str, root: Option<Vec<String>>) -> Vec<Find
         }
     };
     let mut names = Names { root, ..Names::default() };
-    Collect { names: &mut names, module: Vec::new(), blocks: 0 }.visit_file(&file);
+    Collect { names: &mut names, module: Vec::new(), blocks: 0, scopes: Vec::new(), next_scope: 0 }
+        .visit_file(&file);
     let mut sites = Sites { out: Vec::new(), test_depth: 0, test_file: is_test_file(rel) };
     sites.visit_file(&file);
     let lines: Vec<&str> = text.lines().collect();
@@ -510,9 +511,22 @@ struct Import {
     /// The module it sits in, from the file's root: for one in a function or block body, the
     /// module around that body, which its `self::` and `super::` read from.
     module: Vec<String>,
-    /// Whether it sits in a function or block body, so it binds `name` in that body only, not
-    /// in `module` (review of cmux#41769 F1).
-    in_body: bool,
+    /// The function or block bodies it sits in, outermost first (empty at a module's top level):
+    /// it binds `name` in the innermost only, not in `module` (review of cmux#41769 F1), and a
+    /// bare path it names reads that body's names, then each body around it, before the
+    /// module's (review of cmux#41792 F1).
+    scopes: Vec<usize>,
+}
+
+/// What a function or block body, or one around it, binds a name to.
+enum BodyName<'a> {
+    /// No body binds it: the module's names hold.
+    Unbound,
+    /// The body's own import of it.
+    Import(&'a Import),
+    /// Something the check does not follow: a body's `mod`, definition, trait, `extern crate`
+    /// or glob, or two imports of the name that disagree.
+    Unknown,
 }
 
 /// What the names in a file's static types stand for, as far as the file shows: its aliases,
@@ -540,6 +554,12 @@ struct Names {
     others: HashSet<(Vec<String>, String)>,
     /// Every glob import at a module's top level: the module it sits in and the path before `*`.
     globs: Vec<(Vec<String>, String)>,
+    /// The type-namespace names a function or block body defines itself (a `mod`, a
+    /// definition, a trait, an `extern crate`), by the body's scope id; its imports are in
+    /// `imports`, with their scopes.
+    body_names: HashSet<(usize, String)>,
+    /// The bodies (by scope id) that hold a glob import.
+    body_globs: HashSet<usize>,
 }
 
 impl Names {
@@ -572,25 +592,68 @@ impl Names {
         let mut sites = self.imports.iter().filter(|i| i.name == name && i.path == full).peekable();
         sites.peek().is_some()
             && sites.all(|i| {
-                self.resolve(full, &i.module).is_some_and(|(at, last)| {
+                self.resolve(full, &i.module, &i.scopes).is_some_and(|(at, last)| {
                     last == name && defs.iter().any(|d| d.module.as_ref() == Some(&at))
                 })
             })
     }
 
     /// The module, from the file's root, and the last name that path `full`, written in
-    /// `module`, names; None when it leaves the file (or it starts at `crate::` and the file's
-    /// own module is not known).
-    fn resolve(&self, full: &str, module: &[String]) -> Option<(Vec<String>, String)> {
+    /// `module` inside the bodies `scopes`, names; None when it leaves the file (or it starts at
+    /// `crate::` and the file's own module is not known), or when a body binds its first
+    /// segment to something the check does not follow.
+    fn resolve(
+        &self,
+        full: &str,
+        module: &[String],
+        scopes: &[usize],
+    ) -> Option<(Vec<String>, String)> {
+        self.resolve_from(full, module, scopes, 0)
+    }
+
+    /// `resolve`, `depth` body imports deep.
+    fn resolve_from(
+        &self,
+        full: &str,
+        module: &[String],
+        scopes: &[usize],
+        depth: usize,
+    ) -> Option<(Vec<String>, String)> {
         let mut segs: Vec<&str> = full.split("::").collect();
         let last = segs.pop()?.to_string();
         let root: &[String] = self.root.as_deref().unwrap_or(&[]);
         let (mut at, rest): (Vec<String>, &[&str]) = match segs.split_first() {
             Some((&"crate", _)) if self.root.is_none() => return None,
             Some((&"crate", rest)) => (Vec::new(), rest),
-            Some((&first, _)) if !matches!(first, "self" | "super") => {
-                let from = self.glob_scope(first, module).unwrap_or_else(|| module.to_vec());
-                (root.iter().chain(&from).cloned().collect(), segs.as_slice())
+            Some((&first, rest)) if !matches!(first, "self" | "super") => {
+                // rustc reads a bare first segment from the bodies around the path first, the
+                // innermost first, and only then from the module (review of cmux#41792 F1).
+                match self.body_name(first, scopes) {
+                    BodyName::Unbound => {
+                        let from =
+                            self.glob_scope(first, module).unwrap_or_else(|| module.to_vec());
+                        (root.iter().chain(&from).cloned().collect(), segs.as_slice())
+                    }
+                    BodyName::Import(import) => {
+                        let target = self.body_module(import, depth)?;
+                        (root.iter().chain(&target).cloned().collect(), rest)
+                    }
+                    BodyName::Unknown => return None,
+                }
+            }
+            None if !matches!(last.as_str(), "crate" | "self" | "super") => {
+                match self.body_name(&last, scopes) {
+                    BodyName::Unbound => (root.iter().chain(module).cloned().collect(), &[]),
+                    BodyName::Import(import) if depth < 8 => {
+                        return self.resolve_from(
+                            &import.path,
+                            &import.module,
+                            &import.scopes,
+                            depth.saturating_add(1),
+                        );
+                    }
+                    BodyName::Import(_) | BodyName::Unknown => return None,
+                }
             }
             _ => (root.iter().chain(module).cloned().collect(), segs.as_slice()),
         };
@@ -604,6 +667,48 @@ impl Names {
             }
         }
         Some((at.strip_prefix(root)?.to_vec(), last))
+    }
+
+    /// What the bodies `scopes` (outermost first) bind `first` to, read from the innermost out,
+    /// as rustc reads a body's items: wherever in the body they are written, a body's own
+    /// names hide those of the bodies around it and of the module, and a block's names stay
+    /// in that block.
+    fn body_name(&self, first: &str, scopes: &[usize]) -> BodyName<'_> {
+        for &scope in scopes.iter().rev() {
+            if self.body_names.contains(&(scope, first.to_string())) {
+                return BodyName::Unknown;
+            }
+            let mut imports =
+                self.imports.iter().filter(|i| i.scopes.last() == Some(&scope) && i.name == first);
+            if let Some(import) = imports.next() {
+                return if imports.all(|i| i.path == import.path) {
+                    BodyName::Import(import)
+                } else {
+                    BodyName::Unknown
+                };
+            }
+            if self.body_globs.contains(&scope) {
+                return BodyName::Unknown;
+            }
+        }
+        BodyName::Unbound
+    }
+
+    /// The module, from the file's root, that body import `import` names; None when it names
+    /// anything else (a type, a module outside the file or one the check cannot place), or the
+    /// imports chain past eight.
+    fn body_module(&self, import: &Import, depth: usize) -> Option<Vec<String>> {
+        if depth >= 8 {
+            return None;
+        }
+        let (mut at, last) = self.resolve_from(
+            &import.path,
+            &import.module,
+            &import.scopes,
+            depth.saturating_add(1),
+        )?;
+        at.push(last);
+        self.modules.contains(&at).then_some(at)
     }
 
     /// The module a bare path whose first segment is `first`, written in `module`, starts from
@@ -651,7 +756,10 @@ impl Names {
                 .defs
                 .get(first)
                 .is_some_and(|defs| defs.iter().any(|d| d.module.as_deref() == Some(module)))
-            || self.imports.iter().any(|i| !i.in_body && i.name == first && i.module == module)
+            || self
+                .imports
+                .iter()
+                .any(|i| i.scopes.is_empty() && i.name == first && i.module == module)
             || self.others.contains(&(module.to_vec(), first.to_string()))
     }
 
@@ -660,7 +768,7 @@ impl Names {
             name: local.clone(),
             path: path.clone(),
             module: module.to_vec(),
-            in_body: false,
+            scopes: Vec::new(),
         };
         self.imports.push(import);
         let paths = self.uses.entry(local).or_default();
@@ -706,13 +814,33 @@ struct Collect<'n> {
     module: Vec<String>,
     /// How many function or block bodies deep it reads.
     blocks: usize,
+    /// The ids of the bodies it reads, outermost first; a `mod` in a body starts its own list,
+    /// since a module sees none of the bodies around it.
+    scopes: Vec<usize>,
+    /// The next body's id.
+    next_scope: usize,
 }
 
 impl Collect<'_> {
     fn define(&mut self, name: &syn::Ident, generics: &Generics, body: Body) {
         let params = params_of(generics);
         let module = (self.blocks == 0).then(|| self.module.clone());
+        self.body_name(name);
         self.names.defs.entry(name.to_string()).or_default().push(Def { params, body, module });
+    }
+
+    /// Records a type-namespace name a body defines in the innermost body read, if any.
+    fn body_name(&mut self, name: &syn::Ident) {
+        if self.blocks > 0
+            && let Some(&scope) = self.scopes.last()
+        {
+            self.names.body_names.insert((scope, name.to_string()));
+        }
+    }
+
+    fn new_scope(&mut self) -> usize {
+        self.next_scope = self.next_scope.saturating_add(1);
+        self.next_scope
     }
 }
 
@@ -741,16 +869,29 @@ impl<'ast> Visit<'ast> for Collect<'_> {
     }
     fn visit_item_mod(&mut self, i: &'ast syn::ItemMod) {
         self.names.mods.insert(i.ident.to_string());
+        self.body_name(&i.ident);
         self.module.push(i.ident.to_string());
         if self.blocks == 0 {
             self.names.modules.insert(self.module.clone());
         }
+        let outer = if self.blocks > 0 {
+            let inner = vec![self.new_scope()];
+            Some(std::mem::replace(&mut self.scopes, inner))
+        } else {
+            None
+        };
         visit::visit_item_mod(self, i);
+        if let Some(outer) = outer {
+            self.scopes = outer;
+        }
         self.module.pop();
     }
     fn visit_block(&mut self, i: &'ast syn::Block) {
         self.blocks += 1;
+        let scope = self.new_scope();
+        self.scopes.push(scope);
         visit::visit_block(self, i);
+        self.scopes.pop();
         self.blocks -= 1;
     }
     fn visit_item_use(&mut self, i: &'ast syn::ItemUse) {
@@ -758,14 +899,21 @@ impl<'ast> Visit<'ast> for Collect<'_> {
         self.names.use_tree("", &i.tree, &self.module);
         if self.blocks > 0 {
             // An import or glob in a function body scopes that body, not the module's `use` paths.
+            if self.names.globs.len() > globs
+                && let Some(&scope) = self.scopes.last()
+            {
+                self.names.body_globs.insert(scope);
+            }
             self.names.globs.truncate(globs);
-            self.names.imports.iter_mut().skip(imports).for_each(|i| i.in_body = true);
+            let scopes = self.scopes.clone();
+            self.names.imports.iter_mut().skip(imports).for_each(|i| i.scopes.clone_from(&scopes));
         }
     }
     fn visit_item_trait(&mut self, i: &'ast syn::ItemTrait) {
         if self.blocks == 0 {
             self.names.others.insert((self.module.clone(), i.ident.to_string()));
         }
+        self.body_name(&i.ident);
         visit::visit_item_trait(self, i);
     }
     fn visit_item_extern_crate(&mut self, i: &'ast syn::ItemExternCrate) {
@@ -773,6 +921,7 @@ impl<'ast> Visit<'ast> for Collect<'_> {
         if self.blocks == 0 {
             self.names.others.insert((self.module.clone(), name.to_string()));
         }
+        self.body_name(name);
     }
     fn visit_macro(&mut self, mac: &'ast syn::Macro) {
         if process_wide(mac) {
