@@ -50,9 +50,6 @@ impl Block {
     pub fn line_bytes(&self) -> u64 {
         self.line_bytes
     }
-    pub fn cut_inside_line(&self) -> bool {
-        self.cut_inside_line
-    }
     /// Cut the current body segment while preserving fence and line lexical state.
     pub fn mark_cut_inside_line(&mut self) {
         self.cut_inside_line = true;
@@ -126,19 +123,17 @@ impl Block {
         let marker = self.first_nonspace;
         let run = self.marker_run;
         let marker_line = self.line_indent <= 3 && run >= 3 && marker.is_some();
-        if marker_line {
-            if let Some(marker) = marker {
-                if self.fence.is_none() {
-                    // An opening fence may carry an info string; the marker itself decides it.
-                    self.fence = Some(marker);
-                    self.fence_len = run;
-                } else if self.fence == Some(marker)
-                    && run >= self.fence_len
-                    && !self.marker_other_nonwhite
-                {
-                    self.fence = None;
-                    self.fence_len = 0;
-                }
+        if marker_line && let Some(marker) = marker {
+            if self.fence.is_none() {
+                // An opening fence may carry an info string; the marker itself decides it.
+                self.fence = Some(marker);
+                self.fence_len = run;
+            } else if self.fence == Some(marker)
+                && run >= self.fence_len
+                && !self.marker_other_nonwhite
+            {
+                self.fence = None;
+                self.fence_len = 0;
             }
         }
         self.last_blank = !self.line_nonwhite && self.fence.is_none();

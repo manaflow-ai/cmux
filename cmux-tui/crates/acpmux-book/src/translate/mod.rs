@@ -300,11 +300,11 @@ impl State {
         Ok(id)
     }
     fn close_stream(stream: &mut Option<Stream>, out: &mut input::Output<'_>) {
-        if let Some(mut stream) = stream.take() {
-            if stream.row.open {
-                stream.row.open = false;
-                out.row(&stream.row);
-            }
+        if let Some(mut stream) = stream.take()
+            && stream.row.open
+        {
+            stream.row.open = false;
+            out.row(&stream.row);
         }
     }
     fn close_row(row: &mut Option<OwnedRow>, out: &mut input::Output<'_>) {
@@ -359,7 +359,7 @@ impl State {
         // Background tools may complete after this turn. Preserve their original IDs.
     }
     fn supersede(&mut self, key: &str, out: &mut input::Output<'_>) {
-        if key.is_empty() || !self.reply.as_ref().is_some_and(|s| s.message == key) {
+        if key.is_empty() || self.reply.as_ref().is_none_or(|s| s.message != key) {
             self.ignored_supersedes = self.ignored_supersedes.saturating_add(1);
             return;
         }
@@ -443,13 +443,12 @@ impl State {
         if key.is_empty() || self.prompts.contains_key(&hash) {
             return Ok(());
         }
-        if self.prompts.len() == 32 {
-            if let Some(old) =
+        if self.prompts.len() == 32
+            && let Some(old) =
                 self.prompts.iter().min_by_key(|(_, p)| p.row.id).map(|(hash, _)| *hash)
-            {
-                self.settle_prompt(old, false, out);
-                self.forced_steers = self.forced_steers.saturating_add(1);
-            }
+        {
+            self.settle_prompt(old, false, out);
+            self.forced_steers = self.forced_steers.saturating_add(1);
         }
         let mut row = self.row(RowKind::User, out)?;
         row.field("state", "queued");
@@ -588,10 +587,8 @@ impl State {
                     stream.key = key.into();
                 }
             } else {
-                if !thinking {
-                    if let Some(reply) = &slot {
-                        self.fold.reply(&reply.facts);
-                    }
+                if !thinking && let Some(reply) = &slot {
+                    self.fold.reply(&reply.facts);
                 }
                 Self::close_stream(&mut slot, out);
             }
@@ -681,9 +678,9 @@ impl State {
             out.text(stream.row.id, &text[start..], start);
         }
         if thinking {
-            self.thought = Some(stream)
+            self.thought = Some(stream);
         } else {
-            self.reply = Some(stream)
+            self.reply = Some(stream);
         };
         Ok(())
     }
@@ -822,10 +819,8 @@ impl State {
             row.field("book", key);
             row
         };
-        if !status.is_empty() {
-            if row.field("status", status) {
-                self.cut_fields = self.cut_fields.saturating_add(1);
-            }
+        if !status.is_empty() && row.field("status", status) {
+            self.cut_fields = self.cut_fields.saturating_add(1);
         }
         row.open = !matches!(status, "completed" | "failed" | "cancelled" | "stopped");
         out.row(&row);

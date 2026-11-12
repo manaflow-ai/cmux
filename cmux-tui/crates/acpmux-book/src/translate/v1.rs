@@ -94,16 +94,18 @@ pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Res
     state.at_ms = rec.at;
     if rec.dir == "mux" {
         mux(state, &rec.kind, &msg, out)?;
-    } else if rec.dir == "in" && !rec.kind.ends_with(".replay") && msg.method == "session/update" {
-        if let Some(params) = msg.params {
-            if params.meta.acpmux.subagent.is_some() {
-                return Ok(());
-            }
-            if let Some(raw) = params.update {
-                let update: Update<'_> = input::value(raw)?;
-                if update.meta.acpmux.subagent.is_none() {
-                    agent(state, &params.meta, &update, &rec.kind, out)?;
-                }
+    } else if rec.dir == "in"
+        && !rec.kind.ends_with(".replay")
+        && msg.method == "session/update"
+        && let Some(params) = msg.params
+    {
+        if params.meta.acpmux.subagent.is_some() {
+            return Ok(());
+        }
+        if let Some(raw) = params.update {
+            let update: Update<'_> = input::value(raw)?;
+            if update.meta.acpmux.subagent.is_none() {
+                agent(state, &params.meta, &update, &rec.kind, out)?;
             }
         }
     }
@@ -150,7 +152,7 @@ fn mux(
 ) -> Result<(), Error> {
     match kind {
         "retracted" | "removed" => {
-            state.settle_prompt(super::prompt_hash(&msg.prompt_id), true, out)
+            state.settle_prompt(super::prompt_hash(&msg.prompt_id), true, out);
         }
         "queued" => state.reserve_prompt(&msg.prompt_id, msg.text, out)?,
         "steer_read" => state.steer_read(&msg.prompt_id, out)?,
@@ -171,11 +173,9 @@ fn mux(
                 out,
             )?;
         }
-        "turn_started" => {
-            if state.turn_key.is_empty() {
-                super::bounded(&msg.turn_id)?;
-                state.turn_key = msg.turn_id.to_string()
-            }
+        "turn_started" if state.turn_key.is_empty() => {
+            super::bounded(&msg.turn_id)?;
+            state.turn_key = msg.turn_id.to_string();
         }
         "turn_result" => {
             if !msg.turn_id.is_empty()
@@ -188,18 +188,15 @@ fn mux(
             end.open = false;
             end.field("notice", "turn_result");
             end.fields.insert("forkable".into(), "true".into());
-            if !msg.status.is_empty() {
-                if end.field("status", &msg.status) {
-                    state.cut_fields = state.cut_fields.saturating_add(1);
-                }
+            if !msg.status.is_empty() && end.field("status", &msg.status) {
+                state.cut_fields = state.cut_fields.saturating_add(1);
             }
             out.row(&end);
-            if !msg.status.is_empty() {
-                if let Some(group) = &mut state.group {
-                    if group.field("status", &msg.status) {
-                        state.cut_fields = state.cut_fields.saturating_add(1);
-                    }
-                }
+            if !msg.status.is_empty()
+                && let Some(group) = &mut state.group
+                && group.field("status", &msg.status)
+            {
+                state.cut_fields = state.cut_fields.saturating_add(1);
             }
             state.finish(out);
         }

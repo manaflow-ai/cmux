@@ -38,7 +38,7 @@ impl Mirror {
                 if let Some(old) = self
                     .rows
                     .get(&row.id)
-                    .filter(|_| !row.fields.get("hidden").is_some_and(|v| v == "true"))
+                    .filter(|_| row.fields.get("hidden").is_none_or(|v| v != "true"))
                 {
                     let fields = std::mem::take(&mut merged.fields);
                     merged.fields.clone_from(&old.fields);
@@ -80,7 +80,7 @@ impl Mirror {
                 if matches!(field, BodyField::Text | BodyField::Content) {
                     let text = self.text.entry(*id).or_default();
                     if !append {
-                        text.clear()
+                        text.clear();
                     }
                     text.push_str(&s);
                 }
@@ -90,7 +90,7 @@ impl Mirror {
     fn line(&mut self, state: &mut State, harness: Harness, line: &str) -> Vec<Op> {
         let ops = translate(state, harness, line.as_bytes()).unwrap();
         for op in &ops {
-            self.apply(op, line.as_bytes())
+            self.apply(op, line.as_bytes());
         }
         ops
     }
@@ -263,7 +263,7 @@ fn chat(seed: u32) -> (Vec<String>, Vec<Stretch>) {
                     let cut = 1 + pick(words.len() as u32 - 1) as usize;
                     c.say(&format!("{}{}", if open { " " } else { "" }, &words[..cut]), &message);
                     if pick(2) != 0 {
-                        c.progress(pick(2) != 0)
+                        c.progress(pick(2) != 0);
                     }
                     c.say(&words[cut..], &message);
                     open = true;
@@ -540,7 +540,7 @@ fn malformed_input_is_transactional_and_raw_ranges_preserve_escapes() {
     assert!(m.visible(m.reply("🙂\n\"\\")));
     let checkpoint = s.checkpoint().unwrap();
     for n in 0..checkpoint.len() {
-        assert!(State::restore(&checkpoint[..n]).is_err())
+        assert!(State::restore(&checkpoint[..n]).is_err());
     }
 }
 #[test]

@@ -139,17 +139,17 @@ pub(super) fn content(
     match block.kind.as_ref() {
         "text" => {
             if let Some(raw) = block.text {
-                f(&text(raw)?)?
+                f(&text(raw)?)?;
             }
         }
         "thinking" => {
             if let Some(raw) = block.thinking {
-                f(&text(raw)?)?
+                f(&text(raw)?)?;
             }
         }
         "content" => {
             if let Some(raw) = block.content {
-                content(raw, depth.saturating_add(1), f)?
+                content(raw, depth.saturating_add(1), f)?;
             }
         }
         _ => {}
@@ -166,7 +166,7 @@ impl<'a> Output<'a> {
         Self { bytes, ops: Vec::new() }
     }
     pub fn row(&mut self, row: &OwnedRow) {
-        self.emit(Change::Row(row.clone()))
+        self.emit(Change::Row(row.clone()));
     }
     pub fn emit(&mut self, change: Change) {
         self.ops.push(Op { raw: RawRange { offset: 0, length: self.bytes.len() }, change });

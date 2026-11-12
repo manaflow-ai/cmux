@@ -20,11 +20,11 @@ pub(super) struct Reply {
 }
 impl Reply {
     pub fn row(&mut self, id: u64) {
-        if let Some(last) = self.runs.last_mut() {
-            if last.1.saturating_add(1) == id {
-                last.1 = id;
-                return;
-            }
+        if let Some(last) = self.runs.last_mut()
+            && last.1.saturating_add(1) == id
+        {
+            last.1 = id;
+            return;
         }
         if self.runs.len() == 8 {
             // Keep the bounded candidate state total: widening the final range
@@ -131,11 +131,11 @@ impl Fold {
         out.sort_by_key(|r| r.0);
         let mut merged: Vec<Run> = Vec::new();
         for run in out {
-            if let Some(last) = merged.last_mut() {
-                if run.0 <= last.1.saturating_add(1) {
-                    last.1 = last.1.max(run.1);
-                    continue;
-                }
+            if let Some(last) = merged.last_mut()
+                && run.0 <= last.1.saturating_add(1)
+            {
+                last.1 = last.1.max(run.1);
+                continue;
             }
             merged.push(run);
         }
