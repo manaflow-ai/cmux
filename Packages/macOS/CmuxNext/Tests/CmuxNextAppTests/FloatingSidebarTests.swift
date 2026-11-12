@@ -248,6 +248,25 @@ import Testing
         try await until("an entry after the slide floats it") { model.isFloating }
     }
 
+    /// The hide's slide lands with the pointer away from the edge, and nothing reconciles at that moment (no layout
+    /// change, no pointer event): the person's first move onto the edge must float the sidebar. Before, the edge armed
+    /// only on a reconcile that saw the pointer off it, so this first entry did nothing and a second one was needed
+    /// (the edge-reveal capture on the fleet, 2026-11-12).
+    @Test func theFirstEntryAfterTheHideSlideFloatsIt() async throws {
+        let clock = ManualClock()
+        let model = SidebarModel()
+        let reveal = FloatingSidebarReveal(model: model, clock: clock)
+        var settling = true
+        reveal.isSettling = { settling }
+        model.presentation = .hidden
+        reveal.reconcile() // a layout pass during the slide, the pointer far from the edge
+        settling = false // the slide's last frame: no reconcile follows
+        reveal.setEdgeEngaged(true)
+        try await clock.waitForSleeper()
+        clock.advance(by: FloatingSidebarReveal.openDelay)
+        try await until("the first entry after the hide floats the sidebar") { model.isFloating }
+    }
+
     @Test func leavingClosesAfterTheGraceDelayAndReturningKeepsIt() async throws {
         let clock = ManualClock()
         let model = SidebarModel()
