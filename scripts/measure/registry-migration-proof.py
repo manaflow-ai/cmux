@@ -389,11 +389,12 @@ class SegmentWatch(threading.Thread):
 
 
 class PassProbe(threading.Thread):
-    """While an owner runs, back to back with `gap` seconds between two rounds: one identify
-    request and one rename-workspace request (a request that commits to the registry), each
-    with its start time. It is what a request of the person waits; a person sends far fewer."""
+    """While an owner runs, with `gap` seconds between two rounds: one identify request and
+    one rename-workspace request (a request that commits to the registry), each with its
+    start time. It is what a request of the person waits. Each rename adds a journal record
+    (at most 5 each second: about one more sealed segment in 200 s)."""
 
-    def __init__(self, owner, gap=0.05):
+    def __init__(self, owner, gap=0.2):
         super().__init__(daemon=True)
         self.owner, self.gap, self.rows, self.done = owner, gap, [], threading.Event()
         self.workspace = first_workspace(owner)
@@ -497,9 +498,13 @@ def served_roster(owner):
     agents = reply.get("result")
     if not isinstance(agents, list):
         return {"error": "the result is not a list"}
+    rows = [agent for agent in agents if isinstance(agent, dict)]
     names = [f"{agent.get('id')}/{agent.get('terminal_id')}/{agent.get('source_session')}"
-             for agent in agents if isinstance(agent, dict)]
-    return {"agents": len(agents), "ids_sha256": digest(names)}
+             for agent in rows]
+    # A row with no `id` adds nothing to the mark: the mark is then weaker than it reads.
+    return {"agents": len(agents), "ids_sha256": digest(names),
+            "rows_with_no_id": sum(1 for agent in rows if not agent.get("id")) + len(agents)
+            - len(rows)}
 
 
 # The longest time `served` asks again after a refusal (3 s apart). The daemon refuses its own
@@ -975,8 +980,8 @@ def in_place_kept_arm(args, state, before, report):
     deleted, with the seconds and the segments of each; and the times of identify and
     rename-workspace requests that a probe sends back to back, in two groups: a request that
     ran while a pass deleted, and each other request (the same owner, the same file). Its
-    answer to `served` is under another key: the generator added records, so no verdict rule
-    compares it with start 1."""
+    answer to `served` is in the verdict: the appended kind changes no agent and no session,
+    and this is the arm that deletes in place on the migrated file."""
     start = counts(args, state)
     step = {"arm": "in-place-kept", "kept_name_bytes": start.get("kept_bytes"),
             "first_name_bytes": start.get("backup_bytes")}
@@ -1040,7 +1045,9 @@ def in_place_kept_arm(args, state, before, report):
     step["requests"] = probe.split(passes, watch.period)
     step["locks"] = lock_sites(owner)
     step["no_rebuild_line"] = NO_REBUILD in owner.log_text()
-    step["kept_served"] = served(owner)
+    # The appended kind changes no agent and no session (synth_sparse.rs), so this answer must
+    # equal start 1's: it is in the verdict as each other answer of the head build.
+    step["served"] = served(owner)
     step["exit"] = owner.stop()
     after = counts(args, state)
     step["after"] = {key: after.get(key) for key in IN_PLACE_KEYS}
@@ -1330,7 +1337,7 @@ def table(report):
                                "bases_after", "error", "dwell_s", "locks", "samples",
                                "locks_debug_build", "no_rebuild_line", "segments_deleted",
                                "kept_name_bytes", "base_served", "base_error",
-                               "kept_served", "first_name_bytes", "load_1m",
+                               "first_name_bytes", "load_1m",
                                "appended_records", "ended_by", "ran_s", "passes",
                                "pass_rows_first_40", "watch_period_s", "probe_requests",
                                "requests")}
@@ -1423,7 +1430,9 @@ def main():
         answers = head_served(report["steps"])
         refused = {arm: value for arm, value in answers.items()
                    if "error" in value or "refused_first" in value}
-        say("RMP-VERDICT", {"control_only": True, "head_served": answers,
+        say("RMP-VERDICT", {"control_only": True,
+                            "proves": "no migration: no start of this run swapped or deleted",
+                            "head_served": answers,
                             "head_served_refused_in": refused})
         return 1 if refused else 0
     ok = main_arm(args, args.state, before, report)
@@ -1487,8 +1496,9 @@ def main():
     # The answers of the head build over the socket, in every arm. One that was not read, or
     # that was read while the History fold was not at the head, proves nothing: it fails the
     # run. One that differs from start 1 of the main arm is a loss, but for the control arms
-    # (the state before the migration) and the second-swap arm (the generator added records),
-    # which are named apart. A full page (5,000 rows) proves only "at least": it is named.
+    # (the state before the migration), which are named apart. The records that the generator
+    # appends (second-swap, in-place-kept) change no agent and no session: those answers must
+    # be equal too. A full page (5,000 rows) proves only "at least": it is named.
     answers = head_served(report["steps"])
     head_unread = sorted(arm for arm, value in answers.items() if "error" in value)
     head_pending = sorted(arm for arm, value in answers.items() if value.get("pending"))
@@ -1501,7 +1511,7 @@ def main():
                    if "error" not in value and not value.get("pending")
                    and served_mark(value) != served_mark(first)}
     apart = {arm: pair for arm, pair in differs.items()
-             if arm.startswith(("control-", "second-swap"))}
+             if arm.startswith("control-")}
     served_differs = {arm: pair for arm, pair in differs.items() if arm not in apart}
     rosters = {arm: value.get("roster") for arm, value in answers.items() if "roster" in value}
     # The served agent roster (agent.list), by count and mark, against start 1 of the main arm.
@@ -1517,7 +1527,7 @@ def main():
         for arm, value in answers.items():
             mark = roster_mark(value)
             if mark is not None and mark != roster_mark(first):
-                (roster_apart if arm.startswith(("control-", "second-swap"))
+                (roster_apart if arm.startswith("control-")
                  else roster_differs)[arm] = [roster_mark(first), mark]
     # Failures by time, not by a loss: the History fold was not at the head after the last try
     # (SERVED_TRIES, 3 s apart), or no retention pass deleted in the dwell of the in-place arm.
