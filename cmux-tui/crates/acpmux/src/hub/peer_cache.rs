@@ -39,6 +39,21 @@ pub(super) fn mark_stale(summary: &mut Value, last_seen: Option<u64>) -> bool {
 }
 
 impl Hub {
+    /// [`SAVE_EVERY_MS`] (a test may set it shorter).
+    pub(super) fn cache_save_every_ms(&self) -> u64 {
+        #[cfg(test)]
+        {
+            self.cache_test_save_every_ms.load(std::sync::atomic::Ordering::Relaxed)
+        }
+        #[cfg(not(test))]
+        SAVE_EVERY_MS
+    }
+
+    /// [`Hub::cache_save_every_ms`] as a duration.
+    pub(super) fn cache_save_every(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.cache_save_every_ms())
+    }
+
     /// Serializes cache snapshots for one hub and peer without serializing different peers.
     /// The lock is deliberately separate from `peer_leases` and `remote_sessions`: it is held
     /// through serialization and the atomic rename, while both global locks are held only for
@@ -62,9 +77,11 @@ impl Hub {
             p.cache_dirty_seq.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let at = now_ms();
             let last = p.cache_saved_at.load(std::sync::atomic::Ordering::SeqCst);
-            if at.saturating_sub(last) < SAVE_EVERY_MS
+            if at.saturating_sub(last) < self.cache_save_every_ms()
                 || p.cache_write_pending.swap(true, std::sync::atomic::Ordering::AcqRel)
             {
+                // Put off: the notice loop saves it when it is due (`peer_cache_kick`).
+                self.peer_cache_kick.notify_one();
                 return;
             }
             let Some(hub) = self.hub_ref.get().and_then(std::sync::Weak::upgrade) else {
@@ -118,7 +135,8 @@ impl Hub {
         let (Some(dir), Some(p)) = (self.store.peer_cache_dir(), p) else { return };
         let at = now_ms();
         let last = p.cache_saved_at.load(std::sync::atomic::Ordering::SeqCst);
-        if !now && at.saturating_sub(last) < SAVE_EVERY_MS {
+        if !now && at.saturating_sub(last) < self.cache_save_every_ms() {
+            self.peer_cache_kick.notify_one();
             return;
         }
         // A forced save is owed even when no session notice preceded it (for example, an outage
@@ -165,6 +183,8 @@ impl Hub {
         };
         if let Err(e) = write() {
             tracing::warn!(peer = %peer, "saving the peer's last-known sessions failed: {e}");
+            // Still dirty: the notice loop tries again one interval later (the 30 s tick did).
+            self.peer_cache_kick.notify_one();
         } else {
             #[cfg(test)]
             if let Some((entered, release)) =
@@ -1001,5 +1021,96 @@ mod tests {
         hub.cache_test_write_delay_ms.store(0, std::sync::atomic::Ordering::SeqCst);
         assert!(!dir.path().join("peers/builder.json").exists());
         assert!(!dir.path().join("peers/builder.journal").exists());
+    }
+
+    /// The status of the first session saved for `peer`, as on disk now.
+    fn saved_status(dir: &std::path::Path, peer: &str) -> Value {
+        disk::saved_json(&dir.join("peers"), peer)["sessions"][0]["status"].clone()
+    }
+
+    /// A row change inside the save interval is put off, and the notice loop writes it when
+    /// the interval ends (the old 30 s tick wrote it up to 2 intervals later). Once nothing is
+    /// dirty, nothing more is written: the loop sets no timer then (the idle daemon test
+    /// `acpmux_daemon_idle_has_no_periodic_wakeups` shows it takes no wake).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_put_off_cache_save_is_written_when_its_interval_ends_and_nothing_while_clean() {
+        let every = std::time::Duration::from_millis(400);
+        let (hub, dir) = test_hub();
+        hub.cache_test_save_every_ms.store(400, std::sync::atomic::Ordering::SeqCst);
+        let peer = add_idle_peer(&hub, "builder");
+        let settled = || {
+            !peer.cache_is_dirty()
+                && !peer.cache_write_pending.load(std::sync::atomic::Ordering::SeqCst)
+        };
+        let until = |what: &'static str, done: &dyn Fn() -> bool, within: std::time::Duration| {
+            let deadline = std::time::Instant::now() + within;
+            while !done() {
+                assert!(std::time::Instant::now() < deadline, "never: {what}");
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        };
+        // The first list is saved at once.
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+        );
+        until("the first list is saved", &settled, std::time::Duration::from_secs(10));
+        assert_eq!(saved_status(dir.path(), "builder"), "idle");
+        // A change right after it is put off.
+        let mut changed = remote("m1", "lane");
+        changed["status"] = json!("running");
+        let changed_at = std::time::Instant::now();
+        hub.apply_peer_notice("builder", peer.generation, PeerNotice::Sessions(vec![changed]));
+        assert!(peer.cache_is_dirty(), "the change was not put off");
+        until(
+            "the put-off change is saved",
+            &|| saved_status(dir.path(), "builder") == "running",
+            std::time::Duration::from_secs(10),
+        );
+        let took = changed_at.elapsed();
+        // Its interval, and a margin for a loaded host; the old tick could take two.
+        assert!(took < every * 2, "the put-off save took {took:?} (interval {every:?})");
+        until("the save settles", &settled, std::time::Duration::from_secs(10));
+        // Clean: no save over many intervals.
+        let writes = hub.cache_test_writes.load(std::sync::atomic::Ordering::SeqCst);
+        std::thread::sleep(every * 5);
+        assert_eq!(
+            hub.cache_test_writes.load(std::sync::atomic::Ordering::SeqCst),
+            writes,
+            "a clean cache was written again"
+        );
+    }
+
+    /// A save that fails (here the cache folder is a file) leaves the cache dirty, and the
+    /// notice loop tries it again one interval later, as the 30 s tick did, until it is written.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_failed_cache_save_is_tried_again_after_its_interval() {
+        let (hub, dir) = test_hub();
+        hub.cache_test_save_every_ms.store(400, std::sync::atomic::Ordering::SeqCst);
+        let peers = dir.path().join("peers");
+        let _ = std::fs::remove_dir_all(&peers);
+        std::fs::write(&peers, b"not a folder").unwrap();
+        let peer = add_idle_peer(&hub, "builder");
+        hub.apply_peer_notice(
+            "builder",
+            peer.generation,
+            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+        );
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while hub.cache_test_writes.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+            assert!(std::time::Instant::now() < deadline, "the first save was never tried");
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        while peer.cache_write_pending.load(std::sync::atomic::Ordering::SeqCst) {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(peer.cache_is_dirty(), "a failed save marked the cache clean");
+        std::fs::remove_file(&peers).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while saved_status(dir.path(), "builder") != "idle" {
+            assert!(std::time::Instant::now() < deadline, "the failed save was never tried again");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
     }
 }
