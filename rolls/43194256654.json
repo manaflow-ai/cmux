@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43194256654",
+  "recorded_at": "2026-11-12T09:53:09Z",
+  "reason": "cmux-tui 6fc91f005045 changes the image's cmux-tui (pinned 30c7de6ad5c3)",
+  "dry_run": false,
+  "cmux_tui": "6fc91f005045049663743481bf5dfd70a0c12fa2",
+  "fixes": [
+    {
+      "sha": "6fc91f005045049663743481bf5dfd70a0c12fa2",
+      "mergedAt": "2026-11-12T01:29:48-08:00",
+      "subject": "cmux ext shot: see what an extension rendered (scene outline + a picture of the window) (#41837)"
+    },
+    {
+      "sha": "568c707e14886565bf2971a1e94136c289fb6608",
+      "mergedAt": "2026-11-12T03:19:30-06:00",
+      "subject": "test(cmux-tui): workspace.list and session.snapshot replies are byte-equal to the per-workspace path when each workspace has every state field"
+    },
+    {
+      "sha": "b8db4b77e6865ebcc23126aaee6c74ab8fcf006a",
+      "mergedAt": "2026-11-12T03:19:30-06:00",
+      "subject": "perf(cmux-tui): workspace.list and the session snapshot read state fields in bulk"
+    },
+    {
+      "sha": "b38f8c7f68c7899be73fe6301d4b57c31797773c",
+      "mergedAt": "2026-11-12T03:19:29-06:00",
+      "subject": "test(cmux-tui): workspace.list and the session snapshot read state fields with statements of each workspace (red)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T09:53:09Z",
+    "snapshot_id": "sh-dd1da32104d8406088e450e1ce08b32d",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43194256654): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "96007649bdc830f21c8938eee93eb4886eb2a5c1",
+    "image": "cloud-native-auto-6fc91f00-43194256654-1",
+    "revision": "ci-43194256654-1",
+    "at": "2026-11-12T09:53:09Z"
+  },
+  "rolled_back": false
+}
