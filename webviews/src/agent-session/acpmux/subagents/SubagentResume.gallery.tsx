@@ -39,17 +39,20 @@ const DONE: Subagent = {
 };
 const NO_WAITING = new Set<string>();
 
-/** Session Info folds its ended rows: open them, then press Resume. */
+/** The tray starts folded and Session Info folds its ended rows: open them, then press Resume. */
 const press =
   (surface: Surface): Play =>
   async (ctx) => {
-    if (surface === "sessionInfo") {
-      await ctx.click({ selector: ".acpmux-session-info-subagents__ended" });
-      await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-resume"));
-    }
+    if (surface === "tray") await ctx.click({ selector: ".acpmux-running-tray__head" });
+    if (surface === "sessionInfo") await ctx.click({ selector: ".acpmux-session-info-subagents__ended" });
+    if (surface !== "tab") await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-resume"));
     await ctx.click({ selector: ".cv-subagent-resume" });
     await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-resume:disabled, .cv-subagent-resume__note"));
   };
+const openTray: Play = async (ctx) => {
+  await ctx.click({ selector: ".acpmux-running-tray__head" });
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-resume"));
+};
 const openEnded: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-session-info-subagents__ended" });
   await ctx.waitFor(() => ctx.document.querySelector(".cv-subagent-resume"));
@@ -134,6 +137,7 @@ export default componentEntry<Props>({
     "tray-idle": {
       note: "The tray's finished lines: the stopped one offers Resume in Stop's column, the finished one nothing.",
       props: { surface: "tray" },
+      play: openTray,
     },
     "tray-busy": {
       note: "Resume pressed: off while acpmux has it, until the row changes (the run it started links to it).",
