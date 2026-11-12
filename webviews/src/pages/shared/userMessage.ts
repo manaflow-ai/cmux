@@ -14,7 +14,8 @@ export const OWNER_SENTENCE = true;
  *  sends a localized sentence. */
 export type ErrorSentences = Readonly<Record<string, string | typeof OWNER_SENTENCE>>;
 
-/** Codes every page means the same thing by: the link to cmux is down, or this cmux lacks the op. */
+/** Codes every page means the same thing by: the link to cmux is down, this cmux lacks the op, or
+ *  an agent (a harness profile) already has the name. */
 const SHARED: Readonly<Record<string, string>> = {
   "cmux.protocol.closed": "error.disconnected",
   "cmux.protocol.unavailable": "error.disconnected",
@@ -22,6 +23,7 @@ const SHARED: Readonly<Record<string, string>> = {
   unreachable: "error.disconnected",
   timeout: "error.disconnected",
   "cmux.protocol.unknown_op": "error.unsupported",
+  "cmux.agents.exists": "error.agentExists",
 };
 
 let local: Record<string, string> | undefined;

@@ -148,7 +148,7 @@ final class DaemonCredentialPageProvider: PageProvider {
 
     private func daemonCredential() async throws -> CmuxNextSettings.JSONValue {
         guard let daemon, let endpoint = try? await daemon.endpoint() else {
-            throw PageError.unavailable("the local cmux daemon is not running")
+            throw PageError.unavailable(Self.restarting)
         }
         let path = endpoint.socketPath + ".websocket.json"
         let file = try await fileCredential(daemon, path: path)
@@ -159,13 +159,13 @@ final class DaemonCredentialPageProvider: PageProvider {
         // A single-use credential for this connect (every reconnect asks again). A lost connection
         // retries. A refusal (a daemon this app did not start, so the app is not verified there)
         // keeps the file token: local conversations only, never a dead end.
-        guard let connection = daemon.connection else { throw PageError.unavailable("the local cmux daemon is restarting") }
+        guard let connection = daemon.connection else { throw PageError.unavailable(Self.restarting) }
         do {
             let page = try await connection.request(PageCredentialRequest())
             fields["token"] = .string(page.credential)
             return .object(fields)
         } catch let error as DaemonError where error.isLostConnection {
-            throw PageError.unavailable("the local cmux daemon is restarting")
+            throw PageError.unavailable(Self.restarting)
         } catch {
             return file
         }
@@ -183,9 +183,9 @@ final class DaemonCredentialPageProvider: PageProvider {
         do {
             outcome = try await daemon.ensurePageListener()
         } catch let error as DaemonError where error.isLostConnection {
-            throw PageError.unavailable("the local cmux daemon is restarting")
+            throw PageError.unavailable(Self.restarting)
         } catch DaemonError.command(_, let message, _, _, _) where message.contains("shutting down") {
-            throw PageError.unavailable("the local cmux daemon is restarting")
+            throw PageError.unavailable(Self.restarting)
         } catch DaemonError.command(_, let message, _, _, _) {
             // The daemon refused (a configured credential, an origin its listener does not admit):
             // final. The page says so in its own words and offers Restart cmux-tui; the daemon's
@@ -193,7 +193,9 @@ final class DaemonCredentialPageProvider: PageProvider {
             throw PageError(code: "cmux.daemon.page_listener", message: PageError.failedMessage, retryable: false,
                             details: ["reason": .string(message)])
         } catch {
-            throw PageError.failed(error, code: "cmux.protocol.unavailable", retryable: true)
+            // Retried; the page's line says the daemon is restarting, the error itself goes to details.
+            throw PageError(code: "cmux.protocol.unavailable", message: Self.restarting, retryable: true,
+                            details: ["reason": .string(String(describing: error))])
         }
         switch outcome {
         case .ready:

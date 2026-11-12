@@ -11,6 +11,10 @@ import { routeItem, withoutRouteItem } from "./model";
 import { FeedStore, rejectOf } from "./store";
 import { canChange } from "./context";
 import { ACTION_RUN, FeedOps, type FeedIntentParams, type FeedView, type FeedViewParams, type ViewItem } from "./types";
+import { userMessage } from "../shared/userMessage";
+
+/** What a failure without its own sentence says (the owner's text stays in the error). */
+const GENERIC = userMessage(undefined);
 
 const en = (generated as Record<string, Record<string, string>>).en!;
 const strings = {
@@ -301,7 +305,8 @@ describe("intents", () => {
     const { provider, store } = setup({ githubError: "gh is not signed in" });
     await store.start();
     expect(await store.githubAction("fi_github_review", "comment", "LGTM")).toBe(false);
-    expect(store.getSnapshot().github).toEqual({ pending: false, error: "gh is not signed in" });
+    // The GitHub CLI's own words stay in the error; the page says it plainly.
+    expect(store.getSnapshot().github).toEqual({ pending: false, error: GENERIC });
     expect(provider.calls.find((call) => call.op === ACTION_RUN)?.params).toEqual({
       action: "feed.githubAction",
       args: { item: "fi_github_review", action: "comment", comment: "LGTM" },
@@ -452,12 +457,12 @@ describe("refusals", () => {
     expect(rejectOf(feedRefusal("feed.closed", "closed", item))).toEqual({ kind: "closed", item });
     expect(rejectOf(feedRefusal("feed.moving", "moving"))).toEqual({ kind: "moving" });
     expect(rejectOf(feedRefusal("feed.disconnected", "offline"))).toEqual({ kind: "disconnected" });
-    expect(rejectOf(feedRefusal("feed.rejected", "no"))).toEqual({ kind: "refused", message: "no" });
+    expect(rejectOf(feedRefusal("feed.rejected", "no"))).toEqual({ kind: "refused", message: GENERIC });
     expect(rejectOf(pageError("cmux.validation.invalid", "bad answer"))).toEqual({
       kind: "refused",
-      message: "bad answer",
+      message: GENERIC,
     });
-    expect(rejectOf(pageError("cmux.operation.failed", "gone"))).toEqual({ kind: "refused", message: "gone" });
+    expect(rejectOf(pageError("cmux.operation.failed", "gone"))).toEqual({ kind: "refused", message: GENERIC });
   });
 });
 

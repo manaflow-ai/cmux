@@ -292,7 +292,9 @@ export class GitHubStore {
       next =
         isPageError(error) && error.code === "cmux.github.gesture_required"
           ? { phase: "confirm" }
-          : { phase: "failed", message: userMessage(error, SENTENCES) };
+          : isPageError(error) && error.code === "cmux.github.merge_refused"
+            ? { phase: "failed", message: userMessage(error, SENTENCES), refused: true }
+            : { phase: "failed", message: userMessage(error, SENTENCES) };
     }
     if (generation !== this.generation) return;
     this.set({ ...this.snapshot, merge: next });

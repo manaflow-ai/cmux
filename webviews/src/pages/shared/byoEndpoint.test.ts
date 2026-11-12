@@ -21,6 +21,7 @@ import {
   type EndpointDraft,
   type EndpointStatus,
 } from "./byoEndpoint";
+import { userMessage } from "./userMessage";
 
 const draft = (patch: Partial<EndpointDraft> = {}): EndpointDraft => ({
   kind: "openai-endpoint",
@@ -123,10 +124,10 @@ test("bring adds, then checks; it reports each state and the first failing step"
     harness: "local",
     step: { name: "prompt", ok: false, detail: "401" },
   });
-  // A refused add (a page error, not an Error) names the add step with the host's text.
+  // A refused add (a page error, not an Error) names the add step with its plain sentence.
   expect(await bringEndpoint(failing, endpointBackend(draft({ name: "refused" })), () => {})).toEqual({
     state: "failed",
-    step: { name: "add", ok: false, detail: "refused already has a profile" },
+    step: { name: "add", ok: false, detail: userMessage({ code: "cmux.agents.exists" }) },
   });
 });
 

@@ -23,8 +23,10 @@ const storageKey = (url: string) => `cmux.daemon.credential:${url}`;
 /** The host's refusal when this daemon's page listener cannot serve the page (a configured
  *  credential, an origin it does not admit): final until cmux-tui restarts. */
 export const PAGE_LISTENER_REFUSED = "cmux.daemon.page_listener";
-/** The daemon answered but lacks the conversations on a WebSocket (`connect.tooOld`). */
+/** The daemon (or the host's daemon) is too old for this page: the host's or `connect.tooOld`. */
 const TOO_OLD = "cmux.daemon.too_old";
+/** The host's daemon is starting or restarting: retried, with the host's own sentence. */
+const HOST_UNAVAILABLE = "cmux.protocol.unavailable";
 
 /** The endpoint is this page's own origin (same host and port, ws for http, wss for https). */
 function sameOrigin(url: string): boolean {
@@ -88,11 +90,17 @@ export function DaemonGate({
   children: (daemon: DaemonSocket, pages?: string, owner?: DaemonSocket) => ReactNode;
 }) {
   const { t, format } = strings;
-  // What a failure says: one plain sentence by code, never the daemon's or host's own text.
+  // What a failure says: one plain sentence by code, never the daemon's own text. The host words
+  // a restart in progress and a daemon too old for the page for the person (HomeChannelsPage.swift);
+  // a socket that did not answer is retried, so it reads as connecting.
   const say = (error: unknown) =>
     userMessage(error, {
       auth_rejected: t("connect.authRejected"),
+      unreachable: t("connect.connecting"),
+      disconnected: t("connect.connecting"),
+      timeout: t("connect.connecting"),
       [PAGE_LISTENER_REFUSED]: t("connect.listenerRefused"),
+      [HOST_UNAVAILABLE]: OWNER_SENTENCE,
       [TOO_OLD]: OWNER_SENTENCE,
     });
   const url = source.kind === "url" ? source.url : "";
