@@ -282,10 +282,11 @@ impl Mux {
         // could not queue goes on its own connection with its own daemon
         // thread, so the journal can take it out of order. The hook's start
         // time orders what the agent did; the journal sequence orders transport.
+        let stamp = crate::agent_hooks::HookOrderStamp::of(&ingress.payload);
         if crate::agent_hooks::hook_event_is_reordered(
             &ingress.kind,
-            observed_at_ms,
-            HookFence::last_observed_at_ms(previous_fence.as_ref(), &agent_session_id),
+            &stamp,
+            HookFence::last_order(previous_fence.as_ref(), &agent_session_id),
         ) {
             return Ok(());
         }
@@ -323,7 +324,7 @@ impl Mux {
             agent_session_id.clone(),
             sequence,
             state == AgentState::Done,
-            observed_at_ms,
+            &stamp,
         );
         // The record's session field is a human-facing label; native agent
         // session ids are opaque, so views fall back to their own context.
@@ -339,6 +340,7 @@ impl Mux {
             applied_sequence: sequence,
             ended: state == AgentState::Done,
             ended_at_ms: next_fence.ended_at_ms,
+            order: next_fence.order.clone(),
         };
         self.report_agent_with_sequence_lock(
             surface,
@@ -987,13 +989,17 @@ impl Mux {
             fence.session_id.clone(),
             sequence,
             true,
-            Some(observed_at_ms),
+            &crate::agent_hooks::HookOrderStamp {
+                observed_at_ms: Some(observed_at_ms),
+                ..Default::default()
+            },
         );
         let hook_state = crate::workspace_registry::AgentHookProjectionState {
             agent_session_id: ended.session_id.clone(),
             applied_sequence: ended.sequence,
             ended: true,
             ended_at_ms: ended.ended_at_ms,
+            order: ended.order.clone(),
         };
         if let Err(error) = self.report_agent_with_sequence_lock(
             surface,

@@ -354,13 +354,12 @@ pub(crate) struct HookFence {
     /// resume and resets when another session takes the terminal.
     #[serde(default)]
     pub(crate) ended_at_ms: Option<u64>,
-    /// The latest hook start (`observed_at_ms`) among the applied events of
-    /// `session_id`, for [`crate::agent_hooks::hook_event_is_reordered`]. It
-    /// resets when another session takes the terminal. Restored projections
-    /// start it at `None`: after a restart the order falls back to the journal
-    /// sequence until the next stamped event.
+    /// The latest hook stamp among the applied events of `session_id`, for
+    /// [`crate::agent_hooks::hook_event_is_reordered`]. It resets when another
+    /// session takes the terminal, and it is stored with the hook state, so
+    /// the order holds across a session restart.
     #[serde(default)]
-    pub(crate) observed_at_ms: Option<u64>,
+    pub(crate) order: crate::agent_hooks::HookOrderStamp,
 }
 
 pub(crate) enum JournalHookTransition {
@@ -479,32 +478,34 @@ impl HookFence {
         }
     }
 
-    /// When the hook of the latest applied event of `session_id` started
-    /// (`observed_at_ms`), for
+    /// The latest hook stamp of `session_id`, for
     /// [`crate::agent_hooks::hook_event_is_reordered`]; `None` when another
-    /// session holds the fence or no applied event said.
-    pub(crate) fn last_observed_at_ms(current: Option<&Self>, session_id: &str) -> Option<u64> {
-        current
-            .filter(|fence| fence.session_id == session_id)
-            .and_then(|fence| fence.observed_at_ms)
+    /// session holds the fence.
+    pub(crate) fn last_order<'a>(
+        current: Option<&'a Self>,
+        session_id: &str,
+    ) -> Option<&'a crate::agent_hooks::HookOrderStamp> {
+        current.filter(|fence| fence.session_id == session_id).map(|fence| &fence.order)
     }
 
     /// The fence after applying an event of `session_id` at `sequence`. The
     /// incarnation boundary carries over while the session keeps the
     /// terminal, moves to the observed end when the event ends it, and resets
     /// when another session takes the terminal.
+    ///
+    /// `stamp` is the event's hook stamp; its wall clock is the observed end.
     pub(crate) fn next(
         current: Option<&Self>,
         session_id: String,
         sequence: u64,
         ended: bool,
-        observed_at_ms: Option<u64>,
+        stamp: &crate::agent_hooks::HookOrderStamp,
     ) -> Self {
         let same = current.filter(|fence| fence.session_id == session_id);
         let carried = same.and_then(|fence| fence.ended_at_ms);
-        let ended_at_ms = if ended { observed_at_ms.or(carried) } else { carried };
-        let observed_at_ms = observed_at_ms.max(same.and_then(|fence| fence.observed_at_ms));
-        Self { session_id, sequence, ended, ended_at_ms, observed_at_ms }
+        let ended_at_ms = if ended { stamp.observed_at_ms.or(carried) } else { carried };
+        let order = stamp.applied_over(same.map(|fence| &fence.order));
+        Self { session_id, sequence, ended, ended_at_ms, order }
     }
 
     /// Decide one direct hook-source report. Internal hook markers are not
@@ -809,8 +810,13 @@ impl AgentRoster {
                     Err(_) => return Vec::new(),
                     Ok(DirectHookTransition::Continue) => {}
                     Ok(DirectHookTransition::Restart(session_id)) => {
-                        let restarted =
-                            HookFence::next(Some(fence), session_id, fence.sequence, false, None);
+                        let restarted = HookFence::next(
+                            Some(fence),
+                            session_id,
+                            fence.sequence,
+                            false,
+                            &crate::agent_hooks::HookOrderStamp::default(),
+                        );
                         self.hook_fences.insert(terminal_id.to_string(), restarted);
                     }
                 }
@@ -850,10 +856,11 @@ impl AgentRoster {
             ) else {
                 return Vec::new();
             };
+            let stamp = crate::agent_hooks::HookOrderStamp::of(event.payload);
             if crate::agent_hooks::hook_event_is_reordered(
                 event.kind,
-                observed_at_ms,
-                HookFence::last_observed_at_ms(current, &session_id),
+                &stamp,
+                HookFence::last_order(current, &session_id),
             ) {
                 return Vec::new();
             }
@@ -862,7 +869,7 @@ impl AgentRoster {
                 session_id,
                 event.sequence,
                 state == AgentState::Done,
-                observed_at_ms,
+                &stamp,
             );
             // Another agent session took the terminal, an ended one came
             // back, or a new process started (`claude --resume` reuses the
@@ -906,7 +913,7 @@ impl AgentRoster {
             AgentSource::Hook => {
                 // Hook order is decided above, with the session fence the
                 // projector shares (`crate::agent_hooks::hook_event_is_reordered`
-                // with `HookFence::last_observed_at_ms`). Do not add a second
+                // with `HookFence::last_order`). Do not add a second
                 // order check here: one keyed by another session id would
                 // let the roster and the agent rows disagree.
                 let stale_hook_report = self.entries.get(terminal_id).is_some_and(|existing| {
@@ -1057,7 +1064,10 @@ impl AgentRoster {
                         session_id.clone(),
                         event.sequence.max(fence.sequence),
                         true,
-                        Some(updated_at_ms),
+                        &crate::agent_hooks::HookOrderStamp {
+                            observed_at_ms: Some(updated_at_ms),
+                            ..Default::default()
+                        },
                     ),
                 );
                 self.entries.remove(terminal_id);
@@ -1430,7 +1440,7 @@ mod tests {
                 sequence: 2,
                 ended: false,
                 ended_at_ms: None,
-                observed_at_ms: None
+                order: crate::agent_hooks::HookOrderStamp::default()
             }
         );
 
@@ -1469,7 +1479,7 @@ mod tests {
                 sequence: 1,
                 ended: false,
                 ended_at_ms: None,
-                observed_at_ms: None
+                order: crate::agent_hooks::HookOrderStamp::default()
             }
         );
         let completed = session_payload("old");
@@ -1501,7 +1511,7 @@ mod tests {
                 sequence: 4,
                 ended: false,
                 ended_at_ms: None,
-                observed_at_ms: None
+                order: crate::agent_hooks::HookOrderStamp::default()
             }
         );
     }

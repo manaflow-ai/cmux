@@ -97,6 +97,9 @@ pub(crate) struct RegistryAgentHookState {
     pub applied_sequence: u64,
     pub ended: bool,
     pub ended_at_ms: Option<u64>,
+    /// The latest hook stamp of the session; empty for rows stored before
+    /// the column existed.
+    pub order: crate::agent_hooks::HookOrderStamp,
 }
 
 impl RegistryAgentProjection {
@@ -535,7 +538,8 @@ impl ProjectionReader<'_> {
     fn durable_agent_hook_states(&self) -> anyhow::Result<Vec<RegistryAgentHookState>> {
         let db = self.db;
         let mut statement = db.prepare(
-            "SELECT terminal_id, agent_session_id, applied_sequence, ended, ended_at_ms
+            "SELECT terminal_id, agent_session_id, applied_sequence, ended, ended_at_ms,
+                    hook_order
              FROM resource_agent_hook_state
              ORDER BY terminal_id ASC",
         )?;
@@ -547,6 +551,7 @@ impl ProjectionReader<'_> {
                     row.get::<_, i64>(2)?,
                     row.get::<_, bool>(3)?,
                     row.get::<_, Option<i64>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
                 ))
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -554,7 +559,18 @@ impl ProjectionReader<'_> {
         AGENT_HOOK_FENCE_ROWS_READ.with(|read| read.set(read.get() + rows.len()));
         rows.into_iter()
             .map(|row| {
-                let (terminal_id, agent_session_id, applied_sequence, ended, ended_at_ms) = row;
+                let (
+                    terminal_id,
+                    agent_session_id,
+                    applied_sequence,
+                    ended,
+                    ended_at_ms,
+                    hook_order,
+                ) = row;
+                // An unreadable stamp only loses the order until the next event.
+                let order = hook_order
+                    .and_then(|text| serde_json::from_str(&text).ok())
+                    .unwrap_or_default();
                 Ok(RegistryAgentHookState {
                     terminal_id: TerminalPublicId::parse(terminal_id)?,
                     agent_session_id,
@@ -565,6 +581,7 @@ impl ProjectionReader<'_> {
                         .map(u64::try_from)
                         .transpose()
                         .context("agent hook end time is negative")?,
+                    order,
                 })
             })
             .collect()
