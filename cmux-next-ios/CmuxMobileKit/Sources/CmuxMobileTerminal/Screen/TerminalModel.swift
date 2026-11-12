@@ -292,7 +292,11 @@ public final class TerminalModel {
         case .inputNotSent:
             composerNotice = TerminalConnectionState.inputNotSentNotice
             // A composer send that waited out a blip and was dropped comes back to edit.
-            if let held = heldComposerSend, composerText.isEmpty,
+            if let held = heldComposerSend, !composerText.isEmpty, composerText == held.text {
+                // Refused inside `send` itself (the hold was full or already dropped): the
+                // composer keeps its text.
+                composerSendRefused = true
+            } else if let held = heldComposerSend, composerText.isEmpty,
                ProcessInfo.processInfo.systemUptime - held.at <= Self.heldComposerSendWindow {
                 composerText = held.text
             }
@@ -516,7 +520,7 @@ public final class TerminalModel {
         }
         holdComposerText()
         controller?.surface.sendText(composerText, pressReturn: true, fullScreenApp: isTUI)
-        composerText = ""
+        finishComposerSend()
     }
 
     /// A composer send made while the terminal is not attached (a blip): the
@@ -526,7 +530,21 @@ public final class TerminalModel {
     /// How long after a held send its text may come back (the session's hold, with room for the attach).
     static let heldComposerSendWindow: TimeInterval = 30
 
+    /// The session refused the composer's text while `send` was handing it over.
+    @ObservationIgnored var composerSendRefused = false
+
+    /// Empties the composer after a send, unless the session refused the text on the spot.
+    private func finishComposerSend() {
+        if composerSendRefused {
+            composerSendRefused = false
+        } else {
+            composerText = ""
+        }
+    }
+
     private func holdComposerText() {
+        // A refusal is about this send only: a stale one never keeps the next send's text.
+        composerSendRefused = false
         heldComposerSend = connectionState.isAttached || composerText.isEmpty
             ? nil : (composerText, ProcessInfo.processInfo.systemUptime)
     }
@@ -550,7 +568,7 @@ public final class TerminalModel {
         }
         holdComposerText()
         controller?.surface.sendText(composerText, pressReturn: false, fullScreenApp: isTUI)
-        composerText = ""
+        finishComposerSend()
     }
 
     /// The Mac's terminal can take a command now. Otherwise the text stays in
