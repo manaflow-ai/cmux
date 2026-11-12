@@ -94,6 +94,10 @@ export function useStreamReveal(
   latest.current = { text: displayText, streaming, shown };
   const nextId = useRef(0);
   const loop = useRef<Loop>({ handle: 0, frameMs: COMMIT_MS });
+  if (identityChanged) {
+    revealFrames.cancel(loop.current.handle);
+    loop.current = { handle: 0, frameMs: COMMIT_MS };
+  }
   // One loop per row, running while anything is left to reveal or fade. A new snapshot (once a
   // frame while the reply streams) starts it only if it is idle; it reads the latest text itself.
   // Restarting it on every snapshot re-requested its frame each time and threw away its timing.

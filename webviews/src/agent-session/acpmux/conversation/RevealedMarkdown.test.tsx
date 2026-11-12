@@ -91,6 +91,16 @@ test("a recreated reply with a reused row id does not keep the old body", () => 
   expect(container.querySelectorAll(".cv-fresh")).toHaveLength(0);
 });
 
+test("a recreated reply cancels a queued frame from the old row", () => {
+  root = createRoot(container);
+  render("The old session is still streaming.", true, "assistant-1:old");
+  render("The new session answer.", false, "assistant-1:new");
+  frames(0, 2);
+
+  expect(container.querySelector(".cv-md")?.textContent).toBe("The new session answer.");
+  expect(container.querySelectorAll(".cv-fresh")).toHaveLength(0);
+});
+
 test("a truncated reconnect snapshot never hides already visible assistant text", () => {
   root = createRoot(container);
   render("", true);

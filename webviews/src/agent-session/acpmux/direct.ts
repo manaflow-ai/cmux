@@ -537,7 +537,7 @@ type AttachWatch = {
 /// together with its attach so the chat waits on one round trip, not two (`startAttachReads`).
 type AttachReads = { permissions: Promise<void>; handoff?: Promise<void> };
 /// An attach as it was sent: its reply, and the reads asked with it.
-type AttachHold = { sessionId: string; generation: number };
+type AttachHold = { sessionId: string; generation: number; abandoned?: boolean };
 type SentAttach = { attaching: Promise<any>; reads?: AttachReads; hold: AttachHold };
 /// The attach of the chat a page opens, asked with the chat list instead of after it (`askEarly`),
 /// so the chat's first frame waits on one daemon reply after the handshake. `live` holds the chat's
@@ -6665,6 +6665,7 @@ export class AcpmuxDirectClient {
     };
     this.attaching = attaching.then(
       () => {
+        if (out.abandoned) failed();
         if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
           this.shownToAcpmux = { sessionId, visible };
       },
@@ -6749,6 +6750,8 @@ export class AcpmuxDirectClient {
     const shown = early.sessionId === this.selectedSessionId && early.generation === this.selectionGeneration;
     if (final || !shown) {
       if (this.earlyAttach === early) this.earlyAttach = undefined;
+      early.sent.hold.abandoned = true;
+      if (this.attachOut === early.sent.hold) this.attachOut = undefined;
       early.live.length = 0;
     }
     if (early.sessionId !== this.selectedSessionId) {
