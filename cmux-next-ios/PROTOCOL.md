@@ -1553,3 +1553,108 @@ to a phone: it changes the Mac-wide preference only.
   phone, the grid is pinned to the top and the rest is letterboxed with the
   terminal background and a one-line note (`120×40 · set by <device>`).
   It never reflows the host's output to its own width.
+
+## Appearance (`appearance-v1`; added 2026-11-12)
+
+Connected to a Mac, the phone looks like that Mac: its theme (chrome colours,
+terminal palette and font family, chat bubbles, window style such as
+two-tone), its background (image, opacity, blur) and its per-workspace
+accents. Workspace accents already travel on the workspace entity
+(`color`, `workspace-changed`); this section adds the rest. Offline or on
+Cloud the phone uses the last snapshot it stored and derives every colour
+itself (`cmux-theme-tokens` over the FFI), so nothing here is needed to draw.
+
+### Mac side
+
+- **Theme.** The daemon (cmux-tui, `appearance-v1` in `identify`) resolves
+  the theme in Rust with `cmux-theme-tokens::load`: the user's Ghostty
+  config with `appearance.theme` as the theme override, once for `dark` and
+  once for `light` (a single theme gives the same input twice). It re-reads
+  on `settings-changed` for any key below and when a watched Ghostty file
+  changes (`Loaded::watch_paths`).
+- **Background.** Only the Mac app can resolve `appearance.background`
+  (`daily`, `desktop`, a folder shuffle, bundled art from its asset catalog).
+  Whenever its shown backdrop changes it exports that image once, scaled so
+  its long side is at most 2560 px (never upscaled), as JPEG (quality 0.85)
+  under `<Application Support>/<bundle id>/mobile-appearance/<sha256>.jpg`, and
+  sends `set-appearance-background {background: {path, sha256, width, height,
+  luminance} | null}`. That command is accepted only from the verified cmux
+  app (as `set-host-size-policy`'s writes); a phone lane gets `forbidden`.
+  The daemon checks the file exists and its size is at most 32 MiB, keeps the
+  value in memory (not in the settings file), and the app sends it again
+  after a daemon restart (on reconnect).
+
+### Commands (cmux-tui daemon)
+
+- `get-appearance {}` → `{appearance}`, where `appearance` is:
+
+  ```json
+  {
+    "revision": 42,
+    "theme": {
+      "dark":  {"name": "Nord", "input": THEME_INPUT},
+      "light": {"name": "Nord Light", "input": THEME_INPUT},
+      "follows_system": true
+    },
+    "accent": "neutral",
+    "chrome_style": "two-tone",
+    "hue": 0.0, "saturation": 1.0,
+    "glass_transparency": 0.5,
+    "sidebar_surface": "glass",
+    "terminal": {"font_family": "JetBrains Mono", "font_size": 13},
+    "chat": {"sent": "#RRGGBB", "sent_text": "#RRGGBB", "received": "#RRGGBB", "received_text": "#RRGGBB"},
+    "groups": {"palette": ["blue", "red", "..."], "gradient": "aurora"},
+    "background": null
+  }
+  ```
+
+  `THEME_INPUT` is `cmux-theme-tokens::ThemeInput` as JSON:
+  `{background, foreground, palette: [16 × "#RRGGBB"], selection_background?,
+  selection_foreground?, cursor?, background_opacity, background_blur,
+  accent_color?}` (colours `#RRGGBB`, optional ones omitted when unset). An
+  unset setting is omitted or `null` and the phone uses its default; values
+  are the settings file's own (`appearance.accent`, `appearance.chromeStyle`,
+  `appearance.hue`, `appearance.saturation`, `appearance.glassTransparency`,
+  `appearance.sidebarSurface`, `terminal.fontFamily`, `terminal.fontSize`,
+  `home.bubbleColors.*`, `sidebar.groupPalette`, `sidebar.groupGradient`).
+  `background`, when the app set one, is
+  `{"sha256": HEX, "bytes": N, "width": W, "height": H, "luminance": 0..1,
+  "opacity": appearance.backgroundOpacity, "blur": appearance.backgroundBlur}`;
+  the file path never leaves the Mac. `revision` grows with every change.
+- `appearance-changed {revision}` is a `subscribe` event, at most one per
+  50 ms (coalesced), after any of the keys above, a Ghostty theme file or the
+  background changes. The phone answers it with `get-appearance`.
+- `set-appearance-background {background}`: app only, see above.
+
+cmux-mobile-host (and the Mac app's Swift `DaemonLanePolicy` mirror) allow
+`get-appearance` and pass `appearance-changed`; `set-appearance-background`
+stays closed to a phone.
+
+### Link service `appearance-asset`
+
+`open {"service": "appearance-asset", "args": {"sha256": HEX}}`. hostd asks
+its daemon for the current background (`get-appearance` with the app-only
+`include_path: true`, which the phone filter strips), and serves the file only
+when its SHA-256 equals `sha256`; otherwise `close {code: "not_found"}`. The
+reply is one JSON data frame `{"bytes": N, "mime": "image/jpeg"}`, then the
+bytes in data frames of at most 64 KiB, then `close {code: "ok"}`. The phone
+checks length and hash before it keeps the file.
+
+### Phone
+
+- `AppearanceSync` (`CmuxMobileLive`) calls `get-appearance` on connect and on
+  each `appearance-changed`, stores the snapshot per Mac
+  (`Application Support/appearance/<macId>.json`) and the image by hash
+  (`Application Support/appearance/assets/<sha256>.jpg`, at most 8 kept, least
+  recently used dropped). An image it already holds is never fetched again.
+- The phone derives every token (chrome, glass tint, text contrast,
+  dark/light) from the snapshot with `cmux-theme-tokens::ThemeTokens::derive`
+  over `CmuxMobileLinkFFI`, so the derivation is the Mac's own. The
+  background is re-cropped (aspect fill to the phone's screen, centred) and
+  blurred on the phone for its own size; it is never a Mac screenshot.
+- Settings > Appearance > Personalization: "Match my Mac" (default; the Mac
+  most recently connected, else the last stored) or the phone's own choice
+  from the same options as the Mac's page. The choice lives in
+  `cmuxMobile.settings.personalization`.
+- Before the first snapshot (never connected), the phone keeps its built-in
+  neutral look (SPEC 2.1).
