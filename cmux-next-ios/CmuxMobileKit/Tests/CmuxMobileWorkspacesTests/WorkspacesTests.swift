@@ -645,6 +645,23 @@ import SwiftUI
         #expect(WorkspaceTabsSource(store: store, workspaceID: "ws-cmux").activeTabID == "t-claude")
     }
 
+    /// A notification or Feed item for a tab of the workspace already on screen rebuilds its
+    /// page: the old page must leave the request to the new one, which opens on that tab.
+    @Test func aRequestWhileTheWorkspaceIsUpIsLeftForTheRebuiltPage() async {
+        let (store, old) = make()
+        old.opened()
+        #expect(old.activeTabID == "t-claude")
+        store.requestOpen(tabID: "t-docs", in: "ws-cmux")
+        _ = old.tabs
+        await Task.yield()
+        await Task.yield()
+        #expect(store.requestedTabByWorkspace["ws-cmux"] == "t-docs")
+        let rebuilt = WorkspaceTabsSource(store: store, workspaceID: "ws-cmux")
+        #expect(rebuilt.activeTabID == "t-docs")
+        rebuilt.opened()
+        #expect(store.requestedTabByWorkspace["ws-cmux"] == nil)
+    }
+
     @Test func aRequestedTabOpensOnceThenTheTopLeftAgain() {
         let (store, _) = make()
         store.requestOpen(tabID: "t-docs", in: "ws-cmux")

@@ -58,8 +58,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// Kept while the Mac creates it, since the placeholder tab becomes the
     /// Mac's real tab (a new page) once it confirms.
     @ObservationIgnored private(set) var focusOnOpen = false
-    /// The screen appeared (`opened()`): a tab requested after that (a new workspace's
-    /// first tab, once the Mac creates it) is shown at once (`refreshTabs`).
+    /// The screen appeared (`opened()`): a tab requested after that replaces a tab that
+    /// vanished (a new workspace's first tab, once the Mac creates it; `refreshTabs`).
     @ObservationIgnored private var hasAppeared = false
 
     public init(store: AppStore, workspaceID: String, terminal: any TerminalTabContent = PlaceholderTerminalTabContent(),
@@ -231,9 +231,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         workspaceSnapshot = workspace
         if openingTabID != opening { openingTabID = opening }
-        if hasAppeared, let workspace, let opening, store.requestedTabByWorkspace[workspace.id] == opening {
-            if selectedTabID != opening { selectedTabID = opening }
-            // Consumed outside this rebuild (an action), so the next open starts at the layout's top-left.
+        // A request that arrives while the screen is up is taken here only when the tab on screen
+        // is gone (a new workspace's placeholder tab became the Mac's real one). Otherwise it is
+        // for the next screen of this workspace (a notification or Feed item rebuilds the page),
+        // which opens on it and takes it in `opened()`.
+        if hasAppeared, let workspace, let opening, store.requestedTabByWorkspace[workspace.id] == opening,
+           !workspace.tabs.contains(where: { $0.id == selectedTabID }) {
+            selectedTabID = opening
+            // Taken outside this rebuild (an action), so the next open starts at the layout's top-left.
             Task { @MainActor [store] in store.takeRequestedTab(workspace.id) }
         }
         let identity = workspace.map { WorkspaceIdentity(macID: $0.macID, title: $0.title, directory: $0.directory, branch: $0.branch,

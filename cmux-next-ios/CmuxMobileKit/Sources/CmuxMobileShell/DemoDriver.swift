@@ -704,7 +704,6 @@ struct DemoDriver {
         demoLog.info("demo step: \(name, privacy: .public)")
     }
 
-    /// After a relaunch: the workspace opens on the tab used last before it.
     /// A workspace opens on its layout's top-left pane's active tab (user 2026-11-11): ws-cmux
     /// laid out as zsh | (Claude, docs) with the right pane focused on the Mac and docs the last
     /// tab used on this phone. Open (zsh), switch to docs, leave, open again (zsh again).
@@ -734,6 +733,7 @@ struct DemoDriver {
         await pause(6.0)
     }
 
+    /// After a relaunch: the workspace opens on the tab used last before it.
     private func workspacesReopen() async {
         shell.tab = .workspaces
         await pause(1.6)
