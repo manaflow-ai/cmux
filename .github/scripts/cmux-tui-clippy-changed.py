@@ -30,6 +30,11 @@ a crate the base already has over its row is red only for hits HEAD adds. A HEAD
 baseline is green without the base lint, which could only excuse counts. cmux-next fast gates use it on a pull
 request merged with a tip whose baseline went down since the pull request's own ratchet
 ran (cmux_next_fast_gates.py), so a base ratchet red never reads as the pull request's.
+
+A stale lockfile is named as such: when cargo refuses to update a Cargo.lock under --locked,
+no lint ran, so the lint and ratchet messages would send the reader to fix lints that do not
+exist (#42133 went red on 15 checks for a thiserror bump on the base, and its lane reran this
+job twice). The error then names the lockfile and `scripts/cmux-next/cargo-locks.py fix`.
 """
 
 from __future__ import annotations
@@ -39,6 +44,7 @@ from collections import deque
 import importlib.util
 import json
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -63,6 +69,27 @@ WHOLE_WORKSPACE = frozenset({
 })
 RATCHET = "scripts/cmux-next/rust_panic_ratchet.py"
 LIB_KINDS = frozenset({"lib", "rlib", "dylib", "cdylib", "staticlib", "proc-macro"})
+# Cargo's own words for a Cargo.lock that no longer matches its manifests under --locked.
+STALE_LOCK = re.compile(r"cannot update the lock file (?P<path>\S+) because --locked was passed")
+
+
+def stale_lock(line: str, repo: Path) -> str | None:
+    """The repository-relative lockfile a cargo stderr line refuses to update under --locked, or None."""
+    if (found := STALE_LOCK.search(line)) is None:
+        return None
+    path = Path(found["path"])
+    try:
+        return path.resolve().relative_to(repo.resolve()).as_posix()
+    except ValueError:
+        return found["path"]
+
+
+def stale_lock_error(title: str, lock: str) -> str:
+    """The annotation for a run cargo stopped at a stale lockfile: no lint ran, so a rerun or a lint fix cannot help."""
+    return (f"::error title={title} (stale Cargo.lock)::{lock} does not match its manifests on this merge ref (often: "
+            f"the base changed a dependency after the branch was cut), so cargo --locked stopped before any lint ran. "
+            f"Merge the base branch into the branch, run `scripts/cmux-next/cargo-locks.py fix` from the repository "
+            f"root and commit the Cargo.lock files it changed; rerunning the job does not help")
 
 
 def workspace_of(repo: Path) -> tuple[dict[str, str], dict[str, set[str]], set[str]]:
@@ -153,26 +180,31 @@ def main(argv: list[str] | None = None) -> int:
     print(f"cmux-tui-clippy-changed: linting {scope}", flush=True)
     print(" ".join(command), flush=True)
     # From cmux-tui/ so rustup uses its rust-toolchain.toml pin and cargo its workspace.
-    rc, red_files = run_clippy(command, repo / ROOT)
-    if rc:
+    rc, red_files, lock = run_clippy(command, repo / ROOT, repo)
+    if rc and lock:
+        print(stale_lock_error("cmux-tui clippy", lock))
+    elif rc:
         print(f"::error title=cmux-tui clippy::clippy -D warnings failed for {scope}; "
               f"run `{' '.join(command)}` in cmux-tui and fix each lint (an allow needs a comment saying why)")
         name_base_reds(repo, base if paths is not None else "", red_files)
     return 1 if rc else 0
 
 
-def run_clippy(command: list[str], cwd: Path) -> tuple[int, list[str]]:
+def run_clippy(command: list[str], cwd: Path, repo: Path) -> tuple[int, list[str], str | None]:
     """Run clippy with its output passed through as it comes, and return its exit code with the
-    files its errors point at (`--> crates/x/src/y.rs:1:2`, relative to cmux-tui), in order."""
+    files its errors point at (`--> crates/x/src/y.rs:1:2`, relative to cmux-tui), in order, and
+    the lockfile cargo refused to update under --locked, if any."""
     files: list[str] = []
+    lock = None
     process = subprocess.Popen(command, cwd=cwd, stderr=subprocess.PIPE, text=True, errors="replace")
     assert process.stderr is not None
     for line in process.stderr:
         sys.stderr.write(line)
         if (path := red_file(line)) and path not in files:
             files.append(path)
+        lock = lock or stale_lock(line, repo)
     sys.stderr.flush()
-    return process.wait(), files
+    return process.wait(), files, lock
 
 
 def red_file(line: str) -> str | None:
@@ -228,11 +260,23 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
     targets = ["--lib", "--bins"] if has_lib else ["--bins"]
     command = ["cargo", "clippy", "--locked", *packages, *targets, "--message-format=json", "--", *flags]
     out.parent.mkdir(parents=True, exist_ok=True)
-    judge = [sys.executable, str(ratchet), "--repo", str(repo), "--clippy-json", str(out)]
+    # Cargo's stderr is kept beside the JSON so the ratchet can name a stale lockfile as the cause.
+    cargo_log = out.with_name(out.name + ".stderr")
+    judge = [sys.executable, str(ratchet), "--repo", str(repo), "--clippy-json", str(out),
+             "--cargo-log", str(cargo_log)]
     print(f"cmux-tui-clippy-changed: panic ratchet on {scope}", flush=True)
     print(" ".join(command), flush=True)
-    with out.open("w", encoding="utf-8") as handle:
-        subprocess.run(command, cwd=repo / ROOT, stdout=handle)
+    with out.open("w", encoding="utf-8") as handle, cargo_log.open("w", encoding="utf-8") as log:
+        process = subprocess.Popen(command, cwd=repo / ROOT, stdout=handle, stderr=subprocess.PIPE,
+                                   text=True, errors="replace")
+        assert process.stderr is not None
+        lock = None
+        for line in process.stderr:
+            sys.stderr.write(line)
+            log.write(line)
+            lock = lock or stale_lock(line, repo)
+        sys.stderr.flush()
+        process.wait()
     # The ratchet refuses a run with no build-finished success line, so a failed build is red there.
     if compare:
         strict = subprocess.run(judge, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -253,7 +297,9 @@ def panic_ratchet(repo: Path, packages: list[str], has_lib: bool, scope: str, ou
             fmt_changed.git(repo, "checkout", "--quiet", "--detach", head)
         judge += ["--base-clippy-json", str(base_out)]
     rc = subprocess.run(judge).returncode
-    if rc:
+    if rc and lock:
+        print(stale_lock_error("cmux-tui panic ratchet", lock))
+    elif rc:
         print(f"::error title=cmux-tui panic ratchet::the panic ratchet is red for {scope}; "
               f"its log above names each new hit (plans/cmux-next/rust-panic-free.md)")
     return 1 if rc else 0

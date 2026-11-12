@@ -37,6 +37,11 @@ whose baseline went down since its own check: cmux_next_fast_gates.py). A
 count over the baseline then fails only when it is also over the base run's
 count: a base already over its row is the base's red, and the change is red
 only for hits it adds. A base run that did not finish excuses nothing.
+
+--cargo-log is the same run's cargo stderr. When a run did not finish because
+cargo refused to update a stale Cargo.lock under --locked, the ratchet names the
+lockfile and `scripts/cmux-next/cargo-locks.py fix` instead of a partial build:
+no lint ran, and a rerun cannot help (#42133).
 """
 import argparse
 import collections
@@ -50,6 +55,25 @@ from pathlib import Path
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(HERE))
 BASELINE = os.path.join(HERE, "rust-panic-baseline.json")
+# Cargo's own words for a Cargo.lock that no longer matches its manifests under --locked.
+STALE_LOCK = re.compile(r"cannot update the lock file (?P<path>\S+) because --locked was passed")
+
+
+def stale_lock(cargo_log, root):
+    """The lockfile (relative to ROOT when inside it) cargo's stderr in CARGO_LOG refuses to update under
+    --locked, or None (no log, or no such refusal)."""
+    if not cargo_log:
+        return None
+    try:
+        with open(cargo_log, encoding="utf-8", errors="replace") as handle:
+            found = next(filter(None, map(STALE_LOCK.search, handle)), None)
+    except OSError:
+        return None
+    if found is None:
+        return None
+    path = os.path.realpath(found["path"])
+    root = os.path.realpath(root)
+    return os.path.relpath(path, root) if path.startswith(root + os.sep) else found["path"]
 
 
 @functools.lru_cache(maxsize=None)
@@ -306,6 +330,8 @@ def main():
     parser.add_argument("--init-baseline", action="store_true", help="write the baseline from scratch (first run only)")
     parser.add_argument("--report", choices=["md", "json"])
     parser.add_argument("--base-clippy-json", help="the same run on the base: a count it already reaches is the base's red")
+    parser.add_argument("--cargo-log",
+                        help="the same run's cargo stderr: a stale Cargo.lock there is named as the cause")
     args = parser.parse_args()
     if args.flags:
         print(lint_flags())
@@ -314,6 +340,13 @@ def main():
         parser.error("--clippy-json is required")
     checked, counts, files, finished, hits = read_clippy(args.clippy_json)
     if not checked or finished is not True:
+        if lock := stale_lock(args.cargo_log, args.repo):
+            print(f"::error title=rust panic ratchet (stale Cargo.lock)::{lock} does not match its manifests on this"
+                  " merge ref (often: the base changed a dependency after the branch was cut), so cargo --locked"
+                  " stopped before any lint ran. Merge the base branch into the branch, run"
+                  " `scripts/cmux-next/cargo-locks.py fix` from the repository root and commit the Cargo.lock files"
+                  " it changed; rerunning the job does not help", file=sys.stderr)
+            return 2
         print("rust-panic-ratchet: the clippy run did not finish successfully (no build-finished success line);"
               " counts from a partial build prove nothing", file=sys.stderr)
         return 2
