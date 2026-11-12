@@ -1304,6 +1304,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// stops so the restore can land. Near the bottom, nothing: follow.
     private func markReadingPosition() {
         guard !model.isTUI, readingMark == nil, cell.height > 0 else { return }
+        // Mid Jump to bottom: the reader asked for the bottom, not the row
+        // the glide was passing.
+        if glide != nil {
+            stopGlide(thenFollow: true)
+            restoredMark = nil
+            return
+        }
         let anchor: TerminalScrollModel.Anchor?
         switch scroll.state {
         case .following:
@@ -1758,8 +1765,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // A move waiting for its frame asks only for its target's rows (qa11
         // wt-fling-c/d: a report or an inset change asked again for the
         // reader's rows, and that frame came after the end's).
-        let visibleMinY = TerminalScrollGate.requestOffset(awaiting: followAwaitsPresent, current: requested,
-                                                           target: followAwaitsPresent ? pendingTarget : nil)
+        // Jump to bottom's glide waiting for its entry's frame asks for the
+        // entry's rows the same way (a report in between asked again for the
+        // reader's rows, and the entry was never drawn).
+        let entry = glide?.pendingEntry
+        let visibleMinY = TerminalScrollGate.requestOffset(awaiting: followAwaitsPresent || entry != nil, current: requested,
+                                                           target: entry ?? (followAwaitsPresent ? pendingTarget : nil))
         let maxTop = max(0, scrollbar.total - surfaceRows)
         let visibleTop = originRow + Int(floor(max(0, visibleMinY) / cell.height))
         let visibleBottom = originRow + Int(ceil((max(0, visibleMinY) + view.bounds.height) / cell.height))
@@ -2088,6 +2099,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if hadFocus, !surface.isFirstResponder { surface.becomeFirstResponder() }
         }
         if tui {
+            stopGlide(thenFollow: true)
             copyMode.exit()
             selection.clear()
             tuiSizing.tuiStarted()
@@ -2345,8 +2357,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// through the same delegate path as a fling (the rows the page passes
     /// are asked for as it moves). Far up, it starts a glide's length above
     /// the bottom once that frame is drawn, so the page never shows rows it
-    /// has not rendered. A finger, typing or another scroll stops it; its end
-    /// follows the bottom, as the direct jump did.
+    /// has not rendered. A drag, typing, find, Scroll to Top, a selection's
+    /// autoscroll, a reset or a full-screen app stops it (a tap does not, and
+    /// opens no link while it runs); its end follows the bottom, as the
+    /// direct jump did.
     private func startGlide() {
         // The page is owned by the glide: no settle, no placement (applyScroll).
         scroll.began()
@@ -2361,6 +2375,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             guard let self, glide === animator else { return }
             glide = nil
             scroll.jumpToBottom()
+            // Output during the glide only grew the end (updateDocument);
+            // measure it now, as a gesture's end does (settleScroll).
+            if measureAfterGesture {
+                measureAfterGesture = false
+                outputSinceProbe = true
+                updateDocument()
+            }
             applyScroll()
         }
         glide = animator
@@ -2373,11 +2394,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         #endif
     }
 
-    /// Stops Jump to bottom's glide where it is; the caller sets the state.
-    private func stopGlide() {
+    /// Stops Jump to bottom's glide where it is. The caller sets the state;
+    /// `thenFollow` leaves it following first (the glide's own `interacting`
+    /// would refuse a reveal: find, Scroll to Top).
+    private func stopGlide(thenFollow: Bool = false) {
         guard let animator = glide else { return }
         glide = nil
         animator.cancel()
+        if thenFollow { scroll.jumpToBottom() }
     }
 
 
@@ -2512,7 +2536,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let topY = document.contentY(ofRow: top, cellHeight: cell.height) - scrollView.adjustedContentInset.top
         fling?.stop()
         fling = nil
-        stopGlide()
+        stopGlide(thenFollow: true)
         if topY >= maxOffsetY - 0.5 {
             scroll.jumpToBottom()
         } else {
@@ -2583,7 +2607,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard !model.isTUI, let document, cell.height > 0 else { return }
         fling?.stop()
         fling = nil
-        stopGlide()
+        stopGlide(thenFollow: true)
         scroll.reveal(row: document.originRow, delta: -scrollView.adjustedContentInset.top)
         placesFromReport = false
         applyScroll()
@@ -3118,7 +3142,7 @@ extension TerminalViewController: @MainActor UIGestureRecognizerDelegate {
     /// A tap on the shell notes whether it landed on a moving scroll (that tap only stops it).
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if gestureRecognizer === shellTap {
-            tapStoppedScroll = fling != nil || scrollView.isDecelerating
+            tapStoppedScroll = fling != nil || glide != nil || scrollView.isDecelerating
         }
         return true
     }
@@ -3188,7 +3212,10 @@ final class BottomGlide {
         self.link = link
     }
 
-    /// Stopped by a finger, typing or another scroll: no `onEnd`.
+    /// The offset whose rows the glide waits to be drawn before it moves.
+    var pendingEntry: CGFloat? { waitingFor }
+
+    /// Stopped by a drag, typing or another scroll: no `onEnd`.
     func cancel() {
         link?.invalidate()
         link = nil
