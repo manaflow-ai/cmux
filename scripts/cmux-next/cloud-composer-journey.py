@@ -426,12 +426,19 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
     def still_opening(answer: dict) -> bool:
         return answer.get("code") == "timeout"
 
+    # Run 43127241675: a Cloud start closes its New Tab, and with it the launch pane when that was its only tab
+    # ("No pane matches pane_…"), so a later cell's open by that pane found nothing. A person's New Agent Chat then
+    # opens where focus is, the machine's workspace. The harness opens each later chat on this Mac by name
+    # (`host: local`, New Agent Chat On… > this Mac, AgentChatDestinations.local), which makes a local workspace
+    # when none is left, and takes the pane the open answers with.
     opened: dict = {}
     if journey.launch_pane:
-        opened = journey.call("action.run", {"action": "palette.newAgentChat", "target": journey.launch_pane})
-        cell["targeted_open"] = {"target": journey.launch_pane, "answer": opened}
-        if not opened.get("error") or still_opening(opened):
-            journey.home_pane = journey.launch_pane
+        journey.home_pane = None  # the launch pane may be gone; the open's answer, else the untargeted read, names it
+        opened = journey.call("action.run", {"action": "palette.newAgentChat", "args": {"host": "local"}, "wait": True})
+        cell["targeted_open"] = {"host": "local", "answer": opened}
+        answered = opened.get("result") if isinstance(opened.get("result"), dict) else opened
+        if isinstance(answered.get("pane"), str) and answered["pane"]:
+            journey.home_pane = answered["pane"]
     targeted = bool(journey.launch_pane) and (not opened.get("error") or still_opening(opened))
     if not targeted:
         journey.call("action.run", {"action": "selectWorkspaceByNumber", "index": 1})
@@ -576,8 +583,9 @@ def cell_composer(journey: Journey, folder_kind: str, folder: Path | None, accou
         time.sleep(3)
     cell["outcome"] = outcome or "timeout"
     if outcome == "started":
-        # This tab closed into the machine's chat; the next cell opens by target in the launch pane.
-        journey.home_pane = journey.launch_pane
+        # This tab closed into the machine's chat (and its pane, when that was its only tab): the next cell opens
+        # its chat on this Mac by name.
+        journey.home_pane = None
     cell["message"] = clean(message, 300)
     made, seen = new_machines(journey, before, creations_before)
     made = sorted(set(made) | recorded)
