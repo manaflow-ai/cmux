@@ -2756,7 +2756,7 @@ jobs:
         with:
           name: cmux-next-tree-wait-${{ steps.unavailable.outputs.key }}
           path: ${{ steps.unavailable.outputs.marker }}
-          retention-days: 7
+          retention-days: 3
           overwrite: true
 
   # The build fleet's compile verdict for the Swift canary. Opt-in: with the
@@ -4110,6 +4110,8 @@ jobs:
         id: settings
         if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' && steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
+        env:
+          CMUX_NEXT_JOB_BUILT: plain
         run: scripts/cmux-next/check-settings-exports.sh
 
       - name: Compile string catalogs into the resource bundles
@@ -4687,6 +4689,8 @@ jobs:
         id: settings
         if: ${{ env.CMUX_NEXT_FOLD_GENERATED == 'true' }}
         continue-on-error: true
+        env:
+          CMUX_NEXT_JOB_BUILT: plain
         run: scripts/cmux-next/check-settings-exports.sh
 
       # Why: docs/ci/cmux-next-workflow-notes.md#note-258
@@ -4697,6 +4701,7 @@ jobs:
         timeout-minutes: 10
         env:
           CMUX_STRINGS_BEST_EFFORT: "1"
+          CMUX_NEXT_JOB_BUILT: plain
         run: |
           set -euo pipefail
           # A dispatch packs only as the base tier run (its base_tier input, read from the event so this
@@ -5158,6 +5163,8 @@ jobs:
         id: settings
         if: ${{ steps.reuse.outputs.hit != 'true' }}
         continue-on-error: true
+        env:
+          CMUX_NEXT_JOB_BUILT: plain
         run: scripts/cmux-next/check-settings-exports.sh
 
       # The base autofix's action and settings exports, made on this build instead of a second Mac
@@ -5175,6 +5182,7 @@ jobs:
         timeout-minutes: 10
         env:
           CMUX_STRINGS_BEST_EFFORT: "1"
+          CMUX_NEXT_JOB_BUILT: plain
         run: |
           set -euo pipefail
           # A dispatch packs only as the base tier run (its base_tier input, read from the event so this
