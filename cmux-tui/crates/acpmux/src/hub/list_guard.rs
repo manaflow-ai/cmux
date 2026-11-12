@@ -179,6 +179,9 @@ pub(crate) struct Snapshot {
     /// The full rows are built only for trusted internal consumers (peer bootstrap and ACP).
     /// Ordinary census/watch replies keep using `whole`, so their retained bytes stay small.
     full: StdMutex<Option<Arc<FullRows>>>,
+    /// Lazy parts keep the live snapshot attached while they are being made. Expiry also checks
+    /// the Arc count: a request that still holds this snapshot may start a part after expiry woke.
+    lazy_builds: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
     lazy_build_hold: StdMutex<Option<Arc<(std::sync::Barrier, std::sync::Barrier)>>>,
 }
@@ -231,9 +234,15 @@ impl Snapshot {
             keys,
             made,
             full: Default::default(),
+            lazy_builds: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
             lazy_build_hold: Default::default(),
         }
+    }
+
+    fn lazy_build(&self) -> LazyBuild<'_> {
+        self.lazy_builds.fetch_add(1, Ordering::Acquire);
+        LazyBuild { snapshot: self }
     }
 
     /// Keep only serialized bytes and paging keys as summaries are produced. A full
@@ -281,6 +290,7 @@ impl Snapshot {
 
     /// [`Self::full_whole`] with where each row is, for ACP's pages.
     pub(crate) fn full_rows(&self, hub: &Hub) -> Arc<FullRows> {
+        let _lazy_build = self.lazy_build();
         let mut full = self.full.lock().unwrap_or_else(|e| e.into_inner());
         full.get_or_insert_with(|| {
             #[cfg(test)]
@@ -427,6 +437,7 @@ impl Snapshot {
         name: &'static str,
         make: impl FnOnce(&Self) -> String,
     ) -> Arc<String> {
+        let _lazy_build = self.lazy_build();
         let mut made = self.made.lock().unwrap_or_else(|e| e.into_inner());
         made.entry(name)
             .or_insert_with(|| {
@@ -460,6 +471,16 @@ impl Snapshot {
         let window = now.saturating_duration_since(began).saturating_mul(PACE).min(MAX_WINDOW);
         let mut until = self.fresh_until.lock().unwrap_or_else(|e| e.into_inner());
         *until = (*until).max(now + window.max(self.window));
+    }
+}
+
+struct LazyBuild<'a> {
+    snapshot: &'a Snapshot,
+}
+
+impl Drop for LazyBuild<'_> {
+    fn drop(&mut self) {
+        self.snapshot.lazy_builds.fetch_sub(1, Ordering::Release);
     }
 }
 
@@ -856,6 +877,12 @@ impl ListGuard {
                 let Some(state) = state.upgrade() else { return };
                 let mut state = state.lock().await;
                 let Some(last) = state.last.as_ref().filter(|s| s.serial == serial) else { return };
+                if last.lazy_builds.load(Ordering::Acquire) != 0 || Arc::strong_count(last) > 1 {
+                    // A request still owns this snapshot and may begin a lazy part after this
+                    // task woke. Leave it live; made_now will extend the same state entry.
+                    until = Instant::now() + last.window.max(Duration::from_millis(1));
+                    continue;
+                }
                 let fresh_until = last.fresh_until();
                 if fresh_until <= Instant::now() {
                     state.last = None;
