@@ -289,6 +289,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// now shows that subagent (named `title`, in state `facts`), or its chat again (no subagent): its
     /// tab's name and hover card follow (``SubagentTabTitles``).
     case subagentShown(String?, title: String?, tone: Int? = nil, facts: SubagentTabFacts? = nil)
+    /// `chat.subagentBack`: a pane opened on a subagent goes back to the chat: the chat tab that
+    /// opened it takes focus and this tab closes (``AgentSubagentPanes/opener(ofTab:resolve:)``).
+    case subagentBack
     /// `chat.processTerminal {toolCallId}`: the background process this chat's tool call started,
     /// in a read-only terminal tab beside the chat (``AgentPaneProcessViewer``).
     case processTerminal(toolCall: String)

@@ -562,6 +562,8 @@ extension AgentPaneRequest {
                 self = .subagentShown(id, title: id == nil ? nil : params?["title"] as? String, tone: id == nil ? nil : params?["tone"] as? Int,
                                       facts: id == nil ? nil : SubagentTabFacts(params))
             }
+        case "chat.subagentBack":
+            self = .subagentBack
         case "chat.processTerminal":
             if let id = params?["toolCallId"] as? String, AgentPaneProcessViewer.isToken(id) { self = .processTerminal(toolCall: id) } else { self = .unsupported(method) }
         case "chat.newHere":
