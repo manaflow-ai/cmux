@@ -118,11 +118,20 @@ enum CloseConfirmAnchor {
     }
 
     /// Taps a context menu item. An element tap (not a coordinate one) lets
-    /// XCTest scroll a long menu to the item; a drag beside a short menu would
-    /// dismiss it.
+    /// XCTest scroll a long menu to a listed item. At accessibility sizes the
+    /// menu lists only what fits, so the drag goes inside the menu, which sits
+    /// in the screen's upper part over the row (a drag beside a short menu
+    /// would dismiss it).
     @MainActor
     static func menuTap(_ element: XCUIElement, _ what: String) -> String? {
-        guard element.waitForExistence(timeout: 8) else { return "no \(what)" }
+        var found = element.waitForExistence(timeout: 4)
+        for _ in 0..<5 where !found {
+            let app = XCUIApplication()
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)))
+            found = element.waitForExistence(timeout: 2)
+        }
+        guard found else { return "no \(what)" }
         element.tap()
         return nil
     }
