@@ -733,6 +733,9 @@ public final class DaemonTerminalSession: TerminalSession {
             heldEvents = nil
             for event in held { apply(event) }
             attachRetries = 0
+            // Keys held past the limit (the app was suspended) are dropped and said before
+            // the screen hears `.attached`, which forgets a held composer send.
+            expireInput()
             attached = true
             refusingInput = false
             everAttached = true
