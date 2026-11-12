@@ -297,5 +297,55 @@ class ExitStatusAndDoubleSource(unittest.TestCase):
                 self.assertNoFolder(done)
 
 
+class SavedTrapAndSubshellSource(unittest.TestCase):
+    """The review of hq#9676, ported (guard-causes-the-harm): the helper's own EXIT guard skipped the cleanup it exists
+    for.
+
+    F1: `saved=$(trap -p EXIT); eval "$saved"` handed the helper's own dispatcher to the wrapper as the caller's
+    action, so at exit the dispatcher eval'd itself until bash segfaulted and the caller's cleanup never ran.
+    F2: `(unset GIT_CONFIG_GLOBAL; source lib)` made a folder in the subshell, but the guard read the parent's trap
+    text (a subshell still shows it) and never armed EXIT there, so the subshell's folder stayed behind.
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="git-fixture-saved-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)], check=False)
+        self.env = Env.clean(self.tmp)
+        self.tmpdir = Path(self.env["TMPDIR"])
+
+    def bash(self, script: str, *args: str) -> subprocess.CompletedProcess[str]:
+        subprocess.run(["rm", "-rf", str(self.tmpdir)], check=True)
+        self.tmpdir.mkdir()
+        return subprocess.run(["bash", "-c", script, "_", str(LIB), *args], env=self.env, capture_output=True,
+                              text=True, timeout=120, stdin=subprocess.DEVNULL, cwd=self.tmp)
+
+    def test_sourcing_twice_and_restoring_a_saved_exit_trap_runs_the_caller_cleanup_once(self):
+        for saved in ("saved=$(trap -p EXIT)", "saved=$(trap -p)"):
+            with self.subTest(saved=saved):
+                marker = self.tmp / "cleanup"
+                marker.unlink(missing_ok=True)
+                done = self.bash('trap \'echo cleanup >>"$2"\' EXIT\nsource "$1"\nsource "$1"\n'
+                                 + saved + '\neval "$saved"\nexit 5\n', str(marker))
+                self.assertEqual(done.returncode, 5, f"exit {done.returncode} (-11 is a segfault): "
+                                                     f"{done.stderr[-2000:]}")
+                self.assertTrue(marker.exists(), "the caller's cleanup never ran")
+                self.assertEqual(marker.read_text(), "cleanup\n", "the caller's cleanup did not run exactly once")
+                self.assertEqual(sorted(os.listdir(self.tmpdir)), [], "a fixture folder was left")
+
+    def test_a_subshell_source_removes_both_folders(self):
+        for errexit in ("", "set -euo pipefail; "):
+            with self.subTest(errexit=bool(errexit)):
+                marker = self.tmp / "folders"
+                marker.unlink(missing_ok=True)
+                done = self.bash(
+                    errexit + 'source "$1"\nfirst=${GIT_CONFIG_GLOBAL%/*}\n'
+                    '(unset GIT_CONFIG_GLOBAL; source "$1"; second=${GIT_CONFIG_GLOBAL%/*}\n'
+                    ' [[ -d $second && $second != "$first" ]] || exit 9; echo "$second" >"$2")\n'
+                    '[[ -d $first ]] || exit 8\nexit 0\n', str(marker))
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertTrue(marker.exists(), "the subshell never made its own folder, so this case tests nothing")
+                self.assertEqual(sorted(os.listdir(self.tmpdir)), [], f"a fixture folder was left: {done.stderr}")
+
+
 if __name__ == "__main__":
     unittest.main()

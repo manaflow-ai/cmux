@@ -20,6 +20,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,6 +72,7 @@ class DecoyEnvironment(unittest.TestCase):
         self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)], check=False)
         base = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
         base.update(HOME=str(self.tmp / "home"), TMPDIR=str(self.tmp / "tmpdir"))
+        self.base = base
         (self.tmp / "home").mkdir()
         (self.tmp / "tmpdir").mkdir()
         # A real repository with a commit, an index and a config: what a hook's GIT_DIR names.
@@ -119,6 +121,18 @@ class DecoyEnvironment(unittest.TestCase):
         local = subprocess.run(["git", "-C", str(path), "config", "--local", "--get", "maintenance.auto"], env=env,
                                capture_output=True, text=True)
         self.assertEqual(local.stdout.strip(), "false", "the opt-out is not in the fixture's own config")
+
+    def test_the_assertions_read_the_fixture_under_an_inherited_git_dir(self):
+        """Review of hq#9676 F3, ported: this process's own GIT_DIR (a test run from a hook) must not move
+        assertFixtureRepo onto another repository. GIT_DIR names an empty repository here, so reading it fails."""
+        done = subprocess.run(["bash", "-c", 'set -euo pipefail; source "$1"; git_fixture_init "$2/empty"; '
+                               'git_fixture_init "$2/repo"; git_q -C "$2/repo" commit -q --allow-empty -m one',
+                               "_", str(LIB), str(self.work)],
+                              env=self.base, cwd=self.tmp, capture_output=True, text=True, timeout=120,
+                              stdin=subprocess.DEVNULL)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        with mock.patch.dict(os.environ, {"GIT_DIR": str(self.work / "empty" / ".git")}):
+            self.assertFixtureRepo(self.work / "repo", 1)
 
     def test_python_helper_with_every_redirect_pointing_at_a_decoy(self):
         done = subprocess.run([sys.executable, "-I", "-c", PYTHON_FIXTURE, str(MODULE), str(self.work)],
