@@ -6933,7 +6933,7 @@ jobs:
           publisher=.publish-tooling/scripts/ci/publish-release-assets.py
           python3 "$publisher" \
             --repo "$GITHUB_REPOSITORY" --tag "$CHANNEL_RELEASE_TAG" \
-            "${deltas[@]}" --replace-feeds "${feeds[@]}"
+            ${deltas[@]+"${deltas[@]}"} --replace-feeds ${feeds[@]+"${feeds[@]}"}
           echo "publish=true" >> "$GITHUB_OUTPUT"
 
       - name: Upload revised appcasts to R2

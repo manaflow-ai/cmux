@@ -29,6 +29,11 @@ export const jumpPairLook = defineExperiment({
       description:
         "Two frosted rounded squares in the Needs you pill's corner radius, Jump up a hairline gap over Jump to latest, so the pair reads as one compact column.",
     },
+    single: {
+      label: "Single disc",
+      description:
+        'Only Jump to latest, the frosted disc; no Jump up over it. Leo, 2026-11-12, of Jump up showing after a jump to the bottom and again on the way up: "which is cute, but... maybe a bit extra?"',
+    },
     lens: {
       label: "Fisheye lens (before)",
       description:

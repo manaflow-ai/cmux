@@ -6,7 +6,7 @@
 // variants park the reader mid-chat below an unread "New" line, so the disc points up over real prose;
 // the `-up` variants leave them at the latest message, the line far above, where it points up too; the
 // `-latest` ones park above the line, where nothing unseen lies above and it is Jump to latest;
-// `frosted-image` over a wallpaper. `pair`, `up` and `latest` pin no arm, so View Compare arms draws
+// `single` (#42056) never turns up; `frosted-image` over a wallpaper. `pair`, `up` and `latest` pin no arm, so View Compare arms draws
 // them once per look side by side; the other variants pin one look each. Light and dark:
 // ?colorScheme=light / dark.
 import { agentPaneEntry } from "../../gallery/format";
@@ -85,6 +85,14 @@ const above: Play = async (ctx) => {
   await ctx.waitFor(() => shown(ctx, "latest"));
 };
 
+/// The single look (#42056): parked where the disc would point up, it stays Jump to latest.
+const parkSingle: Play = async (ctx) => {
+  await ctx.waitFor(() => (scroller(ctx)?.scrollHeight ?? 0) > 2_000);
+  const view = scroller(ctx)!;
+  await ctx.scroll({ selector: ".acpmux-scroll" }, view.scrollHeight - view.clientHeight - 700);
+  await ctx.waitFor(() => shown(ctx, "latest"));
+};
+
 const overImage: Play = async (ctx) => {
   const root = ctx.document.documentElement;
   root.style.setProperty("background", `url("${wallpaper}") 0 0 / 100vw 100vh no-repeat fixed`, "important");
@@ -155,6 +163,12 @@ export default agentPaneEntry({
       snapshot,
       play: park,
       ...look("stacked"),
+    },
+    single: {
+      note: 'Single: the frosted disc never turns up; it is Jump to latest alone (Leo, 2026-11-12: "maybe a bit extra?").',
+      snapshot,
+      play: parkSingle,
+      ...look("single"),
     },
     lens: {
       note: "Before: the fisheye lens disc; the words under it magnify and bend behind the arrow.",

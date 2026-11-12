@@ -334,6 +334,7 @@ import {
   subagentTabTitle,
   useAutoOpenSubagents,
   useOpenNewSubagents,
+  subagentRowMark,
 } from "./subagents/subagentPanes";
 import { shownSubagentFacts, useShownSubagent } from "./subagents/subagentShown";
 import { turnCounts } from "./changes/turnCheckpoint";
@@ -649,9 +650,10 @@ import { ShellRuns, composerShell, shellContextAttachments, withShellRows } from
 import { type Subagent } from "./subagents/subagentFold";
 import { restartOwner, restartPrompt, restartReaches } from "./subagents/restart";
 import { type SubagentRows, runningGroups, subagentRowsFrom, subagentsIn } from "./subagents/subagentRows";
-import { foldOwnLog, subagentPaneView, useOwnLog } from "./subagents/subagentOwnLog";
+import { foldOwnLog, subagentPaneView, useOwnLog, needsOwnLog } from "./subagents/subagentOwnLog";
 import { lastReply as lastSubagentReply, SubagentReplyContext } from "./subagents/wholeReport";
 import { knownMark } from "../shared/AgentMark";
+import { useSenderIconLook } from "./subagents/senderIconLook";
 import {
   SubagentHarnessContext,
   SubagentNavContext,
@@ -2701,9 +2703,18 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       freshAgents.find((agent) => agent.id === id),
       `${t("subagents.of")} ${chatName}`,
     );
-  // For callbacks that keep one identity (showSubagent names a pane's tab with it).
-  const subagentTitleRef = useRef(subagentTitle);
-  subagentTitleRef.current = subagentTitle;
+  // The mark its row draws, which its pane's tab draws too (subagentPanes.ts `subagentRowMark`).
+  const senderBadge = useSenderIconLook().badge;
+  const chatMark = knownMark(snapshot.summary?.harness, snapshot.summary?.family);
+  const subagentMark = (id: string) =>
+    subagentRowMark(
+      freshAgents.find((agent) => agent.id === id),
+      chatMark,
+      senderBadge,
+    );
+  // For callbacks that keep one identity (showSubagent names a pane's tab and its icon with them).
+  const subagentTitleRef = useRef({ title: subagentTitle, mark: subagentMark });
+  subagentTitleRef.current = { title: subagentTitle, mark: subagentMark };
   const workflowAdapter = useMemo(createWorkflowAdapter, []);
   const workflows = useMemo(
     () => (workflowLabsEnabled && shownSessionId ? workflowAdapter(freshAgents, shownSessionId) : []),
@@ -2738,11 +2749,15 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
   const subagentViewsRef = useRef(snapshot.subagentViews);
   subagentViewsRef.current = snapshot.subagentViews;
   const readSubagentView = useCallback((id: string) => subagentViewsRef.current?.[id], []);
-  // A subagent the chat's loaded rows no longer hold (an old one, finished pages ago): its pane reads
-  // that subagent's own records (subagents/subagentOwnLog.ts) and draws them, loading until they
-  // come and empty if there are none, never the chat's rows (Leo, 2026-11-07: "is this your
-  // sub-agent, or is this literally just a duplicate of you?").
-  const subagentInChat = !!subagentView && freshAgents.some((agent) => agent.id === subagentView);
+  // A subagent the chat's loaded rows do not hold whole (an old one, finished pages ago, or one whose
+  // stop the page kept but not its work): its pane reads that subagent's own records
+  // (subagents/subagentOwnLog.ts `needsOwnLog`) and draws them, loading until they come and empty if
+  // there are none, never the chat's rows (Leo, 2026-11-07: "is this your sub-agent, or is this
+  // literally just a duplicate of you?"; 2026-11-12: "NO MESSAGES DISPLAYED?").
+  const subagentReadsOwnLog = useMemo(
+    () => !!subagentView && needsOwnLog(subagentView, { rows: snapshot.rows, views: snapshot.subagentViews }),
+    [subagentView, snapshot.rows, snapshot.subagentViews],
+  );
   const readSubagentLog = useCallback(
     // l10n-allow: internal transport error; the subagent pane renders its own localized state.
     (id: string) => directClient.current?.readSubagentLog(id) ?? Promise.reject(new Error("Not connected")),
@@ -2758,8 +2773,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
       ),
     [readSubagentLog, shownSessionId, subagentHarness],
   );
+  // The background tasks panel's drill-in reads a subagent's own records by the same rule.
+  const backgroundOwnLogReads = useMemo(
+    () => ({ chat: { session: shownSessionId, harness: subagentHarness }, read: readSubagentLog, connected }),
+    [shownSessionId, subagentHarness, readSubagentLog, connected],
+  );
   const { log: ownLogged, loading: ownLoading } = useOwnLog(
-    subagentView && !workflowRequest && !subagentInChat ? subagentView : undefined,
+    subagentView && !workflowRequest && subagentReadsOwnLog ? subagentView : undefined,
     { session: shownSessionId, harness: snapshot.summary?.harness },
     readSubagentLog,
     connected,
@@ -5203,10 +5223,11 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         panes: autoOpenSubagents,
         inSubagentPane: subagentPane.current,
         here: setSubagentView,
-        title: subagentTitleRef.current(id),
+        title: subagentTitleRef.current.title(id),
         tone: workflowPaneRequest(id) ? undefined : agentTone(id),
         // Seed a new pane from this chat's kept tail before its own attach answers.
         beforeOpen: () => directClient.current?.handOverCurrentTail(),
+        mark: workflowPaneRequest(id) ? undefined : subagentTitleRef.current.mark(id),
       }),
     [autoOpenSubagents],
   );
@@ -5240,7 +5261,14 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
     [shownAgent, snapshot.clockOffsetMs],
   );
   // Its tab's hover card and spinner say the subagent's own state, not its chat's.
-  useShownSubagent(callNative, ownSubagentPane, subagentView, shownSubagentTitle, shownFacts);
+  useShownSubagent(
+    callNative,
+    ownSubagentPane,
+    subagentView,
+    shownSubagentTitle,
+    shownFacts,
+    subagentRowMark(shownAgent, chatMark, senderBadge),
+  );
   const showWorkflowAgent = useCallback(
     (agent: WorkflowAgent) => {
       const workflow = workflows.find((entry) => entry.agents.some((candidate) => candidate.id === agent.id));
@@ -5388,7 +5416,13 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
         scopedAgent.agents ? `${scopedAgent.agents.done}/${scopedAgent.agents.started}` : "",
       ].join("\u0000")
     : "";
-  const scopedRows = shownSubagent === undefined ? undefined : snapshot.subagentViews?.[shownSubagent];
+  // Its own records when the pane read them (`needsOwnLog`) and they hold more than the chat's page.
+  const scopedRows = useMemo(() => {
+    if (shownSubagent === undefined) return undefined;
+    const fromChat = snapshot.subagentViews?.[shownSubagent];
+    const fromOwn = shownSubagent === subagentView ? ownLogged?.views[shownSubagent] : undefined;
+    return (fromOwn?.length ?? 0) > (fromChat?.length ?? 0) ? fromOwn : fromChat;
+  }, [shownSubagent, snapshot.subagentViews, subagentView, ownLogged]);
   // Session Info lists the subagent's rows as they stood when the reader started scrolling, until
   // the scroll settles, as the chat's card does with `cardRows` (summary/heldWhileScrolling.ts,
   // cmux#29639). Another subagent, or another chat, takes its rows at once.
@@ -13492,6 +13526,7 @@ function AcpmuxPane({ initialChat }: { initialChat?: InitialChat }) {
                 focus={backgroundFocus}
                 stopsAgents={stopSubagent !== undefined}
                 workflow={backgroundWorkflowReads}
+                ownLog={backgroundOwnLogReads}
                 onStop={(target) =>
                   target.kind === "agent"
                     ? (stopSubagent?.(target.id) ?? Promise.reject(new Error()))

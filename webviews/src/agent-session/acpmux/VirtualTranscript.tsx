@@ -5428,7 +5428,9 @@ function TranscriptView({
   const inView = jumpButton
     ? visibleRows(layout.geometry, viewTop, viewTop + height - topInset - dockSpace)
     : { first: 0, last: -1 };
-  const unseenAbove = unseenIndex >= 0 && unseenIndex < inView.first;
+  // The single look (#42056) draws Jump to latest alone: the disc never turns up.
+  const [pairLook] = useState(() => experimentArm(jumpPairLook));
+  const unseenAbove = pairLook !== "single" && unseenIndex >= 0 && unseenIndex < inView.first;
   const control: JumpControl = jumpButton
     ? jumpControl({
         unseenAbove,
