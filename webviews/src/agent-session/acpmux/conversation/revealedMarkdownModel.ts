@@ -70,11 +70,10 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
   reduce.current ??= reducedMotion();
   // Assistant text is append-only. A reconnect can briefly deliver a shorter prefix; keep the
   // last complete body on screen until the replacement page restores it.
-  const knownText = useRef(text);
-  const previous = useRef({ text, streaming });
-  const historicalReplacement = !streaming && !previous.current.streaming && text !== previous.current.text;
-  if (text.length >= knownText.current.length) knownText.current = text;
-  const displayText = text.length < knownText.current.length ? knownText.current : text;
+  const [knownText, setKnownText] = useState(text);
+  const [previous, setPrevious] = useState({ text, streaming });
+  const historicalReplacement = !streaming && !previous.streaming && text !== previous.text;
+  const displayText = text.length < knownText.length ? knownText : text;
   // Text there when the row mounts shows at once; only what arrives after it flows in.
   reveal.current ??= new StreamReveal({ initial: displayText, reduceMotion: reduce.current });
   const [shown, setShown] = useState<Shown>(() => ({ length: displayText.length, fresh: [], now: 0 }));
@@ -163,7 +162,11 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [displayText, historicalReplacement, shown, streaming]);
   useLayoutEffect(() => {
-    previous.current = { text, streaming };
+    // Keep the longest complete body for a reconnect snapshot that briefly goes backwards.
+    setKnownText((current) => (text.length >= current.length ? text : current));
+  }, [text]);
+  useLayoutEffect(() => {
+    setPrevious({ text, streaming });
   }, [text, streaming]);
   useLayoutEffect(() => {
     const state = loop.current;
