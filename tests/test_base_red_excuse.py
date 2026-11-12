@@ -12703,40 +12703,57 @@ def module_patterns():
                         yield f"{short}.{key}[{index}]", item
 
 
+def pattern_pin(rx):
+    """The first 12 hex digits of sha256 over RX's flags and source. One pin is one regex, so one cost on one engine:
+    whether a pinned KNOWN_SUPERLINEAR entry is still super-linear needs no clock."""
+    import hashlib
+    return hashlib.sha256(f"{rx.flags}\0{rx.pattern}".encode()).hexdigest()[:12]
+
+
 # Patterns a long line makes super-linear, found by PrLogPatternsScale when it came in (#41220's review at 9ae6ba5d,
-# F1's class): each reads to the line's end from every opener on it. A ratchet: a new one fails the sweep, and one
-# made linear fails it until it leaves this list. The follow-up that makes them linear is cmux#41374.
+# F1's class): each reads to the line's end from every opener on it. Each is pinned (pattern_pin) at the regex that was
+# measured. A ratchet both ways, and the shrink way is never a timing verdict (cmux run 43087045630 failed a PR on
+# one fast look at STARTED): a new super-linear pattern fails the sweep, measured as assert_scales measures; a known one
+# stays known with no measurement while its regex is its pin; an edited one (or one gone) fails until it leaves this
+# list (linear now) or takes its new pin (still super-linear). The follow-up that makes them linear is cmux#41374.
 KNOWN_SUPERLINEAR = {
-    "base_red_excuse.TEST_RUN_SUMMARY": "`^=+ .*\\bin [\\d.]+s\\b.*=+$`: two `.*` around a literal",
-    "test_reds.BUN_ABSOLUTE": "`/[^\\s'\"()]*?/(?:webviews|web)/` from every slash",
-    "test_reds.BUN_PACKAGE": "`(?:\\./)*(?:\\S*?/)?`: two repeats that read the same `./`",
-    "test_reds.CRASH": "`process didn't exit successfully: .*\\(signal: \\d+` from every opener",
-    "test_reds.FAILED[0]": "`\u2718 Test (\"[^\"\\n]*\"|.+?\\))` from every opener",
-    "test_reds.FAILURE_MARKERS[2]": "`^=+ .*\\b\\d+ failed\\b.*=+$`: two `.*` around a literal",
-    "test_reds.STARTED": "`\u25c7 Test (?:case passing .+? to )?(\\w+)\\((.*?)\\) started` from every opener",
-    "test_reds.SWIFT_ISSUE_LINE": "`\u2718 (?:Test|Suite) .* recorded an issue` from every opener",
-    "test_reds.WEB_AT": "`\\bat .*?/webviews/` from every `at `",
-    "test_reds.XCRESULT_FAILED": "`^FAILED: (?:.+ / )?([^/]+?) / ([^/]+?\\(.*\\))$`: overlapping repeats",
+    "base_red_excuse.TEST_RUN_SUMMARY": ("b9ab98f93034", "`^=+ .*\\bin [\\d.]+s\\b.*=+$`: two `.*` around a literal"),
+    "test_reds.BUN_ABSOLUTE": ("7f337d818ed0", "`/[^\\s'\"()]*?/(?:webviews|web)/` from every slash"),
+    "test_reds.BUN_PACKAGE": ("999d94fa66c8", "`(?:\\./)*(?:\\S*?/)?`: two repeats that read the same `./`"),
+    "test_reds.CRASH": ("064f1e415ab4", "`process didn't exit successfully: .*\\(signal: \\d+` from every opener"),
+    "test_reds.FAILED[0]": ("17ecd505c4cc", "`\u2718 Test (\"[^\"\\n]*\"|.+?\\))` from every opener"),
+    "test_reds.FAILURE_MARKERS[2]": ("2e80cc2dd812", "`^=+ .*\\b\\d+ failed\\b.*=+$`: two `.*` around a literal"),
+    "test_reds.STARTED": ("57352dda5830",
+                          "`\u25c7 Test (?:case passing .+? to )?(\\w+)\\((.*?)\\) started` from every opener"),
+    "test_reds.SWIFT_ISSUE_LINE": ("4c22f87ac051", "`\u2718 (?:Test|Suite) .* recorded an issue` from every opener"),
+    "test_reds.WEB_AT": ("315348257a77", "`\\bat .*?/webviews/` from every `at `"),
+    "test_reds.XCRESULT_FAILED": ("7bfba5bbb900",
+                                  "`^FAILED: (?:.+ / )?([^/]+?) / ([^/]+?\\(.*\\))$`: overlapping repeats"),
 }
 
 
 class PrLogPatternsScale(unittest.TestCase):
     """F1's class for one line: a PR prints its lines, so a line is as long as it likes. Each module pattern of
-    base_red_excuse.py and test_reds.py (module_patterns) runs through finditer on each of its openers
-    (regex_openers) repeated to LINE and 4 LINE characters; a pair over SCALING_LIMIT on a quick look is measured
-    again with assert_scales' protocol (scaling_failure), and what is super-linear there must be in
-    KNOWN_SUPERLINEAR."""
+    base_red_excuse.py and test_reds.py (module_patterns) not in KNOWN_SUPERLINEAR runs through finditer on each of its
+    openers (regex_openers) repeated to LINE and 4 LINE characters; a pair over SCALING_LIMIT on a quick look is
+    measured again with assert_scales' protocol (scaling_failure), and what is super-linear there fails. A
+    KNOWN_SUPERLINEAR entry is checked against its pin, not a clock; an edited one is measured SHRINK_REPEATS times
+    only to say whether to drop it or re-pin it, and fails either way."""
     LINE = 3000
     MEASURABLE = 0.0005
     MOST = 200_000
     CEILING = 10
+    SHRINK_REPEATS = 5
 
-    def superlinear(self):
+    def quick_look(self, name, rx, openers, confirm):
+        """Why RX is super-linear on its first opener over SCALING_LIMIT, else None. CONFIRM measures that opener again
+        with scaling_failure (a new pattern); without it the quick look's ratio is the answer (an edited known one,
+        whose verdict only words the message)."""
         import gc
         import signal
         import time
 
-        def once(rx, text):
+        def once(text):
             gc.disable()
             try:
                 began = time.process_time()
@@ -12748,49 +12765,105 @@ class PrLogPatternsScale(unittest.TestCase):
         def expire(signum, frame):
             raise ScalingHang()
         previous = signal.getsignal(signal.SIGALRM)
-        found, seen = {}, 0
-        for name, rx in module_patterns():
-            for opener in regex_openers(rx.pattern, rx.flags):
-                seen += 1
-                if name in found:
-                    continue  # one opener is enough
-                count = max(1, self.LINE // len(opener))
+        for opener in openers:
+            count = max(1, self.LINE // len(opener))
 
-                def build(size, rx=rx, opener=opener):
-                    text = opener * size
-                    return lambda: [None for _ in rx.finditer(text)]
-                # Long enough that the smaller line takes a measurable time (MEASURABLE), up to MOST characters.
-                signal.signal(signal.SIGALRM, expire)
-                signal.setitimer(signal.ITIMER_REAL, self.CEILING)  # a hang guard, never a timing bound
-                try:
-                    while (small := min(once(rx, opener * count) for _ in range(2))) < self.MEASURABLE \
-                            and 16 * count * len(opener) <= self.MOST:
-                        count *= 4
-                    large = min(once(rx, opener * 4 * count) for _ in range(2))
-                except ScalingHang:
-                    found[name] = (f"{name} on {opener[:30]!r}: still running after {self.CEILING} s at "
-                                   f"{4 * count * len(opener):,} characters (a hang guard, not a timing bound)")
-                    continue
-                finally:
-                    signal.setitimer(signal.ITIMER_REAL, 0)
-                    signal.signal(signal.SIGALRM, previous)
-                if large < self.MEASURABLE or large / max(small, 1e-9) < SCALING_LIMIT:
-                    continue
-                # A known one is over the bound every time (about 16x); a new one is measured again as any is.
-                if name in KNOWN_SUPERLINEAR:
-                    found.setdefault(name, f"{large / small:.1f}x")
-                elif why := scaling_failure(build, count, f"{name} on {opener[:30]!r}", ceiling=10):
-                    found.setdefault(name, why)
-        return found, seen
+            def build(size, opener=opener):
+                text = opener * size
+                return lambda: [None for _ in rx.finditer(text)]
+            # Long enough that the smaller line takes a measurable time (MEASURABLE), up to MOST characters.
+            signal.signal(signal.SIGALRM, expire)
+            signal.setitimer(signal.ITIMER_REAL, self.CEILING)  # a hang guard, never a timing bound
+            try:
+                while (small := min(once(opener * count) for _ in range(2))) < self.MEASURABLE \
+                        and 16 * count * len(opener) <= self.MOST:
+                    count *= 4
+                large = min(once(opener * 4 * count) for _ in range(2))
+            except ScalingHang:
+                return (f"{name} on {opener[:30]!r}: still running after {self.CEILING} s at "
+                        f"{4 * count * len(opener):,} characters (a hang guard, not a timing bound)")
+            finally:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+                signal.signal(signal.SIGALRM, previous)
+            if large < self.MEASURABLE or large / max(small, 1e-9) < SCALING_LIMIT:
+                continue
+            if not confirm:
+                return f"{large / small:.1f}x on {opener[:30]!r}"
+            if why := scaling_failure(build, count, f"{name} on {opener[:30]!r}", ceiling=10):
+                return why
+        return None
+
+    def superlinear(self):
+        """(new, edited, seen): NEW maps each super-linear module pattern outside KNOWN_SUPERLINEAR to why; EDITED maps
+        each KNOWN_SUPERLINEAR entry whose pattern is gone or no longer its pin to what to do; SEEN counts openers."""
+        patterns = dict(module_patterns())
+        openers = {name: regex_openers(rx.pattern, rx.flags) for name, rx in patterns.items()}
+        new = {}
+        for name, rx in patterns.items():
+            if name not in KNOWN_SUPERLINEAR and (why := self.quick_look(name, rx, openers[name], confirm=True)):
+                new[name] = why
+        edited = {}
+        for name, (pin, _) in KNOWN_SUPERLINEAR.items():
+            if name not in patterns:
+                edited[name] = "no such module pattern now: drop it from KNOWN_SUPERLINEAR"
+                continue
+            if (now := pattern_pin(patterns[name])) == pin:
+                continue  # the regex that was measured super-linear: no clock can make it linear
+            for _ in range(self.SHRINK_REPEATS):
+                if why := self.quick_look(name, patterns[name], openers[name], confirm=False):
+                    edited[name] = f"edited and still super-linear ({why}): pin it at {now!r}"
+                    break
+            else:
+                edited[name] = (f"edited ({pin!r} is now {now!r}) and linear on each of {self.SHRINK_REPEATS} "
+                                "sweeps: drop it from KNOWN_SUPERLINEAR")
+        return new, edited, sum(map(len, openers.values()))
 
     def test_every_pattern_costs_linear_in_a_line(self):
-        found, seen = self.superlinear()
+        new, edited, seen = self.superlinear()
         self.assertGreater(seen, 300, "the sweep found the patterns")
-        new = {name: why for name, why in found.items() if name not in KNOWN_SUPERLINEAR}
         self.assertEqual(new, {}, "a pattern that reads a PR's line in super-linear time: make it linear (a "
                          "lookbehind that starts it once per run, no two overlapping repeats, a cut at its last closer)")
-        self.assertEqual(KNOWN_SUPERLINEAR.keys() - found.keys(), set(),
-                         "linear now: drop it from KNOWN_SUPERLINEAR")
+        self.assertEqual(edited, {}, "a KNOWN_SUPERLINEAR entry whose regex changed: drop it or re-pin it")
+
+
+class SuperlinearShrinkIsNotATimingVerdict(unittest.TestCase):
+    """cmux run 43087045630 (job 130754109413): PrLogPatternsScale failed a PR with "'test_reds.STARTED' : linear now:
+    drop it from KNOWN_SUPERLINEAR" while base passed the same step (run 43089094009): one wall-clock look on a fast
+    runner called a pattern nobody had touched linear. The shrink direction of the ratchet may never be a timing
+    verdict. The detector: a clock under which every sample is fast and equal (each look costs the same at LINE and 4
+    LINE characters, so every pattern looks linear) must leave the sweep green."""
+
+    @staticmethod
+    def fast_clock():
+        ticks = iter(range(10**9))
+        return unittest.mock.patch("time.process_time", lambda: next(ticks) * PrLogPatternsScale.MEASURABLE * 2)
+
+    def test_a_clock_where_every_sample_is_fast_never_fails_the_sweep(self):
+        with self.fast_clock():
+            PrLogPatternsScale("test_every_pattern_costs_linear_in_a_line").test_every_pattern_costs_linear_in_a_line()
+
+    def test_a_pinned_entry_is_never_timed(self):
+        looked = []
+        real = PrLogPatternsScale.quick_look
+
+        def spy(case, name, *args, **kwargs):
+            looked.append(name)
+            return real(case, name, *args, **kwargs)
+        with self.fast_clock(), unittest.mock.patch.object(PrLogPatternsScale, "quick_look", spy):
+            new, edited, _ = PrLogPatternsScale().superlinear()
+        self.assertEqual((new, edited), ({}, {}))
+        self.assertTrue(looked, "the sweep times the patterns outside KNOWN_SUPERLINEAR")
+        self.assertEqual(set(looked) & KNOWN_SUPERLINEAR.keys(), set(), "a pinned entry was timed")
+
+    def test_an_edited_or_gone_entry_fails_whatever_the_clock_says(self):
+        known = dict(KNOWN_SUPERLINEAR, **{"test_reds.STARTED": ("000000000000", "an older STARTED"),
+                                           "test_reds.NO_SUCH_PATTERN": ("000000000000", "a removed pattern")})
+        with self.fast_clock(), unittest.mock.patch.dict(globals(), KNOWN_SUPERLINEAR=known):
+            _, edited, _ = PrLogPatternsScale().superlinear()
+        self.assertEqual(edited.keys(), {"test_reds.STARTED", "test_reds.NO_SUCH_PATTERN"})
+        self.assertIn(f"linear on each of {PrLogPatternsScale.SHRINK_REPEATS} sweeps: drop it",
+                      edited["test_reds.STARTED"])
+        self.assertIn("no such module pattern now", edited["test_reds.NO_SUCH_PATTERN"])
 
 
 # cmux#41205 at ba8ff399 and cmux#41220 at c7b757f0 (2026-11-11): both red in cmux-next-guards.yml's own-change job
