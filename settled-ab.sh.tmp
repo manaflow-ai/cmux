@@ -1,0 +1,6 @@
+set -u
+cd webviews
+mv base-direct.ts.tmp /tmp/base-direct.ts; mv base-App.tsx.tmp /tmp/base-App.tsx
+for i in 1 2; do echo "=== AFTER $i"; bun test test/agent-pane-settled-load.test.ts -t "cold" 2>&1 | grep -E "settled-load:|\(pass\)|\(fail\)|Error" | head; done
+cp /tmp/base-direct.ts src/agent-session/acpmux/direct.ts; cp /tmp/base-App.tsx src/agent-session/acpmux/App.tsx
+for i in 1 2; do echo "=== BASE $i"; bun test test/agent-pane-settled-load.test.ts -t "cold" 2>&1 | grep -E "settled-load:|\(pass\)|\(fail\)|Error" | head; done
