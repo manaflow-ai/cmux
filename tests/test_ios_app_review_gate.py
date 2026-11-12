@@ -117,6 +117,22 @@ class AppReviewGateTests(unittest.TestCase):
         self.assertIn("metadata.missing", self.rules(lint))
         self.assertTrue(any("cmux-next-ios/AppStoreReview/metadata" in f.message for f in lint.findings))
 
+    def test_a_raw_error_dump_in_user_text_warns_but_a_log_line_does_not(self) -> None:
+        rel = "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileLive/Failing.swift"
+        write(self.root, rel,
+              'log.error("failed: \\(String(describing: error), privacy: .public)")\n'
+              'let shown = UserFacingError.message(error)\n'
+              '// was: (error as? LocalizedError)?.errorDescription ?? String(describing: error)\n')
+        lint = self.run_lint()
+        self.assertEqual([f for f in lint.findings if f.rule == "ux.raw-error"], [])
+        write(self.root, rel, 'failure = (error as? LocalizedError)?.errorDescription ?? String(describing: error)\n')
+        write(self.root, "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/FailingTests.swift",
+              'let text = x ?? String(describing: error)\n')
+        lint = self.run_lint()
+        raw = [f for f in lint.findings if f.rule == "ux.raw-error"]
+        self.assertEqual([(f.severity, f.where) for f in raw], [("warning", f"{rel}:1")])
+        self.assertNotIn("ux.raw-error", self.rules(lint))
+
     def test_google_and_github_without_apple_block(self) -> None:
         write(self.root, "cmux-next-ios/CmuxMobileKit/Sources/CmuxMobileOnboarding/Welcome.swift",
               'let g = "Continue with Google"; let h = "Continue with GitHub"\n')

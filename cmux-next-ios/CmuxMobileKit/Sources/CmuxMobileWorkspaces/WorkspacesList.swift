@@ -254,6 +254,7 @@ public struct WorkspacesList: View {
                 Button("Delete Group", role: .destructive) {
                     withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.deleteGroup(target.group, on: target.macID) }
                 }
+                Button("Cancel", role: .cancel) {}
             } message: { (target: GroupTarget) in
                 Text(deleteGroupMessage(target))
             }
@@ -714,6 +715,7 @@ public struct WorkspacesList: View {
                         }
                     }
                 }
+                Button("Cancel", role: .cancel) {}
             } message: { bulk in
                 Text(bulk.message(macName: mac(bulk.workspace.macID).map(displayName) ?? "the Mac"))
             }
@@ -723,6 +725,7 @@ public struct WorkspacesList: View {
                     theme.haptics.impactLight()
                     withAnimation(theme.motion.smooth.animation.unlessReduceMotion) { creator.close(ws) }
                 }
+                Button("Cancel", role: .cancel) {}
             } message: { ws in
                 Text("Its tabs close on \(mac(ws.macID).map(displayName) ?? "the Mac").")
             }

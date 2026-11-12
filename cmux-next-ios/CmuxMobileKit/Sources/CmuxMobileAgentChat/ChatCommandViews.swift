@@ -1,4 +1,5 @@
 #if os(iOS)
+import enum CmuxMobileModel.UserFacingError
 import CmuxMobileDesign
 import CmuxSpinner
 import SwiftUI
@@ -182,7 +183,7 @@ struct SessionStatusSheet: View {
         do {
             load = .loaded(try await store.source.sessionStatus())
         } catch {
-            load = .failed((error as? LocalizedError)?.errorDescription ?? String(describing: error))
+            load = .failed(UserFacingError.message(error, fallback: "Couldn't read the session status. Try again."))
         }
     }
 }

@@ -830,7 +830,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     static func message(_ error: any Error) -> String {
-        (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+        UserFacingError.message(error)
     }
 
     // MARK: Per-tab state
@@ -2234,6 +2234,7 @@ struct WorkspaceTabPage: View {
                     .font(.callout).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(Color.black)
+                    .environment(\.colorScheme, .dark)
             }
         }
     }

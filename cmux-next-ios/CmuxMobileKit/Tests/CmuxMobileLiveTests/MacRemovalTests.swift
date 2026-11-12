@@ -273,7 +273,7 @@ final class ServiceStub: URLProtocol, @unchecked Sendable {
         #expect(notOwner.text.contains("another account"))
         #expect(notOwner.display.hasSuffix("Request ID: r1"))
         let server = LiveAPI.removalMessage(for: LiveAPI.Failure(status: 503, code: "http_503", message: "", requestID: nil))
-        #expect(server.text == "The Cloud service couldn't remove it (http_503). Try again in a moment.")
+        #expect(server.text == "The Cloud service couldn't remove it. Try again in a moment.")
         #expect(server.requestID == nil)
     }
 

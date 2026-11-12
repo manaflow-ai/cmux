@@ -107,6 +107,7 @@ public struct SetupFlow: View {
                 theme.haptics.warning()
                 signOut()
             }
+            Button("Cancel", role: .cancel) {}
         } message: {
             Text("You can sign in again with this or another account.")
         }
@@ -230,6 +231,7 @@ private struct SetupSymbol: View {
         Image(systemName: name)
             .font(.system(size: 40, weight: .regular))
             .foregroundStyle(theme.colors.label)
+            .accessibilityHidden(true)
     }
 }
 
@@ -243,6 +245,7 @@ private struct ExplainerRow: View {
                 .font(.system(size: 17))
                 .frame(width: 22)
                 .foregroundStyle(theme.colors.label)
+                .accessibilityHidden(true)
             Text(text)
                 .font(theme.type.body)
                 .foregroundStyle(theme.colors.label)

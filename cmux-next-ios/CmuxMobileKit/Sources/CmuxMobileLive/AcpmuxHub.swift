@@ -1217,19 +1217,8 @@ public final class AcpmuxSessionSource: AgentSessionSource {
             return "Not approved: update cmux on the Mac to approve from this iPhone, or approve on the Mac."
         }
         if let failure = error as? PhoneKeys.Failure { return "Not approved: \(failure.message)" }
-        if let error = error as? AcpmuxConnection.RPCError {
-            switch error.reason {
-            case "permission.person_required":
-                return "Allow this iPhone in the Mac's Settings → Mobile, or approve on the Mac."
-            case "trust.pending", "trust.untrusted": return "Trust this folder on your Mac first."
-            case "remote.lasting_grant_refused": return "From an iPhone you can allow once or deny. Allow for this chat on the Mac."
-            case "remote.full_access_required": return "Full access is off for this iPhone. Turn it on in Settings > Devices on the Mac."
-            default:
-                if error.message.hasPrefix("no pending permission") { return "Already answered on your Mac." }
-                // An agent's raw JSON error (a model the account lacks) reads as a sentence.
-                return TurnFailureCopy.plain(error.message)
-            }
-        }
+        // RPCError's copy (reasons, "Already answered", an agent's JSON error) lives on the type.
+        if let error = error as? AcpmuxConnection.RPCError, let text = error.errorDescription { return text }
         return LinkController.reason(error)
     }
 

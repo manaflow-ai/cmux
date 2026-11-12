@@ -166,7 +166,7 @@ struct TeamSidebar: View {
             }
             .foregroundStyle(theme.colors.label)
             .padding(.horizontal, theme.metrics.sideMargin - theme.metrics.selectedRowInset)
-            .frame(height: theme.metrics.sidebarRowPitch)
+            .frame(minHeight: theme.metrics.sidebarRowPitch)
             .contentShape(.rect)
         }
         .buttonStyle(SidebarRowStyle())

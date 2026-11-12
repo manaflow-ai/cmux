@@ -176,7 +176,8 @@ public final class ChiefCloudBackend: ConversationBackend, ChiefLiveSource, @unc
                                                 toWorker: !presigned)
                 // 412: a retried presigned PUT whose first attempt landed (`if-none-match: *`).
                 guard (200..<300).contains(put.status) || (presigned && put.status == 412) else {
-                    throw ConversationBackendError(code: -32000, message: "attachment.upload_refused (HTTP \(put.status))")
+                    // The status stays out of the person's text (the upload's own log has it).
+                    throw ConversationBackendError(code: -32000, message: String(localized: "The attachment couldn't upload. Try again."))
                 }
                 if presigned {
                     guard let slot = answer["slot"] as? String else { throw ConversationBackendError(code: -4, message: "attachment.bad_answer") }
