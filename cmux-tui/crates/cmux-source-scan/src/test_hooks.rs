@@ -251,13 +251,13 @@ fn crate_module(rel: &str) -> Option<Vec<String>> {
         None => rel.strip_prefix("src/")?,
     };
     let parts: Vec<&str> = inner.strip_suffix(".rs")?.split('/').collect();
-    let parts = match parts.as_slice() {
-        ["bin", _] => &[][..],
+    let parts: &[&str] = match parts.as_slice() {
+        ["bin", _] => &[],
         ["bin", _, rest @ ..] => rest,
         all => all,
     };
-    let parts = match parts {
-        ["lib" | "main"] => &[][..],
+    let parts: &[&str] = match parts {
+        ["lib" | "main"] => &[],
         [rest @ .., "mod"] => rest,
         all => all,
     };
