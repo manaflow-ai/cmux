@@ -1,4 +1,5 @@
 import CmuxAgentQuestion
+public import CmuxMobileDesign
 import CmuxMobileDiff
 import CmuxMobileMarkdown
 import CmuxMobileModel
@@ -318,10 +319,31 @@ public final class AgentChatStore {
     /// grid card and the subagent screens share them).
     @ObservationIgnored public let diffs = ChatDiffCache()
 
-    public init(source: any AgentSessionSource) {
+    /// Says when a dropped or catching-up chat may show its line (after 10 s);
+    /// its rows stay on screen the whole time.
+    @ObservationIgnored public let quietStatus: QuietStatusGate
+
+    /// The chat's one quiet status line by the composer: nil while live and for the first
+    /// ``QuietStatusGate/threshold`` of an outage or a catch-up (the kept rows show
+    /// meanwhile), then what it waits for. A chat with nothing kept shows its loading state
+    /// instead (``AgentChatLoadingState``).
+    public var connectionLine: String? {
+        guard quietStatus.isShown, hasTurns else { return nil }
+        if summary.status == .disconnected { return "Connecting to \(summary.macName)…" }
+        return isLoadingHistory ? "Updating…" : nil
+    }
+
+    /// Feeds ``quietStatus`` from the link and history state.
+    private func updateQuietStatus() {
+        quietStatus.update(down: summary.status == .disconnected || isLoadingHistory)
+    }
+
+    public init(source: any AgentSessionSource, quietStatus: QuietStatusGate = QuietStatusGate()) {
         self.source = source
         self.summary = source.summary
         self.isLoadingHistory = source.loadsHistory
+        self.quietStatus = quietStatus
+        quietStatus.update(down: source.summary.status == .disconnected || source.loadsHistory)
         let stream = source.events()
         task = Task { [weak self] in
             for await event in stream {
@@ -441,6 +463,7 @@ public final class AgentChatStore {
         chunkFlushes += 1
         for chunk in Self.merged(chunks) { applyEvent(chunk) }
         refreshDerived(lastTurnOnly: true)
+        updateQuietStatus()
     }
 
     nonisolated static func isTextChunk(_ event: AgentSessionEvent) -> Bool {
@@ -811,6 +834,8 @@ public final class AgentChatStore {
     func apply(_ event: AgentSessionEvent) {
         applyEvent(event)
         refreshDerived()
+        // A record after a reattach can end `.disconnected` without a `.status` event.
+        updateQuietStatus()
     }
 
     private func applyEvent(_ event: AgentSessionEvent) {
