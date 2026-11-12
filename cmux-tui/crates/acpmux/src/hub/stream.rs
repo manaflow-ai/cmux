@@ -54,9 +54,7 @@ const PLUMBING_TOOLS: &[&str] = &["ToolSearch", "tool_search", "load_tools"];
 /// places too (a permission card, an offer); a row after one is named by its first chunk read.
 fn cuts_reply(kind: &str, update: &Value) -> bool {
     match kind {
-        "agent_thought_chunk" => {
-            update.pointer("/content/text").and_then(Value::as_str).is_some_and(|t| !t.is_empty())
-        }
+        "agent_thought_chunk" => update.get("content").is_some_and(has_text),
         "compaction" => true,
         "tool_call" => {
             let tool = update
@@ -69,6 +67,22 @@ fn cuts_reply(kind: &str, update: &Value) -> bool {
                 || update.pointer("/_meta/acpmux/planTool").and_then(Value::as_bool) == Some(true);
             !plumbing && !todo
         }
+        _ => false,
+    }
+}
+
+/// Whether ACP content holds any text, in each form the pane reads (direct.ts `textFromContent`).
+fn has_text(content: &Value) -> bool {
+    match content {
+        Value::String(text) => !text.is_empty(),
+        Value::Array(items) => items.iter().any(has_text),
+        Value::Object(_) => match content.get("type").and_then(Value::as_str) {
+            Some("text") => {
+                content.get("text").and_then(Value::as_str).is_some_and(|t| !t.is_empty())
+            }
+            Some("content") => content.get("content").is_some_and(has_text),
+            _ => false,
+        },
         _ => false,
     }
 }
@@ -94,23 +108,21 @@ pub(super) fn stamp_reply_segment(value: &mut Value, segment: &str) {
 }
 
 impl Hub {
-    /// Ends the reply segment streaming now (`reply_segment`): a prompt (a steer) came between.
-    pub(super) fn end_reply_segment(&self, session: &Session) {
-        session.stream.lock().unwrap_or_else(|e| e.into_inner()).reply_segment = None;
-    }
-
     /// Called for a live agent `session/update` before it is recorded.
     /// Appends `message_superseded` ahead of the redelivered message.
     ///
     /// Returns the reply segment of an `agent_message_chunk`: one id for every chunk of one
-    /// message (the same `messageId`; with none, the run of chunks with none) in one turn, until a
-    /// prompt (a steer) or what the pane cuts a reply's row at (`cuts_reply`) ends it: the turn's id,
-    /// this daemon run's mark and the segment's number in the turn. Its boundaries are the pane's
-    /// row boundaries, so a row is named the same whichever of its chunks a page starts at. Stamped on each chunk's record (`stamp_reply_segment`), it names
-    /// the reply's row in a client whichever of its chunks a page of the log starts at, so a reply
-    /// a page cut is never drawn again under another id when the page before it comes in, and a
-    /// reconnect's page draws it under the id it had (Leo, 2026-11-11: "they just appear and
-    /// disappear, and then they constantly load and reload").
+    /// message (the same `messageId`; with none, the run of chunks with none) in one turn, until
+    /// what the pane cuts a reply's row at (`cuts_reply`) ends it. A steer does not: the rest of a
+    /// reply streaming when it lands stays in its row above it (direct.ts `holdAssistantSegment`;
+    /// Leo, 2026-10-31: "why was i able to cut my prompt in between your messages"). The id is the
+    /// turn's id, this daemon run's mark and the segment's number in the turn. Stamped on each
+    /// chunk's record (`stamp_reply_segment`), it names the reply's row in a client whichever of its
+    /// chunks a page of the log starts at, so a reply a page cut is never drawn again under another
+    /// id when the page before it comes in, and a reconnect's page draws it under the id it had
+    /// (Leo, 2026-11-11: "they just appear and disappear, and then they constantly load and
+    /// reload"). Where the pane's cut depends on what its page holds (a first plan or todo call,
+    /// a new subagent group, a permission card), the row after it is named by its first chunk read.
     pub(super) fn before_agent_update(
         &self,
         session: &Session,

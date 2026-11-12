@@ -8819,8 +8819,9 @@ export class AcpmuxDirectClient {
       }
       // After a cut only the cut message's own text goes on in its row; anything else starts below.
       if (this.assistantCut && messageId !== this.streamingAssistantMessageId) this.endAssistantSegment();
-      // acpmux ends a reply's segment at a new message or a prompt (hub/stream.rs): a chunk of
-      // another segment starts its own row, even under the same messageId (a reply a steer split).
+      // acpmux ends a reply's segment where the pane cuts its row (hub/stream.rs `cuts_reply`): a
+      // chunk of another segment starts its own row, even under the same messageId, so a page that
+      // lacks the record the cut was at (a thought, a call) still draws the two rows.
       const stamped = replySegment(event);
       const segment = this.streamingSegment;
       if (
