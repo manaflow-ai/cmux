@@ -35,6 +35,7 @@ than pass unchecked. Run it on the fleet: `python3 tests/test_py39_names.py` (CL
 """
 
 import ast
+import importlib.util
 import json
 import os
 import re
@@ -46,6 +47,10 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
+# Load beside this suite even under python -I; no runtime/install dependency on another repository.
+_scope_spec = importlib.util.spec_from_file_location("py39_scope_resolver", HERE / "py39_scope_resolver.py")
+scope_resolver = importlib.util.module_from_spec(_scope_spec)
+_scope_spec.loader.exec_module(scope_resolver)
 INSTALLER = "scripts/install-git-hooks.sh"
 COPIED = re.compile(r"^scripts/cmux-next/(?:[^/]+|lint/.+|arch_rules/.+)\.py$")  # install-git-hooks.sh COPY_CHECKERS
 NAMED = re.compile(r"\bscripts/[\w./-]+\.py\b")
@@ -117,35 +122,37 @@ _CMP = {ast.Lt: lambda a, b: a < b, ast.LtE: lambda a, b: a <= b, ast.Gt: lambda
 _SCOPE = {"alias": {}, "probed": set(), "attr_lacks": set(), "import_lacks": set()}
 
 
+class _LexicalAliases:
+    """Stdlib imports as seen at each read, using the compiler-backed lexical resolver."""
+
+    def __init__(self, tree):
+        self.resolver = scope_resolver.Resolver(tree)
+        std = set(getattr(sys, "stdlib_module_names", ()))
+        self.modules = {a.name if a.asname else a.name.split(".")[0]
+                        for n in ast.walk(tree) if isinstance(n, ast.Import)
+                        for a in n.names if a.name.split(".")[0] in std}
+
+    def modules_at(self, node):
+        values, _ = self.resolver.values(node, node.id)
+        return values & self.modules
+
+    def for_name(self, node):
+        values, complete = self.resolver.values(node, node.id)
+        return next(iter(values)) if complete and len(values) == 1 and values <= self.modules else None
+
+
 def _aliases(tree):
-    """{local name: stdlib module} for each `import M` / `import M as A` in TREE."""
-    std = set(getattr(sys, "stdlib_module_names", ()))
-    alias = {}
-    for n in ast.walk(tree):
-        if isinstance(n, ast.Import):
-            for a in n.names:
-                top = a.name.split(".")[0]
-                if top in std:
-                    alias[a.asname or top] = a.name if a.asname else top
-    shadowed = set()
-    for n in ast.walk(tree):
-        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store):
-            shadowed.add(n.id)
-        elif isinstance(n, ast.arg):
-            shadowed.add(n.arg)
-        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            shadowed.add(n.name)
-    for name in shadowed:
-        alias.pop(name, None)
-    return alias
+    return _LexicalAliases(tree)
 
 
 def _guard_pair(expr):
     """(module, name) when EXPR is hasattr(M, "N") or getattr(M, "N", ...) of a stdlib module alias, else None."""
     if (isinstance(expr, ast.Call) and isinstance(expr.func, ast.Name) and expr.func.id in GUARD_CALLS
-            and len(expr.args) >= 2 and isinstance(expr.args[0], ast.Name) and expr.args[0].id in _SCOPE["alias"]
+            and len(expr.args) >= 2 and isinstance(expr.args[0], ast.Name)
             and isinstance(expr.args[1], ast.Constant) and isinstance(expr.args[1].value, str)):
-        return _SCOPE["alias"][expr.args[0].id], expr.args[1].value
+        module = _SCOPE["alias"].for_name(expr.args[0])
+        if module is not None:
+            return module, expr.args[1].value
     return None
 
 
@@ -307,9 +314,9 @@ def sites(path):
             out.append((n.module, None, n.lineno, guarded(n), "import"))
             for a in n.names:
                 out.append((n.module, a.name, n.lineno, guarded(n), "import"))
-        elif (isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Load) and isinstance(n.value, ast.Name)
-              and n.value.id in alias):
-            out.append((alias[n.value.id], n.attr, n.lineno, guarded(n), "attr"))
+        elif (isinstance(n, ast.Attribute) and isinstance(n.ctx, ast.Load) and isinstance(n.value, ast.Name)):
+            for module in sorted(alias.modules_at(n.value)):
+                out.append((module, n.attr, n.lineno, guarded(n), "attr"))
     return out
 
 
