@@ -65,7 +65,11 @@ async fn seeded_narrow_reads_exclude_peers_and_keep_closed_links() {
         "tools": [{"id": "tool", "description": "x".repeat(4096)}]})
         })
         .collect();
-    hub.apply_peer_notice("remote", peer.generation, crate::peer::PeerNotice::Sessions(rows));
+    hub.apply_peer_notice(
+        "remote",
+        peer.generation,
+        crate::peer::PeerNotice::sessions_from_values(rows),
+    );
     // Warm the shared snapshot equally for both paths. No agents or peers are started.
     let _ = read(&hub, "_acpmux/sessions", json!({"limit": 1})).await;
     let (full, before_bytes, before_ms) = read_whole(&hub, "_acpmux/sessions", json!({})).await;
@@ -190,7 +194,11 @@ async fn a_page_of_its_own_rows_is_the_whole_lists_page() {
                 "updatedAt": at, "tools": [{"id": "tool", "description": "x".repeat(64)}]})
         })
         .collect();
-    hub.apply_peer_notice("remote", peer.generation, crate::peer::PeerNotice::Sessions(rows));
+    hub.apply_peer_notice(
+        "remote",
+        peer.generation,
+        crate::peer::PeerNotice::sessions_from_values(rows),
+    );
     let list = hub.list_guard.snapshot(&hub).await;
     let full = list.full_rows(&hub);
     // The wire's budget (`server::list_reply::LIST_PAGE_BYTES`): these pages are far smaller.

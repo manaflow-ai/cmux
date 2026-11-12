@@ -9,9 +9,10 @@ would otherwise resolve by keeping the last job of that name.
 
 Secrets are matched in every form GitHub accepts: `secrets.X`, `secrets['X']`,
 `secrets["X"]`, any case, `toJSON(secrets)`, `secrets.*`, a computed index and `secrets: inherit`.
-Each `${{ }}` is read by a tokenizer (expressions(), expression_tokens()), not a regex: a string
-literal may hold `}}` (a format() writing JSON braces), and the reference may sit in any function,
-index or operator (Codex review of #40784 at 96e5261c).
+Each `${{ }}` is found by one tokenizer (scripts/ci/gh_expressions.py) and read by expression_tokens(), never by
+a regex: a string literal may hold `}}` (a format() writing JSON braces) or an escaped quote, and the reference may
+sit in any function, index or operator (Codex reviews of #40784 at 96e5261c and of #41768 at 96ae1555). Where an
+expression decides a value (a matrix cell, a runs-on label) one that never ends is unresolved.
 
 PyYAML reads the `on:` key as the boolean True; a guard that needs the triggers reads
 `document.get("on", document.get(True))`.
@@ -22,11 +23,15 @@ from __future__ import annotations
 import itertools
 import json
 import re
+import sys
 from collections.abc import Callable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "ci"))
+import gh_expressions  # noqa: E402
 
 ALL_SECRETS = "*"
 
@@ -36,12 +41,20 @@ ALL_SECRETS = "*"
 _SECRET_DOT = re.compile(r"\bsecrets\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.IGNORECASE)
 _TOKEN = re.compile(r"""\s*(?:(?P<string>'(?:[^']|'')*'?)|(?P<string2>"[^"]*"?)|(?P<number>-?\d[\w.+-]*)"""
                     r"""|(?P<name>[A-Za-z_][A-Za-z0-9_-]*)|(?P<op>==|!=|<=|>=|&&|\|\||[.\[\](),!<>*])|(?P<other>\S))""")
-_EXPRESSION = re.compile(r"\$\{\{(.*?)\}\}", re.DOTALL)
-_MATRIX_REF = re.compile(r"\bmatrix\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)", re.IGNORECASE)
+_EXPRESSION = gh_expressions.EXPRESSION
+# The matrix context read in any form inside an expression: `matrix.x`, `matrix['x']`, a computed index
+# (`matrix[inputs.axis]`), the whole object (`toJSON(matrix)`). Not a property named matrix (`needs.matrix`, `x-matrix`).
+_MATRIX_CONTEXT = re.compile(r"(?<![\w.-])matrix(?![\w-])", re.IGNORECASE)
+_STRING_LITERAL = re.compile(r"'(?:[^']|'')*'")
 _QUOTED = re.compile(r"^'((?:[^']|'')*)'$")
+# The contents of a whole `${{ matrix.KEY }}`, the one form expand_matrix replaces.
+_WHOLE_MATRIX_KEY = re.compile(r"\s*matrix\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*", re.IGNORECASE)
 # `ctx['name']` / `ctx["name"]` with a literal name: the same reference as `ctx.name` (matrix, inputs, vars, secrets,
-# env, needs and the outputs of either).
-_LITERAL_INDEX = re.compile(r"\b([A-Za-z_][A-Za-z0-9_-]*)\s*\[\s*(?:'([A-Za-z_][A-Za-z0-9_-]*)'|\"([A-Za-z_][A-Za-z0-9_-]*)\")\s*\]")
+# env, needs and the outputs of either). A string literal is matched whole first, so an index spelled in one stays text.
+_INDEX_OR_LITERAL = re.compile(
+    r"(?P<literal>'(?:[^']|'')*')"
+    r"|\b(?P<name>[A-Za-z_][A-Za-z0-9_-]*)\s*\[\s*(?:'(?P<single>[A-Za-z_][A-Za-z0-9_-]*)'"
+    r"|\"(?P<double>[A-Za-z_][A-Za-z0-9_-]*)\")\s*\]")
 _INPUT_TERM = re.compile(r"\s*inputs\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*", re.IGNORECASE)
 _WHOLE_INPUT = re.compile(r"\$\{\{\s*inputs\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*\}\}", re.IGNORECASE)
 
@@ -165,20 +178,9 @@ def strings(value: Any) -> Iterator[str]:
 
 def expressions(text: str) -> list[str]:
     """The contents of each `${{ }}` in TEXT, read as GitHub reads them: a `}}` inside a string literal
-    (`'...'`, `''` an escaped quote) does not end the expression. One that never ends runs to the end of TEXT."""
-    found = []
-    start = text.find("${{")
-    while start != -1:
-        i, quoted = start + 3, False
-        while i < len(text):
-            if text[i] == "'":
-                quoted = not quoted  # `''` inside a string toggles twice: still inside
-            elif not quoted and text.startswith("}}", i):
-                break
-            i += 1
-        found.append(text[start + 3:i])
-        start = text.find("${{", i + 2)
-    return found
+    (`'...'`, `''` an escaped quote) does not end the expression. One that never ends runs to the end of TEXT, so a
+    secret in it still counts (gh_expressions.contents, strict=False)."""
+    return gh_expressions.contents(text, strict=False)
 
 
 def expression_tokens(expression: str) -> list[tuple[str, str]]:
@@ -252,7 +254,8 @@ def runs_on(job: Mapping[str, Any]) -> str:
     return value if isinstance(value, str) else yaml.safe_dump(value, default_flow_style=True).strip()
 
 
-_FROM_JSON = re.compile(r"^\$\{\{\s*fromJSON\s*\(\s*(.*?)\s*\)\s*\}\}$", re.IGNORECASE | re.DOTALL)
+# The contents of a whole-expression `${{ fromJSON(X) }}` (gh_expressions.STRIPPED.fullmatch finds the expression).
+_FROM_JSON = re.compile(r"fromJSON\s*\(\s*(.*?)\s*\)", re.IGNORECASE | re.DOTALL)
 _NEEDS_OUTPUT = re.compile(r"needs\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)", re.IGNORECASE)
 _STEP_OUTPUT = re.compile(r"\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.([A-Za-z0-9_-]+)\s*\}\}", re.IGNORECASE)
 
@@ -300,7 +303,11 @@ def _matrix(job: Mapping[str, Any]) -> Mapping[str, Any] | None:
         return matrix
     if not isinstance(matrix, str):
         return None
-    called = _FROM_JSON.match(matrix.strip())
+    try:
+        whole = gh_expressions.STRIPPED.fullmatch(matrix.strip())
+    except gh_expressions.Unterminated:
+        return None
+    called = _FROM_JSON.fullmatch(whole.group(1)) if whole else None
     if called is None:
         return None
     argument = dotted("${{ " + called.group(1) + " }}")[3:-2].strip()
@@ -349,27 +356,59 @@ def _scalar_text(value: Any) -> str:
     return value if isinstance(value, str) else ("true" if value is True else "false" if value is False else str(value))
 
 
+def _reads_matrix(text: str) -> bool:
+    """`text` still reads the matrix context in some expression (string literals aside). expand_matrix calls this
+    after it replaced every whole `${{ matrix.KEY }}`: what is left (a matrix key inside a larger expression, a
+    computed or non-identifier index, the whole matrix object) is a value it cannot resolve. An expression that never
+    ends counts as one: what it reads is unknown."""
+    try:
+        found = _EXPRESSION.findall(text)
+    except gh_expressions.Unterminated:
+        return True
+    return any(_MATRIX_CONTEXT.search(_STRING_LITERAL.sub("''", inner)) for inner in found)
+
+
 def dotted(text: str) -> str:
     """`text` with every literal index inside `${{ }}` written in dot form: `matrix['runner']` is `matrix.runner`,
-    `needs['a'].outputs['b']` is `needs.a.outputs.b`, `inputs["x"]` is `inputs.x`."""
-    def one(expression: re.Match) -> str:
+    `needs['a'].outputs['b']` is `needs.a.outputs.b`, `inputs["x"]` is `inputs.x`. Text with an expression that never
+    ends comes back as written; the reader after it (_reads_matrix, _resolve) counts it unresolved."""
+    def index(found: re.Match) -> str:
+        # A string literal is matched whole first and kept: an index spelled inside one is its text, not a read.
+        if found.group("literal") is not None:
+            return found.group(0)
+        return f"{found.group('name')}.{found.group('single') or found.group('double')}"
+
+    def one(expression: gh_expressions.Match) -> str:
         inner = expression.group(0)
         previous = None
         while previous != inner:
             previous = inner
-            inner = _LITERAL_INDEX.sub(lambda m: f"{m.group(1)}.{m.group(2) or m.group(3)}", inner)
+            inner = _INDEX_OR_LITERAL.sub(index, inner)
         return inner
-    return _EXPRESSION.sub(one, text)
+    try:
+        return _EXPRESSION.sub(one, text)
+    except gh_expressions.Unterminated:
+        return text
+
+
+def _whole_matrix_key(inner: str) -> str | None:
+    """KEY when an expression's contents are exactly `matrix.KEY`."""
+    found = _WHOLE_MATRIX_KEY.fullmatch(inner)
+    return found.group(1) if found else None
 
 
 def expand_matrix(job: Mapping[str, Any], text: str) -> list[str] | None:
-    """`text` with each `${{ matrix.KEY }}` replaced by every value the matrix gives it, or None
-    when one of them cannot be resolved."""
+    """`text` with each whole `${{ matrix.KEY }}` replaced by every value the matrix gives it, or None
+    when one of them cannot be resolved. Only whole expressions the tokenizer finds are replaced: the same text
+    inside another expression's string literal is part of that literal (cmux#41768 follow-up F1: replaced by text,
+    a value `' }}` ended the outer literal and expression early and hid the matrix read after it)."""
     text = dotted(text)
-    whole = re.compile(r"\$\{\{\s*matrix\s*\.\s*([A-Za-z_][A-Za-z0-9_-]*)\s*\}\}", re.IGNORECASE)
-    keys = list(dict.fromkeys(whole.findall(text)))
+    try:
+        keys = list(dict.fromkeys(key for key in map(_whole_matrix_key, _EXPRESSION.findall(text)) if key))
+    except gh_expressions.Unterminated:
+        return None
     if not keys:
-        return None if _MATRIX_REF.search(text) else [text]
+        return None if _reads_matrix(text) else [text]
     choices = []
     for key in keys:
         values = matrix_values(job, key)
@@ -378,11 +417,14 @@ def expand_matrix(job: Mapping[str, Any], text: str) -> list[str] | None:
         choices.append([_scalar_text(v) for v in values])
     out = []
     for combination in itertools.product(*choices):
-        expanded = text
-        for key, value in zip(keys, combination):
-            expanded = re.sub(r"\$\{\{\s*matrix\s*\.\s*" + re.escape(key) + r"\s*\}\}", value, expanded, flags=re.IGNORECASE)
-        expanded = dotted(expanded)  # a matrix value may itself index: ${{ vars['X'] }}
-        if _MATRIX_REF.search(expanded):
+        chosen = dict(zip(keys, combination))
+
+        def one(expression: gh_expressions.Match, chosen: dict[str, str] = chosen) -> str:
+            key = _whole_matrix_key(expression.group(1))
+            return chosen[key] if key is not None else expression.group(0)
+
+        expanded = dotted(_EXPRESSION.sub(one, text))  # a matrix value may itself index: ${{ vars['X'] }}
+        if _reads_matrix(expanded):
             return None
         out.append(expanded)
     return out
@@ -461,7 +503,11 @@ def _resolve(job: Mapping[str, Any], text: str, tracer: Tracer | None = None) ->
     values: set[str] = set()
     unresolved: set[str] = set()
     for cell in expanded:
-        expressions = _EXPRESSION.findall(cell)
+        try:
+            expressions = _EXPRESSION.findall(cell)
+        except gh_expressions.Unterminated:
+            unresolved.add(cell)
+            continue
         if not expressions:
             values.add(cell)
         elif len(expressions) == 1 and cell.startswith("${{") and cell.endswith("}}"):

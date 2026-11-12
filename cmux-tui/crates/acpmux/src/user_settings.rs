@@ -1,15 +1,17 @@
 //! The cmux settings file, read only (the app's settings owner writes it):
 //! `CMUX_NEXT_CONFIG_FILE`, else `~/.config/cmux/cmux-next.json`, else
 //! classic `~/.config/cmux/cmux.json` before the app's first launch copies
-//! it. The same file as `cmux_config::config_path` and `seed_path`
-//! (cmux-tui `crates/cmux-config/src/location.rs`), without the dependency.
-//! Read at each use, so a settings change applies to the next new chat.
+//! it: `cmux_config::location`'s `config_path` and `seed_path`, read with
+//! `cmux_config::jsonc`, the settings owner's own reader. Read at each use,
+//! so a settings change applies to the next new chat.
 
+use cmux_config::{jsonc, location};
 use serde_json::Value;
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 /// The override the app and tests set.
-pub const CONFIG_OVERRIDE: &str = "CMUX_NEXT_CONFIG_FILE";
+pub use cmux_config::CONFIG_OVERRIDE;
 
 /// What the settings file holds now.
 pub enum Settings {
@@ -27,17 +29,11 @@ pub enum Settings {
 /// (`hub/settings_watch.rs`) watches these.
 pub fn paths() -> Vec<PathBuf> {
     let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty());
-    let home = || var("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
-    if let Some(path) = var(CONFIG_OVERRIDE) {
-        let path = PathBuf::from(path);
-        let path = match path.strip_prefix("~") {
-            Ok(rest) => home().join(rest),
-            Err(_) => path,
-        };
-        return vec![path];
-    }
-    let home = home();
-    vec![home.join(".config/cmux/cmux-next.json"), home.join(".config/cmux/cmux.json")]
+    let env = |name: &str| match name {
+        "HOME" => var("HOME").or_else(|| dirs::home_dir().map(OsString::from)),
+        _ => var(name),
+    };
+    std::iter::once(location::config_path_from(env)).chain(location::seed_path_from(env)).collect()
 }
 
 /// The settings file as it is now.
@@ -61,11 +57,11 @@ pub fn text() -> Option<String> {
     }
 }
 
-/// The settings document (JSONC: `//` and `/* */` comments and trailing
-/// commas, as the app's settings owner reads it), or `None` when it does
-/// not parse.
+/// The settings document (JSONC: `//` and `/* */` comments, trailing
+/// commas and a BOM, as the app's settings owner reads it), or `None` when
+/// it does not parse.
 pub fn document(text: &str) -> Option<Value> {
-    serde_json::from_str::<Value>(&strip_jsonc(text)).ok()
+    serde_json::from_str::<Value>(&jsonc::strip(text).ok()?).ok()
 }
 
 /// The value at a dotted settings key (`agents.defaultPermissionMode`), in
@@ -76,94 +72,4 @@ pub fn value(doc: &Value, key: &str) -> Option<Value> {
     }
     let pointer = format!("/{}", key.replace('.', "/"));
     doc.pointer(&pointer).cloned()
-}
-
-/// JSONC to JSON: drops `//` and `/* */` comments, then trailing commas,
-/// outside strings. A copy of cmux-tui-util's `strip_jsonc` (the dialect the
-/// app's JSONC parser reads), kept here so acpmux takes no new dependency.
-pub fn strip_jsonc(text: &str) -> String {
-    drop_trailing_commas(&drop_comments(text))
-}
-
-/// The text without comments; strings are copied unchanged.
-fn drop_comments(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut output = String::with_capacity(text.len());
-    let (mut index, mut start, mut in_string) = (0, 0, false);
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            match byte {
-                b'\\' => index += 2,
-                b'"' => {
-                    in_string = false;
-                    index += 1;
-                }
-                _ => index += 1,
-            }
-            continue;
-        }
-        match (byte, bytes.get(index + 1)) {
-            (b'"', _) => {
-                in_string = true;
-                index += 1;
-            }
-            (b'/', Some(b'/')) => {
-                output.push_str(&text[start..index]);
-                while index < bytes.len() && bytes[index] != b'\n' {
-                    index += 1;
-                }
-                start = index;
-            }
-            (b'/', Some(b'*')) => {
-                output.push_str(&text[start..index]);
-                index += 2;
-                while index < bytes.len()
-                    && !(bytes[index] == b'*' && bytes.get(index + 1) == Some(&b'/'))
-                {
-                    index += 1;
-                }
-                index = (index + 2).min(bytes.len());
-                start = index;
-            }
-            _ => index += 1,
-        }
-    }
-    output.push_str(&text[start.min(bytes.len())..]);
-    output
-}
-
-/// Removes a comma whose next non-space byte closes an object or array.
-fn drop_trailing_commas(text: &str) -> String {
-    let bytes = text.as_bytes();
-    let mut output = String::with_capacity(text.len());
-    let (mut index, mut start, mut in_string) = (0, 0, false);
-    while index < bytes.len() {
-        let byte = bytes[index];
-        if in_string {
-            match byte {
-                b'\\' => index += 2,
-                b'"' => {
-                    in_string = false;
-                    index += 1;
-                }
-                _ => index += 1,
-            }
-            continue;
-        }
-        if byte == b'"' {
-            in_string = true;
-        } else if byte == b','
-            && matches!(
-                bytes[index + 1..].iter().find(|byte| !byte.is_ascii_whitespace()),
-                Some(b'}' | b']')
-            )
-        {
-            output.push_str(&text[start..index]);
-            start = index + 1;
-        }
-        index += 1;
-    }
-    output.push_str(&text[start.min(bytes.len())..]);
-    output
 }

@@ -4,18 +4,24 @@ import Foundation
 /// `caffeinate -d -i`. Its own activity, apart from `KeepAwakeService`'s, so ending Sleepy
 /// Mode never ends Keep Mac Awake or an agent's hold (and those never end this one).
 @MainActor
-final class SleepyKeepAwakeActivity: SleepyKeepAwakeHolding {
+public final class SleepyKeepAwakeActivity: SleepyKeepAwakeHolding {
     private var activity: (any NSObjectProtocol)?
 
-    var isHolding: Bool { activity != nil }
+    /// An activity that holds nothing yet.
+    public init() {}
 
-    func begin() {
+    /// True while the hold is on.
+    public var isHolding: Bool { activity != nil }
+
+    /// Starts the hold. A second call does nothing.
+    public func begin() {
         guard activity == nil else { return }
         activity = ProcessInfo.processInfo.beginActivity(
             options: [.idleSystemSleepDisabled, .idleDisplaySleepDisabled], reason: "cmux Sleepy Mode")
     }
 
-    func end() {
+    /// Ends the hold. Does nothing when none is on.
+    public func end() {
         guard let activity else { return }
         ProcessInfo.processInfo.endActivity(activity)
         self.activity = nil

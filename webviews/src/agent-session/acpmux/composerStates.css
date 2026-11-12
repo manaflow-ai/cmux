@@ -695,7 +695,8 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   border-radius: 6px;
   background: var(--acpmux-composer-hover);
 }
-.acpmux-queued:focus-visible .acpmux-queued-actions {
+/* Only while the page is the key one: another pane or app taking the keyboard fades them (styles.css). */
+:root:not([data-page-inactive]) .acpmux-queued:focus-visible .acpmux-queued-actions {
   opacity: 1;
 }
 /* The edit field draws no ring of its own (Leo, 2026-10-21: no thick focus ring): its hairline edge
