@@ -163,7 +163,10 @@ struct ConnectivityStatsTests {
         stats.setAudience(.team)
         let entered = AsyncStream<Void>.makeStream()
         let release = AsyncStream<Void>.makeStream()
+        let calls = OSAllocatedUnfairLock(initialState: 0)
         stats.configure(client: client) { _ in
+            // The first upload waits for the test; the next (the stat added meanwhile) waits for later.
+            guard calls.withLock({ calls in defer { calls += 1 }; return calls == 0 }) else { return .retryLater }
             entered.continuation.yield()
             for await _ in release.stream { break }
             return .sent
