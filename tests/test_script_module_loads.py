@@ -111,8 +111,14 @@ def test_files(root: Path = ROOT) -> list[Path]:
     return sorted(found)
 
 
-def scan(path: Path) -> tuple[set[str], list[tuple[int, str, str]]]:
-    """(names the file imports, [(line, loader, stem)] of its path loads of a repository file)."""
+BY_NAME = {"import_module", "__import__"}
+
+
+def scan(path: Path) -> tuple[set[str], list[tuple[int, str, str]], list[tuple[int, str]]]:
+    """(names the file imports, [(line, loader, stem)] of its path loads of a repository file, [(line, call)] of its
+    imports by a name this scan cannot read). An import by name is `import x`, import_module("x") or __import__("x"),
+    or a call of the file's own import helper (`def load(name, ...): ... importlib.import_module(name)`) as
+    load("x"); any other import_module or __import__ call, or a helper call with a computed name, is unread."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     assigns: dict[str, list[ast.AST]] = collections.defaultdict(list)
     for node in ast.walk(tree):
@@ -160,6 +166,29 @@ def scan(path: Path) -> tuple[set[str], list[tuple[int, str, str]]]:
     helpers = {node.name for node in ast.walk(tree)
                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and loads_its_first_argument(node)}
 
+    def called_name(call: ast.Call) -> str | None:
+        return call.func.attr if isinstance(call.func, ast.Attribute) else getattr(call.func, "id", None)
+
+    # A file's own import helper (`def load(name): ... importlib.import_module(name)`), called as load("stem"): an
+    # import by name, like the import_module call inside it, which reads the helper's first argument.
+    import_helpers: set[str] = set()
+    forwarded: set[int] = set()
+    for function in ast.walk(tree):
+        if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)) and function.args.args:
+            first = function.args.args[0].arg
+            for n in ast.walk(function):
+                if isinstance(n, ast.Call) and called_name(n) in BY_NAME and n.args \
+                        and isinstance(n.args[0], ast.Name) and n.args[0].id == first:
+                    import_helpers.add(function.name)
+                    forwarded.add(id(n))
+
+    def literal(call: ast.Call) -> str | None:
+        arg = call.args[0] if call.args else None
+        if isinstance(arg, ast.Constant) and isinstance(arg.value, str) and arg.value:
+            return arg.value.split(".")[0]
+        return None
+    unread: list[tuple[int, str]] = []
+
     imported: set[str] = set()
     loads: list[tuple[int, str, str]] = []
     for node in ast.walk(tree):
@@ -170,8 +199,14 @@ def scan(path: Path) -> tuple[set[str], list[tuple[int, str, str]]]:
         elif isinstance(node, ast.Call):
             func = node.func
             called = func.attr if isinstance(func, ast.Attribute) else getattr(func, "id", None)
-            if called == "import_module" and node.args and isinstance(node.args[0], ast.Constant):
-                imported.add(str(node.args[0].value).split(".")[0])
+            if called in BY_NAME or called in import_helpers:
+                name = literal(node)
+                if name:
+                    imported.add(name)
+                elif id(node) not in forwarded:
+                    unread.append((node.lineno, f"{called}()"))
+                if called in BY_NAME:
+                    continue
             if called in helpers and node.args and isinstance(node.args[0], ast.Constant) \
                     and isinstance(node.args[0].value, str) and IDENTIFIER.fullmatch(node.args[0].value):
                 loads.append((node.lineno, f"{called}()", node.args[0].value))
@@ -188,7 +223,7 @@ def scan(path: Path) -> tuple[set[str], list[tuple[int, str, str]]]:
             name = file_name(target)
             if name and in_repo(target, frozenset()) and IDENTIFIER.fullmatch(Path(name).stem):
                 loads.append((node.lineno, called, Path(name).stem))
-    return imported, loads
+    return imported, loads, unread
 
 
 def two_object_loads(root: Path = ROOT) -> tuple[list[str], dict[str, set[str]], dict[str, set[str]]]:
@@ -201,10 +236,14 @@ def two_object_loads(root: Path = ROOT) -> tuple[list[str], dict[str, set[str]],
     modules = {stem for stem, count in stems.items() if count == 1}
     importers: dict[str, set[str]] = collections.defaultdict(set)
     loaders: dict[str, list[tuple[str, int, str]]] = collections.defaultdict(list)
+    unread: list[str] = []
     tests = test_files(root)
     for path in tests:
         rel = path.relative_to(root).as_posix()
-        imported, loads = scan(path)
+        imported, loads, unknown = scan(path)
+        unread.extend(f"{rel}:{line}: {called} imports a module by a name this check cannot read, so it cannot tell "
+                      "which files share it. Pass a literal name (to import_module or the file's own load helper)."
+                      for line, called in unknown)
         for name in imported:
             importers[name].add(rel)
         for line, called, stem in loads:
@@ -213,12 +252,12 @@ def two_object_loads(root: Path = ROOT) -> tuple[list[str], dict[str, set[str]],
     script_importers: dict[str, set[str]] = collections.defaultdict(set)
     for path in sorted(set(root.glob("scripts/**/*.py")) - set(tests)):
         try:
-            imported, _ = scan(path)
+            imported, _, _ = scan(path)
         except (SyntaxError, UnicodeDecodeError):
             continue
         for name in imported:
             script_importers[name].add(path.relative_to(root).as_posix())
-    findings = []
+    findings = list(unread)
     for stem, sites in sorted(loaders.items()):
         if stem not in modules or stem in PRIVATE_COPIES:
             continue
@@ -286,11 +325,12 @@ ONE_OBJECT_PER_FILE = textwrap.dedent('''
 ''')
 
 # Run in a fresh interpreter: imports each test module in the given order and reports, per file, every sys.modules
-# entry its import added or replaced with a stub (None, a SimpleNamespace, a bare ModuleType with no spec or file).
-# A stub left there is what the next test's `import name` gets instead of the real module.
+# entry named after a repository module (a stem from argv[3]) that its import added or replaced with a stub (None, a
+# SimpleNamespace, a bare ModuleType with no spec or file). A stub left there is what the next test's `import name`
+# gets instead of the real module.
 STUBS_LEFT = textwrap.dedent('''
     import importlib, json, os, sys, types
-    root, order = sys.argv[1], json.loads(sys.argv[2])
+    root, order, stems = sys.argv[1], json.loads(sys.argv[2]), set(json.loads(sys.argv[3]))
     def real(module):
         return isinstance(module, types.ModuleType) and (
             getattr(module, "__spec__", None) is not None or getattr(module, "__file__", None))
@@ -305,7 +345,7 @@ STUBS_LEFT = textwrap.dedent('''
         except BaseException as error:  # a test that needs a Mac library cannot import here
             unimportable[rel] = type(error).__name__ + ": " + str(error)[:200]
         names = sorted(name for name, module in sys.modules.items()
-                       if before.get(name) is not module and not real(module))
+                       if name in stems and before.get(name) is not module and not real(module))
         if names:
             left[rel] = names
     print(json.dumps({"left": left, "unimportable": unimportable}))
@@ -329,9 +369,10 @@ VICTIM = "tests/test_cmux_next_route.py::LinuxLaneTests::test_a_linux_guard_test
 class ScriptModuleLoadTests(unittest.TestCase):
     def test_no_test_loads_by_path_a_file_another_test_imports_by_name(self):
         findings, _, _ = two_object_loads()
+        unread = [finding for finding in findings if " loads " not in finding]  # never allowed
         found = {(finding.split(":")[0], finding.split(" loads ", 1)[1].split(".py by path")[0]): finding
-                 for finding in findings}
-        new = sorted(finding for key, finding in found.items() if key not in ALLOWED)
+                 for finding in findings if " loads " in finding}
+        new = sorted([*unread, *(finding for key, finding in found.items() if key not in ALLOWED)])
         self.assertEqual(new, [], "\n" + "\n".join(new))
         converted = sorted(f"{rel} ({stem})" for rel, stem in ALLOWED if (rel, stem) not in found)
         self.assertEqual(converted, [], "no longer path-loaded: remove from ALLOWED (shrink-only)\n" + "\n".join(converted))
@@ -450,12 +491,13 @@ class ScriptModuleLoadTests(unittest.TestCase):
         for rel in ("scripts/cmux-next/tests/test_perf_completeness.py", "scripts/tests/test_readiness_soak.py",
                     "scripts/cmux-next/test_split_scale_background.py"):
             self.assertIn(rel, order)
-        done = subprocess.run([sys.executable, "-c", STUBS_LEFT, str(ROOT), json.dumps(order)], cwd=ROOT,
+        stems = sorted({p.stem for p in [*ROOT.glob("scripts/**/*.py"), *ROOT.glob("tests/*.py")]})
+        done = subprocess.run([sys.executable, "-c", STUBS_LEFT, str(ROOT), json.dumps(order), json.dumps(stems)], cwd=ROOT,
                               capture_output=True, text=True, timeout=600,
                               env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
         self.assertEqual(done.returncode, 0, done.stderr[-4000:])
         result = json.loads(done.stdout.strip().splitlines()[-1])
-        self.assertEqual(result["left"], {})
+        self.assertEqual(result["left"], {}, json.dumps(result, indent=1))
         self.assertNotIn("scripts/cmux-next/tests/test_perf_completeness.py", result["unimportable"])
         self.assertLess(len(result["unimportable"]), len(order) // 4, result["unimportable"])
 
