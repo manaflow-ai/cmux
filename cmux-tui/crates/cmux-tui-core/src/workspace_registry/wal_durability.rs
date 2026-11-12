@@ -25,7 +25,9 @@
 //! which ran on whichever request crossed 1000 WAL pages: it copied the WAL
 //! into the database and synced it inside the committing request. The
 //! syncer runs that checkpoint instead, on its own connection, once the WAL
-//! passes [`CHECKPOINT_BYTES`]; a PASSIVE checkpoint never blocks a writer.
+//! holds more than [`CHECKPOINT_BYTES`] of frames (not once its file is that
+//! large: the file keeps its size when the WAL restarts); a PASSIVE
+//! checkpoint never blocks a writer.
 //!
 //! A PASSIVE checkpoint never shrinks the WAL file, and while a reader holds
 //! an old snapshot it cannot catch up, so the file grows with every commit
@@ -109,6 +111,12 @@ struct SyncState {
     /// The largest WAL file size seen since the database opened (`server-stats`
     /// `write_path.registry_wal_file_high_water_bytes`).
     wal_file_high_water: u64,
+    /// Checkpoints the syncer ran for announced commits.
+    #[cfg(test)]
+    checkpoints: u64,
+    /// Announced commits the syncer has finished with (checkpointed or left in the WAL).
+    #[cfg(test)]
+    finished: u64,
 }
 
 struct Shared {
@@ -287,6 +295,19 @@ impl WalDurability {
         }
     }
 
+    /// Announce every commit made so far, as an answered request does, wait
+    /// until the syncer has finished with them, and return the checkpoints
+    /// it ran for announced commits since the database opened.
+    #[cfg(test)]
+    pub(crate) fn checkpoints_after_flush(&self) -> u64 {
+        request_flush(&self.shared);
+        let mut state = self.shared.state.lock().recover_poison();
+        while state.finished < state.requested && !state.stopping {
+            state = self.shared.changed.wait(state).recover_poison();
+        }
+        state.checkpoints
+    }
+
     /// Commits made and no caller has asked to flush yet: an idle daemon
     /// leaves them in the WAL until a request flushes it.
     #[cfg(test)]
@@ -436,6 +457,12 @@ fn run(shared: &Shared) {
             Some(checkpoint_if_large(shared, &mut checkpointer))
         };
         state = shared.state.lock().recover_poison();
+        #[cfg(test)]
+        {
+            state.finished = state.finished.max(target);
+            state.checkpoints += u64::from(matches!(look, Some(Look::Copied { .. })));
+            shared.changed.notify_all();
+        }
         // The waiters are `wait_durable` (tests) and `checkpoint_and_wait`
         // (the retention pass): a wake only when one of them can go on.
         let mut wake = false;
@@ -459,7 +486,8 @@ fn run(shared: &Shared) {
 /// What one look of the syncer at the WAL did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Look {
-    /// The WAL was at or below [`CHECKPOINT_BYTES`]: no checkpoint.
+    /// The WAL held at most [`CHECKPOINT_BYTES`] of frames, in a file at or
+    /// below [`WAL_SIZE_LIMIT_BYTES`]: no checkpoint.
     Small,
     /// A PASSIVE checkpoint ran: the WAL held `frames` when it began and
     /// `copied` of them are in the database now.
@@ -489,9 +517,17 @@ impl Look {
 /// A PASSIVE checkpoint on the syncer's own connection once the WAL is
 /// large: it copies what it can without waiting for a writer or reader.
 /// [`Look::Copied`] when a checkpoint ran (it synced the WAL before copying it).
+///
+/// Large is the frames the WAL holds, not the size of its file: SQLite
+/// keeps the file's size when the WAL restarts from its first frame (up to
+/// `journal_size_limit`), so a file that passed [`CHECKPOINT_BYTES`] once
+/// stays above it while it holds a few frames. A file past the limit is
+/// one a reader pinned: a checkpoint lets the next commit cut it back.
 fn checkpoint_if_large(shared: &Shared, checkpointer: &mut Option<Connection>) -> Look {
-    let size = wal_file_len(shared);
-    if size <= CHECKPOINT_BYTES {
+    let file = wal_file_len(shared);
+    let frames = shared.state.lock().recover_poison().wal_frames;
+    if frames.saturating_mul(shared.frame_bytes) <= CHECKPOINT_BYTES && file <= WAL_SIZE_LIMIT_BYTES
+    {
         return Look::Small;
     }
     if checkpointer.is_none() {
@@ -734,6 +770,51 @@ mod tests {
             std::thread::sleep(Duration::from_millis(20));
         };
         assert!(db_len > 4 * 1024 * 1024, "the database file is {db_len} bytes: no checkpoint ran");
+        drop(connection);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// SQLite keeps the WAL file's size when the WAL restarts from its first
+    /// frame (it cuts the file back only to `journal_size_limit`, 64 MiB), so
+    /// a WAL that passed the checkpoint size once kept a file above it for
+    /// good, and the syncer, which read the file's size, ran a checkpoint
+    /// (two fsyncs and a copy into the database) after every answered
+    /// request. One 10.8 GB registry: about 0.36 MiB written per commit that
+    /// appended about 60 KB of frames, 1,881 commits in ten minutes
+    /// (2026-11-12).
+    #[test]
+    fn a_wal_file_that_kept_its_size_is_not_checkpointed_after_every_request() {
+        let (dir, connection) = database("kept-size");
+        let path = dir.join("r.sqlite");
+        let durability = WalDurability::attach(&connection, &path, None, false);
+        // 8 MiB of commits: the WAL passes the checkpoint size once.
+        let blob = vec![7u8; 64 * 1024];
+        for _ in 0..128 {
+            connection.execute("INSERT INTO t VALUES (?1)", [&blob]).unwrap();
+        }
+        let large = durability.checkpoints_after_flush();
+        assert!(large >= 1, "a WAL of 8 MiB was not checkpointed");
+        // The next commit restarts the WAL from its first frame; the file keeps its size.
+        connection.execute("INSERT INTO t VALUES (0)", []).unwrap();
+        let file = std::fs::metadata(dir.join("r.sqlite-wal")).unwrap().len();
+        assert!(file > CHECKPOINT_BYTES, "the restarted WAL file is {file} bytes");
+        // 100 answered requests of one small commit each: well under 4 MiB of frames.
+        for value in 1..=100 {
+            connection.execute("INSERT INTO t VALUES (?1)", [value]).unwrap();
+            durability.checkpoints_after_flush();
+        }
+        let ran = durability.checkpoints_after_flush() - large;
+        assert!(
+            ran <= 1,
+            "100 one-row requests ran {ran} checkpoints of a WAL that held under 4 MiB of \
+             frames (its file kept {file} bytes)"
+        );
+        // A WAL that fills again is still checkpointed.
+        for _ in 0..128 {
+            connection.execute("INSERT INTO t VALUES (?1)", [&blob]).unwrap();
+        }
+        let again = durability.checkpoints_after_flush() - large - ran;
+        assert!(again >= 1, "a WAL that filled again was not checkpointed");
         drop(connection);
         let _ = std::fs::remove_dir_all(&dir);
     }
