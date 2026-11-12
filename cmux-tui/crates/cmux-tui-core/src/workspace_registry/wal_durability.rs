@@ -527,6 +527,43 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// No background writer asks here (`checkpoint_and_wait` is not called),
+    /// so the syncer's wait has the same two reasons to end as before that
+    /// function came: a request that asked, or a forced flush. Commits alone
+    /// do not wake it, before a request and after one.
+    #[test]
+    fn a_syncer_that_no_background_writer_asks_looks_only_when_a_request_asks() {
+        let (dir, connection) = database("no-look-wanted");
+        let durability = WalDurability::attach(&connection, &dir.join("r.sqlite"), None, false);
+        for value in 0..5 {
+            connection.execute("INSERT INTO t VALUES (?1)", [value]).unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(150));
+        assert_eq!(
+            durability.unhandled_commits(),
+            5,
+            "the syncer looked at commits that no request asked it to flush"
+        );
+        durability.request_flush();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while durability.unhandled_commits() > 0 && std::time::Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert_eq!(durability.unhandled_commits(), 0, "the syncer did not take the request");
+        for value in 5..8 {
+            connection.execute("INSERT INTO t VALUES (?1)", [value]).unwrap();
+        }
+        std::thread::sleep(Duration::from_millis(150));
+        assert_eq!(
+            durability.unhandled_commits(),
+            3,
+            "the syncer looked again with no request after its first look"
+        );
+        assert_eq!(durability.counts(), (8, 0), "a small WAL was synced with no forced flush");
+        drop(connection);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn a_commit_does_not_wait_for_a_slow_flush() {
         let (dir, connection) = database("slow");
