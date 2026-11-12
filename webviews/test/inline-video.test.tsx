@@ -400,12 +400,14 @@ describe("the inline player", () => {
     await act(async () => container.querySelector<HTMLButtonElement>("button.cv-media__expand")!.click());
     const stage = dom!.window.document.querySelector<HTMLElement>(".cv-media-stage")!;
     const large = stage.querySelector<HTMLVideoElement>("video")!;
-    const press = (down: Element, up: Element) =>
+    const press = (down: Element, up: Element, detail = 1) =>
       act(async () => {
-        down.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, detail: 1 }));
-        up.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true, detail: 1 }));
+        down.dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, detail }));
+        up.dispatchEvent(new dom!.window.MouseEvent("click", { bubbles: true, detail }));
       });
-    // On the video itself, and a scrub that began on it and ended beside it: still open.
+    // The second click of the double click that opened it, on the video itself, and a scrub that
+    // began on it and ended beside it: still open.
+    await press(stage, stage, 2);
     await press(large, large);
     await press(large, stage);
     expect(dom!.window.document.querySelector(".cv-media-stage")).not.toBeNull();

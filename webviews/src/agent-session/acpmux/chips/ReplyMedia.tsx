@@ -308,12 +308,13 @@ export function VideoViewer({
         </div>
         {/* A click beside the video closes the viewer, as beside an image in its viewer (Leo, 2026-11-12:
             "I need to be able to, like, click outside of the video and have that exit as well"). Only a
-            press that began on the stage counts: a scrub dragged off the video ends there too. */}
+            fresh press that began on the stage counts: a scrub dragged off the video ends there too, and
+            the second click of the double click that opened it lands there. */}
         {/* oxlint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/no-static-element-interactions -- Escape and Close are its keys */}
         <div
           className="cv-media-stage"
           onMouseDown={(event) => {
-            pressedStage.current = event.target === event.currentTarget;
+            pressedStage.current = event.target === event.currentTarget && event.detail <= 1;
           }}
           onClick={(event) => {
             if (event.target === event.currentTarget && pressedStage.current) onClose();
