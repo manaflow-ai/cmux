@@ -17,10 +17,11 @@ beforeAll(() => {
   scope.window = dom.window;
   scope.document = dom.window.document;
 });
-// React finishes its queued work before the DOM globals go (test/support/domTeardown.ts).
+// React finishes its queued work before the DOM globals go (test/support/domTeardown.ts); the kept
+// tails are cleared after that work, as failedPromptRetry.test.ts does.
 afterAll(async () => {
-  resetKeptTailsForTests();
   await teardownDom(saved, { scope });
+  resetKeptTailsForTests();
 });
 
 type Row = { id: string; kind: string; text?: string; failed?: boolean; error?: string; pending?: boolean };
