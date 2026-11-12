@@ -34,28 +34,17 @@ Chromium profile whose cookies are kept in sync, and that profile's `Cookies`
 database with rows. It passes when the app stays up SEEDED-SECONDS (default 10)
 with Home rendered and no crash, and the app's cookie sync saved its baseline
 of the seeded store with at least one site (the proof that it opened and read
-it). A build whose sync
-never reads the store (it has none, or its format moved on) is "not-run" for
-this arm, said in the log and in report.json's `arms`; it is never a pass of
-it and never a failure. A crash of the seeded arm fails the run as a crash of
-the first does. In the seeded arm a crash report counts only when it is of
-that launch: one of a process that died before the seeded launch started (the
-first arm's app or a helper of it, a crash while it quit, written seconds
-later), one that names the first arm's process, or one of another copy of the
-app is logged and kept under --out's not-counted/, never counted. The first
-arm does the same for its launch: a crash of another launch of an app with
-the same executable name on the host (another tagged build on a fleet Mac) is
-not its crash. A report that names no process is no crash alone, in either
-arm: it counts only beside the end of the launch's app (CRASH_FILTER). Without
---arms only the empty home is launched, as before.
+it). A build whose sync never reads the store (it has none, or its format
+moved on) is "not-run" for this arm, and a seed that could not be made is
+"cannot-run", said in the log and in report.json's `arms`: never a pass of it,
+never a failure, and the first arm's exit code stands. A crash of the seeded
+arm fails the run as a crash of the first does. In each arm a crash report
+counts only when it is of that launch (not_of_launch); another is kept under
+--out's not-counted/. Without --arms only the empty home is launched.
 
 --daemon (the publish gate only): a build with a dead daemon (cmux-tui) shows Home and takes no key. So each
 arm asks the app when its watch ends: a daemon failure, or a daemon that is not connected then and
 DAEMON_REREAD_SECONDS later, fails the launch (report.json's `daemon_down`).
-
-Usage: fresh_home_launch_smoke.py (--app APP | --dmg DMG) [--seconds S]
-           [--startup-timeout S] [--out DIR] [--arms empty[,seeded]]
-           [--seeded-seconds S] [--daemon]
 
 --dmg copies the app out of the DMG (mounted read-only, detached at once);
 --app copies it too. Every process the run starts runs from its private root
@@ -71,8 +60,7 @@ Exit 0: passed. 1: the app crashed, exited or never rendered Home (in either
 arm; report.json's `arm` names the one the report describes). 2: usage.
 3: the smoke could not run (no app, no GUI session, a signing keychain still
 present). A publish gate treats anything but 0 as a failure: a build that was
-never launched is never published. A seeded arm that could not be made or did
-not reach the cookie sync changes no exit code: the first arm's verdict stands.
+never launched is never published.
 """
 from __future__ import annotations
 
@@ -116,13 +104,12 @@ FIRST_RUN_MARK = "first_run.history_import_shown"
 # Chromium profile's cookies and keeps them in sync (seed_cookie_sync_home), launched from ROOT/SEEDED.
 EMPTY, SEEDED = "empty", "seeded"
 ARMS = (EMPTY, SEEDED)
-# How both arms match a crash report to their launch, for a caller that chooses the folder to give this tool: by
-# the process the report names (not_of_launch), never by the executable's name and the file's time alone. So the
-# account's real DiagnosticReports folder, which has the reports of every launch on the host, is safe to give.
+# Both arms match a crash report to their launch by the process that it names (not_of_launch), so a caller can
+# give the account's real DiagnosticReports folder, which has the reports of every launch on the host.
 CRASH_FILTER = "pid"
 # The seeded arm's verdict when it launched nothing or the app never read the seeded store.
 NOT_RUN = "not-run"
-# Where --out keeps the crash reports the seeded arm found and did not count (not_of_launch says why in the log).
+# Where --out keeps the crash reports that an arm found and did not count (the log says why).
 NOT_COUNTED = "not-counted"
 # The seeded arm's bounds, so both arms fit in one attempt of the publish gate (launch-smoke-gate.sh, 240 s):
 # how long Home may take to render in it, and how long after launch the sync may take to read the store.
@@ -175,10 +162,10 @@ def seed_cookie_sync_home(home: Path, bundle_id: str, now: float | None = None) 
     The store is not in a browser's own folder, so the app's browser detection finds no browser in this home. No
     baseline is written (BrowserImport/cookie-sync/ stays empty): the sync's first scan then saves its own and
     reports nothing changed, so the app imports nothing and never asks the Keychain for a browser's key. That is
-    the app's code of today. The home also holds it: SEED_BROWSER has no Keychain item name in the app and no
-    cookie reader (CookieImporter.read), so a build that imports at its first scan reads no key, cannot import
-    this source, and saves no baseline: the arm is then not-run, never a Keychain dialog on the host. Returns
-    what the run checks afterwards: the source's key, the baseline folder, and the hosts and rows written.
+    the app's code of today. SEED_BROWSER holds it for a build that imports at its first scan: with no Keychain
+    item name and no cookie reader (CookieImporter.read) it reads no key and saves no baseline, so the arm is
+    not-run, never a Keychain dialog on the host. Returns what the run checks afterwards: the source's key, the
+    baseline folder, and the hosts and rows written.
     """
     import sqlite3  # here, so a Python without it is this arm's cannot-run only
 
@@ -454,7 +441,6 @@ def daemon_at_end(socket_path: Path) -> list[dict]:
         state = topology.get("daemon_state")
         reads.append({"state": state if isinstance(state, str) else None,
                       "failure": str(topology.get("daemon_failure") or "")[:300] or None})
-        # Said each time: a silence is not read as a pass.
         log(f"daemon: {reads[-1]['state'] or 'not judged (' + ('no field' if snap else 'no answer') + ')'}")
         if request == 3 or (reads[0]["state"] in (None, "connected") and not reads[0]["failure"]):
             break
