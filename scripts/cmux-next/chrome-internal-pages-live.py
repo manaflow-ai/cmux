@@ -178,7 +178,7 @@ try:
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     # A fresh launch can open on Home with no workspace: make one, so a pane exists for the New Tab page.
     if not quiet_wait(focused_pane, 15):
-        print("run newTab", rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}), flush=True)
+        safe_print("run newTab", rpc("action.run", {"action": "newTab", "origin": "script", "focus": True}), flush=True)
     wait_for(focused_pane, "a focused pane", 60)
 
     # 1. The New Tab field, no trailing slash.
@@ -187,7 +187,7 @@ try:
                    "a Chromium tab on chrome://extensions", 90)
     check(url == "chrome://extensions/", f"New Tab chrome://extensions loads the canonical URL: {url}")
     if url is None:
-        print(f"note: focused pane {focused_pane()}; chromium tabs {chromium_tabs()}", flush=True)
+        safe_print(f"note: focused pane {focused_pane()}; chromium tabs {chromium_tabs()}", flush=True)
     wait_for(lambda: any((t.get("title") or "") for t in chromium_tabs()), "the extensions page title", 20)
     snapshot("1-extensions-no-slash")
 

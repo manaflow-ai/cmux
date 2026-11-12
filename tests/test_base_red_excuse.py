@@ -13492,5 +13492,92 @@ class ReplacedWaitingBaseRed(unittest.TestCase):
                     self.assertFalse(any(route.endswith("/annotations") for route in routes))
 
 
+
+class HeadCheckNamedAnotherWay(unittest.TestCase):
+    """A red check the caller names another way than its check run is still at the exact head (2026-11-12, cmux#38644
+    at 8e957427): coord-deputy-2, "base_red_excuse says 'Web tests (2/4)' 'has not run on exact head', but it did: job
+    131026209923". Its check run and job are 'web / Web tests (2/4)', the caller job's prefix on a called workflow's
+    job, and head_jobs looked the name up only as written. The fixtures are that job and check run as GitHub served
+    them (runner fields scrubbed). Every other spelling of one check at one head is matched too: the checks page's
+    '<workflow> / <check>' form, a short or upper-case head sha; a name two check runs answer to stays refused."""
+
+    FIXTURES = ROOT / "tests/fixtures/base_red_excuse_head_match"
+    SHA = "8e9574276379d4faeaa11c5c6bbc2ce228d32e90"
+
+    class Fake:
+        def __init__(self, checks, jobs, statuses=()):
+            self.checks, self.jobs, self.statuses, self.routes = checks, jobs, list(statuses), []
+
+        def json(self, route, *, paginate=False):
+            self.routes.append(route)
+            sha = HeadCheckNamedAnotherWay.SHA
+            if route.endswith("/check-runs?filter=all&per_page=100"):
+                # GitHub answers a short or upper-case sha of the head as the head, as it does here.
+                asked = route.split("/commits/", 1)[1].split("/", 1)[0]
+                assert len(asked) >= 7 and sha.startswith(asked.lower()), route
+                return [{"check_runs": copy.deepcopy(self.checks)}]
+            if "/actions/jobs/" in route:
+                return copy.deepcopy(self.jobs[int(route.rsplit("/", 1)[1])])
+            if route.endswith("/status?per_page=100"):
+                return {"statuses": copy.deepcopy(self.statuses)}
+            if "/actions/runs?head_sha=" in route:
+                return {"workflow_runs": []}
+            if "/commits/" in route and sha.startswith(route.rsplit("/", 1)[1].lower()):
+                return {"sha": sha}
+            raise AssertionError(route)
+
+    def setUp(self):
+        self.job = json.loads((self.FIXTURES / "cmux-38644-web-tests-2-4-job-131026209923.json").read_text())
+        self.check = json.loads((self.FIXTURES / "cmux-38644-web-tests-2-4-check-run-131026209923.json").read_text())
+
+    def found(self, name, sha=None, checks=None, statuses=()):
+        gh = self.Fake(checks or [self.check], {self.job["id"]: self.job}, statuses)
+        audit: list[str] = []
+        jobs = excuse.head_jobs(REPO, sha or self.SHA, [], [name], gh, excused=audit)
+        return jobs, audit
+
+    def test_the_fixture_is_the_called_workflows_job_at_the_head(self):
+        self.assertEqual((self.job["name"], self.check["name"]), ("web / Web tests (2/4)",) * 2)
+        self.assertEqual((self.job["head_sha"], self.check["head_sha"], self.job["run_attempt"]), (self.SHA, self.SHA, 1))
+
+    def test_cmux_38644_the_shard_named_without_its_caller_is_its_job(self):
+        jobs, audit = self.found("Web tests (2/4)")
+        self.assertEqual([job["id"] for job in jobs], [131026209923])
+        self.assertTrue(any("'Web tests (2/4)'" in line and "'web / Web tests (2/4)'" in line for line in audit), audit)
+
+    def test_the_checks_page_name_with_its_workflow_is_its_job(self):
+        jobs, _ = self.found("CI / web / Web tests (2/4)")
+        self.assertEqual([job["id"] for job in jobs], [131026209923])
+
+    def test_its_own_name_is_still_its_job(self):
+        jobs, audit = self.found("web / Web tests (2/4)")
+        self.assertEqual(([job["id"] for job in jobs], audit), ([131026209923], []))
+
+    def test_a_short_or_upper_case_head_sha_is_the_exact_head(self):
+        for sha in (self.SHA[:8], self.SHA[:12], self.SHA.upper()):
+            with self.subTest(sha=sha):
+                jobs, _ = self.found("web / Web tests (2/4)", sha=sha)
+                self.assertEqual([job["id"] for job in jobs], [131026209923])
+
+    def test_a_name_two_check_runs_answer_to_is_refused_naming_both(self):
+        other = dict(self.check, id=131026209999, name="mobile / Web tests (2/4)",
+                     details_url=self.check["details_url"].replace("131026209923", "131026209999"))
+        with self.assertRaisesRegex(excuse.Refused, r"2 check runs.*mobile / Web tests \(2/4\).*web / Web tests"):
+            self.found("Web tests (2/4)", checks=[self.check, other])
+
+    def test_another_shard_or_a_partial_name_has_not_run(self):
+        for name in ("Web tests (3/4)", "tests (2/4)", "eb / Web tests (2/4)", "Web tests"):
+            with self.subTest(name=name):
+                with self.assertRaisesRegex(excuse.Refused, "has not run on exact head"):
+                    self.found(name)
+
+    def test_a_status_of_the_name_as_written_wins_over_a_check_run_of_another_spelling(self):
+        status = {"context": "Web tests (2/4)", "state": "failure", "description": "x",
+                  "target_url": "https://example.invalid/status"}
+        # A status no Actions job gave, with no base to compare: refused as the status, never judged as the check run.
+        with self.assertRaisesRegex(excuse.Refused, "a status"):
+            self.found("Web tests (2/4)", statuses=[status])
+
+
 if __name__ == "__main__":
     unittest.main()

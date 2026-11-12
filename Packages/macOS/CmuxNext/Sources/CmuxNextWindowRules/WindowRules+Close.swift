@@ -41,17 +41,17 @@ extension WindowRules {
     public nonisolated enum Toast: Decodable, Equatable, Sendable {
         case show
         case skip
-        /// Shows only if one of these live terminals (indices into the closing tabs) runs a program.
-        case askTerminals([Int])
 
-        private enum CodingKeys: String, CodingKey { case decision, terminals }
+        private enum CodingKeys: String, CodingKey { case decision }
 
         public init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             switch try container.decode(String.self, forKey: .decision) {
             case "show": self = .show
             case "skip": self = .skip
-            case "askTerminals": self = .askTerminals(try container.decode([Int].self, forKey: .terminals))
+            // Transitional: the FFI pinned before cmux-window-rules dropped `AskTerminals` answers it for exactly
+            // the tabs the new rule closes with no toast (one tab, none working). Remove after the re-pin.
+            case "askTerminals": self = .skip
             case let other: throw DecodingError.dataCorruptedError(forKey: .decision, in: container, debugDescription: "toast \(other)")
             }
         }
