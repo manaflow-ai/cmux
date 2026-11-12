@@ -213,6 +213,7 @@ final class ShellModel {
         let colors: [(UIColor, UIColor)] = [(.systemBlue, .systemTeal), (.systemOrange, .systemPink), (.systemGreen, .systemMint),
                                             (.systemPurple, .systemIndigo), (.systemRed, .systemYellow), (.systemGray, .systemBrown)]
         let (top, bottom) = colors[index % colors.count]
+        // width-allow: a bitmap's pixel size (a fake screenshot attachment), never a layout frame
         let size = CGSize(width: 390, height: 844)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
