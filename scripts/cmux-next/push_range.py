@@ -597,27 +597,38 @@ def _fetch_upstream(repo: Path, name: str, branch: str, tracked: str) -> str:
 
 # The fetch's keeper, the first process of the fetch's own session (cmux#41750 review). The session keeps the fetch
 # off the caller's terminal, but it also took it out of the caller's process group: prepush_fast_tier.py SIGKILLs its
-# worker's group after 4 s, and the fetch ran on (ssh with no limit, no stamp) while the next checker started another.
-# A SIGKILL runs no handler, so the keeper watches its stdin instead, the read end of a pipe only the caller holds the
-# write end of: when the caller is gone, however it ended, the pipe closes and the keeper kills the fetch's process
-# group (git and the ssh or helper it started). It enforces the fetch's time limit the same way.
+# worker's group after 4 s, and the fetch ran on (ssh with no limit, no stamp) while the next checker started another;
+# a Ctrl-C reaches only the terminal's foreground group, and subprocess.run answers it by killing its own child alone.
+# A SIGKILL runs no handler, so the keeper's guard watches a pipe instead, whose write end only the caller holds:
+# when the caller is gone or done (it closes the pipe on every way out of _fetch_upstream, an interrupt included),
+# the pipe reads EOF and the guard kills the fetch's process group (git and the ssh or helper it started). The guard
+# is a fork of its own, out of that group and with no hold on the caller's output pipes, so it outlives a keeper the
+# caller killed. It enforces the fetch's time limit the same way.
 _FETCH_TIMED_OUT = 124
 _FETCH_WATCHDOG = r"""
 import os, select, signal, subprocess, sys, time
 deadline = time.monotonic() + float(sys.argv[1])
 fetch = subprocess.Popen(sys.argv[2:], stdin=subprocess.DEVNULL, preexec_fn=os.setpgrp)
-code = None
-while fetch.poll() is None:
-    left = deadline - time.monotonic()
-    caller_gone = left > 0 and select.select([0], [], [], min(left, 0.2))[0] and not os.read(0, 1)
-    if left <= 0 or caller_gone:
+if os.fork() == 0:
+    null = os.open(os.devnull, os.O_RDWR)
+    os.dup2(null, 1)
+    os.dup2(null, 2)
+    while time.monotonic() < deadline:
+        if select.select([0], [], [], min(deadline - time.monotonic(), 0.2))[0] and not os.read(0, 1):
+            break
         try:
-            os.killpg(fetch.pid, signal.SIGKILL)
-        except OSError:
+            os.killpg(fetch.pid, 0)
+        except ProcessLookupError:
+            os._exit(0)
+        except PermissionError:
             pass
-        fetch.wait()
-        code = 124 if left <= 0 else 1
-sys.exit(fetch.returncode if code is None else code)
+    try:
+        os.killpg(fetch.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    os._exit(0)
+code = fetch.wait()
+sys.exit(124 if code < 0 and time.monotonic() >= deadline else code)
 """
 
 
