@@ -1878,7 +1878,6 @@ impl Hub {
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
             stderr_stream: StdMutex::new(session::SessionStderr::default()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
-            logged_prompt_ids: StdMutex::new(None),
             kept_messages: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
             last_progress: AtomicU64::new(0),

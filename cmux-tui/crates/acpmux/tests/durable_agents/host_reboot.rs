@@ -1,6 +1,6 @@
 //! The machine that runs acpmux reboots under a live chat. Leo, 2026-11-12: "we're gonna need to
 //! fix this situation: ... lawrence restarted this computer 1. we should not get into this state
-//! 2. if we do the recovery needs to be a lot better and it shouldn't talk so much bullshit".
+//! 2. if we do the recovery needs to be a lot better and it shouldn't talk so much b******t".
 //!
 //! A reboot ends the daemon and every agent host at once, with no cleanup (SIGKILL here), and
 //! leaves their files: `daemon.lock`, `daemon.pid`, the socket, the host records. After a reboot
@@ -8,9 +8,10 @@
 //! (what the app's launcher or any CLI command starts, `daemon run --ready-fd`) must come up on
 //! those files, the chat must answer as before with a new agent, and a prompt the client sends
 //! again under the same prompt id after it reconnects (the pane holds a send it never heard back
-//! about, and sends it again once) must reach the agent once. The pane's copy carries no
-//! `resend` (`webviews/.../direct.ts` `retryPrompt`); the host adds it only while its journal
-//! still holds the id, so both copies are sent here.
+//! about, and sends it again once) must reach the agent once. A copy the agent service may have
+//! taken goes again marked `resend` (the host's relay journal); the pane's own held send goes
+//! again only after a refusal that never left the pane (`native.not_connected`), so an unmarked
+//! id after a restart stays a new prompt (`hub_integration` `prompt_approval`).
 
 use super::*;
 
@@ -101,10 +102,10 @@ async fn after_a_reboot_the_chat_answers_and_a_prompt_sent_again_runs_once() {
     let ready_in = started.elapsed();
     let mut client = daemon.rpc().await;
 
-    // The pane's copy (no `resend`), then the host's (`resend`): both answer from the first run.
-    for resend in [false, true] {
-        let again = prompt(&mut client, &session, "before the reboot", "p-reboot", resend).await;
-        assert_eq!(again["result"]["stopReason"], "end_turn", "resend={resend}: {again:#}");
+    // The host's copy (`resend`), twice: both answer from the first run.
+    for _ in 0..2 {
+        let again = prompt(&mut client, &session, "before the reboot", "p-reboot", true).await;
+        assert_eq!(again["result"]["stopReason"], "end_turn", "{again:#}");
     }
     assert_eq!(echoes(&daemon, &session, "before the reboot"), 1, "the prompt ran again");
     assert_eq!(turns_of(&daemon, &session, "p-reboot"), 1, "the prompt took a second turn");
@@ -144,10 +145,10 @@ async fn a_prompt_a_reboot_cut_goes_on_once_when_the_client_sends_it_again() {
     reboot(&mut daemon);
     daemon.start();
     let mut client = daemon.rpc().await;
-    for resend in [false, true] {
+    for _ in 0..2 {
         // Answered from the cut turn's record (its outcome, or that it was cut), never run.
-        let again = prompt(&mut client, &session, &cut, "p-cut", resend).await;
-        eprintln!("reboot: the cut prompt sent again (resend={resend}) answered {again}");
+        let again = prompt(&mut client, &session, &cut, "p-cut", true).await;
+        eprintln!("reboot: the cut prompt sent again answered {again}");
     }
     // The continuation runs before a prompt sent after it: once this answers, it ran.
     let next = prompt(&mut client, &session, "after the cut", "p-next", false).await;
