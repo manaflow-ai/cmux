@@ -569,3 +569,45 @@ timing-alone = { max-threads = 1 }
 filter = 'test(=alone_case)'
 test-group = 'timing-alone'
 threads-required = 'num-test-threads'
+=== flagged :: busy < idle * 4 :: ratio of two timings :: review of cmux#41761 F2: a `for` loop's iterable runs before its pattern binds, so its assignment to the outer `busy` outlives the loop
+#[test]
+fn assigned_in_a_for_iterable() {
+    let mut busy = Duration::ZERO;
+    let idle = helper();
+    for busy in [{ busy = helper(); 0u8 }] {
+        let _ = busy;
+    }
+    assert!(busy < idle * 4);
+}
+=== flagged :: busy < idle * 4 :: ratio of two timings :: review of cmux#41761 F2, same class: an `if let`'s scrutinee runs before its pattern binds
+#[test]
+fn assigned_in_an_if_let_scrutinee() {
+    let mut busy = Duration::ZERO;
+    let idle = helper();
+    if let Some(busy) = Some({ busy = helper(); 0u8 }) {
+        let _ = busy;
+    }
+    assert!(busy < idle * 4);
+}
+=== flagged :: busy < idle * 4 :: ratio of two timings :: review of cmux#41761 F2, same class: a `while let`'s scrutinee runs before its pattern binds
+#[test]
+fn assigned_in_a_while_let_scrutinee() {
+    let mut busy = Duration::ZERO;
+    let idle = helper();
+    while let Some(busy) = Some({ busy = helper(); 0u8 }) {
+        let _ = busy;
+        break;
+    }
+    assert!(busy < idle * 4);
+}
+=== flagged :: busy < idle * 4 :: ratio of two timings :: review of cmux#41761 F2, same class: a `let`'s initializer runs before its pattern binds, also in an inner block
+#[test]
+fn assigned_in_a_shadowing_let_initializer() {
+    let mut busy = Duration::ZERO;
+    let idle = helper();
+    {
+        let busy = { busy = helper(); 0u8 };
+        let _ = busy;
+    }
+    assert!(busy < idle * 4);
+}

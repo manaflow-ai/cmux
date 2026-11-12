@@ -280,8 +280,11 @@ fn crate_module(rel: &str) -> Option<Vec<String>> {
 /// file a declaration names is the declared module, whatever its own path says, and a file whose
 /// path says it is a module some declaration moved elsewhere (a `model.rs` beside
 /// `#[path = "actual.rs"] mod model;`), or one under a moved file's folder, is no module the
-/// tree can name: its module is unknown. Not read: a `path` under `cfg_attr`, or one in a macro.
-#[derive(Default)]
+/// tree can name: its module is unknown. A declaration names its module from the module its own
+/// file is, so with lib.rs `#[path = "actual.rs"] mod model;` a `#[path = "leaf.rs"] mod child;`
+/// in actual.rs makes leaf.rs `model::child`, not `actual::child` (review of cmux#41761 F1). Not
+/// read: a `path` under `cfg_attr`, or one in a macro.
+#[derive(Default, PartialEq, Eq)]
 struct PathMods {
     /// A declared file, from the crate's folder (`src/actual.rs`), and the module it is.
     targets: HashMap<String, Vec<String>>,
@@ -290,11 +293,35 @@ struct PathMods {
 }
 
 impl PathMods {
-    /// `files`: each file's path from the crate's folder (`src/lib.rs`) and its text.
+    /// `files`: each file's path from the crate's folder (`src/lib.rs`) and its text. Each pass
+    /// reads every file's declarations from the module the previous pass gave that file (the
+    /// first, from its path), until a pass changes nothing: a chain of N nested `#[path]` files
+    /// settles in N + 1 passes. A tree that has not settled after one pass per file (a cycle of
+    /// declarations) leaves every `#[path]` file's module unknown.
     fn of(files: &[(String, String)]) -> PathMods {
+        let parsed: Vec<(&String, syn::File)> = files
+            .iter()
+            .filter_map(|(rel, text)| Some((rel, syn::parse_file(text).ok()?)))
+            .collect();
         let mut out = PathMods::default();
-        for (rel, text) in files {
-            let (Some(module), Ok(file)) = (crate_module(rel), syn::parse_file(text)) else {
+        for _ in 0..=parsed.len() {
+            let next = PathMods::pass(&parsed, &out);
+            if next == out {
+                return out;
+            }
+            out = next;
+        }
+        // Every declared file's path, and every module a declaration names, is already in
+        // `moved`; with no targets, none of those files has a module.
+        PathMods { targets: HashMap::new(), moved: out.moved }
+    }
+
+    /// One pass of [`PathMods::of`]: each file's declarations, read from the module `prev`
+    /// gives it.
+    fn pass(parsed: &[(&String, syn::File)], prev: &PathMods) -> PathMods {
+        let mut out = PathMods::default();
+        for (rel, file) in parsed {
+            let Some(module) = prev.module(rel) else {
                 continue;
             };
             let dir = rel.rsplit_once('/').map_or("", |(dir, _)| dir).to_string();
