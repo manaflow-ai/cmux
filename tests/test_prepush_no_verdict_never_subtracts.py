@@ -301,14 +301,14 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
 
     @contextlib.contextmanager
     def rustfmt_on_path(self):
-        """The gate's PATH lookup answers "there is a rustfmt" while PATH itself holds none, so a test that mocks the
+        """The gate's rustfmt lookup answers "this rustfmt" while PATH itself holds none, so a test that mocks the
         rustfmt run judges the same on a machine with or without a real one (#41945 review, F3: these passed only
         where rustfmt was installed, and on a machine without one the layer warned and returned before the mock)."""
         from unittest import mock  # noqa: PLC0415
         empty = Path(self.tmp.name) / "empty-path"
         empty.mkdir(exist_ok=True)
         with mock.patch.dict(os.environ, {"PATH": str(empty)}), \
-                mock.patch.object(self.gate, "rustfmt_on_path", return_value=True):
+                mock.patch.object(self.gate, "resolve_rustfmt", return_value=Path("/fixture/bin/rustfmt")):
             yield
 
     def test_a_whats_new_validator_that_crashes_refuses(self) -> None:
@@ -383,6 +383,47 @@ class NoVerdictNeverSubtracts(unittest.TestCase):
     def test_rustfmt_missing_from_the_toolchain_still_warns_and_passes(self) -> None:
         out = self.rustfmt_failing(b"error: 'rustfmt' is not installed for the toolchain '1.90.0'\n")
         self.assertEqual(out, "")
+
+    # #41945 review (P1): the "is rustfmt there" probe read PATH entries from the gate's own folder, but rustfmt runs in
+    # cmux-tui/, so with PATH=. or an empty entry the two disagreed: a rustfmt in cmux-tui/ that fails was never
+    # looked for, and the layer warned "no rustfmt on PATH" and passed. The lookup is now made from cmux-tui/ and the
+    # file it finds is the one run.
+
+    def rustfmt_from_path(self, path_value: str, in_scope: bool, in_gate_cwd: bool) -> str:
+        tree = Path(self.tmp.name) / "tree"
+        (tree / "cmux-tui/crates/x/src").mkdir(parents=True, exist_ok=True)
+        (tree / "cmux-tui/crates/x/src/lib.rs").write_text("fn a() {}\n", encoding="utf-8")
+        config = Path(self.tmp.name) / "rustfmt.toml"
+        config.write_text("", encoding="utf-8")
+        scope = self.repo / "cmux-tui"
+        gate_cwd = Path(self.tmp.name) / "gate-cwd"
+        for folder, wanted in ((scope, in_scope), (gate_cwd, in_gate_cwd)):
+            folder.mkdir(parents=True, exist_ok=True)
+            fake = folder / "rustfmt"
+            if wanted:
+                # A rustfmt that crashes: run, it is no verdict; never looked for, the layer passes.
+                fake.write_text("#!/bin/sh\necho \"thread 'main' panicked at src/lib.rs:1:1\" >&2\nexit 101\n")
+                fake.chmod(0o755)
+            elif fake.exists():
+                fake.unlink()
+        saved = os.getcwd()
+        os.chdir(gate_cwd)
+        try:
+            with mock.patch.dict(os.environ, {"PATH": path_value}):
+                return self.quiet(self.gate.rustfmt, self.repo, config, tree, ["cmux-tui/crates/x/src/lib.rs"])
+        finally:
+            os.chdir(saved)
+
+    def test_a_rustfmt_found_through_a_relative_path_entry_is_the_one_run(self) -> None:
+        for path_value in (".", "", ":/nonexistent", "./"):
+            with self.subTest(path=path_value):
+                out = self.rustfmt_from_path(path_value, in_scope=True, in_gate_cwd=False)
+                self.assertNoVerdictText(out, f"PATH={path_value!r}, a crashing rustfmt in cmux-tui/")
+
+    def test_a_rustfmt_only_in_the_gates_own_folder_is_not_the_one_run(self) -> None:
+        # The other direction: PATH=. names the gate's folder to the probe, but rustfmt runs in cmux-tui/, where there
+        # is none; that is "no rustfmt here", which warns, not a launch failure.
+        self.assertEqual(self.rustfmt_from_path(".", in_scope=False, in_gate_cwd=True), "")
 
     def test_a_cargo_locks_exit_1_with_no_stale_line_refuses(self) -> None:
         from unittest import mock  # noqa: PLC0415

@@ -1124,11 +1124,17 @@ def rustup_missing(stderr: bytes) -> bool:
         RUSTUP_HINT.fullmatch(line) for line in lines[1:])
 
 
-def rustfmt_on_path(env: dict[str, str]) -> bool:
-    """Whether any folder on ENV's PATH holds a file named rustfmt, executable or not (rustfmt() says why). One
-    function, so a test that mocks the rustfmt run mocks this lookup too and needs no real install (#41945 review)."""
-    return any((Path(folder) / "rustfmt").is_file() for folder in env.get("PATH", os.defpath).split(os.pathsep)
-               if folder)
+def resolve_rustfmt(env: dict[str, str], cwd: Path) -> Path | None:
+    """The rustfmt the layer runs: the first file named rustfmt, executable or not, in a folder of ENV's PATH, each
+    folder read from CWD (the folder rustfmt runs in) as the shell reads it there, an empty one being CWD itself; None
+    when there is none. rustfmt() runs exactly this file, so "is it there" and "what runs" are one lookup (#41945
+    review: the probe read PATH=. and an empty entry from the gate's own folder while rustfmt ran in cmux-tui/), and
+    a test that mocks the run mocks this too, with no real install."""
+    for folder in env.get("PATH", os.defpath).split(os.pathsep):
+        candidate = (cwd / folder) / "rustfmt"  # an absolute folder replaces CWD; "" and "." are CWD
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
@@ -1143,10 +1149,13 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
     if not present or not config.is_file():
         return ""
     env = {**os.environ, "RUSTUP_AUTO_INSTALL": "0"}
-    # No rustfmt (and no rustup proxy) on PATH: not available here, which warns. Asked of PATH itself: a launch that
-    # raises FileNotFoundError can also be a rustfmt that is there with a missing `#!` interpreter (#41927 review).
-    # Any file named rustfmt counts, executable or not: one that will not start is no verdict, below.
-    if not rustfmt_on_path(env):
+    # No rustfmt (and no rustup proxy) on PATH: not available here, which warns. Asked of PATH itself, from the folder
+    # rustfmt runs in: a launch that raises FileNotFoundError can also be a rustfmt that is there with a missing `#!`
+    # interpreter (#41927 review). Any file named rustfmt counts, executable or not: one that will not start is no
+    # verdict, below. The file found is the one run, by its path (#41945 review).
+    scope = repo / RUST_SCOPE
+    binary = resolve_rustfmt(env, scope)
+    if binary is None:
         log("prepush-gate: WARNING: no rustfmt on PATH; Rust formatting NOT checked")
         return ""
     findings = []
@@ -1154,10 +1163,10 @@ def rustfmt(repo: Path, config: Path, tree: Path, rust: list[str]) -> str:
         edition = rustfmt_edition(repo, tree, path)
         if edition is None:
             continue  # outside the cmux-tui workspace's `cargo fmt --all`: not this layer's to judge
-        args = ["rustfmt", "--edition", edition, "--config-path", str(config), "--emit", "stdout"]
+        args = [str(binary), "--edition", edition, "--config-path", str(config), "--emit", "stdout"]
         source = (tree / path).read_bytes()
         try:
-            done = subprocess.run(args, cwd=repo / RUST_SCOPE, input=source, env=env, capture_output=True, timeout=60)
+            done = subprocess.run(args, cwd=scope, input=source, env=env, capture_output=True, timeout=60)
         except subprocess.TimeoutExpired:
             # It started and did not finish: no verdict on the file, not a pass (no rustfmt at all, below, warns).
             return f"rustfmt gave no verdict: timed out after 60s on {path}"
