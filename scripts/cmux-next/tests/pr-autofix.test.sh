@@ -46,6 +46,19 @@ done
 # The settings exports (schemas/settings/settings-schema.json and
 # docs/mdm) follow a CmuxNextSettings change on the same Mac job, so a pull
 # request that adds a setting lands with them instead of a red defaults-snapshot.
+displays() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^displays=//p'; }
+# The display suite list (base-autofix.sh's display_suites.py --fix) follows any package test source.
+[[ "$(displays Packages/macOS/CmuxNext/Tests/CmuxNextAppTests/HeaderTerminalSplitAtOnceTests.swift)" == true ]] \
+  || fail "a package test source must move the display suite list's area"
+[[ "$(displays Packages/macOS/CmuxNext/Sources/CmuxNextApp/App.swift)" == false ]] \
+  || fail "a package source outside Tests must not move the display suite list's area"
+# display_suites.py lists a Tests folder only beside a Package.swift, so adding or removing a manifest alone
+# changes the list (review of #41785): a manifest is an input too, at any depth under Packages.
+for manifest in Packages/macOS/CmuxNext/Package.swift Packages/NewKit/Package.swift; do
+  [[ "$(displays "$manifest")" == true ]] || fail "a manifest-only change ($manifest) must move the display suite list's area"
+done
+[[ "$(displays Packages/macOS/CmuxNext/Sources/CmuxNextApp/NotAPackage.swift)" == false ]] \
+  || fail "a Swift source named like a manifest must not move the display suite list's area"
 locks() { printf '%s\n' "$1" | bash "$AREAS" | sed -n 's/^locks=//p'; }
 [[ "$(locks cmux-tui/Cargo.toml)" == true ]] || fail "a Cargo.toml change must check every lock"
 [[ "$(locks Native/DiffSidecar/Cargo.lock)" == true ]] || fail "a Cargo.lock change anywhere must check every lock"

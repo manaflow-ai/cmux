@@ -50,7 +50,8 @@ fn log(stored: &[u8], pending: &[u8]) -> TerminalLog {
 /// Whether the quit pass writes `log`'s snapshot when its screen now has
 /// digest 2 at 80x24.
 fn quit_wants_snapshot(log: &TerminalLog, size: (u16, u16)) -> bool {
-    Plan::of(log, Duration::from_secs(30)).wants_snapshot(2, size, true, false, true, true)
+    let screen = super::ScreenNow { digest: 2, size, alternate: false };
+    Plan::of(log, Duration::from_secs(30)).wants_snapshot(screen, true, false, true, true)
 }
 
 #[test]
@@ -99,4 +100,30 @@ fn a_quit_appends_the_unwritten_bytes_to_the_tail_and_syncs_it() {
     assert_eq!(stored, b"last words");
     assert_eq!(pending, 0);
     assert!(!unsynced, "the quit left the last bytes in the tail without a sync");
+}
+
+#[test]
+fn a_quit_writes_a_snapshot_for_a_terminal_on_the_alternate_screen() {
+    // An update rolled back to a build before ed6ab5728d8c rebuilds a tail
+    // that ends on the alternate screen without the primary screen.
+    let log = log(b"stored ", b"unwritten");
+    let plan = Plan::of(&log, Duration::from_secs(30));
+    let alternate = super::ScreenNow { digest: 2, size: (80, 24), alternate: true };
+    assert!(
+        plan.wants_snapshot(alternate, true, false, true, true),
+        "a terminal on the alternate screen was left to its tail at quit"
+    );
+    // Nothing since its snapshot: nothing to write.
+    let idle = log_with_nothing_new();
+    let plan = Plan::of(&idle, Duration::from_secs(30));
+    let unchanged = super::ScreenNow { digest: 1, size: (80, 24), alternate: true };
+    assert!(
+        !plan.wants_snapshot(unchanged, true, false, true, true),
+        "an unchanged screen was rewritten"
+    );
+}
+
+/// A terminal whose snapshot (digest 1) holds all of its output.
+fn log_with_nothing_new() -> TerminalLog {
+    log(b"", b"")
 }

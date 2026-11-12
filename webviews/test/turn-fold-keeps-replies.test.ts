@@ -7,7 +7,7 @@
 // each reply stays under Worked for, as chatgpt.com draws it (turn-fold-hides-every-call.test.ts), and
 // no count reads a reply as a call.
 // Gallery: agent-pane.turn-fold-replies.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, expect, test } from "bun:test";
 import { MESSAGE_RUN, type AcpmuxActivity, type AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { incomingPrompt } from "../src/agent-session/acpmux/conversation/incomingMessage";
 import { turnView, WORKED } from "../src/agent-session/acpmux/conversation/turns";
@@ -91,8 +91,14 @@ const FAMILIES = ["claude", "codex", "gemini", "muse", undefined];
 const closed = (agentFamily: string | undefined, rows = turn) =>
   turnView(rows, new Set(), { agentFamily, now: START + 200_000 });
 
+// These tests cover the arms that keep the replies in sight; `replies` was their default until the
+// Codex `answer` arm (tested at the end of this file) took its place on 2026-11-11.
+beforeEach(() => {
+  globalThis.cmuxExperiments = { "turn-fold-replies": "replies" };
+});
+
 afterEach(() => {
-  globalThis.cmuxExperiments = undefined;
+  delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
 });
 
 /// The rows of `view` that draw a reply or a run of calls, in order: a reply by its id, a run as
@@ -244,4 +250,21 @@ test("the runs arm splits the work after a reply where the open fold does, a dra
   const opened = turnView(rows, new Set([`${WORKED}-u-0`]), { agentFamily: "claude", now: START + 60_000 });
   const after = (view: AcpmuxRow[]) => outline(view).slice(outline(view).indexOf("a-middle") + 1, -1);
   expect(after(closed("claude", rows))).toEqual(after(opened));
+});
+
+test("by default a closed fold keeps only the final answer in sight, as Codex does", () => {
+  // Lawrence, 2026-11-11 standup: the closed "Worked for" "does not hide enough stuff".
+  delete (globalThis as { cmuxExperiments?: unknown }).cmuxExperiments;
+  for (const family of FAMILIES) {
+    const view = closed(family);
+    const worked = view.find((shown) => shown.kind === WORKED);
+    expect(worked?.foldOpen).toBe(false);
+    expect(outline(view)).toEqual(["a-final"]);
+    // Opened, every earlier reply reads in order among the work, each still marked as a reply.
+    const opened = turnView(turn, new Set([`${WORKED}-u-0`]), { agentFamily: family, now: START + 200_000 });
+    const order = outline(opened).filter((entry) => REPLY_IDS.includes(entry));
+    expect(order).toEqual(REPLY_IDS);
+    for (const id of ["a-start", "a-middle", "a-notice"])
+      expect(opened.find((shown) => shown.id === id)?.foldedReply).toBe(true);
+  }
 });
