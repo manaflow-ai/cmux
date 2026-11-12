@@ -179,3 +179,63 @@ test("a reply acpmux split into two segments under one messageId draws two rows"
   const replies = pane.rows().filter((row) => row.kind === "assistant");
   expect(replies.map((row) => row.id)).toEqual(["assistant-t1.1", "assistant-t1.2"]);
 });
+
+// Review of cmux#41540 at 360e73b7: the pane keeps one message in one row across a background
+// task's note, a subagent's update, a plumbing call and a plan call (Leo, 2026-11-03: "this chat's
+// text stream got cut in the middle by a tool call which is weird"), and acpmux stamps one segment
+// across them (hub/stream.rs): the message stays one row under its segment's id.
+const update = (seq: number, body: Record<string, unknown>) => ({
+  sessionId: CHAT,
+  seq,
+  at: START + seq * 1000,
+  dir: "in",
+  kind: String(body.sessionUpdate),
+  msg: { method: "session/update", params: { sessionId: CHAT, update: body } },
+});
+test.each([
+  [
+    "a background task's note",
+    [update(3, { sessionUpdate: "background_task_update", toolCallId: "bg-1", state: "completed" })],
+  ],
+  [
+    "a subagent's update",
+    [
+      update(3, { sessionUpdate: "subagent_spawned", subagentSessionId: "child-1", name: "Look", task: "Look" }),
+      update(4, { sessionUpdate: "subagent_state_update", subagentSessionId: "child-1", state: "completed" }),
+    ],
+  ],
+  [
+    "a plumbing call",
+    [
+      update(3, {
+        sessionUpdate: "tool_call",
+        toolCallId: "ts-1",
+        title: "ToolSearch",
+        kind: "other",
+        status: "completed",
+        _meta: { claudeCode: { toolName: "ToolSearch" } },
+      }),
+    ],
+  ],
+  [
+    "a plan call",
+    [
+      update(3, {
+        sessionUpdate: "tool_call",
+        toolCallId: "plan-1",
+        title: "todo_write",
+        kind: "other",
+        status: "completed",
+        _meta: { acpmux: { planTool: true } },
+      }),
+    ],
+  ],
+] as const)("one message streamed across %s stays one row", async (_name, between) => {
+  const daemon = fakeDaemon(
+    [user(1, "go"), chunk(2, "first half, ", "m1", "t1.x.1"), ...between, chunk(9, "second half", "m1", "t1.x.1")],
+    1000,
+  );
+  const pane = await page(daemon);
+  const replies = pane.rows().filter((row) => row.kind === "assistant");
+  expect(replies.map((row) => [row.id, row.text])).toEqual([["assistant-t1.x.1", "first half, second half"]]);
+});

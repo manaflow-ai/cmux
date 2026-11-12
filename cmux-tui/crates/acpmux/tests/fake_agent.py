@@ -1269,19 +1269,27 @@ def handle_prompt(rid, params):
         send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": text[5:].strip()}}, "_meta": {"fake": {"n": 1}}}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn", "_meta": {"fake": {"done": True}}}})
         return
-    # "reply-segments" streams reply text in runs: two chunks of one message, a tool call, a
-    # chunk of the same message, a thought, a chunk with no messageId, a usage tick and a last
-    # chunk. acpmux stamps each run's chunks with one segment id (hub/stream.rs).
+    # "reply-segments" streams one message (m1) across what the pane keeps it whole over: a
+    # background task's note, a subagent's spawn and update, a plumbing call (ToolSearch), a plan
+    # and a usage tick; then a chunk with no messageId and two more with none around a thought and
+    # a tool call. acpmux stamps one segment per message (hub/stream.rs).
     if text == "reply-segments":
         chunk = lambda t, mid=None: update(sid, {"sessionUpdate": "agent_message_chunk", **({"messageId": mid} if mid else {}), "content": {"type": "text", "text": t}})
         chunk("a", "m1")
+        update(sid, {"sessionUpdate": "background_task_update", "taskId": "bg-1", "status": "completed"})
         chunk("b", "m1")
-        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "seg-tc", "title": "ls", "kind": "read", "status": "completed"})
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "seg-child", "name": "Look", "task": "Look", "capabilities": {}})
+        update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "seg-child", "state": "completed"})
         chunk("c", "m1")
-        update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "hm"}})
-        chunk("d")
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "seg-ts", "title": "ToolSearch", "kind": "other", "status": "completed", "_meta": {"claudeCode": {"toolName": "ToolSearch"}}})
+        chunk("d", "m1")
+        update(sid, {"sessionUpdate": "plan", "entries": [{"content": "step", "status": "pending", "priority": "medium"}]})
         update(sid, {"sessionUpdate": "usage_update", "used": 10, "size": 1000})
-        chunk("e")
+        chunk("e", "m1")
+        chunk("f")
+        update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "hm"}})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "seg-tc", "title": "ls", "kind": "read", "status": "completed"})
+        chunk("g")
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "codex-retry" streams a partial message, reports a Codex stream retry,

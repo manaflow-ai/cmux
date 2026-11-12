@@ -41,17 +41,17 @@ fn codex_error(update: &Value) -> Option<(bool, Value)> {
     Some((will_retry, err.clone()))
 }
 
-/// Updates that neither end nor continue a reply segment (`reply_segment`): what a client draws
-/// beside the reply, never between two runs of its text. A thought, a tool call, a plan or a
-/// prompt between two runs of text makes them two segments, as the pane draws them.
-const SEGMENT_QUIET_UPDATES: &[&str] = &[
-    "usage_update",
-    "available_commands_update",
-    "current_mode_update",
-    "config_option_update",
-    "session_info_update",
-    "prompt_suggestion",
-];
+/// This daemon run's mark in every reply segment id (`reply_segment`): segment numbers start
+/// again after a restart, and an id minted before it must never name a reply minted after.
+fn segment_boot() -> &'static str {
+    static BOOT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    BOOT.get_or_init(|| {
+        let ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis());
+        format!("{ms:x}")
+    })
+}
 
 /// Stamps `segment` on a reply chunk's record, as `_meta.acpmux.segment` beside the agent's own
 /// `_meta` (a client reads it with the record's `msg.params`).
@@ -70,9 +70,13 @@ impl Hub {
     /// Called for a live agent `session/update` before it is recorded.
     /// Appends `message_superseded` ahead of the redelivered message.
     ///
-    /// Returns the reply segment of an `agent_message_chunk`: one id for every chunk of one run
-    /// of reply text (the same `messageId`, nothing but quiet updates between them), the turn's id
-    /// and the run's number in it. Stamped on each chunk's record (`stamp_reply_segment`), it names
+    /// Returns the reply segment of an `agent_message_chunk`: one id for every chunk of one
+    /// message (the same `messageId`; with none, the run of chunks with none), until a prompt (a
+    /// steer) ends it: the turn's id, this daemon run's mark and the segment's number in the turn.
+    /// Nothing else ends one. The pane keeps one message in one row across a background task's
+    /// note, a subagent's update, a plumbing or plan call (direct.ts; Leo, 2026-11-03: "this chat's
+    /// text stream got cut in the middle by a tool call which is weird"), so the segment does too;
+    /// a row the pane does cut there is named as before. Stamped on each chunk's record (`stamp_reply_segment`), it names
     /// the reply's row in a client whichever of its chunks a page of the log starts at, so a reply
     /// a page cut is never drawn again under another id when the page before it comes in, and a
     /// reconnect's page draws it under the id it had (Leo, 2026-11-11: "they just appear and
@@ -105,13 +109,17 @@ impl Hub {
             match kind {
                 "agent_message_chunk" => {
                     let id = update.get("messageId").and_then(Value::as_str);
-                    if st.reply_segment.is_none() || id != st.open_message.as_deref() {
+                    if st.reply_segment.is_none() || id != st.segment_message.as_deref() {
+                        let turn = turn_id.as_deref().unwrap_or("-");
+                        // Numbered within the turn: a new turn starts again at 1.
+                        if st.segment_turn.as_deref() != Some(turn) {
+                            st.segment_turn = Some(turn.to_owned());
+                            st.reply_segments = 0;
+                        }
                         st.reply_segments += 1;
-                        st.reply_segment = Some(format!(
-                            "{}.{}",
-                            turn_id.as_deref().unwrap_or("-"),
-                            st.reply_segments
-                        ));
+                        st.reply_segment =
+                            Some(format!("{turn}.{}.{}", segment_boot(), st.reply_segments));
+                        st.segment_message = id.map(str::to_owned);
                     }
                     segment = st.reply_segment.clone();
                     if let Some((old, notice)) = st.retry_from.take()
@@ -155,13 +163,8 @@ impl Hub {
                         }
                     }
                 }
-                k if NEUTRAL_UPDATES.contains(&k) => {
-                    if !SEGMENT_QUIET_UPDATES.contains(&k) {
-                        st.reply_segment = None;
-                    }
-                }
+                k if NEUTRAL_UPDATES.contains(&k) => {}
                 _ => {
-                    st.reply_segment = None;
                     // A tool call, plan or user chunk ends the message: a
                     // later retry does not abandon it.
                     st.open_message = None;

@@ -204,19 +204,23 @@ async fn reply_chunks_carry_one_segment_per_run_of_text() {
             )
         })
         .collect();
-    assert_eq!(chunks.len(), 10, "{chunks:?}");
-    let (first, second) = chunks.split_at(5);
+    assert_eq!(chunks.len(), 14, "{chunks:?}");
+    let (first, second) = chunks.split_at(7);
     let turns: Vec<&str> =
         find(&events, "turn_started").iter().map(|e| e.msg["turnId"].as_str().unwrap()).collect();
     for (turn, run) in [(turns[0], first), (turns[1], second)] {
         let seg = |i: usize| run[i].1.as_str();
-        // One message's two chunks are one segment; a tool call, then a thought, start the next.
-        assert_eq!(seg(0), seg(1), "{run:?}");
-        assert_ne!(seg(1), seg(2), "{run:?}");
-        assert_ne!(seg(2), seg(3), "{run:?}");
-        // A usage tick between two chunks keeps them one run.
-        assert_eq!(seg(3), seg(4), "{run:?}");
-        assert!(seg(0).starts_with(turn), "{run:?} of turn {turn}");
+        // One message is one segment across a background task's note, a subagent's spawn and
+        // update, a plumbing call, a plan and a usage tick: the pane keeps it one row over them.
+        for i in 1..5 {
+            assert_eq!(seg(0), seg(i), "{run:?}");
+        }
+        // Chunks with no messageId after it are the next; a thought and a tool call end neither.
+        assert_ne!(seg(4), seg(5), "{run:?}");
+        assert_eq!(seg(5), seg(6), "{run:?}");
+        assert!(seg(0).starts_with(&format!("{turn}.")), "{run:?} of turn {turn}");
+        // Numbered within the turn, after this daemon run's mark.
+        assert!(seg(0).ends_with(".1") && seg(5).ends_with(".2"), "{run:?}");
     }
     // Every turn's segments are its own.
     assert!(first.iter().all(|(_, a)| second.iter().all(|(_, b)| a != b)));
