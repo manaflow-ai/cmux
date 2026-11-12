@@ -1,10 +1,10 @@
-// The pane's whole session list (SessionPager.whole): `_acpmux/watch` with no `limit`. Past
-// acpmux's largest reply (about 14 MiB; one daemon's list was 17 MB with tools) it answers its
-// first rows and a `nextCursor`, and the rest is read by `_acpmux/sessions` from that cursor with
-// no `limit`, so the list is still whole. A list that fits, and any older daemon, answers one
-// reply with no cursor, as before.
+// The pane's whole session list (SessionPager.whole): `_acpmux/watch` and then `_acpmux/sessions`
+// from each `nextCursor`, every read a page of `SESSION_PAGE`, so the list is still whole. Asked
+// with no `limit`, an older acpmux answered every session in one reply (31 MB on one Mac), which
+// filled the app bridge's 32 MiB inbound queue and closed the pane's socket. A list that fits, and
+// a host that ignores `limit`, answers one reply with no cursor, as before.
 import { expect, test } from "bun:test";
-import { SessionPageError, SessionPager } from "../src/agent-session/acpmux/sessionPages";
+import { SESSION_PAGE, SessionPageError, SessionPager } from "../src/agent-session/acpmux/sessionPages";
 import { translate } from "../src/agent-session/acpmux/i18n";
 
 type Row = { sessionId: string };
@@ -27,16 +27,16 @@ function daemon(count: number, page: number, repeat = false) {
 test("a whole list that fits one reply is that reply", async () => {
   const { calls, pager } = daemon(3, 10);
   expect((await pager.whole()).map((row) => row.sessionId)).toEqual(["s0", "s1", "s2"]);
-  expect(calls).toEqual([{ method: "_acpmux/watch", params: { enabled: true } }]);
+  expect(calls).toEqual([{ method: "_acpmux/watch", params: { enabled: true, limit: SESSION_PAGE } }]);
 });
 
 test("a whole list past one reply is read on from its cursor", async () => {
   const { calls, pager } = daemon(5, 2);
   expect((await pager.whole()).map((row) => row.sessionId)).toEqual(["s0", "s1", "s2", "s3", "s4"]);
   expect(calls).toEqual([
-    { method: "_acpmux/watch", params: { enabled: true } },
-    { method: "_acpmux/sessions", params: { cursor: "2" } },
-    { method: "_acpmux/sessions", params: { cursor: "4" } },
+    { method: "_acpmux/watch", params: { enabled: true, limit: SESSION_PAGE } },
+    { method: "_acpmux/sessions", params: { limit: SESSION_PAGE, cursor: "2" } },
+    { method: "_acpmux/sessions", params: { limit: SESSION_PAGE, cursor: "4" } },
   ]);
 });
 

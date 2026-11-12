@@ -123,12 +123,15 @@ export class SessionPager<S extends Summary> {
   }
 
   /**
-   * The whole list, for a decision that cannot wait for the pages: watch without a `limit`, as
-   * every host answers it (a remote pane's host never pages). A list past acpmux's largest reply
-   * comes as its first rows and a `nextCursor`; the rest is read by `_acpmux/sessions` from it.
+   * The whole list, for a decision that cannot wait for the pages, read in pages of `SESSION_PAGE`
+   * and followed by `_acpmux/sessions` from each `nextCursor`. A host that does not page (a remote
+   * pane's) ignores `limit` and answers the whole list, as before. Asked without a `limit`, an
+   * acpmux older than its list cap answered every session in one reply (31 MB on one Mac), which
+   * filled the app bridge's 32 MiB inbound queue (AgentPaneTransport `maximumQueuedBytes`): the
+   * bridge closed the socket, and the pane lost its connection and drew the chat again.
    */
   async whole(): Promise<S[]> {
-    let page = wholePageOf<S>(await this.pacedRequest("_acpmux/watch", { enabled: true }));
+    let page = wholePageOf<S>(await this.pacedRequest("_acpmux/watch", { enabled: true, limit: SESSION_PAGE }));
     const sessions = page.sessions;
     const seen = new Set<string>();
     for (let next = page.next; next !== undefined; next = page.next) {
@@ -138,7 +141,7 @@ export class SessionPager<S extends Summary> {
           `acpmux gave the page cursor ${JSON.stringify(next)} twice`,
         );
       seen.add(next);
-      page = wholePageOf<S>(await this.pacedRequest("_acpmux/sessions", { cursor: next }), next);
+      page = wholePageOf<S>(await this.pacedRequest("_acpmux/sessions", { limit: SESSION_PAGE, cursor: next }), next);
       for (const session of page.sessions) sessions.push(session);
     }
     // The pages come in an order updates do not change (hash order), not newest first.
