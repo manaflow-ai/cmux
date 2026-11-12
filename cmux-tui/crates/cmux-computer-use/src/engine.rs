@@ -186,6 +186,12 @@ pub trait PersonActivity: Send + Sync {
     fn input_count(&self) -> Option<u64> {
         None
     }
+    /// Whether input_count counts the person's keys too (macOS: only with
+    /// Input Monitoring). A count that sees only the pointer cannot tell
+    /// that the person kept typing.
+    fn input_counts_keys(&self) -> bool {
+        false
+    }
 }
 
 pub struct NoTakeover;
@@ -451,8 +457,8 @@ impl Engine {
             Ok((out, app)) => (out, app),
             Err(out) => (out, None),
         };
-        if let Some(before) = raising {
-            self.foreground_end(&ctx.session, &before, &args, &out);
+        if let Some((before, inputs)) = raising {
+            self.foreground_end(&ctx.session, &before, inputs, &args, &out);
         }
         let mut focus = guard.as_mut().map(|g| self.focus_after_action(g, &out));
         if let Some(call_id) = acting_id {

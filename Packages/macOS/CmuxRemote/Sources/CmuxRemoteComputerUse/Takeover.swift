@@ -134,6 +134,9 @@ final class TakeoverGate: Sendable {
 
     private struct State {
         var healthy = false
+        /// The tap listens to key events too (Input Monitoring granted when it
+        /// was created); without it only the pointer is seen.
+        var seesKeys = false
         var lastPerson: UInt64?
         var pointer: PointerSample?
         var stats = TakeoverStats()
@@ -170,8 +173,21 @@ final class TakeoverGate: Sendable {
 
     // MARK: Fed by the tap
 
-    func setHealthy(_ healthy: Bool) {
-        state.withLock { $0.healthy = healthy }
+    func setHealthy(_ healthy: Bool, seesKeys: Bool? = nil) {
+        state.withLock { state in
+            // A period the tap could not see counts as the person's input:
+            // whatever they did meanwhile was not counted, so a reading taken
+            // before it never equals one taken after.
+            if state.healthy, !healthy { state.stats.personEvents &+= 1 }
+            state.healthy = healthy
+            if let seesKeys { state.seesKeys = seesKeys }
+        }
+    }
+
+    /// Whether personEventCount() counts the person's keys as well as the
+    /// pointer (the tap is watching and listens to key events).
+    func personEventsCoverKeys() -> Bool {
+        state.withLock { $0.healthy && $0.seesKeys }
     }
 
     /// Record one classified event seen at `at` (uptime nanoseconds).

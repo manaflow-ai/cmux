@@ -234,32 +234,35 @@ impl Engine {
     }
 
     /// Before a call that raises its window on purpose (foreground): what
-    /// was in front, to tell afterwards whether the call brought its target
-    /// forward. `None` for every other call.
+    /// was in front and the person's input count, to tell afterwards whether
+    /// the call itself brought its target forward. `None` for every other
+    /// call.
     pub(super) fn foreground_begin(
         &self,
         tool: &tools::Tool,
         args: &Value,
-    ) -> Option<FocusSnapshot> {
+    ) -> Option<(FocusSnapshot, Option<u64>)> {
         if !tool.acts() || !asks_foreground(tool.name, args) {
             return None;
         }
-        self.desktop.focus_snapshot()
+        Some((self.desktop.focus_snapshot()?, self.takeover.input_count()))
     }
 
     /// After that call: when it acted and brought its target app to the
     /// front (it was not there before), remember that for the session, with
-    /// the window it left in front and the person's input count. Nothing is
-    /// remembered without an input counter, or when the person already had
-    /// the target in front.
+    /// the window it left in front and the person's input count. Only when
+    /// the count covers the person's keys as well as the pointer, and the
+    /// person gave no input during the call (an approval wait may be long);
+    /// never when the person already had the target in front.
     pub(super) fn foreground_end(
         &self,
         session: &str,
         before: &FocusSnapshot,
+        inputs_before: Option<u64>,
         args: &Value,
         out: &ToolOutput,
     ) {
-        if out.is_error {
+        if out.is_error || !self.takeover.input_counts_keys() {
             return;
         }
         let Some(target) = args_str(args, "window_id")
@@ -273,7 +276,7 @@ impl Engine {
         else {
             return;
         };
-        if before.pid != target && now.pid == target {
+        if inputs_before == Some(inputs) && before.pid != target && now.pid == target {
             lock(&self.agent_front).insert(
                 session.to_string(),
                 AgentFront { pid: target, window: now.window_id, inputs },
@@ -288,7 +291,9 @@ impl Engine {
         let config = self.config();
         let mut fronts = lock(&self.agent_front);
         let Some(front) = fronts.get_mut(&g.session) else { return false };
-        let allowed = config.allow_foreground && config.mode != policy::Mode::Off;
+        let allowed = config.allow_foreground
+            && config.mode != policy::Mode::Off
+            && self.takeover.input_counts_keys();
         let quiet = g.inputs == Some(front.inputs) && after == Some(front.inputs);
         // The window the agent left in front, or (a later reading of this
         // same call) the one this call already brought forward.

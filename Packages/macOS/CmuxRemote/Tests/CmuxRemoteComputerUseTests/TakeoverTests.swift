@@ -126,6 +126,21 @@ private final class FakeClock: Sendable {
         #expect(gate.personEventCount() == nil)
     }
 
+    /// A period the tap could not see counts as the person's input, so a reading from before it
+    /// never matches one after; and the count covers keys only when the tap listens to them.
+    @Test func aBlindPeriodCountsAsInputAndKeyCoverageIsReported() {
+        let clock = FakeClock()
+        let gate = clock.gate()
+        gate.setHealthy(true, seesKeys: false)
+        #expect(gate.personEventsCoverKeys() == false, "pointer only: the person's keys are not counted")
+        let before = gate.personEventCount()
+        gate.setHealthy(false)
+        #expect(gate.personEventsCoverKeys() == false, "unwatched")
+        gate.setHealthy(true, seesKeys: true)
+        #expect(gate.personEventsCoverKeys())
+        #expect(gate.personEventCount() != before, "what the person did while the tap was blind was not counted")
+    }
+
     @Test func ourOwnInputNeverTakesOver() {
         let clock = FakeClock()
         let gate = clock.gate()

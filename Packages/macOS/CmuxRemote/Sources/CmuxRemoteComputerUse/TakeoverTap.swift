@@ -104,9 +104,10 @@ final class TakeoverTap: @unchecked Sendable { // crash-allow: every mutable fie
 
     private func run() {
         let box = Unmanaged.passUnretained(self).toOpaque()
+        let keys = listenKeys()
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
-            eventsOfInterest: CGEventMask(listenKeys() ? TapEventType.mask : TapEventType.pointerOnlyMask),
+            eventsOfInterest: CGEventMask(keys ? TapEventType.mask : TapEventType.pointerOnlyMask),
             callback: { _, type, event, info in
                 if let info { Unmanaged<TakeoverTap>.fromOpaque(info).takeUnretainedValue().handle(type: type, event: event) }
                 return Unmanaged.passUnretained(event)
@@ -120,7 +121,7 @@ final class TakeoverTap: @unchecked Sendable { // crash-allow: every mutable fie
         CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .defaultMode)
         CGEvent.tapEnable(tap: tap, enable: true)
         var healthy = provenanceRoundTrips()
-        gate.setHealthy(healthy)
+        gate.setHealthy(healthy, seesKeys: keys)
         var lastProof = TakeoverGate.uptimeNanos()
         while !state.withLock({ $0.stop }) {
             // A run loop wake, not a poll of the gate: events arrive as sources.

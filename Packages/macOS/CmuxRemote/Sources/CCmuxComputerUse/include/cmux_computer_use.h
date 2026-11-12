@@ -81,6 +81,10 @@ typedef struct CmuxCuHost {
     // guard compares two readings to know whether the person moved focus during a call.
     // Optional: read only when struct_size covers it.
     int64_t (*person_events)(void *context);
+    // Whether person_events counts the person's keys as well as the pointer (without Input
+    // Monitoring the tap sees only the pointer). Optional: read only when struct_size covers it;
+    // absent means no.
+    bool (*person_events_cover_keys)(void *context);
 } CmuxCuHost;
 
 typedef struct CmuxCuEngine CmuxCuEngine;

@@ -8,7 +8,8 @@ use crate::desktop::fake::{Event, FakeDesktop};
 
 /// The person's input as a counter (a detector that watches, when `.1`).
 /// With `.2` set, the person acts once right after the first reading.
-struct Counter(AtomicU64, bool, AtomicBool);
+/// `.3` set: it counts the pointer only (no Input Monitoring).
+struct Counter(AtomicU64, bool, AtomicBool, AtomicBool);
 impl PersonActivity for Counter {
     fn wait_idle(&self, _limit: Duration) -> bool {
         true
@@ -19,6 +20,10 @@ impl PersonActivity for Counter {
             self.0.fetch_add(1, Ordering::SeqCst);
         }
         self.1.then_some(n)
+    }
+    /// A watching counter here sees keys too, unless the test says pointer only.
+    fn input_counts_keys(&self) -> bool {
+        self.1 && !self.3.load(Ordering::SeqCst)
     }
 }
 
@@ -63,7 +68,12 @@ struct Rig {
 fn rig_with(desktop: FakeDesktop, watched: bool) -> Rig {
     let desktop = Arc::new(desktop);
     *desktop.focus.lock().unwrap() = Some(person());
-    let counter = Arc::new(Counter(AtomicU64::new(0), watched, AtomicBool::new(false)));
+    let counter = Arc::new(Counter(
+        AtomicU64::new(0),
+        watched,
+        AtomicBool::new(false),
+        AtomicBool::new(false),
+    ));
     let mut parts = EngineParts::new(desktop.clone());
     let a = Arc::new(AtomicU64::new(0));
     let b = a.clone();
@@ -468,4 +478,34 @@ fn every_tool_that_takes_delivery_authorizes_foreground_as_such() {
         assert_eq!(out.code.as_deref(), Some("foreground_not_allowed"), "{name}: {:?}", out.body);
         assert_eq!(r.desktop.events().len(), events, "{name} acted");
     }
+}
+
+#[test]
+fn a_count_that_sees_only_the_pointer_exempts_nothing() {
+    // Without Input Monitoring the tap counts the pointer only: the person
+    // could type into the app the agent brought forward without moving the
+    // count, so nothing is recorded.
+    let r = rig();
+    r.person.3.store(true, Ordering::SeqCst);
+    agent_raises_safari(&r);
+    let out = background_click(&r, "s1", "c2", safari_other_window());
+    assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{:?}", out.body);
+}
+
+#[test]
+fn the_persons_input_during_the_foreground_call_records_nothing() {
+    // The person acts while the foreground call runs (it may wait on an
+    // approval): the call did not bring the app forward on its own.
+    let r = rig();
+    r.engine.set_config(PolicyConfig { allow_foreground: true, ..PolicyConfig::default() });
+    *r.desktop.steal_on_input.lock().unwrap() = Some(safari_front());
+    r.person.2.store(true, Ordering::SeqCst);
+    let out = r.engine.call(
+        &ctx("raise"),
+        "click",
+        &json!({"window_id": "1", "element_id": "e1", "delivery": "foreground"}),
+    );
+    assert!(!out.is_error, "{:?}", out.body);
+    let out = background_click(&r, "s1", "c2", safari_other_window());
+    assert_eq!(out.body["focus"]["restored_from"], "com.apple.Safari", "{:?}", out.body);
 }

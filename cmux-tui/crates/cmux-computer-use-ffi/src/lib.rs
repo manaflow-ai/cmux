@@ -63,6 +63,7 @@ type WaitIdleFn = unsafe extern "C" fn(*mut std::ffi::c_void, u64) -> bool;
 type PermissionFn = unsafe extern "C" fn(*mut std::ffi::c_void, *const u8, usize) -> i32;
 type CaptureAppsFn = unsafe extern "C" fn(*mut std::ffi::c_void, *mut u8, usize, *mut usize) -> i32;
 type PersonEventsFn = unsafe extern "C" fn(*mut std::ffi::c_void) -> i64;
+type PersonEventsCoverKeysFn = unsafe extern "C" fn(*mut std::ffi::c_void) -> bool;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -79,6 +80,9 @@ pub struct CmuxCuHost {
     /// Added after the first release of the table: read only when the
     /// host's `struct_size` covers it ([`CmuxCuHost::copy_from`]).
     pub person_events: Option<PersonEventsFn>,
+    /// Added with person_events' key coverage: read only when `struct_size`
+    /// covers it; absent means the count does not cover keys.
+    pub person_events_cover_keys: Option<PersonEventsCoverKeysFn>,
 }
 
 impl CmuxCuHost {
@@ -294,6 +298,11 @@ impl PersonActivity for Host {
         // SAFETY: plain call.
         let n = unsafe { f(self.0.context) };
         u64::try_from(n).ok()
+    }
+
+    fn input_counts_keys(&self) -> bool {
+        // SAFETY: plain call.
+        self.0.person_events_cover_keys.is_some_and(|f| unsafe { f(self.0.context) })
     }
 }
 
