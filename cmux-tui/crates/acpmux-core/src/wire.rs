@@ -7,11 +7,12 @@
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use std::fmt;
+use std::mem::size_of;
 
 /// The inclusive encoded-frame limit from the v2 protocol.
 pub const MAX_FRAME_BYTES: usize = 1024 * 1024;
 pub const MAX_PAGE_BYTES: usize = 256 * 1024;
-const HEADER_BYTES: usize = std::mem::size_of::<u32>();
+const HEADER_BYTES: usize = size_of::<u32>();
 const KIND_BYTES: usize = 1;
 const MAX_PAYLOAD_BYTES: usize = MAX_FRAME_BYTES - HEADER_BYTES - KIND_BYTES;
 
@@ -294,7 +295,7 @@ pub enum FrameKind {
 impl TryFrom<u8> for FrameKind {
     type Error = FrameError;
 
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
+    fn try_from(value: u8) -> Result<Self, FrameError> {
         match value {
             1 => Ok(Self::Hello),
             2 => Ok(Self::Window),
