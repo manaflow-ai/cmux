@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43145236760",
+  "recorded_at": "2026-11-12T03:08:47Z",
+  "reason": "cmux-tui 237756b5b50a changes the image's cmux-tui (pinned 80f6ed6b08e6)",
+  "dry_run": false,
+  "cmux_tui": "237756b5b50a86769fe0de378319e3e3ae65bd1e",
+  "fixes": [
+    {
+      "sha": "237756b5b50a86769fe0de378319e3e3ae65bd1e",
+      "mergedAt": "2026-11-11T20:44:20-06:00",
+      "subject": "cmux-tui: a writer batch of retry-row clears only wakes no event waiter"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T03:08:47Z",
+    "snapshot_id": "sh-312f9986b0804817bab85ca597faaabf",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43145236760): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "ff4934d1293748563e0de8ec3e6e9b935fb017c6",
+    "image": "cloud-native-auto-237756b5-43145236760-1",
+    "revision": "ci-43145236760-1",
+    "at": "2026-11-12T03:08:47Z"
+  },
+  "rolled_back": false
+}
