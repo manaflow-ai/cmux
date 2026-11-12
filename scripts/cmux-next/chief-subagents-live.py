@@ -1100,7 +1100,7 @@ def cloud_chief():
             return next((w for w in (snap.get("topology") or {}).get("workspaces", [])
                          if key and (w.get("key") == key or w.get("id") == key)), None)
         ws = wait(server_ws, 120)
-        print("cloud ws:", json.dumps({k: (ws or {}).get(k) for k in ("id", "key", "name", "machine", "session")}), flush=True)
+        safe_print("cloud ws:", json.dumps({k: (ws or {}).get(k) for k in ("id", "key", "name", "machine", "session")}), flush=True)
         if ws:
             focus_workspace(ws.get("id"), f"cloud-{sub}-watch")
         state = rpc("debug.agent_pane", {"action": "chat_state"})
@@ -1126,7 +1126,7 @@ def cloud_chief():
             bool(seen) and bool(ws) and bool(typed) and "agent-session-attach-v1" in caps)
     finally:
         if host:
-            print("cloud cleanup:", json.dumps(rpc("debug.server_reach.cleanup", {"host": host, **({"chief": chief} if chief else {})},
+            safe_print("cloud cleanup:", json.dumps(rpc("debug.server_reach.cleanup", {"host": host, **({"chief": chief} if chief else {})},
                                                   timeout=90))[:300], flush=True)
         for p in reversed(procs):
             if p.poll() is None:

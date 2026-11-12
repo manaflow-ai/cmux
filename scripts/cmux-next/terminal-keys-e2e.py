@@ -233,7 +233,7 @@ app = None
 
 
 def cleanup():
-    print("cleanup", flush=True)
+    safe_print("cleanup", flush=True)
     if os.environ.get("KEYS_E2E_KEEP"):
         return
     # Scripts may not confirm quitEndSessions (user-only since cx-zk9t): try the DEBUG fixture first

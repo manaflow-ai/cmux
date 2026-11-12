@@ -158,7 +158,7 @@ try:
         rpc("action.run", {"action": "newWindow", "origin": "script"})
     wait_for(lambda: rpc("debug.focus").get("windows"), "a window", 60)
     made = rpc("action.run", {"action": "workspace new", "args": {"cwd": os.path.join(REPO, "sub"), "focus": True}, "origin": "script"})
-    print(f"workspace new: {json.dumps(made)[:300]}", flush=True)
+    safe_print(f"workspace new: {json.dumps(made)[:300]}", flush=True)
     # The new workspace's terminal by tab id (`snapshot.get`), not by focus: a mini's restored
     # state can leave a chat page or a text field focused. Its view exists once its workspace
     # shows, so the workspaces are selected in turn until it answers.
@@ -183,7 +183,7 @@ try:
             if quiet_wait(fixture_terminal, 3):
                 break
     if not wait_for(fixture_terminal, "the new workspace's terminal", 30):
-        print(f"snapshot.get: {json.dumps(rpc('snapshot.get'))[:1500]}", flush=True)
+        safe_print(f"snapshot.get: {json.dumps(rpc('snapshot.get'))[:1500]}", flush=True)
     time.sleep(2)  # test harness: the shell starts and reports its cwd
 
     # 1. The reported case: a repo-relative path printed with a trailing period.
@@ -203,7 +203,7 @@ try:
     if not check(bool(quiet_wait(lambda: "const c" in page_texts("cmux.editor"), 30)), "../src/app.ts:3:5 opens the code editor page"):
         listed = rpc("debug.page", {"page": "cmux.editor", "action": "list"})
         state = rpc("debug.page", {"page": "cmux.editor", "action": "state"})
-        print(f"editor pages: {json.dumps(listed)[:600]}\neditor state: {json.dumps(state)[:1500]}", flush=True)
+        safe_print(f"editor pages: {json.dumps(listed)[:600]}\neditor state: {json.dumps(state)[:1500]}", flush=True)
 
     # 7. A Markdown file with a line opens the Markdown page, not the code editor.
     opened = click("notes/todo.md:2")
