@@ -243,7 +243,7 @@ struct ChatComposer: View {
                         .accessibilityLabel(placeholder)
                 } else {
                     if store.currentModelName != nil || !store.models.isEmpty || !store.modes.isEmpty
-                        || store.effortOption != nil { pickerChips }
+                        || store.effortOption?.options.isEmpty == false { pickerChips }
                     Spacer(minLength: 0)
                     if let usage = store.contextUsage { ContextUsageRing(usage: usage) }
                 }
@@ -376,31 +376,33 @@ struct ChatComposer: View {
     }
 
     /// The harness the chat runs ("Claude", "Codex"): the model menu's top level, as on the Mac.
-    private var harnessName: String {
-        switch store.summary.harness.lowercased() {
-        case "claude", "claude-code", "claude_code": "Claude"
-        case "codex": "Codex"
-        case "": "Agent"
-        default: store.summary.harness.prefix(1).uppercased() + store.summary.harness.dropFirst()
-        }
-    }
+    private var harnessName: String { store.summary.harnessDisplayName }
 
     private var modelButton: some View {
         Menu {
             // The models nest under the harness, as the Mac's model menu does: a submenu row
-            // names the harness, with the current model as its subtitle.
-            Menu {
-                // Checkmark buttons rather than an inline picker: an inline picker inside a
-                // menu section drops the section's header.
-                ForEach(store.models) { model in
-                    checkButton(model.name, checked: model.id == store.currentModelID) { store.setModel(model.id) }
+            // names the harness, with the current model as its subtitle. With no list (only a
+            // current model reported) the submenu would be empty, so the row names it alone.
+            if store.models.isEmpty {
+                Button {} label: {
+                    Text(harnessName)
+                    if let name = store.currentModelName ?? store.currentModelID { Text(name) }
                 }
-            } label: {
-                Text(harnessName)
-                if let name = store.currentModelName { Text(name) }
+                .disabled(true)
+            } else {
+                Menu {
+                    // Checkmark buttons rather than an inline picker: an inline picker inside a
+                    // menu section drops the section's header.
+                    ForEach(store.models) { model in
+                        checkButton(model.name, checked: model.id == store.currentModelID) { store.setModel(model.id) }
+                    }
+                } label: {
+                    Text(harnessName)
+                    if let name = store.currentModelName { Text(name) }
+                }
+                .menuOrder(.fixed)
+                .accessibilityIdentifier("agentChat.composer.model.harness")
             }
-            .menuOrder(.fixed)
-            .accessibilityIdentifier("agentChat.composer.model.harness")
         } label: {
             chipLabel(Text(store.currentModelName ?? store.currentModelID ?? "Model"))
         }

@@ -21,6 +21,19 @@ public struct AgentSessionSummary: Hashable, Sendable, Identifiable {
     /// unbound/standalone source, which then disables shared thumbnail caching.
     public var accountID: String
 
+    /// The harness as people name it ("Claude", "Codex", "OpenCode"), never a raw id: the
+    /// composer's model menu nests the models under it, as the Mac's does.
+    public var harnessDisplayName: String {
+        switch harness.lowercased() {
+        case "claude": "Claude"
+        case "claude-cr": "Claude (CodeRouter)"
+        case "codex": "Codex"
+        case "opencode": "OpenCode"
+        case "": "Agent"
+        default: harness.prefix(1).uppercased() + harness.dropFirst()
+        }
+    }
+
     public init(
         id: String, name: String, harness: String, agentName: String, cwd: String, workspaceTitle: String,
         macName: String, branch: String? = nil, status: Status = .idle, macID: String = "", accountID: String = ""
