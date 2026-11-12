@@ -1,30 +1,32 @@
-//! How long one hint of the project-source watch keeps its thread busy
-//! (`state/project_watch.rs`): the fingerprint of the watched files, the
-//! rescan of every source and the commit of the changed ones, on a real
-//! `Mux` with an on-disk registry of 826 workspaces (the session size rule)
-//! and a home whose sources each list 200 projects, with the databases in
-//! write-ahead-log mode and a writer holding each one open.
+//! What one burst of the project-source watch costs its watch thread, and
+//! how long the import it asks for runs on the import worker
+//! (`state/project_watch.rs`), on a real `Mux` with an on-disk registry of
+//! 826 workspaces (the session size rule) and a home whose sources each list
+//! 200 projects, with the databases in write-ahead-log mode and a writer
+//! holding each one open.
 //!
-//! The thread is the watch's own (`cmux_config::watch` starts one per
-//! watcher), so a long hint delays only the next project rescan, never the
-//! settings or acpmux socket watches (`cmux-config` `tests/watch.rs`
-//! `a_busy_watch_does_not_delay_another_watch`). The bound here is the lead's
-//! rule for work on a watch thread: 20 ms for the bursts that come while the
-//! daemon runs (a source writes, with or without a new project).
+//! The rule for a watch thread: no burst keeps it busy over 20 ms. The import
+//! itself took 92 ms at start and up to 42 ms per change when it ran on the
+//! watch thread, so it runs on the worker and the watch thread only marks it
+//! as wanted ([`Marks::mark`]). Each watch has its own thread besides
+//! (`cmux-config` `tests/watch.rs` `a_busy_watch_does_not_delay_another_watch`).
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::*;
 use crate::state::project_sources::Layout;
-use crate::state::project_watch::{fingerprint, import_changed};
+use crate::state::project_watch::{ImportWorker, import_changed};
 
 /// Projects each source lists.
 const PROJECTS: usize = 200;
-/// Hints timed per kind of burst.
-const ROUNDS: usize = 20;
-/// The rule for one burst while the daemon runs.
+/// Imports timed per kind of change.
+const ROUNDS: u64 = 20;
+/// The rule for one burst on a watch thread.
 const BURST_BOUND: Duration = Duration::from_millis(20);
+/// How long a pass may take to finish on a loaded host.
+const PASS_WITHIN: Duration = Duration::from_secs(10);
 
 fn root(index: usize) -> String {
     format!("/Users/someone/src/project-{index:03}")
@@ -44,7 +46,7 @@ fn database(path: &Path, schema: &str, insert: &str, rows: usize) -> rusqlite::C
 }
 
 fn codex_state(layout: &Layout, projects: usize) {
-    let local: serde_json::Map<String, serde_json::Value> = (0..projects)
+    let local: Map<String, Value> = (0..projects)
         .map(|index| {
             (
                 format!("id-{index}"),
@@ -69,7 +71,7 @@ fn codex_state(layout: &Layout, projects: usize) {
 struct Home {
     path: PathBuf,
     layout: Layout,
-    _writers: Vec<rusqlite::Connection>,
+    writers: Vec<rusqlite::Connection>,
 }
 
 impl Home {
@@ -95,7 +97,7 @@ impl Home {
             "INSERT INTO repos VALUES (?1, '2026-11-0' || (?2 % 9 + 1) || ' 10:00:00', 0)",
             PROJECTS,
         );
-        let entries: Vec<serde_json::Value> = (0..PROJECTS)
+        let entries: Vec<Value> = (0..PROJECTS)
             .map(|index| serde_json::json!({"folderUri": format!("file://{}", root(index))}))
             .collect();
         let vscode = database(
@@ -110,11 +112,11 @@ impl Home {
                 [serde_json::json!({"entries": entries}).to_string()],
             )
             .unwrap();
-        Self { path, layout, _writers: vec![t3, conductor, vscode] }
+        Self { path, layout, writers: vec![t3, conductor, vscode] }
     }
 
     fn t3(&self) -> &rusqlite::Connection {
-        &self._writers[0]
+        &self.writers[0]
     }
 }
 
@@ -125,7 +127,7 @@ impl Drop for Home {
 }
 
 #[test]
-fn a_project_watch_burst_keeps_its_thread_busy_under_the_bound() {
+fn a_project_watch_burst_keeps_its_watch_thread_busy_under_the_bound() {
     let home = Home::new();
     let state = std::env::temp_dir()
         .join(format!("cmux-project-burst-state-{}", crate::workspace_registry::new_uuid_v4()));
@@ -136,51 +138,69 @@ fn a_project_watch_burst_keeps_its_thread_busy_under_the_bound() {
         mux.create_empty_workspace(Some(format!("idle {index}")), None, None).unwrap();
     }
     let weak = Arc::downgrade(&mux);
-    let files = home.layout.watch_files();
-    let mut imported = std::collections::HashMap::new();
-    // One hint, as the watch thread runs it.
-    let mut hint = || {
+    let layout = home.layout.clone();
+    let mut imported = HashMap::new();
+    let times: Arc<Mutex<Vec<Duration>>> = Arc::default();
+    let recorded = Arc::clone(&times);
+    let worker = ImportWorker::start(home.layout.watch_files(), move || {
         let started = Instant::now();
-        let _ = fingerprint(&files);
-        import_changed(&weak, &home.layout, &mut imported);
-        started.elapsed()
+        import_changed(&weak, &layout, &mut imported);
+        recorded.lock().unwrap().push(started.elapsed());
+    })
+    .unwrap();
+    let marks = Arc::clone(&worker.shared);
+    // The watch thread's work for one burst, timed as it runs.
+    let mut marked = Vec::new();
+    let mut mark = || {
+        let started = Instant::now();
+        marks.mark();
+        marked.push(started.elapsed());
     };
 
-    let first = hint();
-    let mut same = Vec::new();
-    let mut new_project = Vec::new();
+    mark();
+    assert!(marks.wait_passes(1, PASS_WITHIN), "the start-up import did not finish");
     for round in 0..ROUNDS {
         // A commit to a source that changes no project (the app saved other state).
         home.t3()
             .execute("UPDATE projection_projects SET deleted_at = NULL WHERE rowid = 1", [])
             .unwrap();
-        same.push(hint());
-        // A new project in Codex's list.
-        codex_state(&home.layout, PROJECTS + 1 + round);
-        new_project.push(hint());
+        mark();
+        // A new project in Codex's list, marked twice (two bursts).
+        codex_state(&home.layout, PROJECTS + 1 + round as usize);
+        mark();
+        mark();
+        let passes = marks.passes();
+        assert!(marks.wait_passes(passes + 1, PASS_WITHIN), "round {round}: no pass ran");
+        // Settled: the marks of this round are all taken.
+        while marks.wait_passes(marks.passes() + 1, Duration::from_millis(300)) {}
     }
-    let max = |times: &[Duration]| times.iter().max().copied().unwrap_or_default();
+    let imports = times.lock().unwrap().clone();
+    let longest = |times: &[Duration]| times.iter().max().copied().unwrap_or_default();
     let median = |times: &[Duration]| {
         let mut sorted = times.to_vec();
         sorted.sort();
-        sorted[sorted.len() / 2]
+        sorted.get(sorted.len() / 2).copied().unwrap_or_default()
     };
     println!(
-        "project_watch_burst: 826 workspaces, {PROJECTS} projects in each of 4 sources | start-up import \
-         {:.1} ms | write with no new project: median {:.1} ms, max {:.1} ms | new project: median {:.1} ms, \
-         max {:.1} ms ({ROUNDS} rounds)",
-        first.as_secs_f64() * 1000.0,
-        median(&same).as_secs_f64() * 1000.0,
-        max(&same).as_secs_f64() * 1000.0,
-        median(&new_project).as_secs_f64() * 1000.0,
-        max(&new_project).as_secs_f64() * 1000.0,
+        "project_watch_burst: 826 workspaces, {PROJECTS} projects in each of 4 sources | watch thread per \
+         mark: median {:.3} ms, max {:.3} ms ({} marks) | import on the worker: start-up {:.1} ms, \
+         later median {:.1} ms, max {:.1} ms ({} imports, {} passes)",
+        median(&marked).as_secs_f64() * 1000.0,
+        longest(&marked).as_secs_f64() * 1000.0,
+        marked.len(),
+        imports.first().copied().unwrap_or_default().as_secs_f64() * 1000.0,
+        median(imports.get(1..).unwrap_or_default()).as_secs_f64() * 1000.0,
+        longest(imports.get(1..).unwrap_or_default()).as_secs_f64() * 1000.0,
+        imports.len(),
+        marks.passes(),
     );
-    drop(hint);
+    drop(marks);
+    drop(worker);
     drop(mux);
     let _ = std::fs::remove_dir_all(&state);
-    let slowest = max(&same).max(max(&new_project));
+    let slowest = longest(&marked);
     assert!(
         slowest <= BURST_BOUND,
-        "one project-watch burst kept its thread busy {slowest:?} (bound {BURST_BOUND:?})"
+        "one project-watch burst kept its watch thread busy {slowest:?} (bound {BURST_BOUND:?})"
     );
 }

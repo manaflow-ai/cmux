@@ -2,10 +2,7 @@
 //! section 4): one import at daemon start, then a kernel watch of exactly the
 //! files the sources read ([`Layout::watch_files`]) through
 //! `cmux_config::watch`: kqueue vnode watches on macOS, inotify on Linux. No
-//! timer and no polling. A burst of events gives one hint; a hint whose files
-//! did not change (size, time, inode) costs a few stats, not a rescan, and
-//! only a source whose list changed since the last import is committed, so an
-//! editor writing its state file without a new recent folder costs one read.
+//! timer and no polling.
 //!
 //! A watch of each whole folder (notify's FSEvents stream) woke the daemon for
 //! every write in the folder, also to files no source reads: Codex appends to
@@ -17,23 +14,39 @@
 //! reaches the process. A file that does not exist yet, or a folder that does
 //! not, is watched through the nearest existing folder above it until it
 //! appears; a file replaced by rename is watched again at its path.
-//! The watch thread is `cmux_config::watch`'s; the hint runs on it.
+//!
+//! Two threads, both owned by [`ProjectWatch`] (a field of the mux) and joined
+//! when it drops: the watch's own, which only marks an import as wanted, and
+//! the import worker (`mux-project-import`), which takes the mark, compares
+//! the files' fingerprint (size, time, inode) and, when it changed, rescans
+//! every source and commits the ones whose list changed. The import can take
+//! longer than a watch thread may be busy (92 ms at start and up to 42 ms per
+//! change on a home with 200 projects per source and 826 workspaces,
+//! `mux/tests/project_watch_burst.rs`), and the watch thread must be free for
+//! the next event. Bursts that come during an import are one more import,
+//! never a queue: the mark is a flag.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
+use std::thread::JoinHandle;
 use std::time::SystemTime;
 
 use crate::mux::Mux;
 use crate::state::project_sources::{self, Layout, SourceScan};
 use crate::state::projects::Observation;
 
-/// The daemon's watch of the project sources' files; dropped with the mux.
+/// The daemon's watch of the project sources' files and its import worker;
+/// both end when it drops (the watch first, so no mark comes after the
+/// worker stops).
 #[derive(Default)]
-pub(crate) struct ProjectWatch(Mutex<Option<cmux_config::watch::Watcher>>);
+pub(crate) struct ProjectWatch {
+    watch: Mutex<Option<cmux_config::watch::Watcher>>,
+    worker: Mutex<Option<ImportWorker>>,
+}
 
-/// Arms the watch; its first hint, on the watch thread, runs the start-up
-/// import. Returns at once.
+/// Arms the watch and its worker; the watch's first hint runs the start-up
+/// import on the worker. Returns at once.
 pub(crate) fn start(mux: &Arc<Mux>) {
     // In-crate tests build many a `Mux`: none reads the real HOME's editor data (the daemon
     // binary's socket tests set their own HOME).
@@ -44,13 +57,13 @@ pub(crate) fn start(mux: &Arc<Mux>) {
     let mux_weak = Arc::downgrade(mux);
     let mut imported: HashMap<&'static str, Vec<Observation>> = HashMap::new();
     let files = layout.watch_files();
-    let watch = watch_files(files, move || import_changed(&mux_weak, &layout, &mut imported));
-    match watch {
+    match watch_files(files, move || import_changed(&mux_weak, &layout, &mut imported)) {
+        Ok((watch, worker)) => {
+            *lock(&mux.project_watch.worker) = Some(worker);
+            *lock(&mux.project_watch.watch) = Some(watch);
+        }
         // A folder that cannot be watched is read at the next daemon start, or on a
         // `project.sync` request (the app sends none since A14).
-        Ok(watch) => {
-            *mux.project_watch.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(watch);
-        }
         Err(error) => note(&format!("project sources watch unavailable: {error}")),
     }
 }
@@ -59,27 +72,131 @@ fn note(message: &str) {
     eprintln!("cmux-tui: {message}");
 }
 
-/// Watches `files` and runs `on_change` once when armed, then after each burst
-/// of events that changed one of them.
+fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// Starts the worker, then the watch of `files`, whose hints only mark an
+/// import as wanted. `import` runs on the worker once when the watch is armed,
+/// then after each mark whose files' fingerprint changed.
 fn watch_files(
     files: Vec<PathBuf>,
-    mut on_change: impl FnMut() + Send + 'static,
-) -> notify::Result<cmux_config::watch::Watcher> {
+    import: impl FnMut() + Send + 'static,
+) -> Result<(cmux_config::watch::Watcher, ImportWorker), String> {
+    let worker = ImportWorker::start(files.clone(), import).map_err(|error| error.to_string())?;
+    let marks = Arc::clone(&worker.shared);
+    let watch = cmux_config::watch::Watcher::start_with_writes(files, move || marks.mark())
+        .map_err(|error| error.to_string())?;
+    Ok((watch, worker))
+}
+
+/// What the watch and the worker share: whether an import is wanted, whether
+/// the worker must stop, and how many passes it ran (for tests).
+#[derive(Default)]
+pub(crate) struct Marks {
+    state: Mutex<MarkState>,
+    changed: Condvar,
+}
+
+#[derive(Default)]
+struct MarkState {
+    wanted: bool,
+    stop: bool,
+    passes: u64,
+}
+
+impl Marks {
+    /// The watch thread's whole work for a hint: one flag and a wake.
+    pub(crate) fn mark(&self) {
+        lock(&self.state).wanted = true;
+        self.changed.notify_all();
+    }
+
+    fn stop(&self) {
+        lock(&self.state).stop = true;
+        self.changed.notify_all();
+    }
+
+    /// Waits until the worker finished `passes` passes; false after `limit`.
+    #[cfg(test)]
+    pub(crate) fn wait_passes(&self, passes: u64, limit: std::time::Duration) -> bool {
+        let state = lock(&self.state);
+        let (state, _) = self
+            .changed
+            .wait_timeout_while(state, limit, |state| state.passes < passes)
+            .unwrap_or_else(PoisonError::into_inner);
+        state.passes >= passes
+    }
+
+    #[cfg(test)]
+    pub(crate) fn passes(&self) -> u64 {
+        lock(&self.state).passes
+    }
+}
+
+/// The import worker's thread and its marks.
+pub(crate) struct ImportWorker {
+    pub(crate) shared: Arc<Marks>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl ImportWorker {
+    pub(crate) fn start(
+        files: Vec<PathBuf>,
+        mut import: impl FnMut() + Send + 'static,
+    ) -> std::io::Result<Self> {
+        let shared = Arc::new(Marks::default());
+        let marks = Arc::clone(&shared);
+        let thread = std::thread::Builder::new()
+            .name("mux-project-import".into())
+            .spawn(move || run_imports(&marks, &files, &mut import))?;
+        Ok(Self { shared, thread: Some(thread) })
+    }
+}
+
+impl Drop for ImportWorker {
+    fn drop(&mut self) {
+        self.shared.stop();
+        if let Some(thread) = self.thread.take() {
+            // The import holds the mux while it runs: the last owner can drop
+            // the mux, and this worker with it, on the worker's own thread.
+            if thread.thread().id() != std::thread::current().id() {
+                let _ = thread.join();
+            }
+        }
+    }
+}
+
+/// Waits for a mark with no timeout, then compares the fingerprint and runs
+/// `import` when it changed. The fingerprint is taken before the read it
+/// describes: a write during the read changes the next one, and its mark
+/// (set again meanwhile) runs one more pass.
+fn run_imports(marks: &Marks, files: &[PathBuf], import: &mut dyn FnMut()) {
     let mut seen = None;
-    let stamped = files.clone();
-    cmux_config::watch::Watcher::start_with_writes(files, move || {
-        // Taken before the read it describes: a write during the read changes
-        // the next fingerprint, and its event reads again.
-        let now = fingerprint(&stamped);
+    loop {
+        {
+            let state = lock(&marks.state);
+            let mut state = marks
+                .changed
+                .wait_while(state, |state| !state.wanted && !state.stop)
+                .unwrap_or_else(PoisonError::into_inner);
+            if state.stop {
+                return;
+            }
+            state.wanted = false;
+        }
+        let now = fingerprint(files);
         if seen.as_ref() != Some(&now) {
             seen = Some(now);
-            on_change();
+            import();
         }
-    })
+        lock(&marks.state).passes += 1;
+        marks.changed.notify_all();
+    }
 }
 
 /// Size, modification time and inode of each file.
-pub(crate) fn fingerprint(files: &[PathBuf]) -> Vec<Option<(u64, SystemTime, u64)>> {
+fn fingerprint(files: &[PathBuf]) -> Vec<Option<(u64, SystemTime, u64)>> {
     files
         .iter()
         .map(|path| {
@@ -156,7 +273,7 @@ mod tests {
         }
     }
 
-    fn armed(layout: &Layout) -> (cmux_config::watch::Watcher, Receiver<()>) {
+    fn armed(layout: &Layout) -> ((cmux_config::watch::Watcher, ImportWorker), Receiver<()>) {
         let (change, changes) = mpsc::channel();
         let watch = watch_files(layout.watch_files(), move || {
             let _ = change.send(());
@@ -267,5 +384,43 @@ mod tests {
         std::fs::write(codex.join("history.jsonl.tmp"), "x").unwrap();
         std::fs::rename(codex.join("history.jsonl.tmp"), codex.join("history.jsonl")).unwrap();
         expect_none(&changes, "writes to files no source reads");
+    }
+
+    /// A change during a long import is not lost and is not queued: the
+    /// marks that come meanwhile are one more import, run when it ends.
+    #[test]
+    fn a_change_during_a_long_import_runs_one_more_import() {
+        let home = Home::new("long-import");
+        let layout = home.layout();
+        let state = layout.codex_global_state();
+        std::fs::create_dir_all(state.parent().unwrap()).unwrap();
+        std::fs::write(&state, "{}").unwrap();
+        let (started, imports) = mpsc::channel();
+        let mut calls = 0;
+        let _watch = watch_files(layout.watch_files(), move || {
+            calls += 1;
+            let _ = started.send(calls);
+            if calls == 2 {
+                std::thread::sleep(Duration::from_millis(1500));
+            }
+        })
+        .expect("the watch starts");
+        assert_eq!(imports.recv_timeout(CHANGE_WITHIN), Ok(1), "the start-up import");
+        std::fs::write(&state, "{\"round\": 1}").unwrap();
+        assert_eq!(imports.recv_timeout(CHANGE_WITHIN), Ok(2), "the long import starts");
+        for round in 2..5 {
+            let staged = state.with_extension("json.tmp");
+            std::fs::write(&staged, format!("{{\"round\": {round}}}")).unwrap();
+            std::fs::rename(&staged, &state).unwrap();
+        }
+        assert_eq!(
+            imports.recv_timeout(Duration::from_millis(1500) + CHANGE_WITHIN),
+            Ok(3),
+            "the changes made during the long import"
+        );
+        assert!(
+            imports.recv_timeout(NO_CHANGE_FOR).is_err(),
+            "the changes were queued, not merged"
+        );
     }
 }
