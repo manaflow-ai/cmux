@@ -60,7 +60,7 @@ import Testing
     nonisolated static func fakeAcpmux(_ log: [(seq: Int, json: String)], _ requests: Requests, pageLimit: Int = .max,
                                    emptyOlderPageOnce: Bool = false, older: OlderReads = .answer) -> MockMacLink {
         let older: OlderReads = emptyOlderPageOnce ? .emptyOnce : older
-        MockMacLink { _, data in
+        return MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let method = object["method"] as? String else { return [] }
             let id = object["id"].map { "\($0)" } ?? "null"
