@@ -50,7 +50,6 @@ keybindings
 machines
 mobile-pairing
 onboarding
-overlay
 passwords
 server-cards
 settings

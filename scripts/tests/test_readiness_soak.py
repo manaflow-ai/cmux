@@ -19,17 +19,27 @@ from unittest import mock
 
 ROOT = pathlib.Path(__file__).parents[2]
 
-# The soak reads macOS process stats (libproc) at import; its helpers are not under test.
-for name, attrs in {
-    "bench_idle": ("Client", "process_table", "usage"),
-    "daemon_teardown": ("daemon_status", "request", "terminal_hosts"),
-    "tag_teardown": ("TagTeardown",),
-}.items():
-    sys.modules.setdefault(name, types.SimpleNamespace(**{attr: None for attr in attrs}))
-SPEC = importlib.util.spec_from_file_location("readiness_soak", ROOT / "scripts" / "cmux-next" / "readiness-soak.py")
-soak_module = importlib.util.module_from_spec(SPEC)
-assert SPEC.loader is not None
-SPEC.loader.exec_module(soak_module)
+# The soak reads macOS process stats (libproc) at import; its helpers are not under test. The stubs are for this
+# load only: left in sys.modules, a later suite's `import bench_idle` would get one (#41653 review).
+_STUBS = {
+    name: types.SimpleNamespace(**{attr: None for attr in attrs})
+    for name, attrs in {
+        "bench_idle": ("Client", "process_table", "usage"),
+        "daemon_teardown": ("daemon_status", "request", "terminal_hosts"),
+        "tag_teardown": ("TagTeardown",),
+    }.items()
+}
+for name, stub in _STUBS.items():
+    sys.modules.setdefault(name, stub)
+try:
+    SPEC = importlib.util.spec_from_file_location("readiness_soak", ROOT / "scripts" / "cmux-next" / "readiness-soak.py")
+    soak_module = importlib.util.module_from_spec(SPEC)
+    assert SPEC.loader is not None
+    SPEC.loader.exec_module(soak_module)
+finally:
+    for name, stub in _STUBS.items():
+        if sys.modules.get(name) is stub:
+            del sys.modules[name]
 
 SOAK_BUNDLE = "com.cmuxterm.app.debug.soak"
 

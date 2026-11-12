@@ -7,6 +7,7 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import type { PromptCoach } from "./conversation/promptCoach";
+import { settleReact } from "../../../test/support/domTeardown";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -22,7 +23,8 @@ beforeAll(() => {
   scope.document = dom.window.document;
   scope.localStorage = dom.window.localStorage;
 });
-afterAll(() => {
+afterAll(async () => {
+  await settleReact();
   for (const key of ["window", "document", "localStorage"] as const)
     if (saved[key]) scope[key] = saved.values[key];
     else delete scope[key];

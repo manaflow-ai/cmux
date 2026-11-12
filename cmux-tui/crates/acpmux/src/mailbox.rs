@@ -498,7 +498,7 @@ fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
 
-    match std::fs::remove_file(path) {
+    match crate::home_fs::remove_file(path) {
         Ok(()) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => return Err(error),

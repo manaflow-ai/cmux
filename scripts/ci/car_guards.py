@@ -45,6 +45,13 @@ missing module or command is the car's red. An internal crash exits 2, never 1. 
 the checks job (GODFILES_WARN_SLACK=20). Browser-lane webviews files and a Swift selection of a
 whole package (a manifest or target-graph change) are `deferred` to the candidate build.
 
+A busy runner makes the guards slower, never red (cmux#41742's class). A guard or python entry that times out is
+retried once, alone, with a longer limit (RETRY_TIMEOUT), the entries the car touches first. If it times out again,
+it fails the car only when the car touches what it runs: a focused test, webviews file, crate or Swift target is
+selected by the car's own change, so its timeout fails; a guard runs on every car, so its timeout fails only when
+the car changes the guard's folder, and otherwise is `warn` naming the guard. Heavy entries already run alone and
+fill the job's time, so they are not retried.
+
 The verdict (stdout, and --receipt) is one JSON object: {"car", "base", "head", "where",
 "status": "pass"|"fail"|"error", "results": [{"name", "kind", "status", "seconds", "tail"}],
 "reused": [...], "deferred": [...], "unmapped": [...]}. Exit 0 on pass, 1 on fail (the car's
@@ -81,6 +88,10 @@ REUSE = {
 PASSING = {"success", "neutral"}
 CHEAP = {"guard", "python"}
 TIMEOUT = {"guard": 600, "python": 300, "cargo": 1500, "swift": 900, "swift-build": 2400, "web": 1200}
+# A cheap entry that timed out runs again alone with this limit. Heavy kinds already run alone.
+RETRY_TIMEOUT = {"guard": 900, "python": 450}
+# Seconds the retries of entries the car does not touch may start within; past it they are not retried (and warn).
+RETRY_BUDGET = 900
 JOBS = int(os.environ.get("CAR_GUARDS_JOBS", str(max(2, (os.cpu_count() or 4)))))
 # Only the runner's own tools and pinned modules make a red the runner's: anything else a test
 # cannot import or run is the car's (it may have deleted or renamed it).
@@ -111,11 +122,12 @@ def entries(root: Path, base: str, head: str, where: str, the_plan: dict, skip: 
     out = []
     if where == "linux":
         if "guard" not in skip:
-            out.append({"name": "guard:prepush", "kind": "guard",
+            # A guard runs on every car; its own folder is what a car changes to touch it.
+            out.append({"name": "guard:prepush", "kind": "guard", "inputs": ["scripts/cmux-next/"],
                         "cmd": [sys.executable, "-I", "scripts/cmux-next/prepush-gate.py", "--base", base, "--head", head]})
             # As the checks job runs it: warn-only over the allowance (rc 1 is ratchet debt, a
             # warning on the PR), so the train is no stricter than PR CI.
-            out.append({"name": "guard:godfiles", "kind": "guard", "warn_codes": [1],
+            out.append({"name": "guard:godfiles", "kind": "guard", "warn_codes": [1], "inputs": ["scripts/cmux-next/"],
                         "env": {"GODFILES_WARN_SLACK": "20"},
                         "cmd": ["bash", "scripts/cmux-next/check-no-godfiles.sh", "--base", base]})
         for test in the_plan["python"]:
@@ -150,9 +162,18 @@ def entries(root: Path, base: str, head: str, where: str, the_plan: dict, skip: 
     return out
 
 
-def run_one(root: Path, entry: dict) -> dict:
+def touches(entry: dict, files: list[str]) -> bool:
+    """Whether the car's FILES change what ENTRY runs. An entry without "inputs" was selected by the car's own
+    change (a focused test, webviews file, crate or Swift target), so it is touched."""
+    inputs = entry.get("inputs")
+    if inputs is None:
+        return True
+    return any(path == item or (item.endswith("/") and path.startswith(item)) for path in files for item in inputs)
+
+
+def run_one(root: Path, entry: dict, timeout: float | None = None) -> dict:
     start = time.monotonic()
-    timeout = TIMEOUT[entry["kind"]]
+    timeout = timeout or TIMEOUT[entry["kind"]]
     try:
         proc = subprocess.run(entry["cmd"], cwd=root / entry.get("cwd", "."), capture_output=True, text=True,
                               timeout=timeout, env={**os.environ, **entry.get("env", {})})
@@ -168,12 +189,13 @@ def run_one(root: Path, entry: dict) -> dict:
     except FileNotFoundError as error:
         status, output = "error", str(error)
     except subprocess.TimeoutExpired as error:
-        status = "timeout"  # the car's red at its head; never a base red at the base
+        # Not a verdict yet: retry_timeouts runs it again and decides whose red it is. Never a base red at the base.
+        status = "retry"
         partial = error.stdout or ""
         output = f"timed out after {timeout}s\n" + (partial.decode(errors="replace") if isinstance(partial, bytes) else partial)
     result = {"name": entry["name"], "kind": entry["kind"], "status": status,
               "seconds": round(time.monotonic() - start, 1), "tail": output[-4000:] if status != "pass" else ""}
-    if entry["kind"] == "web" and status in ("fail", "timeout"):
+    if entry["kind"] == "web" and status in ("fail", "retry"):
         result["files"] = {m.group(2): m.group(1) for m in WEB_RESULT.finditer(output)}
     return result
 
@@ -195,6 +217,39 @@ def run_all(root: Path, todo: list[dict]) -> list[dict]:
             continue
         by_name[entry["name"]] = run_one(root, entry)
     return [by_name[e["name"]] for e in todo]
+
+
+def retry_timeouts(root: Path, todo: list[dict], results: list[dict], files: list[str]) -> None:
+    """Settles each entry run_one left at `retry` (it timed out). A cheap one runs again alone with its RETRY_TIMEOUT,
+    touched ones first; a heavy one is not retried. One that timed out for good is `timeout` (the car's red) when
+    the car touches what it runs, and `warn` naming it otherwise."""
+    by_name = {e["name"]: e for e in todo}
+    timed_out = sorted((r for r in results if r["status"] == "retry"),
+                       key=lambda r: (not touches(by_name[r["name"]], files), r["name"]))
+    started = time.monotonic()
+    for result in timed_out:
+        entry = by_name[result["name"]]
+        touched = touches(entry, files)
+        first = TIMEOUT[entry["kind"]]
+        retry = RETRY_TIMEOUT.get(entry["kind"])
+        if retry is None:
+            how = f"timed out after {first}s"
+        elif touched or time.monotonic() - started <= RETRY_BUDGET:
+            again = run_one(root, entry, timeout=retry)
+            again["seconds"] = round(result["seconds"] + again["seconds"], 1)
+            result.update(again)
+            if result["status"] != "retry":
+                continue
+            how = f"timed out after {first}s, and again after {retry}s alone"
+        else:
+            how = f"timed out after {first}s; not retried, the {RETRY_BUDGET}s retry budget was spent"
+        if touched:
+            result["status"] = "timeout"
+            result["tail"] = f"{how}: this car changes what it runs\n" + result["tail"]
+        else:
+            result["status"] = "warn"
+            result["tail"] = (f"{how} on this runner and is not checked; this car does not touch "
+                              f"{', '.join(entry['inputs'])}, so it does not fail the car\n" + result["tail"])
 
 
 def exists_at(root: Path, rev: str, path: str) -> bool:
@@ -247,6 +302,7 @@ def run(root: Path, base: str, head: str, where: str, the_plan: dict, prior: dic
             if kinds is None or e["kind"] in kinds or (e["kind"] == "swift-build" and "swift" in kinds)]
     flaky = quarantined(root)
     results = run_all(root, todo)
+    retry_timeouts(root, todo, results, the_plan.get("files", []))
     for result in results:
         if result["status"] in ("fail", "timeout") and result["name"] in flaky:
             result["status"] = "quarantined-fail"

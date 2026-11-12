@@ -5,6 +5,7 @@
 // lines), and the option off parses the patch alone again.
 import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
+import { teardownDom } from "./support/domTeardown";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -42,13 +43,9 @@ const { processFile } = await import("@pierre/diffs");
 const full = await import("../src/diff-viewer/fullFiles");
 const { PATCH_TEXT_KEY } = await import("../src/kept-patch-text");
 const root = createRoot(dom.window.document.getElementById("root")!);
-afterAll(() => {
+afterAll(async () => {
   act(() => root.unmount());
-  dom.window.close();
-  for (const [key, had, value] of saved) {
-    if (had) scope[key] = value;
-    else delete scope[key];
-  }
+  await teardownDom(saved, { window: dom.window, scope });
 });
 
 const rows = (from: number, to: number, change?: Record<number, string>) =>
