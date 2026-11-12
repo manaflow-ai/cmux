@@ -704,13 +704,14 @@ pub fn in_menu_bar(el: &Ax) -> bool {
     false
 }
 
+/// CFRunLoopRunInMode's kCFRunLoopRunFinished.
+const RUN_LOOP_FINISHED: i32 = 1;
+
 /// Waits until `pid` is the active app (`is_front` says so), up to `limit`:
 /// an AXObserver for the app's kAXApplicationActivatedNotification, its
 /// source on this thread's run loop in a private mode, run until a wake
 /// finds the app in front or the time is up. True when it is in front.
-/// CFRunLoopRunInMode's kCFRunLoopRunFinished.
-const RUN_LOOP_FINISHED: i32 = 1;
-
+///
 /// An app that takes no AX observer (some non-AppKit apps) gets one check
 /// right after it was asked to activate, which can come too early: callers
 /// see a refusal they can retry. No polling replaces the notification.
