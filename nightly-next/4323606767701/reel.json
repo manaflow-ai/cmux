@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4323606767701",
+  "notes": "notes/4323606767701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 41869,
+      "title": "acpmux: a Codex fork resumes its own thread instead of a fresh one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41774,
+      "title": "Agent chat: a finished turn's calls fold into one line across a todo update, an empty message or a compaction",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41894,
+      "title": "acpmux: the person's own composer prompts are theirs, never \"Unverified sender\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41942,
+      "title": "iOS agent chat: Jump to bottom breaks a fling's momentum and lands at the bottom",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41976,
+      "title": "markdown viewer: KaTeX fonts as woff2 only (-819 KB)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41957,
+      "title": "git-fixture.sh: an ignored DEBUG keeps its mark; comparator counts a shared DEBUG/ERR line once, keeps trailing backslashes, places prep after the dispatch (#41922, hq#9885 follow-ups)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41535,
+      "title": "tests: no file but workflow_jobs reads runs-on raw; the keyless deltas route is resolved per cell",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41879,
+      "title": "iOS: Jump to Bottom lands at the bottom while the page still glides from a flick",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41862,
+      "title": "tests: shell_tree oracles fail closed (reaper crash, BASH_SOURCE, env -S)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41977,
+      "title": "uBlock Origin: ship only the locale catalogs of cmux's languages (-2.75 MB)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 41962,
+      "title": "Reduce agent-pane bundle by removing duplicate worker grammars",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42016,
+      "title": "Toasts: the stack is a \"Notifications\" region VoiceOver lists",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 42015,
+      "title": "acpmux: a first chat on a harness that is not set up names its next step",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
