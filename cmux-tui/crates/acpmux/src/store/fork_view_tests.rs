@@ -57,8 +57,7 @@ fn successive_forks_keep_switch_boundaries_after_replay_and_materialization() {
     );
     view.append("fork", &record(6, "forked")).unwrap();
     view.append("fork", &record(7, "user_message")).unwrap();
-    view.save(&meta("back", Some(HistoryRef { session: "fork".into(), through_seq: 7 })))
-        .unwrap();
+    view.save(&meta("back", Some(HistoryRef { session: "fork".into(), through_seq: 7 }))).unwrap();
     view.append("back", &record(8, "forked")).unwrap();
     let cuts = || {
         view.events("back", 0, usize::MAX)
