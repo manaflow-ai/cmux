@@ -1,0 +1,52 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43270038014",
+  "recorded_at": "2026-11-12T17:41:44Z",
+  "reason": "cmux-tui efc4e830d7ad changes the image's cmux-tui (pinned 909689335dd9)",
+  "dry_run": false,
+  "cmux_tui": "efc4e830d7ade2586cda0513cf0b741c4e9544a4",
+  "fixes": [
+    {
+      "sha": "efc4e830d7ade2586cda0513cf0b741c4e9544a4",
+      "mergedAt": "2026-11-12T08:55:56-08:00",
+      "subject": "acpmux: a paged list read is cut from one build; heavy list tests have their own deadline; base pushes test what a replaced run skipped (#41825)"
+    },
+    {
+      "sha": "eb580d88ca4780d67fb6017e038b62ab730abc9c",
+      "mergedAt": "2026-11-12T10:53:35-06:00",
+      "subject": "cmux-tui: the project import runs on its own worker; the watch thread only marks it"
+    },
+    {
+      "sha": "9d354a255d3ce530f6c72f13f4bee8840e52c293",
+      "mergedAt": "2026-11-12T10:53:35-06:00",
+      "subject": "cmux-tui tests: time one project-watch burst on a realistic home; a busy watch delays no other"
+    },
+    {
+      "sha": "2e6c43b94cad239ddeda1356e1e7c00a1464749b",
+      "mergedAt": "2026-11-12T10:53:34-06:00",
+      "subject": "cmux-tui: the project-source watch wakes only for the files the sources read"
+    },
+    {
+      "sha": "0832767aa609443412343d02f3cb11a3f116459c",
+      "mergedAt": "2026-11-12T10:53:34-06:00",
+      "subject": "cmux-tui tests: writes to unread files in a watched project folder keep the daemon idle"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T17:41:44Z",
+    "snapshot_id": "sh-d20db4bbd22a440cbaf4ab43d389093a",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43270038014): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "cf1f8bbdcb6e161e260a6adb49632aed24689b24",
+    "image": "cloud-native-auto-efc4e830-43270038014-1",
+    "revision": "ci-43270038014-1",
+    "at": "2026-11-12T17:41:44Z"
+  },
+  "rolled_back": false
+}
