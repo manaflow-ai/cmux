@@ -262,7 +262,8 @@ extension AgentPaneRequest {
                                                  run: kind != .terminal || params?["run"] as? Bool != false,
                                                  keep: params?["keep"] as? Bool == true,
                                                  profile: kind == .browser ? AgentPaneOpenTabProfile(params: params) : nil,
-                                                 inPlace: params?["inPlace"] as? Bool == true))
+                                                 inPlace: params?["inPlace"] as? Bool == true,
+                                                 beside: kind == .browser && params?["beside"] as? Bool == true))
             } else {
                 self = .unsupported(method)
             }
