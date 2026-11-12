@@ -243,6 +243,18 @@ struct TerminalKeyboardCopyModeWordMotionTargetTests {
         #expect(land(.bigWordBackward, count: 9, rows: ["  foo"], index: 4) == (0, 0))
     }
 
+    @Test func forwardMotionsAtTheScrollbackEdgeNeverMoveBackward() {
+        let rows = ["foo"]
+        for move: TerminalKeyboardCopyModeSelectionMove in [
+            .wordForward, .bigWordForward, .wordEndForward, .bigWordEndForward,
+        ] {
+            #expect(land(move, rows: rows, index: 3) == (0, 3))
+            #expect(land(move, count: 4, rows: rows, index: 10) == (0, 10))
+        }
+        // A scan that crossed rows lands on the new row's last glyph.
+        #expect(land(.wordForward, rows: ["foo", "   "], index: 3) == (1, 2))
+    }
+
     @Test func cursorInTrailingEmptyCellsActsAsBlank() {
         let rows = ["foo", "bar"]
         #expect(land(.wordForward, rows: rows, index: 10) == (1, 0))
