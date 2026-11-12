@@ -1521,6 +1521,7 @@ function TranscriptView({
       flushSync(() => {
         followRef.current(atLatest, "pacer");
         setScroll(scrollRef.current);
+        minimapPlaced.current?.(top - scrollOrigin(node));
       });
       return;
     }
@@ -1530,6 +1531,9 @@ function TranscriptView({
         // Upward intent can arrive before the browser's default moves the offset. Even at the
         // queued frame's exact position, its old follow state must not replace that live intent.
         setFollowing(followingRef.current);
+        // The rail's band, in this same commit (its own frame callback and commit were a second
+        // render and a second layout of the transcript each scrolled frame).
+        if (ref.current) minimapPlaced.current?.(scrollRef.current.top - scrollOrigin(ref.current));
       });
     });
   });
@@ -2036,8 +2040,10 @@ function TranscriptView({
   /// Where this snapshot first differs from the last, found once below; the rail reads it instead
   /// of comparing the rows again (model.ts minimapTurns).
   const rowsChange = useRef<RowsChange | undefined>(undefined);
-  /// The minimap's hook for this commit's settled offset (ThreadMinimap `placed`).
-  const minimapPlaced = useRef<(() => void) | undefined>(undefined);
+  /// The minimap's hook for the offset the transcript commits (ThreadMinimap `placed`), in row-layout
+  /// coordinates: called in each placement pass and in the scroll pacer's frame commit, so the rail's
+  /// band moves in the transcript's own render, one commit and one offset read a frame.
+  const minimapPlaced = useRef<((top: number) => void) | undefined>(undefined);
   const olderRows = useRef<OlderRowFade | undefined>(undefined);
   olderRows.current ??= new OlderRowFade(() => ref.current);
   // Row ids are local to a session: one still waiting to fade belongs to the chat that was shown.
@@ -3973,13 +3979,14 @@ function TranscriptView({
     } else if (!holding) clearTimeout(floorTimer.current);
     floor.current = { height: holding ? floorHeight : 0, width, sessionId };
     if (!holding && !queueLeft.current) heldFor.current.clear();
+    const settledTop = node ? layoutScrollTop(node) : undefined;
     if (node && node.clientHeight > 0 && height > 0 && didOpenAtLatest.current) {
       scrolledTo.current = { top: node.scrollTop, atLatest: followingRef.current };
-      seenAnchor.current = restingAnchor(layoutScrollTop(node), scrolledTo.current.atLatest, layout, rows);
+      seenAnchor.current = restingAnchor(settledTop!, scrolledTo.current.atLatest, layout, rows);
     }
     followTrace.update(node, layout.totalHeight, scrolledTo.current.atLatest);
     // The minimap's band reads the offset this pass settled on.
-    minimapPlaced.current?.();
+    if (settledTop !== undefined) minimapPlaced.current?.(settledTop);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
   }, [layout, rows, range.first, height, width, dockSpace, room, lift, sessionId, followResume]);
   // The turn that just ended folds from the rows drawn then to the rows placed now (turnEndFold.ts).
@@ -4356,8 +4363,15 @@ function TranscriptView({
     setRoomGone({ sessionId, firstId: first.id, room: next });
   };
   // After the placement pass above: its offset is the one this reads, and the state it sets renders
-  // again before the frame paints.
-  useLayoutEffect(giveRoomNearTop);
+  // again before the frame paints. Only near the loaded top: a commit far from it (every scrolled
+  // frame) reads nothing of the scroller, whose offset and height read right after a commit laid the
+  // whole transcript out again (`giveRoomNearTop` reads them; handleScroll calls it with them fresh).
+  // The render's own offset decides, a viewport of slack over the one the check uses.
+  useLayoutEffect(() => {
+    if (!canLoadOlder || (layout.origin ?? 0) <= 0.5) return;
+    if (renderScroll.top - origin - (layout.origin ?? 0) >= height * (OLDER_LATE_VIEWPORTS + 1)) return;
+    giveRoomNearTop();
+  });
   useEffect(() => () => clearTimeout(anchorTimer.current), []);
   // A report that came due while the pane was hidden, sent once it has a viewport again.
   const anchorDeferred = useRef(false);

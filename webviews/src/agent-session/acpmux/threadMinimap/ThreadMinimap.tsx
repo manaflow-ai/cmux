@@ -21,7 +21,6 @@ import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import {
   animateScroll,
   highlightBubble,
-  MOTION_SCROLL_EVENT,
   reducedMotion,
   settleScroll,
   stopScroll,
@@ -196,9 +195,10 @@ export function ThreadMinimap({
   scrolls: boolean;
   width: number;
   columnWidth?: number;
-  /// The transcript calls what the rail puts here once each commit's placement pass has set its
-  /// offset (VirtualTranscript), so the band reads where the transcript put the reader.
-  placed?: React.MutableRefObject<(() => void) | undefined>;
+  /// The transcript calls what the rail puts here with the offset it commits (row-layout
+  /// coordinates): once each placement pass has set it, and in its scroll pacer's frame commit. The
+  /// band reads where the transcript put the reader, in the transcript's own render.
+  placed?: React.MutableRefObject<((top: number) => void) | undefined>;
   /// Where `rows` first differs from the last snapshot, as the transcript found it, so the rail
   /// reads only the rows from there (model.ts minimapTurns).
   change?: RowsChange;
@@ -354,10 +354,9 @@ export function ThreadMinimap({
   /// scrolls under a still pointer, the hovered row is the one now under it.
   const pointerY = useRef<number | undefined>(undefined);
   const swallowClick = useRef(false);
-  /// The scroller's offset as of its last scroll event. The transcript hands `scrollTop` down a
-  /// frame or two late (React schedules a scroll's render), so the band of lit rows read it here
-  /// instead and follows the reader on the scroll's own frame.
-  /// Another session's transcript starts from its own offset.
+  /// The offset the transcript last committed (`placed`): its placement pass's, or its scroll pacer's
+  /// for the frame. Set before the commit renders, so the band of lit rows follows the reader in the
+  /// transcript's own render. Another session's transcript starts from its own offset.
   const domTop = useRef<{ sessionId?: string; top: number } | undefined>(undefined);
   /// The band's first turn as of the last commit (the older-turns effect below keeps it).
   const anchor = useRef<Anchor | undefined>(undefined);
@@ -515,50 +514,6 @@ export function ThreadMinimap({
   });
   useEffect(() => () => wave?.leave(), [wave]);
 
-  // The band follows the scroll on its own frame: a scroll that moves it renders the rail at once
-  // (only the rows whose state changed draw again); one that does not renders nothing.
-  useEffect(() => {
-    const node = scroller.current;
-    if (!node) return;
-    const place = () => {
-      frame = undefined;
-      const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
-      const top = layoutScrollTop(node);
-      domTop.current = { sessionId: session, top };
-      restoring.current = undefined;
-      // The full-height map moves its own bar; no band to draw here.
-      if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, top, height, live.current.loadedStart);
-      // Synchronously: a frame callback is outside React's batch, which would draw the band after
-      // this frame paints. Only a scroll that moves the band renders.
-      if (next.first !== drawn.first || next.last !== drawn.last) flushSync(() => setBandMoves((count) => count + 1));
-    };
-    // One read a frame, in the frame's callbacks, never one per scroll event: a trackpad sends
-    // several a frame, and each read of the offset there laid the transcript out again (Leo,
-    // 2026-11-11: "scrolling up is slow and it layout shift and everythng lag"). Asked in the event,
-    // this callback comes before the transcript's own (scrollPacer.ts, asked by its later handler),
-    // so the band is drawn before the rows that frame mounts. A motion's frame callback has already
-    // run its frame's callbacks: it places at once.
-    let frame: number | undefined;
-    const scrolled = () => {
-      if (frame === undefined) frame = requestAnimationFrame(place);
-    };
-    const moved = () => {
-      if (frame !== undefined) cancelAnimationFrame(frame);
-      place();
-    };
-    // Captured, so it runs before the transcript's own scroll handler and that one's render finds the
-    // band already drawn. A wheel glide or jump (scrollMotion.ts) writes the offset in a frame
-    // callback, whose scroll event comes a frame late: it announces its write in that frame too.
-    node.addEventListener("scroll", scrolled, { capture: true, passive: true });
-    node.addEventListener(MOTION_SCROLL_EVENT, moved);
-    return () => {
-      if (frame !== undefined) cancelAnimationFrame(frame);
-      node.removeEventListener("scroll", scrolled, { capture: true });
-      node.removeEventListener(MOTION_SCROLL_EVENT, moved);
-    };
-  }, [scroller]);
-
   // The wheel over a list that scrolls itself is the rail's (railWheel.ts). This capture listener on
   // the list stops it before the transcript's bubbling wheel listeners (its glide, fold release, older
   // pages, the step reader below); the transcript's capture listeners on its ancestor scroller run
@@ -595,25 +550,28 @@ export function ThreadMinimap({
     return () => node.removeEventListener("wheel", wheel, { capture: true });
   }, [overflow, shown]);
 
-  // The transcript's placement pass (its layout effect, after this rail's) has set the offset for
-  // this commit: restored the reader's place over older turns, or left it. The band reads that
-  // offset before the frame paints, whether or not a scroll event follows.
+  // The band follows the transcript's offset as the transcript commits it, never on a frame of its
+  // own. Its placement pass (a layout effect, after this rail's) restored the reader's place over
+  // older turns or left it; its scroll pacer commits each scrolled frame's offset (a wheel, a fling,
+  // a glide or a rail jump, scrollMotion.ts, alike). Both call this inside their commit, so a band
+  // that moves renders in that same commit, before the frame paints. The rail once read the offset in
+  // its own frame callback and drew the band with a second synchronous render: two commits and two
+  // layouts of the transcript each scrolled frame (Leo, 2026-11-11: "scrolling up is slow and it
+  // layout shift and everythng lag").
   useLayoutEffect(() => {
     if (!placed) return;
-    placed.current = () => {
-      const node = scroller.current;
-      if (!node) return;
+    placed.current = (top) => {
       const { turns: all, tops, total, viewportHeight: height, onScreen: drawn, sessionId: session } = live.current;
-      domTop.current = { sessionId: session, top: layoutScrollTop(node) };
+      domTop.current = { sessionId: session, top };
       restoring.current = undefined;
       if (!live.current.shown) return;
-      const next = visibleTurns(all, tops, total, layoutScrollTop(node), height, live.current.loadedStart);
+      const next = visibleTurns(all, tops, total, top, height, live.current.loadedStart);
       if (next.first !== drawn.first || next.last !== drawn.last) setBandMoves((count) => count + 1);
     };
     return () => {
       placed.current = undefined;
     };
-  }, [placed, scroller]);
+  }, [placed]);
 
   // A jump still under way belongs to the chat it started in: another chat in the reused scroller,
   // or the rail going away, ends it. In the commit itself, before the jump's next frame can run.
