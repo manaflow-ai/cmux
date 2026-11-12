@@ -171,6 +171,7 @@ public final class TerminalModel {
 
     /// The app is in the foreground (false: background, locked).
     public func setAppActive(_ active: Bool) {
+        controller?.appActiveChanged(active)
         sizeClaimer.set(appActive: active)
     }
 
