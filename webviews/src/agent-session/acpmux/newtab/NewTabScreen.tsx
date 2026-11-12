@@ -621,8 +621,8 @@ export function NewTabScreen(props: Props) {
     else openHarnessesPage();
   };
   const wholeSelection = useRef(false);
-  /// The create strip action ← and → last chose (its index in the strip): ↓ and ↑ enter the strip there.
-  const stripColumn = useRef(0);
+  /// The create strip action last selected (by ←, →, Tab or the arrows): ↓ and ↑ enter the strip there.
+  const stripKind = useRef<CreateKind | undefined>(undefined);
   const composing = useRef(false);
   const inputReported = useRef(false);
   const inputReadyReported = useRef<string | undefined>(undefined);
@@ -1663,7 +1663,6 @@ export function NewTabScreen(props: Props) {
     const along = plain && sideways ? stripStep(rows, current, sideways) : undefined;
     if (along !== undefined) {
       event.preventDefault();
-      stripColumn.current = along - rows.findIndex(inStrip);
       pick(along);
       return;
     }
@@ -1698,7 +1697,11 @@ export function NewTabScreen(props: Props) {
     const step = kept < 0 && movesCaretInPrompt(event, state, input) ? undefined : listStep(event);
     if (step && rows.length) {
       event.preventDefault();
-      pick(arrowStep(rows, current, step, stripColumn.current));
+      const leaving = rows[current];
+      if (leaving?.type === "create" && inStrip(leaving)) stripKind.current = leaving.kind;
+      const strip = rows.filter(inStrip);
+      const column = strip.findIndex((row) => row.type === "create" && row.kind === stripKind.current);
+      pick(arrowStep(rows, current, step, Math.max(0, column)));
     } else if (step && dismissed !== undefined && text) {
       // Down or Up on closed suggestions opens them again.
       event.preventDefault();

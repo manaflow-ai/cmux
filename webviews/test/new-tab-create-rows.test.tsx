@@ -264,6 +264,18 @@ test("Down reaches the create strip as one line, and ← and → step along it",
   ]);
 });
 
+test("Tab to a strip action counts too: Up then Down comes back to it", async () => {
+  await render([]);
+  const field = await type("ff");
+  // Ask is selected; Tab steps every option: ff-scratch, Search, New terminal, New browser tab, New chat.
+  for (let press = 0; press < 5; press += 1) await key(field, "Tab");
+  expect(label(selectedRow())).toBe("New chat");
+  await key(field, "ArrowUp");
+  expect(label(selectedRow())).toBe("Search the web for ff");
+  await key(field, "ArrowDown");
+  expect(label(selectedRow())).toBe("New chat");
+});
+
 test("← and → on a listed row leave the strip alone and give the arrows back to the text", async () => {
   await render([]);
   const field = await type("ff");

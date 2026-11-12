@@ -40,7 +40,7 @@ export type ScreenRow =
   | { type: "ask"; text: string; harness: string; agent: string; model?: string }
   /// A create action (cx-ag5.7): New terminal, New browser tab or New chat, as under the field.
   /// `strip`: drawn in the quiet strip under the rows, not as a row. ↓ and ↑ reach the strip as one
-  /// line (at the action ← and → last chose), ← and → step along it (``arrowStep``, ``stripStep``).
+  /// line (at the action last selected there), ← and → step along it (``arrowStep``, ``stripStep``).
   | { type: "create"; kind: CreateKind; strip?: true }
   /// Open in Profile… (Lawrence 2026-11-05): the field becomes a search of every browser profile,
   /// for the address `url` that `text` resolved to (``profileRows``).
@@ -199,7 +199,7 @@ export function inStrip(row: ScreenRow): boolean {
 
 /// The row ↑ or ↓ selects from `current` (-1: the text): the rows one line each, then the create
 /// strip as one line under them (the strip ends the list, ``screenRows``). The strip is entered at
-/// action `column` (the one ← and → last chose; 0, its first, by default), clamped to its length.
+/// action `column` (the one last selected there; 0, its first, by default), clamped to its length.
 /// Down never steps along the strip's actions one by one; ← and → do (``stripStep``).
 export function arrowStep(rows: readonly ScreenRow[], current: number, step: 1 | -1, column = 0): number {
   const strip = rows.findIndex(inStrip);
