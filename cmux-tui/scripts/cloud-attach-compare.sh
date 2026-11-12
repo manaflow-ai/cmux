@@ -3,7 +3,8 @@
 # cmux-server built at BASE (required: a commit) and at HEAD, each attach time
 # several times. Needs a network namespace: unprivileged, or through sudo -n.
 # Usage: scripts/cloud-attach-compare.sh BASE
-#   BASE 6646d219f2b is the commit before the 2 s connect bound (cmux#41487).
+#   BASE 6646d219f2bbf184de8dfb2371678bb2c2c6e973 is the commit before the 2 s
+#   connect bound (cmux#41487). A shallow checkout needs the full SHA to fetch.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # No default: HEAD~1 was a commit after the fix once more commits landed, so a
@@ -12,7 +13,10 @@ base=${1:?usage: $0 BASE (a commit before the change)}
 runs=${RUNS:-3}
 file=crates/cmux-server/src/cloud_http_transport.rs
 # A shallow checkout (CI) may not hold BASE yet.
-git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q --no-tags --depth=1 origin "$base"
+if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+  git fetch -q --no-tags --depth=1 origin "$base" ||
+    { echo "attach-compare: BASE $base is not here and could not be fetched (a shallow checkout needs the full SHA)" >&2; exit 2; }
+fi
 # The same connect code on both sides measures nothing: refuse instead.
 if git show "$base:cmux-tui/$file" | cmp -s - "$file"; then
   echo "attach-compare: BASE's $file is HEAD's; name a commit before the change" >&2
