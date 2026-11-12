@@ -16,6 +16,7 @@
 //   four frames in five within a frame and a half at 60 Hz.
 //
 // Real Chromium and WebKit from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+// Baseline measurements for the flaky-chat-tests repair run with runner retries disabled.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type Page } from "playwright";
