@@ -8,10 +8,14 @@
 import { afterEach, expect, test } from "bun:test";
 import type { AcpmuxActivity, AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { backgroundTurnRowId } from "../src/agent-session/acpmux/conversation/backgroundTurns";
+import { backgroundRunRowId } from "../src/agent-session/acpmux/conversation/backgroundRuns";
+import { messageRunRowId } from "../src/agent-session/acpmux/conversation/messageRuns";
 import {
+  closeTurnRuns,
   NEXT_STEP,
   toggleTurnFold,
   turnFoldFor,
+  turnInsideIds,
   turnView,
   WORKED,
 } from "../src/agent-session/acpmux/conversation/turns";
@@ -69,6 +73,12 @@ afterEach(() => {
   globalThis.cmuxExperiments = undefined;
 });
 
+/// The reply before another agent's message stays in sight beside the closed fold
+/// (turnFoldReplies `replies`), the only arms under which that message splits the fold.
+const repliesInSight = () => {
+  globalThis.cmuxExperiments = { ...globalThis.cmuxExperiments, "turn-fold-replies": "replies" };
+};
+
 for (const family of FAMILIES)
   test(`${family ?? "an unknown family"}: no work after the steer draws above it`, () => {
     const closed = view(steered, family);
@@ -110,6 +120,7 @@ test("Find opens the fold that holds the match: the one after the steer for its 
 
 for (const family of ["codex", "claude"])
   test(`${family}: another agent's message after a reply opens the fold after it, folded in as its first entry`, () => {
+    repliesInSight();
     const closed = view(messaged, family);
     expect(ids(closed)).toEqual(["u-0", `${WORKED}-u-0`, "a-before", `${WORKED}-m-1`, "a-final"]);
     const opened = view(messaged, family, new Set([`${WORKED}-m-1`]));
@@ -139,6 +150,7 @@ test("another agent's message with no reply before it folds in place, in the tur
 });
 
 test("a message that draws nothing splits nothing: Find opens the fold the turn draws", () => {
+  repliesInSight();
   const dot = messaged.map((shown) => (shown.id === "m-1" ? message("m-1", 90, "lane-box/ux-owner", ".") : shown));
   const drawn = view(dot, "codex");
   expect(drawn.filter((shown) => shown.kind === WORKED).map((shown) => shown.id)).toEqual([`${WORKED}-u-0`]);
@@ -151,6 +163,7 @@ test("a message that draws nothing splits nothing: Find opens the fold the turn 
 });
 
 test("a reply that draws nothing is no reply: Find opens the fold the turn draws", () => {
+  repliesInSight();
   // An agent's message opens the turn, so its "." reply answers no person and draws nothing.
   const opener: AcpmuxRow = { ...message("u-0", 0, "lane-box/nightly", "Watch the nightly"), continues: undefined };
   const quiet = [opener, ...messaged.slice(1)].map((shown) =>
@@ -167,6 +180,7 @@ test("a reply that draws nothing is no reply: Find opens the fold the turn draws
 });
 
 test("a background turn's reply is no reply: the drawn fold and Find agree, opened or closed", () => {
+  repliesInSight();
   // The agent's own turn after a tool's background task, its reply inside it (backgroundTurns.ts).
   const background = messaged.map((shown) => (shown.id === "a-before" ? { ...shown, inBackground: "bg-1" } : shown));
   const key = turnFoldFor(
@@ -212,6 +226,40 @@ test("a wrap-up after the steer draws its card once, under the answer before the
     const cards = view(answered, family).filter((shown) => shown.kind === NEXT_STEP);
     expect(cards).toHaveLength(1);
   }
+});
+
+test("under Codex's reply fold (the default), another agent's message splits nothing: no two lines meet", () => {
+  // The reply before it folds with the work (turnFoldReplies `answer`), so a split would draw the
+  // prompt's Worked for right above the message's, nothing between them.
+  const folds = view(messaged, "codex").filter((shown) => shown.kind === WORKED);
+  expect(folds.map((shown) => shown.id)).toEqual([`${WORKED}-u-0`]);
+  expect(
+    turnFoldFor(
+      messaged,
+      messaged.findIndex((shown) => shown.id === "t-2"),
+    ),
+  ).toBe(`${WORKED}-u-0`);
+  // The steer still splits: it and the reply before it stay in sight under every reply arm.
+  expect(
+    view(steered, "codex")
+      .filter((shown) => shown.kind === WORKED)
+      .map((shown) => shown.id),
+  ).toEqual([`${WORKED}-u-0`, `${WORKED}-s-1`]);
+});
+
+test("a fold's click closes the lines inside it, not the next fold's", () => {
+  repliesInSight();
+  const lines = (id: string) => [messageRunRowId(id), backgroundRunRowId(id)];
+  const opened = new Set([...lines("t-1"), ...lines("t-2"), ...lines("m-1")]);
+  const first = new Set(opened);
+  closeTurnRuns(messaged, first, `${WORKED}-u-0`);
+  expect([...first].sort()).toEqual([...lines("t-2"), ...lines("m-1")].sort());
+  const second = new Set(opened);
+  closeTurnRuns(messaged, second, `${WORKED}-m-1`);
+  expect([...second].sort()).toEqual(lines("t-1").sort());
+  expect([...turnInsideIds(messaged, `${WORKED}-u-0`)]).toContain("t-1");
+  expect([...turnInsideIds(messaged, `${WORKED}-u-0`)]).not.toContain("t-2");
+  expect([...turnInsideIds(messaged, `${WORKED}-m-1`)]).toContain("t-2");
 });
 
 test("the one-fold arm keeps the turn's single Worked for at its top", () => {
