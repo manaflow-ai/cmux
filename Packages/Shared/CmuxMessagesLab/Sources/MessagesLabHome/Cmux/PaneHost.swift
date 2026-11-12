@@ -542,6 +542,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         demo.clock = { [weak self] in self?.clock ?? 0 }
         demo.requestWake = { [weak self] t in self?.requestViewWake(t) }
         demo.drawsChrome = false
+        // https://github.com/manaflow-ai/cmux/issues/41529: no entry motion; new rows show in their final place at once.
+        demo.entryMotion = false
         // A stream's final message takes its rows' keys: a selection in them goes along (TranscriptSelection.renameRows).
         demo.onRowsRenamed = { [weak self] map in self?.selection.renameRows(map) }
         demo.onCellDecorated = { [weak self] cell in self?.selection.draw(cell) }
