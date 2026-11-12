@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "run": "https://github.com/manaflow-ai/cmux/actions/runs/43288170037",
+  "recorded_at": "2026-11-12T19:31:03Z",
+  "reason": "cmux-tui 76a9067489ef changes the image's cmux-tui (pinned 3aa6d2c6f7f7)",
+  "dry_run": false,
+  "cmux_tui": "76a9067489efc6bef8b5f462c5a61fdcbafc6f77",
+  "fixes": [
+    {
+      "sha": "76a9067489efc6bef8b5f462c5a61fdcbafc6f77",
+      "mergedAt": "2026-11-12T12:50:06-06:00",
+      "subject": "fix(chief): compaction no longer stalls behind taken session names"
+    },
+    {
+      "sha": "82be5dc8efba253070880427d23b660e51641800",
+      "mergedAt": "2026-11-12T12:50:04-06:00",
+      "subject": "test(chief): red tests for the stuck compaction queue"
+    },
+    {
+      "sha": "58e77d616b0ce2fe43e5fef1fbefeb54ae8284e8",
+      "mergedAt": "2026-11-12T10:47:39-08:00",
+      "subject": "cargo: one workspace for the four app FFI crates (4 locks to 1) (#42082)"
+    }
+  ],
+  "fixes_truncated": false,
+  "gate": {
+    "result": "passed",
+    "bake_job": "success",
+    "done_at": "2026-11-12T19:31:03Z",
+    "snapshot_id": "sh-65ad15c6c27d4d3eb206705c58379ef2",
+    "detail": "smoke.ts --clones 5 --agent-probe --resize-probe (CI run 43288170037): 29 checks passed"
+  },
+  "promotion": {
+    "result": "pushed",
+    "job": "success",
+    "commit": "7a6b2767fcb24665ac6216075fada21e08324836",
+    "image": "cloud-native-auto-76a90674-43288170037-1",
+    "revision": "ci-43288170037-1",
+    "at": "2026-11-12T19:31:03Z"
+  },
+  "rolled_back": false
+}
