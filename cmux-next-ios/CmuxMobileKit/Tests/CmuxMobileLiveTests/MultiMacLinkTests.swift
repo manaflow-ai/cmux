@@ -299,8 +299,8 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         defer { live.stop() }
         live.linkPolicy = MacLinkPolicy(idleAfter: .milliseconds(200))
         live.showing(macIDs: nil)
-        // The store's row follows the link's phase one main-actor turn later (`observe`): wait
-        // for the row itself, not only the phase it is projected from.
+        // The store hears a phase one main-actor hop after the link (observe(_:)'s onChange Task), so wait
+        // for the store too: on a busy runner the phase alone settled while m2 still read .connecting.
         await settle {
             store.macConnection["m1"] == .connected && live.sessions["m2"]?.link.phase == .signedOut
                 && store.macConnection["m2"] == .failed("Signed out")

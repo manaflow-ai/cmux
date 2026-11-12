@@ -477,3 +477,80 @@ test("Retry shows only on a failure another try can help", async () => {
   await act(async () => retry?.click());
   expect(retried).toBe(1);
 });
+
+test("a folder too big to copy offers each repository inside it and no folder, never Retry", async () => {
+  const tooBig: CloudStartProgress = {
+    ...start,
+    state: "failed",
+    code: "cloud_folder_too_big",
+    refusedHere: true,
+    message: "~/Projects is too big to copy to a Cloud machine.",
+    tooBig: {
+      folder: "~/Projects",
+      repos: [
+        { name: "cmux", path: "/Users/me/Projects/cmux" },
+        { name: "work/api", path: "/Users/me/Projects/work/api" },
+      ],
+      more: false,
+    },
+  };
+  const picked: string[] = [];
+  let browsed = 0;
+  let homes = 0;
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <CloudStartView
+        start={tooBig}
+        onRetry={() => undefined}
+        onPickRepo={(path) => void picked.push(path)}
+        onPickFolder={() => void browsed++}
+        onStartWithoutFolder={() => void homes++}
+      />,
+    );
+  });
+  expect(container.querySelector(".acpmux-cloud-start__retry")).toBeNull();
+  // The checklist stays shut: no step ran, and the card's actions stay in view.
+  expect(container.querySelector(".acpmux-cloud-start__summary")?.getAttribute("aria-expanded")).not.toBe("true");
+  const repos = [...container.querySelectorAll<HTMLButtonElement>("[data-repo]")];
+  expect(repos.map((button) => button.textContent)).toEqual(["cmux", "work/api"]);
+  expect(container.textContent).toContain("Pick a repo inside it");
+  await act(async () => repos[1]!.click());
+  expect(picked).toEqual(["/Users/me/Projects/work/api"]);
+  // Every repository it holds is listed: no folder browse beside them.
+  expect(container.querySelector('[data-action="pick-folder"]')).toBeNull();
+  const noFolder = container.querySelector<HTMLButtonElement>('[data-action="no-folder"]');
+  expect(noFolder?.textContent).toBe("Start without a folder");
+  await act(async () => noFolder?.click());
+  expect(homes).toBe(1);
+  // No repository inside: Pick a folder leads, beside Start without a folder.
+  await act(async () =>
+    root!.render(
+      <CloudStartView
+        start={{ ...tooBig, tooBig: { folder: "~/Downloads", repos: [], more: false } }}
+        onPickRepo={(path) => void picked.push(path)}
+        onPickFolder={() => void browsed++}
+        onStartWithoutFolder={() => void homes++}
+      />,
+    ),
+  );
+  expect(container.querySelector("[data-repo]")).toBeNull();
+  const pick = container.querySelector<HTMLButtonElement>('[data-action="pick-folder"]');
+  expect(pick?.textContent).toBe("Pick a folder");
+  expect(pick?.getAttribute("data-role")).toBe("default");
+  await act(async () => pick?.click());
+  expect(browsed).toBe(1);
+  // More repositories than the card lists: Pick a folder joins them.
+  await act(async () =>
+    root!.render(
+      <CloudStartView
+        start={{ ...tooBig, tooBig: { ...tooBig.tooBig!, more: true } }}
+        onPickRepo={(path) => void picked.push(path)}
+        onPickFolder={() => void browsed++}
+      />,
+    ),
+  );
+  expect(container.querySelectorAll("[data-repo]")).toHaveLength(2);
+  expect(container.querySelector('[data-action="pick-folder"]')?.getAttribute("data-role")).toBeNull();
+});

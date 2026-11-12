@@ -1,6 +1,7 @@
 // l10n-allow-file: test fixtures.
-// A run of messages with the Codex-style runs on (the default): the one still going out leaves its
-// run for the live line (turns.ts `codexRuns`), so the line, not a group, says who it goes to.
+// A run of messages in a running turn: the one still going out is on the live line (turns.ts
+// `codexRuns`), so the line, not a group, says who it goes to. The finished one draws no row while
+// the turn runs (liveTurnWork.experiment.ts `line`, as chatgpt.com draws a running turn).
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../model";
 import { turnView } from "./turns";
@@ -25,7 +26,8 @@ test("the live line names the recipient of a SendMessage in flight", () => {
   const view = turnView(rows, new Set(), { now: 10_000, working: true });
   const line = view.find((row) => row.doingSendTo !== undefined);
   expect(line?.doingSendTo).toBe("picker");
-  // The finished one stays in its run; the one in flight is only on the line.
+  // Neither draws a row: the one in flight is only on the line, the finished one under Worked for
+  // once the turn ends.
   const items = view.flatMap((row) => (row.kind === "activity" ? (row.items ?? []) : []));
-  expect(items.map((item) => item.tool?.id)).toEqual(["m1"]);
+  expect(items.map((item) => item.tool?.id)).toEqual([]);
 });

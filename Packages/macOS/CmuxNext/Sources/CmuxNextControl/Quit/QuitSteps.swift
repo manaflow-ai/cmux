@@ -36,6 +36,11 @@ public struct QuitSteps {
     /// the terminals; returns its failure, if any.
     public var endLocalAgents: @MainActor () async -> [EndSessionsFailure]
     public var stopBrowserEngines: @MainActor () async -> Void
+    /// Restart to Update: hands acpmux to the new build (`AcpmuxUpdateHandoff`), which stops the
+    /// running daemon. A keep quit runs it after its saves, once a save past its limit (the chat
+    /// composers' drafts on their way to acpmux) has landed, at most ``handoffSaveWait``; nil
+    /// for every other quit.
+    public var handOffAcpmux: (@MainActor () async -> Void)?
     /// The quit's step limiter: the steps past their limit still run, and the
     /// quit waits for them (``finishSaves(ends:)``).
     public var limiter: QuitStepLimiter
@@ -48,10 +53,18 @@ public struct QuitSteps {
     /// still lands before the daemon stops.
     public static let endQuitSaveWait: Duration = .seconds(2)
 
+    /// How long Restart to Update waits for a save step past its limit before acpmux stops: the
+    /// chat pages' quit ask (`AgentPaneRelaunchWake.askLimit`, 1 s), which waits for each page's
+    /// last draft write to reach acpmux. Before (2026-11-11), the handoff ran as soon as the
+    /// composer step passed its 400 ms limit, and acpmux stopped under the drafts still on
+    /// their way: every unsent draft was gone after the update.
+    public static let handoffSaveWait: Duration = .seconds(1)
+
     public init(prepareWindows: @escaping @MainActor () async -> Void,
                 endLocalSessions: @escaping @MainActor () async -> [EndSessionsFailure],
                 confirmFailures: @escaping @MainActor ([EndSessionsFailure]) async -> QuitFailureAnswer,
                 endLocalAgents: @escaping @MainActor () async -> [EndSessionsFailure],
+                handOffAcpmux: (@MainActor () async -> Void)? = nil,
                 stopBrowserEngines: @escaping @MainActor () async -> Void,
                 limiter: QuitStepLimiter,
                 timeLeft: @escaping @MainActor () -> Duration?) {
@@ -60,6 +73,7 @@ public struct QuitSteps {
         self.confirmFailures = confirmFailures
         self.endLocalAgents = endLocalAgents
         self.stopBrowserEngines = stopBrowserEngines
+        self.handOffAcpmux = handOffAcpmux
         self.limiter = limiter
         self.timeLeft = timeLeft
     }
@@ -76,6 +90,11 @@ public struct QuitSteps {
             while !failures.isEmpty, await confirmFailures(failures) == .retry {
                 failures = await endLocalAgents() + endLocalSessions()
             }
+        } else if let handOffAcpmux {
+            // A late draft write lands before acpmux stops for the new build (Cloud's step ends no local data).
+            await limiter.finishOverruns(within: min(Self.handoffSaveWait, timeLeft() ?? Self.handoffSaveWait),
+                                         excluding: [QuitSaveSteps.cloudStepName])
+            await handOffAcpmux()
         }
         // A save past its limit gets what the deadline leaves less the engines' close wait, so
         // Chromium still closes its pages and CefShutdown flushes cookies and storage. A save

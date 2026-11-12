@@ -7,10 +7,16 @@ extension HangReportsSetting {
     public nonisolated static let fallback = false
 }
 
+extension HangReportsSettingsSchema {
+    /// `diagnostics.usagePatterns`: Whether the daemons on this machine count how cmux is used: commands and operations by name, split directions, connections, agent chats per harness, prompts, tokens, distinct paired machines, by day and hour. Counts and identifiers only, never prompts, terminal text, addresses, file paths or names. Stored locally; `cmux usage-patterns` and the Agent Stats page show them. Agents may not change it (privacy).
+    nonisolated static let usagePatternsPath = ["diagnostics", "usagePatterns"]
+    nonisolated static let usagePatternsDefault = false
+}
+
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
 nonisolated enum HangReportsSettingsSchema {
     /// Settings > Privacy and Security > Hang Reports, with the View Hang Report button at the end of the category (SettingsSchema.actions(in: .home)).
-    static var descriptors: [SettingDescriptor] {
+    static var hangReportRows: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.hangReports", "Hang Reports")
         return [
             SettingDescriptor(
@@ -25,5 +31,28 @@ nonisolated enum HangReportsSettingsSchema {
                 keywords: ["hang", "lag", "slow", "performance", "diagnostics", "telemetry", "privacy", "metrickit", "report"]
             ),
         ]
+    }
+
+    /// Settings > Privacy and Security > Usage Patterns: opt-in local counters of how the person uses cmux (cmux-tui/crates/cmux-usage-patterns). Leo 2026-11-07: "could we opt in to tracking usage patterns? at least for myself". Off by default; nothing leaves the machine.
+    static var usagePatternRows: [SettingDescriptor] {
+        let group = SettingsText.keyed("settings.group.usagePatterns", "Usage Patterns")
+        return [
+            SettingDescriptor(
+                HangReportsSettingsSchema.usagePatternsPath,
+                section: .home,
+                group: group,
+                title: SettingsText.keyed("settings.diagnostics.usagePatterns", "Record Usage Patterns"),
+                help: SettingsText.keyed("settings.diagnostics.usagePatterns.help", "Counts how you use cmux on this computer: commands, pane splits, agent chats, prompts and tokens, and connections, by day and hour. It never records prompts, terminal text, web addresses, file names or anything you type, and nothing is sent anywhere. See them with cmux usage-patterns or on the Agent Stats page."),
+                summary: SettingsText.keyed("settings.diagnostics.usagePatterns.summary", "Stays on this computer. Counts only, no text."),
+                kind: .toggle,
+                default: .bool(HangReportsSettingsSchema.usagePatternsDefault),
+                keywords: ["usage", "patterns", "stats", "statistics", "analytics", "tracking", "metrics", "privacy", "counts", "habits"]
+            ),
+        ]
+    }
+
+    /// Every list of schemas/settings/source/hang-reports.json, in order.
+    static var descriptors: [SettingDescriptor] {
+        [hangReportRows, usagePatternRows].flatMap { $0 }
     }
 }
