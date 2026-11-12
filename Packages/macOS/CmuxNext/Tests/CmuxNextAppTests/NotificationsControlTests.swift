@@ -45,7 +45,7 @@ import Testing
 
     @Test func theStatusReadNeverAsksAndTheRequestAsksOnce() async throws {
         let center = FakeCenter(answer: true)
-        let router = makeRouter(NotificationsControl.methods { center })
+        let router = makeRouter(ControlMethod.notifications { center })
 
         let before = try await router.handle(ControlRequest(id: "1", method: "notifications.status", params: [:])).get()
         #expect(before.objectValue?["authorization"] == .string("not_determined"), "\(before)")
@@ -62,7 +62,7 @@ import Testing
 
     @Test func aDeclinedPromptAnswersDenied() async throws {
         let center = FakeCenter(answer: false)
-        let router = makeRouter(NotificationsControl.methods { center })
+        let router = makeRouter(ControlMethod.notifications { center })
         let after = try await router.handle(ControlRequest(id: "1", method: "notifications.request", params: [:])).get()
         #expect(after.objectValue?["authorization"] == .string("denied"), "\(after)")
     }
@@ -70,7 +70,7 @@ import Testing
     @Test func aHostThatIsNotTheAppBundleAnswersUnavailable() async throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
-        let router = makeRouter(NotificationsControl.methods(services: services))
+        let router = makeRouter(ControlMethod.notifications(services: services))
         for method in ["notifications.status", "notifications.request"] {
             let result = await router.handle(ControlRequest(id: "1", method: method, params: [:]))
             guard case .failure(let error) = result else {

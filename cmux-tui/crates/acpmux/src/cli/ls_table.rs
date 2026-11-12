@@ -15,6 +15,7 @@
 //! names unresolvable while stopped) unknown. A peer the registry means to be up keeps UNKNOWN.
 
 use super::output::short;
+use cmux_json::JsonGet as _;
 use serde_json::Value;
 use std::collections::BTreeMap;
 
@@ -96,12 +97,8 @@ const HIDDEN_ORDER: [(Hidden, &str); 4] = [
     (Hidden::Unnamed, "unnamed"),
 ];
 
-fn text<'a>(row: &'a Value, key: &str) -> &'a str {
-    row.get(key).and_then(Value::as_str).unwrap_or("")
-}
-
 fn hidden(row: &Value) -> Option<Hidden> {
-    if text(row, "status") == "closed" {
+    if row.get_str("status").unwrap_or("") == "closed" {
         return Some(Hidden::Closed);
     }
     let tags = row
@@ -109,7 +106,7 @@ fn hidden(row: &Value) -> Option<Hidden> {
         .and_then(Value::as_object)
         .into_iter()
         .flat_map(|tags| tags.keys().map(String::as_str));
-    if crate::review_box::is(text(row, "harness"), tags) {
+    if crate::review_box::is(row.get_str("harness").unwrap_or(""), tags) {
         return Some(Hidden::Reviewer);
     }
     if row.get("parentId").is_some_and(|p| !p.is_null()) {
@@ -124,16 +121,18 @@ fn hidden(row: &Value) -> Option<Hidden> {
 /// Whether someone named the session: not empty, and not the `HARNESS` or `HARNESS-N` name the
 /// daemon gives a session started without one (`hub/new_request.rs` `unique_name_among`).
 fn named(row: &Value) -> bool {
-    let name = text(row, "name");
+    let name = row.get_str("name").unwrap_or("");
     if name.trim().is_empty() {
         return false;
     }
     // The daemon says so (`nameGiven`); a session from before it was kept says so by its title
     // source, renamed (`named`) or started under a name and not yet prompted (`launched`).
-    if row["nameGiven"] == true || matches!(text(row, "titleSource"), "named" | "launched") {
+    if row["nameGiven"] == true
+        || matches!(row.get_str("titleSource").unwrap_or(""), "named" | "launched")
+    {
         return true;
     }
-    let harness = text(row, "harness");
+    let harness = row.get_str("harness").unwrap_or("");
     let generated = name.strip_prefix(harness).is_some_and(|rest| {
         rest.is_empty()
             || rest
@@ -166,7 +165,9 @@ fn state(row: &Value, pauses: &BTreeMap<String, String>) -> String {
     if pending(row) > 0 {
         return "waiting".into();
     }
-    row["state"].as_str().map_or_else(|| text(row, "status").to_owned(), str::to_owned)
+    row["state"]
+        .as_str()
+        .map_or_else(|| row.get_str("status").unwrap_or("").to_owned(), str::to_owned)
 }
 
 fn pending(row: &Value) -> u64 {
@@ -188,7 +189,7 @@ fn stuck(row: &Value, now: u64, pauses: &BTreeMap<String, String>) -> String {
         1 => return "permission".into(),
         n => return format!("{n} permissions"),
     }
-    match text(row, "stuckReason") {
+    match row.get_str("stuckReason").unwrap_or("") {
         "" => {}
         "capacity" => return "capacity".into(),
         "harness_unavailable" => return "harness down".into(),
@@ -400,12 +401,13 @@ pub fn render_paused(
         }
         let mut rows = vec![header.into_iter().map(str::to_owned).collect::<Vec<_>>()];
         for row in &shown {
-            let mut cells = vec![short(text(row, "name"), if view.wide { 24 } else { 32 })];
+            let mut cells =
+                vec![short(row.get_str("name").unwrap_or(""), if view.wide { 24 } else { 32 })];
             if with_host {
                 cells.push(host(row).unwrap_or("-").to_owned());
             }
             if view.wide {
-                cells.push(short(text(row, "harness"), 8));
+                cells.push(short(row.get_str("harness").unwrap_or(""), 8));
             }
             cells.push(state(row, pauses));
             cells.push(row.get("turnCount").and_then(Value::as_u64).unwrap_or(0).to_string());
@@ -418,14 +420,14 @@ pub fn render_paused(
             }
             if view.wide {
                 cells.extend(usage(row));
-                cells.push(short(text(row, "lastPrompt"), 50));
+                cells.push(short(row.get_str("lastPrompt").unwrap_or(""), 50));
             }
             rows.push(cells);
         }
         out.push_str(&table(rows));
     }
     for peer in peers.unwrap_or_default() {
-        let state = text(peer, "state");
+        let state = peer.get_str("state").unwrap_or("");
         if state.is_empty() || state == "connected" || state == "degraded" {
             continue;
         }
@@ -433,7 +435,7 @@ pub fn render_paused(
             .as_u64()
             .map(|at| format!(" for {}", ago(now, at)))
             .unwrap_or_default();
-        let name = text(peer, "name");
+        let name = peer.get_str("name").unwrap_or("");
         out.push_str(&match paused(pauses, name) {
             Some(why) => format!(
                 "PAUSED {name}: {why} in the fleet registry, peer {state}{since}; its sessions are last known, not live\n"
