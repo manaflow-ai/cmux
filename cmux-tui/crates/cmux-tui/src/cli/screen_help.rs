@@ -37,7 +37,7 @@ that `cmux closed reopen` restores whole; it keeps pinned screens unless
 close keeps each terminal it leaves with no tab until the reaper's grace
 (30 s) ends it (`cmux closed reopen` keeps it), and a kept one or one a
 viewer is attached to keeps running; --now ends them at once,
---keep-terminals leaves them with no tab.
+--keep-terminals keeps them and marks them keep (the reaper leaves them).
 column update --pinned true makes a docked column the pinned dock (Home's):
 its first tab stays and it is never undocked; it takes no other tab unless
 --allow-tabs true. Pinning is one way.

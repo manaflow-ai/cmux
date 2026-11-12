@@ -238,9 +238,12 @@ struct CommittedResourceClose {
 /// model for every close).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CloseMode {
-    /// Leave them with no tab; a running reaper ends an unkept one after its
-    /// grace (the raw and `--keep-terminals` closes).
+    /// Leave them running with no tab and mark each one `keep`, so the
+    /// reaper leaves it too (`terminals: keep`, `--keep-terminals`).
     Keep,
+    /// Leave them with no tab and no mark; a running reaper ends them after
+    /// its grace (the raw closes, `terminals: detach`).
+    Detach,
     /// Leave them with no tab until the reaper's grace ends them, so
     /// `closed.reopen` in that window shows the same process again; with no
     /// reaper running, end them now. The default of every public close.
@@ -250,9 +253,10 @@ pub(crate) enum CloseMode {
 }
 
 impl CloseMode {
-    /// The mode of a batch close's `end_terminals` flag: `true` ends now.
+    /// The mode of a raw batch close's `end_terminals` flag: `true` ends
+    /// now, `false` detaches.
     pub(crate) fn ending(end_terminals: bool) -> Self {
-        if end_terminals { Self::Now } else { Self::Keep }
+        if end_terminals { Self::Now } else { Self::Detach }
     }
 }
 
@@ -264,8 +268,9 @@ impl CloseMode {
 /// own terminal, or one whose process is the request's socket peer, an
 /// ancestor of it or its process session's leader) is never ended now. Any
 /// other one ends now in ``CloseMode::Now``, and in ``CloseMode::Grace``
-/// when no reaper runs. The rest stay with no tab: while a reaper runs they
-/// end at the close time plus its grace (`ending`), else they keep running.
+/// when no reaper runs. In ``CloseMode::Keep`` the rest stay running and are
+/// marked `keep`. The rest stay with no tab: while a reaper runs they end at
+/// the close time plus its grace (`ending`), else they keep running.
 pub(super) struct CloseTerminals {
     mode: CloseMode,
     /// The actor's own terminal.
@@ -304,14 +309,27 @@ impl CloseTerminals {
     /// Whether the close may end `runtime` now: not the caller's own terminal
     /// nor one the request's socket peer runs in, and the mode ends now.
     fn ends_now(&self, public_id: &TerminalPublicId, runtime: &Surface) -> bool {
-        let callers = self.spare.as_ref() == Some(public_id)
-            || runtime.process_id().is_some_and(|process| self.peer.contains(&process));
-        !callers
+        !self.callers(public_id, runtime)
             && match self.mode {
                 CloseMode::Now => true,
                 CloseMode::Grace => self.reap_grace.is_none(),
-                CloseMode::Keep => false,
+                CloseMode::Keep | CloseMode::Detach => false,
             }
+    }
+
+    /// Whether `runtime` is the caller's own terminal or one the request's
+    /// socket peer runs in.
+    fn callers(&self, public_id: &TerminalPublicId, runtime: &Surface) -> bool {
+        self.spare.as_ref() == Some(public_id)
+            || runtime.process_id().is_some_and(|process| self.peer.contains(&process))
+    }
+
+    /// Whether the close marks `runtime` `keep`: in ``CloseMode::Keep``,
+    /// each one but the caller's own, which the reaper still ends after its
+    /// grace (the worktree close keeps its terminals and ends them itself,
+    /// all but the caller's).
+    fn marks_kept(&self, public_id: &TerminalPublicId, runtime: &Surface) -> bool {
+        self.mode == CloseMode::Keep && !self.callers(public_id, runtime)
     }
 }
 
@@ -334,6 +352,9 @@ pub(super) struct EndedTerminals {
     /// When the reaper ends `ending` (milliseconds since the epoch).
     ends_at_ms: Option<u64>,
     running: Vec<TerminalPublicId>,
+    /// The host ids of the terminals the close marks `keep` once it has
+    /// committed (``CloseMode::Keep``).
+    keep_hosts: Vec<String>,
 }
 
 impl EndedTerminals {

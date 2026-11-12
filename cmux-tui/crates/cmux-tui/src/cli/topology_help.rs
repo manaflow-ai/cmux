@@ -66,8 +66,9 @@ A close (also a bulk close or a TUI close key) keeps each terminal it
 leaves with no tab running until the reaper's grace (30 s) ends it, and
 `cmux closed reopen` in that window shows it again; with no reaper it ends at
 once. A kept one and one a viewer is attached to keep running; the caller's
-own never ends at once. --now ends them at once; --keep-terminals leaves them
-with no tab. The close names each set (see them with `cmux terminal list`).
+own never ends at once. --now ends them at once; --keep-terminals keeps them
+running with no tab and marks them keep, so the reaper leaves them too. The
+close names each set (see them with `cmux terminal list`).
 open-url opens an http(s) link on the workspace's right side (without a
 selector, the home workspace): it navigates the browser tab shown there last,
 else opens a browser tab, never in the agent chat dock, and keeps the focus.
@@ -151,7 +152,7 @@ keeps those with a terminal in <path> or a folder inside it.
 close keeps each terminal it leaves with no tab until the reaper's grace
 (30 s) ends it (`cmux closed reopen` keeps it), and a kept one or one a
 viewer is attached to keeps running; --now ends them at once,
---keep-terminals leaves them with no tab.
+--keep-terminals keeps them and marks them keep (the reaper leaves them).
 split keeps the focus where it is unless --focus is given. With --shell or
 -- argv the new pane (of split or create) runs that command instead of a
 shell. To add a terminal
@@ -228,7 +229,7 @@ USAGE
 close leaves the tab's terminal, when no other tab shows it, until the
 reaper's grace (30 s) ends it (`cmux closed reopen` keeps it), unless it is
 marked keep or a viewer is attached to it; --now ends it at once,
---keep-terminals leaves it with no tab.
+--keep-terminals keeps it and marks it keep (the reaper leaves it).
 Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
 and leave their group. A group or saved group is named by its id or exact
 name. A group has no color until one is given: grey, blue, red, yellow, green,

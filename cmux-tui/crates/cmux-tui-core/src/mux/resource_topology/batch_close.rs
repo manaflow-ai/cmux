@@ -423,7 +423,9 @@ impl Mux {
 
     /// The one close rule for the terminals a close leaves with no view
     /// (W7-C, ``CloseTerminals``): a kept one or one with an attached viewer
-    /// is listed as running; one the close ends now leaves the planned state
+    /// is listed as running; with ``CloseMode::Keep`` every other one is
+    /// listed as running and marked `keep` after the commit; one the close
+    /// ends now leaves the planned state
     /// (its catalog runtime goes and its host joins the plan's terminal
     /// batch); the rest are listed as ending when the reaper's grace runs
     /// out, or as running when no reaper runs.
@@ -469,6 +471,11 @@ impl Mux {
             }
             // A close that leaves it (a raw detach close, the grace) needs no
             // durable receipt; only ending it now does.
+            if terminals.marks_kept(&public_id, &runtime) {
+                outcome.keep_hosts.push(host.terminal_id.clone());
+                outcome.running.push(public_id);
+                continue;
+            }
             if !terminals.ends_now(&public_id, &runtime) {
                 match terminals.reap_grace {
                     Some(grace) => {

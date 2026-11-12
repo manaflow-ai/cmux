@@ -93,9 +93,13 @@ pub(crate) struct BulkRequest {
     /// one close model): absent, the grace of every public close
     /// (``CloseMode::Grace``, the CLI's default); `true` ends them now
     /// (`--now`); `false` leaves them with no tab (the Mac app's close, which
-    /// Reopen Closed Tab needs).
+    /// Reopen Closed Tab needs; a running reaper ends them after its grace).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) end_terminals: Option<bool>,
+    /// `--keep-terminals`: leave them running with no tab and mark each one
+    /// `keep`, so the reaper leaves it too (``CloseMode::Keep``).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) keep_terminals: bool,
 }
 
 impl BulkRequest {
@@ -114,6 +118,10 @@ impl BulkRequest {
             request.level != BulkLevel::Pane
                 || !matches!(request.selector, BulkSelector::ToRight | BulkSelector::ToLeft),
             "bad request: panes have no order; use others, all or selection"
+        );
+        anyhow::ensure!(
+            !(request.keep_terminals && request.end_terminals == Some(true)),
+            "bad request: use one of end_terminals and keep_terminals"
         );
         Ok(request)
     }
@@ -392,9 +400,10 @@ impl Mux {
         let outcome = match self.close_tabs_and_bare_for_bulk(
             surfaces,
             bare,
-            match request.end_terminals {
-                None => CloseMode::Grace,
-                Some(end) => CloseMode::ending(end),
+            match (request.keep_terminals, request.end_terminals) {
+                (true, _) => CloseMode::Keep,
+                (false, None) => CloseMode::Grace,
+                (false, Some(end)) => CloseMode::ending(end),
             },
             OPERATION,
             match request.level {

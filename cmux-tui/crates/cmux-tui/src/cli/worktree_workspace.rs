@@ -357,12 +357,17 @@ pub(in crate::cli) fn close<B: Daemon + ?Sized>(
         .request(None, snapshot()?)
         .map(|before| running_terminals_with_a_tab_in(&before, &id))
         .unwrap_or_default();
-    // `--keep-terminals`: this flow ends them below, sparing the caller's
-    // own terminal by CMUX_TUI_TERMINAL_ID even where the daemon cannot tell
-    // the caller (W7-C).
+    // `terminals: detach` (no `keep` mark, which `if_unplaced` would
+    // refuse): this flow ends them below, sparing the caller's own terminal
+    // by CMUX_TUI_TERMINAL_ID even where the daemon cannot tell the caller
+    // (W7-C).
     let close = words(&["workspace", &id, "close", "--keep-terminals"]);
+    let mut close = plan(&close, Some(step_key(command_key, "close")))?;
+    if let Some(params) = close.params.as_object_mut() {
+        params.insert("terminals".into(), Value::String("detach".into()));
+    }
     let mut result = backend
-        .request(None, plan(&close, Some(step_key(command_key, "close")))?)
+        .request(None, close)
         .map_err(|failure| StepFailure::step(failure, "close", command_key, made))?;
     // Read after the close: of those, the ones left running with no tab
     // (a terminal with a tab in another workspace stays). They worked in

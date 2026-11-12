@@ -30,7 +30,8 @@ impl Mux {
         let mode = match fingerprint.pointer("/fields/terminals").and_then(Value::as_str) {
             Some("end") => Some(CloseMode::Now),
             Some("grace") => Some(CloseMode::Grace),
-            Some(_) => Some(CloseMode::Keep),
+            Some("keep") => Some(CloseMode::Keep),
+            Some(_) => Some(CloseMode::Detach),
             None => None,
         };
         // Before the locks: it reads the peer's process tree.
@@ -694,6 +695,13 @@ impl Mux {
         }
         self.emit_empty_if_current(effects.empty_revision);
         let ended = committed.ended;
+        // `terminals: keep` (W7-C): the reaper leaves these too. After the
+        // commit: the registry lock is free, and the reaper's grace is far.
+        for terminal_id in &ended.keep_hosts {
+            if let Err(error) = self.set_terminal_keep(terminal_id, true) {
+                eprintln!("cmux-tui: could not keep closed terminal {terminal_id}: {error:#}");
+            }
+        }
         self.notify_terminal_exit_waiters(ended.public_ids);
         // ARCHIVE-1: the close committed; keep each ended terminal's screen
         // and running program before its host is asked to stop.

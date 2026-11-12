@@ -18,7 +18,7 @@ use crate::resource::{ResourceError, ResourceOperation};
 use crate::workspace_registry::ResourcePatchCommit;
 
 /// The close field that says what happens to the terminals the close leaves
-/// with no tab: `grace` (the default), `end` or `keep`.
+/// with no tab: `grace` (the default), `end`, `keep` or `detach`.
 pub(super) const TERMINALS_FIELD: &str = "terminals";
 /// The default of ``TERMINALS_FIELD`` (one close model, W7-C).
 pub(super) const GRACE_TERMINALS: &str = "grace";

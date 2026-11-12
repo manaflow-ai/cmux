@@ -1,8 +1,9 @@
 //! The terminals a `tab`, `pane`, `screen` or `workspace` close (or a bulk
 //! `layout.bulk` close) leaves with no tab (W7-C: one close model). The CLI
-//! sends `terminals` (`grace`, `end` with `--now`, or `keep` with
-//! `--keep-terminals`). A daemon without `close-grace-v1` refuses `grace`, so
-//! the CLI sends it `end` (its own default); one older than
+//! sends `terminals` (`grace`, `end` with `--now`, `keep` with
+//! `--keep-terminals`, or `detach` from the worktree close). A daemon without
+//! `close-grace-v1` refuses `grace` and `detach`, so the CLI sends it `end`
+//! (its own default) and `keep` (which only detaches there); one older than
 //! `close-ends-terminals-v1` refuses the field, so the CLI drops it there and
 //! the close detaches its terminals as that daemon always did. A person's
 //! close names the terminals it ended, the ones that end when the grace runs
@@ -32,37 +33,62 @@ fn is_close(operation: &Value) -> bool {
     CLOSES.iter().any(|close| operation == close.wire_name())
 }
 
-/// Fits `terminals` to what the daemon takes: `grace` becomes `end` on a
-/// daemon without `close-grace-v1`, and the field goes on one without
-/// `close-ends-terminals-v1`. True when the request changed.
+/// Fits `terminals` to what the daemon takes. On a daemon without
+/// `close-grace-v1`: `grace` becomes `end` (its own default), `detach`
+/// becomes that daemon's `keep` (which only detaches), and a bulk close's
+/// `keep_terminals: true` becomes `end_terminals: false`. On one without
+/// `close-ends-terminals-v1` the field goes too. True when the request
+/// changed.
 pub(in crate::cli) fn drop_unsupported(
     reader: &mut BufReader<Box<dyn transport::Stream>>,
     socket: &Path,
     request: &mut Value,
 ) -> bool {
-    let terminals = request.get("params").and_then(|params| params.get("terminals"));
-    if !request.get("operation").is_some_and(is_close) || terminals.is_none() {
-        return false;
-    }
-    let grace = terminals.and_then(Value::as_str) == Some("grace");
     let advertises = |reader: &mut BufReader<Box<dyn transport::Stream>>, capability| {
         super::super::launch_credential::advertises(reader, socket, capability)
     };
-    if grace && advertises(reader, CLOSE_GRACE_CAPABILITY) {
+    let operation = request.get("operation");
+    let bulk_keep = operation
+        .is_some_and(|operation| operation == ResourceOperation::LayoutBulk.wire_name())
+        && request.pointer("/params/keep_terminals").and_then(Value::as_bool) == Some(true);
+    if bulk_keep {
+        if advertises(reader, CLOSE_GRACE_CAPABILITY) {
+            return false;
+        }
+        let Some(params) = request.get_mut("params").and_then(Value::as_object_mut) else {
+            return false;
+        };
+        params.remove("keep_terminals");
+        params.insert("end_terminals".into(), Value::Bool(false));
+        return true;
+    }
+    let terminals = request.pointer("/params/terminals").and_then(Value::as_str);
+    if !request.get("operation").is_some_and(is_close) || terminals.is_none() {
+        return false;
+    }
+    // The values a daemon without `close-grace-v1` does not know, and what it
+    // takes for each.
+    let older = match terminals {
+        Some("grace") => Some("end"),
+        Some("detach") => Some("keep"),
+        _ => None,
+    };
+    if older.is_some() && advertises(reader, CLOSE_GRACE_CAPABILITY) {
         return false;
     }
     let keeps_field = advertises(reader, CLOSE_ENDS_TERMINALS_CAPABILITY);
-    if keeps_field && !grace {
+    if keeps_field && older.is_none() {
         return false;
     }
     let Some(params) = request.get_mut("params").and_then(Value::as_object_mut) else {
         return false;
     };
-    if keeps_field {
-        params.insert("terminals".into(), Value::String("end".into()));
-        true
-    } else {
-        params.remove("terminals").is_some()
+    match older {
+        Some(older) if keeps_field => {
+            params.insert("terminals".into(), Value::String(older.into()));
+            true
+        }
+        _ => params.remove("terminals").is_some(),
     }
 }
 

@@ -10,7 +10,8 @@
 //! `closed reopen` in that window shows them again; with no reaper they end
 //! at once. A kept one and one with an attached viewer stay running, and the
 //! caller's own is never ended at once. `--now` (or `--end-terminals`) ends
-//! them at once; `--keep-terminals` leaves them with no tab. Both closes name
+//! them at once; `--keep-terminals` keeps them and marks them `keep` (the
+//! reaper leaves them). Both closes name
 //! the ended, ending and still-running ones.
 
 use super::*;
@@ -78,8 +79,11 @@ pub(super) fn close(
         params.insert("include_pinned".into(), Value::Bool(true));
     }
     // Without either flag the daemon's default: the grace, as a plain close.
-    if now || keep_terminals {
-        params.insert("end_terminals".into(), Value::Bool(now));
+    if now {
+        params.insert("end_terminals".into(), Value::Bool(true));
+    }
+    if keep_terminals {
+        params.insert("keep_terminals".into(), Value::Bool(true));
     }
     request(ResourceOperation::LayoutBulk, selectors, flags, params)
 }

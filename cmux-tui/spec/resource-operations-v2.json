@@ -8055,7 +8055,7 @@
               "resource": "terminal"
             }
           },
-          "description": "The terminals this call left running with no tab: marked `keep` or with an attached viewer, and with no reaper running the caller's own and every one with `end_terminals: false`. `terminal list` shows them; `terminal <t> close` ends one. Absent when the call closed nothing, from an older daemon, and on a replay of a call committed before the field existed."
+          "description": "The terminals this call left running with no tab: marked `keep` or with an attached viewer, every one of `keep_terminals: true` (now marked `keep`), and with no reaper running the caller's own and every one with `end_terminals: false`. `terminal list` shows them; `terminal <t> close` ends one. Absent when the call closed nothing, from an older daemon, and on a replay of a call committed before the field existed."
         }
       },
       "extra": false
@@ -8113,7 +8113,7 @@
               "resource": "terminal"
             }
           },
-          "description": "With `terminals`: the terminals this close left running with no tab: marked `keep` or with an attached viewer, and with no reaper running the caller's own and every one with `terminals: keep`. `terminal list` shows them; `terminal <t> close` ends one. Absent without `terminals`, and on a replay of a close committed before it was recorded."
+          "description": "With `terminals`: the terminals this close left running with no tab: marked `keep` or with an attached viewer, every one with `terminals: keep` (now marked `keep`), and with no reaper running the caller's own and every one with `terminals: detach`. `terminal list` shows them; `terminal <t> close` ends one. Absent without `terminals`, and on a replay of a close committed before it was recorded."
         }
       },
       "extra": false
@@ -8160,7 +8160,7 @@
               "resource": "terminal"
             }
           },
-          "description": "With `terminals`: the terminals this close left running with no tab: marked `keep` or with an attached viewer, and with no reaper running the caller's own and every one with `terminals: keep`. `terminal list` shows them; `terminal <t> close` ends one. Absent without `terminals`, and on a replay of a close committed before it was recorded."
+          "description": "With `terminals`: the terminals this close left running with no tab: marked `keep` or with an attached viewer, every one with `terminals: keep` (now marked `keep`), and with no reaper running the caller's own and every one with `terminals: detach`. `terminal list` shows them; `terminal <t> close` ends one. Absent without `terminals`, and on a replay of a close committed before it was recorded."
         }
       },
       "extra": false
@@ -28400,7 +28400,15 @@
               "kind": "primitive",
               "name": "boolean"
             },
-            "description": "What happens to the terminals whose every view closes, by the rule of a single close's `terminals`. Absent: `grace`, the default of every close. `true`: `end` (ends them at once). `false`: `keep` (leaves them with no tab; a running reaper ends them after its grace)."
+            "description": "What happens to the terminals whose every view closes, by the rule of a single close's `terminals`. Absent: `grace`, the default of every close. `true`: `end` (ends them at once). `false`: leaves them with no tab and no mark (the Mac app's close); a running reaper ends them after its grace."
+          },
+          "keep_terminals": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "`true`: `keep`, by the rule of a single close's `terminals` (`--keep-terminals`): each terminal whose every view closes stays running with no tab and is marked `keep`, so the reaper leaves it too. Refused with `end_terminals: true`. Default false."
           }
         },
         "extra": false,
@@ -29487,10 +29495,11 @@
               "values": [
                 "grace",
                 "end",
-                "keep"
+                "keep",
+                "detach"
               ]
             },
-            "description": "What happens to each terminal the close leaves with no tab. A terminal marked `keep` or with an attached viewer always stays running. `grace` (the default): while the terminal reaper runs, each other one stays running with no tab until the reaper's grace ends it, and `closed.reopen` in that window shows the same process again (`ending_terminal_ids`, `ends_at_ms`); with no reaper it ends at once. `end`: it ends at once. `keep`: it stays with no tab (a running reaper ends it after its grace). The caller's own terminal (the actor's, or one whose process holds the request's socket peer) is never ended at once. When present, the result names them (`ended_terminal_ids`, `ending_terminal_ids`, `running_terminal_ids`)."
+            "description": "What happens to each terminal the close leaves with no tab. A terminal marked `keep` or with an attached viewer always stays running. `grace` (the default): while the terminal reaper runs, each other one stays running with no tab until the reaper's grace ends it, and `closed.reopen` in that window shows the same process again (`ending_terminal_ids`, `ends_at_ms`); with no reaper it ends at once. `end`: it ends at once. `keep`: it stays running with no tab and is marked `keep`, so the reaper leaves it too (`terminal <t> keep off` undoes it); the caller's own terminal is not marked. `detach`: it stays with no tab and no mark, and a running reaper ends it after its grace (the raw closes' behavior). The caller's own terminal (the actor's, or one whose process holds the request's socket peer) is never ended at once. When present, the result names them (`ended_terminal_ids`, `ending_terminal_ids`, `running_terminal_ids`)."
           }
         },
         "extra": false
@@ -32015,10 +32024,11 @@
               "values": [
                 "grace",
                 "end",
-                "keep"
+                "keep",
+                "detach"
               ]
             },
-            "description": "What happens to each terminal the close leaves with no tab. A terminal marked `keep` or with an attached viewer always stays running. `grace` (the default): while the terminal reaper runs, each other one stays running with no tab until the reaper's grace ends it, and `closed.reopen` in that window shows the same process again (`ending_terminal_ids`, `ends_at_ms`); with no reaper it ends at once. `end`: it ends at once. `keep`: it stays with no tab (a running reaper ends it after its grace). The caller's own terminal (the actor's, or one whose process holds the request's socket peer) is never ended at once. When present, the result names them (`ended_terminal_ids`, `ending_terminal_ids`, `running_terminal_ids`)."
+            "description": "What happens to each terminal the close leaves with no tab. A terminal marked `keep` or with an attached viewer always stays running. `grace` (the default): while the terminal reaper runs, each other one stays running with no tab until the reaper's grace ends it, and `closed.reopen` in that window shows the same process again (`ending_terminal_ids`, `ends_at_ms`); with no reaper it ends at once. `end`: it ends at once. `keep`: it stays running with no tab and is marked `keep`, so the reaper leaves it too (`terminal <t> keep off` undoes it); the caller's own terminal is not marked. `detach`: it stays with no tab and no mark, and a running reaper ends it after its grace (the raw closes' behavior). The caller's own terminal (the actor's, or one whose process holds the request's socket peer) is never ended at once. When present, the result names them (`ended_terminal_ids`, `ending_terminal_ids`, `running_terminal_ids`)."
           }
         },
         "extra": false
@@ -36187,10 +36197,11 @@
               "values": [
                 "grace",
                 "end",
-                "keep"
+                "keep",
+                "detach"
               ]
             },
-            "description": "What happens to each terminal the close leaves with no tab. A terminal marked `keep` or with an attached viewer always stays running. `grace` (the default): while the terminal reaper runs, each other one stays running with no tab until the reaper's grace ends it, and `closed.reopen` in that window shows the same process again (`ending_terminal_ids`, `ends_at_ms`); with no reaper it ends at once. `end`: it ends at once. `keep`: it stays with no tab (a running reaper ends it after its grace). The caller's own terminal (the actor's, or one whose process holds the request's socket peer) is never ended at once. When present, the result names them (`ended_terminal_ids`, `ending_terminal_ids`, `running_terminal_ids`)."
+            "description": "What happens to each terminal the close leaves with no tab. A terminal marked `keep` or with an attached viewer always stays running. `grace` (the default): while the terminal reaper runs, each other one stays running with no tab until the reaper's grace ends it, and `closed.reopen` in that window shows the same process again (`ending_terminal_ids`, `ends_at_ms`); with no reaper it ends at once. `end`: it ends at once. `keep`: it stays running with no tab and is marked `keep`, so the reaper leaves it too (`terminal <t> keep off` undoes it); the caller's own terminal is not marked. `detach`: it stays with no tab and no mark, and a running reaper ends it after its grace (the raw closes' behavior). The caller's own terminal (the actor's, or one whose process holds the request's socket peer) is never ended at once. When present, the result names them (`ended_terminal_ids`, `ending_terminal_ids`, `running_terminal_ids`)."
           }
         },
         "extra": false
@@ -39401,10 +39412,11 @@
               "values": [
                 "grace",
                 "end",
-                "keep"
+                "keep",
+                "detach"
               ]
             },
-            "description": "What happens to each terminal the close leaves with no tab. A terminal marked `keep` or with an attached viewer always stays running. `grace` (the default): while the terminal reaper runs, each other one stays running with no tab until the reaper's grace ends it, and `closed.reopen` in that window shows the same process again (`ending_terminal_ids`, `ends_at_ms`); with no reaper it ends at once. `end`: it ends at once. `keep`: it stays with no tab (a running reaper ends it after its grace). The caller's own terminal (the actor's, or one whose process holds the request's socket peer) is never ended at once. When present, the result names them (`ended_terminal_ids`, `ending_terminal_ids`, `running_terminal_ids`)."
+            "description": "What happens to each terminal the close leaves with no tab. A terminal marked `keep` or with an attached viewer always stays running. `grace` (the default): while the terminal reaper runs, each other one stays running with no tab until the reaper's grace ends it, and `closed.reopen` in that window shows the same process again (`ending_terminal_ids`, `ends_at_ms`); with no reaper it ends at once. `end`: it ends at once. `keep`: it stays running with no tab and is marked `keep`, so the reaper leaves it too (`terminal <t> keep off` undoes it); the caller's own terminal is not marked. `detach`: it stays with no tab and no mark, and a running reaper ends it after its grace (the raw closes' behavior). The caller's own terminal (the actor's, or one whose process holds the request's socket peer) is never ended at once. When present, the result names them (`ended_terminal_ids`, `ending_terminal_ids`, `running_terminal_ids`)."
           }
         },
         "extra": false
