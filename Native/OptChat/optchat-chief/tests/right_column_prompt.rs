@@ -37,7 +37,7 @@ fn every_subagent_prompt_keeps_one_column_right_of_the_chat() {
             "{name}: no right-column rule"
         );
         assert!(
-            flat.contains("split --right --viewport-width 0.5"),
+            flat.contains("split --right --fit"),
             "{name}: no way to make the column"
         );
         assert!(

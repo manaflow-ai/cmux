@@ -276,6 +276,7 @@ public nonisolated struct AcpmuxUpdateHandoff: Sendable {
     /// How long the update's quit waits for the daemon to stop and exit: inside the keep quit's 4 s
     /// (`QuitDeadline.keepQuitLimit`). A daemon still running past it is left to the new build's
     /// version handoff.
+    // timeout: the share of the app's quit that the daemon stop may take; a daemon that runs past it is left to the new build's handoff
     public static let quitLimit: Duration = .milliseconds(1500)
 
     /// The app's daemon, or nil when it has none (``handOff(within:)`` answers ``Outcome/noDaemon``).
@@ -308,6 +309,7 @@ public nonisolated struct AcpmuxUpdateHandoff: Sendable {
         guard let environment, FileManager.default.fileExists(atPath: environment.socketPath) else { return .noDaemon }
         let status: AcpmuxStatus
         do {
+            // timeout: a local socket status read during an update relaunch; no answer means no handoff, the relaunch must not wait
             status = try await AcpmuxStatusClient.status(socketPath: environment.socketPath, deadline: .seconds(1))
         } catch AcpmuxStatusClient.Failure.unreachable {
             return .noDaemon
@@ -320,6 +322,7 @@ public nonisolated struct AcpmuxUpdateHandoff: Sendable {
         }
         Self.logger.notice("update relaunch: handing acpmux \(pid) (build \(status.build ?? "?", privacy: .public)) to the new build")
         do {
+            // timeout: a local socket shutdown ask during an update relaunch; the relaunch must not wait on a daemon that does not answer
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home, deadline: .seconds(1))
         } catch {
             return .failed(String(describing: error))

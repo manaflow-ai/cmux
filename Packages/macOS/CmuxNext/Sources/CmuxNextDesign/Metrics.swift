@@ -50,8 +50,13 @@ public struct Metrics {
     /// Height of a pane's tab strip: the density token, or, when `layout.cornerPadding` is set, the
     /// tab height with that gap above and below the pills (`PaneChromeMetrics`: the pill top is
     /// `(strip - tab - stripTopOutset) / 2`, so the padding is the gap the corners nest across).
+    /// A tab that follows the sidebar's row (``chromeRowHeight``) grows the strip by as much, so the
+    /// room around the pill stays exactly the density's (both pairs resolve and round alike).
     public static var tabStripHeight: CGFloat {
-        guard let padding = DesignSettings.shared.paneChrome.cornerPadding else { return MetricTunables.tabStripHeight.value }
+        guard let padding = DesignSettings.shared.paneChrome.cornerPadding else {
+            let strip = MetricTunables.tabStripHeight
+            return strip.explicitValue != nil ? strip.value : strip.value + max(0, tabHeight - MetricTunables.tabHeight.value)
+        }
         return tabHeight + 2 * scale(padding) + stripTopOutset
     }
 
@@ -67,14 +72,31 @@ public struct Metrics {
     /// Sidebar group / machine section header.
     public static var sidebarHeaderHeight: CGFloat { MetricTunables.sidebarHeaderHeight.value }
 
-    /// A tab pill's height: the density's, or under `appearance.metrics.tabStripHeight` the bar's
-    /// height less the density's room around the pill, so a taller bar has taller tabs.
+    /// The height every row of the window's chrome shares: a one-line sidebar workspace row under
+    /// `sidebar.density` and `sidebar.textSize` (``SidebarRowTokens``), which a tab pill, the browser's
+    /// toolbar buttons and its omnibar take too (Lawrence 2026-11-09: "the sizes of the icons/omnibar
+    /// etc should match the tabbar tab height, which should match the workspace row height, at all
+    /// density levels").
+    public static var chromeRowHeight: CGFloat {
+        // From the row's own inputs, not `SidebarRowTokens.current`: its corner radius reads the
+        // tab strip's inset, which reads the tab height, which reads this.
+        let sections = DesignSettings.shared.sidebarSections
+        // The row as drawn: at Default the list row's fill takes the gap under it (``SidebarRowTokens/listRowHeight``).
+        return sidebarRowHeight + SidebarRowTokens.extraHeight(density: sections.density, textSize: sections.textSize, space2: space2)
+            + SidebarRowTokens.listFillGain(isCodexDensity: tokens.id == DensityPreset.cozy.rawValue, density: sections.density, space1: space1)
+    }
+
+    /// A tab pill's height: the chrome row (``chromeRowHeight``), the Compact tabs option's tighter
+    /// pill, or a set `tabHeight`; under `appearance.metrics.tabStripHeight` the bar's height less the
+    /// density's own room around its pill, so a taller bar has taller tabs.
     public static var tabHeight: CGFloat {
-        let tab = MetricTunables.tabHeight.value
+        let metric = MetricTunables.tabHeight
+        let tab = metric.explicitValue ?? (compactTabs ? metric.value : chromeRowHeight)
         guard DesignSettings.shared.overrides[.tabStripHeight] != nil else { return tab }
         let strip = MetricTunables.tabStripHeight
         let densityStrip = scale(strip.tunable.resolve(tokens.resolve(compact: strip.compactValue, comfortable: strip.comfortable, token: strip.name)))
-        return max(tab + tabStripHeight - densityStrip, 0)
+        // A set bar height sizes the pill: the density's own pill and room, not the chrome row's.
+        return max((metric.explicitValue ?? metric.value) + tabStripHeight - densityStrip, 0)
     }
     public static var controlHeight: CGFloat { MetricTunables.controlHeight.value }
     public static var tabMaxWidth: CGFloat { MetricTunables.tabMaxWidth.value }
@@ -169,6 +191,12 @@ public struct Metrics {
     /// Inset of a tab's icon from its pill's leading edge.
     public static var tabContentLeadingInset: CGFloat {
         scale((compactTabs ? ChromeTunables.compactTabContentLeadingInset : ChromeTunables.tabContentLeadingInset).value)
+    }
+    /// Where the first tab's icon starts in a pane's strip: the strip's leading padding (none under
+    /// the flush corner) plus the icon's inset in its pill. The browser's back arrow starts its ink
+    /// there (`OmnibarStyle.toolbarInset`).
+    public static var firstTabIconLeading: CGFloat {
+        (CornerFlush.current.isOn ? 0 : paneChromeInset) + tabContentLeadingInset
     }
     /// The opt-in tight tab strip (`ChromeTunables.compactTabs`), at compact density only.
     public static var compactTabs: Bool { density == .compact && ChromeTunables.compactTabs.value }
@@ -364,12 +392,12 @@ public struct Typography {
 
     /// Tab titles, sidebar rows, palette results.
     public static var body: NSFont { system(.default, size: size(12, 13), weight: .regular) }
-    /// Tab titles: `appearance.metrics.tabFontSize` (times the interface scale when it is on), else Chrome's 12 pt at
-    /// every density, times the user's text scale (Chromium's `ChromeTypographyProvider` gives a tab label its default
-    /// 12 pt; Lawrence 2026-11-07: match Chrome's tab title size). Not the density's text size: a density with its own
-    /// `fontSize` (Default's 13 pt, #37274) would scale it to 12.5.
+    /// Tab titles use the density's body size less one point, times the user's text scale.
+    /// `appearance.metrics.tabFontSize` overrides that size, times the interface scale when enabled.
     public static var tabTitle: NSFont {
-        guard let points = DesignSettings.shared.overrides[.tabFontSize] else { return system(.default, size: 12 * scale, weight: .regular) }
+        guard let points = DesignSettings.shared.overrides[.tabFontSize] else {
+            return system(.default, size: (Metrics.tokens.bodySize - 1) * scale, weight: .regular)
+        }
         return system(.default, size: Metrics.scale(points), weight: .regular)
     }
     /// Selected or emphasized row titles.
