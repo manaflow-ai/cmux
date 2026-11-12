@@ -124,6 +124,8 @@ FIXTURES = [
     # The parser reads what bash reads (#41768 review: a `case` pattern credited as a command, `X+=x cmd` unseen). Each
     # row is a place the two disagreed: a word bash takes as an assignment, a pattern, an arithmetic or conditional
     # expression, or an expansion of the program word.
+    ("an assignment operator after a quoted subscript equals is still an assignment (dep-fleet-6 F1)",
+     'X["a=b"]=v gh', {"gh"}, None),
     ("an append assignment before a command (#41768 F2)", "X+=x gh release create v1", {"gh"}, None),
     ("a subscripted assignment before a command", "X[0]=v gh", {"gh"}, None),
     ("a subscripted append assignment before a command", "X[i]+=v gh", {"gh"}, None),
@@ -133,6 +135,8 @@ FIXTURES = [
     ("an escaped = is the program, not an assignment", "X\\=1 gh", set(), None),
     ("a keyword after an assignment is the program", "X=1 if gh", set(), None),
     ("a ! after an assignment is the program", "X=1 ! gh", set(), None),
+    ("a ;;& retests after a nonmatching clause (dep-fleet-6 F2)",
+     "case x in x) a ;;& y) b ;; x) c ;; esac", {"a", "c"}, None),
     ("a case pattern after ;& is no command (#41768 F1)", "case x in x) a ;& gh) b ;; esac", {"a", "b"}, None),
     ("a case pattern list is no command", "case x in x|gh) a ;; esac", {"a"}, None),
     ("a case pattern after a leading paren is no command", "case gh in (gh) a ;; esac", {"a"}, None),
@@ -152,6 +156,9 @@ FIXTURES = [
     ("a conditional expression's operators split no command", "[[ -n x && ( gh || b ) ]]\na", {"a"}, None),
     ("a coprocess runs its command", "coproc a\nwait", {"a"}, set()),
     ("a coprocess after time runs its command (dep-fleet-6 F4)", "time coproc a; wait", {"a"}, set()),
+    ("a coprocess after repeated time runs its command (dep-fleet-6 follow-up)", "time time coproc a; wait", {"a"}, None),
+    ("a coprocess after mixed time wrappers runs its command (dep-fleet-6 follow-up)",
+     "time -p time coproc a; wait", {"a"}, None),
     ("env treats coproc as a program name (dep-fleet-6 F1)", "env coproc a", set(), set()),
     ("time env treats coproc as a program name (dep-fleet-6 F1)", "time env coproc a", set(), set()),
     ("an assignment makes coproc a program name (dep-fleet-6 F1)", "X=1 coproc a", set(), set()),
