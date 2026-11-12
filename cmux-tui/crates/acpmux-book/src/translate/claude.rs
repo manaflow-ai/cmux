@@ -1,127 +1,143 @@
-//! Claude transcript JSONL: persisted message blocks, not a whole transcript parse.
-use super::{Change, Error, State, content, json::Json, v1::field};
+//! Claude transcript JSONL, parsed one borrowed record/block at a time.
+use super::{
+    BodyField, Error, State,
+    input::{self, Block, Output},
+};
 use crate::row::RowKind;
-use std::collections::BTreeMap;
-
-pub(super) fn line(state: &mut State, rec: Json<'_>, out: &mut Vec<Change>) -> Result<(), Error> {
-    let kind = rec.text("type").ok_or(Error::InvalidRecord("Claude type"))?;
-    if rec.get("isSidechain").is_some_and(Json::yes)
-        || rec.get("isMeta").is_some_and(Json::yes)
-        || rec.get("isCompactSummary").is_some_and(Json::yes)
-    {
+use serde::Deserialize;
+use serde_json::value::RawValue;
+use std::borrow::Cow;
+#[derive(Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct Record<'a> {
+    #[serde(rename = "type", borrow)]
+    kind: Cow<'a, str>,
+    #[serde(borrow)]
+    timestamp: Cow<'a, str>,
+    #[serde(borrow)]
+    uuid: Cow<'a, str>,
+    is_sidechain: bool,
+    is_meta: bool,
+    is_compact_summary: bool,
+    #[serde(borrow)]
+    message: Option<Message<'a>>,
+    #[serde(borrow)]
+    origin: Origin<'a>,
+}
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct Origin<'a> {
+    #[serde(borrow)]
+    kind: Cow<'a, str>,
+}
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct Message<'a> {
+    #[serde(borrow)]
+    id: Cow<'a, str>,
+    #[serde(borrow)]
+    content: Option<&'a RawValue>,
+    #[serde(borrow)]
+    stop_reason: Cow<'a, str>,
+}
+pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Result<(), Error> {
+    let rec: Record<'_> = input::parse(bytes)?;
+    if rec.kind.is_empty() {
+        return Err(Error::InvalidRecord("Claude type"));
+    }
+    if rec.is_sidechain || rec.is_meta || rec.is_compact_summary {
         return Ok(());
     }
-    if let Some(at) = rec.text("timestamp").and_then(|s| timestamp(&s)) {
+    if let Some(at) = timestamp(&rec.timestamp) {
         state.at = at;
     }
-    if kind == "result" {
+    if rec.kind == "result" {
         state.finish(out);
         return Ok(());
     }
-    let Some(message) = rec.get("message") else {
-        return Ok(());
-    };
-    let Some(body) = message.get("content") else {
-        return Ok(());
-    };
-    match kind.as_ref() {
+    let Some(message) = rec.message else { return Ok(()) };
+    let Some(body) = message.content else { return Ok(()) };
+    match rec.kind.as_ref() {
         "user" => {
-            let results = body.items().is_some_and(|i| {
-                i.into_iter().any(|v| v.text("type").as_deref() == Some("tool_result"))
-            });
-            if results {
-                for block in body.items().into_iter().flatten() {
-                    if block.text("type").as_deref() != Some("tool_result") {
-                        continue;
+            let mut results = false;
+            if body.get().starts_with('[') {
+                input::each(body, |raw| {
+                    let block: Block<'_> = input::value(raw)?;
+                    if block.kind == "tool_result" {
+                        results = true;
                     }
-                    let Some(key) = block.text("tool_use_id") else {
-                        continue;
-                    };
-                    let mut fields = BTreeMap::new();
-                    field(
-                        &mut fields,
-                        "status",
-                        if block.get("is_error").is_some_and(Json::yes) {
-                            "failed"
-                        } else {
-                            "completed"
-                        },
-                    );
-                    state.tool(
-                        key.into_owned(),
-                        fields,
-                        Some(content(block.get("content"))),
-                        None,
-                        true,
-                        out,
-                    );
-                }
+                    Ok(())
+                })?;
+            }
+            if results {
+                input::each(body, |raw| {
+                    let block: Block<'_> = input::value(raw)?;
+                    if block.kind == "tool_result" {
+                        let parts = block.content.map(|raw| (BodyField::Content, false, raw));
+                        state.tool(
+                            &block.tool_use_id,
+                            &[("status", if block.is_error { "failed" } else { "completed" })],
+                            parts.as_slice(),
+                            true,
+                            out,
+                        )?;
+                    }
+                    Ok(())
+                })?;
             } else {
-                let text = content(Some(body));
-                let start = text.trim_start();
-                if text.is_empty()
-                    || ["<command-", "<local-command-", "<bash-", "[Request interrupted"]
-                        .iter()
-                        .any(|p| start.starts_with(p))
-                {
-                    return Ok(());
+                if body.get().starts_with('"') {
+                    let text = input::text(body)?;
+                    let start = text.trim_start();
+                    if start.is_empty()
+                        || ["<command-", "<local-command-", "<bash-", "[Request interrupted"]
+                            .iter()
+                            .any(|p| start.starts_with(p))
+                    {
+                        return Ok(());
+                    }
                 }
-                let notice = rec
-                    .path(&["origin", "kind"])
-                    .and_then(Json::string)
-                    .is_some_and(|s| s != "human");
-                state.prompt(
-                    text,
-                    rec.text("uuid").unwrap_or_default().into_owned(),
-                    false,
-                    notice,
-                    out,
-                );
+                let notice = !rec.origin.kind.is_empty() && rec.origin.kind != "human";
+                state.prompt(&rec.uuid, "", false, notice, Some(body), out)?;
             }
         }
         "assistant" => {
-            if let Some(text) = body.string() {
-                state.text(
-                    text.into_owned(),
-                    message.text("id").unwrap_or_default().into_owned(),
-                    false,
-                    out,
-                );
-                State::close_stream(&mut state.reply, out);
-            }
-            for block in body.items().into_iter().flatten() {
-                match block.text("type").as_deref() {
-                    Some("text") | Some("thinking") => {
-                        let thinking = block.text("type").as_deref() == Some("thinking");
-                        let key = message.text("id").unwrap_or_default().into_owned();
-                        state.text(content(Some(block)), key, thinking, out);
-                        // A persisted content block is complete, unlike a v1 text delta.
-                        if thinking {
-                            State::close_stream(&mut state.thought, out);
-                        } else {
-                            State::close_stream(&mut state.reply, out);
+            if body.get().starts_with('"') {
+                state.text(&input::text(body)?, &message.id, false, out)?;
+            } else {
+                input::each(body, |raw| {
+                    let block: Block<'_> = input::value(raw)?;
+                    match block.kind.as_ref() {
+                        "text" | "thinking" => {
+                            let thinking = block.kind == "thinking";
+                            if let Some(raw) = if thinking { block.thinking } else { block.text } {
+                                state.text(&input::text(raw)?, &message.id, thinking, out)?;
+                            }
                         }
+                        "tool_use" => {
+                            let parts = block.input.map(|raw| (BodyField::Input, false, raw));
+                            state.tool(
+                                &block.id,
+                                &[("tool", &block.name), ("status", "running")],
+                                parts.as_slice(),
+                                false,
+                                out,
+                            )?;
+                        }
+                        "image" => {
+                            let mut row = state.row(RowKind::Image)?;
+                            out.row(&row);
+                            if let Some(raw) = block.source {
+                                out.body(row.id, BodyField::Source, false, raw)?;
+                            }
+                            row.open = false;
+                            out.row(&row);
+                        }
+                        _ => {}
                     }
-                    Some("tool_use") => {
-                        let Some(key) = block.text("id") else {
-                            continue;
-                        };
-                        let mut fields = BTreeMap::new();
-                        field(&mut fields, "tool", block.text("name").as_deref().unwrap_or(""));
-                        field(&mut fields, "status", "running");
-                        // Input is cold; the raw range retains access to it without a parsed copy.
-                        state.tool(key.into_owned(), fields, None, None, false, out);
-                    }
-                    Some("image") => {
-                        let mut row = state.row(RowKind::Image, false, String::new());
-                        row.field("source", "raw");
-                        out.push(Change::Row(row));
-                    }
-                    _ => {}
-                }
+                    Ok(())
+                })?;
             }
-            if matches!(message.text("stop_reason").as_deref(), Some("end_turn" | "stop_sequence"))
-            {
+            if matches!(message.stop_reason.as_ref(), "end_turn" | "stop_sequence") {
                 state.finish(out);
             }
         }

@@ -1,195 +1,264 @@
 //! v1 event semantics seeded from `acpmux/src/rows/fold.rs`.
-use super::{Change, Error, State, content, json::Json, quoted};
+use super::{
+    BodyField, Error, State,
+    input::{self, Meta, Output},
+};
 use crate::row::RowKind;
-use std::collections::BTreeMap;
+use serde::Deserialize;
+use serde_json::value::RawValue;
+use std::borrow::Cow;
 
-pub(super) fn line(state: &mut State, rec: Json<'_>, out: &mut Vec<Change>) -> Result<(), Error> {
-    let seq = rec.get("seq").and_then(Json::number).ok_or(Error::InvalidRecord("v1 seq"))?;
-    let at = rec.get("at").and_then(Json::number).ok_or(Error::InvalidRecord("v1 at"))?;
-    let dir = rec.text("dir").ok_or(Error::InvalidRecord("v1 dir"))?;
-    let kind = rec.text("kind").ok_or(Error::InvalidRecord("v1 kind"))?;
-    let msg = rec.get("msg").ok_or(Error::InvalidRecord("v1 msg"))?;
-    if seq <= state.last_v1_seq && state.last_v1_seq != 0 {
+#[derive(Deserialize)]
+struct Event<'a> {
+    seq: u64,
+    at: u64,
+    #[serde(borrow)]
+    dir: Cow<'a, str>,
+    #[serde(borrow)]
+    kind: Cow<'a, str>,
+    #[serde(borrow)]
+    msg: &'a RawValue,
+}
+#[derive(Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct Message<'a> {
+    #[serde(borrow)]
+    text: Option<&'a RawValue>,
+    #[serde(borrow)]
+    turn_id: Cow<'a, str>,
+    #[serde(borrow)]
+    prompt_id: Cow<'a, str>,
+    steer: bool,
+    #[serde(rename = "_meta", borrow)]
+    meta: Meta<'a>,
+    #[serde(borrow)]
+    status: Cow<'a, str>,
+    #[serde(borrow)]
+    old_message_id: Cow<'a, str>,
+    #[serde(borrow)]
+    method: Cow<'a, str>,
+    #[serde(borrow)]
+    params: Option<Params<'a>>,
+    #[serde(borrow)]
+    error: Option<&'a RawValue>,
+    #[serde(borrow)]
+    reason: Option<&'a RawValue>,
+    #[serde(borrow)]
+    detail: Option<&'a RawValue>,
+}
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct Params<'a> {
+    #[serde(rename = "_meta", borrow)]
+    meta: Meta<'a>,
+    #[serde(borrow)]
+    update: Option<&'a RawValue>,
+}
+#[derive(Deserialize, Default)]
+#[serde(default, rename_all = "camelCase")]
+struct Update<'a> {
+    #[serde(borrow)]
+    session_update: Cow<'a, str>,
+    #[serde(borrow)]
+    message_id: Cow<'a, str>,
+    #[serde(borrow)]
+    tool_call_id: Cow<'a, str>,
+    #[serde(borrow)]
+    content: Option<&'a RawValue>,
+    #[serde(borrow)]
+    title: Option<&'a RawValue>,
+    #[serde(borrow)]
+    kind: Cow<'a, str>,
+    #[serde(borrow)]
+    status: Cow<'a, str>,
+    #[serde(borrow)]
+    state: Cow<'a, str>,
+    #[serde(borrow)]
+    entries: Option<&'a RawValue>,
+    #[serde(borrow)]
+    raw_input: Option<&'a RawValue>,
+    #[serde(rename = "_meta", borrow)]
+    meta: Meta<'a>,
+}
+pub(super) fn line(state: &mut State, bytes: &[u8], out: &mut Output<'_>) -> Result<(), Error> {
+    let rec: Event<'_> = input::parse(bytes)?;
+    if rec.seq <= state.last_v1_seq && state.last_v1_seq != 0 {
         return Ok(());
     }
-    state.last_v1_seq = seq;
-    state.at = at / 1000;
-    if dir == "mux" {
-        mux(state, &kind, msg, out);
-    } else if dir == "in"
-        && !kind.ends_with(".replay")
-        && msg.text("method").as_deref() == Some("session/update")
-    {
-        if let Some(params) = msg.get("params") {
-            if params.path(&["_meta", "acpmux", "subagent"]).is_some() {
+    let msg: Message<'_> = input::value(rec.msg)?;
+    state.last_v1_seq = rec.seq;
+    state.at = rec.at / 1000;
+    if rec.dir == "mux" {
+        mux(state, &rec.kind, &msg, out)?;
+    } else if rec.dir == "in" && !rec.kind.ends_with(".replay") && msg.method == "session/update" {
+        if let Some(params) = msg.params {
+            if params.meta.acpmux.subagent.is_some() {
                 return Ok(());
             }
-            if let Some(update) = params.get("update") {
-                agent(state, params, update, &kind, out);
+            if let Some(raw) = params.update {
+                let update: Update<'_> = input::value(raw)?;
+                if update.meta.acpmux.subagent.is_none() {
+                    agent(state, &params.meta, &update, &rec.kind, out)?;
+                }
             }
         }
     }
     Ok(())
 }
-fn mux(state: &mut State, kind: &str, msg: Json<'_>, out: &mut Vec<Change>) {
+fn mux(
+    state: &mut State,
+    kind: &str,
+    msg: &Message<'_>,
+    out: &mut Output<'_>,
+) -> Result<(), Error> {
     match kind {
+        "queued" => state.reserve_prompt(&msg.prompt_id, msg.text, out)?,
+        "steer_read" => state.steer_read(&msg.prompt_id, out)?,
         "user_message" => {
-            let steer = msg.get("steer").is_some_and(Json::yes);
-            let notice =
-                msg.path(&["_meta", "provenance", "kind"]).and_then(Json::string).is_some_and(
-                    |k| matches!(k.as_ref(), "inbox_notice" | "task_notification" | "notice"),
-                );
-            state.prompt(
-                msg.text("text").unwrap_or_default().into_owned(),
-                msg.text("turnId").unwrap_or_default().into_owned(),
-                steer,
-                notice,
-                out,
+            let notice = matches!(
+                msg.meta.provenance.kind.as_ref(),
+                "inbox_notice" | "task_notification" | "notice"
             );
+            state.prompt(&msg.turn_id, &msg.prompt_id, msg.steer, notice, msg.text, out)?;
         }
         "turn_started" => {
-            // Notice turns and steers cannot steal the person's active turn.
             if state.turn_key.is_empty() {
-                state.turn_key = msg.text("turnId").unwrap_or_default().into_owned();
+                super::bounded(&msg.turn_id)?;
+                state.turn_key = msg.turn_id.to_string()
             }
         }
         "turn_result" => {
-            let key = msg.text("turnId").unwrap_or_default();
-            if !key.is_empty() && !state.turn_key.is_empty() && key != state.turn_key {
-                return;
-            }
-            let mut end = state.row(RowKind::Notice, false, String::new());
-            end.field("notice", "turn_result");
-            end.fields.insert("forkable".into(), "true".into());
-            if let Some(status) = msg.text("status") {
-                end.field("status", &status);
+            if !msg.turn_id.is_empty()
+                && !state.turn_key.is_empty()
+                && msg.turn_id != state.turn_key
+            {
+                return Ok(());
             }
             state.finish(out);
-            out.push(Change::Row(end));
+            let mut end = state.row(RowKind::Notice)?;
+            end.open = false;
+            end.field("notice", "turn_result")?;
+            end.fields.insert("forkable".into(), "true".into());
+            if !msg.status.is_empty() {
+                end.field("status", &msg.status)?;
+            }
+            out.row(&end);
         }
         "message_superseded" => {
-            // An in-flight replacement can be marked without reading a settled row.
-            if let Some(old) = msg.text("oldMessageId") {
-                if let Some(stream) = &mut state.reply {
-                    if stream.row.fields.get("messageId").is_some_and(|v| {
-                        Json::parse(v.as_bytes()).and_then(Json::string).as_deref()
-                            == Some(old.as_ref())
-                    }) {
-                        stream.row.fields.insert("hidden".into(), "true".into());
-                        State::close_stream(&mut state.reply, out);
-                    }
+            if state.reply.as_ref().is_some_and(|s| s.key == msg.old_message_id) {
+                if let Some(s) = &mut state.reply {
+                    s.row.fields.insert("hidden".into(), "true".into());
                 }
+                State::close_stream(&mut state.reply, out);
             }
         }
         "failover" | "forked" | "fork_start_failed" | "host_notice" | "policy_unenforced"
         | "recap" | "stopping" | "stopped" | "exited" => {
-            state.close_text(out);
-            let text = ["text", "error", "reason", "detail"]
-                .iter()
-                .find_map(|k| msg.text(k))
-                .unwrap_or_default()
-                .into_owned();
-            let mut row = state.row(RowKind::Notice, false, text);
-            row.field("notice", kind);
-            out.push(Change::Row(row));
+            let mut row = state.row(RowKind::Notice)?;
+            row.field("notice", kind)?;
+            out.row(&row);
+            if let Some(raw) = msg.text.or(msg.error).or(msg.reason).or(msg.detail) {
+                out.body(row.id, BodyField::Content, false, raw)?;
+            }
+            row.open = false;
+            out.row(&row);
         }
         _ => {}
     }
+    Ok(())
 }
 fn agent(
     state: &mut State,
-    params: Json<'_>,
-    update: Json<'_>,
+    params: &Meta<'_>,
+    u: &Update<'_>,
     fallback: &str,
-    out: &mut Vec<Change>,
-) {
-    let kind = update.text("sessionUpdate");
-    let kind = kind.as_deref().unwrap_or(fallback);
+    out: &mut Output<'_>,
+) -> Result<(), Error> {
+    let kind = if u.session_update.is_empty() { fallback } else { &u.session_update };
     match kind {
-        "usage_update"
-        | "available_commands_update"
-        | "current_mode_update"
-        | "config_option_update"
-        | "session_info_update"
-        | "prompt_suggestion"
-        | "compaction_summary" => return,
         "agent_message_chunk" | "agent_thought_chunk" => {
-            let message = update.text("messageId").unwrap_or_default();
-            let segment = update
-                .path(&["_meta", "acpmux", "segment"])
-                .or_else(|| params.path(&["_meta", "acpmux", "segment"]))
-                .and_then(Json::string);
-            let key = segment.as_deref().unwrap_or(&message).to_owned();
-            let thinking = kind == "agent_thought_chunk";
-            state.text(content(update.get("content")), key, thinking, out);
-            if !thinking && !message.is_empty() {
-                if let Some(reply) = &mut state.reply {
-                    reply.row.field("messageId", &message);
-                }
+            let key = if !u.meta.acpmux.segment.is_empty() {
+                &u.meta.acpmux.segment
+            } else if !params.acpmux.segment.is_empty() {
+                &params.acpmux.segment
+            } else {
+                &u.message_id
+            };
+            if let Some(raw) = u.content {
+                input::content(raw, 0, &mut |text| {
+                    state.text(text, key, kind == "agent_thought_chunk", out)
+                })?;
             }
         }
         "tool_call" | "tool_call_update" => {
-            let key = update
-                .text("toolCallId")
-                .map(|s| s.into_owned())
-                .unwrap_or_else(|| format!("@{}", state.last_v1_seq));
-            let mut fields = BTreeMap::new();
-            for key in ["title", "kind", "status"] {
-                if let Some(v) = update.get(key) {
-                    fields.insert(key.into(), v.compact());
+            let fallback = format!("@{}", state.last_v1_seq);
+            let key = if u.tool_call_id.is_empty() { &fallback } else { &u.tool_call_id };
+            let mut metadata = Vec::new();
+            for (k, v) in [
+                ("kind", u.kind.as_ref()),
+                ("status", u.status.as_ref()),
+                ("tool", u.meta.claude.tool.as_ref()),
+            ] {
+                if !v.is_empty() {
+                    metadata.push((k, v));
                 }
             }
-            if let Some(v) = update.path(&["_meta", "claude", "tool"]) {
-                fields.insert("tool".into(), v.compact());
+            let mut parts = Vec::new();
+            if let Some(raw) = u.title {
+                parts.push((BodyField::Title, false, raw));
             }
-            let ended = matches!(update.text("status").as_deref(), Some("completed" | "failed"));
-            let text = update.get("content").filter(|v| !v.null()).map(|v| content(Some(v)));
-            let delta = update
-                .path(&["_meta", "terminal_output", "data"])
-                .and_then(Json::string)
-                .map(|s| s.into_owned());
-            state.tool(key, fields, text, delta, ended, out);
+            if let Some(raw) = u.raw_input {
+                parts.push((BodyField::Input, false, raw));
+            }
+            if let Some(raw) = u.content.filter(|r| r.get() != "null") {
+                parts.push((BodyField::Content, false, raw));
+            }
+            if let Some(raw) = u.meta.terminal_output.data {
+                parts.push((BodyField::Text, true, raw));
+            }
+            state.tool(
+                key,
+                &metadata,
+                &parts,
+                matches!(u.status.as_ref(), "completed" | "failed"),
+                out,
+            )?;
         }
         "plan" => {
-            state.close_text(out);
-            let Some(entries) = update.get("entries") else {
-                return;
-            };
-            let empty = entries.items().is_some_and(|mut i| i.next().is_none());
-            if state.plan.is_none() && empty {
-                return;
+            if let Some(raw) = u.entries {
+                let mut row = if let Some(row) = state.plan.take() {
+                    row
+                } else {
+                    state.row(RowKind::Plan)?
+                };
+                row.fields.insert("hidden".into(), (raw.get() == "[]").to_string());
+                out.row(&row);
+                out.body(row.id, BodyField::Entries, false, raw)?;
+                state.plan = Some(row);
             }
-            let mut row =
-                state.plan.take().unwrap_or_else(|| state.row(RowKind::Plan, true, String::new()));
-            row.fields.insert("entries".into(), entries.compact());
-            row.fields.insert("hidden".into(), empty.to_string());
-            out.push(Change::Row(row.clone()));
-            state.plan = Some(row);
         }
         "compaction" => {
-            state.close_text(out);
-            let mut row = state
-                .compaction
-                .take()
-                .unwrap_or_else(|| state.row(RowKind::Notice, true, String::new()));
-            row.field("notice", "compaction");
-            let status = update
-                .text("state")
-                .or_else(|| update.text("status"))
-                .unwrap_or_else(|| "running".into());
-            row.field("status", &status);
+            let mut row = if let Some(row) = state.compaction.take() {
+                row
+            } else {
+                state.row(RowKind::Notice)?
+            };
+            row.field("notice", "compaction")?;
+            let status = if !u.state.is_empty() {
+                u.state.as_ref()
+            } else if !u.status.is_empty() {
+                u.status.as_ref()
+            } else {
+                "running"
+            };
+            row.field("status", status)?;
             row.open = status == "running";
+            out.row(&row);
             if row.open {
-                state.compaction = Some(row.clone());
+                state.compaction = Some(row);
             }
-            out.push(Change::Row(row));
         }
         _ => {}
     }
-}
-
-pub(super) fn field(fields: &mut BTreeMap<String, String>, key: &str, value: &str) {
-    let mut s = String::new();
-    quoted(&mut s, value);
-    fields.insert(key.into(), s);
+    Ok(())
 }

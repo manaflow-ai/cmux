@@ -1,25 +1,22 @@
-//! Harness bytes become row operations once, at append time.
-//!
-//! Seed: `acpmux/src/rows/fold.rs`. Unlike that reader-side fold, this state has no
-//! settled-row table. The actor owns persistence and prefixes each operation's
-//! input-relative raw range with its raw file and base offset. On replay it must
-//! restore this entire state, never just the row counter.
+//! Deterministic harness lines to book operations. The actor owns bodies and raw files.
+//! Restore the entire checkpoint before replay; never restore only the row counter.
 #[cfg(all(test, target_os = "linux"))]
 mod bench;
+mod blocks;
 mod checkpoint;
 mod claude;
-mod json;
+mod input;
 #[cfg(test)]
 mod tests;
 mod v1;
 
 use crate::row::{Row, RowKind};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
-/// Bump when the translation changes; an old book must be rebuilt from raw.
-pub const VERSION: u32 = 1;
-/// Leave half the actor's checkpoint for its cursor, queue, asks and summary.
+pub const VERSION: u32 = 2;
 pub const MAX_STATE_BYTES: usize = 32 * 1024;
+const MAX_KEY_BYTES: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Harness {
@@ -27,13 +24,12 @@ pub enum Harness {
     Claude,
 }
 
-/// A byte range within exactly the input passed to [`translate`]. No file layout here.
+/// Relative to exactly the bytes supplied to `translate`, never a raw-file offset.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RawRange {
     pub offset: usize,
     pub length: usize,
 }
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Op {
     pub raw: RawRange,
@@ -42,43 +38,45 @@ pub struct Op {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Change {
-    /// A newly opened row, or the complete row as it settles (`open == false`).
+    /// Create or update metadata. Never replaces an existing body's contents.
     Row(OwnedRow),
-    /// Only the new text, never a copy of the preceding text.
-    Text { id: u64, text: String },
-    /// Update only an open row's changed fields and optional replacement text.
-    /// The actor applies this to its open row; no settled row is read or rewritten.
-    Update { id: u64, fields: BTreeMap<String, String>, text: Option<String> },
+    /// Apply before the following settle. Input values are JSON, copied/decoded by
+    /// the actor directly into its inline body or blob. Text pieces are <=16 KiB.
+    Body { id: u64, field: BodyField, append: bool, source: BodySource },
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BodyField {
+    Text,
+    Content,
+    Input,
+    Entries,
+    Source,
+    Images,
+    Title,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BodySource {
+    Text(String),
+    /// One complete JSON value within the current input, including quotes for strings.
+    Input(RawRange),
 }
 
-/// An owned counterpart of [`Row`]. `fields` contains compact JSON per-kind metadata.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Only metadata: no body, preview, tool output or arguments live in translator state.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OwnedRow {
     pub id: u64,
     pub rev: u32,
+    #[serde(with = "checkpoint::kind")]
     pub kind: RowKind,
     pub turn: Option<u64>,
     pub group: Option<u64>,
     pub at: u64,
     pub open: bool,
-    pub text: String,
+    pub bytes: u64,
+    pub lines: u64,
     pub fields: BTreeMap<String, String>,
 }
 impl OwnedRow {
-    pub fn body(&self) -> String {
-        let mut body = String::from("{\"text\":");
-        quoted(&mut body, &self.text);
-        for (key, value) in &self.fields {
-            body.push(',');
-            quoted(&mut body, key);
-            body.push(':');
-            body.push_str(value);
-        }
-        body.push('}');
-        body
-    }
-    /// The caller keeps `body` alive while encoding, and writes any out-of-line body
-    /// before appending the settled row. Open rows go only to subscribers/checkpoints.
     pub fn as_row<'a>(&self, body: &'a str) -> Row<'a> {
         Row {
             id: self.id,
@@ -89,25 +87,24 @@ impl OwnedRow {
             at: self.at,
             open: self.open,
             body,
-            est: u32::try_from(self.text.lines().count().max(1)).unwrap_or(u32::MAX),
+            est: u32::try_from(self.lines.max(1)).unwrap_or(u32::MAX),
         }
     }
-    fn field(&mut self, key: &str, value: &str) {
-        let mut s = String::new();
-        quoted(&mut s, value);
-        self.fields.insert(key.into(), s);
+    fn field(&mut self, key: &str, value: &str) -> Result<(), Error> {
+        bounded(value)?;
+        self.fields
+            .insert(key.into(), serde_json::to_string(value).map_err(|_| Error::InvalidJson)?);
+        Ok(())
     }
 }
-
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 struct Stream {
     key: String,
     row: OwnedRow,
+    block: blocks::Block,
+    continuation: bool,
 }
-
-/// All translator state. No clock, random seed, file handles or external counters.
-/// Only rows still live are retained; settled rows are owned by the actor's book.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct State {
     last_id: u64,
     last_v1_seq: u64,
@@ -120,8 +117,8 @@ pub struct State {
     group: Option<OwnedRow>,
     plan: Option<OwnedRow>,
     compaction: Option<OwnedRow>,
+    prompts: BTreeMap<String, OwnedRow>,
 }
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
     InvalidJson,
@@ -138,28 +135,27 @@ impl std::fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 
-/// Translate one complete line (an optional trailing LF/CRLF is included in `raw`).
-/// Unknown event types produce no ops. Malformed JSON is an error, never skipped.
-/// The actor advances its raw cursor only after a successful call and persistence.
+/// A complete JSON line. Errors leave state unchanged. The actor advances its raw
+/// cursor only after successfully applying the returned operations in order.
 pub fn translate(state: &mut State, harness: Harness, bytes: &[u8]) -> Result<Vec<Op>, Error> {
-    let record = json::Json::parse(bytes).ok_or(Error::InvalidJson)?;
-    if record.fields().is_none() {
-        return Err(Error::InvalidRecord("expected an object"));
-    }
-    // Even an input of empty blocks cannot begin more rows than its byte length.
-    let allowance = u64::try_from(bytes.len()).map_err(|_| Error::CounterExhausted)?;
-    state.last_id.checked_add(allowance).ok_or(Error::CounterExhausted)?;
-    let mut changes = Vec::new();
+    let mut next = state.clone();
+    let mut out = input::Output::new(bytes);
     match harness {
-        Harness::V1 => v1::line(state, record, &mut changes)?,
-        Harness::Claude => claude::line(state, record, &mut changes)?,
+        Harness::V1 => v1::line(&mut next, bytes, &mut out)?,
+        Harness::Claude => claude::line(&mut next, bytes, &mut out)?,
     }
-    Ok(changes
-        .into_iter()
-        .map(|change| Op { raw: RawRange { offset: 0, length: bytes.len() }, change })
-        .collect())
+    // Count live state, never settled history. A capacity failure is transactional.
+    next.checkpoint()?;
+    *state = next;
+    Ok(out.ops)
 }
-
+fn bounded(s: &str) -> Result<(), Error> {
+    if s.len() > MAX_KEY_BYTES {
+        Err(Error::InvalidRecord("identity or metadata exceeds 256 bytes"))
+    } else {
+        Ok(())
+    }
+}
 impl State {
     pub fn last_row_id(&self) -> u64 {
         self.last_id
@@ -173,53 +169,55 @@ impl State {
             .chain(self.group.iter())
             .chain(self.plan.iter())
             .chain(self.compaction.iter())
+            .chain(self.prompts.values())
+            .filter(|row| row.open)
     }
-    fn row(&mut self, kind: RowKind, open: bool, text: String) -> OwnedRow {
-        // translate checks sufficient counter space before any mutation.
-        self.last_id = self.last_id.saturating_add(1);
-        OwnedRow {
+    fn row(&mut self, kind: RowKind) -> Result<OwnedRow, Error> {
+        self.last_id = self.last_id.checked_add(1).ok_or(Error::CounterExhausted)?;
+        Ok(OwnedRow {
             id: self.last_id,
             rev: 1,
             kind,
             turn: self.turn,
             group: None,
             at: self.at,
-            open,
-            text,
+            open: true,
+            bytes: 0,
+            lines: 0,
             fields: BTreeMap::new(),
-        }
+        })
     }
-    fn group(&mut self, out: &mut Vec<Change>) -> u64 {
+    fn group(&mut self, out: &mut input::Output<'_>) -> Result<u64, Error> {
         if let Some(row) = &self.group {
-            return row.id;
+            return Ok(row.id);
         }
-        let mut row = self.row(RowKind::Group, true, String::new());
+        let mut row = self.row(RowKind::Group)?;
         row.fields.insert("toolCount".into(), "0".into());
         let id = row.id;
-        out.push(Change::Row(row.clone()));
+        out.row(&row);
         self.group = Some(row);
-        id
+        Ok(id)
     }
-    fn close_stream(stream: &mut Option<Stream>, out: &mut Vec<Change>) {
-        if let Some(mut s) = stream.take() {
-            s.row.open = false;
-            out.push(Change::Row(s.row));
+    fn close_stream(stream: &mut Option<Stream>, out: &mut input::Output<'_>) {
+        if let Some(mut stream) = stream.take() {
+            if stream.row.open {
+                stream.row.open = false;
+                out.row(&stream.row);
+            }
         }
     }
-    fn close_row(row: &mut Option<OwnedRow>, out: &mut Vec<Change>) {
+    fn close_row(row: &mut Option<OwnedRow>, out: &mut input::Output<'_>) {
         if let Some(mut row) = row.take() {
             row.open = false;
-            out.push(Change::Row(row));
+            out.row(&row);
         }
     }
-    fn close_text(&mut self, out: &mut Vec<Change>) {
+    fn close_text(&mut self, out: &mut input::Output<'_>) {
         Self::close_stream(&mut self.reply, out);
         Self::close_stream(&mut self.thought, out);
     }
-    fn finish(&mut self, out: &mut Vec<Change>) {
+    fn finish(&mut self, out: &mut input::Output<'_>) {
         self.close_text(out);
-        // A background call can finish after the prompt's turn. Its original row and
-        // turn remain live until its result arrives, as in the v1 seed fold.
         Self::close_row(&mut self.plan, out);
         Self::close_row(&mut self.compaction, out);
         if let Some(group) = &mut self.group {
@@ -228,167 +226,191 @@ impl State {
                 .insert("durationSeconds".into(), self.at.saturating_sub(group.at).to_string());
         }
         Self::close_row(&mut self.group, out);
-        // A late final chunk still belongs to this prompt. Only a new person prompt
-        // changes turn ownership; notices and turn-end delivery cannot steal it.
+        // Background tools may complete after this turn. Preserve their original IDs.
+    }
+    /// Queue/read precedes the late echo, reserving the row's permanent place.
+    fn reserve_prompt(
+        &mut self,
+        key: &str,
+        body: Option<&serde_json::value::RawValue>,
+        out: &mut input::Output<'_>,
+    ) -> Result<(), Error> {
+        bounded(key)?;
+        if key.is_empty() || self.prompts.contains_key(key) {
+            return Ok(());
+        }
+        let mut row = self.row(RowKind::User)?;
+        row.field("state", "queued")?;
+        out.row(&row);
+        if let Some(raw) = body {
+            out.body(row.id, BodyField::Content, false, raw)?;
+        }
+        self.prompts.insert(key.into(), row);
+        Ok(())
+    }
+    fn steer_read(&mut self, key: &str, out: &mut input::Output<'_>) -> Result<(), Error> {
+        if self.prompts.get(key).is_some_and(|row| !row.open) {
+            return Ok(());
+        }
+        self.close_text(out);
+        self.reserve_prompt(key, None, out)?;
+        if let Some(row) = self.prompts.get_mut(key) {
+            row.field("state", "sent")?;
+            row.fields.insert("steer".into(), "true".into());
+            out.row(row);
+        }
+        Ok(())
     }
     fn prompt(
         &mut self,
-        text: String,
-        key: String,
+        key: &str,
+        prompt_key: &str,
         steer: bool,
         notice: bool,
-        out: &mut Vec<Change>,
-    ) {
-        if !steer && !notice {
-            self.finish(out);
-        } else {
-            self.close_text(out);
+        body: Option<&serde_json::value::RawValue>,
+        out: &mut input::Output<'_>,
+    ) -> Result<(), Error> {
+        bounded(key)?;
+        bounded(prompt_key)?;
+        if self.prompts.get(prompt_key).is_some_and(|row| !row.open) {
+            return Ok(());
         }
-        let mut row = self.row(if notice { RowKind::Notice } else { RowKind::User }, false, text);
-        row.field("state", "sent");
+        if steer {
+            self.close_text(out);
+        } else {
+            self.finish(out);
+        }
+        let mut row = if let Some(row) = self.prompts.remove(prompt_key) {
+            row
+        } else {
+            self.row(if notice { RowKind::Notice } else { RowKind::User })?
+        };
+        row.field("state", "sent")?;
         if steer {
             row.fields.insert("steer".into(), "true".into());
         }
-        if !steer && !notice {
+        if !steer {
             self.turn = Some(row.id);
-            self.turn_key = key;
+            self.turn_key = key.into();
             row.turn = self.turn;
+            self.prompts.retain(|_, row| row.open);
         }
-        out.push(Change::Row(row));
+        out.row(&row);
+        if let Some(body) = body {
+            out.body(row.id, BodyField::Content, false, body)?;
+        }
+        row.open = false;
+        out.row(&row);
+        if !prompt_key.is_empty() {
+            self.prompts.insert(prompt_key.into(), row);
+        }
+        Ok(())
     }
-    fn text(&mut self, text: String, key: String, thinking: bool, out: &mut Vec<Change>) {
+    fn text(
+        &mut self,
+        text: &str,
+        key: &str,
+        thinking: bool,
+        out: &mut input::Output<'_>,
+    ) -> Result<(), Error> {
         if text.is_empty() {
-            return;
+            return Ok(());
+        }
+        bounded(key)?;
+        let mut slot = if thinking { self.thought.take() } else { self.reply.take() };
+        if slot.as_ref().is_some_and(|s| s.key != key) {
+            Self::close_stream(&mut slot, out);
+        }
+        let mut stream = if let Some(s) = slot {
+            s
+        } else {
+            let group = if thinking { Some(self.group(out)?) } else { None };
+            let mut row = self.row(if thinking { RowKind::Thinking } else { RowKind::Text })?;
+            row.group = group;
+            row.field("messageId", key)?;
+            out.row(&row);
+            Stream { key: key.into(), row, block: blocks::Block::default(), continuation: false }
+        };
+        let mut start = 0;
+        for (offset, ch) in text.char_indices() {
+            if !stream.row.open {
+                let mut row = self.row(stream.row.kind)?;
+                row.group = stream.row.group;
+                row.fields.insert("cont".into(), "true".into());
+                if let Some(marker) = stream.block.fence_marker() {
+                    row.field("fence", &marker)?;
+                }
+                row.field("messageId", key)?;
+                out.row(&row);
+                stream.row = row;
+                stream.continuation = true;
+            }
+            stream.row.bytes = stream.row.bytes.saturating_add(ch.len_utf8() as u64);
+            let boundary = stream.block.push(ch);
+            if ch == '\n' {
+                stream.row.lines = stream.row.lines.saturating_add(1);
+            }
+            let end = offset.saturating_add(ch.len_utf8());
+            let cut = ch == '\n'
+                && (stream.row.bytes >= 16 * 1024 || (stream.row.bytes >= 8 * 1024 && boundary));
+            // Bounded output chunks even for a single very long unclosed line.
+            if cut || end.saturating_sub(start) >= 16 * 1024 - 4 {
+                out.text(stream.row.id, &text[start..end]);
+                start = end;
+            }
+            if cut {
+                stream.row.open = false;
+                out.row(&stream.row);
+            }
+        }
+        if start < text.len() {
+            out.text(stream.row.id, &text[start..]);
         }
         if thinking {
-            Self::close_stream(&mut self.reply, out);
+            self.thought = Some(stream)
         } else {
-            Self::close_stream(&mut self.thought, out);
-        }
-        let stream = if thinking { &mut self.thought } else { &mut self.reply };
-        if stream.as_ref().is_some_and(|s| s.key != key) {
-            Self::close_stream(stream, out);
-        }
-        if let Some(stream) = stream {
-            stream.row.text.push_str(&text);
-            out.push(Change::Text { id: stream.row.id, text });
-            return;
-        }
-        let group = thinking.then(|| self.group(out));
-        let mut row =
-            self.row(if thinking { RowKind::Thinking } else { RowKind::Text }, true, text);
-        row.group = group;
-        out.push(Change::Row(row.clone()));
-        let stream = Some(Stream { key, row });
-        if thinking {
-            self.thought = stream;
-        } else {
-            self.reply = stream;
-        }
+            self.reply = Some(stream)
+        };
+        Ok(())
     }
     fn tool(
         &mut self,
-        key: String,
-        fields: BTreeMap<String, String>,
-        content: Option<String>,
-        delta: Option<String>,
+        key: &str,
+        metadata: &[(&str, &str)],
+        parts: &[(BodyField, bool, &serde_json::value::RawValue)],
         ended: bool,
-        out: &mut Vec<Change>,
-    ) {
+        out: &mut input::Output<'_>,
+    ) -> Result<(), Error> {
+        bounded(key)?;
         self.close_text(out);
-        let existing = self.tools.remove(&key);
-        let was_open = existing.is_some();
-        let mut row = if let Some(row) = existing {
+        let mut row = if let Some(row) = self.tools.remove(key) {
             row
         } else {
-            let group = self.group(out);
-            let mut row = self.row(RowKind::Tool, true, String::new());
+            let group = self.group(out)?;
+            let mut row = self.row(RowKind::Tool)?;
             row.group = Some(group);
-            row.field("callId", &key);
+            row.field("callId", key)?;
             if let Some(group) = &mut self.group {
-                let count =
+                let n =
                     group.fields.get("toolCount").and_then(|s| s.parse::<u64>().ok()).unwrap_or(0);
-                group.fields.insert("toolCount".into(), count.saturating_add(1).to_string());
+                group.fields.insert("toolCount".into(), n.saturating_add(1).to_string());
+                out.row(group);
             }
             row
         };
-        row.fields.extend(fields.clone());
-        if let Some(text) = &content {
-            row.text.clone_from(text);
+        for (key, value) in metadata {
+            row.field(key, value)?;
         }
-        if let Some(delta) = &delta {
-            row.text.push_str(delta);
+        out.row(&row);
+        for (field, append, raw) in parts {
+            out.body(row.id, *field, *append, raw)?;
         }
-        row.open = !ended;
         if ended {
-            out.push(Change::Row(row));
+            row.open = false;
+            out.row(&row);
         } else {
-            if was_open {
-                if !fields.is_empty() || content.is_some() {
-                    out.push(Change::Update { id: row.id, fields, text: content });
-                }
-                if let Some(text) = delta.filter(|s| !s.is_empty()) {
-                    out.push(Change::Text { id: row.id, text });
-                }
-            } else {
-                out.push(Change::Row(row.clone()));
-            }
-            self.tools.insert(key, row);
+            self.tools.insert(key.into(), row);
         }
+        Ok(())
     }
-}
-
-fn quoted(out: &mut String, text: &str) {
-    use std::fmt::Write;
-    out.push('"');
-    for ch in text.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            ch if ch < '\u{20}' => {
-                let _ = write!(out, "\\u{:04x}", u32::from(ch));
-            }
-            ch => out.push(ch),
-        }
-    }
-    out.push('"');
-}
-
-fn content(value: Option<json::Json<'_>>) -> String {
-    fn add(v: json::Json<'_>, out: &mut String) {
-        if let Some(s) = v.string() {
-            out.push_str(&s);
-        } else if let Some(items) = v.items() {
-            for item in items {
-                add(item, out);
-            }
-        } else {
-            match v.text("type").as_deref() {
-                Some("text") => {
-                    if let Some(s) = v.text("text") {
-                        out.push_str(&s);
-                    }
-                }
-                Some("thinking") => {
-                    if let Some(s) = v.text("thinking") {
-                        out.push_str(&s);
-                    }
-                }
-                Some("content") => {
-                    if let Some(v) = v.get("content") {
-                        add(v, out);
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    let mut text = String::new();
-    if let Some(v) = value {
-        add(v, &mut text);
-    }
-    text
 }
