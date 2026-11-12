@@ -338,8 +338,8 @@ fn stop_writer(recorder: &Recorder, stop: &AtomicBool, writer: std::thread::Join
 }
 
 /// The setting goes off, then a command is counted, and only then does the
-/// writer get to its wait: the wake of that count is pending, which is the
-/// path of a writer that the count woke from its sleep. The writer rereads
+/// writer get to its wait: a wake is pending, which is the path of a writer
+/// that a count woke from its sleep. The writer rereads
 /// the setting at that wake: it does not count on until the write that the
 /// count made due (here 30 s later). The thread starts after the count, so
 /// its first reread always finds the whole off file.
@@ -368,27 +368,40 @@ fn a_writer_without_a_watch_stops_counting_when_the_next_count_wakes_it() {
 }
 
 /// The writer waits for its timed write when the setting goes off, and
-/// nothing is counted after that. It rereads the setting at that write: with
-/// no count to come, no later wake would read it.
+/// nothing is counted after that. It rereads the setting when that wait
+/// ends, before the write: with no count to come, no later wake would read
+/// it. The test goes by events, not by time. It first sees the writer's
+/// reread at its wake end (the on file is written again with another length,
+/// so that reread stores a new stamp). Only then does the setting go off.
+/// A stop then ends the 30 s wait, as the interval does in a daemon, and
+/// the writer has left its loop before the gate is read.
 #[test]
 fn a_writer_without_a_watch_that_waits_for_its_write_stops_counting_at_that_write() {
     let (dir, recorder) = recorder_without_a_watch("no-watch-write-due");
-    let (stop, writer) = start_writer(&recorder, Duration::from_millis(300));
+    let settings = dir.join("cmux-next.json");
+    std::fs::write(&settings, "{ \"diagnostics\": { \"usagePatterns\": true } }").unwrap();
+    let rewritten =
+        std::fs::metadata(&settings).ok().map(|meta| (meta.modified().ok(), meta.len()));
     recorder.count("command", "split");
-    // Time for the writer to start its 300 ms wait. A writer that starts
-    // later than this reads the off file at its first wake, which also passes.
-    std::thread::sleep(Duration::from_millis(100));
-    config(&dir, false);
-    let turned_off = Instant::now();
-    while recorder.enabled() {
+    let (stop, writer) = start_writer(&recorder, Duration::from_secs(30));
+    let started = Instant::now();
+    while recorder.state.lock().unwrap().config_stamp != rewritten {
         assert!(
-            turned_off.elapsed() < Duration::from_secs(5),
-            "the writer did not reread the setting at its timed write: the recorder \
-             still counts 5 s after the setting went off"
+            started.elapsed() < Duration::from_secs(5),
+            "the writer did not reread the setting at its first wake"
         );
-        std::thread::sleep(Duration::from_millis(10));
+        std::thread::sleep(Duration::from_millis(5));
     }
+    // That reread holds this lock until it ends.
+    drop(recorder.reread.lock().unwrap());
+    assert!(recorder.enabled(), "the on file written again reads as on");
+    config(&dir, false);
     stop_writer(&recorder, &stop, writer);
+    assert!(
+        !recorder.enabled(),
+        "the writer did not reread the setting when its timed wait ended: the recorder \
+         still counts after the setting went off"
+    );
 }
 
 /// A recorder counting into `dir/out` and its writer thread, which writes

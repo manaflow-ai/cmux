@@ -24,10 +24,10 @@
 //! thread per process waits with no timeout until a count makes the rollup
 //! dirty, then writes the file [`FLUSH_EVERY`] later (at most that often).
 //! Both live as long as the process. That thread also rereads the setting
-//! each time it leaves its untimed wait and before each timed write (it
-//! never wakes for the setting alone), so a change to off still stops the
-//! counting when the watch cannot start. A 5-second gate loop here woke every idle daemon 12 times
-//! a minute (`idle_wakeups.rs`).
+//! each time it leaves its untimed wait and before each timed write (these
+//! rereads add no wake and no timer), so a change to off still stops the
+//! counting when the watch cannot start. A 5-second gate loop here woke
+//! every idle daemon 12 times a minute (`idle_wakeups.rs`).
 //!
 //! Reset: `cmux usage-patterns reset` deletes the files. A recorder that wrote its file
 //! and finds it gone drops what it holds instead of writing it back.
