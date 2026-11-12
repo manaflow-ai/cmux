@@ -667,8 +667,21 @@ pub(super) fn require_enforced(meta: &SessionMeta, cfg: &Config) -> Result<(), R
         wanted: policy_mode(policy, &family, &offered),
         no_family: family.is_empty(),
         distrust: claim_distrust(meta, cfg).filter(|_| claims_asks(meta)),
+        before_update: started_before_update(meta, cfg),
     };
     Err(unenforceable(&unheld, japanese_locale()))
+}
+
+/// Whether `meta`'s agent was started by a build that recorded no kind
+/// (`SessionMeta::started_kind`) from an entry of acpmux's own Claude Code backend: its gate and
+/// its Claude Code family are not believed until it starts again (fail closed; lead), and a
+/// restart is what makes the policy hold.
+fn started_before_update(meta: &SessionMeta, cfg: &Config) -> bool {
+    meta.started_kind.is_none()
+        && meta.launch_digest.is_some()
+        && cfg
+            .profile(&meta.harness)
+            .is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
 }
 
 /// Whether `meta`'s agent said at `initialize` that it asks the client
@@ -760,18 +773,30 @@ pub(super) struct Unheld<'a> {
     /// Why the agent's `asksBeforeTools` claim is not believed ([`claim_distrust`]), when it
     /// makes one.
     pub(super) distrust: Option<&'static str>,
+    /// Its agent was started by an older build that recorded no kind, from an entry of acpmux's
+    /// own Claude Code backend ([`started_before_update`]): a restart of the agent applies the
+    /// policy. Said first, with no family to add.
+    pub(super) before_update: bool,
 }
 
 impl Unheld<'_> {
     /// Why, in Japanese when `japanese`, else in English (the English is also `data.why`).
     fn why(&self, japanese: bool) -> String {
-        let mut parts = vec![match (&self.wanted, japanese) {
+        let mut parts = Vec::new();
+        if self.before_update {
+            parts.push(if japanese {
+                "このチャットはアップデートの前に開始されました。ポリシーを適用するにはエージェントを再起動してください".to_owned()
+            } else {
+                "This chat started before an update. Restart the agent to apply its policy".to_owned()
+            });
+        }
+        parts.push(match (&self.wanted, japanese) {
             (Some(wanted), false) => format!("it does not run in its mode that asks ({wanted})"),
             (Some(wanted), true) => format!("ポリシーを守るモード ({wanted}) で実行されていません"),
             (None, false) => crate::web_modes::NO_ASKING_MODE.to_owned(),
             (None, true) => "このエージェントには変更の前に確認するモードがありません".to_owned(),
-        }];
-        if self.no_family {
+        });
+        if self.no_family && !self.before_update {
             parts.push(family_hint(self.harness, japanese));
         }
         if let Some(distrust) = self.distrust {
@@ -821,13 +846,17 @@ pub(super) fn unenforceable(unheld: &Unheld<'_>, japanese: bool) -> RpcError {
             "permission policy {policy} cannot be enforced on harness {harness}: {why}. The chat did not start; {hint}"
         )
     };
-    RpcError::invalid_params(message).with_data(json!({
+    let mut data = json!({
         "reason": "policy_unenforceable",
         "policy": policy.to_string(),
         "harness": harness,
         "why": why,
         "hint": hint,
-    }))
+    });
+    if unheld.before_update {
+        data["startedBeforeUpdate"] = json!(true);
+    }
+    RpcError::invalid_params(message).with_data(data)
 }
 
 /// Whether a chat a remote connection started runs in a mode its narrower policy does not hold:
@@ -1078,6 +1107,7 @@ mod tests {
             wanted: Some("ask".to_owned()),
             no_family: true,
             distrust: Some("entry_changed"),
+            before_update: false,
         };
         let en = unenforceable(&unheld, false);
         let ja = unenforceable(&unheld, true);
@@ -1093,5 +1123,53 @@ mod tests {
             assert!(ja.message.contains(part), "{part:?} in {}", ja.message);
         }
         assert!(!ja.message.contains("cannot be enforced"), "{}", ja.message);
+        assert!(data.get("startedBeforeUpdate").is_none(), "{data}");
+    }
+
+    /// A chat whose agent an older build started from an entry of acpmux's own Claude Code
+    /// backend (no `startedKind` recorded) keeps no narrower policy until the agent restarts,
+    /// and its refusal says so first, in English and in Japanese, with no family to add (lead).
+    #[test]
+    fn a_chat_started_before_the_update_is_told_to_restart_its_agent() {
+        let cfg: Config = serde_json::from_value(json!({"harnesses": {
+            "cmux": {"argv": ["claude"], "kind": "claude-stdio"},
+        }}))
+        .unwrap();
+        let mut meta: SessionMeta = serde_json::from_value(json!({
+            "schema": crate::store::META_SCHEMA, "id": "s", "name": "s", "harness": "cmux",
+            "cwd": "/w", "status": "ready", "createdAt": 0, "updatedAt": 0,
+            "launchDigest": cfg.harnesses["cmux"].launch_digest(), "permissionPolicy": "ask",
+            "agentInfo": {"name": "claude-stdio", "_meta": {"acpmux": {"toolGate": true}}},
+            "modes": {"currentModeId": "bypassPermissions",
+                      "availableModes": [{"id": "default"}, {"id": "bypassPermissions"}]},
+        }))
+        .unwrap();
+        let e = require_enforced(&meta, &cfg).expect_err("an old start keeps no policy");
+        let data = e.data.clone().unwrap_or_default();
+        assert_eq!(data["reason"], json!("policy_unenforceable"), "{data}");
+        assert_eq!(data["startedBeforeUpdate"], json!(true), "{data}");
+        let why = data["why"].as_str().unwrap_or_default();
+        assert!(
+            why.starts_with(
+                "This chat started before an update. Restart the agent to apply its policy; "
+            ),
+            "{why}"
+        );
+        assert!(!why.contains("\"family\""), "{why}");
+        let unheld = Unheld {
+            policy: PermissionPolicy::Ask,
+            harness: "cmux",
+            wanted: None,
+            no_family: true,
+            distrust: None,
+            before_update: true,
+        };
+        let ja = unenforceable(&unheld, true).message;
+        assert!(ja.contains("このチャットはアップデートの前に開始されました"), "{ja}");
+        assert!(ja.contains("エージェントを再起動してください"), "{ja}");
+        assert!(!ja.contains("\"family\""), "{ja}");
+        // Started by this build: the gate holds it.
+        meta.started_kind = Some(crate::config::HarnessKind::ClaudeStdio);
+        assert!(require_enforced(&meta, &cfg).is_ok());
     }
 }
