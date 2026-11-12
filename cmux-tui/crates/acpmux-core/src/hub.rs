@@ -289,14 +289,21 @@ impl Hub {
         let subscriber = Arc::new(Subscriber::new(cursor));
         self.subscribers.lock().map_err(|_| HubError::WriterGone)?.push(subscriber.clone());
         let index = self.snapshot();
-        let frame = self.window_frame(sub, &index)?;
+        let resume_cursor = if sub.cursor.is_some() {
+            let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
+            history
+                .front()
+                .map(item_seq)
+                .filter(|first| cursor.saturating_add(1) >= *first)
+                .map_or(index.seq(), |_| cursor)
+        } else {
+            index.seq()
+        };
+        let frame = self.window_frame_at_cursor(sub, &index, resume_cursor)?;
         if let Ok(mut state) = subscriber.state.lock() {
             if sub.cursor.is_some() {
                 let history = self.history.lock().map_err(|_| HubError::WriterGone)?;
-                let history_start = history.front().map(item_seq);
-                let can_resume =
-                    history_start.is_some_and(|first| cursor.saturating_add(1) >= first);
-                if can_resume {
+                if resume_cursor == cursor {
                     for item in history
                         .iter()
                         .filter(|item| item_seq(item) > cursor && item_seq(item) <= index.seq())
@@ -324,16 +331,20 @@ impl Hub {
             return Err(HubError::InvalidWindow);
         }
         let index = self.snapshot();
-        self.window_frame(sub, &index)
+        self.window_frame_at_cursor(sub, &index, index.seq())
     }
 
-    fn window_frame(&self, sub: &Sub, index: &SummaryIndex) -> Result<Frame, HubError> {
+    fn window_frame_at_cursor(
+        &self,
+        sub: &Sub,
+        index: &SummaryIndex,
+        cursor: u64,
+    ) -> Result<Frame, HubError> {
         // A cursor resumes deltas; it does not turn the first window into a
         // history replay. The window remains a bounded viewport from the
         // current published snapshot. The later list actor uses the cursor to
         // select its delta stream.
         let requested = usize::from(sub.window.unwrap_or(DEFAULT_WINDOW_ROWS as u16));
-        let cursor = index.seq();
         let rows = match sub.anchor.as_ref() {
             Some(crate::wire::Anchor::List { key, side }) => match side {
                 crate::wire::AnchorSide::Before => {

@@ -703,5 +703,12 @@ mod tests {
         let (restored, offset) = SortedSnapshot::read_with_offset(&snap_path).unwrap().unwrap();
         assert_eq!(offset, 0);
         assert_eq!(replay_log_from(&log_path, offset, restored).unwrap().len(), 1);
+        drop(log);
+        let mut reopened = IndexLog::open(&log_path).unwrap();
+        let next = reopened.append(summary("b", 2, "{}")).unwrap();
+        assert_eq!(next.seq, 2);
+        reopened.sync().unwrap();
+        let restored = SortedSnapshot::read(&snap_path).unwrap().unwrap();
+        assert_eq!(replay_log_from(reopened.path(), 0, restored).unwrap().seq(), 2);
     }
 }
