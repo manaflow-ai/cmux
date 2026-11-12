@@ -6270,6 +6270,49 @@ class LostRunnerIsInfra(unittest.TestCase):
         self.assertNotIsInstance(caught.exception, excuse.Infra)
         self.assertIn("somethingNew", str(caught.exception))
 
+class PullRequestOnlyRerunAskIsInfra(unittest.TestCase):
+    """A pull-request-only check (language-boundaries) has no base run. Its red that only asks for a re-run (cmux#41500
+    at d059d7bd, job 130862862041: the PR-files listing rate-limited, the merge-ref fallback unusable) is Infra, a
+    refusal naming the re-run; any other red of it keeps the "no base run" refusal."""
+
+    NAME = "language-boundaries"
+    STEP = "Check the changed files against the language boundaries"
+
+    def judge(self, *lines):
+        github = FakeGitHub()
+        del github.jobs[2]  # no base run has the job: it runs on pull requests only
+        github.jobs[1] = failed_job(1, 10, HEAD, name=self.NAME, step=self.STEP)
+        github.logs[1] = log(self.NAME, self.STEP, *lines)
+        return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], github)
+
+    def test_a_red_that_only_asks_for_a_re_run_is_infra(self):
+        with self.assertRaisesRegex(excuse.Infra, "is infra, not a verdict .*re-run this check.*needs a re-run"):
+            self.judge("gh: API rate limit exceeded for installation. (HTTP 403)",
+                       "##[warning]The REST file listing failed; reading the changed files from refs/pull/41500/merge.",
+                       "##[error]Could not list the changed files; re-run this check.",
+                       "##[error]Process completed with exit code 1.")
+
+    def test_a_red_with_a_verdict_beside_the_ask_is_not_infra(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge("##[error]Could not list the changed files; re-run this check.",
+                       "##[error]language-boundaries: Sources/New.swift adds Swift to a Swift-minimal area",
+                       "##[error]Process completed with exit code 1.")
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+        self.assertIn("no feat-cmux-next run of its workflow", str(caught.exception))
+
+    def test_a_real_boundary_red_keeps_the_no_base_refusal(self):
+        with self.assertRaises(excuse.Refused) as caught:
+            self.judge("##[error]language-boundaries: Sources/New.swift adds Swift to a Swift-minimal area",
+                       "##[error]Process completed with exit code 1.")
+        self.assertNotIsInstance(caught.exception, excuse.Infra)
+        self.assertIn("no feat-cmux-next run of its workflow", str(caught.exception))
+
+    def test_only_the_ask_line_matches(self):
+        self.assertIsNotNone(excuse.RERUN_ASK.search("Could not read the reviews; re-run this check."))
+        self.assertIsNotNone(excuse.RERUN_ASK.search("Could not list the changed paths; re-run this check"))
+        self.assertIsNone(excuse.RERUN_ASK.search("the check said: please re-run this checker"))
+
+
 class WsCheckGitHub:
     """teamleaderleo/leo-workspace: a `ws-check` commit status on each commit, linking a cmuxterm-hq run whose one job
     for that commit prints tools/ws_check_run.py's step groups and WS_CHECK_RESULT line."""

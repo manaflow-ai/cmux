@@ -4691,6 +4691,28 @@ def infra(name: str, job: dict, why: str) -> Infra:
                  "and needs a re-run, like a cancelled job")
 
 
+# A check that runs on pull requests only (language-boundaries.yml, classic-api-guard.yml: pull_request_target) never
+# has a base verdict, so each of its reds was refused as "no feat-cmux-next run of its workflow has a verdict for it to
+# compare with", the one an agent reads as "the red cannot be judged". When its failed steps printed nothing but the
+# check's own "could not read its input; re-run this check" line, it decided nothing about the PR: cmux#41500 at
+# d059d7bd (job 130862862041, 2026-11-11), whose PR-files listing hit the installation's rate limit and whose merge-ref
+# fallback did not match the moved base; its re-run passed. Such a red is Infra: still refused (never excused, the PR
+# is not judged by it), named as the re-run it needs. Any other error line, a failing test, or a log not placed on its
+# steps keeps the refusal below.
+RERUN_ASK = re.compile(r"\bre-run this check(?:[.;]|$)", re.I)
+
+
+def asks_only_rerun(view: "FailedView | Unplaced") -> str | None:
+    """The error line VIEW's failed steps printed when each of them only asks for a re-run (RERUN_ASK), else None."""
+    sig = signature(view)
+    if sig is UNPLACED:
+        return None
+    steps, tests, errors = sig
+    if not steps or tests or not errors or not all(RERUN_ASK.search(error) for error in errors):
+        return None
+    return sorted(errors)[0].strip()
+
+
 def lost_runner_log(repo: str, name: str, job: dict, github) -> str:
     """JOB's log, after refusing a job that lost its runner (test_reds.lost_runner) as Infra. Its steps decide first, at
     no cost; a log GitHub cannot serve (a lost runner leaves none: BlobNotFound) has its check run's annotations read
@@ -6237,6 +6259,8 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
                     base_run is None or before_merge_base(repo, base, sha, pushed_run, github, evidence) is None):
                 base_run, base_job, verdicts, base_workflow = pushed_run, pushed_job, pushed, caller
         if base_run is None:
+            if (asked := asks_only_rerun(view)) is not None:
+                raise infra(name, job, f"its check could not run and printed only {asked!r}")
             dispatch = base_dispatch(repo, base, workflow_info, evidence.runs(workflow), github)
             raise Refused(f"'{name}': no {base} run of its workflow has a verdict for it to compare with "
                           f"(read the {BASE_RUNS_PAGE} newest, up to {BASE_JOB_READS} job lists, "
