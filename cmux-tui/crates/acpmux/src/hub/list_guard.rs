@@ -896,8 +896,8 @@ impl ListGuard {
         let state = Arc::downgrade(&self.state);
         tokio::spawn(async move {
             let mut until = Instant::now() + window;
-            let retry_cap = window.min(Duration::from_secs(1)).max(Duration::from_millis(1));
-            let mut retry = Duration::from_millis(1).min(retry_cap);
+            let retry_cap = Duration::from_secs(1);
+            let mut retry = window.max(Duration::from_millis(1)).min(retry_cap);
             loop {
                 tokio::time::sleep_until(until).await;
                 let Some(state) = state.upgrade() else { return };
